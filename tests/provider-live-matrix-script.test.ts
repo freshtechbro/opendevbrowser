@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildLiveRegressionEnv, parseArgs } from "../scripts/provider-live-matrix.mjs";
+import {
+  buildLiveRegressionEnv,
+  classifyMatrixRecords,
+  NESTED_LIVE_REGRESSION_TIMEOUT_MS,
+  parseArgs,
+  REQUIRED_PLAYWRIGHT_CORE_FILES,
+  WORKFLOW_RESEARCH_PROBE_ARGS,
+  WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS
+} from "../scripts/provider-live-matrix.mjs";
+import {
+  MATRIX_ENV_LIMITED_CODES,
+  MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS
+} from "../scripts/shared/workflow-lane-constants.mjs";
 
 describe("provider-live-matrix parseArgs", () => {
   it("enables strict release defaults with --release-gate", () => {
@@ -33,5 +45,34 @@ describe("provider-live-matrix parseArgs", () => {
 
     expect(env.LIVE_MATRIX_USE_GLOBAL).toBe("0");
     expect(env.LIVE_MATRIX_STOP_DAEMON).toBe("0");
+  });
+
+  it("treats Playwright server registry files as integrity sentinels", () => {
+    expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/index.js");
+    expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/registry/index.js");
+  });
+
+  it("keeps timeout env-limited for matrix classification and preserves the shared target timeout bucket", () => {
+    expect(NESTED_LIVE_REGRESSION_TIMEOUT_MS).toBe(1_500_000);
+    expect(MATRIX_ENV_LIMITED_CODES.has("timeout")).toBe(true);
+    expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target")).toBe("120000");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--source-selection");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("auto");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).not.toContain("all");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--timeout-ms");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("120000");
+    expect(WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS).toContain("scripts/youtube-transcript-live-probe.mjs");
+    expect(WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS).toContain("--youtube-mode");
+    expect(classifyMatrixRecords(0, [
+      {
+        error: {
+          code: "timeout",
+          message: "Provider request timed out after 120000ms"
+        }
+      }
+    ])).toEqual({
+      status: "env_limited",
+      reason: "reason_codes=timeout"
+    });
   });
 });

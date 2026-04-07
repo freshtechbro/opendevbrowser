@@ -5,12 +5,23 @@ import {
   socialPlatformsForMode
 } from "./provider-live-scenarios.mjs";
 import {
+  AUTH_GATED_SHOPPING_PROVIDERS,
+  DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS,
+  HIGH_FRICTION_SHOPPING_PROVIDERS,
+  SOCIAL_POST_CASES
+} from "./shared/workflow-lane-constants.mjs";
+import {
+  classifyShellOnlyReasons,
+  parseShellOnlyFailureDetail
+} from "./shared/workflow-lane-verdicts.mjs";
+import {
   classifyRecords,
   defaultArtifactPath,
   ensureCliBuilt,
   finalizeReport,
   normalizedCodesFromFailures,
   pushStep,
+  readCliFlagValue,
   runCli,
   summarizeFailures,
   writeJson
@@ -30,48 +41,36 @@ const HELP_TEXT = [
   "  --quiet                      Suppress per-step progress logging",
   "  --help                       Show help"
 ].join("\n");
-
-const AUTH_GATED_SHOPPING_PROVIDERS = new Set(["shopping/costco", "shopping/macys"]);
-const HIGH_FRICTION_SHOPPING_PROVIDERS = new Set(["shopping/bestbuy"]);
-const SHOPPING_PROVIDER_TIMEOUT_MS = new Map([
-  ["shopping/bestbuy", "120000"],
-  ["shopping/ebay", "120000"],
-  ["shopping/walmart", "120000"],
-  ["shopping/target", "120000"],
-  ["shopping/costco", "120000"],
-  ["shopping/temu", "120000"]
-]);
-const SOCIAL_POST_CASES = [
-  { id: "provider.social.x.post", expression: '@social.post("x", "me", "ship realworld test", true, true)' },
-  { id: "provider.social.instagram.post", expression: '@social.post("instagram", "me", "ship realworld test", true, true)' },
-  { id: "provider.social.facebook.post", expression: '@social.post("facebook", "me", "ship realworld test", true, true)' }
-];
+const MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE = "browser_with_helper";
+const MACRO_CHALLENGE_ARGS = ["--challenge-automation-mode", MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE];
+const LINKEDIN_TIMEOUT_RETRY_DETAIL_RE = /\b(?:request|provider request) timed out after \d+ms\b/i;
+const YOUTUBE_GENERIC_SHELL_RETRY_DETAIL = "shell_only_records=generic_shell";
 
 const DIRECT_WEB_COMMUNITY_CASES = [
   {
     id: "provider.web.search.keyword",
     providerId: "web/default",
-    args: ["macro-resolve", "--execute", "--expression", '@web.search("site:developer.mozilla.org playwright locator", 4)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@web.search("site:developer.mozilla.org playwright locator", 4)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.web.search.url",
     providerId: "web/default",
-    args: ["macro-resolve", "--execute", "--expression", '@web.search("https://example.com", 2)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@web.search("https://example.com", 2)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.web.fetch.url",
     providerId: "web/default",
-    args: ["macro-resolve", "--execute", "--expression", '@web.fetch("https://example.com")', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@web.fetch("https://example.com")', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.community.search.keyword",
     providerId: "community/default",
-    args: ["macro-resolve", "--execute", "--expression", '@community.search("browser automation failures", 4)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@community.search("browser automation failures", 4)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   },
   {
     id: "provider.community.search.url",
     providerId: "community/default",
-    args: ["macro-resolve", "--execute", "--expression", '@community.search("https://www.reddit.com/r/programming", 2)', "--timeout-ms", "120000"]
+    args: ["macro-resolve", "--execute", "--expression", '@community.search("https://www.reddit.com/r/programming", 2)', "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS]
   }
 ];
 
@@ -91,14 +90,24 @@ export function classifyDaemonPreflight(result) {
   };
 }
 
-function isEnvLimitedDetail(detail) {
-  const normalized = String(detail ?? "").toLowerCase();
-  return normalized.includes("env_limited")
-    || normalized.includes("auth")
-    || normalized.includes("rate limit")
-    || normalized.includes("challenge")
-    || normalized.includes("unavailable")
-    || normalized.includes("restricted");
+export function buildProviderCoverageStep(providerCoverage, { releaseGate = false } = {}) {
+  const detail = providerCoverage.ok
+    ? null
+    : `missing=${providerCoverage.missingProviderIds.join(",") || "none"} extra=${providerCoverage.extraScenarioProviderIds.join(",") || "none"}`;
+  return {
+    id: "infra.provider_scenario_coverage",
+    status: providerCoverage.ok
+      ? "pass"
+      : (releaseGate ? "fail" : "skipped"),
+    detail,
+    data: {
+      expectedCount: providerCoverage.expected.all.length,
+      scenarioCount: providerCoverage.scenarios.all.length,
+      missingProviderIds: providerCoverage.missingProviderIds,
+      extraScenarioProviderIds: providerCoverage.extraScenarioProviderIds,
+      coverageGap: !providerCoverage.ok
+    }
+  };
 }
 
 function collectMacroExecution(result) {
@@ -115,18 +124,115 @@ function collectMacroExecution(result) {
   };
 }
 
+function isJsonRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readJsonRecordField(value, key) {
+  if (!isJsonRecord(value)) {
+    return null;
+  }
+  const candidate = value[key];
+  return isJsonRecord(candidate) ? candidate : null;
+}
+
+function readStringField(value, key) {
+  if (!isJsonRecord(value)) {
+    return null;
+  }
+  const candidate = value[key];
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
+}
+
+function firstJsonRecord(value) {
+  if (isJsonRecord(value)) {
+    return value;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  for (const entry of value) {
+    if (isJsonRecord(entry)) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function collectRequestedChallengeMetadata(args) {
+  const requestedChallengeAutomationMode = readCliFlagValue(args, "--challenge-automation-mode");
+  return {
+    requestedChallengeAutomationMode,
+    helperCapableRequested: requestedChallengeAutomationMode === "browser_with_helper"
+  };
+}
+
+function collectMacroChallengeOrchestration(execution) {
+  for (const record of execution.records) {
+    const candidate = readJsonRecordField(record?.attributes, "browser_fallback_challenge_orchestration");
+    if (candidate) {
+      return candidate;
+    }
+  }
+  for (const failure of execution.failures) {
+    const candidate = readJsonRecordField(failure?.error?.details, "challengeOrchestration");
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return readJsonRecordField(execution.execution?.meta, "challengeOrchestration");
+}
+
+function collectMacroBrowserFallback(execution) {
+  for (const record of execution.records) {
+    const browserFallbackReasonCode = readStringField(record?.attributes, "browser_fallback_reason_code");
+    const browserFallbackMode = readStringField(record?.attributes, "browser_fallback_mode");
+    if (browserFallbackReasonCode || browserFallbackMode) {
+      return { browserFallbackReasonCode, browserFallbackMode };
+    }
+  }
+  for (const failure of execution.failures) {
+    const browserFallbackReasonCode = readStringField(failure?.error?.details, "browserFallbackReasonCode");
+    const browserFallbackMode = readStringField(failure?.error?.details, "browserFallbackMode");
+    if (browserFallbackReasonCode || browserFallbackMode) {
+      return { browserFallbackReasonCode, browserFallbackMode };
+    }
+  }
+  return {
+    browserFallbackReasonCode: null,
+    browserFallbackMode: null
+  };
+}
+
 function collectShoppingExecution(result) {
-  const data = result.json?.data ?? {};
+  const hasDataPayload = isJsonRecord(result.json?.data);
+  const data = hasDataPayload ? result.json.data : {};
   const offers = Array.isArray(data.offers) ? data.offers : [];
   const failures = Array.isArray(data.meta?.failures) ? data.meta.failures : [];
   const firstFailure = failures[0] ?? null;
   const blocker = data.meta?.blocker ?? firstFailure?.error?.blocker ?? null;
+  const metrics = isJsonRecord(data.meta?.metrics) ? data.meta.metrics : {};
   return {
     data,
     offers,
     failures,
     firstFailure,
-    blocker
+    blocker,
+    metrics,
+    hasDataPayload
+  };
+}
+
+function collectShoppingChallengeOrchestration(execution) {
+  return firstJsonRecord(execution.metrics.challenge_orchestration)
+    ?? firstJsonRecord(execution.metrics.challengeOrchestration)
+    ?? readJsonRecordField(execution.firstFailure?.error?.details, "challengeOrchestration");
+}
+
+function collectShoppingBrowserFallback(execution) {
+  return {
+    browserFallbackReasonCode: readStringField(execution.firstFailure?.error?.details, "browserFallbackReasonCode"),
+    browserFallbackMode: readStringField(execution.firstFailure?.error?.details, "browserFallbackMode")
   };
 }
 
@@ -141,6 +247,463 @@ function hasLinkedInAuthWall(records) {
   return gated.length > 0 && gated.length === records.length;
 }
 
+function normalizePlainText(value) {
+  return typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim()
+    : "";
+}
+
+const REDDIT_VERIFICATION_WALL_RE = /\b(?:please wait for verification|verify you are human|security check)\b/i;
+const SOCIAL_JS_REQUIRED_RE = /\b(?:javascript (?:is not available|required|is disabled(?: in this browser)?)|you need to enable javascript|please enable javascript)\b/i;
+const BLUESKY_LOGGED_OUT_SEARCH_RE = /\bsearch is currently unavailable when logged out\b/i;
+const BLUESKY_EMPTY_SEARCH_SHELL_RE = /\b(?:follow 10 people to get started|find people to follow)\b/i;
+const REDDIT_BLOCKED_EXPANSION_HOSTS = ["accounts.google.com", "ads.reddit.com"];
+const REDDIT_BLOCKED_FIRST_SEGMENTS = new Set(["account", "ads", "notifications", "submit", "verification"]);
+
+function resolveCandidateUrl(value, baseUrl) {
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+function parseUrl(value) {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function matchesHost(host, candidates) {
+  const normalized = host.toLowerCase();
+  return candidates.some((candidate) => normalized === candidate || normalized.endsWith(`.${candidate}`));
+}
+
+function firstPathSegment(pathname) {
+  const [firstSegment] = pathname
+    .toLowerCase()
+    .split("/")
+    .filter(Boolean);
+  return typeof firstSegment === "string" && firstSegment.length > 0 ? firstSegment : null;
+}
+
+function isStaticMetadataPath(pathname) {
+  const normalized = pathname.toLowerCase();
+  return normalized.endsWith(".json")
+    || normalized.endsWith(".xml")
+    || normalized.endsWith(".txt")
+    || normalized.endsWith(".webmanifest")
+    || normalized.endsWith(".ico");
+}
+
+function isPrimaryRedditHost(host) {
+  const normalized = host.toLowerCase();
+  return normalized === "www.reddit.com"
+    || normalized === "reddit.com"
+    || normalized === "old.reddit.com";
+}
+
+function isBlockedRedditNonContentUrl(parsed, { includeSearchRoute }) {
+  const host = parsed.hostname.toLowerCase();
+  if (matchesHost(host, REDDIT_BLOCKED_EXPANSION_HOSTS)) {
+    return true;
+  }
+  if (!isPrimaryRedditHost(host)) {
+    return false;
+  }
+  const pathname = parsed.pathname.toLowerCase();
+  if (pathname === "/" || pathname === "/login" || (includeSearchRoute && pathname === "/search")) {
+    return true;
+  }
+  const pathSegment = firstPathSegment(pathname);
+  return pathSegment !== null && REDDIT_BLOCKED_FIRST_SEGMENTS.has(pathSegment);
+}
+
+function isFirstPartySearchRoute(providerId, parsed) {
+  const host = parsed.hostname.toLowerCase();
+  const pathname = parsed.pathname.toLowerCase();
+  return (
+    (providerId === "social/x" && host === "x.com" && pathname === "/search")
+    || (providerId === "social/bluesky" && host === "bsky.app" && pathname === "/search")
+    || (providerId === "social/reddit" && isPrimaryRedditHost(host) && pathname === "/search")
+  );
+}
+
+function isBlockedSocialExpansionPath(providerId, parsed) {
+  const host = parsed.hostname.toLowerCase();
+  const pathname = parsed.pathname.toLowerCase();
+  if (providerId === "social/x") {
+    return host === "x.com"
+      && (
+        pathname === "/"
+        || pathname === "/home"
+        || pathname === "/login"
+        || pathname === "/privacy"
+        || pathname === "/search"
+        || pathname === "/tos"
+        || isStaticMetadataPath(pathname)
+        || pathname.startsWith("/i/flow/login")
+      );
+  }
+  if (providerId === "social/bluesky") {
+    return host === "bsky.app"
+      && (
+        pathname === "/"
+        || pathname === "/login"
+        || pathname === "/search"
+        || isStaticMetadataPath(pathname)
+        || /^\/profile\/[^/]+\/feed\/[^/]+$/.test(pathname)
+      );
+  }
+  if (providerId === "social/reddit") {
+    return isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: true });
+  }
+  return false;
+}
+
+function isUsableFirstPartySearchResultUrl(providerId, url) {
+  const parsed = parseUrl(url);
+  if (!parsed) {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    (providerId === "social/x" && host !== "x.com")
+    || (providerId === "social/bluesky" && host !== "bsky.app")
+  ) {
+    return false;
+  }
+  if (
+    (providerId === "social/x" && matchesHost(host, [
+      "help.x.com",
+      "developer.x.com",
+      "business.x.com",
+      "business.twitter.com",
+      "legal.x.com",
+      "legal.twitter.com",
+      "support.x.com",
+      "support.twitter.com",
+      "t.co"
+    ]))
+    || (providerId === "social/bluesky" && matchesHost(host, [
+      "atproto.com",
+      "docs.bsky.app",
+      "bsky.social",
+      "blueskyweb.zendesk.com",
+      "go.bsky.app"
+    ]))
+  ) {
+    return false;
+  }
+  return !isBlockedSocialExpansionPath(providerId, parsed);
+}
+
+function isUsableBlueskySearchEvidenceUrl(url) {
+  const parsed = parseUrl(url);
+  return parsed !== null
+    && parsed.hostname.toLowerCase() === "bsky.app"
+    && /^\/profile\/[^/]+\/post\/[^/]+$/.test(parsed.pathname.toLowerCase());
+}
+
+function isUsableXSearchEvidenceUrl(url) {
+  const parsed = parseUrl(url);
+  return parsed !== null
+    && parsed.hostname.toLowerCase() === "x.com"
+    && /^\/[^/]+\/status\/\d+(?:\/|$)/.test(parsed.pathname.toLowerCase());
+}
+
+function isUsableRedditSearchEvidenceUrl(url) {
+  const parsed = parseUrl(url);
+  return parsed !== null
+    && isPrimaryRedditHost(parsed.hostname)
+    && /^\/r\/[^/]+\/comments\/[^/]+(?:\/|$)/.test(parsed.pathname.toLowerCase());
+}
+
+function isUsableSocialSearchContentUrl(providerId, url) {
+  if (providerId === "social/x") {
+    return isUsableXSearchEvidenceUrl(url);
+  }
+  if (providerId === "social/bluesky") {
+    return isUsableBlueskySearchEvidenceUrl(url);
+  }
+  if (providerId === "social/reddit") {
+    return isUsableRedditSearchEvidenceUrl(url);
+  }
+  return false;
+}
+
+function isAllowedSocialSearchExpansionUrl(providerId, url) {
+  const parsed = parseUrl(url);
+  if (!parsed) {
+    return false;
+  }
+  if (
+    (providerId === "social/x" && matchesHost(parsed.hostname, [
+      "help.x.com",
+      "developer.x.com",
+      "business.x.com",
+      "business.twitter.com",
+      "legal.x.com",
+      "legal.twitter.com",
+      "support.x.com",
+      "support.twitter.com",
+      "t.co"
+    ]))
+    || (providerId === "social/bluesky" && matchesHost(parsed.hostname, [
+      "atproto.com",
+      "docs.bsky.app",
+      "bsky.social",
+      "blueskyweb.zendesk.com",
+      "go.bsky.app"
+    ]))
+    || (providerId === "social/reddit" && matchesHost(parsed.hostname, ["support.reddithelp.com", "reddithelp.com", "redditinc.com"]))
+  ) {
+    return false;
+  }
+  return !isBlockedSocialExpansionPath(providerId, parsed);
+}
+
+function collectSocialSearchLinkEvidence(providerId, baseUrl, links) {
+  const evidence = {
+    usableLinks: [],
+    usableFirstPartyLinks: [],
+    usableContentLinks: [],
+    blockedLinks: []
+  };
+  for (const candidate of links) {
+    const resolved = resolveCandidateUrl(candidate, baseUrl);
+    if (!resolved) {
+      continue;
+    }
+    if (providerId === "social/x" || providerId === "social/bluesky") {
+      if (isUsableFirstPartySearchResultUrl(providerId, resolved)) {
+        evidence.usableLinks.push(resolved);
+        evidence.usableFirstPartyLinks.push(resolved);
+        if (isUsableSocialSearchContentUrl(providerId, resolved)) {
+          evidence.usableContentLinks.push(resolved);
+        }
+      } else {
+        evidence.blockedLinks.push(resolved);
+      }
+      continue;
+    }
+    if (isAllowedSocialSearchExpansionUrl(providerId, resolved)) {
+      evidence.usableLinks.push(resolved);
+      if (isUsableSocialSearchContentUrl(providerId, resolved)) {
+        evidence.usableContentLinks.push(resolved);
+      }
+    } else {
+      evidence.blockedLinks.push(resolved);
+    }
+  }
+  return evidence;
+}
+
+function hasUsableFirstPartySearchEvidence(providerId, parsed, links) {
+  const evidence = parsed === null
+    ? null
+    : collectSocialSearchLinkEvidence(providerId, parsed.toString(), links);
+  return parsed !== null
+    && isFirstPartySearchRoute(providerId, parsed)
+    && evidence.usableContentLinks.length > 0;
+}
+
+function detectSocialSearchShell(providerId, url, title, content, links = []) {
+  const parsed = parseUrl(url);
+  const combined = `${title} ${content}`.trim();
+
+  if (providerId === "social/x" && parsed && matchesHost(parsed.hostname, [
+    "help.x.com",
+    "developer.x.com",
+    "business.x.com",
+    "business.twitter.com",
+    "legal.x.com",
+    "legal.twitter.com",
+    "support.x.com",
+    "support.twitter.com",
+    "t.co"
+  ])) {
+    return "social_first_party_help_shell";
+  }
+  if (providerId === "social/bluesky" && parsed && matchesHost(parsed.hostname, [
+    "atproto.com",
+    "docs.bsky.app",
+    "bsky.social",
+    "blueskyweb.zendesk.com",
+    "go.bsky.app"
+  ])) {
+    return "social_first_party_help_shell";
+  }
+  if (providerId === "social/reddit" && parsed && matchesHost(parsed.hostname, ["support.reddithelp.com", "reddithelp.com", "redditinc.com"])) {
+    return "social_first_party_help_shell";
+  }
+  if (providerId === "social/reddit" && REDDIT_VERIFICATION_WALL_RE.test(combined)) {
+    return "social_verification_wall";
+  }
+  if (
+    providerId === "social/bluesky"
+    && parsed
+    && isFirstPartySearchRoute(providerId, parsed)
+    && BLUESKY_LOGGED_OUT_SEARCH_RE.test(combined)
+  ) {
+    return "social_js_required_shell";
+  }
+  if (
+    providerId === "social/bluesky"
+    && parsed
+    && isFirstPartySearchRoute(providerId, parsed)
+    && BLUESKY_EMPTY_SEARCH_SHELL_RE.test(combined)
+  ) {
+    return "social_render_shell";
+  }
+  if (
+    (providerId === "social/x" || providerId === "social/bluesky")
+    && SOCIAL_JS_REQUIRED_RE.test(combined)
+    && !hasUsableFirstPartySearchEvidence(providerId, parsed, links)
+  ) {
+    return "social_js_required_shell";
+  }
+  if (parsed) {
+    const pathname = parsed.pathname.toLowerCase();
+    if (
+      (providerId === "social/x" && parsed.hostname === "x.com" && (pathname === "/" || pathname === "/home" || pathname === "/login" || pathname.startsWith("/i/flow/login")))
+      || (providerId === "social/bluesky" && parsed.hostname === "bsky.app" && (pathname === "/" || pathname === "/login"))
+      || (providerId === "social/reddit" && isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: false }))
+    ) {
+      return "social_render_shell";
+    }
+  }
+  if (
+    parsed
+    && isFirstPartySearchRoute(providerId, parsed)
+    && !hasUsableFirstPartySearchEvidence(providerId, parsed, links)
+  ) {
+    return "social_render_shell";
+  }
+  return null;
+}
+
+function getMacroShellReason(record, providerId, fallbackRetrievalPath) {
+  const url = normalizePlainText(record?.url).toLowerCase();
+  const title = normalizePlainText(record?.title);
+  const content = normalizePlainText(record?.content);
+  const combined = `${title} ${content}`.trim().toLowerCase();
+  const retrievalPath = normalizePlainText(
+    typeof record?.attributes?.retrievalPath === "string"
+      ? record.attributes.retrievalPath
+      : fallbackRetrievalPath
+  ).toLowerCase();
+  const extractionQuality = isJsonRecord(record?.attributes?.extractionQuality)
+    ? record.attributes.extractionQuality
+    : null;
+  const contentChars = Number(
+    isJsonRecord(extractionQuality)
+      ? extractionQuality.contentChars
+      : content.length
+  );
+  const links = Array.isArray(record?.attributes?.links) ? record.attributes.links : [];
+
+  if (
+    combined.includes("bots use duckduckgo too")
+    || combined.includes("please complete the following challenge")
+    || combined.includes("select all squares containing a duck")
+  ) {
+    return "challenge_shell";
+  }
+
+  const socialShell = detectSocialSearchShell(providerId, url, title, content, links);
+  if (socialShell) {
+    return socialShell;
+  }
+
+  if (url.includes("reddit.com") && REDDIT_VERIFICATION_WALL_RE.test(combined)) {
+    return "challenge_shell";
+  }
+
+  if (
+    retrievalPath === "web:search:index"
+    && (
+      url.includes("duckduckgo.com")
+      || title.toLowerCase().includes("duckduckgo")
+    )
+  ) {
+    return "search_shell";
+  }
+
+  if (
+    providerId === "web/default"
+    && (retrievalPath === "web:fetch:url" || retrievalPath.startsWith("fetch:"))
+    && contentChars > 0
+    && contentChars <= 8
+    && links.length >= 20
+  ) {
+    return "truncated_fetch_shell";
+  }
+
+  if (
+    providerId === "social/youtube"
+    && (
+      (
+        url.includes("youtube.com/watch")
+        && combined.includes("about press copyright contact us creators advertise developers terms privacy policy")
+      )
+      || (
+        url.includes("developers.google.com/youtube")
+        && combined.includes("google for developers skip to main content youtube")
+      )
+    )
+  ) {
+    return "generic_shell";
+  }
+
+  return null;
+}
+
+function classifyMacroRecordQuality(testCase, execution) {
+  if (!Array.isArray(execution.records) || execution.records.length === 0) {
+    return null;
+  }
+
+  const fallbackRetrievalPath = normalizePlainText(execution.execution?.meta?.provenance?.retrievalPath);
+  const reasons = execution.records
+    .map((record) => getMacroShellReason(record, testCase.providerId, fallbackRetrievalPath))
+    .filter((reason) => typeof reason === "string");
+  if (reasons.length !== execution.records.length) {
+    return null;
+  }
+
+  const uniqueReasons = [...new Set(reasons)];
+  return classifyShellOnlyReasons(uniqueReasons);
+}
+
+function classifyRawFailureDetail(detail) {
+  return parseShellOnlyFailureDetail(detail) ?? {
+    status: "fail",
+    detail,
+    shellOnlyReasons: []
+  };
+}
+
+function resolveDirectHarnessVerdict({ classified, detail, preferClassified }) {
+  const rawFailure = classifyRawFailureDetail(detail);
+  return {
+    rawFailure,
+    verdict: preferClassified ? classified : rawFailure
+  };
+}
+
+function isTimeoutDetail(detail) {
+  return /timed out|timeout/i.test(String(detail ?? ""));
+}
+
+function isTemuTimeoutBoundary(testCase, result) {
+  return testCase?.providerId === "shopping/temu"
+    && result?.status !== 0
+    && isTimeoutDetail(result?.detail);
+}
+
 function buildProviderCases(options) {
   const cases = [];
   const webCommunityCases = options.smoke
@@ -152,7 +715,7 @@ function buildProviderCases(options) {
     cases.push({
       id: `provider.social.${platform}.search`,
       providerId: `social/${platform}`,
-      args: ["macro-resolve", "--execute", "--expression", `@media.search("browser automation ${platform}", "${platform}", 5)`, "--timeout-ms", options.releaseGate ? "180000" : "120000"]
+      args: ["macro-resolve", "--execute", "--expression", `@media.search("browser automation ${platform}", "${platform}", 5)`, "--timeout-ms", options.releaseGate ? "180000" : "120000", ...MACRO_CHALLENGE_ARGS]
     });
   }
 
@@ -161,7 +724,7 @@ function buildProviderCases(options) {
       cases.push({
         id: testCase.id,
         providerId: `social/${testCase.id.split(".")[2]}`,
-        args: ["macro-resolve", "--execute", "--expression", testCase.expression, "--timeout-ms", "120000"],
+        args: ["macro-resolve", "--execute", "--expression", testCase.expression, "--timeout-ms", "120000", ...MACRO_CHALLENGE_ARGS],
         allowExpectedUnavailable: true
       });
     }
@@ -201,7 +764,8 @@ function buildProviderCases(options) {
         "--mode",
         "json",
         "--timeout-ms",
-        SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? "45000",
+        DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? "45000",
+        ...MACRO_CHALLENGE_ARGS,
         "--use-cookies"
       ]
     });
@@ -289,6 +853,9 @@ export function parseArgs(argv) {
 
 function evaluateMacroCase(testCase, result) {
   const execution = collectMacroExecution(result);
+  const challengeOrchestration = collectMacroChallengeOrchestration(execution);
+  const browserFallback = collectMacroBrowserFallback(execution);
+  const macroMetadata = collectRequestedChallengeMetadata(testCase.args);
   if (result.status === 0 && !execution.hasExecutionPayload) {
     return {
       id: testCase.id,
@@ -304,32 +871,43 @@ function evaluateMacroCase(testCase, result) {
         blockerType: null,
         failureSamples: [],
         linkedinAuthWall: false,
-        hasExecutionPayload: false
+        hasExecutionPayload: false,
+        challengeOrchestration,
+        browserFallbackMode: browserFallback.browserFallbackMode,
+        browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+        ...macroMetadata
       }
     };
   }
 
   const reasonCodes = normalizedCodesFromFailures(execution.failures);
   const linkedinAuthWall = testCase.providerId === "social/linkedin" && hasLinkedInAuthWall(execution.records);
+  const shellOnlyClassification = classifyMacroRecordQuality(testCase, execution);
   const classified = linkedinAuthWall
     ? { status: "env_limited", detail: "linkedin_auth_wall_only" }
-    : classifyRecords(
-      execution.records.length,
-      execution.failures,
-      {
-        allowExpectedUnavailable: testCase.allowExpectedUnavailable === true,
-        allowNoRecordsNoFailures: testCase.providerId.startsWith("social/")
-      }
+    : (
+      shellOnlyClassification
+      ?? classifyRecords(
+        execution.records.length,
+        execution.failures,
+        {
+          allowExpectedUnavailable: testCase.allowExpectedUnavailable === true,
+          allowNoRecordsNoFailures: testCase.providerId.startsWith("social/")
+        }
+      )
     );
+  const { rawFailure, verdict } = resolveDirectHarnessVerdict({
+    classified,
+    detail: result.detail,
+    preferClassified: execution.hasExecutionPayload
+  });
 
   return {
     id: testCase.id,
     providerId: testCase.providerId,
     command: testCase.args,
-    status: result.status === 0
-      ? classified.status
-      : (isEnvLimitedDetail(result.detail) ? "env_limited" : "fail"),
-    detail: result.status === 0 ? classified.detail : result.detail,
+    status: verdict.status,
+    detail: verdict.detail,
     data: {
       records: execution.records.length,
       failures: execution.failures.length,
@@ -338,25 +916,105 @@ function evaluateMacroCase(testCase, result) {
       blockerType: execution.execution?.meta?.blocker?.type ?? null,
       failureSamples: summarizeFailures(execution.failures),
       linkedinAuthWall,
-      hasExecutionPayload: execution.hasExecutionPayload
+      shellOnlyReasons: execution.hasExecutionPayload
+        ? (shellOnlyClassification?.shellOnlyReasons ?? [])
+        : rawFailure.shellOnlyReasons,
+      hasExecutionPayload: execution.hasExecutionPayload,
+      challengeOrchestration,
+      browserFallbackMode: browserFallback.browserFallbackMode,
+      browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+      ...macroMetadata
     }
   };
 }
 
+export function shouldRetryMacroTimeoutCase(testCase, step) {
+  const providerId = testCase?.providerId;
+  if (step?.status !== "fail" || step?.data?.hasExecutionPayload !== false) {
+    return false;
+  }
+  if (providerId === "social/linkedin") {
+    return LINKEDIN_TIMEOUT_RETRY_DETAIL_RE.test(String(step?.detail ?? ""));
+  }
+  if (providerId === "social/youtube") {
+    return String(step?.detail ?? "").trim() === YOUTUBE_GENERIC_SHELL_RETRY_DETAIL;
+  }
+  return false;
+}
+
+function mergeRetriedStep(initialStep, retriedStep) {
+  const retryMetadata = {
+    retryAttempted: true,
+    retryInitialStatus: initialStep.status,
+    retryInitialDetail: initialStep.detail
+  };
+
+  if (retriedStep.status !== "fail") {
+    return {
+      ...retriedStep,
+      data: {
+        ...(retriedStep.data ?? {}),
+        ...retryMetadata,
+        retryRecovered: true
+      }
+    };
+  }
+
+  return {
+    ...initialStep,
+    data: {
+      ...(initialStep.data ?? {}),
+      ...retryMetadata,
+      retryRecovered: false,
+      retryFinalStatus: retriedStep.status,
+      retryFinalDetail: retriedStep.detail,
+      retryFinalData: retriedStep.data ?? null
+    }
+  };
+}
+
+export function mergeRetriedMacroStep(initialStep, retriedStep) {
+  return mergeRetriedStep(initialStep, retriedStep);
+}
+
+export function shouldRetryShoppingTimeoutCase(testCase, step) {
+  return testCase?.providerId === "shopping/temu"
+    && step?.status === "fail"
+    && Array.isArray(step?.data?.reasonCodes)
+    && step.data.reasonCodes.includes("timeout");
+}
+
+export function mergeRetriedShoppingStep(initialStep, retriedStep) {
+  return mergeRetriedStep(initialStep, retriedStep);
+}
+
 function evaluateShoppingCase(testCase, result) {
   const execution = collectShoppingExecution(result);
+  const challengeOrchestration = collectShoppingChallengeOrchestration(execution);
+  const browserFallback = collectShoppingBrowserFallback(execution);
   const reasonCodes = normalizedCodesFromFailures(execution.failures);
   const classified = classifyRecords(execution.offers.length, execution.failures);
+  const { verdict } = resolveDirectHarnessVerdict({
+    classified,
+    detail: result.detail,
+    preferClassified: execution.hasDataPayload || result.status === 0
+  });
   const firstFailure = execution.firstFailure;
   const failureDetails = firstFailure?.error?.details ?? {};
+  const shoppingMetadata = collectRequestedChallengeMetadata(testCase.args);
+  const temuTimeoutBoundary = isTemuTimeoutBoundary(testCase, result);
+  const resolvedStatus = temuTimeoutBoundary
+    ? "env_limited"
+    : verdict.status;
+  const resolvedDetail = temuTimeoutBoundary
+    ? result.detail
+    : verdict.detail;
   return {
     id: testCase.id,
     providerId: testCase.providerId,
     command: testCase.args,
-    status: result.status === 0
-      ? classified.status
-      : (isEnvLimitedDetail(result.detail) ? "env_limited" : "fail"),
-    detail: result.status === 0 ? classified.detail : result.detail,
+    status: resolvedStatus,
+    detail: resolvedDetail,
     data: {
       offers: execution.offers.length,
       failures: execution.failures.length,
@@ -367,7 +1025,11 @@ function evaluateShoppingCase(testCase, result) {
       constraintKind: failureDetails.constraint?.kind ?? null,
       constraint: failureDetails.constraint ?? null,
       providerShell: firstFailure?.error?.providerShell ?? failureDetails.providerShell ?? null,
-      artifactPath: execution.data?.artifact_path ?? execution.data?.path ?? null
+      artifactPath: execution.data?.artifact_path ?? execution.data?.path ?? null,
+      challengeOrchestration,
+      browserFallbackMode: browserFallback.browserFallbackMode,
+      browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+      ...shoppingMetadata
     }
   };
 }
@@ -385,6 +1047,11 @@ async function main() {
     runAuthGated: options.runAuthGated,
     runHighFriction: options.runHighFriction,
     runSocialPostCases: options.runSocialPostCases,
+    rerunMetadata: {
+      requestedChallengeAutomationMode: MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE,
+      helperCapableRequested: true,
+      appliesTo: "macro_resolve_and_shopping_cases"
+    },
     steps: []
   };
 
@@ -395,23 +1062,19 @@ async function main() {
     releaseGate: options.releaseGate
   });
   report.providerCoverage = providerCoverage;
-  pushStep(report, {
-    id: "infra.provider_scenario_coverage",
-    status: options.releaseGate
-      ? (providerCoverage.ok ? "pass" : "fail")
-      : "pass",
-    detail: providerCoverage.ok
-      ? null
-      : (options.releaseGate
-        ? `missing=${providerCoverage.missingProviderIds.join(",") || "none"} extra=${providerCoverage.extraScenarioProviderIds.join(",") || "none"}`
-        : "release_gate_only_coverage_gap"),
-    data: {
-      expectedCount: providerCoverage.expected.all.length,
-      scenarioCount: providerCoverage.scenarios.all.length,
-      missingProviderIds: providerCoverage.missingProviderIds,
-      extraScenarioProviderIds: providerCoverage.extraScenarioProviderIds
-    }
-  }, { prefix: "[provider-direct]", logProgress: !options.quiet });
+  report.coverageGap = providerCoverage.ok
+    ? null
+    : {
+        status: options.releaseGate ? "fail" : "skipped",
+        detail: `missing=${providerCoverage.missingProviderIds.join(",") || "none"} extra=${providerCoverage.extraScenarioProviderIds.join(",") || "none"}`,
+        missingProviderIds: providerCoverage.missingProviderIds,
+        extraScenarioProviderIds: providerCoverage.extraScenarioProviderIds
+      };
+  pushStep(
+    report,
+    buildProviderCoverageStep(providerCoverage, { releaseGate: options.releaseGate }),
+    { prefix: "[provider-direct]", logProgress: !options.quiet }
+  );
 
   const daemonStatus = readDaemonStatus();
   pushStep(report, classifyDaemonPreflight(daemonStatus), {
@@ -456,6 +1119,15 @@ async function main() {
       step = testCase.providerId.startsWith("shopping/")
         ? evaluateShoppingCase(testCase, result)
         : evaluateMacroCase(testCase, result);
+      if (testCase.providerId.startsWith("shopping/") && shouldRetryShoppingTimeoutCase(testCase, step)) {
+        const retriedResult = runCli(testCase.args, { allowFailure: true, timeoutMs });
+        const retriedStep = evaluateShoppingCase(testCase, retriedResult);
+        step = mergeRetriedShoppingStep(step, retriedStep);
+      } else if (shouldRetryMacroTimeoutCase(testCase, step)) {
+        const retriedResult = runCli(testCase.args, { allowFailure: true, timeoutMs });
+        const retriedStep = evaluateMacroCase(testCase, retriedResult);
+        step = mergeRetriedMacroStep(step, retriedStep);
+      }
     } catch (error) {
       step = {
         id: testCase.id,

@@ -79,6 +79,7 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
       return () => this.listeners.delete(listener);
     };
     emitStatus = (status: ConnectionStatus) => {
+      this.status = status;
       for (const listener of this.listeners) {
         listener(status);
       }
@@ -146,7 +147,7 @@ describe("extension background auto-connect", () => {
     expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
   });
 
-  it("skips auto-connect when relay instance mismatches", async () => {
+  it("retries auto-connect when relay instance mismatches during auto-pair", async () => {
     const mock = createChromeMock({ autoConnect: true, autoPair: true });
     globalThis.chrome = mock.chrome;
     globalThis.fetch = vi.fn()
@@ -163,6 +164,10 @@ describe("extension background auto-connect", () => {
     await flushMicrotasks();
 
     expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
+    expect(globalThis.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
   });
 
   it("surfaces relay instance mismatch note in popup status", async () => {
@@ -299,6 +304,32 @@ describe("extension background auto-connect", () => {
     expect(mock.chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: "●" });
     expect(mock.chrome.action.setBadgeTextColor).toHaveBeenLastCalledWith({ color: "#16a34a" });
     expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: [0, 0, 0, 0] });
+  });
+
+  it("schedules an alarm retry after relay disconnect and clears it after reconnect", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
+    lastConnectionManager?.connect.mockClear();
+    mock.chrome.alarms.create.mockClear();
+    mock.chrome.alarms.clear.mockClear();
+
+    lastConnectionManager?.emitStatus("disconnected");
+
+    expect(mock.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
+
+    mock.emitAlarm("opendevbrowser-auto-connect");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
+    expect(mock.chrome.alarms.clear).toHaveBeenCalledWith("opendevbrowser-auto-connect");
   });
 });
 

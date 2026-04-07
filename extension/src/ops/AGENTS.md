@@ -29,10 +29,11 @@ extension/src/ops/
 | Storage | `storage.setCookies`, `storage.getCookies` |
 | Targets | `targets.list`, `targets.use`, `targets.registerCanvas`, `targets.new`, `targets.close` |
 | Pages | `page.open`, `page.list`, `page.close` |
-| Navigation | `nav.goto`, `nav.wait`, `nav.snapshot` |
+| Navigation | `nav.goto`, `nav.wait`, `nav.snapshot`, `nav.review` |
 | Interaction | `interact.click`, `interact.hover`, `interact.press`, `interact.check`, `interact.uncheck`, `interact.type`, `interact.select`, `interact.scroll`, `interact.scrollIntoView` |
-| DOM | `dom.getHtml`, `dom.getText`, `dom.getAttr`, `dom.getValue`, `dom.isVisible`, `dom.isEnabled`, `dom.isChecked` |
-| Canvas/Preview | `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`, `canvas.overlay.sync`, `canvas.applyRuntimePreviewBridge` |
+| Pointer | `pointer.move`, `pointer.down`, `pointer.up`, `pointer.drag` |
+| DOM | `dom.getHtml`, `dom.getText`, `dom.getAttr`, `dom.getValue`, `dom.isVisible`, `dom.isEnabled`, `dom.isChecked`, `dom.refPoint` |
+| Canvas/Preview | `canvas.tab.open`, `canvas.tab.close`, `canvas.tab.sync`, `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`, `canvas.overlay.sync`, `canvas.applyRuntimePreviewBridge` |
 | Export | `export.clonePage`, `export.cloneComponent` |
 | DevTools | `devtools.perf`, `devtools.consolePoll`, `devtools.networkPoll`, `page.screenshot` |
 

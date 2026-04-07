@@ -21,7 +21,7 @@ const readMeta = (data: unknown): Record<string, unknown> | null => {
 const readPrimarySummary = (data: unknown): string | null => {
   const meta = readMeta(data);
   if (!meta) return null;
-  const summary = meta.primaryConstraintSummary ?? meta.primary_constraint_summary;
+  const summary = meta.primaryConstraintSummary;
   return typeof summary === "string" && summary.trim().length > 0
     ? summary.trim()
     : null;

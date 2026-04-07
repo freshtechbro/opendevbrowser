@@ -5,7 +5,7 @@ import { readDaemonMetadata, getCacheRoot, writeDaemonMetadata } from "./daemon"
 import { CliError, createDisconnectedError, EXIT_EXECUTION } from "./errors";
 import { writeFileAtomic } from "../utils/fs";
 import { loadGlobalConfig } from "../config";
-import { fetchDaemonStatus } from "./daemon-status";
+import { fetchDaemonStatus, type DaemonStatusFetchOptions } from "./daemon-status";
 import {
   fetchWithTimeoutContext,
   readResponseJsonWithTimeout,
@@ -19,6 +19,10 @@ const MIN_RENEW_AFTER_MS = 5_000;
 const TRANSPORT_TIMEOUT_BUFFER_MS = 5_000;
 const MAX_DERIVED_TRANSPORT_TIMEOUT_MS = 300_000;
 const TRANSPORT_TIMEOUT_HINT_KEYS = ["timeoutMs", "waitTimeoutMs"] as const;
+const DAEMON_STATUS_RETRY_OPTIONS: DaemonStatusFetchOptions = {
+  retryAttempts: 5,
+  retryDelayMs: 250
+};
 
 type DaemonResponse<T> = { ok?: boolean; data?: T; error?: string };
 
@@ -56,38 +60,83 @@ type BindingState = {
   renewAfterMs: number;
 };
 
+type CachedBindingState = {
+  bindingId: string;
+  expiresAt: string;
+  renewAfterMs?: number;
+};
+
+type CachedClientState = {
+  clientId: string;
+  createdAt: string;
+  binding?: CachedBindingState;
+};
+
 type CallOptions = {
   requireBinding?: boolean;
   timeoutMs?: number;
 };
 
-let cachedClientId: string | null = null;
+let cachedClientState: CachedClientState | null | undefined;
 
-const loadClientId = (): string => {
-  if (cachedClientId) {
-    return cachedClientId;
+const getClientStateFilePath = (): string => {
+  const cacheRoot = getCacheRoot();
+  return join(cacheRoot, CLIENT_ID_FILE);
+};
+
+const readCachedClientState = (): CachedClientState | null => {
+  if (cachedClientState !== undefined) {
+    return cachedClientState;
   }
 
-  const cacheRoot = getCacheRoot();
-  const filePath = join(cacheRoot, CLIENT_ID_FILE);
+  const filePath = getClientStateFilePath();
   if (existsSync(filePath)) {
     try {
       const content = readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(content) as { clientId?: unknown };
+      const parsed = JSON.parse(content) as {
+        clientId?: unknown;
+        createdAt?: unknown;
+        binding?: unknown;
+      };
       if (typeof parsed.clientId === "string" && parsed.clientId.trim()) {
-        cachedClientId = parsed.clientId.trim();
-        return cachedClientId;
+        cachedClientState = {
+          clientId: parsed.clientId.trim(),
+          createdAt: typeof parsed.createdAt === "string" && parsed.createdAt.trim()
+            ? parsed.createdAt
+            : new Date().toISOString(),
+          ...(parsed.binding && typeof parsed.binding === "object"
+            ? { binding: parsed.binding as CachedBindingState }
+            : {})
+        };
+        return cachedClientState;
       }
     } catch {
       // fallthrough to regenerate
     }
   }
 
-  const clientId = randomUUID();
-  const payload = JSON.stringify({ clientId, createdAt: new Date().toISOString() }, null, 2);
-  writeFileAtomic(filePath, payload, { mode: 0o600 });
-  cachedClientId = clientId;
-  return clientId;
+  cachedClientState = null;
+  return cachedClientState;
+};
+
+const writeCachedClientState = (state: CachedClientState): void => {
+  const filePath = getClientStateFilePath();
+  writeFileAtomic(filePath, JSON.stringify(state, null, 2), { mode: 0o600 });
+  cachedClientState = state;
+};
+
+const loadClientState = (): CachedClientState => {
+  const existing = readCachedClientState();
+  if (existing) {
+    return existing;
+  }
+
+  const state = {
+    clientId: randomUUID(),
+    createdAt: new Date().toISOString()
+  };
+  writeCachedClientState(state);
+  return state;
 };
 
 const parseBindingResponse = (data: BindingResponse): BindingState => {
@@ -106,6 +155,30 @@ const parseBindingResponse = (data: BindingResponse): BindingState => {
     expiresAtMs,
     renewAfterMs
   };
+};
+
+const serializeBindingState = (binding: BindingState): CachedBindingState => ({
+  bindingId: binding.bindingId,
+  expiresAt: new Date(binding.expiresAtMs).toISOString(),
+  renewAfterMs: binding.renewAfterMs
+});
+
+const updateCachedBindingState = (clientId: string, binding: BindingState | null): void => {
+  const current = loadClientState();
+  const base: CachedClientState = current.clientId === clientId
+    ? current
+    : { clientId, createdAt: new Date().toISOString() };
+  if (binding) {
+    writeCachedClientState({
+      ...base,
+      binding: serializeBindingState(binding)
+    });
+    return;
+  }
+  writeCachedClientState({
+    clientId: base.clientId,
+    createdAt: base.createdAt
+  });
 };
 
 const isBindingRequiredError = (error: unknown): boolean => {
@@ -128,11 +201,20 @@ export class DaemonClient {
   private renewTimer: NodeJS.Timeout | null = null;
   private readonly clientId: string;
   private readonly autoRenew: boolean;
+  private bindingAcquiredInProcess = false;
   private sessionLeases = new Map<string, string>();
 
   constructor(options: { clientId?: string; autoRenew?: boolean } = {}) {
-    this.clientId = options.clientId ?? loadClientId();
+    const cachedState = loadClientState();
+    this.clientId = options.clientId ?? cachedState.clientId;
     this.autoRenew = options.autoRenew ?? false;
+    if (cachedState.clientId === this.clientId && cachedState.binding) {
+      try {
+        this.setBinding(parseBindingResponse(cachedState.binding), { acquiredInProcess: false });
+      } catch {
+        updateCachedBindingState(this.clientId, null);
+      }
+    }
   }
 
   async call<T>(name: string, params: Record<string, unknown> = {}, options: CallOptions = {}): Promise<T> {
@@ -149,6 +231,9 @@ export class DaemonClient {
         return result;
       }
       if (!options.requireBinding && isBindingRequiredError(error)) {
+        if (this.binding) {
+          this.clearBinding();
+        }
         await this.ensureBinding();
         const result = await this.callWithBinding<T>(name, params, { ...options, requireBinding: true });
         this.maybeTrackLease(name, params, result);
@@ -160,6 +245,10 @@ export class DaemonClient {
 
   async releaseBinding(): Promise<void> {
     if (!this.binding) return;
+    if (!this.bindingAcquiredInProcess) {
+      this.clearBinding({ persist: false });
+      return;
+    }
     const bindingId = this.binding.bindingId;
     try {
       await this.callRaw("relay.release", { clientId: this.clientId, bindingId });
@@ -188,6 +277,9 @@ export class DaemonClient {
       if (sessionId) {
         this.sessionLeases.delete(sessionId);
       }
+      if (result && typeof result === "object" && (result as Record<string, unknown>).bindingReleased === true) {
+        this.clearBinding();
+      }
       return;
     }
     if (name !== "session.launch" && name !== "session.connect") return;
@@ -206,7 +298,7 @@ export class DaemonClient {
     }
     const data = await this.callRaw<RelayBindResponse>("relay.bind", { clientId: this.clientId });
     const state = await this.resolveBindingState(data);
-    this.setBinding(state);
+    this.setBinding(state, { acquiredInProcess: true });
     return state.bindingId;
   }
 
@@ -232,13 +324,17 @@ export class DaemonClient {
       clientId: this.clientId,
       bindingId: this.binding.bindingId
     });
-    this.setBinding(parseBindingResponse(data));
+    this.setBinding(parseBindingResponse(data), { acquiredInProcess: this.bindingAcquiredInProcess });
   }
 
-  private setBinding(state: BindingState): void {
+  private setBinding(state: BindingState, options: { acquiredInProcess?: boolean } = {}): void {
     this.binding = state;
+    if (options.acquiredInProcess !== undefined) {
+      this.bindingAcquiredInProcess = options.acquiredInProcess;
+    }
+    updateCachedBindingState(this.clientId, state);
     if (this.autoRenew) {
-      this.scheduleRenew(state.renewAfterMs);
+      this.scheduleRenew(resolveRenewDelayMs(state));
     }
   }
 
@@ -251,8 +347,12 @@ export class DaemonClient {
     }, delayMs);
   }
 
-  private clearBinding(): void {
+  private clearBinding(options: { persist?: boolean } = {}): void {
     this.binding = null;
+    this.bindingAcquiredInProcess = false;
+    if (options.persist !== false) {
+      updateCachedBindingState(this.clientId, null);
+    }
     this.clearRenewTimer();
   }
 
@@ -327,6 +427,11 @@ const deriveTransportTimeoutMs = (
   return undefined;
 };
 
+const resolveRenewDelayMs = (binding: BindingState): number => {
+  const remainingMs = Math.max(0, binding.expiresAtMs - Date.now() - MIN_RENEW_AFTER_MS);
+  return Math.max(0, Math.min(binding.renewAfterMs, remainingMs));
+};
+
 const cliClient = new DaemonClient({ autoRenew: false });
 
 export async function callDaemon(command: string, params?: Record<string, unknown>, options?: CallOptions): Promise<unknown> {
@@ -335,7 +440,10 @@ export async function callDaemon(command: string, params?: Record<string, unknow
 
 export const __test__ = {
   deriveTransportTimeoutMs,
-  isTransportTimeoutError
+  isTransportTimeoutError,
+  resetCachedClientState: (): void => {
+    cachedClientState = undefined;
+  }
 };
 
 type DaemonConnection = {
@@ -351,7 +459,7 @@ const resolveDaemonConnection = async (): Promise<DaemonConnection> => {
 
   const config = loadGlobalConfig();
   if (config.daemonPort > 0 && config.daemonToken) {
-    const status = await fetchDaemonStatus(config.daemonPort, config.daemonToken);
+    const status = await fetchDaemonStatus(config.daemonPort, config.daemonToken, DAEMON_STATUS_RETRY_OPTIONS);
     if (status?.ok) {
       writeDaemonMetadata({
         port: config.daemonPort,
@@ -379,7 +487,7 @@ const retryWithRefreshedConnection = async (
   if (config.daemonPort <= 0 || !config.daemonToken) {
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
   }
-  const status = await fetchDaemonStatus(config.daemonPort, config.daemonToken);
+  const status = await fetchDaemonStatus(config.daemonPort, config.daemonToken, DAEMON_STATUS_RETRY_OPTIONS);
   if (status?.ok) {
     writeDaemonMetadata({
       port: config.daemonPort,

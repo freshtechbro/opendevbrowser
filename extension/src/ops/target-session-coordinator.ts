@@ -3,6 +3,7 @@ export type TargetSessionInfo = {
   tabId: number;
   title?: string;
   url?: string;
+  openerTargetId?: string;
 };
 
 export type TargetSessionRecord<TExtra extends object> = {
@@ -14,7 +15,7 @@ export type TargetSessionRecord<TExtra extends object> = {
   closingReason?: string;
   tabId: number;
   targetId: string;
-  activeTargetId: string;
+  activeTargetId: string | null;
   createdAt: number;
   lastUsedAt: number;
   targets: Map<string, TargetSessionInfo>;
@@ -40,7 +41,8 @@ export class TargetSessionCoordinator<TExtra extends object> {
       targetId,
       tabId,
       url: info?.url,
-      title: info?.title
+      title: info?.title,
+      openerTargetId: undefined
     };
     const createdAt = Date.now();
     const session: TargetSessionRecord<TExtra> = {
@@ -91,14 +93,15 @@ export class TargetSessionCoordinator<TExtra extends object> {
     return session;
   }
 
-  addTarget(sessionId: string, tabId: number, info?: { url?: string; title?: string }): TargetSessionInfo {
+  addTarget(sessionId: string, tabId: number, info?: { url?: string; title?: string; openerTargetId?: string }): TargetSessionInfo {
     const session = this.requireSession(sessionId);
     const targetId = `tab-${tabId}`;
     const target: TargetSessionInfo = {
       targetId,
       tabId,
       url: info?.url,
-      title: info?.title
+      title: info?.title,
+      openerTargetId: info?.openerTargetId
     };
     session.targets.set(targetId, target);
     this.tabToSession.set(tabId, sessionId);
@@ -123,7 +126,7 @@ export class TargetSessionCoordinator<TExtra extends object> {
     }
     if (session.activeTargetId === targetId) {
       const [first] = session.targets.keys();
-      session.activeTargetId = first ?? "";
+      session.activeTargetId = first ?? null;
     }
     return target;
   }

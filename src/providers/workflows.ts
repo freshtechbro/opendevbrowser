@@ -1,21 +1,57 @@
 import { createHash } from "crypto";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
-import { classifyBlockerSignal } from "./blocker";
-import { applyProviderIssueHint, readProviderIssueHintFromRecord, summarizePrimaryProviderIssue } from "./constraint";
+import { summarizePrimaryProviderIssue } from "./constraint";
 import { enrichResearchRecords, type ResearchRecord } from "./enrichment";
 import { renderResearch, renderShopping, type RenderMode, type ShoppingOffer } from "./renderer";
-import { filterByTimebox, resolveTimebox } from "./timebox";
+import {
+  LOOKS_LIKE_URL_RE,
+  asNumber,
+  extractBrandFromTitle,
+  extractShoppingOffer,
+  inferBrandFromUrl,
+  isLikelyOfferRecord,
+  normalizePlainText,
+  parsePriceFromContent,
+  sanitizeFeatureList,
+  stripBrandSuffix,
+  trimProductCopy,
+  postprocessShoppingWorkflow,
+  type ShoppingOfferFilterDiagnostic
+} from "./shopping-postprocess";
+import { enforceShoppingLegalReviewGate } from "./shopping-workflow";
+import { compileShoppingExecutionPlan, type ShoppingWorkflowExecutionStep } from "./shopping-compiler";
+import { executeShoppingWorkflowPlan } from "./shopping-executor";
+import {
+  PRODUCT_VIDEO_STEP_IDS,
+  compileProductVideoExecutionPlan,
+  serializeProductVideoCheckpointState,
+  type ProductVideoWorkflowCheckpointState,
+  type ProductVideoWorkflowExecutionStep
+} from "./product-video-compiler";
+import { filterByTimebox } from "./timebox";
 import {
   SHOPPING_PROVIDER_IDS,
-  SHOPPING_PROVIDER_PROFILES,
-  validateShoppingLegalReviewChecklist
+  SHOPPING_PROVIDER_PROFILES
 } from "./shopping";
 import { createLogger, redactSensitive } from "../core/logging";
 import { normalizeProviderReasonCode } from "./errors";
+import type { ChallengeAutomationMode } from "../challenges/types";
 import { providerRequestHeaders } from "./shared/request-headers";
 import { canonicalizeUrl } from "./web/crawler";
-import { extractStructuredContent, extractText, toSnippet } from "./web/extract";
+import { extractStructuredContent, toSnippet } from "./web/extract";
+import type { ProviderAntiBotSnapshot } from "./registry";
+import { compileResearchExecutionPlan, type ResearchWorkflowExecutionStep } from "./research-compiler";
+import { executeResearchWorkflowPlan } from "./research-executor";
+import {
+  buildWorkflowResumeEnvelope,
+  isWorkflowResumeEnvelope,
+  type WorkflowCheckpoint,
+  type WorkflowKind,
+  type WorkflowResumeEnvelope,
+  type WorkflowTraceEntry
+} from "./workflow-contracts";
 import type {
+  BrowserFallbackMode,
   JsonValue,
   NormalizedRecord,
   ProviderAggregateResult,
@@ -25,8 +61,11 @@ import type {
   ProviderFailureEntry,
   ProviderReasonCode,
   ProviderRunOptions,
+  ProviderRuntimePolicyInput,
   ProviderSelection,
-  ProviderSource
+  ProviderSource,
+  WorkflowSuspendedIntentKind,
+  WorkflowBrowserMode
 } from "./types";
 
 export interface ProviderExecutor {
@@ -38,6 +77,7 @@ export interface ProviderExecutor {
     input: ProviderCallResultByOperation["fetch"],
     options?: ProviderRunOptions
   ) => Promise<ProviderAggregateResult>;
+  getAntiBotSnapshots?: (providerIds?: string[]) => ProviderAntiBotSnapshot[];
 }
 
 export interface ResearchRunInput {
@@ -50,9 +90,11 @@ export interface ResearchRunInput {
   mode: RenderMode;
   includeEngagement?: boolean;
   limitPerSource?: number;
+  timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
@@ -61,12 +103,14 @@ export interface ShoppingRunInput {
   providers?: string[];
   budget?: number;
   region?: string;
+  browserMode?: WorkflowBrowserMode;
   sort?: "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping";
   mode: RenderMode;
   timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
@@ -81,6 +125,7 @@ export interface ProductVideoRunInput {
   ttl_hours?: number;
   timeoutMs?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
@@ -259,12 +304,126 @@ const buildAlerts = (): Array<Record<string, JsonValue>> => {
   return alerts;
 };
 
+const getRuntimeAntiBotSnapshots = (
+  runtime: ProviderExecutor,
+  providerIds?: string[]
+): ProviderAntiBotSnapshot[] => {
+  if (typeof runtime.getAntiBotSnapshots !== "function") {
+    return [];
+  }
+  return runtime.getAntiBotSnapshots(providerIds);
+};
+
+const buildRuntimePressureAlerts = (
+  snapshots: ProviderAntiBotSnapshot[]
+): Array<Record<string, JsonValue>> => {
+  const nowMs = Date.now();
+  const alerts: Array<Record<string, JsonValue>> = [];
+
+  for (const snapshot of snapshots) {
+    if (snapshot.activeChallenges > 0 || snapshot.recentChallengeRatio >= 0.15) {
+      const degraded = snapshot.activeChallenges > 0 || snapshot.recentChallengeRatio >= 0.25;
+      alerts.push({
+        provider: snapshot.providerId,
+        signal: "anti_bot_challenge",
+        reasonCode: "challenge_detected",
+        state: degraded ? "degraded" : "warning",
+        ratio: Number(snapshot.recentChallengeRatio.toFixed(4)),
+        reason: snapshot.activeChallenges > 0
+          ? "preserved challenge session is still active"
+          : degraded
+            ? "signal ratio >= 25%"
+            : "signal ratio >= 15%"
+      });
+    }
+
+    if (snapshot.cooldownUntilMs > nowMs || snapshot.recentRateLimitRatio >= 0.15) {
+      const degraded = snapshot.cooldownUntilMs > nowMs || snapshot.recentRateLimitRatio >= 0.25;
+      alerts.push({
+        provider: snapshot.providerId,
+        signal: "rate_limited",
+        reasonCode: "rate_limited",
+        state: degraded ? "degraded" : "warning",
+        ratio: Number(snapshot.recentRateLimitRatio.toFixed(4)),
+        reason: snapshot.cooldownUntilMs > nowMs
+          ? "cooldown active"
+          : degraded
+            ? "signal ratio >= 25%"
+            : "signal ratio >= 15%"
+      });
+    }
+  }
+
+  return alerts;
+};
+
+const buildTranscriptAlertsFromFailures = (
+  failures: ProviderFailureEntry[]
+): Array<Record<string, JsonValue>> => {
+  const seen = new Set<string>();
+  const alerts: Array<Record<string, JsonValue>> = [];
+
+  for (const failure of failures) {
+    const signal = detectSignal(failure.error);
+    if (signal !== "transcript_unavailable") {
+      continue;
+    }
+    const key = `${failure.provider}:${signal}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    alerts.push({
+      provider: failure.provider,
+      signal,
+      reasonCode: "transcript_unavailable",
+      state: "warning",
+      reason: "transcript retrieval remains unavailable in the current run"
+    });
+  }
+
+  return alerts;
+};
+
+const buildWorkflowAlerts = (
+  runtime: ProviderExecutor,
+  failures: ProviderFailureEntry[],
+  providerIds?: string[]
+): Array<Record<string, JsonValue>> => {
+  const snapshots = getRuntimeAntiBotSnapshots(runtime, providerIds);
+  if (snapshots.length === 0) {
+    return buildAlerts();
+  }
+  return [
+    ...buildRuntimePressureAlerts(snapshots),
+    ...buildTranscriptAlertsFromFailures(failures)
+  ];
+};
+
 const getDegradedProviders = (): Set<string> => {
   const degradedProviders = new Set<string>();
   for (const [provider, state] of providerSignalMap.entries()) {
     if (!isStagedAutoExclusionCandidate(provider)) continue;
     if (state.signalState.anti_bot_challenge === "degraded" || state.signalState.rate_limited === "degraded") {
       degradedProviders.add(provider);
+    }
+  }
+  return degradedProviders;
+};
+
+const getRuntimeDegradedProviders = (
+  runtime: ProviderExecutor,
+  providerIds?: string[]
+): Set<string> => {
+  const snapshots = getRuntimeAntiBotSnapshots(runtime, providerIds);
+  if (snapshots.length === 0) {
+    return getDegradedProviders();
+  }
+  const degradedProviders = new Set<string>();
+  for (const alert of buildRuntimePressureAlerts(snapshots)) {
+    if (alert.state !== "degraded") continue;
+    if (typeof alert.provider === "string" && isStagedAutoExclusionCandidate(alert.provider)) {
+      degradedProviders.add(alert.provider);
     }
   }
   return degradedProviders;
@@ -278,18 +437,14 @@ const toProviderSource = (providerId: string): ProviderSource | null => {
   return null;
 };
 
-const resolveAutoExcludedProviders = (
-  sourceSelection: ProviderSelection,
-  resolvedSources: ProviderSource[]
-): string[] => {
-  if (sourceSelection !== "auto") return [];
-  const sourceSet = new Set(resolvedSources);
-  return [...getDegradedProviders()]
-    .filter((provider) => {
-      const source = toProviderSource(provider);
-      return source !== null && sourceSet.has(source);
-    })
-    .sort((left, right) => left.localeCompare(right));
+const observeWorkflowSignals = (
+  runtime: ProviderExecutor,
+  result: ProviderAggregateResult
+): void => {
+  if (typeof runtime.getAntiBotSnapshots === "function") {
+    return;
+  }
+  trackProviderSignals(result);
 };
 
 const removeExcludedProviders = <T extends { provider: string }>(
@@ -329,22 +484,152 @@ const withPrimaryConstraintMeta = (
       ...meta,
       primary_constraint: primaryIssue,
       primaryConstraint: primaryIssue,
-      primary_constraint_summary: primaryIssue.summary,
       primaryConstraintSummary: primaryIssue.summary
     }
     : meta;
+};
+
+const withPrimaryConstraintSummaryOverride = (
+  meta: Record<string, unknown>,
+  summary: string
+): Record<string, unknown> => {
+  const currentPrimaryConstraint = meta.primaryConstraint;
+  const nextPrimaryConstraint = (
+    currentPrimaryConstraint
+    && typeof currentPrimaryConstraint === "object"
+    && !Array.isArray(currentPrimaryConstraint)
+  )
+    ? {
+      ...(currentPrimaryConstraint as Record<string, unknown>),
+      summary
+    }
+    : { summary, reasonCode: "env_limited" };
+
+  return {
+    ...meta,
+    primary_constraint: nextPrimaryConstraint,
+    primaryConstraint: nextPrimaryConstraint,
+    primaryConstraintSummary: summary
+  };
+};
+
+const summarizeShoppingOfferFilterConstraint = (args: {
+  diagnostics: ShoppingOfferFilterDiagnostic[];
+  budget?: number;
+  region?: string;
+  regionEnforced: boolean;
+  failures: ProviderFailureEntry[];
+}): string | null => {
+  const primaryIssue = summarizePrimaryProviderIssue(args.failures);
+  if (
+    primaryIssue
+    && (primaryIssue.reasonCode !== "env_limited" || primaryIssue.constraint || primaryIssue.blockerType === "anti_bot_challenge")
+  ) {
+    return null;
+  }
+
+  const candidateOffers = args.diagnostics.reduce((sum, entry) => sum + entry.candidateOffers, 0);
+  const pricedOffers = args.diagnostics.reduce((sum, entry) => sum + entry.pricedOffers, 0);
+  const regionMatchedOffers = args.diagnostics.reduce((sum, entry) => sum + entry.regionMatchedOffers, 0);
+  const finalOffers = args.diagnostics.reduce((sum, entry) => sum + entry.finalOffers, 0);
+  const zeroPriceExcluded = args.diagnostics.reduce((sum, entry) => sum + entry.zeroPriceExcluded, 0);
+  const regionCurrencyExcluded = args.diagnostics.reduce((sum, entry) => sum + entry.regionCurrencyExcluded, 0);
+  const budgetExcluded = args.diagnostics.reduce((sum, entry) => sum + entry.budgetExcluded, 0);
+  const requestedRegion = args.diagnostics.find((entry) => typeof entry.requestedRegion === "string")?.requestedRegion ?? args.region;
+  const expectedCurrency = args.diagnostics.find((entry) => typeof entry.expectedCurrency === "string")?.expectedCurrency;
+
+  if (candidateOffers === 0 || finalOffers > 0) {
+    return null;
+  }
+
+  if (pricedOffers > 0 && regionMatchedOffers === 0 && regionCurrencyExcluded > 0 && requestedRegion && !args.regionEnforced) {
+    return `Requested region ${requestedRegion} was not enforced by the selected providers, and all candidate offers were filtered by the ${expectedCurrency ?? "requested"} currency heuristic.`;
+  }
+
+  if (typeof args.budget === "number" && regionMatchedOffers > 0 && budgetExcluded > 0 && finalOffers === 0) {
+    const budgetLabel = expectedCurrency ? `${expectedCurrency} ${args.budget.toFixed(2)}` : args.budget.toFixed(2);
+    return `All candidate offers exceeded the requested budget of ${budgetLabel}.`;
+  }
+
+  if (candidateOffers > 0 && zeroPriceExcluded === candidateOffers) {
+    return "Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.";
+  }
+
+  return null;
+};
+
+const selectResearchPrimaryConstraintFailures = (
+  failures: ProviderFailureEntry[]
+): ProviderFailureEntry[] => failures.filter((failure) => failure.error.code !== "timeout");
+
+const mergeRuntimePolicyInput = (
+  options: ProviderRunOptions,
+  input: Partial<ProviderRuntimePolicyInput>
+): ProviderRunOptions => {
+  const runtimePolicy: ProviderRuntimePolicyInput = {
+    ...(options.runtimePolicy ?? {}),
+    ...input
+  };
+  return {
+    ...options,
+    runtimePolicy
+  };
 };
 
 const withCookieOverrides = (
   options: ProviderRunOptions,
   input: { useCookies?: boolean; cookiePolicyOverride?: ProviderCookiePolicy }
 ): ProviderRunOptions => {
-  return {
-    ...options,
+  return mergeRuntimePolicyInput(options, {
     ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
     ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
-  };
+  });
 };
+
+const withChallengeAutomationOverride = (
+  options: ProviderRunOptions,
+  input: { challengeAutomationMode?: ChallengeAutomationMode }
+): ProviderRunOptions => {
+  return mergeRuntimePolicyInput(options, {
+    ...(input.challengeAutomationMode ? { challengeAutomationMode: input.challengeAutomationMode } : {})
+  });
+};
+
+const withBrowserModeOverride = (
+  options: ProviderRunOptions,
+  input: { browserMode?: WorkflowBrowserMode }
+): ProviderRunOptions => {
+  return mergeRuntimePolicyInput(options, {
+    ...(input.browserMode ? { browserMode: input.browserMode } : {})
+  });
+};
+
+const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind, WorkflowKind> = {
+  "workflow.research": "research",
+  "workflow.shopping": "shopping",
+  "workflow.product_video": "product_video"
+};
+
+const buildWorkflowResumePayload = (
+  kind: WorkflowSuspendedIntentKind,
+  input: JsonValue | WorkflowResumeEnvelope
+): { workflow: ReturnType<typeof buildWorkflowResumeEnvelope> } => ({
+  workflow: isWorkflowResumeEnvelope(input as JsonValue)
+    ? input as WorkflowResumeEnvelope
+    : buildWorkflowResumeEnvelope(WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[kind], input)
+});
+
+const withWorkflowResumeEnvelopeIntent = (
+  options: ProviderRunOptions,
+  kind: WorkflowSuspendedIntentKind,
+  envelope: WorkflowResumeEnvelope
+): ProviderRunOptions => ({
+  ...options,
+  suspendedIntent: {
+    kind,
+    input: buildWorkflowResumePayload(kind, envelope)
+  }
+});
 
 const detectFailureReasonCode = (failure: ProviderFailureEntry): ProviderReasonCode | undefined => {
   return failure.error.reasonCode
@@ -456,6 +741,71 @@ const summarizeCookieDiagnostics = (
   return diagnostics;
 };
 
+const summarizeChallengeOrchestration = (
+  failures: ProviderFailureEntry[],
+  records: NormalizedRecord[]
+): Array<Record<string, JsonValue>> => {
+  const diagnostics: Array<Record<string, JsonValue>> = [];
+
+  for (const failure of failures) {
+    const candidate = failure.error.details?.challengeOrchestration;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    diagnostics.push({
+      provider: failure.provider,
+      source: failure.source,
+      ...(detectFailureReasonCode(failure) ? { reasonCode: detectFailureReasonCode(failure) as JsonValue } : {}),
+      ...(typeof failure.error.details?.browserFallbackReasonCode === "string"
+        ? { browserFallbackReasonCode: failure.error.details.browserFallbackReasonCode }
+        : {}),
+      ...(typeof failure.error.details?.browserFallbackMode === "string"
+        ? { browserFallbackMode: failure.error.details.browserFallbackMode }
+        : {}),
+      ...(candidate as Record<string, JsonValue>)
+    });
+  }
+
+  for (const record of records) {
+    const candidate = record.attributes.browser_fallback_challenge_orchestration;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    diagnostics.push({
+      provider: record.provider,
+      source: record.source,
+      ...(typeof record.attributes.browser_fallback_reason_code === "string"
+        ? { browserFallbackReasonCode: record.attributes.browser_fallback_reason_code }
+        : {}),
+      ...(typeof record.attributes.browser_fallback_mode === "string"
+        ? { browserFallbackMode: record.attributes.browser_fallback_mode }
+        : {}),
+      ...(candidate as Record<string, JsonValue>)
+    });
+  }
+
+  return diagnostics;
+};
+
+const summarizeBrowserFallbackModes = (
+  failures: ProviderFailureEntry[],
+  records: NormalizedRecord[]
+): BrowserFallbackMode[] => {
+  const observed = new Set<BrowserFallbackMode>();
+
+  for (const failure of failures) {
+    const mode = failure.error.details?.browserFallbackMode;
+    if (mode === "extension" || mode === "managed_headed") {
+      observed.add(mode);
+    }
+  }
+
+  for (const record of records) {
+    const mode = record.attributes.browser_fallback_mode;
+    if (mode === "extension" || mode === "managed_headed") {
+      observed.add(mode);
+    }
+  }
+
+  return [...observed];
+};
+
 const hasTranscriptSuccess = (record: NormalizedRecord): boolean => {
   const transcriptAvailable = record.attributes.transcript_available;
   if (transcriptAvailable === true) return true;
@@ -525,15 +875,19 @@ export const workflowTestUtils = {
   parsePriceFromContent: (content: string | undefined): { amount: number; currency: string } =>
     parsePriceFromContent(content),
   inferBrandFromUrl: (url: string | undefined): string | undefined => inferBrandFromUrl(url),
+  inferBrandFromContent: (content: string | undefined): string | undefined => inferBrandFromContent(content),
   isLikelyOfferRecord: (record: NormalizedRecord): boolean => isLikelyOfferRecord(record),
   needsProductMetadataRefresh: (record: NormalizedRecord, productUrl: string): boolean =>
     needsProductMetadataRefresh(record, productUrl),
   fetchBinary: (url: string, timeoutMs?: number): Promise<Buffer | null> => fetchBinary(url, timeoutMs),
-  rankResearchRecords: (records: ResearchRecord[]): ResearchRecord[] => rankResearchRecords(records)
+  rankResearchRecords: (records: ResearchRecord[]): ResearchRecord[] => rankResearchRecords(records),
+  isValidHttpUrl: (url: string): boolean => isValidHttpUrl(url),
+  buildWorkflowResumePayload: (
+    kind: WorkflowSuspendedIntentKind,
+    input: JsonValue | WorkflowResumeEnvelope
+  ): { workflow: ReturnType<typeof buildWorkflowResumeEnvelope> } => buildWorkflowResumePayload(kind, input)
 };
 
-const RESEARCH_AUTO_SOURCES: ProviderSource[] = ["web", "community", "social"];
-const RESEARCH_ALL_SOURCES: ProviderSource[] = ["web", "community", "social", "shopping"];
 const PRODUCT_ASSET_FETCH_TIMEOUT_MS = 15_000;
 
 const resolveAuxiliaryFetchTimeoutMs = (timeoutMs?: number): number => {
@@ -545,28 +899,6 @@ const resolveAuxiliaryFetchTimeoutMs = (timeoutMs?: number): number => {
 
 const buildAuxiliaryFetchSignal = (timeoutMs?: number): AbortSignal | undefined => {
   return AbortSignal.timeout(resolveAuxiliaryFetchTimeoutMs(timeoutMs));
-};
-
-const resolveResearchSources = (input: ResearchRunInput): { sourceSelection: ProviderSelection; resolved: ProviderSource[] } => {
-  if (input.sources && input.sources.length > 0) {
-    const deduped = [...new Set(input.sources)];
-    return {
-      sourceSelection: input.sourceSelection ?? "auto",
-      resolved: deduped
-    };
-  }
-
-  const selection = input.sourceSelection ?? "auto";
-  if (selection === "all") {
-    return { sourceSelection: selection, resolved: RESEARCH_ALL_SOURCES };
-  }
-  if (selection === "auto") {
-    return { sourceSelection: selection, resolved: RESEARCH_AUTO_SOURCES };
-  }
-  return {
-    sourceSelection: selection,
-    resolved: [selection]
-  };
 };
 
 const toDedupeKey = (record: { url?: string; title?: string }): string => {
@@ -614,223 +946,32 @@ const rankResearchRecords = (records: ResearchRecord[]): ResearchRecord[] => {
 
 const hash = (value: string): string => createHash("sha1").update(value).digest("hex").slice(0, 16);
 
-const LOOKS_LIKE_URL_RE = /^https?:\/\/\S+$/i;
-const PRICE_SCAN_RE = /([$€£])\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/g;
-const PRODUCT_COPY_CUTOFF_PATTERNS = [
-  /frequently asked questions/i,
-  /footer footnotes/i,
-  /which [a-z0-9 ]+ is right for you/i,
-  /compare all [a-z0-9 ]+ models/i,
-  /more ways to shop/i,
-  /privacy policy/i,
-  /terms of use/i
-] as const;
-const PRODUCT_FEATURE_NOISE_RE = /\b(?:frequently asked questions|footnote|carrier deals|connect to any carrier later|at&t|t-mobile|verizon|boost mobile|applecare|privacy policy|terms of use|returns?|refunds?|bill credits?|trade[- ]?in|required|monthly|\/mo\b|deductible|service fee|more ways to shop)\b/i;
-const PRODUCT_PRICE_NEGATIVE_CONTEXT_RE = /\b(?:save(?: up to)?|trade[- ]?in|bill credits?|credit|credits|off\b|monthly|per month|\/mo\b|deductible|service fee|activation fee)\b/i;
-const PRODUCT_PRICE_POSITIVE_CONTEXT_RE = /\b(?:starting at|starts at|starting from|from|connect to any carrier later|buy now|buy for|unlocked)\b/i;
-const KNOWN_BRAND_BY_HOST_SUFFIX: Record<string, string> = {
-  "aliexpress.com": "AliExpress",
-  "amazon.com": "Amazon",
-  "apple.com": "Apple",
-  "bestbuy.com": "Best Buy",
-  "costco.com": "Costco",
-  "ebay.com": "eBay",
-  "macys.com": "Macy's",
-  "newegg.com": "Newegg",
-  "target.com": "Target",
-  "temu.com": "Temu",
-  "walmart.com": "Walmart"
-};
-
-const normalizePlainText = (value: string | undefined): string => {
-  if (!value) return "";
-  return extractText(value).replace(/\s+/g, " ").trim();
-};
-
-const normalizeFeatureEntry = (value: string): string | null => {
-  const normalized = normalizePlainText(value);
-  if (normalized.length < 8 || normalized.length > 160) return null;
-  if (!/[a-z]/i.test(normalized)) return null;
-  if (PRODUCT_FEATURE_NOISE_RE.test(normalized)) return null;
-  if (/\$[0-9]/.test(normalized)) return null;
-  if (/\b(?:can i|will my|when i|what resources|learn more)\b/i.test(normalized)) return null;
-  return normalized;
-};
-
-const sanitizeFeatureList = (values: string[]): string[] => {
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const value of values) {
-    const cleaned = normalizeFeatureEntry(value);
-    if (!cleaned) continue;
-    const key = cleaned.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    normalized.push(cleaned);
-    if (normalized.length >= 12) break;
-  }
-  return normalized;
-};
-
-const trimProductCopy = (value: string): string => {
-  let trimmed = normalizePlainText(value);
-  if (!trimmed) return "";
-  let cutoff = trimmed.length;
-  for (const pattern of PRODUCT_COPY_CUTOFF_PATTERNS) {
-    const matchIndex = trimmed.search(pattern);
-    if (matchIndex >= 0) {
-      cutoff = Math.min(cutoff, matchIndex);
-    }
-  }
-  trimmed = trimmed.slice(0, cutoff).trim();
-  return trimmed.replace(/\bFootnote\b\s*[0-9†‡§∆◊※±]*/gi, " ").replace(/\s+/g, " ").trim();
-};
-
-const stripBrandSuffix = (title: string, brand: string | undefined): string => {
-  if (!brand) return title;
-  return title.replace(new RegExp(`\\s*[-|:]\\s*${brand.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}\\s*$`, "i"), "").trim();
-};
-
-const inferBrandFromUrl = (url: string | undefined): string | undefined => {
-  if (!url) return undefined;
+const RESEARCH_ALWAYS_SANITIZED_PATHS = new Set<string>([
+  "community:search:index",
+  "social:search:index"
+]);
+const RESEARCH_CONDITIONAL_SANITIZED_PATHS = new Set<string>([
+  "community:fetch:url",
+  "social:fetch:url",
+  "web:search:index"
+]);
+const RESEARCH_LOGIN_SHELL_RE = /\b(?:log in|login|sign in|sign-in|please log in|continue with google|continue with apple)\b/i;
+const RESEARCH_JS_REQUIRED_RE = /\b(?:enable javascript|javascript required|javascript is not available|javascript is disabled|you need to enable javascript)\b/i;
+const RESEARCH_GENERIC_SHELL_RE = /\b(?:skip to main content|the heart of the internet|open navigation|get the app|view in app|please wait for verification|verify you are human|security check)\b/i;
+const RESEARCH_NOT_FOUND_SHELL_RE = /\b(?:error 404|page not found|not found|can['’]t seem to find the page)\b/i;
+const RESEARCH_SEARCH_SHELL_RE = /\b(?:duckduckgo|search results|all posts|communities|comments|try another search|no relevant content found|unable to load answer|search page)\b/i;
+const isDuckDuckGoResearchShellUrl = (url: string): boolean => {
   try {
-    const host = new URL(url).hostname.toLowerCase();
-    for (const [suffix, brand] of Object.entries(KNOWN_BRAND_BY_HOST_SUFFIX)) {
-      if (host === suffix || host.endsWith(`.${suffix}`)) {
-        return brand;
-      }
-    }
-    const profile = SHOPPING_PROVIDER_PROFILES.find((entry) => entry.domains.some((domain) => host === domain || host.endsWith(`.${domain}`)));
-    if (profile) return profile.displayName;
-    return undefined;
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    return (host === "duckduckgo.com" && (pathname === "/l" || pathname === "/l/"))
+      || (host === "html.duckduckgo.com" && pathname.startsWith("/html"));
   } catch {
-    return undefined;
+    return false;
   }
 };
-
-const extractBrandFromTitle = (title: string | undefined): string | undefined => {
-  if (!title) return undefined;
-  const cleaned = normalizePlainText(title);
-  const match = /(?:[-|:]\s*)([A-Z][A-Za-z0-9&+' -]{1,40})$/.exec(cleaned);
-  return match?.[1]?.trim() || undefined;
-};
-
-const parseMatchedPrice = (currencySymbol: string | undefined, rawAmount: string | undefined): {
-  amount: number;
-  currency: string;
-} | null => {
-  if (!currencySymbol || !rawAmount) return null;
-  const amount = Number(rawAmount.replace(/,/g, ""));
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  return {
-    amount,
-    currency: currencySymbol === "€" ? "EUR" : currencySymbol === "£" ? "GBP" : "USD"
-  };
-};
-
-const asNumber = (value: unknown): number => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value.replace(/,/g, ""));
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
-};
-
-const parsePriceFromContent = (content: string | undefined): { amount: number; currency: string } => {
-  const normalized = normalizePlainText(content);
-  if (!normalized) return { amount: 0, currency: "USD" };
-
-  const contextualMatches = [...normalized.matchAll(
-    /(?:connect to any carrier later|starting at|starts at|starting from|from|buy now for|buy for)\s*([$€£])\s*([0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/gi
-  )]
-    .map((match) => parseMatchedPrice(match[1], match[2]))
-    .filter((entry): entry is { amount: number; currency: string } => entry !== null)
-    .sort((left, right) => left.amount - right.amount);
-  if (contextualMatches.length > 0) {
-    return contextualMatches[0]!;
-  }
-
-  const candidates = [...normalized.matchAll(PRICE_SCAN_RE)]
-    .map((match) => {
-      const parsed = parseMatchedPrice(match[1], match[2]);
-      if (!parsed) return null;
-      const index = match.index as number;
-      const context = normalized.slice(Math.max(0, index - 48), Math.min(normalized.length, index + match[0].length + 48));
-      let score = 0;
-      if (PRODUCT_PRICE_NEGATIVE_CONTEXT_RE.test(context)) score -= 4;
-      if (PRODUCT_PRICE_POSITIVE_CONTEXT_RE.test(context)) score += 3;
-      if (parsed.amount < 10) score -= 3;
-      return {
-        ...parsed,
-        score,
-        index
-      };
-    })
-    .filter((entry): entry is { amount: number; currency: string; score: number; index: number } => entry !== null)
-    .sort((left, right) => right.score - left.score || left.amount - right.amount || left.index - right.index);
-  if (candidates.length === 0 || candidates[0]!.score < -1) {
-    return { amount: 0, currency: "USD" };
-  }
-  return {
-    amount: candidates[0]!.amount,
-    currency: candidates[0]!.currency
-  };
-};
-
-const availabilityRank = (availability: ShoppingOffer["availability"]): number => {
-  switch (availability) {
-    case "in_stock":
-      return 1;
-    case "limited":
-      return 0.75;
-    case "unknown":
-      return 0.45;
-    case "out_of_stock":
-      return 0.1;
-  }
-};
-
-const computeDealScore = (offer: ShoppingOffer, now: Date): number => {
-  const total = Math.max(0, offer.price.amount + offer.shipping.amount);
-  const priceScore = total > 0 ? 1 / (1 + total / 100) : 0.5;
-  const availabilityScore = availabilityRank(offer.availability);
-  const ratingScore = Math.max(0, Math.min(1, offer.rating / 5));
-  const recencyHours = Math.max(0, (now.getTime() - new Date(offer.price.retrieved_at).getTime()) / (60 * 60 * 1000));
-  const recencyScore = 1 / (1 + recencyHours / 24);
-  const score = (priceScore * 0.55) + (availabilityScore * 0.2) + (ratingScore * 0.15) + (recencyScore * 0.1);
-  return Number(score.toFixed(6));
-};
-
-const resolveShoppingProviders = (providers?: string[]): string[] => {
-  if (!providers || providers.length === 0) {
-    return [...SHOPPING_PROVIDER_IDS];
-  }
-
-  const normalized = providers
-    .map((provider) => provider.trim().toLowerCase())
-    .filter(Boolean)
-    .map((provider) => provider.startsWith("shopping/") ? provider : `shopping/${provider}`);
-
-  const deduped = [...new Set(normalized)].filter((provider) => SHOPPING_PROVIDER_IDS.includes(provider as (typeof SHOPPING_PROVIDER_IDS)[number]));
-  if (deduped.length === 0) {
-    throw new Error("No valid shopping providers were requested");
-  }
-  return deduped;
-};
-
-const enforceShoppingLegalReviewGate = (providerIds: string[], now: Date): void => {
-  const blocked = providerIds
-    .map((providerId) => ({ providerId, validation: validateShoppingLegalReviewChecklist(providerId, now) }))
-    .filter((entry) => !entry.validation.valid);
-
-  if (blocked.length === 0) return;
-  const summary = blocked
-    .map((entry) => `${entry.providerId}:${entry.validation.reasonCode ?? "missing_checklist"}`)
-    .join(", ");
-  throw new Error(`Provider legal review checklist invalid or expired: ${summary}`);
-};
-
+const PRODUCT_TARGET_NOT_FOUND_RE = /\b(?:error 404|page not found|not found|we can['’]t seem to find the page|can['’]t seem to find the page|return to homepage)\b/i;
 const resolveShoppingProviderIdForUrl = (url: string): string | null => {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -842,103 +983,6 @@ const resolveShoppingProviderIdForUrl = (url: string): string | null => {
     return "shopping/others";
   } catch {
     return null;
-  }
-};
-
-const extractShoppingOffer = (record: NormalizedRecord, now: Date): ShoppingOffer => {
-  const nested = (record.attributes.shopping_offer ?? {}) as Record<string, unknown>;
-  const nestedPrice = (nested.price ?? {}) as Record<string, unknown>;
-  const nestedShipping = (nested.shipping ?? {}) as Record<string, unknown>;
-
-  const fallbackPrice = parsePriceFromContent(record.content);
-  const priceAmount = asNumber(nestedPrice.amount) || fallbackPrice.amount;
-  const priceCurrency = typeof nestedPrice.currency === "string" && nestedPrice.currency.trim()
-    ? nestedPrice.currency
-    : fallbackPrice.currency;
-  const retrievedAt = typeof nestedPrice.retrieved_at === "string" && nestedPrice.retrieved_at.trim()
-    ? nestedPrice.retrieved_at
-    : now.toISOString();
-
-  const title = (typeof nested.title === "string" && nested.title.trim())
-    ? nested.title
-    : record.title ?? record.url ?? record.provider;
-  const url = (typeof nested.url === "string" && nested.url.trim())
-    ? nested.url
-    : record.url ?? "";
-
-  const shippingAmount = asNumber(nestedShipping.amount);
-  const shippingCurrency = typeof nestedShipping.currency === "string" && nestedShipping.currency.trim()
-    ? nestedShipping.currency
-    : priceCurrency;
-
-  const availabilityRaw = typeof nested.availability === "string" ? nested.availability : "unknown";
-  const availability: ShoppingOffer["availability"] = availabilityRaw === "in_stock" || availabilityRaw === "limited" || availabilityRaw === "out_of_stock"
-    ? availabilityRaw
-    : "unknown";
-
-  const offer: ShoppingOffer = {
-    offer_id: `${record.provider}:${record.id}`,
-    product_id: typeof nested.product_id === "string" && nested.product_id.trim()
-      ? nested.product_id
-      : hash(`${canonicalizeUrl(url)}::${title.toLowerCase()}`),
-    provider: record.provider,
-    url,
-    title,
-    price: {
-      amount: priceAmount,
-      currency: priceCurrency,
-      retrieved_at: retrievedAt
-    },
-    shipping: {
-      amount: shippingAmount,
-      currency: shippingCurrency,
-      notes: typeof nestedShipping.notes === "string" ? nestedShipping.notes : "unknown"
-    },
-    availability,
-    rating: asNumber(nested.rating),
-    reviews_count: asNumber(nested.reviews_count),
-    deal_score: 0,
-    attributes: {
-      ...record.attributes,
-      source_record_id: record.id
-    }
-  };
-
-  offer.deal_score = computeDealScore(offer, now);
-  return offer;
-};
-
-const dedupeOffers = (offers: ShoppingOffer[]): ShoppingOffer[] => {
-  const deduped = new Map<string, ShoppingOffer>();
-  for (const offer of offers) {
-    const key = `${canonicalizeUrl(offer.url)}::${offer.title.toLowerCase()}`;
-    const existing = deduped.get(key);
-    if (!existing || offer.deal_score > existing.deal_score) {
-      deduped.set(key, offer);
-    }
-  }
-  return [...deduped.values()];
-};
-
-const rankOffers = (
-  offers: ShoppingOffer[],
-  sort: ShoppingRunInput["sort"]
-): ShoppingOffer[] => {
-  const ordered = [...offers];
-  switch (sort) {
-    case "lowest_price":
-      return ordered.sort((left, right) => {
-        const leftTotal = left.price.amount + left.shipping.amount;
-        const rightTotal = right.price.amount + right.shipping.amount;
-        return leftTotal - rightTotal;
-      });
-    case "highest_rating":
-      return ordered.sort((left, right) => right.rating - left.rating || right.reviews_count - left.reviews_count);
-    case "fastest_shipping":
-      return ordered.sort((left, right) => left.shipping.amount - right.shipping.amount || right.deal_score - left.deal_score);
-    case "best_deal":
-    default:
-      return ordered.sort((left, right) => right.deal_score - left.deal_score || (left.price.amount + left.shipping.amount) - (right.price.amount + right.shipping.amount));
   }
 };
 
@@ -975,6 +1019,39 @@ const mergeImageUrls = (record: NormalizedRecord, extra: string[] = []): string[
   ])].slice(0, 50);
 };
 
+const MARKETPLACE_COPY_RE = /\b(?:amazon\.com|walmart\.com|free delivery possible on eligible purchases|continue to site|see current price, availability, shipping cost|buy .* - amazon\.com|shipper\s*\/\s*seller|main content|about this item|buying options|compare with similar items)\b/i;
+const MARKETPLACE_OVERLAY_RE = /\b(?:shipper \/ seller|returns \/ exchanges handled by|continue to site|see current price, availability, shipping cost|deliver to canada)\b/i;
+const WALMART_TITLE_PREFIX_RE = /^(?:free shipping!?\s*)+/i;
+const WALMART_TITLE_TAIL_RE = /\s*[-|:]\s*Walmart\.com\b.*$/i;
+const WALMART_TITLE_CHROME_RE = /\b(?:Walmart\.com|Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Departments Services)\b/i;
+const WALMART_BRAND_COLOR_RE = /\bColor\s+[A-Z0-9][A-Za-z0-9 /-]*(?=\s+(?:View full specifications|Current price is|Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Sold and shipped by|Seller Rating|Free shipping|Arrives\b|Shipping\b|Delivery\b|Pickup\b|Departments Services|More details|Add to cart)|$)/i;
+const WALMART_BRAND_CHROME_TAIL_RE = /\b(?:View full specifications|Current price is|Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Sold and shipped by|Seller Rating|Free shipping|Arrives\b|Shipping\b|Delivery\b|Pickup\b|Departments Services|More details|Add to cart)\b.*$/i;
+const WALMART_BRAND_CHROME_RE = /\b(?:Walmart\.com|Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Sold and shipped by|Seller Rating|View full specifications|Current price is|Free shipping|Departments Services)\b/i;
+const PRODUCT_FEATURE_SECTION_MARKERS = [
+  "about this item",
+  "key item features",
+  "about this product"
+] as const;
+const PRODUCT_FEATURE_SECTION_STOP_RE = /\b(?:report an issue|check compatibility|technical details|technical specifications|product information|customer reviews|compare [a-z0-9 ]+|top brand:|from the brand|from the manufacturer|questions|reviews|your recently viewed|back to top|view all item details|view full specifications|generated by ai|reviews summary|was this summary helpful|current price is|price when purchased online|all listings for this product|ratings and reviews|best selling in)\b/i;
+const PRODUCT_FEATURE_CAPS_TOKEN = "[A-Z0-9][A-Z0-9'()+/&.,]*(?:-[A-Z0-9][A-Z0-9'()+/&.,]*)*";
+const PRODUCT_FEATURE_TITLE_TOKEN = "[A-Z][A-Za-z0-9'()+/&.,]*(?:-[A-Z0-9][A-Za-z0-9'()+/&.,]*)*";
+const PRODUCT_FEATURE_PATTERNS = [
+  new RegExp(
+    `(${PRODUCT_FEATURE_CAPS_TOKEN}(?:\\s+${PRODUCT_FEATURE_CAPS_TOKEN}){0,11})\\s+[\\u2013\\u2014-]\\s+(.+?)(?=(?:${PRODUCT_FEATURE_CAPS_TOKEN}(?:\\s+${PRODUCT_FEATURE_CAPS_TOKEN}){0,11})\\s+[\\u2013\\u2014-]\\s+|$)`,
+    "g"
+  ),
+  new RegExp(
+    `(${PRODUCT_FEATURE_TITLE_TOKEN}(?:\\s+${PRODUCT_FEATURE_TITLE_TOKEN}){0,11})\\s*:\\s+(.+?)(?=(?:${PRODUCT_FEATURE_TITLE_TOKEN}(?:\\s+${PRODUCT_FEATURE_TITLE_TOKEN}){0,11})\\s*:\\s+|$)`,
+    "g"
+  )
+] as const;
+const HOST_DEFAULT_CURRENCY: Array<[RegExp, string]> = [
+  [/amazon\.ca$/i, "CAD"],
+  [/amazon\.(?:co\.uk|uk)$/i, "GBP"],
+  [/amazon\.(?:de|fr|es|it)$/i, "EUR"],
+  [/(?:amazon\.com|walmart\.com|bestbuy\.com|target\.com|ebay\.com)$/i, "USD"]
+];
+
 const fetchBinary = async (url: string, timeoutMs?: number): Promise<Buffer | null> => {
   try {
     const response = await fetch(url, {
@@ -993,13 +1070,312 @@ const fetchBinary = async (url: string, timeoutMs?: number): Promise<Buffer | nu
   }
 };
 
-const deriveFeatureList = (record: NormalizedRecord, fallbackFeatures: string[] = []): string[] => {
+const inferBrandFromContent = (content: string | undefined): string | undefined => {
+  const normalized = normalizePlainText(content);
+  if (!normalized) return undefined;
+  const storeMatch = /\bVisit the ([A-Z][A-Za-z0-9&+' -]{1,60}) Store\b/i.exec(normalized);
+  if (storeMatch?.[1]) {
+    return storeMatch[1].trim();
+  }
+  const topBrandMatch = /\bTop Brand:\s*([A-Z][A-Za-z0-9&+' -]{1,60})\b/i.exec(normalized);
+  if (topBrandMatch?.[1]) {
+    return topBrandMatch[1].trim();
+  }
+  const productIdentifiersBrandMatch = /\bProduct Identifiers\s+Brand\s+([A-Z][A-Za-z0-9&+' -]{1,60}?)(?=\s+(?:MPN|UPC|Model)\b|$)/i.exec(normalized);
+  if (productIdentifiersBrandMatch?.[1]) {
+    return productIdentifiersBrandMatch[1].trim();
+  }
+  const brandMatch = /\bBrand ([A-Z][A-Za-z0-9&+' -]{1,60})\b/i.exec(normalized);
+  if (brandMatch?.[1]) {
+    return brandMatch[1].trim();
+  }
+  return undefined;
+};
+
+const inferTitleFromContent = (content: string | undefined): string | undefined => {
+  const normalized = normalizePlainText(content);
+  if (!normalized) return undefined;
+  const storeMatch = /\bVisit the [A-Z][A-Za-z0-9&+' -]{1,60} Store\s+(.+?)(?=\s+(?:Brand [A-Z]|About this item|Key item features|Current price is|Actual Color|[0-9]+(?:\.[0-9]+)? stars out of|Best seller\b))/i.exec(normalized);
+  const candidate = normalizePlainText(storeMatch?.[1]);
+  if (!candidate || candidate.length < 20 || LOOKS_LIKE_URL_RE.test(candidate)) {
+    return undefined;
+  }
+  return candidate;
+};
+
+const sanitizeProductBrandCandidate = (candidate: string | undefined, productUrl: string): string | undefined => {
+  const normalized = normalizePlainText(candidate);
+  if (!normalized) return undefined;
+  try {
+    const host = new URL(productUrl).hostname.toLowerCase();
+    if (!host.includes("walmart.")) {
+      return normalized;
+    }
+    const cleaned = normalized
+      .replace(/^Brand\s+/i, "")
+      .replace(/\bVisit the ([A-Z][A-Za-z0-9&+' -]{1,60}) Store\b/i, "$1")
+      .replace(WALMART_BRAND_COLOR_RE, "")
+      .replace(WALMART_BRAND_CHROME_TAIL_RE, "")
+      .replace(/\bWalmart\.com\b.*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (
+      !cleaned
+      || WALMART_BRAND_CHROME_RE.test(cleaned)
+      || LOOKS_LIKE_URL_RE.test(cleaned)
+      || /[.!?]/.test(cleaned)
+      || cleaned.split(/\s+/).length > 5
+    ) {
+      return undefined;
+    }
+    return cleaned;
+  } catch {
+    return normalized;
+  }
+};
+
+const stripMarketplaceTitleFraming = (title: string, productUrl: string): string => {
+  let cleaned = normalizePlainText(title);
+  if (!cleaned) return "";
+  try {
+    const host = new URL(productUrl).hostname.toLowerCase();
+    if (host.includes("amazon.")) {
+      cleaned = cleaned
+        .replace(/^Amazon\.com:\s*/i, "")
+        .replace(/\s*:\s*Electronics\s*$/i, "")
+        .trim();
+    }
+    if (host.includes("ebay.")) {
+      cleaned = cleaned
+        .replace(/\s+for sale online\s*\|\s*eBay.*$/i, "")
+        .replace(/\s*\|\s*eBay.*$/i, "")
+        .trim();
+    }
+    if (host.includes("walmart.")) {
+      cleaned = cleaned
+        .replace(WALMART_TITLE_PREFIX_RE, "")
+        .replace(WALMART_TITLE_TAIL_RE, "")
+        .replace(/\bWalmart\.com\b.*$/i, "")
+        .replace(/\b(?:Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Departments Services)\b.*$/i, "")
+        .trim();
+    }
+    const hostBrand = normalizePlainText(inferBrandFromUrl(productUrl)).replace(/\.com\b/gi, "").trim();
+    if (hostBrand) {
+      const escapedHostBrand = hostBrand.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      cleaned = cleaned.replace(new RegExp(`\\s*[-|:]\\s*${escapedHostBrand}(?:\\.com)?\\s*$`, "i"), "").trim();
+    }
+  } catch {
+    return cleaned;
+  }
+  return cleaned;
+};
+
+const isMarketplaceTitleChrome = (title: string, productUrl: string): boolean => {
+  const cleaned = normalizePlainText(title);
+  if (!cleaned) return true;
+  try {
+    const host = new URL(productUrl).hostname.toLowerCase();
+    return host.includes("walmart.") && WALMART_TITLE_CHROME_RE.test(cleaned);
+  } catch {
+    return false;
+  }
+};
+
+const collectMarkerIndexes = (value: string, marker: string): number[] => {
+  const indexes: number[] = [];
+  const lowerValue = value.toLowerCase();
+  const lowerMarker = marker.toLowerCase();
+  let cursor = lowerValue.indexOf(lowerMarker);
+  while (cursor >= 0) {
+    indexes.push(cursor);
+    cursor = lowerValue.indexOf(lowerMarker, cursor + lowerMarker.length);
+  }
+  return indexes;
+};
+
+const extractProductFeatureSection = (content: string | undefined): string => {
+  const normalized = normalizePlainText(content);
+  if (!normalized) return "";
+  let bestSection = "";
+  let bestScore = -1;
+  for (const marker of PRODUCT_FEATURE_SECTION_MARKERS) {
+    const markerIndexes = collectMarkerIndexes(normalized, marker);
+    for (const markerIndex of markerIndexes) {
+      let section = normalized.slice(markerIndex + marker.length).trim();
+      const stopIndex = section.search(PRODUCT_FEATURE_SECTION_STOP_RE);
+      if (stopIndex >= 0) {
+        section = section.slice(0, stopIndex).trim();
+      }
+      section = section
+        .replace(/\bAbout this item\b/gi, " ")
+        .replace(/\bKey item features\b/gi, " ")
+        .replace(/\bSee more product details\b/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!section) {
+        continue;
+      }
+      const labeledFeatureCount = extractLabeledProductFeatures(section).length;
+      const sentenceFeatureCount = sanitizeFeatureList(section.split(/(?<=[.!?])\s+/)).length;
+      const score = (labeledFeatureCount * 10) + (sentenceFeatureCount * 5) + Math.min(section.length, 500) / 100;
+      if (score > bestScore) {
+        bestSection = section;
+        bestScore = score;
+      }
+    }
+  }
+
+  return bestSection;
+};
+
+const extractLabeledProductFeatures = (section: string): string[] => {
+  let best: string[] = [];
+  for (const pattern of PRODUCT_FEATURE_PATTERNS) {
+    pattern.lastIndex = 0;
+    const matches = [...section.matchAll(pattern)]
+      .map((match) => normalizePlainText(match[2]))
+      .filter(Boolean);
+    const cleaned = sanitizeFeatureList(matches);
+    if (cleaned.length > best.length) {
+      best = cleaned;
+    }
+  }
+  return best;
+};
+
+const extractAboutItemFeatures = (content: string | undefined): string[] => {
+  const section = extractProductFeatureSection(content);
+  if (!section) return [];
+  const cleanedLabeledFeatures = extractLabeledProductFeatures(section);
+  if (cleanedLabeledFeatures.length > 0) {
+    return cleanedLabeledFeatures;
+  }
+  return sanitizeFeatureList(section.split(/(?<=[.!?])\s+/));
+};
+
+const extractMarketplaceSummaryCopy = (content: string | undefined, productUrl: string): string => {
+  const normalized = normalizePlainText(content);
+  if (!normalized) return "";
+  try {
+    const host = new URL(productUrl).hostname.toLowerCase();
+    if (host.includes("ebay.")) {
+      return normalizePlainText(/\bCondition:\s+[A-Za-z-]+\s+[A-Za-z-]+\s+(.+?)\s+Buy It Now\b/i.exec(normalized)?.[1]);
+    }
+  } catch {
+    return "";
+  }
+  return "";
+};
+
+const extractMarketplaceSummaryFeatures = (content: string | undefined, productUrl: string): string[] => {
+  const summary = extractMarketplaceSummaryCopy(content, productUrl);
+  if (!summary) return [];
+  return sanitizeFeatureList(summary.split(/(?<=[.!?])\s+/));
+};
+
+const inferHostDefaultCurrency = (productUrl: string): string | undefined => {
+  try {
+    const host = new URL(productUrl).hostname.toLowerCase();
+    const match = HOST_DEFAULT_CURRENCY.find(([pattern]) => pattern.test(host));
+    return match?.[1];
+  } catch {
+    return undefined;
+  }
+};
+
+const shouldSuppressMarketplacePrice = (
+  record: NormalizedRecord,
+  productUrl: string,
+  price: { amount: number; currency: string }
+): boolean => {
+  if (price.amount <= 0) return false;
+  const expectedCurrency = inferHostDefaultCurrency(productUrl);
+  if (!expectedCurrency) return false;
+  if (!MARKETPLACE_OVERLAY_RE.test(normalizePlainText(record.content))) return false;
+  return price.currency.trim().toUpperCase() !== expectedCurrency;
+};
+
+const resolvePreferredProductPrice = (
+  record: NormalizedRecord,
+  productUrl: string,
+  refreshedPrice: { amount: number; currency: string } | undefined,
+  primaryOffer: ShoppingOffer
+): { amount: number; currency: string; retrieved_at: string } => {
+  if (refreshedPrice && refreshedPrice.amount > 0) {
+    return {
+      amount: refreshedPrice.amount,
+      currency: refreshedPrice.currency,
+      retrieved_at: primaryOffer.price.retrieved_at
+    };
+  }
+  if (primaryOffer.price.amount > 0) {
+    return {
+      amount: primaryOffer.price.amount,
+      currency: primaryOffer.price.currency,
+      retrieved_at: primaryOffer.price.retrieved_at
+    };
+  }
+  if (!requiresManualMarketplacePriceFollowUp(productUrl)) {
+    const fallbackPrice = parsePriceFromContent(record.content);
+    if (fallbackPrice.amount > 0) {
+      return {
+        amount: fallbackPrice.amount,
+        currency: fallbackPrice.currency,
+        retrieved_at: primaryOffer.price.retrieved_at
+      };
+    }
+  }
+  return {
+    amount: primaryOffer.price.amount,
+    currency: primaryOffer.price.currency,
+    retrieved_at: primaryOffer.price.retrieved_at
+  };
+};
+
+const resolveProductPrice = (
+  record: NormalizedRecord,
+  productUrl: string,
+  refreshedPrice: { amount: number; currency: string } | undefined,
+  primaryOffer: ShoppingOffer
+): { amount: number; currency: string; retrieved_at: string } => {
+  const preferred = resolvePreferredProductPrice(record, productUrl, refreshedPrice, primaryOffer);
+  if (shouldSuppressMarketplacePrice(record, productUrl, preferred)) {
+    return {
+      amount: 0,
+      currency: inferHostDefaultCurrency(productUrl) ?? preferred.currency,
+      retrieved_at: preferred.retrieved_at
+    };
+  }
+  return preferred;
+};
+
+const requiresManualMarketplacePriceFollowUp = (productUrl: string): boolean => {
+  const providerId = resolveShoppingProviderIdForUrl(productUrl);
+  return providerId !== null && providerId !== "shopping/others";
+};
+
+const buildManualProductPriceFollowUpMessage = (productUrl: string): string => {
+  const provider = normalizePlainText(inferBrandFromUrl(productUrl)) || "Product page";
+  return `${provider} requires manual browser follow-up; this run did not determine a reliable PDP price.`;
+};
+
+const deriveFeatureList = (record: NormalizedRecord, productUrl: string, fallbackFeatures: string[] = []): string[] => {
   const structured = Array.isArray(record.attributes.features)
     ? record.attributes.features.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : [];
   const structuredFeatures = sanitizeFeatureList(structured);
   if (structuredFeatures.length > 0) {
     return structuredFeatures;
+  }
+
+  const marketplaceSummaryFeatures = extractMarketplaceSummaryFeatures(record.content, productUrl);
+  if (marketplaceSummaryFeatures.length > 0) {
+    return marketplaceSummaryFeatures;
+  }
+
+  const aboutItemFeatures = extractAboutItemFeatures(record.content);
+  if (aboutItemFeatures.length > 0) {
+    return aboutItemFeatures;
   }
 
   const fallbackFeatureList = sanitizeFeatureList(fallbackFeatures);
@@ -1013,165 +1389,6 @@ const deriveFeatureList = (record: NormalizedRecord, fallbackFeatures: string[] 
     .map((line) => line.trim());
   return sanitizeFeatureList(candidates);
 };
-
-const isLikelyOfferRecord = (record: NormalizedRecord): boolean => {
-  const retrievalPath = typeof record.attributes.retrievalPath === "string"
-    ? record.attributes.retrievalPath
-    : "";
-  if (retrievalPath === "shopping:search:index" || retrievalPath === "shopping:search:link") return false;
-  if (retrievalPath.startsWith("shopping:search:") && retrievalPath !== "shopping:search:result-card" && retrievalPath !== "shopping:search:url") {
-    return false;
-  }
-
-  if (!record.url) return true;
-
-  const canonicalUrl = canonicalizeUrl(record.url);
-  if (!/^https?:/i.test(canonicalUrl)) return false;
-  if (/\.(?:png|jpe?g|gif|webp|svg|ico|css|js)(?:$|\?)/i.test(canonicalUrl)) return false;
-  const title = normalizePlainText(record.title);
-  if (!title || LOOKS_LIKE_URL_RE.test(title) || title === canonicalUrl) return false;
-
-  const profile = SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === record.provider);
-  if (profile && profile.domains.length > 0 && retrievalPath.startsWith("shopping:search:")) {
-    try {
-      const host = new URL(canonicalUrl).hostname.toLowerCase();
-      const matchesProviderDomain = profile.domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
-      if (!matchesProviderDomain) return false;
-    } catch {
-      return false;
-    }
-  }
-  return true;
-};
-
-const inferShoppingNoOfferFailure = (
-  providerId: string,
-  query: string,
-  records: NormalizedRecord[]
-): ProviderFailureEntry => {
-  const issuePriority = (issue: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>): number => {
-    if (issue.reasonCode === "token_required" || issue.reasonCode === "auth_required") return 3;
-    if (issue.reasonCode === "challenge_detected") return 2;
-    if (issue.constraint?.kind === "render_required") return 1;
-    return 0;
-  };
-  let primaryRecordIssue:
-    | {
-      hint: NonNullable<ReturnType<typeof readProviderIssueHintFromRecord>>;
-      url?: string;
-      title?: string;
-      providerShell?: string;
-    }
-    | null = null;
-  for (const record of records) {
-    const hint = readProviderIssueHintFromRecord(record);
-    if (!hint) continue;
-    if (!primaryRecordIssue || issuePriority(hint) > issuePriority(primaryRecordIssue.hint)) {
-      primaryRecordIssue = {
-        hint,
-        ...(typeof record.url === "string" ? { url: canonicalizeUrl(record.url) } : {}),
-        ...(normalizePlainText(record.title) ? { title: normalizePlainText(record.title) } : {}),
-        ...(typeof record.attributes.providerShell === "string" && record.attributes.providerShell.trim().length > 0
-          ? { providerShell: record.attributes.providerShell.trim() }
-          : {})
-      };
-    }
-  }
-
-  if (primaryRecordIssue) {
-    const reasonCode = primaryRecordIssue.hint.reasonCode;
-    return {
-      provider: providerId,
-      source: "shopping",
-      error: {
-        code: reasonCode === "token_required" || reasonCode === "auth_required" ? "auth" : "unavailable",
-        message: reasonCode === "token_required" || reasonCode === "auth_required"
-          ? `Authentication required for provider results for query "${query}".`
-          : reasonCode === "challenge_detected"
-            ? `Detected anti-bot challenge while retrieving provider results for query "${query}".`
-            : `Provider requires browser-rendered results for query "${query}".`,
-        retryable: reasonCode === "env_limited",
-        reasonCode,
-        provider: providerId,
-        source: "shopping",
-        details: applyProviderIssueHint({
-          query,
-          recordsCount: records.length,
-          noOfferRecords: true,
-          ...(primaryRecordIssue.url ? { url: primaryRecordIssue.url } : {}),
-          ...(primaryRecordIssue.title ? { title: primaryRecordIssue.title } : {}),
-          ...(primaryRecordIssue.providerShell ? { providerShell: primaryRecordIssue.providerShell } : {})
-        }, primaryRecordIssue.hint)
-      }
-    };
-  }
-
-  const fallbackFailure: ProviderFailureEntry = {
-    provider: providerId,
-    source: "shopping",
-    error: {
-      code: "unavailable",
-      message: `Provider returned no usable shopping offers for query "${query}".`,
-      retryable: true,
-      reasonCode: "env_limited",
-      provider: providerId,
-      source: "shopping",
-      details: {
-        query,
-        recordsCount: records.length,
-        noOfferRecords: true,
-        reasonCode: "env_limited"
-      }
-    }
-  };
-
-  for (const record of records) {
-    const url = typeof record.url === "string" ? canonicalizeUrl(record.url) : undefined;
-    const title = normalizePlainText(record.title) || undefined;
-    const message = toSnippet(normalizePlainText(record.content), 800) || undefined;
-    const blocker = classifyBlockerSignal({
-      source: "runtime_fetch",
-      ...(url ? { url, finalUrl: url } : {}),
-      ...(title ? { title } : {}),
-      ...(message ? { message } : {}),
-      providerErrorCode: "unavailable",
-      retryable: true
-    });
-    if (!blocker || blocker.type === "unknown") continue;
-
-    const reasonCode = blocker.reasonCode ?? "env_limited";
-    return {
-      provider: providerId,
-      source: "shopping",
-      error: {
-        code: "unavailable",
-        message: `Provider returned no usable shopping offers for query "${query}".`,
-        retryable: blocker.retryable,
-        reasonCode,
-        provider: providerId,
-        source: "shopping",
-        details: {
-          query,
-          recordsCount: records.length,
-          noOfferRecords: true,
-          reasonCode,
-          blockerType: blocker.type,
-          blockerConfidence: blocker.confidence,
-          ...(url ? { url } : {}),
-          ...(title ? { title } : {})
-        }
-      }
-    };
-  }
-
-  return fallbackFailure;
-};
-
-const createEmptyShoppingResultFailure = (
-  providerId: string,
-  query: string,
-  records: NormalizedRecord[]
-): ProviderFailureEntry => inferShoppingNoOfferFailure(providerId, query, records);
 
 const hasStructuredShoppingPrice = (record: NormalizedRecord): boolean => {
   const nested = record.attributes.shopping_offer;
@@ -1214,6 +1431,15 @@ const resolveProductBrand = (
   productUrl: string,
   refreshedBrand: string | undefined
 ): string => {
+  const canonicalHostBrand = normalizePlainText(inferBrandFromUrl(productUrl))
+    .replace(/\.com\b/gi, "")
+    .toLowerCase();
+  const rejectRetailerBrand = (candidate: string | undefined): string | undefined => {
+    const normalized = normalizePlainText(candidate);
+    if (!normalized) return undefined;
+    const canonicalCandidate = normalized.replace(/\.com\b/gi, "").toLowerCase();
+    return canonicalHostBrand && canonicalCandidate === canonicalHostBrand ? undefined : normalized;
+  };
   const nested = record.attributes.shopping_offer;
   const nestedProvider = nested && typeof nested === "object" && !Array.isArray(nested)
     ? (nested as Record<string, unknown>).provider
@@ -1222,13 +1448,16 @@ const resolveProductBrand = (
     ? SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === nestedProvider)?.displayName
     : undefined;
   const candidates = [
-    refreshedBrand,
-    typeof record.attributes.brand === "string" ? record.attributes.brand : undefined,
-    typeof record.attributes.site_name === "string" ? record.attributes.site_name : undefined,
-    providerBrand && providerBrand !== "Others" ? providerBrand : undefined,
+    inferBrandFromContent(record.content),
+    rejectRetailerBrand(refreshedBrand),
+    rejectRetailerBrand(typeof record.attributes.brand === "string" ? record.attributes.brand : undefined),
+    rejectRetailerBrand(typeof record.attributes.site_name === "string" ? record.attributes.site_name : undefined),
+    rejectRetailerBrand(providerBrand && providerBrand !== "Others" ? providerBrand : undefined),
     extractBrandFromTitle(record.title),
     inferBrandFromUrl(productUrl)
-  ].map((entry) => normalizePlainText(entry)).filter(Boolean);
+  ]
+    .map((entry) => sanitizeProductBrandCandidate(entry, productUrl))
+    .filter(Boolean);
   return candidates[0] || "unknown";
 };
 
@@ -1244,22 +1473,53 @@ const resolveProductTitle = (
     : undefined;
   const candidates = [
     refreshedTitle,
+    inferTitleFromContent(record.content),
     record.title,
     typeof nestedTitle === "string" ? nestedTitle : undefined,
     typeof record.attributes.description === "string" ? record.attributes.description.split(/(?<=[.!?])\s+/)[0] : undefined,
     trimProductCopy(record.content ?? "").split(/(?<=[.!?])\s+/)[0]
   ]
-    .map((entry) => stripBrandSuffix(normalizePlainText(entry), brand))
-    .filter((entry) => entry.length > 0 && !LOOKS_LIKE_URL_RE.test(entry) && entry !== canonicalizeUrl(productUrl));
+    .map((entry) => stripBrandSuffix(stripMarketplaceTitleFraming(normalizePlainText(entry), productUrl), brand))
+    .filter((entry) =>
+      entry.length > 0
+      && !LOOKS_LIKE_URL_RE.test(entry)
+      && entry !== canonicalizeUrl(productUrl)
+      && !isMarketplaceTitleChrome(entry, productUrl)
+    );
   return candidates[0] || productUrl;
 };
 
 const resolveProductCopy = (
   record: NormalizedRecord,
-  refreshedDescription: string | undefined
+  productUrl: string,
+  refreshedDescription: string | undefined,
+  featureList: string[]
 ): string => {
   const preferred = normalizePlainText(refreshedDescription)
     || normalizePlainText(typeof record.attributes.description === "string" ? record.attributes.description : undefined);
+  const marketplacePromoCopy = (() => {
+    if (!preferred) return false;
+    try {
+      const host = new URL(productUrl).hostname.toLowerCase();
+      return host.includes("walmart.") && /\bfree shipping!?/i.test(preferred);
+    } catch {
+      return false;
+    }
+  })();
+  if (preferred && !MARKETPLACE_COPY_RE.test(preferred) && !marketplacePromoCopy) {
+    return toSnippet(preferred, 8000);
+  }
+  const marketplaceSummaryCopy = extractMarketplaceSummaryCopy(record.content, productUrl);
+  if (marketplaceSummaryCopy) {
+    return toSnippet(marketplaceSummaryCopy, 8000);
+  }
+  if (featureList.length > 0) {
+    return toSnippet(featureList.slice(0, 2).join(" "), 8000);
+  }
+  const featureSectionCopy = normalizePlainText(extractProductFeatureSection(record.content));
+  if (featureSectionCopy) {
+    return toSnippet(featureSectionCopy, 8000);
+  }
   if (preferred) {
     return toSnippet(preferred, 8000);
   }
@@ -1276,86 +1536,246 @@ const resolveShoppingSourceForUrl = (url: string): ProviderSource => {
   }
 };
 
+type ResearchSanitizeReason =
+  | "js_required_shell"
+  | "login_shell"
+  | "not_found_shell"
+  | "search_index_shell"
+  | "search_results_shell";
+
+const classifyResearchShellRecord = (record: NormalizedRecord): ResearchSanitizeReason | null => {
+  const retrievalPath = typeof record.attributes.retrievalPath === "string"
+    ? record.attributes.retrievalPath
+    : "";
+
+  const url = typeof record.url === "string" ? record.url.trim().toLowerCase() : "";
+  const title = normalizePlainText(record.title).toLowerCase();
+  const content = normalizePlainText(record.content).toLowerCase();
+  const combined = `${title} ${content}`.trim();
+
+  if (RESEARCH_LOGIN_SHELL_RE.test(combined) || url.includes("/login")) {
+    return "login_shell";
+  }
+  if (RESEARCH_JS_REQUIRED_RE.test(combined)) {
+    return "js_required_shell";
+  }
+  if (RESEARCH_NOT_FOUND_SHELL_RE.test(combined)) {
+    return "not_found_shell";
+  }
+  if (!retrievalPath) {
+    return null;
+  }
+  if (RESEARCH_ALWAYS_SANITIZED_PATHS.has(retrievalPath)) {
+    return "search_index_shell";
+  }
+  if (!RESEARCH_CONDITIONAL_SANITIZED_PATHS.has(retrievalPath)) {
+    return null;
+  }
+  if (retrievalPath === "web:search:index" && (/duckduckgo\.com/.test(url) || LOOKS_LIKE_URL_RE.test(title))) {
+    return "search_index_shell";
+  }
+  if (LOOKS_LIKE_URL_RE.test(title) && RESEARCH_GENERIC_SHELL_RE.test(combined)) {
+    return "search_results_shell";
+  }
+  if (
+    RESEARCH_SEARCH_SHELL_RE.test(combined)
+    || url.includes("/search")
+    || isDuckDuckGoResearchShellUrl(url)
+  ) {
+    return "search_results_shell";
+  }
+  return null;
+};
+
+const sanitizeResearchRecords = (
+  records: NormalizedRecord[]
+): {
+  records: NormalizedRecord[];
+  sanitizedCount: number;
+  reasonDistribution: Record<string, number>;
+} => {
+  const reasonDistribution: Record<string, number> = {};
+  const sanitizedRecords = records.filter((record) => {
+    const reason = classifyResearchShellRecord(record);
+    if (!reason) return true;
+    reasonDistribution[reason] = (reasonDistribution[reason] ?? 0) + 1;
+    return false;
+  });
+
+  return {
+    records: sanitizedRecords,
+    sanitizedCount: records.length - sanitizedRecords.length,
+    reasonDistribution
+  };
+};
+
+const isValidHttpUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const classifyInvalidProductTarget = (
+  record: NormalizedRecord
+): { reason: "http_status" | "not_found_shell"; message: string } | null => {
+  const status = asNumber(record.attributes.status);
+  if (status === 404 || status === 410) {
+    return {
+      reason: "http_status",
+      message: "Product target appears to be a not-found page"
+    };
+  }
+
+  const title = normalizePlainText(record.title);
+  const content = normalizePlainText(record.content);
+  const combined = `${title} ${content}`.trim();
+  if ((/\b404\b/i.test(title) || /\bnot found\b/i.test(title) || /\b404\b/i.test(content)) && PRODUCT_TARGET_NOT_FOUND_RE.test(combined)) {
+    return {
+      reason: "not_found_shell",
+      message: "Product target appears to be a not-found page"
+    };
+  }
+  return null;
+};
+
 export const runResearchWorkflow = async (
   runtime: ProviderExecutor,
-  input: ResearchRunInput
+  input: ResearchRunInput | WorkflowResumeEnvelope
 ): Promise<Record<string, unknown>> => {
-  const topic = input.topic?.trim();
-  if (!topic) {
-    throw new Error("topic is required");
+  const envelope = isWorkflowResumeEnvelope(input as unknown as JsonValue)
+    ? input as WorkflowResumeEnvelope
+    : buildWorkflowResumeEnvelope("research", input as unknown as JsonValue);
+  if (envelope.kind !== "research") {
+    throw new Error(`Research workflow envelope kind mismatch. Expected research but received ${envelope.kind}.`);
   }
 
-  const { sourceSelection, resolved } = resolveResearchSources(input);
-  const now = new Date();
-  const timebox = resolveTimebox({
-    days: input.days,
-    from: input.from,
-    to: input.to,
-    now
-  });
-  if (resolved.includes("shopping")) {
-    enforceShoppingLegalReviewGate(SHOPPING_PROVIDER_IDS, now);
-  }
-  const excludedProviders = resolveAutoExcludedProviders(sourceSelection, resolved);
-  const excludedProviderSet = new Set(excludedProviders);
-
-  const runs = await Promise.all(resolved.map(async (source) => {
-    const result = await runtime.search({
-      query: topic,
-      limit: input.limitPerSource ?? 10,
-      filters: {
-        include_engagement: input.includeEngagement ?? false,
-        timebox_from: timebox.from,
-        timebox_to: timebox.to
+  const workflowInput = envelope.input as unknown as ResearchRunInput;
+  let trace: WorkflowTraceEntry[] = [
+    ...(envelope.trace ?? []),
+    {
+      at: new Date().toISOString(),
+      stage: "compile",
+      event: "compile_started",
+      details: {
+        kind: "research"
       }
-    }, withCookieOverrides({
-      source
-    }, input));
-    trackProviderSignals(result);
-    return {
-      source,
-      result
-    };
-  }));
+    }
+  ];
+  const plan = compileResearchExecutionPlan({
+    input: workflowInput,
+    envelope,
+    now: new Date(),
+    getDegradedProviders: () => getRuntimeDegradedProviders(runtime)
+  });
+  trace = [
+    ...trace,
+    {
+      at: new Date().toISOString(),
+      stage: "compile",
+      event: "compile_completed",
+      details: {
+        searchSteps: plan.plan.steps.length,
+        completedSteps: plan.checkpointState.completed_step_ids.length
+      }
+    }
+  ];
 
+  const buildResearchStepOptions = (
+    step: ResearchWorkflowExecutionStep,
+    stepEnvelope: WorkflowResumeEnvelope
+  ): ProviderRunOptions => {
+    const stepOptions = withChallengeAutomationOverride(withCookieOverrides({
+      source: step.input.source,
+      ...(typeof workflowInput.timeoutMs === "number" ? { timeoutMs: workflowInput.timeoutMs } : {})
+    }, workflowInput), workflowInput);
+
+    return withWorkflowResumeEnvelopeIntent(
+      stepOptions,
+      "workflow.research",
+      stepEnvelope
+    );
+  };
+
+  const execution = await executeResearchWorkflowPlan(runtime, plan, {
+    trace,
+    buildStepOptions: buildResearchStepOptions,
+    observeResult: (result) => {
+      observeWorkflowSignals(runtime, result);
+    }
+  });
+
+  const excludedProviderSet = new Set(plan.compiled.autoExcludedProviders);
   const mergedRecords = removeExcludedProviders(
-    runs.flatMap((run) => run.result.records),
+    [
+      ...execution.searchRuns.flatMap((run) => run.result.records),
+      ...execution.followUpRuns.flatMap((run) => run.result.records)
+    ],
     excludedProviderSet
   );
+  const sanitizedRecords = sanitizeResearchRecords(mergedRecords);
   const mergedFailures = removeExcludedProviders(
-    runs.flatMap((run) => run.result.failures),
+    [
+      ...execution.searchRuns.flatMap((run) => run.result.failures),
+      ...execution.followUpRuns.flatMap((run) => run.result.failures)
+    ],
     excludedProviderSet
   );
   const reasonCodeDistribution = summarizeReasonCodeDistribution(mergedFailures);
   const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(mergedFailures);
   const evaluationNow = new Date();
-  const withinTimebox = filterByTimebox(mergedRecords, timebox, evaluationNow);
-  const enriched = enrichResearchRecords(withinTimebox, timebox, evaluationNow);
+  const withinTimebox = filterByTimebox(sanitizedRecords.records, plan.compiled.timebox, evaluationNow);
+  const enriched = enrichResearchRecords(withinTimebox, plan.compiled.timebox, evaluationNow);
   const deduped = dedupeResearchRecords(enriched);
   const ranked = rankResearchRecords(deduped);
+  const noUsableResearchRecords = mergedRecords.length > 0
+    && mergedFailures.length === 0
+    && ranked.length === 0;
   const cookieDiagnostics = summarizeCookieDiagnostics(mergedFailures, mergedRecords);
   const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(ranked);
   const transcriptDurability = summarizeTranscriptDurability(ranked, mergedFailures);
   const antiBotPressure = summarizeAntiBotPressure(mergedFailures);
-  const resolvedTimebox = timebox.mode === "days"
+  const resolvedTimebox = plan.compiled.timebox.mode === "days"
     ? {
-      ...timebox,
-      to: new Date(Math.max(new Date(timebox.to).getTime(), evaluationNow.getTime())).toISOString()
+      ...plan.compiled.timebox,
+      to: new Date(Math.max(new Date(plan.compiled.timebox.to).getTime(), evaluationNow.getTime())).toISOString()
     }
-    : timebox;
+    : plan.compiled.timebox;
 
+  if (noUsableResearchRecords && sanitizedRecords.records.length === 0) {
+    const sanitizedReasons = Object.entries(sanitizedRecords.reasonDistribution)
+      .map(([reason, count]) => `${reason}:${count}`)
+      .join(",");
+    throw new Error(
+      `Research workflow produced only shell records and no usable results (${sanitizedReasons || "sanitized"}).`
+    );
+  }
+
+  if (noUsableResearchRecords && sanitizedRecords.records.length > 0 && withinTimebox.length === 0) {
+    throw new Error("Research workflow produced no usable in-timebox results after sanitization.");
+  }
+
+  if (noUsableResearchRecords) {
+    throw new Error("Research workflow produced no usable results after post-processing.");
+  }
+
+  const primaryConstraintFailures = selectResearchPrimaryConstraintFailures(mergedFailures);
   const meta = withPrimaryConstraintMeta({
     timebox: resolvedTimebox,
     selection: withExcludedProviders({
-      source_selection: sourceSelection,
-      resolved_sources: resolved
-    }, excludedProviders),
+      source_selection: plan.compiled.sourceSelection,
+      resolved_sources: plan.compiled.resolvedSources
+    }, plan.compiled.autoExcludedProviders),
     metrics: {
       total_records: mergedRecords.length,
+      sanitized_records: sanitizedRecords.sanitizedCount,
+      sanitized_reason_distribution: sanitizedRecords.reasonDistribution,
+      sanitizedReasonDistribution: sanitizedRecords.reasonDistribution,
       within_timebox: withinTimebox.length,
       final_records: ranked.length,
-      failed_sources: runs.filter((run) => !run.result.ok).map((run) => run.source),
-      reason_code_distribution: reasonCodeDistribution,
+      failed_sources: execution.searchRuns.filter((run) => !run.result.ok).map((run) => run.source),
       reasonCodeDistribution,
       transcript_strategy_failures: transcriptStrategyFailures,
       transcriptStrategyFailures,
@@ -1371,24 +1791,24 @@ export const runResearchWorkflow = async (
       antiBotPressure
     },
     failures: mergedFailures,
-    alerts: buildAlerts()
-  } as Record<string, unknown>, mergedFailures);
+    alerts: buildWorkflowAlerts(runtime, mergedFailures)
+  } as Record<string, unknown>, primaryConstraintFailures);
 
   const rendered = renderResearch({
-    mode: input.mode,
-    topic,
+    mode: workflowInput.mode,
+    topic: plan.compiled.topic,
     records: ranked,
     meta
   });
 
   const bundle = await createArtifactBundle({
     namespace: "research",
-    outputDir: input.outputDir,
-    ttlHours: input.ttlHours,
+    outputDir: workflowInput.outputDir,
+    ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
 
-  if (input.mode === "path") {
+  if (workflowInput.mode === "path") {
     return {
       ...rendered.response,
       path: bundle.basePath,
@@ -1413,91 +1833,126 @@ export const runResearchWorkflow = async (
 
 export const runShoppingWorkflow = async (
   runtime: ProviderExecutor,
-  input: ShoppingRunInput
+  input: ShoppingRunInput | WorkflowResumeEnvelope
 ): Promise<Record<string, unknown>> => {
-  const query = input.query?.trim();
-  if (!query) {
-    throw new Error("query is required");
+  const envelope = isWorkflowResumeEnvelope(input as unknown as JsonValue)
+    ? input as WorkflowResumeEnvelope
+    : buildWorkflowResumeEnvelope("shopping", input as unknown as JsonValue);
+  if (envelope.kind !== "shopping") {
+    throw new Error(`Shopping workflow envelope kind mismatch. Expected shopping but received ${envelope.kind}.`);
   }
 
-  const providerIds = resolveShoppingProviders(input.providers);
-  const hasExplicitProviderSelection = Boolean(input.providers && input.providers.length > 0);
-  const degradedProviders = getDegradedProviders();
-  const autoExcludedProviders = hasExplicitProviderSelection
-    ? []
-    : providerIds.filter((providerId) => degradedProviders.has(providerId));
-  const effectiveProviderIds = hasExplicitProviderSelection
-    ? providerIds
-    : providerIds.filter((providerId) => !degradedProviders.has(providerId));
-  const now = new Date();
-  if (effectiveProviderIds.length === 0) {
-    throw new Error("All default shopping providers are temporarily excluded due to degraded anti-bot/rate-limit state");
-  }
-  enforceShoppingLegalReviewGate(effectiveProviderIds, now);
-
-  const runs = await Promise.all(effectiveProviderIds.map(async (providerId) => {
-    const result = await runtime.search({
-      query,
-      limit: 8,
-      filters: {
-        ...(typeof input.budget === "number" ? { budget: input.budget } : {}),
-        ...(input.region ? { region: input.region } : {})
+  const workflowInput = envelope.input as unknown as ShoppingRunInput;
+  let trace: WorkflowTraceEntry[] = [
+    ...(envelope.trace ?? []),
+    {
+      at: new Date().toISOString(),
+      stage: "compile",
+      event: "compile_started",
+      details: {
+        kind: "shopping"
       }
-    }, withCookieOverrides({
-      source: "shopping",
-      providerIds: [providerId],
-      ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {})
-    }, input));
-    trackProviderSignals(result);
-    return {
-      providerId,
-      result
-    };
-  }));
-
-  const runsWithOfferRecords = runs.map((run) => ({
-    ...run,
-    offerRecords: run.result.records.filter((record) => isLikelyOfferRecord(record))
-  }));
-
-  const extractedOffers = runsWithOfferRecords
-    .flatMap((run) => run.offerRecords)
-    .map((record) => extractShoppingOffer(record, now))
-    .filter((offer) => {
-      if (typeof input.budget !== "number") return true;
-      return offer.price.amount > 0 && offer.price.amount <= input.budget;
-    });
-
-  const offers = rankOffers(
-    dedupeOffers(extractedOffers),
-    input.sort ?? "best_deal"
-  );
-
-  const failures = runsWithOfferRecords.flatMap((run) => {
-    if (run.result.failures.length > 0) {
-      return run.result.failures;
     }
-    if (run.offerRecords.length > 0) {
-      return [];
-    }
-    return [createEmptyShoppingResultFailure(run.providerId, query, run.result.records)];
+  ];
+  const plan = compileShoppingExecutionPlan({
+    input: workflowInput,
+    envelope,
+    now: new Date(),
+    getDegradedProviders: (providerIds) => getRuntimeDegradedProviders(runtime, providerIds)
   });
-  const records = runsWithOfferRecords.flatMap((run) => run.result.records);
+  trace = [
+    ...trace,
+    {
+      at: new Date().toISOString(),
+      stage: "compile",
+      event: "compile_completed",
+      details: {
+        searchSteps: plan.plan.steps.length,
+        completedSteps: plan.checkpointState.completed_step_ids.length
+      }
+    }
+  ];
+
+  const buildShoppingStepOptions = (
+    step: ShoppingWorkflowExecutionStep,
+    stepEnvelope: WorkflowResumeEnvelope
+  ): ProviderRunOptions => {
+    const stepOptions = withBrowserModeOverride(
+      withChallengeAutomationOverride(
+        withCookieOverrides({
+          source: "shopping",
+          providerIds: [step.input.providerId],
+          ...(typeof workflowInput.timeoutMs === "number" ? { timeoutMs: workflowInput.timeoutMs } : {})
+        }, workflowInput),
+        workflowInput
+      ),
+      workflowInput
+    );
+
+    return withWorkflowResumeEnvelopeIntent(
+      stepOptions,
+      "workflow.shopping",
+      stepEnvelope
+    );
+  };
+
+  const execution = await executeShoppingWorkflowPlan(runtime, plan, {
+    trace,
+    buildStepOptions: buildShoppingStepOptions,
+    observeResult: (result) => {
+      observeWorkflowSignals(runtime, result);
+    }
+  });
+
+  const {
+    offers,
+    failures,
+    records,
+    zeroPriceExcluded,
+    budgetExcluded,
+    regionCurrencyExcluded,
+    offerFilterDiagnostics
+  } = postprocessShoppingWorkflow(plan.compiled, execution.runs);
   const reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
   const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(failures);
   const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(records);
   const transcriptDurability = summarizeTranscriptDurability(records, failures);
   const cookieDiagnostics = summarizeCookieDiagnostics(failures, records);
+  const challengeOrchestration = summarizeChallengeOrchestration(failures, records);
+  const browserFallbackModesObserved = summarizeBrowserFallbackModes(failures, records);
   const antiBotPressure = summarizeAntiBotPressure(failures);
-  const meta = withPrimaryConstraintMeta({
+  const alerts = buildWorkflowAlerts(runtime, failures, plan.compiled.effectiveProviderIds);
+  const regionEnforced = plan.compiled.regionDiagnostics.length > 0
+    ? plan.compiled.regionDiagnostics.every((entry) => entry.enforced)
+    : false;
+  if (plan.compiled.regionDiagnostics.length > 0) {
+    alerts.push({
+      signal: "region_unenforced",
+      reasonCode: "region_unenforced",
+      state: "warning",
+      reason: "Default shopping adapters currently use provider default storefronts, so requested region filters are advisory only and not authoritative.",
+      providers: plan.compiled.regionDiagnostics.map((entry) => entry.provider),
+      requested_region: workflowInput.region ?? plan.compiled.regionDiagnostics[0]?.requestedRegion ?? ""
+    });
+  }
+  let meta = withPrimaryConstraintMeta({
     selection: {
-      providers: effectiveProviderIds,
-      ...(autoExcludedProviders.length > 0 ? { excluded_providers: autoExcludedProviders } : {})
+      providers: plan.compiled.effectiveProviderIds,
+      ...(plan.compiled.autoExcludedProviders.length > 0 ? { excluded_providers: plan.compiled.autoExcludedProviders } : {}),
+      ...(workflowInput.browserMode ? { requested_browser_mode: workflowInput.browserMode } : {}),
+      ...(workflowInput.region
+        ? {
+          requested_region: workflowInput.region,
+          region_enforced: regionEnforced,
+          region_authoritative: regionEnforced,
+          region_support: plan.compiled.regionDiagnostics
+        }
+        : {})
     },
     metrics: {
       total_offers: offers.length,
+      candidate_offers: offerFilterDiagnostics.reduce((sum, entry) => sum + entry.candidateOffers, 0),
       failed_providers: failures.map((entry) => entry.provider),
-      reason_code_distribution: reasonCodeDistribution,
       reasonCodeDistribution,
       transcript_strategy_failures: transcriptStrategyFailures,
       transcriptStrategyFailures,
@@ -1509,28 +1964,47 @@ export const runShoppingWorkflow = async (
       transcriptDurability,
       cookie_diagnostics: cookieDiagnostics,
       cookieDiagnostics,
+      challenge_orchestration: challengeOrchestration,
+      challengeOrchestration,
+      browser_fallback_modes_observed: browserFallbackModesObserved,
+      browserFallbackModesObserved,
       anti_bot_pressure: antiBotPressure,
-      antiBotPressure
+      antiBotPressure,
+      zero_price_excluded: zeroPriceExcluded,
+      budget_excluded: budgetExcluded,
+      region_currency_excluded: regionCurrencyExcluded
     },
+    offerFilterDiagnostics,
     failures,
-    alerts: buildAlerts()
+    alerts
   } as Record<string, unknown>, failures);
 
+  const filterConstraintSummary = summarizeShoppingOfferFilterConstraint({
+    diagnostics: offerFilterDiagnostics,
+    budget: plan.compiled.budget,
+    region: workflowInput.region,
+    regionEnforced,
+    failures
+  });
+  if (typeof filterConstraintSummary === "string") {
+    meta = withPrimaryConstraintSummaryOverride(meta, filterConstraintSummary);
+  }
+
   const rendered = renderShopping({
-    mode: input.mode,
-    query,
+    mode: workflowInput.mode,
+    query: plan.compiled.query,
     offers,
     meta
   });
 
   const bundle = await createArtifactBundle({
     namespace: "shopping",
-    outputDir: input.outputDir,
-    ttlHours: input.ttlHours,
+    outputDir: workflowInput.outputDir,
+    ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
 
-  if (input.mode === "path") {
+  if (workflowInput.mode === "path") {
     return {
       ...rendered.response,
       path: bundle.basePath,
@@ -1555,127 +2029,336 @@ export const runShoppingWorkflow = async (
 
 export const runProductVideoWorkflow = async (
   runtime: ProviderExecutor,
-  input: ProductVideoRunInput,
+  input: ProductVideoRunInput | WorkflowResumeEnvelope,
   options: ProductVideoWorkflowOptions = {}
 ): Promise<Record<string, unknown>> => {
-  const startedAtMs = Date.now();
-  const includeScreenshots = input.include_screenshots ?? true;
-  const includeAllImages = input.include_all_images ?? true;
-  const includeCopy = input.include_copy ?? true;
-  const timeoutOptions = typeof input.timeoutMs === "number"
-    ? { timeoutMs: input.timeoutMs }
-    : {};
-  const remainingTimeoutMs = (): number | undefined => {
-    if (typeof input.timeoutMs !== "number" || !Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0) {
-      return undefined;
-    }
-    return Math.max(1, input.timeoutMs - Math.max(0, Date.now() - startedAtMs));
-  };
-
-  const candidateUrl = input.product_url?.trim();
-  const candidateName = input.product_name?.trim();
-
-  if (!candidateUrl && !candidateName) {
-    throw new Error("product_url or product_name is required");
+  const envelope = isWorkflowResumeEnvelope(input as unknown as JsonValue)
+    ? input as WorkflowResumeEnvelope
+    : buildWorkflowResumeEnvelope("product_video", input as unknown as JsonValue);
+  if (envelope.kind !== "product_video") {
+    throw new Error(`Product-video workflow envelope kind mismatch. Expected product_video but received ${envelope.kind}.`);
   }
 
-  let productUrl = candidateUrl;
-  let providerHint = input.provider_hint?.trim();
-
-  if (!productUrl && candidateName) {
-    const shoppingResult = await runShoppingWorkflow(runtime, {
-      query: candidateName,
-      providers: providerHint ? [providerHint] : undefined,
-      mode: "json",
-      ...timeoutOptions,
-      useCookies: input.useCookies,
-      cookiePolicyOverride: input.cookiePolicyOverride
-    });
-
-    const offers = shoppingResult.offers as ShoppingOffer[];
-    const resolutionSummary = (shoppingResult.meta as Record<string, unknown>).primaryConstraintSummary
-      ?? (shoppingResult.meta as Record<string, unknown>).primary_constraint_summary;
-    if (offers.length === 0) {
-      throw new Error(
-        typeof resolutionSummary === "string"
-          ? resolutionSummary
-          : (
-            /* c8 ignore next -- no-offer shopping responses always carry a canonical summary */
-            "Unable to resolve product URL from product_name"
-          )
-      );
+  let trace: WorkflowTraceEntry[] = [
+    ...(envelope.trace ?? []),
+    {
+      at: new Date().toISOString(),
+      stage: "compile",
+      event: "compile_started",
+      details: {
+        kind: "product_video"
+      }
     }
-    productUrl = offers[0]?.url;
-    providerHint = offers[0]?.provider;
+  ];
+  const plan = compileProductVideoExecutionPlan({
+    input: envelope.input as unknown as ProductVideoRunInput,
+    envelope
+  });
+  trace = [
+    ...trace,
+    {
+      at: new Date().toISOString(),
+      stage: "compile",
+      event: "compile_completed",
+      details: {
+        steps: plan.plan.steps.length,
+        completedSteps: plan.checkpointState.completed_step_ids.length,
+        resolutionRequired: plan.compiled.resolutionRequired
+      }
+    }
+  ];
+
+  const workflowInput = plan.input;
+  const startedAtMs = Date.now();
+  const includeScreenshots = plan.compiled.includeScreenshots;
+  const includeAllImages = plan.compiled.includeAllImages;
+  const includeCopy = plan.compiled.includeCopy;
+  const timeoutOptions = typeof workflowInput.timeoutMs === "number"
+    ? { timeoutMs: workflowInput.timeoutMs }
+    : {};
+  const remainingTimeoutMs = (): number | undefined => {
+    if (typeof workflowInput.timeoutMs !== "number" || !Number.isFinite(workflowInput.timeoutMs) || workflowInput.timeoutMs <= 0) {
+      return undefined;
+    }
+    return Math.max(1, workflowInput.timeoutMs - Math.max(0, Date.now() - startedAtMs));
+  };
+  const appendProductVideoTrace = (
+    currentTrace: WorkflowTraceEntry[],
+    stage: WorkflowTraceEntry["stage"],
+    event: string,
+    details: Record<string, JsonValue>
+  ): WorkflowTraceEntry[] => [
+    ...currentTrace,
+    {
+      at: new Date().toISOString(),
+      stage,
+      event,
+      details
+    }
+  ];
+  const buildProductVideoCheckpoint = (
+    checkpointState: ProductVideoWorkflowCheckpointState,
+    step: ProductVideoWorkflowExecutionStep,
+    stepIndex: number
+  ): WorkflowCheckpoint => ({
+    stage: "execute",
+    stepId: step.id,
+    stepIndex,
+    state: serializeProductVideoCheckpointState(checkpointState),
+    updatedAt: new Date().toISOString()
+  });
+  const markProductVideoStepCompleted = (
+    checkpointState: ProductVideoWorkflowCheckpointState,
+    stepId: string,
+    updates: Partial<Omit<ProductVideoWorkflowCheckpointState, "completed_step_ids">> = {}
+  ): ProductVideoWorkflowCheckpointState => ({
+    ...checkpointState,
+    ...updates,
+    completed_step_ids: checkpointState.completed_step_ids.includes(stepId)
+      ? checkpointState.completed_step_ids
+      : [...checkpointState.completed_step_ids, stepId]
+  });
+  const getRequiredProductVideoStep = <
+    TStepId extends ProductVideoWorkflowExecutionStep["id"]
+  >(stepId: TStepId): Extract<ProductVideoWorkflowExecutionStep, { id: TStepId }> => {
+    const step = plan.plan.steps.find(
+      (candidate): candidate is Extract<ProductVideoWorkflowExecutionStep, { id: TStepId }> => candidate.id === stepId
+    );
+    if (!step) {
+      throw new Error(`Product-video workflow plan is missing required step ${stepId}.`);
+    }
+    return step;
+  };
+
+  let checkpointState: ProductVideoWorkflowCheckpointState = {
+    ...plan.checkpointState,
+    completed_step_ids: [...plan.checkpointState.completed_step_ids]
+  };
+  let productUrl = checkpointState.resolved_product_url ?? plan.compiled.productUrl;
+  let providerHint = checkpointState.resolved_provider_hint ?? plan.compiled.providerHint;
+  let stepIndex = 0;
+
+  const normalizeStep = getRequiredProductVideoStep(PRODUCT_VIDEO_STEP_IDS.normalizeInput);
+  stepIndex += 1;
+  trace = appendProductVideoTrace(trace, "execute", "step_started", {
+    stepId: normalizeStep.id,
+    stepKind: normalizeStep.kind
+  });
+  checkpointState = markProductVideoStepCompleted(checkpointState, normalizeStep.id);
+  trace = appendProductVideoTrace(trace, "execute", "step_completed", {
+    stepId: normalizeStep.id,
+    stepKind: normalizeStep.kind,
+    resolutionRequired: plan.compiled.resolutionRequired
+  });
+
+  const resolveStep = plan.plan.steps.find(
+    (step): step is Extract<ProductVideoWorkflowExecutionStep, { id: typeof PRODUCT_VIDEO_STEP_IDS.resolveProductUrl }> => (
+      step.id === PRODUCT_VIDEO_STEP_IDS.resolveProductUrl
+    )
+  );
+  if (resolveStep) {
+    const currentStepIndex = stepIndex;
+    stepIndex += 1;
+    if (checkpointState.completed_step_ids.includes(resolveStep.id)) {
+      if (!checkpointState.resolved_product_url) {
+        throw new Error("Product-video workflow checkpoint is missing resolved_product_url for a completed resolution step.");
+      }
+      productUrl = checkpointState.resolved_product_url;
+      providerHint = checkpointState.resolved_provider_hint ?? providerHint;
+      trace = appendProductVideoTrace(trace, "resume", "step_reused", {
+        stepId: resolveStep.id,
+        stepKind: resolveStep.kind
+      });
+    } else {
+      trace = appendProductVideoTrace(trace, "execute", "step_started", {
+        stepId: resolveStep.id,
+        stepKind: resolveStep.kind
+      });
+      const shoppingResult = await runShoppingWorkflow(runtime, {
+        query: resolveStep.input.product_name,
+        providers: providerHint ? [providerHint] : undefined,
+        mode: "json",
+        ...timeoutOptions,
+        useCookies: workflowInput.useCookies,
+        challengeAutomationMode: workflowInput.challengeAutomationMode,
+        cookiePolicyOverride: workflowInput.cookiePolicyOverride
+      });
+
+      const offers = shoppingResult.offers as ShoppingOffer[];
+      const resolutionSummary = (shoppingResult.meta as Record<string, unknown>).primaryConstraintSummary;
+      if (offers.length === 0) {
+        throw new Error(
+          typeof resolutionSummary === "string"
+            ? resolutionSummary
+            : (
+              /* c8 ignore next -- no-offer shopping responses always carry a canonical summary */
+              "Unable to resolve product URL from product_name"
+            )
+        );
+      }
+      const resolvedOffer = offers.find((offer) => /^https?:\/\//i.test(offer.url)) ?? offers[0];
+      productUrl = resolvedOffer?.url;
+      providerHint = resolvedOffer?.provider;
+      checkpointState = markProductVideoStepCompleted(checkpointState, resolveStep.id, {
+        resolved_product_url: productUrl,
+        resolved_provider_hint: providerHint
+      });
+      trace = appendProductVideoTrace(trace, "execute", "step_completed", {
+        stepId: resolveStep.id,
+        stepKind: resolveStep.kind,
+        offers: offers.length,
+        ...(productUrl ? { resolvedProductUrl: productUrl } : {})
+      });
+    }
   }
 
   if (!productUrl) {
     throw new Error("Unable to resolve product URL");
   }
 
-  const source = resolveShoppingSourceForUrl(productUrl);
-  const shoppingProviderId = source === "shopping"
-    ? (
-      providerHint
-        ? (providerHint.startsWith("shopping/") ? providerHint : `shopping/${providerHint}`)
-        : resolveShoppingProviderIdForUrl(productUrl)
-    )
-    : null;
-  if (shoppingProviderId) {
-    enforceShoppingLegalReviewGate([shoppingProviderId], new Date());
-  }
-  const details = await runtime.fetch(
-    { url: productUrl },
-    withCookieOverrides({
-      source,
-      providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
-      ...timeoutOptions
-    }, input)
-  );
-  trackProviderSignals(details);
+  const fetchStep = getRequiredProductVideoStep(PRODUCT_VIDEO_STEP_IDS.fetchProductDetail);
+  let details: ProviderAggregateResult;
+  if (checkpointState.completed_step_ids.includes(fetchStep.id)) {
+    if (!checkpointState.detail_result) {
+      throw new Error("Product-video workflow checkpoint is missing detail_result for a completed fetch step.");
+    }
+    details = checkpointState.detail_result;
+    trace = appendProductVideoTrace(trace, "resume", "step_reused", {
+      stepId: fetchStep.id,
+      stepKind: fetchStep.kind,
+      productUrl
+    });
+    stepIndex += 1;
+  } else {
+    const source = resolveShoppingSourceForUrl(productUrl);
+    const shoppingProviderId = source === "shopping"
+      ? (
+        providerHint
+          ? (providerHint.startsWith("shopping/") ? providerHint : `shopping/${providerHint}`)
+          : resolveShoppingProviderIdForUrl(productUrl)
+      )
+      : null;
+    if (shoppingProviderId) {
+      enforceShoppingLegalReviewGate([shoppingProviderId], new Date());
+    }
 
-  if (!details.ok || details.records.length === 0) {
+    const currentStepIndex = stepIndex;
+    stepIndex += 1;
+    trace = appendProductVideoTrace(trace, "execute", "step_started", {
+      stepId: fetchStep.id,
+      stepKind: fetchStep.kind,
+      productUrl,
+      ...(shoppingProviderId ? { providerId: shoppingProviderId } : {})
+    });
+    const checkpoint = buildProductVideoCheckpoint(checkpointState, fetchStep, currentStepIndex);
+    const preSuspendTrace = appendProductVideoTrace(trace, "execute", "pre_suspend_checkpoint", {
+      stepId: fetchStep.id,
+      stepKind: fetchStep.kind,
+      completedSteps: checkpointState.completed_step_ids.length,
+      productUrl,
+      ...(providerHint ? { providerHint } : {})
+    });
+    const stepEnvelope = buildWorkflowResumeEnvelope(
+      "product_video",
+      workflowInput as unknown as JsonValue,
+      {
+        checkpoint,
+        trace: preSuspendTrace
+      }
+    );
+    details = await runtime.fetch(
+      { url: productUrl },
+      withWorkflowResumeEnvelopeIntent(
+        withChallengeAutomationOverride(
+          withCookieOverrides({
+            source,
+            providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
+            ...timeoutOptions
+          }, workflowInput),
+          workflowInput
+        ),
+        "workflow.product_video",
+        stepEnvelope
+      )
+    );
+    observeWorkflowSignals(runtime, details);
+    checkpointState = markProductVideoStepCompleted(checkpointState, PRODUCT_VIDEO_STEP_IDS.fetchProductDetail, {
+      resolved_product_url: productUrl,
+      resolved_provider_hint: providerHint,
+      detail_result: details
+    });
+    trace = appendProductVideoTrace(preSuspendTrace, "execute", "step_completed", {
+      stepId: fetchStep.id,
+      stepKind: fetchStep.kind,
+      records: details.records.length,
+      failures: details.failures.length
+    });
+  }
+
+  if (details.records.length === 0) {
     const reason = summarizePrimaryProviderIssue(details.failures)?.summary
       ?? details.error?.message
       ?? "Product details unavailable";
     throw new Error(reason);
   }
 
+  const extractStep = getRequiredProductVideoStep(PRODUCT_VIDEO_STEP_IDS.extractProductData);
+  trace = appendProductVideoTrace(trace, "execute", "step_started", {
+    stepId: extractStep.id,
+    stepKind: extractStep.kind
+  });
+  stepIndex += 1;
   const primary = details.records[0] as NormalizedRecord;
+  const invalidTarget = classifyInvalidProductTarget(primary);
+  if (invalidTarget) {
+    throw new Error(invalidTarget.message);
+  }
   const refreshedMetadata = needsProductMetadataRefresh(primary, productUrl)
     ? await refreshProductMetadata(productUrl, remainingTimeoutMs())
     : null;
   const primaryOffer = extractShoppingOffer(primary, new Date());
+  const preferredPrice = resolvePreferredProductPrice(primary, productUrl, refreshedMetadata?.price, primaryOffer);
 
   const resolvedBrand = resolveProductBrand(primary, productUrl, refreshedMetadata?.brand);
   const resolvedTitle = resolveProductTitle(primary, productUrl, resolvedBrand, refreshedMetadata?.title);
-  const resolvedPrice = refreshedMetadata?.price && refreshedMetadata.price.amount > 0
-    ? {
-      amount: refreshedMetadata.price.amount,
-      currency: refreshedMetadata.price.currency,
-      retrieved_at: primaryOffer.price.retrieved_at
-    }
-    : {
-      amount: primaryOffer.price.amount,
-      currency: primaryOffer.price.currency,
-      retrieved_at: primaryOffer.price.retrieved_at
-    };
-  const featureList = deriveFeatureList(primary, refreshedMetadata?.features ?? []);
+  const resolvedPrice = resolveProductPrice(primary, productUrl, refreshedMetadata?.price, primaryOffer);
+  if (
+    resolvedPrice.amount <= 0
+    && (
+      shouldSuppressMarketplacePrice(primary, productUrl, preferredPrice)
+      || requiresManualMarketplacePriceFollowUp(productUrl)
+    )
+  ) {
+    throw new Error(buildManualProductPriceFollowUpMessage(productUrl));
+  }
+  const featureList = deriveFeatureList(primary, productUrl, refreshedMetadata?.features ?? []);
   const imageUrls = mergeImageUrls(primary, refreshedMetadata?.imageUrls ?? []);
   const selectedImageUrls = includeAllImages ? imageUrls : imageUrls.slice(0, 1);
+  trace = appendProductVideoTrace(trace, "execute", "step_completed", {
+    stepId: extractStep.id,
+    stepKind: extractStep.kind,
+    imageCandidates: imageUrls.length,
+    featureCount: featureList.length,
+    refreshedMetadata: Boolean(refreshedMetadata)
+  });
 
+  const assembleStep = getRequiredProductVideoStep(PRODUCT_VIDEO_STEP_IDS.assembleArtifacts);
+  trace = appendProductVideoTrace(trace, "execute", "step_started", {
+    stepId: assembleStep.id,
+    stepKind: assembleStep.kind
+  });
+  stepIndex += 1;
   const files: ArtifactFile[] = [];
   const imagePaths: string[] = [];
-  for (let index = 0; index < selectedImageUrls.length; index += 1) {
-    const imageUrl = selectedImageUrls[index];
-    /* c8 ignore next -- mergeImageUrls returns only non-empty strings */
-    if (!imageUrl) continue;
+  const imageContents: Buffer[] = [];
+  for (const [index, imageUrl] of selectedImageUrls.entries()) {
     const imageContent = await fetchBinary(imageUrl, remainingTimeoutMs());
     if (!imageContent) continue;
     const extension = imageUrl.match(/\.(png|jpg|jpeg|webp|gif)(?:[?#].*)?$/i)?.[1]?.toLowerCase() ?? "jpg";
     const relativePath = `images/image-${String(index + 1).padStart(2, "0")}.${extension}`;
     files.push({ path: relativePath, content: imageContent });
     imagePaths.push(relativePath);
+    imageContents.push(imageContent);
   }
 
   const screenshotPaths: string[] = [];
@@ -1688,17 +2371,13 @@ export const runProductVideoWorkflow = async (
       files.push({ path: screenshotPath, content: screenshotBuffer });
       screenshotPaths.push(screenshotPath);
     } else if (imagePaths[0]) {
-      const firstImage = files.find((entry) => entry.path === imagePaths[0]);
-      /* c8 ignore next -- imagePaths entries are pushed from files immediately above */
-      if (firstImage) {
-        const fallbackPath = "screenshots/screenshot-01.png";
-        files.push({ path: fallbackPath, content: firstImage.content });
-        screenshotPaths.push(fallbackPath);
-      }
+      const fallbackPath = "screenshots/screenshot-01.png";
+      files.push({ path: fallbackPath, content: imageContents[0]! });
+      screenshotPaths.push(fallbackPath);
     }
   }
 
-  const copyText = includeCopy ? resolveProductCopy(primary, refreshedMetadata?.description) : "";
+  const copyText = includeCopy ? resolveProductCopy(primary, productUrl, refreshedMetadata?.description, featureList) : "";
   const pricing = resolvedPrice;
 
   const productPayload = {
@@ -1740,11 +2419,18 @@ export const runProductVideoWorkflow = async (
       content: redactRawCapture(JSON.parse(JSON.stringify(primary)) as Record<string, unknown>)
     }
   );
+  trace = appendProductVideoTrace(trace, "postprocess", "step_completed", {
+    stepId: assembleStep.id,
+    stepKind: assembleStep.kind,
+    images: imagePaths.length,
+    screenshots: screenshotPaths.length,
+    files: files.length
+  });
 
   const bundle = await createArtifactBundle({
     namespace: "product-assets",
-    outputDir: input.output_dir,
-    ttlHours: input.ttl_hours,
+    outputDir: workflowInput.output_dir,
+    ttlHours: workflowInput.ttl_hours,
     files,
     manifestFileName: "bundle-manifest.json"
   });
@@ -1755,6 +2441,7 @@ export const runProductVideoWorkflow = async (
   const transcriptDurability = summarizeTranscriptDurability(details.records, details.failures);
   const cookieDiagnostics = summarizeCookieDiagnostics(details.failures, details.records);
   const antiBotPressure = summarizeAntiBotPressure(details.failures);
+  const primaryIssue = summarizePrimaryProviderIssue(details.failures);
 
   return {
     path: bundle.basePath,
@@ -1764,9 +2451,9 @@ export const runProductVideoWorkflow = async (
     screenshots: screenshotPaths,
     images: imagePaths,
     meta: {
-      alerts: buildAlerts(),
+      alerts: buildWorkflowAlerts(runtime, details.failures),
       failures: details.failures,
-      reason_code_distribution: reasonCodeDistribution,
+      ...(primaryIssue ? { primaryConstraintSummary: primaryIssue.summary } : {}),
       reasonCodeDistribution,
       transcript_strategy_failures: transcriptStrategyFailures,
       transcriptStrategyFailures,

@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { DEFAULT_TARGET_CREATION_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
 
 function parsePageOpenArgs(rawArgs: string[]): { sessionId?: string; name?: string; url?: string } {
   const parsed: { sessionId?: string; name?: string; url?: string } = {};
@@ -47,6 +48,10 @@ export async function runPageOpen(args: ParsedArgs) {
   const { sessionId, name, url } = parsePageOpenArgs(args.rawArgs);
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!name) throw createUsageError("Missing --name");
-  const result = await callDaemon("page.open", { sessionId, name, url });
+  const result = await callDaemon(
+    "page.open",
+    { sessionId, name, url },
+    { timeoutMs: DEFAULT_TARGET_CREATION_TRANSPORT_TIMEOUT_MS }
+  );
   return { success: true, message: `Page ready: ${name}`, data: result };
 }

@@ -1,29 +1,10 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
+import { classifySessionRelayEndpoint, resolveSessionRelayRoute } from "../relay/relay-endpoints";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 
 const z = tool.schema;
-
-function normalizeRelayEndpoint(
-  wsEndpoint: string | undefined,
-  path: "cdp" | "ops",
-  allowBase: boolean
-): string | null {
-  if (!wsEndpoint) return null;
-  try {
-    const url = new URL(wsEndpoint);
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;
-    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return null;
-    if (!url.port || !/^\d+$/.test(url.port)) return null;
-    const normalizedPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    if (!allowBase && normalizedPath === "") return null;
-    if (normalizedPath && normalizedPath !== `/${path}`) return null;
-    return `${url.protocol}//${url.hostname}:${url.port}/${path}`;
-  } catch {
-    return null;
-  }
-}
 
 export function createConnectTool(deps: ToolDeps): ToolDefinition {
   return tool({
@@ -45,16 +26,16 @@ export function createConnectTool(deps: ToolDeps): ToolDefinition {
           : undefined;
         const hasExplicitCdp = Boolean(wsEndpoint || args.host || args.port);
         const relayUrl = extensionLegacy ? deps.relay?.getCdpUrl() ?? null : deps.relay?.getOpsUrl?.() ?? null;
-        const normalizedOpsEndpoint = normalizeRelayEndpoint(wsEndpoint, "ops", true);
-        const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", extensionLegacy);
-        if (normalizedLegacyEndpoint && !extensionLegacy) {
-          return failure("Legacy extension relay (/cdp) requires extensionLegacy=true.", "extension_legacy_required");
+        const parsedRelayEndpoint = classifySessionRelayEndpoint(wsEndpoint);
+        const resolvedRelayEndpoint = parsedRelayEndpoint
+          ? resolveSessionRelayRoute(parsedRelayEndpoint, { extensionLegacy })
+          : null;
+        if (resolvedRelayEndpoint && "code" in resolvedRelayEndpoint) {
+          return failure(resolvedRelayEndpoint.message, resolvedRelayEndpoint.code);
         }
         const relayEndpoint = relayUrl && wsEndpoint === relayUrl
           ? relayUrl
-          : extensionLegacy
-            ? normalizedLegacyEndpoint ?? normalizedOpsEndpoint
-            : normalizedOpsEndpoint;
+          : resolvedRelayEndpoint?.normalizedEndpoint ?? null;
         const preferredRelayEndpoint = relayEndpoint ?? (!hasExplicitCdp ? relayUrl : null);
         let result;
         if (preferredRelayEndpoint) {

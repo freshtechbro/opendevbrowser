@@ -38,8 +38,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/cli/index.ts --format esm --clean --sourcemap && tsc --emitDeclarationOnly --declaration --declarationMap -p tsconfig.json && node --input-type=module -e \"import { copyFileSync, existsSync } from 'node:fs';\nimport { resolve } from 'node:path';\nconst dist = resolve('dist');\nconst pairs = [\n  ['index.js', 'opendevbrowser.js'],\n  ['index.js.map', 'opendevbrowser.js.map'],\n  ['index.d.ts', 'opendevbrowser.d.ts'],\n  ['index.d.ts.map', 'opendevbrowser.d.ts.map'],\n];\nfor (const [src, dst] of pairs) {\n  const from = resolve(dist, src);\n  const to = resolve(dist, dst);\n  if (existsSync(from)) copyFileSync(from, to);\n}\"",
-    "dev": "tsup src/index.ts src/cli/index.ts --format esm --dts --watch",
+    "build": "tsup src/index.ts src/cli/index.ts src/skills/skill-loader.ts --format esm --clean --sourcemap && tsc --emitDeclarationOnly --declaration --declarationMap -p tsconfig.json && node scripts/postbuild-dist.mjs",
+    "dev": "tsup src/index.ts src/cli/index.ts src/skills/skill-loader.ts --format esm --dts --watch",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node scripts/run-vitest-coverage.mjs",
@@ -57,7 +57,7 @@
     "prepack": "npm run version:check && npm run build && npm run extension:build"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.11",
+    "@opencode-ai/plugin": "^1.2.25",
     "@puppeteer/browsers": "^2.13.0",
     "async-mutex": "^0.5.0",
     "jsonc-parser": "^3.2.0",

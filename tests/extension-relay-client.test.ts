@@ -135,6 +135,41 @@ describe("RelayClient", () => {
     await expect(pingPromise).resolves.toMatchObject({ reason: "ok" });
   });
 
+  it("awaits a fresh handshake acknowledgement when re-handshaking on an open socket", async () => {
+    const client = new RelayClient("ws://relay", { onCommand: vi.fn(), onClose: vi.fn() });
+    const initialHandshake = { type: "handshake", payload: { tabId: 1 } } as const;
+    const connectPromise = client.connect(initialHandshake);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const socket = FakeWebSocket.instances[0];
+    socket.emit("message", {
+      data: JSON.stringify({ type: "handshakeAck", payload: { instanceId: "relay-1", relayPort: 8787, pairingRequired: false } })
+    });
+    await connectPromise;
+
+    const refreshedHandshake = {
+      type: "handshake",
+      payload: { tabId: 2, url: "https://example.com/next" }
+    } as const;
+    const rehandshakePromise = client.sendHandshake(refreshedHandshake);
+    expect(socket.sent.at(-1)).toBe(JSON.stringify(refreshedHandshake));
+
+    let resolved = false;
+    void rehandshakePromise.then(() => {
+      resolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolved).toBe(false);
+
+    socket.emit("message", {
+      data: JSON.stringify({ type: "handshakeAck", payload: { instanceId: "relay-1", relayPort: 8787, pairingRequired: false } })
+    });
+
+    await expect(rehandshakePromise).resolves.toMatchObject({
+      payload: { instanceId: "relay-1", relayPort: 8787, pairingRequired: false }
+    });
+  });
+
   it("times out a stalled socket open and allows a later retry", async () => {
     const client = new RelayClient("ws://relay", { onCommand: vi.fn(), onClose: vi.fn() });
     const handshake = { type: "handshake", payload: { tabId: 1 } };

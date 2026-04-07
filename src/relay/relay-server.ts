@@ -574,18 +574,18 @@ export class RelayServer {
   }
 
   status(): RelayStatus {
-    this.pruneClosedSockets();
-    const health = this.buildHealthStatus();
+    const connections = this.getConnectionSnapshot();
+    const health = this.buildHealthStatus(connections);
     return {
       running: this.running,
       url: this.baseUrl || undefined,
       port: this.port ?? undefined,
-      extensionConnected: this.isSocketOpen(this.extensionSocket),
-      extensionHandshakeComplete: this.extensionHandshakeComplete,
-      cdpConnected: this.isSocketOpen(this.cdpSocket),
-      annotationConnected: this.isSocketOpen(this.annotationSocket),
-      opsConnected: this.readyOpsClients.size > 0,
-      canvasConnected: this.canvasClients.size > 0,
+      extensionConnected: connections.extensionConnected,
+      extensionHandshakeComplete: connections.extensionHandshakeComplete,
+      cdpConnected: connections.cdpConnected,
+      annotationConnected: connections.annotationConnected,
+      opsConnected: connections.opsConnected,
+      canvasConnected: connections.canvasConnected,
       pairingRequired: Boolean(this.pairingToken),
       instanceId: this.instanceId,
       extension: this.extensionInfo ?? undefined,
@@ -830,20 +830,20 @@ export class RelayServer {
       "Content-Type": "application/json",
       "Cache-Control": "no-store"
     });
-    const health = this.buildHealthStatus();
+    const status = this.status();
     response.end(JSON.stringify({
-      instanceId: this.instanceId,
-      running: this.running,
-      port: this.port ?? undefined,
-      extensionConnected: Boolean(this.extensionSocket),
-      extensionHandshakeComplete: this.extensionHandshakeComplete,
-      cdpConnected: Boolean(this.cdpSocket),
-      annotationConnected: Boolean(this.annotationSocket),
-      opsConnected: this.opsClients.size > 0,
-      canvasConnected: this.canvasClients.size > 0,
-      pairingRequired: Boolean(this.pairingToken),
-      health,
-      lastHandshakeError: this.lastHandshakeError ?? undefined
+      instanceId: status.instanceId,
+      running: status.running,
+      port: status.port ?? undefined,
+      extensionConnected: status.extensionConnected,
+      extensionHandshakeComplete: status.extensionHandshakeComplete,
+      cdpConnected: status.cdpConnected,
+      annotationConnected: status.annotationConnected,
+      opsConnected: status.opsConnected,
+      canvasConnected: status.canvasConnected,
+      pairingRequired: status.pairingRequired,
+      health: status.health,
+      lastHandshakeError: status.lastHandshakeError
     }));
   }
 
@@ -1317,10 +1317,15 @@ export class RelayServer {
     if (message.type === "ops_event") {
       const tabId = extractOpsTabId(message.payload);
       if (typeof tabId === "number") {
-        if (message.event === "ops_session_created") {
+        if (message.event === "ops_session_created" || message.event === "ops_session_reclaimed") {
           this.opsOwnedTabIds.add(tabId);
         }
-        if (message.event === "ops_session_closed" || message.event === "ops_session_expired" || message.event === "ops_tab_closed") {
+        if (
+          message.event === "ops_session_released"
+          || message.event === "ops_session_closed"
+          || message.event === "ops_session_expired"
+          || message.event === "ops_tab_closed"
+        ) {
           this.opsOwnedTabIds.delete(tabId);
         }
       }
@@ -1492,14 +1497,35 @@ export class RelayServer {
     this.annotationDirectPending.clear();
   }
 
-  private buildHealthStatus(): RelayHealthStatus {
+  private getConnectionSnapshot(): {
+    extensionConnected: boolean;
+    extensionHandshakeComplete: boolean;
+    cdpConnected: boolean;
+    annotationConnected: boolean;
+    opsConnected: boolean;
+    canvasConnected: boolean;
+  } {
     this.pruneClosedSockets();
-    const opsConnected = this.readyOpsClients.size > 0;
-    const canvasConnected = this.canvasClients.size > 0;
     const extensionConnected = this.isSocketOpen(this.extensionSocket);
-    const extensionHandshakeComplete = extensionConnected && this.extensionHandshakeComplete;
-    const cdpConnected = this.isSocketOpen(this.cdpSocket);
-    const annotationConnected = this.isSocketOpen(this.annotationSocket);
+    return {
+      extensionConnected,
+      extensionHandshakeComplete: extensionConnected && this.extensionHandshakeComplete,
+      cdpConnected: this.isSocketOpen(this.cdpSocket),
+      annotationConnected: this.isSocketOpen(this.annotationSocket),
+      opsConnected: this.readyOpsClients.size > 0,
+      canvasConnected: this.canvasClients.size > 0
+    };
+  }
+
+  private buildHealthStatus(snapshot = this.getConnectionSnapshot()): RelayHealthStatus {
+    const {
+      extensionConnected,
+      extensionHandshakeComplete,
+      cdpConnected,
+      annotationConnected,
+      opsConnected,
+      canvasConnected
+    } = snapshot;
     if (!this.running) {
       return {
         ok: false,

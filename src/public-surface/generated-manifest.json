@@ -1,0 +1,2052 @@
+{
+  "schemaVersion": "2026-04-04",
+  "generatedAt": "2026-04-04T14:31:31.240Z",
+  "cli": {
+    "groups": [
+      {
+        "id": "install_lifecycle",
+        "title": "Install & Lifecycle",
+        "summary": "Install, remove, and inspect CLI basics.",
+        "commands": [
+          "install",
+          "update",
+          "uninstall",
+          "help",
+          "version"
+        ]
+      },
+      {
+        "id": "daemon_runtime",
+        "title": "Daemon & Runtime",
+        "summary": "Run daemon services and single-process scripts.",
+        "commands": [
+          "serve",
+          "daemon",
+          "native",
+          "run"
+        ]
+      },
+      {
+        "id": "session_lifecycle",
+        "title": "Session Lifecycle",
+        "summary": "Launch, connect, and manage browser session state.",
+        "commands": [
+          "launch",
+          "connect",
+          "disconnect",
+          "status",
+          "cookie-import",
+          "cookie-list"
+        ]
+      },
+      {
+        "id": "provider_workflows",
+        "title": "Provider Workflows",
+        "summary": "Run research, shopping, media, and artifact workflows.",
+        "commands": [
+          "research",
+          "shopping",
+          "product-video",
+          "artifacts",
+          "macro-resolve"
+        ]
+      },
+      {
+        "id": "design_canvas",
+        "title": "Design Canvas",
+        "summary": "Execute typed /canvas commands for session, document, preview, and code-sync flows.",
+        "commands": [
+          "canvas"
+        ]
+      },
+      {
+        "id": "navigation",
+        "title": "Navigation",
+        "summary": "Move through pages and capture fresh refs.",
+        "commands": [
+          "goto",
+          "wait",
+          "snapshot",
+          "review"
+        ]
+      },
+      {
+        "id": "interaction",
+        "title": "Interaction",
+        "summary": "Perform ref-based interactions in the active page.",
+        "commands": [
+          "click",
+          "hover",
+          "press",
+          "check",
+          "uncheck",
+          "type",
+          "select",
+          "scroll",
+          "scroll-into-view",
+          "upload",
+          "pointer-move",
+          "pointer-down",
+          "pointer-up",
+          "pointer-drag"
+        ]
+      },
+      {
+        "id": "targets_pages",
+        "title": "Targets & Pages",
+        "summary": "Manage tabs, targets, and named pages.",
+        "commands": [
+          "targets-list",
+          "target-use",
+          "target-new",
+          "target-close",
+          "page",
+          "pages",
+          "page-close"
+        ]
+      },
+      {
+        "id": "dom_export",
+        "title": "DOM & Export",
+        "summary": "Read DOM state and export page or component code.",
+        "commands": [
+          "dom-html",
+          "dom-text",
+          "dom-attr",
+          "dom-value",
+          "dom-visible",
+          "dom-enabled",
+          "dom-checked",
+          "clone-page",
+          "clone-component"
+        ]
+      },
+      {
+        "id": "diagnostics_annotation",
+        "title": "Diagnostics & Annotation",
+        "summary": "Collect session-centric diagnostics, trace proof, and annotation payloads.",
+        "commands": [
+          "session-inspector",
+          "perf",
+          "screenshot",
+          "dialog",
+          "console-poll",
+          "network-poll",
+          "debug-trace-snapshot",
+          "annotate"
+        ]
+      },
+      {
+        "id": "power",
+        "title": "Power",
+        "summary": "Unsafe internal daemon passthrough.",
+        "commands": [
+          "rpc"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "name": "install",
+        "usage": "npx opendevbrowser [--global|--local] [--with-config] [--full] [--skills-global|--skills-local|--no-skills] [--no-prompt] [--quiet]",
+        "flags": [
+          "--global",
+          "--local",
+          "--with-config",
+          "--full",
+          "--skills-global",
+          "--skills-local",
+          "--no-skills",
+          "--no-prompt",
+          "--quiet"
+        ],
+        "groupId": "install_lifecycle",
+        "groupTitle": "Install & Lifecycle",
+        "groupSummary": "Install, remove, and inspect CLI basics."
+      },
+      {
+        "name": "update",
+        "usage": "npx opendevbrowser update [--global|--local]",
+        "flags": [
+          "--global",
+          "--local"
+        ],
+        "groupId": "install_lifecycle",
+        "groupTitle": "Install & Lifecycle",
+        "groupSummary": "Install, remove, and inspect CLI basics."
+      },
+      {
+        "name": "uninstall",
+        "usage": "npx opendevbrowser uninstall [--global|--local] [--no-prompt] [--quiet]",
+        "flags": [
+          "--global",
+          "--local",
+          "--no-prompt",
+          "--quiet"
+        ],
+        "groupId": "install_lifecycle",
+        "groupTitle": "Install & Lifecycle",
+        "groupSummary": "Install, remove, and inspect CLI basics."
+      },
+      {
+        "name": "help",
+        "usage": "npx opendevbrowser --help | npx opendevbrowser help",
+        "flags": [
+          "--help"
+        ],
+        "groupId": "install_lifecycle",
+        "groupTitle": "Install & Lifecycle",
+        "groupSummary": "Install, remove, and inspect CLI basics."
+      },
+      {
+        "name": "version",
+        "usage": "npx opendevbrowser --version | npx opendevbrowser version",
+        "flags": [
+          "--version"
+        ],
+        "groupId": "install_lifecycle",
+        "groupTitle": "Install & Lifecycle",
+        "groupSummary": "Install, remove, and inspect CLI basics."
+      },
+      {
+        "name": "serve",
+        "usage": "npx opendevbrowser serve [--port <port>] [--token <token>] [--stop]",
+        "flags": [
+          "--port",
+          "--token",
+          "--stop"
+        ],
+        "groupId": "daemon_runtime",
+        "groupTitle": "Daemon & Runtime",
+        "groupSummary": "Run daemon services and single-process scripts."
+      },
+      {
+        "name": "daemon",
+        "usage": "npx opendevbrowser daemon <install|uninstall|status>",
+        "flags": [
+          "--output-format"
+        ],
+        "groupId": "daemon_runtime",
+        "groupTitle": "Daemon & Runtime",
+        "groupSummary": "Run daemon services and single-process scripts."
+      },
+      {
+        "name": "native",
+        "usage": "npx opendevbrowser native <install|uninstall|status> [extension-id]",
+        "flags": [
+          "--output-format"
+        ],
+        "groupId": "daemon_runtime",
+        "groupTitle": "Daemon & Runtime",
+        "groupSummary": "Run daemon services and single-process scripts."
+      },
+      {
+        "name": "run",
+        "usage": "npx opendevbrowser run --script <path> [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>]",
+        "flags": [
+          "--script",
+          "--headless",
+          "--profile",
+          "--persist-profile",
+          "--chrome-path",
+          "--start-url",
+          "--flag"
+        ],
+        "groupId": "daemon_runtime",
+        "groupTitle": "Daemon & Runtime",
+        "groupSummary": "Run daemon services and single-process scripts."
+      },
+      {
+        "name": "launch",
+        "usage": "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>]",
+        "flags": [
+          "--headless",
+          "--profile",
+          "--persist-profile",
+          "--chrome-path",
+          "--start-url",
+          "--flag",
+          "--no-extension",
+          "--extension-only",
+          "--extension-legacy",
+          "--wait-for-extension",
+          "--wait-timeout-ms"
+        ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
+        "name": "connect",
+        "usage": "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy]",
+        "flags": [
+          "--ws-endpoint",
+          "--host",
+          "--cdp-port",
+          "--start-url",
+          "--extension-legacy"
+        ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
+        "name": "disconnect",
+        "usage": "npx opendevbrowser disconnect --session-id <id> [--close-browser]",
+        "flags": [
+          "--session-id",
+          "--close-browser"
+        ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
+        "name": "status",
+        "usage": "npx opendevbrowser status [--session-id <id> | --daemon] [--transport <relay|native>]",
+        "flags": [
+          "--session-id",
+          "--daemon",
+          "--transport"
+        ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
+        "name": "cookie-import",
+        "usage": "npx opendevbrowser cookie-import --session-id <id> (--cookies <json> | --cookies-file <path>) [--strict <bool>]",
+        "flags": [
+          "--session-id",
+          "--cookies",
+          "--cookies-file",
+          "--strict"
+        ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
+        "name": "cookie-list",
+        "usage": "npx opendevbrowser cookie-list --session-id <id> [--url <url>]",
+        "flags": [
+          "--session-id",
+          "--url"
+        ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
+        "name": "research",
+        "usage": "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "flags": [
+          "--topic",
+          "--days",
+          "--from",
+          "--to",
+          "--source-selection",
+          "--sources",
+          "--include-engagement",
+          "--limit-per-source",
+          "--mode",
+          "--timeout-ms",
+          "--output-dir",
+          "--ttl-hours",
+          "--use-cookies",
+          "--challenge-automation-mode",
+          "--cookie-policy-override",
+          "--cookie-policy"
+        ],
+        "groupId": "provider_workflows",
+        "groupTitle": "Provider Workflows",
+        "groupSummary": "Run research, shopping, media, and artifact workflows."
+      },
+      {
+        "name": "shopping",
+        "usage": "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--browser-mode <mode>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "flags": [
+          "--query",
+          "--providers",
+          "--budget",
+          "--region",
+          "--browser-mode",
+          "--sort",
+          "--mode",
+          "--timeout-ms",
+          "--output-dir",
+          "--ttl-hours",
+          "--use-cookies",
+          "--challenge-automation-mode",
+          "--cookie-policy-override",
+          "--cookie-policy"
+        ],
+        "groupId": "provider_workflows",
+        "groupTitle": "Provider Workflows",
+        "groupSummary": "Run research, shopping, media, and artifact workflows."
+      },
+      {
+        "name": "product-video",
+        "usage": "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
+        "flags": [
+          "--product-url",
+          "--product-name",
+          "--provider-hint",
+          "--include-screenshots",
+          "--include-all-images",
+          "--include-copy",
+          "--timeout-ms",
+          "--use-cookies",
+          "--challenge-automation-mode",
+          "--cookie-policy-override",
+          "--cookie-policy",
+          "--output-dir",
+          "--ttl-hours"
+        ],
+        "groupId": "provider_workflows",
+        "groupTitle": "Provider Workflows",
+        "groupSummary": "Run research, shopping, media, and artifact workflows."
+      },
+      {
+        "name": "artifacts",
+        "usage": "npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]",
+        "flags": [
+          "--expired-only",
+          "--output-dir"
+        ],
+        "groupId": "provider_workflows",
+        "groupTitle": "Provider Workflows",
+        "groupSummary": "Run research, shopping, media, and artifact workflows."
+      },
+      {
+        "name": "macro-resolve",
+        "usage": "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>] [--challenge-automation-mode <mode>]",
+        "flags": [
+          "--expression",
+          "--default-provider",
+          "--include-catalog",
+          "--execute",
+          "--timeout-ms",
+          "--challenge-automation-mode"
+        ],
+        "groupId": "provider_workflows",
+        "groupTitle": "Provider Workflows",
+        "groupSummary": "Run research, shopping, media, and artifact workflows."
+      },
+      {
+        "name": "canvas",
+        "usage": "npx opendevbrowser canvas --command <canvas.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]",
+        "flags": [
+          "--command",
+          "--params",
+          "--params-file",
+          "--timeout-ms"
+        ],
+        "groupId": "design_canvas",
+        "groupTitle": "Design Canvas",
+        "groupSummary": "Execute typed /canvas commands for session, document, preview, and code-sync flows."
+      },
+      {
+        "name": "goto",
+        "usage": "npx opendevbrowser goto --session-id <id> --url <url> [--wait-until <state>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--url",
+          "--wait-until",
+          "--timeout-ms"
+        ],
+        "groupId": "navigation",
+        "groupTitle": "Navigation",
+        "groupSummary": "Move through pages and capture fresh refs."
+      },
+      {
+        "name": "wait",
+        "usage": "npx opendevbrowser wait --session-id <id> [--ref <ref>] [--state <state>|--until <condition>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--state",
+          "--until",
+          "--timeout-ms"
+        ],
+        "groupId": "navigation",
+        "groupTitle": "Navigation",
+        "groupSummary": "Move through pages and capture fresh refs."
+      },
+      {
+        "name": "snapshot",
+        "usage": "npx opendevbrowser snapshot --session-id <id> [--mode <mode>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--mode",
+          "--max-chars",
+          "--cursor",
+          "--timeout-ms"
+        ],
+        "groupId": "navigation",
+        "groupTitle": "Navigation",
+        "groupSummary": "Move through pages and capture fresh refs."
+      },
+      {
+        "name": "review",
+        "usage": "npx opendevbrowser review --session-id <id> [--target-id <id>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--max-chars",
+          "--cursor",
+          "--timeout-ms"
+        ],
+        "groupId": "navigation",
+        "groupTitle": "Navigation",
+        "groupSummary": "Move through pages and capture fresh refs."
+      },
+      {
+        "name": "click",
+        "usage": "npx opendevbrowser click --session-id <id> --ref <ref> [--target-id <id>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--target-id",
+          "--timeout-ms"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "hover",
+        "usage": "npx opendevbrowser hover --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "press",
+        "usage": "npx opendevbrowser press --session-id <id> --key <key> [--ref <ref>]",
+        "flags": [
+          "--session-id",
+          "--key",
+          "--ref"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "check",
+        "usage": "npx opendevbrowser check --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "uncheck",
+        "usage": "npx opendevbrowser uncheck --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "type",
+        "usage": "npx opendevbrowser type --session-id <id> --ref <ref> --text <text> [--clear] [--submit]",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--text",
+          "--clear",
+          "--submit"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "select",
+        "usage": "npx opendevbrowser select --session-id <id> --ref <ref> --values <csv>",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--values"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "scroll",
+        "usage": "npx opendevbrowser scroll --session-id <id> --dy <pixels> [--ref <ref>]",
+        "flags": [
+          "--session-id",
+          "--dy",
+          "--ref"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "scroll-into-view",
+        "usage": "npx opendevbrowser scroll-into-view --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "upload",
+        "usage": "npx opendevbrowser upload --session-id <id> --ref <ref> --files <csv> [--target-id <id>]",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--files",
+          "--target-id"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "pointer-move",
+        "usage": "npx opendevbrowser pointer-move --session-id <id> --x <n> --y <n> [--steps <n>] [--target-id <id>]",
+        "flags": [
+          "--session-id",
+          "--x",
+          "--y",
+          "--steps",
+          "--target-id"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "pointer-down",
+        "usage": "npx opendevbrowser pointer-down --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]",
+        "flags": [
+          "--session-id",
+          "--x",
+          "--y",
+          "--button",
+          "--click-count",
+          "--target-id"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "pointer-up",
+        "usage": "npx opendevbrowser pointer-up --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]",
+        "flags": [
+          "--session-id",
+          "--x",
+          "--y",
+          "--button",
+          "--click-count",
+          "--target-id"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "pointer-drag",
+        "usage": "npx opendevbrowser pointer-drag --session-id <id> --from-x <n> --from-y <n> --to-x <n> --to-y <n> [--steps <n>] [--target-id <id>]",
+        "flags": [
+          "--session-id",
+          "--from-x",
+          "--from-y",
+          "--to-x",
+          "--to-y",
+          "--steps",
+          "--target-id"
+        ],
+        "groupId": "interaction",
+        "groupTitle": "Interaction",
+        "groupSummary": "Perform ref-based interactions in the active page."
+      },
+      {
+        "name": "targets-list",
+        "usage": "npx opendevbrowser targets-list --session-id <id> [--include-urls]",
+        "flags": [
+          "--session-id",
+          "--include-urls"
+        ],
+        "groupId": "targets_pages",
+        "groupTitle": "Targets & Pages",
+        "groupSummary": "Manage tabs, targets, and named pages."
+      },
+      {
+        "name": "target-use",
+        "usage": "npx opendevbrowser target-use --session-id <id> --target-id <id>",
+        "flags": [
+          "--session-id",
+          "--target-id"
+        ],
+        "groupId": "targets_pages",
+        "groupTitle": "Targets & Pages",
+        "groupSummary": "Manage tabs, targets, and named pages."
+      },
+      {
+        "name": "target-new",
+        "usage": "npx opendevbrowser target-new --session-id <id> [--url <url>]",
+        "flags": [
+          "--session-id",
+          "--url"
+        ],
+        "groupId": "targets_pages",
+        "groupTitle": "Targets & Pages",
+        "groupSummary": "Manage tabs, targets, and named pages."
+      },
+      {
+        "name": "target-close",
+        "usage": "npx opendevbrowser target-close --session-id <id> --target-id <id>",
+        "flags": [
+          "--session-id",
+          "--target-id"
+        ],
+        "groupId": "targets_pages",
+        "groupTitle": "Targets & Pages",
+        "groupSummary": "Manage tabs, targets, and named pages."
+      },
+      {
+        "name": "page",
+        "usage": "npx opendevbrowser page --session-id <id> --name <page> [--url <url>]",
+        "flags": [
+          "--session-id",
+          "--name",
+          "--url"
+        ],
+        "groupId": "targets_pages",
+        "groupTitle": "Targets & Pages",
+        "groupSummary": "Manage tabs, targets, and named pages."
+      },
+      {
+        "name": "pages",
+        "usage": "npx opendevbrowser pages --session-id <id>",
+        "flags": [
+          "--session-id"
+        ],
+        "groupId": "targets_pages",
+        "groupTitle": "Targets & Pages",
+        "groupSummary": "Manage tabs, targets, and named pages."
+      },
+      {
+        "name": "page-close",
+        "usage": "npx opendevbrowser page-close --session-id <id> --name <page>",
+        "flags": [
+          "--session-id",
+          "--name"
+        ],
+        "groupId": "targets_pages",
+        "groupTitle": "Targets & Pages",
+        "groupSummary": "Manage tabs, targets, and named pages."
+      },
+      {
+        "name": "dom-html",
+        "usage": "npx opendevbrowser dom-html --session-id <id> [--ref <ref>] [--max-chars <n>]",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--max-chars"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "dom-text",
+        "usage": "npx opendevbrowser dom-text --session-id <id> [--ref <ref>] [--max-chars <n>]",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--max-chars"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "dom-attr",
+        "usage": "npx opendevbrowser dom-attr --session-id <id> --ref <ref> --attr <name>",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--attr"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "dom-value",
+        "usage": "npx opendevbrowser dom-value --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "dom-visible",
+        "usage": "npx opendevbrowser dom-visible --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "dom-enabled",
+        "usage": "npx opendevbrowser dom-enabled --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "dom-checked",
+        "usage": "npx opendevbrowser dom-checked --session-id <id> --ref <ref>",
+        "flags": [
+          "--session-id",
+          "--ref"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "clone-page",
+        "usage": "npx opendevbrowser clone-page --session-id <id> [--target-id <id>] [--path <file>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--path"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "clone-component",
+        "usage": "npx opendevbrowser clone-component --session-id <id> --ref <ref> [--target-id <id>] [--path <file>]",
+        "flags": [
+          "--session-id",
+          "--ref",
+          "--target-id",
+          "--path"
+        ],
+        "groupId": "dom_export",
+        "groupTitle": "DOM & Export",
+        "groupSummary": "Read DOM state and export page or component code."
+      },
+      {
+        "name": "session-inspector",
+        "usage": "npx opendevbrowser session-inspector --session-id <id> [--include-urls] [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>]",
+        "flags": [
+          "--session-id",
+          "--include-urls",
+          "--since-console-seq",
+          "--since-network-seq",
+          "--since-exception-seq",
+          "--max",
+          "--request-id"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "perf",
+        "usage": "npx opendevbrowser perf --session-id <id>",
+        "flags": [
+          "--session-id"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "screenshot",
+        "usage": "npx opendevbrowser screenshot --session-id <id> [--target-id <id>] [--path <file>] [--ref <ref> | --full-page] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--path",
+          "--ref",
+          "--full-page",
+          "--timeout-ms"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "dialog",
+        "usage": "npx opendevbrowser dialog --session-id <id> [--target-id <id>] [--action <status|accept|dismiss>] [--prompt-text <text>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--action",
+          "--prompt-text",
+          "--timeout-ms"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "console-poll",
+        "usage": "npx opendevbrowser console-poll --session-id <id> [--since-seq <n>] [--max <n>]",
+        "flags": [
+          "--session-id",
+          "--since-seq",
+          "--max"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "network-poll",
+        "usage": "npx opendevbrowser network-poll --session-id <id> [--since-seq <n>] [--max <n>]",
+        "flags": [
+          "--session-id",
+          "--since-seq",
+          "--max"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "debug-trace-snapshot",
+        "usage": "npx opendevbrowser debug-trace-snapshot --session-id <id> [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>]",
+        "flags": [
+          "--session-id",
+          "--since-console-seq",
+          "--since-network-seq",
+          "--since-exception-seq",
+          "--max",
+          "--request-id"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "annotate",
+        "usage": "npx opendevbrowser annotate --session-id <id> [--url <url>] [--transport <auto|direct|relay>] [--target-id <id>] [--tab-id <tab>] [--screenshot-mode <visible|full|none>] [--context <text>] [--debug] [--stored] [--include-screenshots <bool>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--url",
+          "--transport",
+          "--target-id",
+          "--tab-id",
+          "--screenshot-mode",
+          "--context",
+          "--debug",
+          "--stored",
+          "--include-screenshots",
+          "--timeout-ms"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "rpc",
+        "usage": "npx opendevbrowser rpc --unsafe-internal --name <daemon.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]",
+        "flags": [
+          "--unsafe-internal",
+          "--name",
+          "--params",
+          "--params-file",
+          "--timeout-ms"
+        ],
+        "groupId": "power",
+        "groupTitle": "Power",
+        "groupSummary": "Unsafe internal daemon passthrough."
+      }
+    ],
+    "flags": [
+      {
+        "name": "--global",
+        "kind": "boolean"
+      },
+      {
+        "name": "--local",
+        "kind": "boolean"
+      },
+      {
+        "name": "--update",
+        "kind": "boolean"
+      },
+      {
+        "name": "--uninstall",
+        "kind": "boolean"
+      },
+      {
+        "name": "--help",
+        "kind": "boolean"
+      },
+      {
+        "name": "--version",
+        "kind": "boolean"
+      },
+      {
+        "name": "--with-config",
+        "kind": "boolean"
+      },
+      {
+        "name": "--no-prompt",
+        "kind": "boolean"
+      },
+      {
+        "name": "--no-interactive",
+        "kind": "boolean"
+      },
+      {
+        "name": "--quiet",
+        "kind": "boolean"
+      },
+      {
+        "name": "--output-format",
+        "kind": "value"
+      },
+      {
+        "name": "--full",
+        "kind": "boolean"
+      },
+      {
+        "name": "--port",
+        "kind": "boolean"
+      },
+      {
+        "name": "--token",
+        "kind": "boolean"
+      },
+      {
+        "name": "--stop",
+        "kind": "boolean"
+      },
+      {
+        "name": "--script",
+        "kind": "boolean"
+      },
+      {
+        "name": "--headless",
+        "kind": "boolean"
+      },
+      {
+        "name": "--profile",
+        "kind": "boolean"
+      },
+      {
+        "name": "--persist-profile",
+        "kind": "value"
+      },
+      {
+        "name": "--chrome-path",
+        "kind": "boolean"
+      },
+      {
+        "name": "--start-url",
+        "kind": "boolean"
+      },
+      {
+        "name": "--flag",
+        "kind": "boolean"
+      },
+      {
+        "name": "--session-id",
+        "kind": "value"
+      },
+      {
+        "name": "--close-browser",
+        "kind": "boolean"
+      },
+      {
+        "name": "--ws-endpoint",
+        "kind": "boolean"
+      },
+      {
+        "name": "--host",
+        "kind": "boolean"
+      },
+      {
+        "name": "--cdp-port",
+        "kind": "boolean"
+      },
+      {
+        "name": "--url",
+        "kind": "value"
+      },
+      {
+        "name": "--wait-until",
+        "kind": "boolean"
+      },
+      {
+        "name": "--timeout-ms",
+        "kind": "value"
+      },
+      {
+        "name": "--ref",
+        "kind": "value"
+      },
+      {
+        "name": "--state",
+        "kind": "boolean"
+      },
+      {
+        "name": "--until",
+        "kind": "boolean"
+      },
+      {
+        "name": "--mode",
+        "kind": "value"
+      },
+      {
+        "name": "--max-chars",
+        "kind": "value"
+      },
+      {
+        "name": "--cursor",
+        "kind": "value"
+      },
+      {
+        "name": "--text",
+        "kind": "boolean"
+      },
+      {
+        "name": "--clear",
+        "kind": "boolean"
+      },
+      {
+        "name": "--submit",
+        "kind": "boolean"
+      },
+      {
+        "name": "--values",
+        "kind": "boolean"
+      },
+      {
+        "name": "--files",
+        "kind": "value"
+      },
+      {
+        "name": "--dy",
+        "kind": "boolean"
+      },
+      {
+        "name": "--key",
+        "kind": "boolean"
+      },
+      {
+        "name": "--attr",
+        "kind": "boolean"
+      },
+      {
+        "name": "--x",
+        "kind": "value"
+      },
+      {
+        "name": "--y",
+        "kind": "value"
+      },
+      {
+        "name": "--from-x",
+        "kind": "value"
+      },
+      {
+        "name": "--from-y",
+        "kind": "value"
+      },
+      {
+        "name": "--to-x",
+        "kind": "value"
+      },
+      {
+        "name": "--to-y",
+        "kind": "value"
+      },
+      {
+        "name": "--steps",
+        "kind": "value"
+      },
+      {
+        "name": "--button",
+        "kind": "value"
+      },
+      {
+        "name": "--click-count",
+        "kind": "value"
+      },
+      {
+        "name": "--name",
+        "kind": "value"
+      },
+      {
+        "name": "--target-id",
+        "kind": "value"
+      },
+      {
+        "name": "--tab-id",
+        "kind": "value"
+      },
+      {
+        "name": "--include-urls",
+        "kind": "boolean"
+      },
+      {
+        "name": "--path",
+        "kind": "value"
+      },
+      {
+        "name": "--full-page",
+        "kind": "boolean"
+      },
+      {
+        "name": "--action",
+        "kind": "value"
+      },
+      {
+        "name": "--prompt-text",
+        "kind": "value"
+      },
+      {
+        "name": "--since-seq",
+        "kind": "value"
+      },
+      {
+        "name": "--max",
+        "kind": "value"
+      },
+      {
+        "name": "--since-console-seq",
+        "kind": "value"
+      },
+      {
+        "name": "--since-network-seq",
+        "kind": "value"
+      },
+      {
+        "name": "--since-exception-seq",
+        "kind": "value"
+      },
+      {
+        "name": "--request-id",
+        "kind": "value"
+      },
+      {
+        "name": "--cookies",
+        "kind": "value"
+      },
+      {
+        "name": "--cookies-file",
+        "kind": "value"
+      },
+      {
+        "name": "--strict",
+        "kind": "value"
+      },
+      {
+        "name": "--expression",
+        "kind": "value"
+      },
+      {
+        "name": "--default-provider",
+        "kind": "value"
+      },
+      {
+        "name": "--include-catalog",
+        "kind": "boolean"
+      },
+      {
+        "name": "--command",
+        "kind": "value"
+      },
+      {
+        "name": "--execute",
+        "kind": "boolean"
+      },
+      {
+        "name": "--params",
+        "kind": "value"
+      },
+      {
+        "name": "--params-file",
+        "kind": "value"
+      },
+      {
+        "name": "--unsafe-internal",
+        "kind": "boolean"
+      },
+      {
+        "name": "--daemon",
+        "kind": "boolean"
+      },
+      {
+        "name": "--transport",
+        "kind": "value"
+      },
+      {
+        "name": "--no-extension",
+        "kind": "boolean"
+      },
+      {
+        "name": "--extension-only",
+        "kind": "boolean"
+      },
+      {
+        "name": "--extension-legacy",
+        "kind": "boolean"
+      },
+      {
+        "name": "--wait-for-extension",
+        "kind": "boolean"
+      },
+      {
+        "name": "--wait-timeout-ms",
+        "kind": "boolean"
+      },
+      {
+        "name": "--skills-global",
+        "kind": "boolean"
+      },
+      {
+        "name": "--skills-local",
+        "kind": "boolean"
+      },
+      {
+        "name": "--no-skills",
+        "kind": "boolean"
+      },
+      {
+        "name": "--screenshot-mode",
+        "kind": "value"
+      },
+      {
+        "name": "--debug",
+        "kind": "boolean"
+      },
+      {
+        "name": "--context",
+        "kind": "value"
+      },
+      {
+        "name": "--stored",
+        "kind": "boolean"
+      },
+      {
+        "name": "--topic",
+        "kind": "value"
+      },
+      {
+        "name": "--days",
+        "kind": "value"
+      },
+      {
+        "name": "--from",
+        "kind": "value"
+      },
+      {
+        "name": "--to",
+        "kind": "value"
+      },
+      {
+        "name": "--source-selection",
+        "kind": "value"
+      },
+      {
+        "name": "--sources",
+        "kind": "value"
+      },
+      {
+        "name": "--include-engagement",
+        "kind": "boolean"
+      },
+      {
+        "name": "--limit-per-source",
+        "kind": "value"
+      },
+      {
+        "name": "--query",
+        "kind": "value"
+      },
+      {
+        "name": "--providers",
+        "kind": "value"
+      },
+      {
+        "name": "--budget",
+        "kind": "value"
+      },
+      {
+        "name": "--region",
+        "kind": "value"
+      },
+      {
+        "name": "--browser-mode",
+        "kind": "value"
+      },
+      {
+        "name": "--sort",
+        "kind": "value"
+      },
+      {
+        "name": "--product-url",
+        "kind": "value"
+      },
+      {
+        "name": "--product-name",
+        "kind": "value"
+      },
+      {
+        "name": "--provider-hint",
+        "kind": "value"
+      },
+      {
+        "name": "--include-screenshots",
+        "kind": "value"
+      },
+      {
+        "name": "--include-all-images",
+        "kind": "value"
+      },
+      {
+        "name": "--include-copy",
+        "kind": "value"
+      },
+      {
+        "name": "--use-cookies",
+        "kind": "value"
+      },
+      {
+        "name": "--challenge-automation-mode",
+        "kind": "value"
+      },
+      {
+        "name": "--cookie-policy-override",
+        "kind": "value"
+      },
+      {
+        "name": "--cookie-policy",
+        "kind": "value"
+      },
+      {
+        "name": "--output-dir",
+        "kind": "value"
+      },
+      {
+        "name": "--ttl-hours",
+        "kind": "value"
+      },
+      {
+        "name": "--expired-only",
+        "kind": "boolean"
+      }
+    ],
+    "equalsFlags": [
+      "--output-format",
+      "--transport",
+      "--session-id",
+      "--url",
+      "--screenshot-mode",
+      "--context",
+      "--timeout-ms",
+      "--since-seq",
+      "--since-console-seq",
+      "--since-network-seq",
+      "--since-exception-seq",
+      "--max",
+      "--target-id",
+      "--tab-id",
+      "--name",
+      "--cookies",
+      "--cookies-file",
+      "--persist-profile",
+      "--expression",
+      "--default-provider",
+      "--command",
+      "--request-id",
+      "--strict",
+      "--params",
+      "--params-file",
+      "--topic",
+      "--days",
+      "--from",
+      "--to",
+      "--source-selection",
+      "--sources",
+      "--mode",
+      "--ref",
+      "--path",
+      "--max-chars",
+      "--cursor",
+      "--files",
+      "--action",
+      "--prompt-text",
+      "--limit-per-source",
+      "--query",
+      "--providers",
+      "--budget",
+      "--region",
+      "--sort",
+      "--product-url",
+      "--product-name",
+      "--provider-hint",
+      "--x",
+      "--y",
+      "--from-x",
+      "--from-y",
+      "--to-x",
+      "--to-y",
+      "--steps",
+      "--button",
+      "--click-count",
+      "--include-screenshots",
+      "--include-all-images",
+      "--include-copy",
+      "--use-cookies",
+      "--browser-mode",
+      "--challenge-automation-mode",
+      "--cookie-policy-override",
+      "--cookie-policy",
+      "--output-dir",
+      "--ttl-hours"
+    ]
+  },
+  "tools": {
+    "entries": [
+      {
+        "name": "opendevbrowser_launch",
+        "description": "Launch a managed browser session.",
+        "cliEquivalent": "launch"
+      },
+      {
+        "name": "opendevbrowser_connect",
+        "description": "Connect to an existing browser session.",
+        "cliEquivalent": "connect"
+      },
+      {
+        "name": "opendevbrowser_disconnect",
+        "description": "Disconnect a managed or connected session.",
+        "cliEquivalent": "disconnect"
+      },
+      {
+        "name": "opendevbrowser_status",
+        "description": "Inspect session and relay status.",
+        "cliEquivalent": "status"
+      },
+      {
+        "name": "opendevbrowser_session_inspector",
+        "description": "Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.",
+        "cliEquivalent": "session-inspector"
+      },
+      {
+        "name": "opendevbrowser_targets_list",
+        "description": "List available page targets/tabs.",
+        "cliEquivalent": "targets-list"
+      },
+      {
+        "name": "opendevbrowser_target_use",
+        "description": "Switch the active target by id.",
+        "cliEquivalent": "target-use"
+      },
+      {
+        "name": "opendevbrowser_target_new",
+        "description": "Create a new target or tab.",
+        "cliEquivalent": "target-new"
+      },
+      {
+        "name": "opendevbrowser_target_close",
+        "description": "Close a target or tab by id.",
+        "cliEquivalent": "target-close"
+      },
+      {
+        "name": "opendevbrowser_page",
+        "description": "Open or focus a named page.",
+        "cliEquivalent": "page"
+      },
+      {
+        "name": "opendevbrowser_list",
+        "description": "List named pages in the session.",
+        "cliEquivalent": "pages"
+      },
+      {
+        "name": "opendevbrowser_close",
+        "description": "Close a named page.",
+        "cliEquivalent": "page-close"
+      },
+      {
+        "name": "opendevbrowser_goto",
+        "description": "Navigate to a URL.",
+        "cliEquivalent": "goto"
+      },
+      {
+        "name": "opendevbrowser_wait",
+        "description": "Wait for load, ref, or state conditions.",
+        "cliEquivalent": "wait"
+      },
+      {
+        "name": "opendevbrowser_snapshot",
+        "description": "Capture AX-tree refs for actions.",
+        "cliEquivalent": "snapshot"
+      },
+      {
+        "name": "opendevbrowser_review",
+        "description": "Capture a first-class review payload with status and actionables.",
+        "cliEquivalent": "review"
+      },
+      {
+        "name": "opendevbrowser_click",
+        "description": "Click an element by ref.",
+        "cliEquivalent": "click"
+      },
+      {
+        "name": "opendevbrowser_hover",
+        "description": "Hover an element by ref.",
+        "cliEquivalent": "hover"
+      },
+      {
+        "name": "opendevbrowser_press",
+        "description": "Send a keyboard key.",
+        "cliEquivalent": "press"
+      },
+      {
+        "name": "opendevbrowser_check",
+        "description": "Check a checkbox or radio by ref.",
+        "cliEquivalent": "check"
+      },
+      {
+        "name": "opendevbrowser_uncheck",
+        "description": "Uncheck a checkbox or radio by ref.",
+        "cliEquivalent": "uncheck"
+      },
+      {
+        "name": "opendevbrowser_type",
+        "description": "Type text into an input by ref.",
+        "cliEquivalent": "type"
+      },
+      {
+        "name": "opendevbrowser_select",
+        "description": "Set select values by ref.",
+        "cliEquivalent": "select"
+      },
+      {
+        "name": "opendevbrowser_scroll",
+        "description": "Scroll a page or element.",
+        "cliEquivalent": "scroll"
+      },
+      {
+        "name": "opendevbrowser_scroll_into_view",
+        "description": "Scroll a target element into view.",
+        "cliEquivalent": "scroll-into-view"
+      },
+      {
+        "name": "opendevbrowser_upload",
+        "description": "Upload files to a file input or chooser by ref.",
+        "cliEquivalent": "upload"
+      },
+      {
+        "name": "opendevbrowser_pointer_move",
+        "description": "Move the pointer to viewport coordinates.",
+        "cliEquivalent": "pointer-move"
+      },
+      {
+        "name": "opendevbrowser_pointer_down",
+        "description": "Press a mouse button at viewport coordinates.",
+        "cliEquivalent": "pointer-down"
+      },
+      {
+        "name": "opendevbrowser_pointer_up",
+        "description": "Release a mouse button at viewport coordinates.",
+        "cliEquivalent": "pointer-up"
+      },
+      {
+        "name": "opendevbrowser_pointer_drag",
+        "description": "Drag the pointer between viewport coordinates.",
+        "cliEquivalent": "pointer-drag"
+      },
+      {
+        "name": "opendevbrowser_dom_get_html",
+        "description": "Get HTML for a page or ref.",
+        "cliEquivalent": "dom-html"
+      },
+      {
+        "name": "opendevbrowser_dom_get_text",
+        "description": "Get text for a page or ref.",
+        "cliEquivalent": "dom-text"
+      },
+      {
+        "name": "opendevbrowser_get_attr",
+        "description": "Read a DOM attribute by ref.",
+        "cliEquivalent": "dom-attr"
+      },
+      {
+        "name": "opendevbrowser_get_value",
+        "description": "Read a form or control value by ref.",
+        "cliEquivalent": "dom-value"
+      },
+      {
+        "name": "opendevbrowser_is_visible",
+        "description": "Check ref visibility.",
+        "cliEquivalent": "dom-visible"
+      },
+      {
+        "name": "opendevbrowser_is_enabled",
+        "description": "Check ref enabled state.",
+        "cliEquivalent": "dom-enabled"
+      },
+      {
+        "name": "opendevbrowser_is_checked",
+        "description": "Check ref checked state.",
+        "cliEquivalent": "dom-checked"
+      },
+      {
+        "name": "opendevbrowser_run",
+        "description": "Execute multi-action automation scripts.",
+        "cliEquivalent": "run"
+      },
+      {
+        "name": "opendevbrowser_prompting_guide",
+        "description": "Start here for first-contact OpenDevBrowser guidance and the bundled best-practices quick start."
+      },
+      {
+        "name": "opendevbrowser_console_poll",
+        "description": "Poll redacted console events.",
+        "cliEquivalent": "console-poll"
+      },
+      {
+        "name": "opendevbrowser_network_poll",
+        "description": "Poll redacted network events.",
+        "cliEquivalent": "network-poll"
+      },
+      {
+        "name": "opendevbrowser_debug_trace_snapshot",
+        "description": "Capture page, console, and network diagnostics.",
+        "cliEquivalent": "debug-trace-snapshot"
+      },
+      {
+        "name": "opendevbrowser_cookie_import",
+        "description": "Import validated cookies into a session.",
+        "cliEquivalent": "cookie-import"
+      },
+      {
+        "name": "opendevbrowser_cookie_list",
+        "description": "List cookies in a session with optional URL filters.",
+        "cliEquivalent": "cookie-list"
+      },
+      {
+        "name": "opendevbrowser_macro_resolve",
+        "description": "Resolve or execute provider macro expressions.",
+        "cliEquivalent": "macro-resolve"
+      },
+      {
+        "name": "opendevbrowser_research_run",
+        "description": "Run the research workflow directly.",
+        "cliEquivalent": "research"
+      },
+      {
+        "name": "opendevbrowser_shopping_run",
+        "description": "Run the shopping workflow directly.",
+        "cliEquivalent": "shopping"
+      },
+      {
+        "name": "opendevbrowser_product_video_run",
+        "description": "Run the product-video asset workflow directly.",
+        "cliEquivalent": "product-video"
+      },
+      {
+        "name": "opendevbrowser_canvas",
+        "description": "Execute a typed design-canvas command surface call.",
+        "cliEquivalent": "canvas"
+      },
+      {
+        "name": "opendevbrowser_clone_page",
+        "description": "Export the active page into React code.",
+        "cliEquivalent": "clone-page"
+      },
+      {
+        "name": "opendevbrowser_clone_component",
+        "description": "Export a component by ref into React code.",
+        "cliEquivalent": "clone-component"
+      },
+      {
+        "name": "opendevbrowser_perf",
+        "description": "Collect browser performance metrics.",
+        "cliEquivalent": "perf"
+      },
+      {
+        "name": "opendevbrowser_screenshot",
+        "description": "Capture a page screenshot.",
+        "cliEquivalent": "screenshot"
+      },
+      {
+        "name": "opendevbrowser_dialog",
+        "description": "Inspect or handle a JavaScript dialog.",
+        "cliEquivalent": "dialog"
+      },
+      {
+        "name": "opendevbrowser_annotate",
+        "description": "Capture interactive annotations.",
+        "cliEquivalent": "annotate"
+      },
+      {
+        "name": "opendevbrowser_skill_list",
+        "description": "List bundled and discovered skill packs before choosing a local onboarding or workflow lane."
+      },
+      {
+        "name": "opendevbrowser_skill_load",
+        "description": "Load a specific skill pack locally, especially the bundled best-practices quick start."
+      }
+    ],
+    "cliToolPairs": [
+      {
+        "cliCommand": "launch",
+        "toolName": "opendevbrowser_launch"
+      },
+      {
+        "cliCommand": "connect",
+        "toolName": "opendevbrowser_connect"
+      },
+      {
+        "cliCommand": "disconnect",
+        "toolName": "opendevbrowser_disconnect"
+      },
+      {
+        "cliCommand": "status",
+        "toolName": "opendevbrowser_status"
+      },
+      {
+        "cliCommand": "session-inspector",
+        "toolName": "opendevbrowser_session_inspector"
+      },
+      {
+        "cliCommand": "targets-list",
+        "toolName": "opendevbrowser_targets_list"
+      },
+      {
+        "cliCommand": "target-use",
+        "toolName": "opendevbrowser_target_use"
+      },
+      {
+        "cliCommand": "target-new",
+        "toolName": "opendevbrowser_target_new"
+      },
+      {
+        "cliCommand": "target-close",
+        "toolName": "opendevbrowser_target_close"
+      },
+      {
+        "cliCommand": "page",
+        "toolName": "opendevbrowser_page"
+      },
+      {
+        "cliCommand": "pages",
+        "toolName": "opendevbrowser_list"
+      },
+      {
+        "cliCommand": "page-close",
+        "toolName": "opendevbrowser_close"
+      },
+      {
+        "cliCommand": "goto",
+        "toolName": "opendevbrowser_goto"
+      },
+      {
+        "cliCommand": "wait",
+        "toolName": "opendevbrowser_wait"
+      },
+      {
+        "cliCommand": "snapshot",
+        "toolName": "opendevbrowser_snapshot"
+      },
+      {
+        "cliCommand": "review",
+        "toolName": "opendevbrowser_review"
+      },
+      {
+        "cliCommand": "click",
+        "toolName": "opendevbrowser_click"
+      },
+      {
+        "cliCommand": "hover",
+        "toolName": "opendevbrowser_hover"
+      },
+      {
+        "cliCommand": "press",
+        "toolName": "opendevbrowser_press"
+      },
+      {
+        "cliCommand": "check",
+        "toolName": "opendevbrowser_check"
+      },
+      {
+        "cliCommand": "uncheck",
+        "toolName": "opendevbrowser_uncheck"
+      },
+      {
+        "cliCommand": "type",
+        "toolName": "opendevbrowser_type"
+      },
+      {
+        "cliCommand": "select",
+        "toolName": "opendevbrowser_select"
+      },
+      {
+        "cliCommand": "scroll",
+        "toolName": "opendevbrowser_scroll"
+      },
+      {
+        "cliCommand": "scroll-into-view",
+        "toolName": "opendevbrowser_scroll_into_view"
+      },
+      {
+        "cliCommand": "upload",
+        "toolName": "opendevbrowser_upload"
+      },
+      {
+        "cliCommand": "pointer-move",
+        "toolName": "opendevbrowser_pointer_move"
+      },
+      {
+        "cliCommand": "pointer-down",
+        "toolName": "opendevbrowser_pointer_down"
+      },
+      {
+        "cliCommand": "pointer-up",
+        "toolName": "opendevbrowser_pointer_up"
+      },
+      {
+        "cliCommand": "pointer-drag",
+        "toolName": "opendevbrowser_pointer_drag"
+      },
+      {
+        "cliCommand": "dom-html",
+        "toolName": "opendevbrowser_dom_get_html"
+      },
+      {
+        "cliCommand": "dom-text",
+        "toolName": "opendevbrowser_dom_get_text"
+      },
+      {
+        "cliCommand": "dom-attr",
+        "toolName": "opendevbrowser_get_attr"
+      },
+      {
+        "cliCommand": "dom-value",
+        "toolName": "opendevbrowser_get_value"
+      },
+      {
+        "cliCommand": "dom-visible",
+        "toolName": "opendevbrowser_is_visible"
+      },
+      {
+        "cliCommand": "dom-enabled",
+        "toolName": "opendevbrowser_is_enabled"
+      },
+      {
+        "cliCommand": "dom-checked",
+        "toolName": "opendevbrowser_is_checked"
+      },
+      {
+        "cliCommand": "run",
+        "toolName": "opendevbrowser_run"
+      },
+      {
+        "cliCommand": "console-poll",
+        "toolName": "opendevbrowser_console_poll"
+      },
+      {
+        "cliCommand": "network-poll",
+        "toolName": "opendevbrowser_network_poll"
+      },
+      {
+        "cliCommand": "debug-trace-snapshot",
+        "toolName": "opendevbrowser_debug_trace_snapshot"
+      },
+      {
+        "cliCommand": "cookie-import",
+        "toolName": "opendevbrowser_cookie_import"
+      },
+      {
+        "cliCommand": "cookie-list",
+        "toolName": "opendevbrowser_cookie_list"
+      },
+      {
+        "cliCommand": "macro-resolve",
+        "toolName": "opendevbrowser_macro_resolve"
+      },
+      {
+        "cliCommand": "research",
+        "toolName": "opendevbrowser_research_run"
+      },
+      {
+        "cliCommand": "shopping",
+        "toolName": "opendevbrowser_shopping_run"
+      },
+      {
+        "cliCommand": "product-video",
+        "toolName": "opendevbrowser_product_video_run"
+      },
+      {
+        "cliCommand": "canvas",
+        "toolName": "opendevbrowser_canvas"
+      },
+      {
+        "cliCommand": "clone-page",
+        "toolName": "opendevbrowser_clone_page"
+      },
+      {
+        "cliCommand": "clone-component",
+        "toolName": "opendevbrowser_clone_component"
+      },
+      {
+        "cliCommand": "perf",
+        "toolName": "opendevbrowser_perf"
+      },
+      {
+        "cliCommand": "screenshot",
+        "toolName": "opendevbrowser_screenshot"
+      },
+      {
+        "cliCommand": "dialog",
+        "toolName": "opendevbrowser_dialog"
+      },
+      {
+        "cliCommand": "annotate",
+        "toolName": "opendevbrowser_annotate"
+      }
+    ]
+  },
+  "counts": {
+    "commandCount": 64,
+    "toolCount": 57,
+    "cliToolPairCount": 54
+  }
+}

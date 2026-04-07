@@ -18,6 +18,7 @@ export type RouterCommandContext = {
   flatSessionError: string;
   setAutoAttachOptions: (next: AutoAttachOptions) => void;
   setDiscoverTargets: (value: boolean) => void;
+  applyDiscoverTargets: (debuggee: DebuggerSession, discover: boolean) => Promise<void>;
   respond: (id: RelayResponse["id"], result: unknown, sessionId?: string) => void;
   respondError: (id: RelayResponse["id"], message: string, sessionId?: string) => void;
   emitEvent: (method: string, params: unknown, sessionId?: string) => void;
@@ -45,6 +46,14 @@ export async function handleSetDiscoverTargets(
   const discover = params.discover === true;
   const shouldEmit = discover && !ctx.discoverTargets;
   ctx.setDiscoverTargets(discover);
+  try {
+    for (const debuggee of ctx.debuggees.values()) {
+      await ctx.applyDiscoverTargets(debuggee as DebuggerSession, discover);
+    }
+  } catch (error) {
+    ctx.respondError(commandId, getErrorMessage(error));
+    return;
+  }
   if (shouldEmit) {
     for (const targetInfo of ctx.sessions.listTargetInfos()) {
       ctx.emitTargetCreated(targetInfo);

@@ -1,8 +1,8 @@
 import { randomUUID } from "crypto";
-import { mkdir, rm, writeFile } from "fs/promises";
+import { access, mkdir, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { freemem, totalmem } from "os";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import type { Browser, BrowserContext, CDPSession, Dialog, Page } from "playwright-core";
 import { Mutex } from "async-mutex";
 import type { OpenDevBrowserConfig } from "../config";
 import { resolveCachePaths } from "../cache/paths";
@@ -12,7 +12,7 @@ import { createLogger, createRequestId } from "../core/logging";
 import { ConsoleTracker } from "../devtools/console-tracker";
 import { ExceptionTracker } from "../devtools/exception-tracker";
 import { NetworkTracker } from "../devtools/network-tracker";
-import { captureDom } from "../export/dom-capture";
+import { captureDom, type DomCapture } from "../export/dom-capture";
 import { extractCss } from "../export/css-extract";
 import { emitReactComponent, type ReactExport } from "../export/react-emitter";
 import { RefStore } from "../snapshot/refs";
@@ -21,7 +21,27 @@ import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoin
 import type { RelayStatus } from "../relay/relay-server";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import type { BlockerSignalV1 } from "../providers/types";
+import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
+import type {
+  BlockerSignalV1,
+  ChallengeOwnerSurface,
+  ResumeMode,
+  SessionChallengeSummary,
+  SuspendedIntentSummary
+} from "../providers/types";
+import type {
+  BrowserClonePageOptions,
+  BrowserDialogInput,
+  BrowserDialogResult,
+  BrowserDialogState,
+  BrowserResponseMeta,
+  BrowserScreenshotOptions,
+  BrowserScreenshotResult,
+  BrowserUploadInput,
+  BrowserUploadResult,
+  ChallengeRuntimeHandle,
+  SessionInspectorHandle
+} from "./manager-types";
 import {
   evaluateTier1Coherence,
   formatTier1Warnings,
@@ -52,7 +72,9 @@ import {
   type RuntimePreviewBridgeInput,
   type RuntimePreviewBridgeResult
 } from "./canvas-runtime-preview-bridge";
+import { loadChromium } from "./playwright-runtime";
 import { loadSystemChromeCookies } from "./system-chrome-cookies";
+import { GlobalChallengeCoordinator } from "./global-challenge-coordinator";
 
 export type LaunchOptions = {
   profile?: string;
@@ -77,6 +99,7 @@ export type ManagedSession = {
   mode: BrowserMode;
   headless: boolean;
   extensionLegacy: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   relayWsEndpoint?: string;
   browser: Browser;
   context: BrowserContext;
@@ -218,20 +241,307 @@ const DOM_IS_CHECKED_DECLARATION = `
   }
 `;
 
+const DOM_SELECTOR_STATE_DECLARATION = `
+  function() {
+    /* odb-dom-selector-state */
+    if (!(this instanceof Element)) {
+      return { attached: false, visible: false };
+    }
+    const style = window.getComputedStyle(this);
+    const rect = this.getBoundingClientRect();
+    return {
+      attached: true,
+      visible: Boolean(style && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0)
+    };
+  }
+`;
+
+const DOM_OUTER_HTML_DECLARATION = `
+  function() {
+    /* odb-dom-outer-html */
+    if (!(this instanceof Element)) return "";
+    return this.outerHTML;
+  }
+`;
+
+const DOM_INNER_TEXT_DECLARATION = `
+  function() {
+    /* odb-dom-inner-text */
+    if (!(this instanceof Element)) return "";
+    return this instanceof HTMLElement ? (this.innerText || this.textContent || "") : (this.textContent || "");
+  }
+`;
+
+const DOM_HOVER_DECLARATION = `
+  function() {
+    /* odb-dom-hover */
+    if (!(this instanceof Element)) return;
+    const init = { bubbles: true, cancelable: true, view: window };
+    this.dispatchEvent(new MouseEvent("mouseenter", init));
+    this.dispatchEvent(new MouseEvent("mouseover", init));
+    this.dispatchEvent(new MouseEvent("mousemove", init));
+  }
+`;
+
+const DOM_FOCUS_DECLARATION = `
+  function() {
+    /* odb-dom-focus */
+    if (this instanceof HTMLElement) {
+      this.focus();
+    }
+  }
+`;
+
+const DOM_SET_CHECKED_DECLARATION = `
+  function(checked) {
+    /* odb-dom-set-checked */
+    if (this instanceof HTMLInputElement && (this.type === "checkbox" || this.type === "radio")) {
+      this.checked = Boolean(checked);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
+    if (this instanceof Element) {
+      this.setAttribute("aria-checked", checked ? "true" : "false");
+    }
+  }
+`;
+
+const DOM_TYPE_DECLARATION = `
+  function(value, clear, submit) {
+    /* odb-dom-type */
+    if (!(this instanceof Element)) return;
+    if (this instanceof HTMLElement) {
+      this.focus();
+    }
+    if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {
+      this.value = clear ? "" : this.value;
+      this.value = String(value);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+      if (submit) {
+        this.form?.requestSubmit?.();
+      }
+      return;
+    }
+    if (this instanceof HTMLSelectElement) {
+      this.value = String(value);
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+`;
+
+const DOM_SELECT_DECLARATION = `
+  function(values) {
+    /* odb-dom-select */
+    if (!(this instanceof HTMLSelectElement)) return;
+    const nextValues = Array.isArray(values) ? values.map((value) => String(value)) : [];
+    for (const option of Array.from(this.options)) {
+      option.selected = nextValues.includes(option.value);
+    }
+    this.dispatchEvent(new Event("input", { bubbles: true }));
+    this.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+`;
+
+const DOM_SCROLL_BY_DECLARATION = `
+  function(dy) {
+    /* odb-dom-scroll-by */
+    if (this instanceof HTMLElement) {
+      this.scrollBy(0, Number(dy) || 0);
+    }
+  }
+`;
+
+const DOM_SCROLL_INTO_VIEW_DECLARATION = `
+  function() {
+    /* odb-dom-scroll-into-view */
+    if (this instanceof Element) {
+      this.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+    }
+  }
+`;
+
+const DOM_REF_POINT_DECLARATION = `
+  function() {
+    /* odb-dom-ref-point */
+    if (!(this instanceof Element)) return null;
+    const rect = this.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+  }
+`;
+
+const DOM_SCREENSHOT_CLIP_DECLARATION = `
+  function() {
+    /* odb-dom-screenshot-clip */
+    if (!(this instanceof Element)) return null;
+    const rect = this.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    return {
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height
+    };
+  }
+`;
+
+const DOM_FILE_INPUT_INFO_DECLARATION = `
+  function() {
+    /* odb-dom-file-input-info */
+    const isFileInput = this instanceof HTMLInputElement && this.type === "file";
+    return {
+      isFileInput,
+      disabled: isFileInput ? this.disabled : false
+    };
+  }
+`;
+
+type ResolvedManagedRef = {
+  targetId: string;
+  ref: string;
+  selector: string;
+  backendNodeId: number;
+  snapshotId: string;
+  frameId?: string;
+};
+
+type PendingManagedDialog = {
+  dialog: Dialog;
+  state: BrowserDialogState;
+};
+
+type PendingManagedClick = {
+  dialogOpened: boolean;
+  dialogHandled: Promise<void>;
+  resolveDialogHandled: () => void;
+  completed: Promise<void>;
+  resolveCompleted: () => void;
+};
+
 export class BrowserManager {
   private store = new SessionStore();
   private sessions = new Map<string, ManagedSession>();
   private sessionParallel = new Map<string, SessionParallelState>();
   private targetQueues = new Map<string, Promise<void>>();
+  private dialogSerializers = new Map<string, Mutex>();
   private networkSignalSubscriptions = new Map<string, () => void>();
   private worktree: string;
   private config: OpenDevBrowserConfig;
   private pageListeners = new WeakMap<Page, () => void>();
+  private pendingDialogs = new Map<string, PendingManagedDialog>();
+  private pendingManagedClicks = new Map<string, PendingManagedClick>();
   private logger = createLogger("browser-manager");
+  private readonly challengeCoordinator = new GlobalChallengeCoordinator();
+  private challengeOrchestrator?: ChallengeOrchestrator;
+  private readonly challengeAutomationSuppression = new Map<string, number>();
 
   constructor(worktree: string, config: OpenDevBrowserConfig) {
     this.worktree = worktree;
     this.config = config;
+  }
+
+  setChallengeOrchestrator(orchestrator?: ChallengeOrchestrator): void {
+    this.challengeOrchestrator = orchestrator;
+  }
+
+  getSessionChallengeAutomationMode(sessionId: string): ChallengeAutomationMode | undefined {
+    return this.sessions.get(sessionId)?.challengeAutomationMode;
+  }
+
+  setSessionChallengeAutomationMode(sessionId: string, mode?: ChallengeAutomationMode): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    session.challengeAutomationMode = mode;
+  }
+
+  createChallengeRuntimeHandle(): ChallengeRuntimeHandle {
+    return {
+      status: (sessionId) => this.withChallengeAutomationSuppressed(sessionId, () => this.status(sessionId)),
+      goto: (sessionId, url, waitUntil, timeoutMs, sessionOverride, targetId) => (
+        this.withChallengeAutomationSuppressed(
+          sessionId,
+          () => this.goto(sessionId, url, waitUntil, timeoutMs, sessionOverride, targetId)
+        )
+      ),
+      waitForLoad: (sessionId, until, timeoutMs, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.waitForLoad(sessionId, until, timeoutMs, targetId))
+      ),
+      snapshot: (sessionId, mode, maxChars, cursor, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.snapshot(sessionId, mode, maxChars, cursor, targetId))
+      ),
+      click: (sessionId, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.click(sessionId, ref, targetId)),
+      hover: (sessionId, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.hover(sessionId, ref, targetId)),
+      press: (sessionId, key, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.press(sessionId, key, ref, targetId)),
+      type: (sessionId, ref, text, clear, submit, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.type(sessionId, ref, text, clear, submit, targetId))
+      ),
+      select: (sessionId, ref, values, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.select(sessionId, ref, values, targetId))
+      ),
+      scroll: (sessionId, dy, ref, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.scroll(sessionId, dy, ref, targetId))
+      ),
+      pointerMove: (sessionId, x, y, targetId, steps) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerMove(sessionId, x, y, targetId, steps))
+      ),
+      pointerDown: (sessionId, x, y, targetId, button, clickCount) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerDown(sessionId, x, y, targetId, button, clickCount))
+      ),
+      pointerUp: (sessionId, x, y, targetId, button, clickCount) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerUp(sessionId, x, y, targetId, button, clickCount))
+      ),
+      drag: (sessionId, from, to, targetId, steps) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.drag(sessionId, from, to, targetId, steps))
+      ),
+      resolveRefPoint: (sessionId, ref, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.resolveRefPoint(sessionId, ref, targetId))
+      ),
+      cookieList: (sessionId, urls) => this.withChallengeAutomationSuppressed(sessionId, () => this.cookieList(sessionId, urls)),
+      cookieImport: (sessionId, cookies, replaceExisting) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.cookieImport(sessionId, cookies, replaceExisting))
+      ),
+      debugTraceSnapshot: (sessionId, options) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.debugTraceSnapshot(sessionId, options))
+      )
+    };
+  }
+
+  createSessionInspector(): SessionInspectorHandle {
+    return {
+      status: (sessionId) => this.status(sessionId),
+      listTargets: (sessionId, includeUrls) => this.listTargets(sessionId, includeUrls),
+      consolePoll: (sessionId, sinceSeq, max) => this.consolePoll(sessionId, sinceSeq, max),
+      networkPoll: (sessionId, sinceSeq, max) => this.networkPoll(sessionId, sinceSeq, max),
+      debugTraceSnapshot: (sessionId, options) => this.debugTraceSnapshot(sessionId, options)
+    };
+  }
+
+  private async withChallengeAutomationSuppressed<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+    const current = this.challengeAutomationSuppression.get(sessionId) ?? 0;
+    this.challengeAutomationSuppression.set(sessionId, current + 1);
+    try {
+      return await action();
+    } finally {
+      const next = (this.challengeAutomationSuppression.get(sessionId) ?? 1) - 1;
+      if (next <= 0) {
+        this.challengeAutomationSuppression.delete(sessionId);
+      } else {
+        this.challengeAutomationSuppression.set(sessionId, next);
+      }
+    }
+  }
+
+  private isChallengeAutomationSuppressed(sessionId: string): boolean {
+    return (this.challengeAutomationSuppression.get(sessionId) ?? 0) > 0;
   }
 
   private getParallelState(sessionId: string): SessionParallelState {
@@ -322,6 +632,7 @@ export class BrowserManager {
     let context: BrowserContext | null = null;
 
     try {
+      const chromium = await loadChromium();
       context = await chromium.launchPersistentContext(profileDir, {
         headless: resolvedHeadless,
         executablePath: executablePath ?? undefined,
@@ -344,7 +655,7 @@ export class BrowserManager {
         targets.registerExistingPages(pages);
       }
 
-      const activeTargetId = targets.getActiveTargetId();
+      const initialActiveTargetId = targets.getActiveTargetId();
 
       const refStore = new RefStore();
       const snapshotter = new Snapshotter(refStore);
@@ -378,7 +689,7 @@ export class BrowserManager {
 
       warnings.push(...await this.bootstrapSystemChromeCookies(managed, executablePath));
 
-      if (options.startUrl && activeTargetId) {
+      if (options.startUrl && initialActiveTargetId) {
         await this.goto(sessionId, options.startUrl, "load", 30000, { browser, context, targets });
       }
 
@@ -401,7 +712,13 @@ export class BrowserManager {
         });
       }
 
-      return { sessionId, mode: "managed", activeTargetId, warnings, wsEndpoint: wsEndpoint || undefined };
+      return {
+        sessionId,
+        mode: "managed",
+        activeTargetId: targets.getActiveTargetId(),
+        warnings,
+        wsEndpoint: wsEndpoint || undefined
+      };
     } catch (error) {
       const launchMessage = error instanceof Error ? error.message : "Unknown error";
       const profileLockMessage = this.buildProfileLockLaunchMessage(launchMessage, profileDir);
@@ -445,6 +762,7 @@ export class BrowserManager {
     const startUrl = options.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
+      return { ...result, activeTargetId: this.getManaged(result.sessionId).targets.getActiveTargetId() };
     }
     return result;
   }
@@ -459,6 +777,7 @@ export class BrowserManager {
     const startUrl = options?.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
+      return { ...result, activeTargetId: this.getManaged(result.sessionId).targets.getActiveTargetId() };
     }
     return result;
   }
@@ -494,6 +813,9 @@ export class BrowserManager {
       } catch (error) {
         cleanupErrors.push(error);
       }
+
+      this.clearSessionDialogs(sessionId);
+      this.clearSessionManagedClicks(sessionId);
 
       try {
         const shouldCloseBrowser = closeBrowser || managed.mode !== "managed";
@@ -544,6 +866,7 @@ export class BrowserManager {
         }
       }
     } finally {
+      this.challengeCoordinator.release(sessionId);
       this.sessions.delete(sessionId);
       this.clearSessionParallelState(sessionId);
       this.store.delete(sessionId);
@@ -562,16 +885,7 @@ export class BrowserManager {
     activeTargetId: string | null;
     url?: string;
     title?: string;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     const managed = this.getManaged(sessionId);
     const activeTargetId = managed.targets.getActiveTargetId();
@@ -579,18 +893,27 @@ export class BrowserManager {
     const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.status");
     const url = this.safePageUrl(page, "BrowserManager.status");
     const summary = this.store.getBlockerSummary(sessionId);
+    const dialog = this.getDialogState(sessionId, activeTargetId);
+
+    const meta = this.syncChallengeMeta(sessionId, {
+      blockerState: summary.state,
+      ...(summary.blocker ? { blocker: summary.blocker } : {}),
+      ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
+      ...(summary.resolution ? { blockerResolution: summary.resolution } : {}),
+      ...(dialog ? { dialog } : {})
+    }, {
+      ownerSurface: "direct_browser",
+      resumeMode: "manual",
+      preservedSessionId: sessionId,
+      preservedTargetId: activeTargetId ?? undefined
+    });
 
     return {
       mode: managed.mode,
       activeTargetId,
       url,
       title,
-      meta: {
-        blockerState: summary.state,
-        ...(summary.blocker ? { blocker: summary.blocker } : {}),
-        ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
-        ...(summary.resolution ? { blockerResolution: summary.resolution } : {})
-      }
+      ...(meta ? { meta } : {})
     };
   }
 
@@ -677,6 +1000,11 @@ export class BrowserManager {
   async listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
     return this.runStructural(sessionId, async () => {
       const managed = this.getManaged(sessionId);
+      try {
+        managed.targets.syncPages(managed.context.pages());
+      } catch {
+        // Best-effort sync only.
+      }
       const targets = await Promise.all(managed.targets.listPageEntries().map(async ({ targetId, page }) => {
         const url = includeUrls ? this.safePageUrl(page, "BrowserManager.listTargets") : undefined;
         const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.listTargets");
@@ -928,28 +1256,43 @@ export class BrowserManager {
     finalUrl?: string;
     status?: number;
     timingMs: number;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     if (!sessionOverride && targetId) {
-      return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
+      return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
         const startTime = Date.now();
         try {
-          if (managed.mode === "extension") {
-            await this.waitForExtensionTargetReady(page, "goto", Math.min(timeoutMs, 5000));
+          let activePage = page;
+          const attemptNavigation = async () => {
+            if (managed.mode === "extension") {
+              await this.waitForExtensionTargetReady(activePage, "goto", Math.min(timeoutMs, 5000));
+            }
+            return await this.navigatePage(activePage, url, waitUntil, timeoutMs, managed);
+          };
+
+          let navigation;
+          try {
+            navigation = await attemptNavigation();
+          } catch (error) {
+            if (!this.isLegacyClosedTargetError(managed, error)) {
+              throw error;
+            }
+            const recoveredPage = await this.recoverAndRebindLegacyTarget(
+              managed,
+              resolvedTargetId,
+              timeoutMs,
+              activePage
+            );
+            if (!recoveredPage) {
+              throw error;
+            }
+            activePage = recoveredPage;
+            navigation = await attemptNavigation();
           }
-          const navigation = await this.navigatePage(page, url, waitUntil, timeoutMs, managed);
-          const finalUrl = navigation.finalUrl ?? this.safePageUrl(page, "BrowserManager.goto");
+
+          const finalUrl = navigation.finalUrl ?? this.safePageUrl(activePage, "BrowserManager.goto");
           const status = navigation.response?.status();
-          const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.goto");
+          const title = await this.safeManagedPageTitle(managed, activePage, "BrowserManager.goto");
           const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
             source: "navigation",
             url,
@@ -958,11 +1301,12 @@ export class BrowserManager {
             status,
             verifier: true
           });
+          const challengeMeta = await this.maybeOrchestrateChallenge(sessionId, resolvedTargetId, blockerMeta);
           return {
             finalUrl,
             ...(typeof status === "number" ? { status } : {}),
             timingMs: Date.now() - startTime,
-            ...(blockerMeta ? { meta: blockerMeta } : {})
+            ...(challengeMeta ? { meta: challengeMeta } : {})
           };
         } catch (error) {
           this.markVerifierFailure(sessionId, error);
@@ -1112,12 +1456,15 @@ export class BrowserManager {
           status,
           verifier: true
         });
+      const challengeMeta = sessionOverride
+        ? blockerMeta
+        : await this.maybeOrchestrateChallenge(sessionId, managed.targets.getActiveTargetId(), blockerMeta);
 
       return {
         finalUrl,
         ...(typeof status === "number" ? { status } : {}),
         timingMs: Date.now() - startTime,
-        ...(blockerMeta ? { meta: blockerMeta } : {})
+        ...(challengeMeta ? { meta: challengeMeta } : {})
       };
     } catch (error) {
       if (!sessionOverride) {
@@ -1134,16 +1481,7 @@ export class BrowserManager {
     targetId?: string | null
   ): Promise<{
     timingMs: number;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
       const startTime = Date.now();
@@ -1155,9 +1493,10 @@ export class BrowserManager {
           title: await this.safeManagedPageTitle(managed, page, "BrowserManager.waitForLoad"),
           verifier: true
         });
+        const challengeMeta = await this.maybeOrchestrateChallenge(sessionId, managed.targets.getActiveTargetId(), blockerMeta);
         return {
           timingMs: Date.now() - startTime,
-          ...(blockerMeta ? { meta: blockerMeta } : {})
+          ...(challengeMeta ? { meta: challengeMeta } : {})
         };
       } catch (error) {
         this.markVerifierFailure(sessionId, error);
@@ -1174,31 +1513,22 @@ export class BrowserManager {
     targetId?: string | null
   ): Promise<{
     timingMs: number;
-    meta?: {
-      blocker?: BlockerSignalV1;
-      blockerState: "clear" | "active" | "resolving";
-      blockerUpdatedAt?: string;
-      blockerResolution?: {
-        status: "resolved" | "unresolved" | "deferred";
-        reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-        updatedAt: string;
-      };
-    };
+    meta?: BrowserResponseMeta;
   }> {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
       try {
-        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-        await page.locator(selector).waitFor({ state, timeout: timeoutMs });
+        await this.waitForResolvedRefState(managed, ref, state, timeoutMs, resolvedTargetId);
         const blockerMeta = this.reconcileSessionBlocker(sessionId, managed, {
           source: "navigation",
           finalUrl: this.safePageUrl(page, "BrowserManager.waitForRef"),
           title: await this.safeManagedPageTitle(managed, page, "BrowserManager.waitForRef"),
           verifier: true
         });
+        const challengeMeta = await this.maybeOrchestrateChallenge(sessionId, resolvedTargetId, blockerMeta);
         return {
           timingMs: Date.now() - startTime,
-          ...(blockerMeta ? { meta: blockerMeta } : {})
+          ...(challengeMeta ? { meta: challengeMeta } : {})
         };
       } catch (error) {
         this.markVerifierFailure(sessionId, error);
@@ -1227,19 +1557,18 @@ export class BrowserManager {
   async click(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number; navigated: boolean }> {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
       const previousUrl = page.url();
-      await page.locator(selector).click();
+      await this.clickResolvedRef(managed, page, ref, resolvedTargetId);
       const navigated = page.url() !== previousUrl;
       return { timingMs: Date.now() - startTime, navigated };
     });
   }
 
   async hover(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).hover();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_HOVER_DECLARATION, [], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
@@ -1248,8 +1577,8 @@ export class BrowserManager {
     return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
       if (ref) {
-        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-        await page.locator(selector).focus();
+        await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+        await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_FOCUS_DECLARATION, [], resolvedTargetId);
       }
       await page.keyboard.press(key);
       return { timingMs: Date.now() - startTime };
@@ -1257,19 +1586,19 @@ export class BrowserManager {
   }
 
   async check(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).check();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SET_CHECKED_DECLARATION, [true], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
 
   async uncheck(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).uncheck();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SET_CHECKED_DECLARATION, [false], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
@@ -1282,46 +1611,118 @@ export class BrowserManager {
     submit = false,
     targetId?: string | null
   ): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      if (clear) {
-        await locator.fill("");
-      }
-      await locator.fill(text);
-      if (submit) {
-        await locator.press("Enter");
-      }
+      await this.callFunctionOnResolvedRef<void>(
+        managed,
+        ref,
+        DOM_TYPE_DECLARATION,
+        [text, clear, submit],
+        resolvedTargetId
+      );
       return { timingMs: Date.now() - startTime };
     });
   }
 
   async select(sessionId: string, ref: string, values: string[], targetId?: string | null): Promise<void> {
-    await this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).selectOption(values);
+    await this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      await this.callFunctionOnResolvedRef<void>(
+        managed,
+        ref,
+        DOM_SELECT_DECLARATION,
+        [values],
+        resolvedTargetId
+      );
     });
   }
 
   async scroll(sessionId: string, dy: number, ref?: string, targetId?: string | null): Promise<void> {
     await this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
       if (ref) {
-        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-        await page.locator(selector).evaluate((el, delta) => {
-          (el as HTMLElement).scrollBy(0, delta as number);
-        }, dy);
+        await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_BY_DECLARATION, [dy], resolvedTargetId);
       } else {
         await page.mouse.wheel(0, dy);
       }
     });
   }
 
+  async pointerMove(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(x, y, { ...(typeof steps === "number" ? { steps } : {}) });
+      return { timingMs: Date.now() - startedAt };
+    });
+  }
+
+  async pointerDown(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(x, y);
+      await page.mouse.down({ button, clickCount });
+      return { timingMs: Date.now() - startedAt };
+    });
+  }
+
+  async pointerUp(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(x, y);
+      await page.mouse.up({ button, clickCount });
+      return { timingMs: Date.now() - startedAt };
+    });
+  }
+
+  async drag(
+    sessionId: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const startedAt = Date.now();
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { ...(typeof steps === "number" ? { steps } : {}) });
+      await page.mouse.up();
+      return { timingMs: Date.now() - startedAt };
+    });
+  }
+
+  async resolveRefPoint(
+    sessionId: string,
+    ref: string,
+    targetId?: string | null
+  ): Promise<{ x: number; y: number }> {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      return await this.resolveRefPointForTarget(managed, ref, resolvedTargetId);
+    });
+  }
+
   async scrollIntoView(sessionId: string, ref: string, targetId?: string | null): Promise<{ timingMs: number }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
       const startTime = Date.now();
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      await page.locator(selector).scrollIntoViewIfNeeded();
+      await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
       return { timingMs: Date.now() - startTime };
     });
   }
@@ -1332,9 +1733,14 @@ export class BrowserManager {
     maxChars = 8000,
     targetId?: string | null
   ): Promise<{ outerHTML: string; truncated: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const html = await page.$eval(selector, (el) => (el as Element).outerHTML);
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      const html = await this.callFunctionOnResolvedRef<string>(
+        managed,
+        ref,
+        DOM_OUTER_HTML_DECLARATION,
+        [],
+        resolvedTargetId
+      );
       return truncateHtml(html, maxChars);
     });
   }
@@ -1345,9 +1751,14 @@ export class BrowserManager {
     maxChars = 8000,
     targetId?: string | null
   ): Promise<{ text: string; truncated: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const text = await page.$eval(selector, (el) => (el as HTMLElement).innerText || el.textContent || "");
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      const text = await this.callFunctionOnResolvedRef<string>(
+        managed,
+        ref,
+        DOM_INNER_TEXT_DECLARATION,
+        [],
+        resolvedTargetId
+      );
       return truncateText(text, maxChars);
     });
   }
@@ -1358,140 +1769,145 @@ export class BrowserManager {
     name: string,
     targetId?: string | null
   ): Promise<{ value: string | null }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_GET_ATTR_DECLARATION,
-            [name],
-            resolvedTargetId
-          );
-          if (typeof value === "string") {
-            return { value };
-          }
-          return { value: null };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: string | null;
+      try {
+        value = await this.evaluateDomStateByBackendNode<string | null>(
+          managed,
+          ref,
+          DOM_GET_ATTR_DECLARATION,
+          [name],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).getAttribute(name);
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.getAttribute(name) };
+      return { value: typeof value === "string" ? value : null };
     });
   }
 
   async domGetValue(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: string }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_GET_VALUE_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: typeof value === "string" ? value : "" };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: string | null;
+      try {
+        value = await this.evaluateDomStateByBackendNode<string | null>(
+          managed,
+          ref,
+          DOM_GET_VALUE_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).inputValue();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.inputValue() };
+      return { value: typeof value === "string" ? value : "" };
     });
   }
 
   async domIsVisible(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_IS_VISIBLE_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: value === true };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: boolean;
+      try {
+        value = await this.evaluateDomStateByBackendNode<boolean>(
+          managed,
+          ref,
+          DOM_IS_VISIBLE_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).isVisible();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.isVisible() };
+      return { value: value === true };
     });
   }
 
   async domIsEnabled(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_IS_ENABLED_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: value === true };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: boolean;
+      try {
+        value = await this.evaluateDomStateByBackendNode<boolean>(
+          managed,
+          ref,
+          DOM_IS_ENABLED_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).isEnabled();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.isEnabled() };
+      return { value: value === true };
     });
   }
 
   async domIsChecked(sessionId: string, ref: string, targetId?: string | null): Promise<{ value: boolean }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
-      if (managed.mode === "managed") {
-        try {
-          const value = await this.evaluateDomStateByBackendNode(
-            managed,
-            ref,
-            DOM_IS_CHECKED_DECLARATION,
-            [],
-            resolvedTargetId
-          );
-          return { value: value === true };
-        } catch (error) {
-          if (this.isSnapshotStaleError(error)) {
-            throw error;
-          }
+    return this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId }) => {
+      let value: boolean;
+      try {
+        value = await this.evaluateDomStateByBackendNode<boolean>(
+          managed,
+          ref,
+          DOM_IS_CHECKED_DECLARATION,
+          [],
+          resolvedTargetId
+        );
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw error;
         }
+        const selector = this.resolveSelector(managed, ref, resolvedTargetId);
+        const page = managed.targets.getPage(resolvedTargetId);
+        value = await page.locator(selector).isChecked();
       }
-      const selector = this.resolveSelector(managed, ref, resolvedTargetId);
-      const locator = page.locator(selector);
-      return { value: await locator.isChecked() };
+      return { value: value === true };
     });
   }
 
+  async clonePageWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<ReactExport> {
+    const allowUnsafeExport = this.config.security.allowUnsafeExport;
+    const capture = await this.capturePageCloneWithOptions(sessionId, targetId, options);
+    const css = extractCss(capture);
+    return emitReactComponent(capture, css, { allowUnsafeExport });
+  }
+
   async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
-    return this.runTargetScoped(sessionId, targetId, async ({ page }) => {
-      const allowUnsafeExport = this.config.security.allowUnsafeExport;
-      const exportConfig = this.config.export;
-      const capture = await captureDom(page, "body", {
-        sanitize: !allowUnsafeExport,
-        maxNodes: exportConfig.maxNodes,
-        inlineStyles: exportConfig.inlineStyles
-      });
-      const css = extractCss(capture);
-      return emitReactComponent(capture, css, { allowUnsafeExport });
-    });
+    return await this.clonePageWithOptions(sessionId, targetId);
+  }
+
+  async clonePageHtmlWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<{ html: string; warnings?: string[] }> {
+    const capture = await this.capturePageCloneWithOptions(sessionId, targetId, options);
+    return {
+      html: capture.html,
+      ...(capture.warnings ? { warnings: [...capture.warnings] } : {})
+    };
   }
 
   async cloneComponent(sessionId: string, ref: string, targetId?: string | null): Promise<ReactExport> {
@@ -1531,38 +1947,153 @@ export class BrowserManager {
     });
   }
 
+  private async capturePageCloneWithOptions(
+    sessionId: string,
+    targetId: string | null | undefined,
+    options: BrowserClonePageOptions = {}
+  ): Promise<DomCapture> {
+    return await this.runTargetScoped(sessionId, targetId, async ({ page }) => {
+      const allowUnsafeExport = this.config.security.allowUnsafeExport;
+      const exportConfig = this.config.export;
+      return await captureDom(page, "body", {
+        sanitize: !allowUnsafeExport,
+        maxNodes: options.maxNodes ?? exportConfig.maxNodes,
+        inlineStyles: options.inlineStyles ?? exportConfig.inlineStyles
+      });
+    });
+  }
+
   async screenshot(
     sessionId: string,
-    path?: string,
-    targetId?: string | null
-  ): Promise<{ path?: string; base64?: string; warnings?: string[] }> {
-    return this.runTargetScoped(sessionId, targetId, async ({ managed, page }) => {
+    options: BrowserScreenshotOptions = {}
+  ): Promise<BrowserScreenshotResult> {
+    if (options.ref && options.fullPage) {
+      throw new Error("Screenshot ref and fullPage options are mutually exclusive.");
+    }
+    return this.runTargetScoped(sessionId, options.targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+      const screenshotOptions: {
+        type: "png";
+        path?: string;
+        fullPage?: boolean;
+        clip?: { x: number; y: number; width: number; height: number };
+      } = {
+        type: "png",
+        path: options.path
+      };
+
+      if (options.ref) {
+        await this.callFunctionOnResolvedRef<void>(managed, options.ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], resolvedTargetId);
+        const clip = await this.callFunctionOnResolvedRef<{
+          x?: unknown;
+          y?: unknown;
+          width?: unknown;
+          height?: unknown;
+        } | null>(managed, options.ref, DOM_SCREENSHOT_CLIP_DECLARATION, [], resolvedTargetId);
+        screenshotOptions.clip = this.normalizeScreenshotClip(clip, options.ref);
+      } else if (options.fullPage) {
+        screenshotOptions.fullPage = true;
+      }
+
       try {
-        if (path) {
+        if (options.path) {
           await this.withLegacyExtensionOperationTimeout(
             managed,
-            page.screenshot({ path, type: "png" }),
+            page.screenshot(screenshotOptions),
             `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
           );
-          return { path };
+          return { path: options.path };
         }
         const buffer = await this.withLegacyExtensionOperationTimeout(
           managed,
-          page.screenshot({ type: "png" }),
+          page.screenshot(screenshotOptions),
           `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
         );
         return { base64: buffer.toString("base64") };
       } catch (error) {
-        const fallback = await this.captureScreenshotViaCdp(managed, page, error);
+        const fallback = await this.captureScreenshotViaCdp(managed, page, error, options);
         if (!fallback) {
           throw error;
         }
-        if (path) {
-          await writeFile(path, Buffer.from(fallback.base64, "base64"));
-          return fallback.warnings ? { path, warnings: fallback.warnings } : { path };
+        if (options.path) {
+          await writeFile(options.path, Buffer.from(fallback.base64, "base64"));
+          return fallback.warnings ? { path: options.path, warnings: fallback.warnings } : { path: options.path };
         }
         return fallback;
       }
+    });
+  }
+
+  async upload(sessionId: string, input: BrowserUploadInput): Promise<BrowserUploadResult> {
+    if (!Array.isArray(input.files) || input.files.length === 0) {
+      throw new Error("Upload requires at least one file.");
+    }
+    await Promise.all(input.files.map(async (filePath) => {
+      await access(filePath);
+    }));
+    return this.runTargetScoped(sessionId, input.targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+      const info = await this.callFunctionOnResolvedRef<{
+        isFileInput?: unknown;
+        disabled?: unknown;
+      }>(managed, input.ref, DOM_FILE_INPUT_INFO_DECLARATION, [], resolvedTargetId);
+      if (info?.disabled === true) {
+        throw new Error(`Cannot upload files to disabled ref: ${input.ref}`);
+      }
+
+      if (info?.isFileInput === true) {
+        const resolved = this.resolveRefEntryForTarget(managed, input.ref, resolvedTargetId);
+        await this.withResolvedRefSession(managed, resolved, async (session) => {
+          await session.send("DOM.setFileInputFiles", {
+            backendNodeId: resolved.backendNodeId,
+            files: input.files
+          });
+        });
+        return {
+          targetId: resolvedTargetId,
+          fileCount: input.files.length,
+          mode: "direct_input"
+        };
+      }
+
+      const chooserPromise = page.waitForEvent("filechooser", { timeout: LEGACY_EXTENSION_OPERATION_TIMEOUT_MS });
+      await this.clickResolvedRef(managed, page, input.ref, resolvedTargetId);
+      const chooser = await chooserPromise;
+      await chooser.setFiles(input.files);
+      return {
+        targetId: resolvedTargetId,
+        fileCount: input.files.length,
+        mode: "file_chooser"
+      };
+    });
+  }
+
+  async dialog(sessionId: string, input: BrowserDialogInput = {}): Promise<BrowserDialogResult> {
+    const action = input.action ?? "status";
+    return this.runDialogScoped(sessionId, input.targetId, async ({ targetId: resolvedTargetId }) => {
+      const pending = this.getPendingDialog(sessionId, resolvedTargetId);
+      if (!pending) {
+        return {
+          dialog: { open: false, targetId: resolvedTargetId },
+          ...(action === "status" ? {} : { handled: false })
+        };
+      }
+      if (action === "status") {
+        return { dialog: pending.state };
+      }
+      if (action === "accept") {
+        await pending.dialog.accept(input.promptText);
+      } else {
+        await pending.dialog.dismiss();
+      }
+      const pendingClick = this.getPendingManagedClick(sessionId, resolvedTargetId);
+      if (pendingClick?.dialogOpened) {
+        pendingClick.resolveDialogHandled();
+        await pendingClick.completed;
+      }
+      this.clearPendingDialog(sessionId, resolvedTargetId);
+      return {
+        dialog: { open: false, targetId: resolvedTargetId },
+        handled: true
+      };
     });
   }
 
@@ -1651,6 +2182,7 @@ export class BrowserManager {
         updatedAt: string;
       };
       blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
+      challenge?: SessionChallengeSummary;
     };
   }> {
     const requestId = options.requestId ?? createRequestId();
@@ -2339,10 +2871,158 @@ export class BrowserManager {
     if (!this.store.has(sessionId)) {
       return;
     }
-    this.store.markVerificationFailure(sessionId, {
+    const next = this.store.markVerificationFailure(sessionId, {
       envLimited: this.isEnvLimitedVerifierError(error),
       timedOut: this.isTimeoutVerifierError(error)
     });
+    if (next?.resolution?.status === "deferred") {
+      this.challengeCoordinator.defer(sessionId);
+    }
+  }
+
+  reserveExternalBlockerSlot(sessionId: string): void {
+    this.store.reserveBlockerSlot(sessionId);
+  }
+
+  releaseExternalBlockerSlot(sessionId: string): void {
+    this.challengeCoordinator.release(sessionId);
+    this.store.releaseBlockerSlot(sessionId);
+  }
+
+  reconcileExternalBlockerMeta(
+    sessionId: string,
+    input: {
+      source: "navigation" | "network";
+      url?: string;
+      finalUrl?: string;
+      title?: string;
+      status?: number;
+      message?: string;
+      traceRequestId?: string;
+      networkEvents?: Array<{ url?: string; status?: number }>;
+      consoleEvents?: unknown[];
+      exceptionEvents?: unknown[];
+      verifier?: boolean;
+      includeArtifacts?: boolean;
+      envLimited?: boolean;
+      ownerLeaseId?: string;
+      suspendedIntent?: SuspendedIntentSummary;
+      targetKey?: string;
+    }
+  ): (BrowserResponseMeta & {
+    blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
+  }) | undefined {
+    if (!this.store.hasBlockerSlot(sessionId)) {
+      return undefined;
+    }
+    const now = Date.now();
+    if (input.verifier) {
+      this.store.startResolving(sessionId, now);
+    }
+    const networkEvents = input.networkEvents ?? [];
+    const blocker = classifyBlockerSignal({
+      source: input.source,
+      url: input.url,
+      finalUrl: input.finalUrl,
+      title: input.title,
+      status: input.status,
+      message: input.message,
+      matchedPatterns: this.config.fingerprint.tier2.challengePatterns,
+      networkHosts: this.extractNetworkHosts(networkEvents),
+      traceRequestId: input.traceRequestId,
+      envLimited: input.envLimited,
+      promptGuardEnabled: this.config.security.promptInjectionGuard?.enabled ?? true,
+      threshold: this.config.blockerDetectionThreshold
+    });
+    this.store.reconcileBlocker(sessionId, blocker, {
+      timeoutMs: this.config.blockerResolutionTimeoutMs,
+      verifier: input.verifier,
+      targetKey: input.targetKey,
+      nowMs: now
+    });
+    const summary = this.store.getBlockerSummary(sessionId);
+    const artifacts = input.includeArtifacts && summary.state !== "clear"
+      ? buildBlockerArtifacts({
+        networkEvents: networkEvents as unknown[],
+        consoleEvents: input.consoleEvents,
+        exceptionEvents: input.exceptionEvents,
+        promptGuardEnabled: this.config.security.promptInjectionGuard?.enabled ?? true,
+        caps: this.config.blockerArtifactCaps
+      })
+      : undefined;
+    return this.syncChallengeMeta(sessionId, {
+      blockerState: summary.state,
+      ...(summary.blocker ? { blocker: summary.blocker } : {}),
+      ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
+      ...(summary.resolution ? { blockerResolution: summary.resolution } : {}),
+      ...(artifacts ? { blockerArtifacts: artifacts } : {})
+    }, {
+      ownerSurface: "ops",
+      ownerLeaseId: input.ownerLeaseId,
+      resumeMode: "manual",
+      suspendedIntent: input.suspendedIntent,
+      preservedSessionId: sessionId,
+      preservedTargetId: input.targetKey
+    });
+  }
+
+  private isChallengeLifecycleBlocker(
+    blocker: BlockerSignalV1 | undefined
+  ): blocker is BlockerSignalV1 & { type: "auth_required" | "anti_bot_challenge" } {
+    return blocker?.type === "auth_required" || blocker?.type === "anti_bot_challenge";
+  }
+
+  private syncChallengeMeta(
+    sessionId: string,
+    meta: BrowserResponseMeta | undefined,
+    context: {
+      ownerSurface: ChallengeOwnerSurface;
+      ownerLeaseId?: string;
+      resumeMode: ResumeMode;
+      suspendedIntent?: SuspendedIntentSummary;
+      preservedSessionId?: string;
+      preservedTargetId?: string;
+    }
+  ): BrowserResponseMeta | undefined {
+    if (!meta) {
+      return undefined;
+    }
+    if (this.isChallengeLifecycleBlocker(meta.blocker) && meta.blockerState !== "clear") {
+      const challenge = this.challengeCoordinator.claimOrRefresh({
+        sessionId,
+        blockerType: meta.blocker.type,
+        reasonCode: meta.blocker.reasonCode,
+        ownerSurface: context.ownerSurface,
+        ownerLeaseId: context.ownerLeaseId,
+        resumeMode: context.resumeMode,
+        suspendedIntent: context.suspendedIntent,
+        preservedSessionId: context.preservedSessionId,
+        preservedTargetId: context.preservedTargetId
+      });
+      return {
+        ...meta,
+        challenge
+      };
+    }
+
+    if (meta.blockerResolution?.status === "deferred") {
+      const challenge = this.challengeCoordinator.defer(sessionId);
+      return challenge ? { ...meta, challenge } : meta;
+    }
+
+    if (meta.blockerResolution?.status === "resolved") {
+      const resolved = this.challengeCoordinator.resolve(sessionId) ?? this.challengeCoordinator.getSummary(sessionId);
+      const released = this.challengeCoordinator.release(sessionId) ?? resolved;
+      return released ? { ...meta, challenge: released } : meta;
+    }
+
+    if (meta.blockerState === "clear") {
+      const released = this.challengeCoordinator.release(sessionId);
+      return released ? { ...meta, challenge: released } : meta;
+    }
+
+    const challenge = this.challengeCoordinator.getSummary(sessionId);
+    return challenge ? { ...meta, challenge } : meta;
   }
 
   private reconcileSessionBlocker(
@@ -2364,19 +3044,15 @@ export class BrowserManager {
       includeArtifacts?: boolean;
       envLimited?: boolean;
       restrictedTarget?: boolean;
+      ownerSurface?: ChallengeOwnerSurface;
+      ownerLeaseId?: string;
+      resumeMode?: ResumeMode;
+      suspendedIntent?: SuspendedIntentSummary;
     }
-  ): {
-    blocker?: BlockerSignalV1;
-    blockerState: "clear" | "active" | "resolving";
-    blockerUpdatedAt?: string;
-    blockerResolution?: {
-      status: "resolved" | "unresolved" | "deferred";
-      reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
-      updatedAt: string;
-    };
+  ): (BrowserResponseMeta & {
     blockerArtifacts?: ReturnType<typeof buildBlockerArtifacts>;
-  } | undefined {
-    if (!this.store.has(sessionId)) {
+  }) | undefined {
+    if (!this.store.hasBlockerSlot(sessionId)) {
       return undefined;
     }
 
@@ -2421,13 +3097,105 @@ export class BrowserManager {
       })
       : undefined;
 
-    return {
+    const meta = this.syncChallengeMeta(sessionId, {
       blockerState: summary.state,
       ...(summary.blocker ? { blocker: summary.blocker } : {}),
       ...(summary.updatedAt ? { blockerUpdatedAt: summary.updatedAt } : {}),
       ...(summary.resolution ? { blockerResolution: summary.resolution } : {}),
       ...(artifacts ? { blockerArtifacts: artifacts } : {})
-    };
+    }, {
+      ownerSurface: input.ownerSurface ?? "direct_browser",
+      ownerLeaseId: input.ownerLeaseId,
+      resumeMode: input.resumeMode ?? "manual",
+      suspendedIntent: input.suspendedIntent,
+      preservedSessionId: sessionId,
+      preservedTargetId: managed.targets.getActiveTargetId() ?? undefined
+    });
+
+    return meta;
+  }
+
+  private async maybeOrchestrateChallenge(
+    sessionId: string,
+    targetId: string | null | undefined,
+    meta: BrowserResponseMeta | undefined
+  ): Promise<BrowserResponseMeta | undefined> {
+    if (!meta || !meta.challenge || meta.blockerState === "clear") {
+      return meta;
+    }
+    if (!this.challengeOrchestrator) {
+      return meta;
+    }
+    const policy = resolveChallengeAutomationPolicy({
+      sessionMode: this.getSessionChallengeAutomationMode(sessionId),
+      configMode: this.config.providers?.challengeOrchestration.mode ?? "browser_with_helper"
+    });
+    if (this.isChallengeAutomationSuppressed(sessionId)) {
+      return {
+        ...meta,
+        challengeOrchestration: {
+          challengeId: meta.challenge.challengeId,
+          classification: meta.blocker?.type === "auth_required"
+            ? "auth_required"
+            : "unsupported_third_party_challenge",
+          mode: policy.mode,
+          source: policy.source,
+          lane: "defer",
+          status: "deferred",
+          reason: "Challenge automation is suppressed while a bounded challenge action is already in progress.",
+          attempts: 0,
+          reusedExistingSession: false,
+          reusedCookies: false,
+          standDownReason: "suppressed_by_manager",
+          helperEligibility: {
+            allowed: false,
+            reason: "Challenge automation is currently suppressed by the manager guard.",
+            standDownReason: "suppressed_by_manager"
+          },
+          verification: {
+            status: "still_blocked",
+            blockerState: meta.blockerState,
+            blocker: meta.blocker,
+            challenge: meta.challenge,
+            changed: false,
+            reason: "Challenge automation is currently suppressed by the manager guard.",
+            url: undefined,
+            title: undefined
+          },
+          evidence: {
+            loginRefs: [],
+            humanVerificationRefs: [],
+            checkpointRefs: []
+          }
+        }
+      };
+    }
+    try {
+      const result = await this.challengeOrchestrator.orchestrate({
+        handle: this.createChallengeRuntimeHandle(),
+        sessionId,
+        targetId,
+        policy,
+        canImportCookies: true
+      });
+      const verification = result.action.verification;
+      return {
+        ...meta,
+        blocker: verification.blocker,
+        blockerState: verification.blockerState,
+        blockerResolution: verification.bundle?.blockerResolution ?? meta.blockerResolution,
+        challenge: verification.challenge ?? verification.bundle?.challenge ?? meta.challenge,
+        challengeOrchestration: result.outcome
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn("challenge.orchestration.failed", {
+        requestId: "challenge-orchestration",
+        sessionId,
+        data: { message }
+      });
+      return meta;
+    }
   }
 
   private validateCookieRecord(cookie: CookieImportRecord): {
@@ -2584,7 +3352,7 @@ export class BrowserManager {
   private getManaged(sessionId: string): ManagedSession {
     const managed = this.sessions.get(sessionId);
     if (!managed) {
-      throw new Error(`Unknown sessionId: ${sessionId}`);
+      throw new Error(`[invalid_session] Unknown sessionId: ${sessionId}`);
     }
     return managed;
   }
@@ -2816,15 +3584,29 @@ export class BrowserManager {
     }
   }
 
+  private async runDialogScoped<T>(
+    sessionId: string,
+    targetId: string | null | undefined,
+    execute: (ctx: { managed: ManagedSession; targetId: string; page: Page }) => Promise<T>
+  ): Promise<T> {
+    const managed = this.getManaged(sessionId);
+    const resolved = this.resolveTargetContext(managed, targetId);
+    const key = this.dialogKey(sessionId, resolved.targetId);
+    const serializer = this.dialogSerializers.get(key) ?? new Mutex();
+    this.dialogSerializers.set(key, serializer);
+    return await serializer.runExclusive(async () => await execute({
+      managed,
+      targetId: resolved.targetId,
+      page: resolved.page
+    }));
+  }
+
   private async runStructural<T>(sessionId: string, execute: () => Promise<T>): Promise<T> {
     const state = this.getParallelState(sessionId);
     return state.structural.runExclusive(execute);
   }
 
-  private resolveRefEntry(managed: ManagedSession, ref: string): {
-    selector: string;
-    backendNodeId: number;
-  } {
+  private resolveRefEntry(managed: ManagedSession, ref: string): ResolvedManagedRef {
     const targetId = managed.targets.getActiveTargetId();
     if (!targetId) {
       throw new Error("No active target for ref resolution");
@@ -2836,17 +3618,18 @@ export class BrowserManager {
     managed: ManagedSession,
     ref: string,
     targetId: string
-  ): {
-    selector: string;
-    backendNodeId: number;
-  } {
+  ): ResolvedManagedRef {
     const entry = managed.refStore.resolve(targetId, ref);
     if (!entry) {
       throw this.buildStaleSnapshotError(ref);
     }
     return {
+      targetId,
+      ref,
       selector: entry.selector,
-      backendNodeId: entry.backendNodeId
+      backendNodeId: entry.backendNodeId,
+      snapshotId: entry.snapshotId,
+      ...(entry.frameId ? { frameId: entry.frameId } : {})
     };
   }
 
@@ -2877,47 +3660,18 @@ export class BrowserManager {
     );
   }
 
-  private async evaluateDomStateByBackendNode(
+  private async withResolvedRefSession<T>(
     managed: ManagedSession,
-    ref: string,
-    functionDeclaration: string,
-    args: unknown[] = [],
-    targetId?: string
-  ): Promise<unknown> {
-    const resolvedTargetId = targetId ?? managed.targets.getActiveTargetId();
-    if (!resolvedTargetId) {
-      throw new Error("No active target for ref resolution");
-    }
-    const entry = this.resolveRefEntryForTarget(managed, ref, resolvedTargetId);
-    const page = managed.targets.getPage(resolvedTargetId);
+    resolved: ResolvedManagedRef,
+    execute: (session: CDPSession) => Promise<T>
+  ): Promise<T> {
+    const page = managed.targets.getPage(resolved.targetId);
     const session = await managed.context.newCDPSession(page);
     try {
-      const resolved = await session.send("DOM.resolveNode", {
-        backendNodeId: entry.backendNodeId
-      }) as { object?: { objectId?: string } };
-      const objectId = resolved.object?.objectId;
-      if (!objectId) {
-        throw this.buildStaleSnapshotError(ref);
-      }
-
-      const evaluated = await session.send("Runtime.callFunctionOn", {
-        objectId,
-        functionDeclaration,
-        arguments: args.map((value) => ({ value })),
-        returnByValue: true
-      }) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
-
-      if (evaluated.exceptionDetails) {
-        const message = typeof evaluated.exceptionDetails.text === "string"
-          ? evaluated.exceptionDetails.text
-          : "Runtime.callFunctionOn failed";
-        throw new Error(message);
-      }
-
-      return evaluated.result?.value;
+      return await execute(session);
     } catch (error) {
       if (this.isSnapshotStaleError(error)) {
-        throw this.buildStaleSnapshotError(ref);
+        throw this.buildStaleSnapshotError(resolved.ref);
       }
       throw error;
     } finally {
@@ -2925,6 +3679,268 @@ export class BrowserManager {
         await session.detach();
       } catch {
         // Best-effort cleanup.
+      }
+    }
+  }
+
+  private async callFunctionOnResolvedRef<T>(
+    managed: ManagedSession,
+    ref: string,
+    functionDeclaration: string,
+    args: unknown[] = [],
+    targetId?: string
+  ): Promise<T> {
+    const resolvedTargetId = targetId ?? managed.targets.getActiveTargetId();
+    if (!resolvedTargetId) {
+      throw new Error("No active target for ref resolution");
+    }
+    const resolved = this.resolveRefEntryForTarget(managed, ref, resolvedTargetId);
+    return await this.withResolvedRefSession(
+      managed,
+      resolved,
+      async (session) => await this.callFunctionOnRefContextWithSession<T>(session, resolved, functionDeclaration, args)
+    );
+  }
+
+  private async evaluateDomStateByBackendNode<T>(
+    managed: ManagedSession,
+    ref: string,
+    functionDeclaration: string,
+    args: unknown[] = [],
+    targetId?: string
+  ): Promise<T> {
+    return await this.callFunctionOnResolvedRef<T>(managed, ref, functionDeclaration, args, targetId);
+  }
+
+  private async callFunctionOnRefContextWithSession<T>(
+    session: CDPSession,
+    resolved: ResolvedManagedRef,
+    functionDeclaration: string,
+    args: unknown[] = []
+  ): Promise<T> {
+    const node = await session.send("DOM.resolveNode", {
+      backendNodeId: resolved.backendNodeId
+    }) as { object?: { objectId?: string } };
+    const objectId = node.object?.objectId;
+    if (!objectId) {
+      throw this.buildStaleSnapshotError(resolved.ref);
+    }
+
+    const evaluated = await session.send("Runtime.callFunctionOn", {
+      objectId,
+      functionDeclaration,
+      arguments: args.map((value) => ({ value })),
+      returnByValue: true
+    }) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
+
+    if (evaluated.exceptionDetails) {
+      const message = typeof evaluated.exceptionDetails.text === "string"
+        ? evaluated.exceptionDetails.text
+        : "Runtime.callFunctionOn failed";
+      throw new Error(message);
+    }
+
+    return evaluated.result?.value as T;
+  }
+
+  private async waitForResolvedRefState(
+    managed: ManagedSession,
+    ref: string,
+    state: "attached" | "visible" | "hidden",
+    timeoutMs: number,
+    targetId?: string
+  ): Promise<void> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const snapshot = await this.callFunctionOnResolvedRef<{ attached?: unknown; visible?: unknown }>(
+        managed,
+        ref,
+        DOM_SELECTOR_STATE_DECLARATION,
+        [],
+        targetId
+      );
+      const attached = snapshot?.attached === true;
+      const visible = snapshot?.visible === true;
+      if (state === "attached" && attached) {
+        return;
+      }
+      if (state === "visible" && visible) {
+        return;
+      }
+      if (state === "hidden" && (!attached || !visible)) {
+        return;
+      }
+      await delay(200);
+    }
+    throw new Error("Wait for selector timed out");
+  }
+
+  private async resolveRefPointForTarget(
+    managed: ManagedSession,
+    ref: string,
+    targetId?: string
+  ): Promise<{ x: number; y: number }> {
+    const resolvedTargetId = targetId ?? managed.targets.getActiveTargetId();
+    if (!resolvedTargetId) {
+      throw new Error("No active target for ref resolution");
+    }
+    const resolved = this.resolveRefEntryForTarget(managed, ref, resolvedTargetId);
+    return await this.withResolvedRefSession(managed, resolved, async (session) => {
+      try {
+        const boxModel = await session.send("DOM.getBoxModel", {
+          backendNodeId: resolved.backendNodeId
+        }) as { model?: { content?: number[]; border?: number[] } };
+        const quad = Array.isArray(boxModel.model?.content) && boxModel.model.content.length >= 8
+          ? boxModel.model.content
+          : (Array.isArray(boxModel.model?.border) && boxModel.model.border.length >= 8
+            ? boxModel.model.border
+            : null);
+        if (quad) {
+          const [x1, y1, x2, y2, x3, y3, x4, y4] = quad;
+          const coordinates = [x1, y1, x2, y2, x3, y3, x4, y4];
+          if (coordinates.every((value): value is number => typeof value === "number" && Number.isFinite(value))) {
+            const xs: [number, number, number, number] = [coordinates[0]!, coordinates[2]!, coordinates[4]!, coordinates[6]!];
+            const ys: [number, number, number, number] = [coordinates[1]!, coordinates[3]!, coordinates[5]!, coordinates[7]!];
+            return {
+              x: Math.round((Math.min(...xs) + Math.max(...xs)) / 2),
+              y: Math.round((Math.min(...ys) + Math.max(...ys)) / 2)
+            };
+          }
+        }
+      } catch (error) {
+        if (this.isSnapshotStaleError(error)) {
+          throw this.buildStaleSnapshotError(ref);
+        }
+      }
+
+      const point = await this.callFunctionOnRefContextWithSession<{ x?: unknown; y?: unknown }>(
+        session,
+        resolved,
+        DOM_REF_POINT_DECLARATION
+      );
+      const x = typeof point?.x === "number" && Number.isFinite(point.x) ? Math.round(point.x) : null;
+      const y = typeof point?.y === "number" && Number.isFinite(point.y) ? Math.round(point.y) : null;
+      if (x === null || y === null) {
+        throw new Error(`Could not resolve a clickable point for ref: ${ref}`);
+      }
+      return { x, y };
+    });
+  }
+
+  private async clickResolvedRef(
+    managed: ManagedSession,
+    page: Page,
+    ref: string,
+    targetId: string
+  ): Promise<void> {
+    await this.callFunctionOnResolvedRef<void>(managed, ref, DOM_SCROLL_INTO_VIEW_DECLARATION, [], targetId);
+    const point = await this.resolveRefPointForTarget(managed, ref, targetId);
+    let resolveDialogHandled: () => void = () => {};
+    let resolveCompleted: () => void = () => {};
+    const pendingClick: PendingManagedClick = {
+      dialogOpened: false,
+      dialogHandled: new Promise<void>((resolve) => {
+        resolveDialogHandled = resolve;
+      }),
+      resolveDialogHandled: () => {
+        resolveDialogHandled();
+      },
+      completed: new Promise<void>((resolve) => {
+        resolveCompleted = resolve;
+      }),
+      resolveCompleted: () => {
+        resolveCompleted();
+      }
+    };
+    this.pendingManagedClicks.set(this.dialogKey(managed.sessionId, targetId), pendingClick);
+    try {
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.down({ button: "left", clickCount: 1 });
+      const mouseUpPromise = page.mouse.up({ button: "left", clickCount: 1 });
+      await this.waitForManagedClickCompletion(mouseUpPromise, pendingClick);
+    } finally {
+      pendingClick.resolveCompleted();
+      this.clearPendingManagedClick(managed.sessionId, targetId);
+    }
+  }
+
+  private async waitForManagedClickCompletion(
+    mouseUpPromise: Promise<void>,
+    pendingClick: PendingManagedClick
+  ): Promise<void> {
+    const completion = await Promise.race([
+      mouseUpPromise.then(() => "mouse_up" as const),
+      pendingClick.dialogHandled.then(() => "dialog_handled" as const)
+    ]);
+    if (completion === "dialog_handled") {
+      await mouseUpPromise;
+    }
+  }
+
+  private normalizeScreenshotClip(
+    value: { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | null,
+    ref: string
+  ): { x: number; y: number; width: number; height: number } {
+    const x = typeof value?.x === "number" && Number.isFinite(value.x) ? value.x : null;
+    const y = typeof value?.y === "number" && Number.isFinite(value.y) ? value.y : null;
+    const width = typeof value?.width === "number" && Number.isFinite(value.width) ? value.width : null;
+    const height = typeof value?.height === "number" && Number.isFinite(value.height) ? value.height : null;
+    if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) {
+      throw new Error(`Could not resolve screenshot bounds for ref: ${ref}`);
+    }
+    return { x, y, width, height };
+  }
+
+  private dialogKey(sessionId: string, targetId: string): string {
+    return `${sessionId}:${targetId}`;
+  }
+
+  private getPendingManagedClick(sessionId: string, targetId: string): PendingManagedClick | null {
+    return this.pendingManagedClicks.get(this.dialogKey(sessionId, targetId)) ?? null;
+  }
+
+  private getPendingDialog(sessionId: string, targetId: string): PendingManagedDialog | null {
+    return this.pendingDialogs.get(this.dialogKey(sessionId, targetId)) ?? null;
+  }
+
+  private getDialogState(sessionId: string, targetId?: string | null): BrowserDialogState | undefined {
+    if (!targetId) {
+      return undefined;
+    }
+    return this.getPendingDialog(sessionId, targetId)?.state ?? { open: false, targetId };
+  }
+
+  private clearPendingDialog(sessionId: string, targetId: string): void {
+    const key = this.dialogKey(sessionId, targetId);
+    this.pendingDialogs.delete(key);
+    this.dialogSerializers.delete(key);
+  }
+
+  private clearPendingManagedClick(sessionId: string, targetId: string): void {
+    this.pendingManagedClicks.delete(this.dialogKey(sessionId, targetId));
+  }
+
+  private clearSessionDialogs(sessionId: string): void {
+    const prefix = `${sessionId}:`;
+    for (const key of this.pendingDialogs.keys()) {
+      if (key.startsWith(prefix)) {
+        this.pendingDialogs.delete(key);
+      }
+    }
+    for (const key of this.dialogSerializers.keys()) {
+      if (key.startsWith(prefix)) {
+        this.dialogSerializers.delete(key);
+      }
+    }
+  }
+
+  private clearSessionManagedClicks(sessionId: string): void {
+    const prefix = `${sessionId}:`;
+    for (const [key, pendingClick] of this.pendingManagedClicks.entries()) {
+      if (key.startsWith(prefix)) {
+        pendingClick.resolveDialogHandled();
+        pendingClick.resolveCompleted();
+        this.pendingManagedClicks.delete(key);
       }
     }
   }
@@ -3003,6 +4019,63 @@ export class BrowserManager {
     }
   }
 
+  private async recoverAndRebindLegacyTarget(
+    managed: ManagedSession,
+    targetId: string,
+    timeoutMs: number,
+    failedPage?: Page
+  ): Promise<Page | null> {
+    const replacementPage = await this.recoverLegacyExtensionPage(
+      managed,
+      timeoutMs,
+      async () => {
+        const nextPage = await this.createExtensionPage(managed, "goto");
+        try {
+          await this.waitForExtensionTargetReady(nextPage, "goto", Math.min(timeoutMs, 5000));
+        } catch (error) {
+          if (
+            !this.isExtensionTargetReadyTimeout(error)
+            && !this.isLegacyClosedTargetError(managed, error)
+          ) {
+            throw error;
+          }
+        }
+        return nextPage;
+      },
+      failedPage
+    );
+    if (!replacementPage) {
+      return null;
+    }
+
+    let previousPage: Page | null = null;
+    try {
+      previousPage = managed.targets.getPage(targetId);
+    } catch {
+      previousPage = null;
+    }
+    if (previousPage && previousPage !== replacementPage) {
+      const cleanup = this.pageListeners.get(previousPage);
+      if (cleanup) {
+        cleanup();
+        this.pageListeners.delete(previousPage);
+      }
+    }
+
+    const replacementCleanup = this.pageListeners.get(replacementPage);
+    if (replacementCleanup) {
+      replacementCleanup();
+      this.pageListeners.delete(replacementPage);
+    }
+
+    managed.refStore.clearTarget(targetId);
+    managed.targets.replacePage(targetId, replacementPage);
+    managed.targets.setActiveTarget(targetId);
+    this.attachRefInvalidationForPage(managed, targetId, replacementPage);
+    this.attachTrackers(managed);
+    return replacementPage;
+  }
+
   private async recoverLegacyExtensionPage(
     managed: ManagedSession,
     timeoutMs: number,
@@ -3053,6 +4126,7 @@ export class BrowserManager {
     let browser: Browser | null = null;
     const previousBrowser = managed.browser;
     try {
+      const chromium = await loadChromium();
       const { connectEndpoint, relayPort } = await this.resolveRelayEndpoints(managed.relayWsEndpoint);
       await previousBrowser.close().catch(() => {});
       await this.waitForRelayCdpSlot(managed.relayWsEndpoint, relayPort, Math.min(timeoutMs, 5000));
@@ -3184,7 +4258,6 @@ export class BrowserManager {
       }
     }
 
-    let lastError: unknown;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
         await page.evaluate((nextHtml) => {
@@ -3194,14 +4267,12 @@ export class BrowserManager {
         }, html);
         return;
       } catch (error) {
-        lastError = error;
         if (!this.isExecutionContextDestroyedError(error) || attempt === 4) {
           throw error;
         }
         await delay(250);
       }
     }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
   private async waitForExtensionTargetReady(page: Page, context: string, timeoutMs = 5000): Promise<void> {
@@ -3265,9 +4336,15 @@ export class BrowserManager {
     return message.includes("page.screenshot: Timeout");
   }
 
+  private isLegacyUnknownSessionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("Unknown sessionId:");
+  }
+
   private isLegacyClosedTargetError(managed: ManagedSession, error: unknown): boolean {
     return managed.extensionLegacy && (
       this.isClosedTargetError(error)
+      || this.isLegacyUnknownSessionError(error)
       || this.isExtensionTargetReadyClosed(error)
     );
   }
@@ -3358,9 +4435,10 @@ export class BrowserManager {
   private async captureScreenshotViaCdp(
     managed: ManagedSession,
     page: Page,
-    error: unknown
+    error: unknown,
+    options: BrowserScreenshotOptions
   ): Promise<{ base64: string; warnings?: string[] } | null> {
-    if (!managed.extensionLegacy || !this.isScreenshotTimeoutError(error)) {
+    if (!managed.extensionLegacy || !this.isScreenshotTimeoutError(error) || options.fullPage || options.ref) {
       return null;
     }
     const session = await managed.context.newCDPSession(page);
@@ -3446,22 +4524,64 @@ export class BrowserManager {
   private attachRefInvalidationForPage(managed: ManagedSession, targetId: string, page: Page): void {
     if (this.pageListeners.has(page)) return;
 
-    const onNavigate = (frame: { parentFrame: () => unknown }) => {
-      if (frame.parentFrame() === null) {
-        managed.refStore.clearTarget(targetId);
-      }
-    };
-
-    const onClose = () => {
+    const clearTargetRefs = () => {
       managed.refStore.clearTarget(targetId);
     };
 
+    const clearTargetDialog = () => {
+      this.clearPendingDialog(managed.sessionId, targetId);
+    };
+
+    const onNavigate = (frame?: { parentFrame?: () => unknown }) => {
+      if (typeof frame?.parentFrame === "function" && frame.parentFrame()) {
+        return;
+      }
+      clearTargetRefs();
+      clearTargetDialog();
+    };
+
+    const onClose = () => {
+      clearTargetRefs();
+      clearTargetDialog();
+    };
+
+    const onFrameDetached = (frame?: { parentFrame?: () => unknown }) => {
+      if (typeof frame?.parentFrame === "function" && frame.parentFrame()) {
+        return;
+      }
+      clearTargetRefs();
+      clearTargetDialog();
+    };
+
+    const onDialog = (dialog: Dialog) => {
+      const pendingClick = this.getPendingManagedClick(managed.sessionId, targetId);
+      if (pendingClick) {
+        pendingClick.dialogOpened = true;
+      }
+      this.pendingDialogs.set(this.dialogKey(managed.sessionId, targetId), {
+        dialog,
+        state: {
+          open: true,
+          targetId,
+          type: dialog.type() as BrowserDialogState["type"],
+          message: dialog.message(),
+          defaultPrompt: dialog.defaultValue(),
+          url: this.safePageUrl(page, "BrowserManager.dialog"),
+          openedAt: new Date().toISOString()
+        }
+      });
+    };
+
     page.on("framenavigated", onNavigate);
+    page.on("framedetached", onFrameDetached);
     page.on("close", onClose);
+    page.on("dialog", onDialog);
 
     this.pageListeners.set(page, () => {
       page.off("framenavigated", onNavigate);
+      page.off("framedetached", onFrameDetached);
       page.off("close", onClose);
+      page.off("dialog", onDialog);
     });
   }
 
@@ -3500,6 +4620,7 @@ export class BrowserManager {
     let browser: Browser | null = null;
     const connectAttempts = mode === "extension" ? 3 : 1;
     const sanitizedEndpoint = this.sanitizeWsEndpointForOutput(connectWsEndpoint);
+    const chromium = await loadChromium();
     for (let attempt = 1; attempt <= connectAttempts; attempt += 1) {
       const connectStart = Date.now();
       try {

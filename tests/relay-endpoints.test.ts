@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolveConfig } from "../src/config";
-import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../src/relay/relay-endpoints";
+import {
+  buildLoopbackSessionRelayEndpoint,
+  classifySessionRelayEndpoint,
+  resolveRelayEndpoint,
+  resolveSessionRelayRoute,
+  sanitizeWsEndpoint
+} from "../src/relay/relay-endpoints";
 
 let originalFetch: typeof globalThis.fetch | undefined;
 
@@ -14,6 +20,73 @@ afterEach(() => {
 });
 
 describe("relay endpoints", () => {
+  it("classifies base relay endpoints for session routing", () => {
+    expect(classifySessionRelayEndpoint("ws://127.0.0.1:8787")).toEqual({
+      baseOrigin: "ws://127.0.0.1:8787",
+      inputPath: ""
+    });
+  });
+
+  it("classifies explicit /ops and /cdp relay paths", () => {
+    expect(classifySessionRelayEndpoint("ws://127.0.0.1:8787/ops/")).toEqual({
+      baseOrigin: "ws://127.0.0.1:8787",
+      inputPath: "/ops"
+    });
+    expect(classifySessionRelayEndpoint("ws://127.0.0.1:8787/cdp")).toEqual({
+      baseOrigin: "ws://127.0.0.1:8787",
+      inputPath: "/cdp"
+    });
+  });
+
+  it("returns null for non-session relay paths", () => {
+    expect(classifySessionRelayEndpoint("ws://127.0.0.1:8787/annotation")).toBeNull();
+  });
+
+  it("resolves the default session relay route to /ops", () => {
+    const parsed = classifySessionRelayEndpoint("ws://127.0.0.1:8787");
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error("Expected relay endpoint to parse.");
+    expect(resolveSessionRelayRoute(parsed, {})).toEqual({
+      route: "ops",
+      normalizedEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+  });
+
+  it("resolves legacy base relay routes to /cdp", () => {
+    const parsed = classifySessionRelayEndpoint("ws://127.0.0.1:8787");
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error("Expected relay endpoint to parse.");
+    expect(resolveSessionRelayRoute(parsed, { extensionLegacy: true })).toEqual({
+      route: "cdp",
+      normalizedEndpoint: "ws://127.0.0.1:8787/cdp"
+    });
+  });
+
+  it("preserves explicit /ops routes even when extensionLegacy is enabled", () => {
+    const parsed = classifySessionRelayEndpoint("ws://127.0.0.1:8787/ops");
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error("Expected relay endpoint to parse.");
+    expect(resolveSessionRelayRoute(parsed, { extensionLegacy: true })).toEqual({
+      route: "ops",
+      normalizedEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+  });
+
+  it("rejects explicit /cdp routes when extensionLegacy is not enabled", () => {
+    const parsed = classifySessionRelayEndpoint("ws://127.0.0.1:8787/cdp");
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error("Expected relay endpoint to parse.");
+    expect(resolveSessionRelayRoute(parsed, {})).toEqual({
+      code: "extension_legacy_required",
+      message: "Legacy extension relay (/cdp) requires extensionLegacy=true."
+    });
+  });
+
+  it("builds loopback session relay endpoints from the requested route", () => {
+    expect(buildLoopbackSessionRelayEndpoint(8787)).toBe("ws://127.0.0.1:8787/ops");
+    expect(buildLoopbackSessionRelayEndpoint(8787, { extensionLegacy: true })).toBe("ws://127.0.0.1:8787/cdp");
+  });
+
   it("resolves without pairing and adds relay authorization", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,

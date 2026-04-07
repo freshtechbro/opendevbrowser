@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 
 import { parseArgs, detectOutputFormat } from "./args";
-import type { OutputFormat } from "./args";
+import type { InstallMode, OutputFormat, ParsedArgs } from "./args";
 import { getHelpText } from "./help";
+import onboardingMetadata from "./onboarding-metadata.json";
 import { registerCommand, getCommand } from "./commands/registry";
 import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
 import { installLocal } from "./installers/local";
-import { installSkills } from "./installers/skills";
+import {
+  hasBundledSkillArtifacts,
+  removeBundledSkills,
+  syncBundledSkills
+} from "./installers/skills";
 import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
@@ -24,10 +29,12 @@ import { runScriptCommand } from "./commands/run";
 import { runSessionLaunch } from "./commands/session/launch";
 import { runSessionConnect } from "./commands/session/connect";
 import { runSessionDisconnect } from "./commands/session/disconnect";
+import { runSessionInspector } from "./commands/session/inspector";
 import { runStatus } from "./commands/status";
 import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
+import { runReview } from "./commands/nav/review";
 import { runAnnotate } from "./commands/annotate";
 import { runCanvas } from "./commands/canvas";
 import { runRpc } from "./commands/rpc";
@@ -40,6 +47,11 @@ import { runType } from "./commands/interact/type";
 import { runSelect } from "./commands/interact/select";
 import { runScroll } from "./commands/interact/scroll";
 import { runScrollIntoView } from "./commands/interact/scroll-into-view";
+import { runUpload } from "./commands/interact/upload";
+import { runPointerMove } from "./commands/interact/pointer-move";
+import { runPointerDown } from "./commands/interact/pointer-down";
+import { runPointerUp } from "./commands/interact/pointer-up";
+import { runPointerDrag } from "./commands/interact/pointer-drag";
 import { runTargetsList } from "./commands/targets/list";
 import { runTargetUse } from "./commands/targets/use";
 import { runTargetNew } from "./commands/targets/new";
@@ -58,6 +70,7 @@ import { runClonePage } from "./commands/export/clone-page";
 import { runCloneComponent } from "./commands/export/clone-component";
 import { runPerf } from "./commands/devtools/perf";
 import { runScreenshot } from "./commands/devtools/screenshot";
+import { runDialog } from "./commands/devtools/dialog";
 import { runConsolePoll } from "./commands/devtools/console-poll";
 import { runNetworkPoll } from "./commands/devtools/network-poll";
 import { runDebugTraceSnapshot } from "./commands/devtools/debug-trace-snapshot";
@@ -68,13 +81,40 @@ import { runResearchCommand } from "./commands/research";
 import { runShoppingCommand } from "./commands/shopping";
 import { runProductVideoCommand } from "./commands/product-video";
 import { extractExtension } from "../extension-extractor";
+import { setDefaultLogSink, stderrSink } from "../core/logging";
 import { flushOutputAndExit, writeOutput } from "./output";
-import type { InstallMode } from "./args";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
 import type { CliError } from "./errors";
 import packageJson from "../../package.json";
 
 const VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
+
+function resolveUpdateSkillModes(args: ParsedArgs): InstallMode[] {
+  if (args.rawArgs.includes("--no-skills")) {
+    return [];
+  }
+  if (args.rawArgs.includes("--skills-global")) {
+    return ["global"];
+  }
+  if (args.rawArgs.includes("--skills-local")) {
+    return ["local"];
+  }
+  if (args.mode) {
+    return [args.mode];
+  }
+
+  const installed = findInstalledConfigs();
+  const modes: InstallMode[] = [];
+
+  if (installed.global || hasBundledSkillArtifacts("global")) {
+    modes.push("global");
+  }
+  if (installed.local || hasBundledSkillArtifacts("local")) {
+    modes.push("local");
+  }
+
+  return modes;
+}
 
 async function promptInstallMode(): Promise<InstallMode> {
   if (!process.stdin.isTTY) {
@@ -195,6 +235,7 @@ async function main(): Promise<void> {
     const args = parseArgs(process.argv);
     parseSucceeded = true;
     outputFormat = args.outputFormat;
+    setDefaultLogSink(stderrSink);
     const outputOptions = { format: args.outputFormat, quiet: args.quiet };
 
     const emitResult = (result: CommandResult, payload?: Record<string, unknown>) => {
@@ -237,16 +278,35 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "update",
-      description: "Clear cached plugin to trigger reinstall",
+      description: "Clear cached plugin and refresh managed skill packs",
       run: () => {
         const result = runUpdate();
-        return { success: result.success, message: result.message };
+        const skillModes = result.success ? resolveUpdateSkillModes(args) : [];
+        const skillResults = result.success ? skillModes.map((mode) => syncBundledSkills(mode)) : [];
+        const skillMessage = args.rawArgs.includes("--no-skills")
+          ? "Managed skill refresh skipped (--no-skills)."
+          : skillResults.length > 0
+            ? skillResults.map((entry) => entry.message).join("\n")
+            : result.success
+              ? "No managed skill packs required refresh."
+              : "";
+
+        const message = [result.message, skillMessage].filter(Boolean).join("\n");
+        return {
+          success: result.success && skillResults.every((entry) => entry.success),
+          message,
+          data: {
+            cacheCleared: result.cleared,
+            skillModes,
+            skills: skillResults
+          }
+        };
       }
     });
 
     registerCommand({
       name: "uninstall",
-      description: "Remove plugin from config",
+      description: "Remove plugin from config and clean managed skill packs",
       run: async () => {
         let mode = args.mode;
         if (!mode && !args.noPrompt) {
@@ -259,13 +319,26 @@ async function main(): Promise<void> {
           return { success: false, message: "Error: Please specify --global or --local for uninstall.", exitCode: EXIT_USAGE };
         }
         const result = runUninstall(mode);
-        return { success: result.success, message: result.message };
+        const skipSkills = args.rawArgs.includes("--no-skills");
+        const skillsResult = result.success && !skipSkills ? removeBundledSkills(mode) : undefined;
+        const skillMessage = skipSkills
+          ? "Managed skill cleanup skipped (--no-skills)."
+          : skillsResult?.message ?? "";
+
+        return {
+          success: result.success && (skillsResult?.success ?? true),
+          message: [result.message, skillMessage].filter(Boolean).join("\n"),
+          data: {
+            config: result,
+            skills: skillsResult
+          }
+        };
       }
     });
 
     registerCommand({
       name: "install",
-      description: "Install the plugin",
+      description: "Install the plugin and sync bundled skill packs",
       run: async () => {
         const log = (...values: unknown[]) => {
           if (args.quiet) return;
@@ -285,14 +358,17 @@ async function main(): Promise<void> {
           ? installGlobal(args.withConfig)
           : installLocal(args.withConfig);
         const autostart = result.success ? reconcileInstallAutostart(result) : undefined;
+        const skillsResult = result.success && args.skillsMode !== "none"
+          ? syncBundledSkills(args.skillsMode)
+          : undefined;
+        const installSuccess = result.success && (skillsResult?.success ?? true);
 
         if (args.outputFormat !== "text") {
           const payload: Record<string, unknown> = {
             alreadyInstalled: result.alreadyInstalled
           };
 
-          if (result.success && args.skillsMode !== "none") {
-            const skillsResult = installSkills(args.skillsMode);
+          if (skillsResult) {
             payload.skills = skillsResult;
           }
 
@@ -309,15 +385,14 @@ async function main(): Promise<void> {
             Object.assign(payload, createInstallAutostartOutputPayload(autostart));
           }
 
-          return { success: result.success, message: result.message, data: payload };
+          return { success: installSuccess, message: result.message, data: payload };
         }
 
         log(result.message);
 
         if (args.skillsMode === "none") {
           log("Skill installation skipped (--no-skills).");
-        } else if (result.success) {
-          const skillsResult = installSkills(args.skillsMode);
+        } else if (skillsResult) {
           if (skillsResult.success) {
             log(skillsResult.message);
           } else {
@@ -352,14 +427,15 @@ async function main(): Promise<void> {
           }
         }
 
-        if (result.success && !result.alreadyInstalled) {
+        if (installSuccess && !result.alreadyInstalled) {
           log("\nNext steps:");
           log("  1. Start or restart OpenCode");
-          log("  2. Use opendevbrowser_status to verify the plugin is loaded");
-          log("\nFor help: npx opendevbrowser --help");
+          log(`  2. Read npx opendevbrowser --help and start with ${onboardingMetadata.quickStartCommands.promptingGuide}`);
+          log(`  3. Or load ${onboardingMetadata.skillName} ${onboardingMetadata.skillTopic} directly via ${onboardingMetadata.quickStartCommands.skillLoad}`);
+          log("  4. Use opendevbrowser_status to verify the plugin is loaded");
         }
 
-        return { success: result.success, message: result.message };
+        return { success: installSuccess, message: result.message };
       }
     });
 
@@ -412,6 +488,12 @@ async function main(): Promise<void> {
     });
 
     registerCommand({
+      name: "session-inspector",
+      description: "Capture a session-first diagnostic summary with relay health and trace proof",
+      run: async () => runSessionInspector(args)
+    });
+
+    registerCommand({
       name: "goto",
       description: "Navigate current session to a URL",
       run: async () => runGoto(args)
@@ -427,6 +509,12 @@ async function main(): Promise<void> {
       name: "snapshot",
       description: "Capture a snapshot of the active page",
       run: async () => runSnapshot(args)
+    });
+
+    registerCommand({
+      name: "review",
+      description: "Capture a first-class review payload for the active page",
+      run: async () => runReview(args)
     });
 
     registerCommand({
@@ -499,6 +587,36 @@ async function main(): Promise<void> {
       name: "scroll-into-view",
       description: "Scroll an element into view by ref",
       run: async () => runScrollIntoView(args)
+    });
+
+    registerCommand({
+      name: "upload",
+      description: "Upload files to a file input or chooser by ref",
+      run: async () => runUpload(args)
+    });
+
+    registerCommand({
+      name: "pointer-move",
+      description: "Move the pointer to viewport coordinates",
+      run: async () => runPointerMove(args)
+    });
+
+    registerCommand({
+      name: "pointer-down",
+      description: "Press a mouse button at viewport coordinates",
+      run: async () => runPointerDown(args)
+    });
+
+    registerCommand({
+      name: "pointer-up",
+      description: "Release a mouse button at viewport coordinates",
+      run: async () => runPointerUp(args)
+    });
+
+    registerCommand({
+      name: "pointer-drag",
+      description: "Drag the pointer between two viewport coordinates",
+      run: async () => runPointerDrag(args)
     });
 
     registerCommand({
@@ -607,6 +725,12 @@ async function main(): Promise<void> {
       name: "screenshot",
       description: "Capture a screenshot",
       run: async () => runScreenshot(args)
+    });
+
+    registerCommand({
+      name: "dialog",
+      description: "Inspect or handle a JavaScript dialog",
+      run: async () => runDialog(args)
     });
 
     registerCommand({

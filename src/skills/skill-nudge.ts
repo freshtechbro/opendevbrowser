@@ -1,3 +1,5 @@
+import onboardingMetadata from "../cli/onboarding-metadata.json";
+
 export type SkillNudgeState = {
   pending: boolean;
   requestedAtMs: number | null;
@@ -5,7 +7,7 @@ export type SkillNudgeState = {
 
 export const SKILL_NUDGE_MARKER = "[opendevbrowser:skill-nudge]";
 
-const SKILL_NUDGE_MESSAGE = `${SKILL_NUDGE_MARKER} If this task likely matches a skill, start with skill("opendevbrowser-best-practices", "quick start"). For frontend, UI, screenshot-to-code, or /canvas design work, then load skill("opendevbrowser-design-agent"). Use another skill only when it is more relevant.`;
+const SKILL_NUDGE_MESSAGE = `${SKILL_NUDGE_MARKER} If this task likely matches a skill, start with skill("${onboardingMetadata.skillName}", "${onboardingMetadata.skillTopic}"). For frontend, UI, screenshot-to-code, or /canvas design work, then load skill("${onboardingMetadata.designSkillName}"). Use the canonical opendevbrowser-* packs and start with the bundled quick-start lane before low-level browser commands.`;
 
 type TextPart = { type: "text"; text: string };
 type UnknownPart = { type: string; text?: string };

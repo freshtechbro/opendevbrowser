@@ -24,6 +24,17 @@ export function parseNumberFlag(value: string, flag: string, options: NumberFlag
   return parsed;
 }
 
+export function parseBooleanFlag(value: string, flag: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+  throw createUsageError(`Invalid ${flag}: ${value}`);
+}
+
 export function parseOptionalStringFlag(rawArgs: string[], flag: string): string | undefined {
   for (let i = 0; i < rawArgs.length; i += 1) {
     const arg = rawArgs[i];
@@ -43,4 +54,16 @@ export function parseOptionalStringFlag(rawArgs: string[], flag: string): string
     }
   }
   return undefined;
+}
+
+export function parseStringArrayFlag(rawArgs: string[], flag: string): string[] | undefined {
+  const value = parseOptionalStringFlag(rawArgs, flag);
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const items = value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+  if (items.length === 0) {
+    throw createUsageError(`Missing value for ${flag}`);
+  }
+  return items;
 }

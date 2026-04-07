@@ -29,9 +29,41 @@ export type OpsNetworkEvent = {
   ts: number;
 };
 
+export type OpsSyntheticTargetRecord = {
+  targetId: string;
+  tabId: number;
+  type: string;
+  url?: string;
+  title?: string;
+  sessionId?: string;
+  openerTargetId?: string;
+  attachedAt: number;
+};
+
+export type OpsDialogType = "alert" | "confirm" | "prompt" | "beforeunload";
+
+export type OpsDialogState = {
+  open: boolean;
+  targetId: string;
+  type?: OpsDialogType;
+  message?: string;
+  defaultPrompt?: string;
+  url?: string;
+  openedAt?: string;
+};
+
+export type OpsFileChooserState = {
+  open: boolean;
+  targetId: string;
+  backendNodeId?: number;
+  openedAt?: string;
+};
+
 type OpsSessionExtra = {
   refStore: OpsRefStore;
-  syntheticTargets: Map<string, { url: string; title?: string }>;
+  syntheticTargets: Map<string, OpsSyntheticTargetRecord>;
+  dialogs: Map<string, OpsDialogState>;
+  fileChoosers: Map<string, OpsFileChooserState>;
   consoleEvents: OpsConsoleEvent[];
   networkEvents: OpsNetworkEvent[];
   networkRequests: Map<string, { method: string; url: string; resourceType?: string }>;
@@ -52,21 +84,31 @@ type OpsSessionExtra = {
 export type OpsSession = TargetSessionRecord<OpsSessionExtra>;
 
 export class OpsRefStore {
-  private refsByTarget = new Map<string, Map<string, { ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>>();
+  private refsByTarget = new Map<string, Map<string, { ref: string; selector: string; backendNodeId: number; snapshotId: string; frameId?: string; role?: string; name?: string }>>();
   private snapshotByTarget = new Map<string, string>();
+  private refCounterByTarget = new Map<string, number>();
+
+  nextRef(targetId: string): string {
+    const next = (this.refCounterByTarget.get(targetId) ?? 0) + 1;
+    this.refCounterByTarget.set(targetId, next);
+    return `r${next}`;
+  }
 
   setSnapshot(targetId: string, entries: Array<{ ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>): { snapshotId: string; targetId: string; count: number } {
-    const map = new Map<string, { ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string }>();
-    for (const entry of entries) {
-      map.set(entry.ref, entry);
-    }
+    const map = new Map<string, { ref: string; selector: string; backendNodeId: number; snapshotId: string; frameId?: string; role?: string; name?: string }>();
     const snapshotId = createCoordinatorId();
+    for (const entry of entries) {
+      map.set(entry.ref, {
+        ...entry,
+        snapshotId
+      });
+    }
     this.refsByTarget.set(targetId, map);
     this.snapshotByTarget.set(targetId, snapshotId);
     return { snapshotId, targetId, count: entries.length };
   }
 
-  resolve(targetId: string, ref: string): { ref: string; selector: string; backendNodeId: number; frameId?: string; role?: string; name?: string } | null {
+  resolve(targetId: string, ref: string): { ref: string; selector: string; backendNodeId: number; snapshotId: string; frameId?: string; role?: string; name?: string } | null {
     const map = this.refsByTarget.get(targetId);
     if (!map) return null;
     return map.get(ref) ?? null;
@@ -104,6 +146,8 @@ export class OpsSessionStore {
     return this.coordinator.createSession(ownerClientId, tabId, leaseId, info, {
       refStore: new OpsRefStore(),
       syntheticTargets: new Map(),
+      dialogs: new Map(),
+      fileChoosers: new Map(),
       consoleEvents: [],
       networkEvents: [],
       networkRequests: new Map(),
@@ -138,19 +182,21 @@ export class OpsSessionStore {
     return this.coordinator.delete(sessionId);
   }
 
-  addTarget(sessionId: string, tabId: number, info?: { url?: string; title?: string }): OpsTargetInfo {
+  addTarget(sessionId: string, tabId: number, info?: { url?: string; title?: string; openerTargetId?: string }): OpsTargetInfo {
     return this.coordinator.addTarget(sessionId, tabId, info);
   }
 
   removeTarget(sessionId: string, targetId: string): OpsTargetInfo | null {
-    const target = this.coordinator.removeTarget(sessionId, targetId);
     const session = this.requireSession(sessionId);
+    const target = this.coordinator.removeTarget(sessionId, targetId);
     if (!target) return null;
     session.targetQueues.delete(targetId);
     session.targetQueueDepth.delete(targetId);
     session.targetQueueOldestAt.delete(targetId);
     session.refStore.clearTarget(targetId);
     session.syntheticTargets.delete(targetId);
+    session.dialogs.delete(targetId);
+    session.fileChoosers.delete(targetId);
     return target;
   }
 
@@ -178,6 +224,82 @@ export class OpsSessionStore {
 
   listNamedTargets(sessionId: string): Array<{ name: string; targetId: string }> {
     return this.coordinator.listNamedTargets(sessionId);
+  }
+
+  upsertSyntheticTarget(sessionId: string, target: OpsSyntheticTargetRecord): OpsSyntheticTargetRecord {
+    const session = this.requireSession(sessionId);
+    const existing = session.syntheticTargets.get(target.targetId);
+    const nextTarget: OpsSyntheticTargetRecord = {
+      ...(existing ?? {}),
+      ...target,
+      tabId: target.tabId,
+      type: target.type,
+      attachedAt: target.attachedAt
+    };
+    session.syntheticTargets.set(target.targetId, nextTarget);
+    return nextTarget;
+  }
+
+  getSyntheticTarget(sessionId: string, targetId: string): OpsSyntheticTargetRecord | null {
+    return this.requireSession(sessionId).syntheticTargets.get(targetId) ?? null;
+  }
+
+  listSyntheticTargets(sessionId: string): OpsSyntheticTargetRecord[] {
+    return Array.from(this.requireSession(sessionId).syntheticTargets.values());
+  }
+
+  findSyntheticTargetBySessionId(sessionId: string, childSessionId: string): OpsSyntheticTargetRecord | null {
+    const session = this.requireSession(sessionId);
+    for (const target of session.syntheticTargets.values()) {
+      if (target.sessionId === childSessionId) {
+        return target;
+      }
+    }
+    return null;
+  }
+
+  removeSyntheticTarget(sessionId: string, targetId: string): OpsSyntheticTargetRecord | null {
+    const session = this.requireSession(sessionId);
+    const existing = session.syntheticTargets.get(targetId) ?? null;
+    if (!existing) {
+      return null;
+    }
+    if (session.activeTargetId === targetId) {
+      session.activeTargetId = null;
+    }
+    session.syntheticTargets.delete(targetId);
+    session.refStore.clearTarget(targetId);
+    session.dialogs.delete(targetId);
+    session.fileChoosers.delete(targetId);
+    return existing;
+  }
+
+  getDialog(sessionId: string, targetId: string): OpsDialogState | null {
+    return this.requireSession(sessionId).dialogs.get(targetId) ?? null;
+  }
+
+  setDialog(sessionId: string, targetId: string, dialog: OpsDialogState): OpsDialogState {
+    const session = this.requireSession(sessionId);
+    session.dialogs.set(targetId, dialog);
+    return dialog;
+  }
+
+  clearDialog(sessionId: string, targetId: string): void {
+    this.requireSession(sessionId).dialogs.delete(targetId);
+  }
+
+  getFileChooser(sessionId: string, targetId: string): OpsFileChooserState | null {
+    return this.requireSession(sessionId).fileChoosers.get(targetId) ?? null;
+  }
+
+  setFileChooser(sessionId: string, targetId: string, chooser: OpsFileChooserState): OpsFileChooserState {
+    const session = this.requireSession(sessionId);
+    session.fileChoosers.set(targetId, chooser);
+    return chooser;
+  }
+
+  clearFileChooser(sessionId: string, targetId: string): void {
+    this.requireSession(sessionId).fileChoosers.delete(targetId);
   }
 
   requireSession(sessionId: string): OpsSession {

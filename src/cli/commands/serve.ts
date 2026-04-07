@@ -19,9 +19,18 @@ type DaemonHandle = {
   stop: () => Promise<void>;
 };
 
+type ServeProcessSnapshot = {
+  pid: number;
+  uid: number | null;
+  command: string;
+};
+
 let daemonHandle: DaemonHandle | null = null;
 const PS_MAX_BUFFER = 8 * 1024 * 1024;
-const SERVE_COMMAND_PATTERN = /\b(opendevbrowser|dist\/cli\/index\.js)\b.*\bserve\b/;
+const SERVE_COMMAND_PATTERN = /(?:^|\s)(?:\S*[\\/])?(?:opendevbrowser|dist[\\/]+cli[\\/]+index\.js)(?=\s|$).*?\bserve\b/;
+const SERVE_STOP_PATTERN = /(?:^|\s)--stop(?:\s|$)/;
+const CURRENT_UID = typeof process.getuid === "function" ? process.getuid() : null;
+const CURRENT_EXECUTABLE = process.execPath;
 
 function resolveTokenCandidates(
   requestedToken: string | undefined,
@@ -92,19 +101,59 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
   return parsed;
 }
 
-function readProcessCommand(pid: number): string | null {
+function parseServeProcessSnapshot(line: string): ServeProcessSnapshot | null {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const match = trimmed.match(/^(\d+)(?:\s+(\d+))?\s+(.*)$/);
+  if (!match) {
+    return null;
+  }
+  const pid = Number.parseInt(match[1] ?? "", 10);
   if (!Number.isInteger(pid) || pid <= 0) {
     return null;
   }
-  const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+  const rawUid = match[2];
+  const parsedUid = typeof rawUid === "string" && rawUid.length > 0
+    ? Number.parseInt(rawUid, 10)
+    : null;
+  const command = (match[3] ?? "").trim();
+  if (command.length === 0) {
+    return null;
+  }
+  return {
+    pid,
+    uid: typeof parsedUid === "number" && Number.isInteger(parsedUid) && parsedUid >= 0 ? parsedUid : null,
+    command
+  };
+}
+
+function listServeProcessSnapshots(): ServeProcessSnapshot[] {
+  const result = spawnSync("ps", ["-axww", "-o", "pid=,uid=,command="], {
     encoding: "utf-8",
     maxBuffer: PS_MAX_BUFFER
   });
   if ((result.status ?? 1) !== 0) {
-    return null;
+    return [];
   }
-  const command = String(result.stdout ?? "").trim();
-  return command.length > 0 ? command : null;
+  return String(result.stdout ?? "")
+    .split("\n")
+    .map((line) => parseServeProcessSnapshot(line))
+    .filter((snapshot): snapshot is ServeProcessSnapshot => snapshot !== null);
+}
+
+function isCurrentExecutableServeProcess(snapshot: ServeProcessSnapshot): boolean {
+  if (CURRENT_UID === null || snapshot.uid === null || snapshot.uid !== CURRENT_UID) {
+    return false;
+  }
+  if (!snapshot.command.includes(CURRENT_EXECUTABLE)) {
+    return false;
+  }
+  if (!SERVE_COMMAND_PATTERN.test(snapshot.command)) {
+    return false;
+  }
+  return !SERVE_STOP_PATTERN.test(snapshot.command);
 }
 
 function terminateProcess(pid: number): boolean {
@@ -124,19 +173,31 @@ function terminateProcess(pid: number): boolean {
   return true;
 }
 
-function cleanupStaleServeProcess(pid: number | undefined, keepPid?: number): number {
-  const targetPid = typeof pid === "number" ? pid : null;
-  if (targetPid === null || !Number.isInteger(targetPid) || targetPid <= 0) {
-    return 0;
+function cleanupCompetingServeProcesses(keepPid?: number): number[] {
+  const candidates = listServeProcessSnapshots().filter((snapshot) => {
+    if (!isCurrentExecutableServeProcess(snapshot)) {
+      return false;
+    }
+    if (snapshot.pid === process.pid || snapshot.pid === process.ppid) {
+      return false;
+    }
+    if (Number.isInteger(keepPid) && snapshot.pid === keepPid) {
+      return false;
+    }
+    return true;
+  });
+  if (candidates.length === 0) {
+    return [];
   }
-  if (Number.isInteger(keepPid) && targetPid === keepPid) {
-    return 0;
+
+  const clearedPids: number[] = [];
+  for (const snapshot of candidates) {
+    if (terminateProcess(snapshot.pid)) {
+      clearedPids.push(snapshot.pid);
+    }
   }
-  const command = readProcessCommand(targetPid);
-  if (!command || !SERVE_COMMAND_PATTERN.test(command)) {
-    return 0;
-  }
-  return terminateProcess(targetPid) ? 1 : 0;
+
+  return clearedPids;
 }
 
 export async function runServe(args: ParsedArgs) {
@@ -175,16 +236,22 @@ export async function runServe(args: ParsedArgs) {
   const tokenCandidates = resolveTokenCandidates(serveArgs.token, metadataToken, config.daemonToken);
 
   const existingDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
+  const staleDaemonPids = new Set(cleanupCompetingServeProcesses(existingDaemon?.status.pid));
+  const staleCleared = () => staleDaemonPids.size;
+
   if (existingDaemon) {
     const relayPort = existingDaemon.status.relay.port ?? config.relayPort;
+    const clearedCount = staleCleared();
+    const staleNote = clearedCount > 0 ? `\nCleared ${clearedCount} stale daemon process${clearedCount === 1 ? "" : "es"}.` : "";
     return {
       success: true,
-      message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${existingDaemon.status.pid}, relay ${relayPort}).`,
+      message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${existingDaemon.status.pid}, relay ${relayPort}).${staleNote}`,
       data: {
         port: requestedPort,
         pid: existingDaemon.status.pid,
         relayPort,
         alreadyRunning: true,
+        staleDaemonsCleared: clearedCount,
         relay: existingDaemon.status.relay
       },
       exitCode: null
@@ -219,7 +286,6 @@ export async function runServe(args: ParsedArgs) {
   }
 
   let handle: Awaited<ReturnType<typeof startDaemon>> | null = null;
-  let staleCleared = 0;
   let startError: unknown = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -239,26 +305,32 @@ export async function runServe(args: ParsedArgs) {
       const runningDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
       if (runningDaemon) {
         const relayPort = runningDaemon.status.relay.port ?? config.relayPort;
+        const clearedCount = staleCleared();
+        const staleNote = clearedCount > 0 ? `\nCleared ${clearedCount} stale daemon process${clearedCount === 1 ? "" : "es"}.` : "";
         return {
           success: true,
-          message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${runningDaemon.status.pid}, relay ${relayPort}).`,
+          message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${runningDaemon.status.pid}, relay ${relayPort}).${staleNote}`,
           data: {
             port: requestedPort,
             pid: runningDaemon.status.pid,
             relayPort,
             alreadyRunning: true,
+            staleDaemonsCleared: clearedCount,
             relay: runningDaemon.status.relay
           },
           exitCode: null
         };
       }
-      if (
-        staleCleared === 0
-        && metadata?.port === requestedPort
-        && Number.isInteger(metadata.pid)
-      ) {
-        staleCleared = cleanupStaleServeProcess(metadata.pid);
-        if (staleCleared > 0) {
+      if (attempt === 0) {
+        let clearedNewPid = false;
+        for (const pid of cleanupCompetingServeProcesses()) {
+          const previousSize = staleDaemonPids.size;
+          staleDaemonPids.add(pid);
+          if (staleDaemonPids.size > previousSize) {
+            clearedNewPid = true;
+          }
+        }
+        if (clearedNewPid) {
           continue;
         }
       }
@@ -286,13 +358,14 @@ export async function runServe(args: ParsedArgs) {
   const { state } = handle;
 
   const baseMessage = `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`;
-  const staleNote = staleCleared > 0 ? `\nCleared ${staleCleared} stale daemon process${staleCleared === 1 ? "" : "es"}.` : "";
+  const clearedCount = staleCleared();
+  const staleNote = clearedCount > 0 ? `\nCleared ${clearedCount} stale daemon process${clearedCount === 1 ? "" : "es"}.` : "";
   const message = nativeMessage ? `${baseMessage}\n${nativeMessage}${staleNote}` : `${baseMessage}${staleNote}`;
 
   return {
     success: true,
     message,
-    data: { port: state.port, pid: state.pid, relayPort: state.relayPort, native: nativeStatus, staleDaemonsCleared: staleCleared },
+    data: { port: state.port, pid: state.pid, relayPort: state.relayPort, native: nativeStatus, staleDaemonsCleared: clearedCount },
     exitCode: null
   };
 }

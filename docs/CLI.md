@@ -2,13 +2,13 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-06
 
-OpenDevBrowser exposes 49 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
-Agent runs should start with `opendevbrowser_prompting_guide` (or `opendevbrowser-best-practices` quickstart via `opendevbrowser_skill_load`); load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff/compaction.
-Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader and do not require relay endpoints. In hub-enabled configurations, the plugin may still ensure the daemon is available.
+OpenDevBrowser exposes 57 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
+Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
-Human-facing help metadata lives in `src/cli/help.ts`; human-facing tool metadata lives in `src/tools/surface.ts`. Runtime inventory authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
+Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts`, which is consumed by `src/cli/help.ts`, `src/cli/args.ts`, and re-exported by `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
 
 Dependency inventory: `docs/DEPENDENCIES.md`
 First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
@@ -69,6 +69,11 @@ export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 
 By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
+Installer inventory:
+- `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
+- Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
+- Uninstall removes managed canonical packs and only prunes legacy `research` or `shopping` leftovers when those directories are empty and clearly obsolete.
+
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 
 ### Skill discovery order
@@ -84,6 +89,7 @@ The skill loader discovers skills in this order (first match wins):
 7. Compatibility (project): `./.amp/skills`
 8. Compatibility (global): `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
 9. Extra paths from `skillPaths` (advanced)
+10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
 
 ---
 
@@ -131,20 +137,35 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `56`.
-- Categories: install/runtime management, session/connection, navigation, interaction, targets/pages, DOM inspection, design canvas, export/diagnostics/macro/annotation, and internal power (`rpc`).
+- Total commands: `64`.
+- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, design canvas, export plus session-centric diagnostics, macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `49` (`opendevbrowser_*`).
+- Total tools: `57` (`opendevbrowser_*`).
+- CLI-tool pairs: `54`.
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
 ### Relay channel surface
 
-- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `44` command names.
+- `/ops` (default extension channel): high-level command protocol; see `docs/SURFACE_REFERENCE.md` for all `59` command names.
 - `/canvas` (design-canvas channel): typed design-canvas protocol; see `docs/SURFACE_REFERENCE.md` for all `35` command names and envelope contracts.
 - `/cdp` (legacy): low-level `forwardCDPCommand` relay path with explicit opt-in (`--extension-legacy`).
+
+## Challenge orchestration contract
+
+- Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`, and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
+- Browser-assisted provider fallback reports explicit transport `disposition`: `completed`, `challenge_preserved`, `deferred`, or `failed`. When bounded challenge orchestration runs during fallback, decision evidence is recorded in `details.challengeOrchestration`.
+- Workflow and daemon callers can set `challengeAutomationMode` to `off`, `browser`, or `browser_with_helper`. Effective precedence is `run > session > config`.
+- Shipped config defaults now resolve to `providers.challengeOrchestration.mode = browser_with_helper` and `providers.challengeOrchestration.optionalComputerUseBridge.enabled = true`.
+- `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can expose `mode`, `source`, `standDownReason`, and `helperEligibility` so stand-down decisions stay explicit.
+- `ProviderRegistry` is the only durable anti-bot pressure authority used by policy, runtime routing, and workflow summaries. Provider modules only contribute extraction logic and optional `recoveryHints()`.
+- Direct browser, `/ops`, and provider fallback flows share one bounded challenge plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded browser-native interaction experimentation before yielding.
+- The optional helper bridge is browser-scoped, not a desktop agent. `browser` keeps it disabled and `browser_with_helper` only evaluates it after the existing hard gates pass.
+- Provider and workflow auto-resume still happen only after manager-owned verification clears the blocker.
+- In scope: preserved sessions, visual observation loops, low-level pointer controls, bounded interaction experimentation, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
 
 ---
 
@@ -230,18 +251,24 @@ npx opendevbrowser --version
 npx opendevbrowser -v
 ```
 
-`--help` and `help` print the same complete, agent-oriented inventory:
-- All CLI commands (56) grouped by function, each with a one-line description, usage snippet, and primary flags.
-- All supported CLI flags, grouped by install/session/navigation/workflow usage, with representative examples on high-value shared flags.
-- All `opendevbrowser_*` tools (49), each with a one-line description and CLI equivalent or tool-only scope.
-- Macro and design-canvas timeout guidance via `--timeout-ms`.
-- Canonical inventory pointers: `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`, `docs/SURFACE_REFERENCE.md`, and this CLI guide.
+`--help` and `help` print the same generated first-contact inventory:
+- An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
+- A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current reliable transcript, research, and shopping runbook.
+- A direct pointer to `opendevbrowser_skill_list` when an agent needs a different local skill lane.
+- The complete generated CLI command, flag, and `opendevbrowser_*` tool inventories.
+- Canonical pointers to `docs/FIRST_RUN_ONBOARDING.md`, `skills/opendevbrowser-best-practices/SKILL.md`, and `docs/SURFACE_REFERENCE.md`.
 
 Operational help parity check:
 
 ```bash
 npx opendevbrowser --help
 npx opendevbrowser help
+```
+
+First-run proof lane:
+
+```bash
+node scripts/cli-onboarding-smoke.mjs
 ```
 
 ---
@@ -370,7 +397,7 @@ The workflow wrappers expose the finalized research/shopping/product-video surfa
 
 ```bash
 npx opendevbrowser research run --topic "browser automation" --days 30 --mode compact
-npx opendevbrowser research run --topic "market map" --from 2026-02-01 --to 2026-02-16 --source-selection all --mode json
+npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json
 npx opendevbrowser research run --topic "creator tools" --sources web,shopping --include-engagement --limit-per-source 5 --mode context
 ```
 
@@ -388,15 +415,22 @@ Flags:
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
+
+Notes:
+- Use `--source-selection auto` for generic topical research.
+- In the current contract, `auto` and `all` both stay inside the public topical families (`web`, `community`, `social`).
+- Add shopping only with `--source-selection shopping` or explicit `--sources ...shopping...` when the task is deliberately commercial.
 
 #### Shopping (`shopping run`)
 
 ```bash
 npx opendevbrowser shopping run --query "usb microphone" --mode compact
-npx opendevbrowser shopping run --query "portable monitor" --providers shopping/amazon,shopping/newegg --sort lowest_price --mode md
-npx opendevbrowser shopping run --query "desk chair" --budget 250 --region us --mode path
+npx opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json
 ```
 
 Flags:
@@ -404,14 +438,21 @@ Flags:
 - `--providers` (comma-separated; defaults to all v1 adapters)
 - `--budget`
 - `--region`
+- `--browser-mode` (`auto|extension|managed`)
 - `--sort` (`best_deal|lowest_price|highest_rating|fastest_shipping`)
 - `--mode` (`compact|json|md|context|path`)
 - `--timeout-ms`
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
+
+Notes:
+- Use explicit providers plus `--browser-mode managed` for the most reproducible live reruns.
+- Treat `--region` as advisory unless `meta.selection.region_authoritative=true`.
+- When a run returns no final offers, inspect `meta.primaryConstraintSummary` and `meta.offerFilterDiagnostics` before classifying the provider path as broken.
 
 #### Product presentation asset (`product-video run`)
 
@@ -431,6 +472,7 @@ Flags:
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
@@ -443,6 +485,12 @@ Wrapper behavior:
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.
 - `required` fails fast with `reasonCode=auth_required` when cookie loading/injection/verification cannot establish a session.
+- Workflow challenge automation defaults to `providers.challengeOrchestration.mode`.
+- Effective challenge precedence is `challengeAutomationMode` with `run > session > config`.
+- `off` keeps detection and reporting active but stands down challenge actions.
+- `browser` enables only browser-native lanes and forces the helper bridge to stand down.
+- `browser_with_helper` preserves browser-first lane ordering and only evaluates the browser-scoped helper bridge when hard gates pass.
+- The helper bridge is browser-scoped and is not a desktop agent.
 - Cookie diagnostics are exposed in workflow metrics under `meta.metrics.cookie_diagnostics` and `meta.metrics.cookieDiagnostics`.
 - Shopping providers that return zero usable offer records now emit `meta.failures[*].error.reasonCode=env_limited` instead of silently counting as success.
 
@@ -544,6 +592,7 @@ Default behavior:
 Interactive vs non-interactive:
 - Interactive CLI (TTY): you will be prompted to connect the extension, then explicitly choose Managed or CDPConnect if you want to proceed.
 - Non-interactive (agents/CI): the command fails fast and prints the exact commands to run for Managed or CDPConnect.
+- If `status --daemon` shows `ext=on` but `handshake=off`, reopen the extension popup and click Connect again to re-establish a clean daemon-extension handshake before retrying extension-mode work.
 
 ### Connection flags & status semantics
 
@@ -657,12 +706,14 @@ npx opendevbrowser macro-resolve --expression '@web.search("openai")'
 npx opendevbrowser macro-resolve --expression '@social.post("x", "ship it")' --default-provider social/x --include-catalog
 npx opendevbrowser macro-resolve --expression '@web.search("opendevbrowser")' --execute --output-format json
 npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000 --output-format json
+npx opendevbrowser macro-resolve --expression '@community.search("browser automation failures", 4)' --execute --challenge-automation-mode browser_with_helper --output-format json
 ```
 
 Notes:
 - Default mode is resolve-only (returns the resolved action/provenance payload).
 - `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
 - `--timeout-ms` sets client-side daemon transport timeout for slow `--execute` runs.
+- `--challenge-automation-mode` is accepted for `--execute` runs and maps to `challengeAutomationMode` with the same `run > session > config` precedence as workflow commands.
 - `opendevbrowser --help` includes this timeout flag in the global flag inventory.
 
 ### Blocker contract (v2)
@@ -929,6 +980,15 @@ npx opendevbrowser snapshot --session-id <session-id>
 npx opendevbrowser snapshot --session-id <session-id> --max-chars 16000 --cursor <cursor>
 ```
 
+### Review
+
+Use `review` as the explicit `snapshot -> review -> action` step when you want the active target summary plus a fresh actionables capture in one response.
+
+```bash
+npx opendevbrowser review --session-id <session-id>
+npx opendevbrowser review --session-id <session-id> --target-id <target-id> --max-chars 16000 --cursor <cursor>
+```
+
 ---
 
 ## Interaction commands (daemon required)
@@ -936,8 +996,12 @@ npx opendevbrowser snapshot --session-id <session-id> --max-chars 16000 --cursor
 ### Click
 
 ```bash
-npx opendevbrowser click --session-id <session-id> --ref r12
+npx opendevbrowser click --session-id <session-id> --ref r12 [--timeout-ms <ms>]
 ```
+
+Notes:
+- `--timeout-ms` sets the client-side daemon timeout for the click request.
+- Without `--timeout-ms`, `click` uses a 60s client-side daemon timeout so blocking browser dialogs can be inspected and handled without the opener expiring immediately.
 
 ### Hover
 
@@ -984,6 +1048,17 @@ npx opendevbrowser scroll --session-id <session-id> --ref r12 --dy 300
 ```bash
 npx opendevbrowser scroll-into-view --session-id <session-id> --ref r12
 ```
+
+### Upload
+
+```bash
+npx opendevbrowser upload --session-id <session-id> --ref r12 --files ./avatar.png
+npx opendevbrowser upload --session-id <session-id> --target-id <target-id> --ref r12 --files ./front.png,./back.png
+```
+
+Notes:
+- `--files` accepts a comma-separated list of host file paths.
+- Upload resolves the target from the existing ref model and reports `mode` as `direct_input` or `file_chooser`.
 
 ---
 
@@ -1132,11 +1207,29 @@ npx opendevbrowser perf --session-id <session-id>
 ```bash
 npx opendevbrowser screenshot --session-id <session-id>
 npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png
+npx opendevbrowser screenshot --session-id <session-id> --ref r12
+npx opendevbrowser screenshot --session-id <session-id> --full-page
 npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png --timeout-ms 60000
 ```
 
 Notes:
+- `--ref` and `--full-page` are mutually exclusive.
 - `--timeout-ms` sets client-side daemon timeout for screenshot capture.
+- Default visible capture may still report the existing viewport-only fallback warning when extension capture has to degrade, but ref and full-page requests do not silently reuse that fallback.
+
+### Dialog
+
+```bash
+npx opendevbrowser dialog --session-id <session-id>
+npx opendevbrowser dialog --session-id <session-id> --action dismiss
+npx opendevbrowser dialog --session-id <session-id> --action accept --prompt-text "Ship it"
+```
+
+Notes:
+- `--action` supports `status`, `accept`, and `dismiss`.
+- `--prompt-text` is only valid when `--action accept` is used for a prompt dialog.
+- `--timeout-ms` sets the client-side daemon timeout for the dialog request.
+- Without `--timeout-ms`, `dialog` uses a 30s client-side daemon timeout.
 
 ### Console poll
 
@@ -1162,6 +1255,25 @@ npx opendevbrowser debug-trace-snapshot \
   --max 200 \
   --request-id req-debug-001
 ```
+
+### Session inspector
+
+```bash
+npx opendevbrowser session-inspector --session-id <session-id>
+npx opendevbrowser session-inspector \
+  --session-id <session-id> \
+  --include-urls \
+  --since-console-seq 100 \
+  --since-network-seq 80 \
+  --since-exception-seq 10 \
+  --max 50 \
+  --request-id req-session-inspector-001
+```
+
+Notes:
+- Returns session status, relay health, target summary, proof artifact metadata, `healthState`, and a suggested next action in one payload.
+- `--include-urls` keeps target URLs in the target summary. Omit it to use the default runtime behavior.
+- `--since-console-seq`, `--since-network-seq`, `--since-exception-seq`, and `--max` mirror the trace cursors used by `debug-trace-snapshot`.
 
 ---
 
@@ -1217,13 +1329,14 @@ npx opendevbrowser debug-trace-snapshot \
 | `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
 | `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
 | `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |
-| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot` | Optional request correlation id |
+| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot`, `session-inspector` | Optional request correlation id |
 | `--expression` | `macro-resolve` | Macro expression to resolve |
 | `--default-provider` | `macro-resolve` | Provider fallback for shorthand macros |
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
 | `--use-cookies` | `research run`, `shopping run`, `product-video run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
+| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `macro-resolve --execute` | Per-run challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
 | `--cookie-policy-override` | `research run`, `shopping run`, `product-video run` | Per-run provider cookie policy override (`off|auto|required`) |
 | `--cookie-policy` | `research run`, `shopping run`, `product-video run` | Alias of `--cookie-policy-override` |
 
@@ -1245,13 +1358,14 @@ npx opendevbrowser debug-trace-snapshot \
 |------|---------|-------------|
 | `--url` | `goto`, `page`, `target-new`, `cookie-list` | URL to navigate/open or filter cookie listing |
 | `--wait-until` | `goto` | Load state (`load`, `domcontentloaded`, etc.) |
-| `--timeout-ms` | `goto`, `wait` | Timeout in ms |
+| `--timeout-ms` | `goto`, `wait`, `review` | Timeout in ms |
 | `--ref` | `wait` | Element ref to wait for |
 | `--state` | `wait` | Element state (e.g. `visible`) |
 | `--until` | `wait` | Page load state |
 | `--mode` | `snapshot` | Snapshot mode (`outline` or `actionables`) |
-| `--max-chars` | `snapshot`, `dom-*` | Max characters returned |
-| `--cursor` | `snapshot` | Snapshot pagination cursor |
+| `--target-id` | `review` | Optional target override for the review payload |
+| `--max-chars` | `snapshot`, `review`, `dom-*` | Max characters returned |
+| `--cursor` | `snapshot`, `review` | Snapshot pagination cursor |
 
 **Annotation**
 
@@ -1291,10 +1405,12 @@ npx opendevbrowser debug-trace-snapshot \
 | Flag | Used by | Description |
 |------|---------|-------------|
 | `--ref` | element commands | Element ref from `snapshot` |
+| `--timeout-ms` | `click` | Client-side daemon call timeout in ms; defaults to 60s |
 | `--text` | `type` | Text to type |
 | `--clear` | `type` | Clear input before typing |
 | `--submit` | `type` | Submit after typing |
 | `--values` | `select` | Comma-separated values |
+| `--files` | `upload` | Comma-separated file paths for upload |
 | `--dy` | `scroll` | Scroll delta on Y axis |
 | `--key` | `press` | Keyboard key name (e.g. `Enter`) |
 
@@ -1303,7 +1419,7 @@ npx opendevbrowser debug-trace-snapshot \
 | Flag | Used by | Description |
 |------|---------|-------------|
 | `--target-id` | `target-use`, `target-close` | Target id from `targets-list` |
-| `--include-urls` | `targets-list` | Include URLs in target list output |
+| `--include-urls` | `targets-list`, `session-inspector` | Include URLs in target or session-inspector target-list output |
 | `--name` | `page`, `page-close` | Named page identifier |
 
 **Devtools**
@@ -1312,12 +1428,17 @@ npx opendevbrowser debug-trace-snapshot \
 |------|---------|-------------|
 | `--attr` | `dom-attr` | Attribute name to read |
 | `--path` | `screenshot` | Output file path |
-| `--timeout-ms` | `screenshot` | Client-side daemon call timeout in ms |
+| `--ref` | `screenshot` | Capture an element screenshot by ref |
+| `--full-page` | `screenshot` | Capture the full scrollable page |
+| `--action` | `dialog` | Dialog action: `status`, `accept`, or `dismiss` |
+| `--prompt-text` | `dialog` | Prompt text to submit when accepting a prompt dialog |
+| `--timeout-ms` | `screenshot` | Explicit client-side daemon call timeout in ms |
+| `--timeout-ms` | `dialog` | Client-side daemon call timeout in ms; defaults to 30s |
 | `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
-| `--since-console-seq` | `debug-trace-snapshot` | Resume cursor for console channel |
-| `--since-network-seq` | `debug-trace-snapshot` | Resume cursor for network channel |
-| `--since-exception-seq` | `debug-trace-snapshot` | Resume cursor for exception channel |
-| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot` | Max events to return per channel |
+| `--since-console-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for console channel |
+| `--since-network-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for network channel |
+| `--since-exception-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for exception channel |
+| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector` | Max events to return per channel |
 
 ---
 
@@ -1503,7 +1624,7 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
       "enableYtdlpAudioAsr": true,
       "enableApify": true,
       "apifyActorId": "streamers/youtube-scraper",
-      "enableBrowserFallback": true,
+      "enableBrowserFallback": false,
       "ytdlpTimeoutMs": 10000
     }
   },
@@ -1516,17 +1637,19 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
 
 The optional `skills.nudge` section controls the small one-time prompt hint that encourages early `skill(...)` usage on skill-relevant tasks. The optional `continuity` section controls the long-running task nudge and the ledger file path.
 Fingerprint runtime defaults are Tier 1/2/3 enabled, with Tier 2 and Tier 3 driven by continuous signals (debug trace remains readout/reporting).
-Provider runtime anti-bot/transcript controls default to an exhaustive YouTube fallback chain:
+Provider runtime anti-bot/transcript controls default to a public-first YouTube resolver chain:
 - Transcript mode semantics: `auto | web | no-auto | yt-dlp | apify`.
 - Request filter precedence is `filters.youtube_mode > providers.transcript.modeDefault > auto`.
 - No CLI mode flag is introduced in this phase; mode is configured in `providers.transcript.modeDefault` or per-request `youtube_mode` filter.
-- Auto mode fallback chain is `youtubei -> native_caption_parse -> ytdlp_audio_asr -> apify`, with browser-assisted fallback attempted last when browser escalation is available.
+- Auto mode fallback chain is `youtubei -> native_caption_parse -> ytdlp_audio_asr -> apify`.
 - `yt-dlp` audio transcription requires `providers.transcript.enableYtdlpAudioAsr=true`.
 - Apify requires `providers.transcript.enableApify=true`, a valid `APIFY_TOKEN`, and legal checklist approval for `apify`.
-- Browser-assisted fallback requires `providers.transcript.enableBrowserFallback=true` and `providers.antiBotPolicy.allowBrowserEscalation=true`.
+- Browser-assisted fallback is opt-in only and requires `providers.transcript.enableBrowserFallback=true` plus `providers.antiBotPolicy.allowBrowserEscalation=true`.
+- If browser fallback is enabled, run it in an isolated automation profile instead of a daily logged-in Google profile.
 
 Provider workflow and execution outputs now include normalized transcript/anti-bot telemetry:
-- Failure reason codes: `meta.metrics.reason_code_distribution` (legacy), `meta.metrics.reasonCodeDistribution` (camelCase alias), and `reasonCode` on provider failures.
+- Primary provider follow-up summary: `meta.primaryConstraintSummary`.
+- Failure reason codes: `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `reasonCode` on provider failures.
 - Transcript fallback diagnostics: `meta.metrics.transcript_strategy_failures` (legacy) and `meta.metrics.transcriptStrategyFailures` (camelCase alias).
 - Strategy-detail diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
 - Durability/pressure dimensions: `meta.metrics.transcriptDurability` and `meta.metrics.antiBotPressure` (snake_case aliases are also emitted).

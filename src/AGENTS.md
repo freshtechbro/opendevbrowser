@@ -18,7 +18,8 @@ src/
 │   ├── ops-browser-manager.ts # Extension ops sessions (/ops relay)
 │   └── target-manager.ts    # Tab management, active tracking
 ├── providers/            # Provider runtime, policy, workflows, browser fallback
-├── tools/                # 49 tool definitions (see tools/AGENTS.md)
+├── challenges/           # Bounded challenge orchestration plane, evidence, recovery lanes
+├── tools/                # 57 tool definitions (see tools/AGENTS.md)
 ├── snapshot/             # AX-tree capture, RefStore
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
@@ -40,16 +41,19 @@ src/
 | `browser/` | BrowserManager, OpsBrowserManager, CanvasManager, TargetManager, AnnotationManager, preview/code-sync coordination, CDP lifecycle. See `browser/AGENTS.md` |
 | `cache/` | Chrome executable resolution |
 | `canvas/` | Canvas document store, validation, repo persistence, built-in kit and starter catalogs, framework or library adapters, repo-local BYO plugin loading, and code-sync helpers. See `canvas/AGENTS.md` |
+| `challenges/` | Bounded challenge orchestration plane: evidence bundles, strategy selection, recovery lanes, verification, and audit records. See `challenges/AGENTS.md` |
 | `cli/` | CLI commands, installers, daemon autostart + hub tooling. See `cli/AGENTS.md` |
 | `cli/` (hub) | Daemon lifecycle, FIFO lease queue, relay status refresh |
 | `core/` | Bootstrap, runtime wiring |
 | `devtools/` | Console/network trackers, redaction |
 | `export/` | DOM capture, React emitter, sanitization |
+| `integrations/` | External integration adapters such as Figma import and normalization |
+| `macros/` | Macro registry, execution, and provider action expansion |
 | `providers/` | Tier routing, blocker policy, browser fallback, workflow orchestration. See `providers/AGENTS.md` |
 | `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
 | `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
 | `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |
-| `tools/` | 49 tool definitions (thin wrappers). See `tools/AGENTS.md` |
+| `tools/` | 57 tool definitions (thin wrappers). See `tools/AGENTS.md` |
 | `utils/` | Shared utilities |
 
 ## Manager Pattern

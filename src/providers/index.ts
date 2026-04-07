@@ -4,14 +4,24 @@ import {
   providerErrorCodeFromReasonCode,
   toProviderError
 } from "./errors";
-import { applyProviderIssueHint, classifyProviderIssue } from "./constraint";
+import { applyProviderIssueHint, classifyProviderIssue, type ProviderIssueHint } from "./constraint";
 import { createExecutionMetadata, normalizeFailure, normalizeSuccess, createTraceContext } from "./normalize";
 import { selectProviders } from "./policy";
-import { ProviderRegistry } from "./registry";
+import { ProviderRegistry, type ProviderAntiBotSnapshot } from "./registry";
 import { AdaptiveConcurrencyController } from "./adaptive-concurrency";
 import { applyPromptGuard } from "./safety/prompt-guard";
 import { fallbackTierMetadata, selectTierRoute, shouldFallbackToTierA } from "./tier-router";
+import {
+  browserFallbackObservationDetails,
+  browserFallbackObservationAttributes,
+  readFallbackString,
+  resolveProviderBrowserFallback,
+  toBrowserFallbackObservation,
+  toProviderFallbackError
+} from "./browser-fallback";
+import { resolveProviderRuntimePolicy } from "./runtime-policy";
 import { createLogger } from "../core/logging";
+import type { ChallengeAutomationMode } from "../challenges";
 import {
   AntiBotPolicyEngine,
   type AntiBotPolicyConfig
@@ -24,6 +34,12 @@ import {
   type SocialProviderOptions,
   type SocialProvidersOptions
 } from "./social";
+import {
+  detectSocialSearchShell,
+  isFirstPartySocialSearchRoute,
+  prioritizeSocialSearchLinks,
+  selectUsableSocialSearchLinks
+} from "./social/search-quality";
 import { createShoppingProviders, type ShoppingProvidersOptions } from "./shopping";
 import { providerRequestHeaders } from "./shared/request-headers";
 import { isLikelyDocumentUrl } from "./shared/traversal-url";
@@ -31,10 +47,19 @@ import { createWebProvider, type WebProviderOptions } from "./web";
 import { classifyBlockerSignal } from "./blocker";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
+import { isWorkflowResumePayload, type WorkflowKind, type WorkflowResumeEnvelope } from "./workflow-contracts";
+import {
+  runProductVideoWorkflow,
+  runResearchWorkflow,
+  runShoppingWorkflow
+} from "./workflows";
 import type {
   AdaptiveConcurrencyDiagnostics,
+  BrowserFallbackObservation,
   BrowserFallbackPort,
+  BrowserFallbackMode,
   BlockerSignalV1,
+  ChallengeOwnerSurface,
   JsonValue,
   NormalizedRecord,
   ProviderAdapter,
@@ -47,6 +72,7 @@ import type {
   ProviderErrorCode,
   ProviderOperation,
   ProviderOperationResult,
+  ProviderRecoveryHints,
   ProviderReasonCode,
   ProviderRunOptions,
   ProviderRuntimeBudgets,
@@ -54,8 +80,117 @@ import type {
   ProviderSelection,
   ProviderSource,
   ProviderTierMetadata,
+  ResumeMode,
+  SessionChallengeSummary,
+  SuspendedIntentKind,
+  SuspendedIntentSummary,
+  WorkflowSuspendedIntentKind,
   TraceContext
 } from "./types";
+
+const DEFAULT_PROVIDER_SUSPENDED_INTENT_KIND: Record<ProviderOperation, SuspendedIntentKind> = {
+  search: "provider.search",
+  fetch: "provider.fetch",
+  crawl: "provider.crawl",
+  post: "provider.post"
+};
+const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind, WorkflowKind> = {
+  "workflow.research": "research",
+  "workflow.shopping": "shopping",
+  "workflow.product_video": "product_video"
+};
+
+type SuspendedIntentResumeResult = ProviderAggregateResult | Record<string, unknown>;
+
+const EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS = new Set<SocialPlatform>(["x", "reddit", "bluesky", "linkedin"]);
+const EXTENSION_MINIMAL_TRAVERSAL_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["linkedin"]);
+const EXTENSION_FIRST_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
+const SOCIAL_BROWSER_RECOVERY_REASON_CODES = new Set<ProviderReasonCode>(["challenge_detected"]);
+const SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit"]);
+
+const withPrioritizedFallbackModes = (
+  prioritized: readonly BrowserFallbackMode[],
+  existing?: readonly BrowserFallbackMode[]
+): BrowserFallbackMode[] => [...new Set([...prioritized, ...(existing ?? [])])];
+
+const buildSocialRecoveryHints = (
+  platform: SocialPlatform,
+  options: SocialProviderOptions | undefined
+): ProviderRecoveryHints | undefined => {
+  const existing = options?.recoveryHints?.();
+  if (!EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS.has(platform)) {
+    return existing;
+  }
+  return {
+    ...(existing ?? {}),
+    preferredFallbackModes: withPrioritizedFallbackModes(
+      EXTENSION_FIRST_FALLBACK_MODES,
+      existing?.preferredFallbackModes
+    )
+  };
+};
+
+const buildSocialDefaultTraversal = (
+  platform: SocialPlatform,
+  options: SocialProviderOptions | undefined
+): SocialProviderOptions["defaultTraversal"] => {
+  const existing = options?.defaultTraversal;
+  if (!EXTENSION_MINIMAL_TRAVERSAL_SOCIAL_PLATFORMS.has(platform)) {
+    return existing;
+  }
+  return {
+    pageLimit: 1,
+    hopLimit: 0,
+    expansionPerRecord: 0,
+    ...(existing ?? {})
+  };
+};
+
+const shouldRecoverSocialDocumentIssue = (
+  platform: SocialPlatform,
+  operation: "search" | "fetch",
+  issue: ProviderIssueHint
+): boolean => {
+  if (SOCIAL_BROWSER_RECOVERY_REASON_CODES.has(issue.reasonCode)) {
+    return true;
+  }
+  if (issue.reasonCode === "token_required" && EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS.has(platform)) {
+    return true;
+  }
+  return operation === "search"
+    && SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS.has(platform)
+    && issue.reasonCode === "env_limited"
+    && issue.constraint?.kind === "render_required";
+};
+
+const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
+  typeof value === "object" && value !== null && !Array.isArray(value)
+);
+
+const unwrapWorkflowResumeEnvelope = (
+  kind: WorkflowKind,
+  input: JsonValue
+): WorkflowResumeEnvelope => {
+  if (!isWorkflowResumePayload(input)) {
+    throw new ProviderRuntimeError(
+      "invalid_input",
+      "Workflow resume payload is missing or malformed.",
+      {
+        retryable: false
+      }
+    );
+  }
+  if (input.workflow.kind !== kind) {
+    throw new ProviderRuntimeError(
+      "invalid_input",
+      `Workflow resume payload kind mismatch. Expected ${kind} but received ${input.workflow.kind}.`,
+      {
+        retryable: false
+      }
+    );
+  }
+  return input.workflow;
+};
 
 class Semaphore {
   private active = 0;
@@ -187,6 +322,7 @@ type RuntimeFetchedDocument = {
   html: string;
   text: string;
   links: string[];
+  browserFallback?: BrowserFallbackObservation;
 };
 
 const isHttpUrl = (value: string): boolean => {
@@ -222,11 +358,46 @@ const stripUrls = (value: string): string => {
   return value.replace(/https?:\/\/[^\s]+/gi, " ").replace(/\s+/g, " ").trim();
 };
 
+const unwrapDuckDuckGoRedirect = (value: string): string => {
+  try {
+    const parsed = new URL(value);
+    if (
+      /(^|\.)duckduckgo\.com$/i.test(parsed.hostname)
+      && (parsed.pathname === "/l" || parsed.pathname === "/l/")
+    ) {
+      const redirect = parsed.searchParams.get("uddg");
+      if (redirect && isHttpUrl(redirect)) {
+        return canonicalizeUrl(redirect);
+      }
+    }
+  } catch {
+    return value;
+  }
+  return value;
+};
+
+const isDuckDuckGoSearchShellUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    if (!/(^|\.)duckduckgo\.com$/i.test(host)) {
+      return false;
+    }
+    if (pathname === "/l" || pathname === "/l/") {
+      return false;
+    }
+    return pathname === "/" || pathname === "/html" || pathname === "/html/" || pathname === "/lite" || pathname === "/lite/";
+  } catch {
+    return false;
+  }
+};
+
 const normalizeHttpLink = (candidate: string, baseUrl: string): string | null => {
   try {
     const resolved = new URL(candidate, baseUrl).toString();
     if (!isHttpUrl(resolved)) return null;
-    return canonicalizeUrl(resolved);
+    return unwrapDuckDuckGoRedirect(canonicalizeUrl(resolved));
   } catch {
     return null;
   }
@@ -261,21 +432,16 @@ const fallbackReasonCodeForError = (error: {
   reasonCode?: ProviderReasonCode;
 }): ProviderReasonCode | undefined => {
   if (error.reasonCode) return error.reasonCode;
-  const normalized = normalizeProviderReasonCode({
-    code: error.code,
-    message: error.message,
-    details: error.details
-  });
-  if (normalized) return normalized;
-  // auth/rate_limited normalize directly from the provider error code above.
-  if (error.code === "upstream") return "ip_blocked";
-  if (error.code === "timeout" || error.code === "network" || error.code === "unavailable") return "env_limited";
-  return undefined;
-};
-
-const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
-  const value = output?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  switch (error.code) {
+    case "upstream":
+      return "ip_blocked";
+    case "timeout":
+    case "network":
+    case "unavailable":
+      return "env_limited";
+    default:
+      return undefined;
+  }
 };
 
 const fetchRuntimeDocument = async (args: {
@@ -427,6 +593,7 @@ const fetchRuntimeDocumentWithFallback = async (args: {
   signal?: AbortSignal;
   context?: ProviderContext;
   browserFallbackPort?: BrowserFallbackPort;
+  recoveryHints?: ProviderRecoveryHints;
 }): Promise<RuntimeFetchedDocument> => {
   try {
     return await fetchRuntimeDocument({
@@ -449,27 +616,31 @@ const fetchRuntimeDocumentWithFallback = async (args: {
     }
     const reasonCode = fallbackReasonCodeForError(normalized) ?? "env_limited";
 
-    const fallback = await fallbackPort.resolve({
+    const fallback = await resolveProviderBrowserFallback({
+      browserFallbackPort: fallbackPort,
       provider: args.provider,
       source: args.source,
       operation: args.operation,
       reasonCode,
-      trace: args.context?.trace ?? {
-        requestId: `runtime-fallback-${Date.now()}`,
-        provider: args.provider,
-        ts: new Date().toISOString()
-      },
       url: args.url,
+      context: args.context,
       details: {
         errorCode: normalized.code,
         message: normalized.message,
         ...(normalized.details ?? {})
       },
-      ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
-      ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {})
+      recoveryHints: args.recoveryHints
     });
-    if (!fallback.ok) {
+    if (!fallback) {
       throw error;
+    }
+    if (fallback.disposition !== "completed") {
+      throw toProviderFallbackError({
+        provider: args.provider,
+        source: args.source,
+        url: args.url,
+        fallback
+      });
     }
 
     const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
@@ -480,7 +651,8 @@ const fetchRuntimeDocumentWithFallback = async (args: {
       status: 200,
       html,
       text: extracted.text,
-      links: extracted.links
+      links: extracted.links,
+      browserFallback: toBrowserFallbackObservation(fallback)
     };
   }
 };
@@ -521,6 +693,7 @@ export interface RuntimeInit {
     policy?: ProviderCookiePolicy;
     source?: ProviderCookieSourceConfig;
   };
+  challengeAutomationModeDefault?: ChallengeAutomationMode;
   browserFallbackPort?: BrowserFallbackPort;
 }
 
@@ -544,6 +717,10 @@ export class ProviderRuntime {
   private readonly adaptiveConfig: Required<NonNullable<RuntimeInit["adaptiveConcurrency"]>>;
   private adaptiveConcurrency: AdaptiveConcurrencyController;
   private readonly browserFallbackPort?: BrowserFallbackPort;
+  private readonly runtimePolicyDefaults: {
+    challengeAutomationMode: ChallengeAutomationMode;
+    cookiePolicy: ProviderCookiePolicy;
+  };
 
   constructor(init: RuntimeInit = {}) {
     this.registry = new ProviderRegistry();
@@ -555,8 +732,12 @@ export class ProviderRuntime {
     };
     this.promptGuardEnabled = init.promptInjectionGuard?.enabled ?? true;
     this.blockerDetectionThreshold = clampBlockerThreshold(init.blockerDetectionThreshold);
-    this.antiBotPolicy = new AntiBotPolicyEngine(init.antiBotPolicy);
+    this.antiBotPolicy = new AntiBotPolicyEngine(this.registry, init.antiBotPolicy);
     this.browserFallbackPort = init.browserFallbackPort;
+    this.runtimePolicyDefaults = {
+      challengeAutomationMode: init.challengeAutomationModeDefault ?? "browser_with_helper",
+      cookiePolicy: init.cookies?.policy ?? "auto"
+    };
     this.adaptiveConfig = {
       enabled: init.adaptiveConcurrency?.enabled ?? false,
       maxGlobal: Math.max(this.budgets.concurrency.global, init.adaptiveConcurrency?.maxGlobal ?? this.budgets.concurrency.global),
@@ -589,6 +770,13 @@ export class ProviderRuntime {
     return this.registry.getHealth(providerId);
   }
 
+  getAntiBotSnapshots(providerIds?: string[]): ProviderAntiBotSnapshot[] {
+    const allowed = providerIds?.length ? new Set(providerIds) : null;
+    return this.registry
+      .listAntiBotSnapshots()
+      .filter((snapshot) => !allowed || allowed.has(snapshot.providerId));
+  }
+
   updateBudgets(partial: Partial<ProviderRuntimeBudgets>): ProviderRuntimeBudgets {
     this.budgets = mergeBudgets(this.budgets, partial);
     this.globalSemaphore = new Semaphore(this.budgets.concurrency.global);
@@ -618,6 +806,31 @@ export class ProviderRuntime {
 
   async post(input: ProviderCallResultByOperation["post"], options: ProviderRunOptions = {}): Promise<ProviderAggregateResult> {
     return this.execute("post", input, options);
+  }
+
+  async resumeChallengeIntent(
+    challenge: SessionChallengeSummary,
+    options: ProviderRunOptions = {}
+  ): Promise<SuspendedIntentResumeResult> {
+    if (challenge.resumeMode !== "auto") {
+      throw new ProviderRuntimeError("policy_blocked", "Challenge resume is manual for this owner.", {
+        retryable: false,
+        reasonCode: challenge.reasonCode
+      });
+    }
+    if (challenge.status !== "resolved") {
+      throw new ProviderRuntimeError("policy_blocked", "Challenge must be resolved before resume.", {
+        retryable: false,
+        reasonCode: challenge.reasonCode
+      });
+    }
+    if (!challenge.suspendedIntent) {
+      throw new ProviderRuntimeError("invalid_input", "Challenge is missing suspended intent metadata.", {
+        retryable: false,
+        reasonCode: challenge.reasonCode
+      });
+    }
+    return this.resumeSuspendedIntent(challenge.suspendedIntent, options);
   }
 
   async execute<Operation extends ProviderOperation>(
@@ -1044,15 +1257,26 @@ export class ProviderRuntime {
 
         const records = await this.withProviderConcurrency(provider.id, scopeKey, async () => {
           return this.withTimeout(timeoutMs, async (signal) => {
+            const recoveryHints = provider.recoveryHints?.();
+            const runtimePolicy = resolveProviderRuntimePolicy({
+              source: provider.source,
+              runtimePolicy: runOptions.runtimePolicy,
+              preferredFallbackModes: runOptions.preferredFallbackModes,
+              forceBrowserTransport: runOptions.forceBrowserTransport,
+              useCookies: runOptions.useCookies,
+              cookiePolicyOverride: runOptions.cookiePolicyOverride,
+              challengeAutomationMode: runOptions.challengeAutomationMode,
+              configChallengeAutomationMode: this.runtimePolicyDefaults.challengeAutomationMode,
+              configCookiePolicy: this.runtimePolicyDefaults.cookiePolicy,
+              recoveryHints
+            });
             const context: ProviderContext = {
               trace: createTraceContext(trace, provider.id),
               timeoutMs,
               attempt,
               signal,
-              ...(typeof runOptions.useCookies === "boolean" ? { useCookies: runOptions.useCookies } : {}),
-              ...(runOptions.cookiePolicyOverride
-                ? { cookiePolicyOverride: runOptions.cookiePolicyOverride }
-                : {}),
+              runtimePolicy,
+              suspendedIntent: this.buildSuspendedIntent(provider.id, provider.source, operation, input, runOptions),
               ...(this.browserFallbackPort
                 ? { browserFallbackPort: this.browserFallbackPort }
                 : {})
@@ -1141,28 +1365,17 @@ export class ProviderRuntime {
           attempt,
           maxAttempts
         });
+        this.recordAntiBotOutcome({
+          providerId: provider.id,
+          success: true
+        });
         return success;
       } catch (error) {
         let normalizedError = toProviderError(error, {
           provider: provider.id,
           source: provider.source
         });
-        const reasonCode = normalizedError.reasonCode
-          ?? normalizeProviderReasonCode({
-            code: normalizedError.code,
-            message: normalizedError.message,
-            details: normalizedError.details
-          });
-        if (reasonCode && normalizedError.reasonCode !== reasonCode) {
-          normalizedError = {
-            ...normalizedError,
-            reasonCode,
-            details: {
-              ...(normalizedError.details ?? {}),
-              reasonCode
-            }
-          };
-        }
+        const reasonCode = normalizedError.reasonCode;
         this.adaptiveConcurrency.observe(scopeKey, {
           latencyMs: Math.max(0, Date.now() - startedAt),
           timeout: normalizedError.code === "timeout",
@@ -1181,6 +1394,10 @@ export class ProviderRuntime {
           retryable: normalizedError.retryable,
           attempt,
           maxAttempts
+        });
+        this.recordAntiBotOutcome({
+          providerId: provider.id,
+          error: normalizedError
         });
         if (attempt < maxAttempts && postflight.allowRetry) {
           continue;
@@ -1335,9 +1552,7 @@ export class ProviderRuntime {
     if (providers.length === 0) return 0;
     let total = 0;
     for (const provider of providers) {
-      const status = this.registry.getHealth(provider.id).status;
-      if (status === "unhealthy") total += 1;
-      else if (status === "degraded") total += 0.5;
+      total += this.registry.getAntiBotPressure(provider.id);
     }
     return total / providers.length;
   }
@@ -1386,6 +1601,130 @@ export class ProviderRuntime {
       }
     }
     return violations / providers.length >= 0.5;
+  }
+
+  private buildSuspendedIntent<Operation extends ProviderOperation>(
+    providerId: string,
+    source: ProviderSource,
+    operation: Operation,
+    input: ProviderCallResultByOperation[Operation],
+    options: ProviderRunOptions
+  ): SuspendedIntentSummary {
+    const baseInput = input as unknown as SuspendedIntentSummary["input"];
+    const existing = options.suspendedIntent;
+    if (existing) {
+      return typeof existing.input === "undefined" && typeof baseInput !== "undefined"
+        ? {
+          ...existing,
+          input: baseInput
+        }
+        : existing;
+    }
+    return {
+      kind: DEFAULT_PROVIDER_SUSPENDED_INTENT_KIND[operation],
+      provider: providerId,
+      source,
+      operation,
+      input: baseInput
+    };
+  }
+
+  private async resumeSuspendedIntent(
+    intent: SuspendedIntentSummary,
+    options: ProviderRunOptions
+  ): Promise<SuspendedIntentResumeResult> {
+    const input = intent.input;
+    if (!isJsonRecord(input)) {
+      throw new ProviderRuntimeError("invalid_input", "Suspended intent input is missing or malformed.", {
+        retryable: false
+      });
+    }
+    switch (intent.kind) {
+      case "provider.search":
+        return this.search(input as unknown as ProviderCallResultByOperation["search"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "provider.fetch":
+        return this.fetch(input as unknown as ProviderCallResultByOperation["fetch"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "provider.crawl":
+        return this.crawl(input as unknown as ProviderCallResultByOperation["crawl"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "provider.post":
+        return this.post(input as unknown as ProviderCallResultByOperation["post"], {
+          ...options,
+          source: intent.source ?? options.source ?? "auto",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      case "workflow.research":
+        return runResearchWorkflow(
+          this,
+          unwrapWorkflowResumeEnvelope(
+            WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
+            input
+          )
+        );
+      case "workflow.shopping":
+        return runShoppingWorkflow(
+          this,
+          unwrapWorkflowResumeEnvelope(
+            WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
+            input
+          )
+        );
+      case "workflow.product_video":
+        return runProductVideoWorkflow(
+          this,
+          unwrapWorkflowResumeEnvelope(
+            WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
+            input
+          )
+        );
+      case "youtube.transcript":
+        return this.fetch(input as unknown as ProviderCallResultByOperation["fetch"], {
+          ...options,
+          source: intent.source ?? options.source ?? "social",
+          providerIds: intent.provider ? [intent.provider] : options.providerIds
+        });
+      default:
+        throw new ProviderRuntimeError("not_supported", `Unsupported suspended intent: ${intent.kind}`, {
+          retryable: false
+        });
+    }
+  }
+
+  private recordAntiBotOutcome(args: {
+    providerId: string;
+    success?: boolean;
+    error?: {
+      reasonCode?: ProviderReasonCode;
+      details?: Record<string, JsonValue>;
+    };
+  }): void {
+    const dispositionValue = args.error?.details?.disposition;
+    const disposition = (
+      dispositionValue === "completed"
+      || dispositionValue === "challenge_preserved"
+      || dispositionValue === "deferred"
+      || dispositionValue === "failed"
+    )
+      ? dispositionValue
+      : undefined;
+
+    this.registry.recordAntiBotOutcome({
+      providerId: args.providerId,
+      ...(args.success ? { success: true } : {}),
+      ...(args.error?.reasonCode ? { reasonCode: args.error.reasonCode } : {}),
+      ...(disposition ? { disposition } : {})
+    });
   }
 
   private isHybridEligible(providers: ProviderAdapter[]): boolean {
@@ -1604,12 +1943,14 @@ const withDefaultWebOptions = (
   const providerId = options?.id ?? "web/default";
   return {
     ...options,
-    fetcher: options?.fetcher ?? (async (url: string) => {
+    fetcher: options?.fetcher ?? (async (url: string, context?: ProviderContext) => {
       const document = await fetchRuntimeDocumentWithFallback({
         url,
         provider: providerId,
         source: "web",
         operation: "fetch",
+        signal: context?.signal,
+        context,
         browserFallbackPort
       });
       return {
@@ -1634,7 +1975,9 @@ const withDefaultWebOptions = (
       });
 
       const limit = Math.max(1, Math.min(input.limit ?? 5, 10));
-      const links = dedupeLinks(document.links, document.url, limit);
+      const links = dedupeLinks(document.links, document.url, limit * 2)
+        .filter((url) => !isDuckDuckGoSearchShellUrl(url))
+        .slice(0, limit);
       const searchPath = isHttpUrl(query) ? "web:search:url" : "web:search:index";
       if (links.length === 0) {
         return [{
@@ -1642,12 +1985,13 @@ const withDefaultWebOptions = (
           title: document.url,
           content: toSnippet(stripUrls(document.text), 1500),
           confidence: isHttpUrl(query) ? 0.75 : 0.55,
-          attributes: {
-            query,
-            status: document.status,
-            retrievalPath: searchPath
-          }
-        }];
+        attributes: {
+          query,
+          status: document.status,
+          retrievalPath: searchPath,
+          ...browserFallbackObservationAttributes(document.browserFallback)
+        }
+      }];
       }
 
       return links.map((url, index) => ({
@@ -1659,7 +2003,8 @@ const withDefaultWebOptions = (
           query,
           rank: index + 1,
           status: document.status,
-          retrievalPath: searchPath
+          retrievalPath: searchPath,
+          ...browserFallbackObservationAttributes(document.browserFallback)
         }
       }));
     })
@@ -1700,7 +2045,8 @@ const withDefaultCommunityOptions = (
           page,
           status: document.status,
           links,
-          retrievalPath: isHttpUrl(query) ? "community:search:url" : "community:search:index"
+          retrievalPath: isHttpUrl(query) ? "community:search:url" : "community:search:index",
+          ...browserFallbackObservationAttributes(document.browserFallback)
         }
       }];
     }),
@@ -1722,7 +2068,8 @@ const withDefaultCommunityOptions = (
         attributes: {
           status: document.status,
           links,
-          retrievalPath: "community:fetch:url"
+          retrievalPath: "community:fetch:url",
+          ...browserFallbackObservationAttributes(document.browserFallback)
         }
       };
     })
@@ -1735,8 +2082,138 @@ const withDefaultSocialPlatformOptions = (
   browserFallbackPort?: BrowserFallbackPort
 ): SocialProviderOptions => {
   const providerId = options?.id ?? `social/${platform}`;
+  const extensionFirstRecoveryHints = buildSocialRecoveryHints(platform, options);
+  const defaultTraversal = buildSocialDefaultTraversal(platform, options);
+  const describeDocumentIssue = (operation: "search" | "fetch", document: RuntimeFetchedDocument) => {
+    const extracted = extractStructuredContent(document.html, document.url);
+    const title = typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined;
+    const pageMessage = toSnippet(stripUrls(extracted.text), 1600);
+    const shell = operation === "search"
+      ? detectSocialSearchShell(platform, {
+        url: document.url,
+        title,
+        content: pageMessage,
+        links: extracted.links
+      })
+      : null;
+    const usableSearchLinks = operation === "search"
+      ? selectUsableSocialSearchLinks(platform, document.url, extracted.links)
+      : [];
+    const hasUsableSearchEvidence = operation === "search"
+      && isFirstPartySocialSearchRoute(platform, document.url)
+      && usableSearchLinks.length > 0;
+    const issue = hasUsableSearchEvidence && !shell
+      ? null
+      : classifyProviderIssue({
+        url: document.url,
+        title,
+        message: pageMessage,
+        status: document.status,
+        providerErrorCode: "unavailable",
+        retryable: true,
+        ...(shell ?? {})
+      });
+    return {
+      extracted,
+      title,
+      pageMessage,
+      usableSearchLinks,
+      issue,
+      details: applyProviderIssueHint({
+        status: document.status,
+        url: document.url,
+        ...(title ? { title } : {}),
+        ...(pageMessage ? { message: pageMessage } : {}),
+        ...(shell ? {
+          providerShell: shell.providerShell,
+          browserRequired: true,
+          platform
+        } : {})
+      }, issue)
+    };
+  };
+  const toIssueError = (document: RuntimeFetchedDocument, issueDetails: ReturnType<typeof describeDocumentIssue>) => {
+    const reasonCode = issueDetails.issue?.reasonCode ?? "env_limited";
+    return new ProviderRuntimeError(
+      providerErrorCodeFromReasonCode(reasonCode),
+      reasonCode === "token_required"
+        ? `Authentication required for ${document.url}`
+        : reasonCode === "challenge_detected"
+          ? `Detected anti-bot challenge while retrieving ${document.url}`
+          : `Browser assistance required for ${document.url}`,
+      {
+        provider: providerId,
+        source: "social",
+        retryable: reasonCode === "env_limited",
+        reasonCode,
+        details: {
+          ...issueDetails.details,
+          ...browserFallbackObservationDetails(document.browserFallback)
+        }
+      }
+    );
+  };
+  const resolveFallbackDocumentIfNeeded = async (
+    operation: "search" | "fetch",
+    document: RuntimeFetchedDocument,
+    context: ProviderContext
+  ): Promise<{ document: RuntimeFetchedDocument } & ReturnType<typeof describeDocumentIssue>> => {
+    let currentDocument = document;
+    let described = describeDocumentIssue(operation, currentDocument);
+    const initialIssue = described.issue;
+    if (!initialIssue) {
+      return { document: currentDocument, ...described };
+    }
+    if (initialIssue.reasonCode === "env_limited" && !initialIssue.constraint) {
+      return { document: currentDocument, ...described };
+    }
+    if (!shouldRecoverSocialDocumentIssue(platform, operation, initialIssue)) {
+      throw toIssueError(currentDocument, described);
+    }
+
+    const fallback = await resolveProviderBrowserFallback({
+      browserFallbackPort: context.browserFallbackPort ?? browserFallbackPort,
+      provider: providerId,
+      source: "social",
+      operation,
+      reasonCode: initialIssue.reasonCode,
+      url: currentDocument.url,
+      context,
+      details: described.details,
+      recoveryHints: extensionFirstRecoveryHints
+    });
+    if (fallback) {
+      if (fallback.disposition !== "completed") {
+        throw toProviderFallbackError({
+          provider: providerId,
+          source: "social",
+          url: currentDocument.url,
+          fallback
+        });
+      }
+
+      const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? currentDocument.url);
+      const html = readFallbackString(fallback.output, "html") ?? "";
+      const extracted = extractStructuredContent(html, resolvedUrl);
+      currentDocument = {
+        url: resolvedUrl,
+        status: 200,
+        html,
+        text: extracted.text,
+        links: extracted.links,
+        browserFallback: toBrowserFallbackObservation(fallback)
+      };
+      described = describeDocumentIssue(operation, currentDocument);
+      if (!described.issue || (described.issue.reasonCode === "env_limited" && !described.issue.constraint)) {
+        return { document: currentDocument, ...described };
+      }
+    }
+
+    throw toIssueError(currentDocument, described);
+  };
   return {
     ...options,
+    ...(defaultTraversal ? { defaultTraversal } : {}),
     search: options?.search ?? (async (input, context) => {
       const query = input.query.trim();
       const page = toPositiveInt(input.filters?.page, 1);
@@ -1750,55 +2227,29 @@ const withDefaultSocialPlatformOptions = (
         operation: "search",
         signal: context.signal,
         context,
-        browserFallbackPort
+        browserFallbackPort,
+        recoveryHints: extensionFirstRecoveryHints
       });
-      const extracted = extractStructuredContent(document.html, document.url);
-      const pageMessage = toSnippet(stripUrls(extracted.text), 1600);
-      const issue = classifyProviderIssue({
-        url: document.url,
-        title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
-        message: pageMessage,
-        status: document.status,
-        providerErrorCode: "unavailable",
-        retryable: true
-      });
-      if (issue && (issue.reasonCode !== "env_limited" || issue.constraint)) {
-        const reasonCode = issue.reasonCode;
-        throw new ProviderRuntimeError(
-          providerErrorCodeFromReasonCode(reasonCode),
-          reasonCode === "token_required"
-            ? `Authentication required for ${document.url}`
-            : reasonCode === "challenge_detected"
-              ? `Detected anti-bot challenge while retrieving ${document.url}`
-              : `Browser assistance required for ${document.url}`,
-          {
-            provider: providerId,
-            source: "social",
-            retryable: reasonCode === "env_limited",
-            reasonCode,
-            details: applyProviderIssueHint({
-              status: document.status,
-              url: document.url,
-              ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-              ...(pageMessage ? { message: pageMessage } : {})
-            }, issue)
-          }
-        );
-      }
-      const links = dedupeLinks(document.links, document.url, 20);
+      const { document: resolvedDocument, extracted, pageMessage } = await resolveFallbackDocumentIfNeeded("search", document, context);
+      const links = dedupeLinks(
+        selectUsableSocialSearchLinks(platform, resolvedDocument.url, resolvedDocument.links),
+        resolvedDocument.url,
+        20
+      );
 
       return [{
-        url: document.url,
-        title: isHttpUrl(query) ? document.url : `${platform} search: ${query}`,
+        url: resolvedDocument.url,
+        title: isHttpUrl(query) ? resolvedDocument.url : `${platform} search: ${query}`,
         content: pageMessage,
         confidence: isHttpUrl(query) ? 0.72 : 0.58,
         attributes: {
           platform,
           query,
           page,
-          status: document.status,
+          status: resolvedDocument.status,
           links,
-          retrievalPath: isHttpUrl(query) ? "social:search:url" : "social:search:index"
+          retrievalPath: isHttpUrl(query) ? "social:search:url" : "social:search:index",
+          ...browserFallbackObservationAttributes(resolvedDocument.browserFallback)
         }
       }];
     }),
@@ -1810,21 +2261,25 @@ const withDefaultSocialPlatformOptions = (
         operation: "fetch",
         signal: context.signal,
         context,
-        browserFallbackPort
+        browserFallbackPort,
+        recoveryHints: extensionFirstRecoveryHints
       });
-      const links = dedupeLinks(document.links, document.url, 20);
+      const { document: resolvedDocument, extracted } = await resolveFallbackDocumentIfNeeded("fetch", document, context);
+      const links = dedupeLinks(resolvedDocument.links, resolvedDocument.url, 20);
       return {
-        url: document.url,
-        title: document.url,
-        content: document.text,
+        url: resolvedDocument.url,
+        title: resolvedDocument.url,
+        content: resolvedDocument.text,
         attributes: {
           platform,
-          status: document.status,
+          status: resolvedDocument.status,
           links,
-          retrievalPath: "social:fetch:url"
+          retrievalPath: "social:fetch:url",
+          ...browserFallbackObservationAttributes(resolvedDocument.browserFallback)
         }
       };
-    })
+    }),
+    ...(extensionFirstRecoveryHints ? { recoveryHints: () => extensionFirstRecoveryHints } : {})
   };
 };
 

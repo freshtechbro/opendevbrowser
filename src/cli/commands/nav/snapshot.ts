@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { DEFAULT_SNAPSHOT_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
 import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
 function parseSnapshotArgs(rawArgs: string[]): { sessionId?: string; mode?: string; maxChars?: number; cursor?: string; timeoutMs?: number } {
@@ -78,8 +79,8 @@ export async function runSnapshot(args: ParsedArgs) {
     cursor,
     ...(typeof targetId === "string" ? { targetId } : {})
   };
-  const result = timeoutMs
-    ? await callDaemon("nav.snapshot", payload, { timeoutMs })
-    : await callDaemon("nav.snapshot", payload);
+  const result = await callDaemon("nav.snapshot", payload, {
+    timeoutMs: timeoutMs ?? DEFAULT_SNAPSHOT_TRANSPORT_TIMEOUT_MS
+  });
   return { success: true, message: "Snapshot captured.", data: result };
 }

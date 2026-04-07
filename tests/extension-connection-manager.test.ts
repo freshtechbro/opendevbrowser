@@ -16,6 +16,30 @@ const relayInstances: Array<{
 }> = [];
 
 let attachShouldFail = false;
+type RelayHealthShape = {
+  ok: boolean;
+  reason: string;
+  extensionConnected: boolean;
+  extensionHandshakeComplete: boolean;
+  cdpConnected: boolean;
+  annotationConnected: boolean;
+  opsConnected: boolean;
+  canvasConnected: boolean;
+  pairingRequired: boolean;
+};
+const createHealthyRelayHealth = (): RelayHealthShape => ({
+  ok: true,
+  reason: "ok",
+  extensionConnected: true,
+  extensionHandshakeComplete: true,
+  cdpConnected: false,
+  annotationConnected: false,
+  opsConnected: false,
+  canvasConnected: false,
+  pairingRequired: true
+});
+let queuedPingResults: RelayHealthShape[] = [];
+let queuedPingErrors: Error[] = [];
 
 vi.mock("../extension/src/services/RelayClient", () => ({
   RelayClient: class RelayClient {
@@ -27,18 +51,18 @@ vi.mock("../extension/src/services/RelayClient", () => ({
     disconnect = vi.fn(() => {
       this.handlers.onClose({ code: 1000, reason: "disconnect" });
     });
-    sendHandshake = vi.fn();
+    sendHandshake = vi.fn().mockResolvedValue({
+      type: "handshakeAck",
+      payload: { instanceId: "test-relay", relayPort: 8787, pairingRequired: true }
+    });
     sendEvent = vi.fn();
     sendResponse = vi.fn();
-    sendPing = vi.fn().mockResolvedValue({
-      ok: true,
-      reason: "ok",
-      extensionConnected: true,
-      extensionHandshakeComplete: true,
-      cdpConnected: false,
-      annotationConnected: false,
-      opsConnected: false,
-      pairingRequired: true
+    sendPing = vi.fn().mockImplementation(async () => {
+      const nextError = queuedPingErrors.shift();
+      if (nextError) {
+        throw nextError;
+      }
+      return queuedPingResults.shift() ?? createHealthyRelayHealth();
     });
     isConnected = vi.fn(() => true);
     private handlers: {
@@ -104,6 +128,8 @@ describe("ConnectionManager", () => {
   beforeEach(() => {
     relayInstances.length = 0;
     attachShouldFail = false;
+    queuedPingResults = [];
+    queuedPingErrors = [];
     const { chrome } = createChromeMock();
     globalThis.chrome = chrome;
   });
@@ -131,6 +157,29 @@ describe("ConnectionManager", () => {
     expect(relay.disconnect).toHaveBeenCalledTimes(1);
   });
 
+  it("disconnects and retries when initial connect ack is not followed by a healthy handshake", async () => {
+    vi.useFakeTimers();
+    queuedPingResults = [{
+      ...createHealthyRelayHealth(),
+      ok: false,
+      reason: "handshake_incomplete",
+      extensionHandshakeComplete: false
+    }];
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    expect(relay.disconnect).toHaveBeenCalledTimes(1);
+    expect(manager.getStatus()).toBe("disconnected");
+
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(relayInstances.length).toBeGreaterThan(1);
+  });
+
   it("sends handshake updates when the tab changes", async () => {
     const mock = createChromeMock();
     globalThis.chrome = mock.chrome;
@@ -142,6 +191,35 @@ describe("ConnectionManager", () => {
     const relay = relayInstances[0];
     mock.emitTabUpdated(1, { id: 1, url: "https://updated", title: "Updated", groupId: 2 } as chrome.tabs.Tab);
     expect(relay.sendHandshake).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconnects when a tab update handshake refresh is not acknowledged", async () => {
+    vi.useFakeTimers();
+    const mock = createChromeMock();
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    relay.sendHandshake.mockRejectedValueOnce(new Error("Relay handshake not acknowledged"));
+
+    mock.emitTabUpdated(1, {
+      id: 1,
+      url: "https://updated-after-failed-refresh",
+      title: "Updated After Failed Refresh",
+      groupId: 2,
+      status: "complete"
+    } as chrome.tabs.Tab);
+
+    await vi.waitFor(() => {
+      expect(relay.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(relayInstances.length).toBeGreaterThan(1);
   });
 
   it("marks legacy cdp state stale when the relay reports the client closed", async () => {
@@ -415,6 +493,133 @@ describe("ConnectionManager", () => {
     expect(relay.isConnected()).toBe(true);
   });
 
+  it("switches tracked tab identity immediately for a newly primary loading web tab without inheriting old metadata", async () => {
+    const webTab = {
+      id: 1,
+      url: "https://example.com/root",
+      title: "Root",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const loadingTab = {
+      id: 3,
+      pendingUrl: "https://example.com/new-root",
+      url: "about:blank",
+      title: "Root",
+      status: "loading",
+      active: false,
+      lastAccessed: 30
+    } satisfies chrome.tabs.Tab;
+    const loadedTab = {
+      id: 3,
+      url: "https://example.com/new-root",
+      title: "New Root",
+      status: "complete",
+      active: true,
+      lastAccessed: 40
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: webTab, tabs: [webTab, loadingTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const relay = relayInstances[0];
+    const cdp = (manager as {
+      cdp?: {
+        primaryTabId: number | null;
+        callbacks?: { onPrimaryTabChange?: (tabId: number | null) => void };
+      }
+    }).cdp;
+    const onPrimaryTabChange = cdp?.callbacks?.onPrimaryTabChange;
+    expect(onPrimaryTabChange).toBeTypeOf("function");
+
+    if (cdp) {
+      cdp.primaryTabId = loadingTab.id;
+    }
+    relay.sendHandshake.mockClear();
+    await onPrimaryTabChange?.(loadingTab.id);
+
+    let trackedTab: { id?: number; url?: string; title?: string } | null | undefined;
+    await vi.waitFor(() => {
+      trackedTab = (manager as { trackedTab?: { id?: number; url?: string; title?: string } | null }).trackedTab;
+      expect(trackedTab).toEqual(
+        expect.objectContaining({
+          id: loadingTab.id,
+          url: loadingTab.pendingUrl
+        })
+      );
+      expect(trackedTab).not.toEqual(expect.objectContaining({ title: webTab.title }));
+      expect(relay.sendHandshake).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            tabId: loadingTab.id,
+            url: loadingTab.pendingUrl
+          })
+        })
+      );
+    });
+
+    relay.sendHandshake.mockClear();
+    await (manager as unknown as {
+      handleTabUpdated: (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => void;
+    }).handleTabUpdated(loadingTab.id, { status: "complete" }, loadedTab);
+
+    await vi.waitFor(() => {
+      trackedTab = (manager as { trackedTab?: { id?: number; url?: string } | null }).trackedTab;
+      expect(trackedTab?.id).toBe(loadedTab.id);
+      expect(trackedTab?.url).toBe(loadedTab.url);
+      expect(relay.sendHandshake).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            tabId: loadedTab.id,
+            url: loadedTab.url,
+            title: loadedTab.title
+          })
+        })
+      );
+    });
+  });
+
+  it("does not carry the previous tracked tab title onto a new loading tab", async () => {
+    const currentTab = {
+      id: 1,
+      url: "https://example.com/current",
+      title: "Current",
+      status: "complete",
+      active: true,
+      lastAccessed: 20
+    } satisfies chrome.tabs.Tab;
+    const loadingTab = {
+      id: 4,
+      pendingUrl: "https://example.com/next",
+      url: "about:blank",
+      title: "Current",
+      status: "loading",
+      active: false,
+      lastAccessed: 30
+    } satisfies chrome.tabs.Tab;
+    const mock = createChromeMock({ activeTab: currentTab, tabs: [currentTab, loadingTab] });
+    globalThis.chrome = mock.chrome;
+
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+    await manager.connect();
+
+    const managerState = manager as unknown as {
+      refreshTrackedTab: (tabId: number) => Promise<void>;
+      trackedTab?: { id?: number; url?: string; title?: string } | null;
+    };
+    await managerState.refreshTrackedTab(loadingTab.id);
+
+    expect(managerState.trackedTab).toEqual({
+      id: loadingTab.id,
+      url: loadingTab.pendingUrl
+    });
+  });
+
   it("refreshes the tracked tab when a stale restricted tracked tab is removed but another attached web tab remains", async () => {
     const webTab = {
       id: 1,
@@ -501,6 +706,23 @@ describe("ConnectionManager", () => {
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 
+  it("skips a timed reconnect when another path already restored the relay", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.triggerClose();
+
+    const managerState = manager as { status: string };
+    managerState.status = "connected";
+
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(relayInstances).toHaveLength(1);
+  });
+
   it("reconnects after heartbeat timeout", async () => {
     vi.useFakeTimers();
     const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
@@ -513,6 +735,100 @@ describe("ConnectionManager", () => {
     await vi.advanceTimersByTimeAsync(25_000);
     await vi.advanceTimersByTimeAsync(13_000);
 
+    expect(relayInstances.length).toBeGreaterThan(1);
+  });
+
+  it("re-establishes a clean handshake when heartbeat reports handshake drift", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const relay = relayInstances[0];
+    relay.sendPing.mockResolvedValueOnce({
+      ok: false,
+      reason: "handshake_incomplete",
+      extensionConnected: true,
+      extensionHandshakeComplete: false,
+      cdpConnected: false,
+      annotationConnected: false,
+      opsConnected: false,
+      canvasConnected: false,
+      pairingRequired: true
+    });
+    relay.sendHandshake.mockClear();
+
+    await vi.advanceTimersByTimeAsync(25_000);
+
+    await vi.waitFor(() => {
+      expect(relay.sendHandshake).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ tabId: 1, url: "https://example.com" })
+        })
+      );
+    });
+    expect(relay.disconnect).not.toHaveBeenCalled();
+    expect(manager.getStatus()).toBe("connected");
+    expect(manager.getRelayNotice()).toBeNull();
+  });
+
+  it("disconnects and reconnects when clean handshake repair fails", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.sendPing.mockResolvedValueOnce({
+      ok: false,
+      reason: "handshake_incomplete",
+      extensionConnected: true,
+      extensionHandshakeComplete: false,
+      cdpConnected: false,
+      annotationConnected: false,
+      opsConnected: false,
+      canvasConnected: false,
+      pairingRequired: true
+    });
+    first.sendHandshake.mockRejectedValueOnce(new Error("Relay handshake not acknowledged"));
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(first.disconnect).toHaveBeenCalledTimes(1);
+    expect(relayInstances.length).toBeGreaterThan(1);
+  });
+
+  it("disconnects and reconnects when handshake health is still incomplete after a refresh ack", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.sendPing
+      .mockResolvedValueOnce({
+        ...createHealthyRelayHealth(),
+        ok: false,
+        reason: "handshake_incomplete",
+        extensionHandshakeComplete: false
+      })
+      .mockResolvedValueOnce({
+        ...createHealthyRelayHealth(),
+        ok: false,
+        reason: "handshake_incomplete",
+        extensionHandshakeComplete: false
+      });
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(first.sendHandshake).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ tabId: 1, url: "https://example.com" })
+      })
+    );
+    expect(first.disconnect).toHaveBeenCalledTimes(1);
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 
@@ -615,7 +931,15 @@ describe("ConnectionManager", () => {
     const manager = new ConnectionManager();
 
     await manager.connect();
-    expect(manager.getRelayNotice()).toMatch(/relay instance/i);
+    const relay = relayInstances[0];
+    expect(relay.sendHandshake).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          tabId: 1,
+          url: "https://example.com"
+        })
+      })
+    );
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ relayInstanceId: null, relayEpoch: null });
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ pairingToken: null, tokenEpoch: null });
   });

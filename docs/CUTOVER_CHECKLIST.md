@@ -1,13 +1,15 @@
 # Public/Private Cutover Checklist
 
 Status: active  
-Last updated: 2026-03-13
+Last updated: 2026-03-23
 
 Use this checklist when a public release changes mirrored docs, skills, assets, or changelog content that must reach the private website repository.
 
 ## Preconditions
 
 - [ ] Public release docs and release artifacts are finalized.
+- [ ] Challenge override docs are synchronized across `README.md`, `docs/ARCHITECTURE.md`, `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, `docs/privacy.md`, `docs/DEPENDENCIES.md`, and `docs/CUTOVER_CHECKLIST.md`.
+- [ ] `challengeAutomationMode` wording is consistent everywhere, including `off|browser|browser_with_helper`, `run > session > config`, and the browser-scoped helper boundary.
 - [ ] `docs/RELEASE_RUNBOOK.md` and the current version-scoped evidence doc are updated for the target release.
 - [ ] `PRIVATE_REPO_DISPATCH_TOKEN` and `PRIVATE_WEBSITE_REPO` are configured in the public repo if automatic sync is expected.
 - [ ] Private repo access is available for validation and promotion checks.
@@ -16,6 +18,7 @@ Use this checklist when a public release changes mirrored docs, skills, assets, 
 
 - [ ] `node scripts/docs-drift-check.mjs`
 - [ ] `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+- [ ] Record whether package or config surfaces changed for the release (`package.json`, `tsconfig.json`, `eslint.config.js`, `vitest.config.ts`, and any Vite config if one exists). If none changed, note that no config drift was required.
 - [ ] `npm run version:check`
 - [ ] `npm run lint`
 - [ ] `npm run typecheck`

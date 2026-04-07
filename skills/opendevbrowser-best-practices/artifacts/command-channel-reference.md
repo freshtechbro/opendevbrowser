@@ -6,9 +6,9 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 
 ## Current coverage snapshot
 
-- CLI commands: `56`
-- Plugin tools: `49`
-- `/ops` command names: `44`
+- CLI commands: `64`
+- Plugin tools: `57`
+- `/ops` command names: `59`
 - `/canvas` command names: `35`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level)
 
@@ -29,14 +29,15 @@ Legacy aliases `claude` and `amp` remain present in installer target metadata fo
 
 - Install/runtime: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run`, `artifacts`
 - Session/connection/workflow: `launch`, `connect`, `disconnect`, `status`, `cookie-import`, `cookie-list`, `research`, `shopping`, `product-video`
-- Navigation/interaction: `goto`, `wait`, `snapshot`, `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`
+- Navigation/interaction: `goto`, `wait`, `snapshot`, `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`
+- Pointer controls: `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag`
 - Targets/pages/DOM: `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close`, `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked`
 - Design canvas: `canvas`
-- Export/diagnostics/power: `clone-page`, `clone-component`, `perf`, `screenshot`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `macro-resolve`, `annotate`, `rpc`
+- Export/diagnostics/power: `clone-page`, `clone-component`, `perf`, `screenshot`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc`
 
 ## Tool surface categories
 
-- Runtime parity tools map to the CLI runtime categories, including `opendevbrowser_canvas`.
+- Runtime parity tools map to the CLI runtime categories, including `opendevbrowser_canvas` and `opendevbrowser_session_inspector`.
 - Tool-only: `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
@@ -51,7 +52,10 @@ Namespace groups:
 - `page.*`
 - `nav.*`
 - `interact.*`
+- `pointer.*`
 - `dom.*`
+- `canvas.overlay.*`
+- `canvas.applyRuntimePreviewBridge`
 - `export.*`
 - `devtools.*`
 
@@ -155,6 +159,8 @@ Current operational constraints:
 - `canvas_html` remains the default preview/export contract; `bound_app_runtime` is valid only when the binding explicitly opts in and runtime preflight succeeds.
 - Library metadata is preserved, but rendered output is still semantic rather than package-faithful.
 - Popup and canvas both ship per-item and combined annotation `Copy` / `Send` actions. `Send` dispatches `annotation:sendPayload`, posts `/annotation` `store_agent_payload`, and resolves through the shared `AgentInbox` when scope is safe; it degrades to stored-only `annotate --stored` retrieval when scope or relay conditions fail.
+- `/ops` pointer commands (`pointer.move`, `pointer.down`, `pointer.up`, `pointer.drag`) are part of the public default relay inventory and should be included in surface audits when low-level gesture coverage matters.
+- `/ops` preview/runtime bridge coverage includes `canvas.applyRuntimePreviewBridge` alongside overlay commands because extension runtime preview parity depends on both.
 
 Operational rule:
 - Read `canvas.session.open` or `canvas.capabilities.get` before mutation.

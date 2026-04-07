@@ -1,18 +1,19 @@
 # First-Run Onboarding (Pre-Release)
 
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-06
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user **before npm distribution is live**.
 
 ## What this validates
 
 1. Install command from a local package artifact.
-2. First-time global install path (`--global --full --no-prompt`).
-3. Daemon start/stop command.
-4. Extension load path + connection checks.
-5. First task execution command chain.
-6. Multi-tab + cookie-injection auth mechanism checks.
+2. Help-led onboarding path from generated help to best-practices quick-start guidance.
+3. Managed-skill lifecycle proof for first-time install, reinstall, update, and uninstall cleanup.
+4. Daemon start/stop command.
+5. Extension load path + connection checks.
+6. First task execution command chain.
+7. Multi-tab + cookie-injection auth mechanism checks.
 
 ## 0) Preconditions
 
@@ -42,6 +43,41 @@ Expected:
 - package is installed under `./node_modules/opendevbrowser`
 - CLI command inventory is available via both `npx --no-install opendevbrowser --help` and `npx --no-install opendevbrowser help`
 
+## 2b) Validate the help-led quick-start path
+
+```bash
+npx --no-install opendevbrowser --help
+npx --no-install opendevbrowser help
+```
+
+Expected:
+- both commands print the same generated help output
+- help opens with an `Agent Quick Start` block
+- the block explicitly points agents to `opendevbrowser_prompting_guide`
+- the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`
+- the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"`
+- the block explicitly points agents to `opendevbrowser_skill_list` for alternate local workflow lanes
+- the block points to `docs/FIRST_RUN_ONBOARDING.md` for proof and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook
+
+## 2c) Validate the currently reliable workflow lanes
+
+These are the most repeatable capability checks from the April 6 validation pass.
+
+```bash
+npx --no-install opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json --output-format json
+npx --no-install opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
+npx --no-install opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+```
+
+Use the bundled best-practices runbook for the full current lane set, including the public-first YouTube transcript probe:
+
+```bash
+opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"
+```
+
+Region note:
+- treat `--region` as advisory unless workflow output reports `meta.selection.region_authoritative=true`
+
 ## 3) Isolate config/cache to avoid daemon collisions
 
 For onboarding tests on machines that already run OpenDevBrowser, isolate runtime state:
@@ -51,6 +87,8 @@ export OPENCODE_CONFIG_DIR=/tmp/opendevbrowser-first-run-isolated/config
 export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 mkdir -p "$OPENCODE_CONFIG_DIR" "$OPENCODE_CACHE_DIR"
 ```
+
+This isolation keeps config, cache, daemon state, and managed-skill lifecycle proof contained to a temp home while you validate local-package behavior.
 
 Minimal isolated config:
 

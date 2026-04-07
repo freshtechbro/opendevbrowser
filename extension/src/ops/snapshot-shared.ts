@@ -139,6 +139,7 @@ const SELECTOR_FUNCTION = selectorFunction.toString();
 export async function buildSnapshotFromCdp(
   send: (method: string, params: object) => Promise<unknown>,
   mode: SnapshotMode,
+  createRef: () => string,
   mainFrameOnly: boolean = true,
   maxNodes?: number
 ): Promise<{ entries: SnapshotEntry[]; lines: string[]; warnings: string[] }> {
@@ -167,7 +168,7 @@ export async function buildSnapshotFromCdp(
     const selector = await resolveSelector(send, node.backendDOMNodeId);
     if (!selector) continue;
 
-    const ref = `r${entries.length + 1}`;
+    const ref = createRef();
     const name = redactText(extractValue(node.name));
     const value = redactText(extractValue(node.value));
     const disabled = isTruthyProperty(node.properties, "disabled");

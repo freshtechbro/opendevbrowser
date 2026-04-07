@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import type { OpenDevBrowserConfig } from "../src/config";
 import { OpsBrowserManager } from "../src/browser/ops-browser-manager";
+import { OpsRequestTimeoutError } from "../src/browser/ops-client";
 
 const runtimePreviewBridgeMock = vi.hoisted(() => vi.fn().mockResolvedValue({
   ok: true,
@@ -31,31 +32,35 @@ const connectMock = vi.fn().mockResolvedValue({
 });
 const disconnectMock = vi.fn().mockResolvedValue(undefined);
 
-vi.mock("../src/browser/ops-client", () => ({
-  OpsClient: class {
-    url: string;
-    private handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void };
-    constructor(url: string, handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void }) {
-      this.url = url;
-      this.handlers = handlers;
+vi.mock("../src/browser/ops-client", async () => {
+  const actual = await vi.importActual<typeof import("../src/browser/ops-client")>("../src/browser/ops-client");
+  return {
+    ...actual,
+    OpsClient: class {
+      url: string;
+      private handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void };
+      constructor(url: string, handlers: { onEvent?: (event: { event?: string; opsSessionId?: string }) => void; onClose?: () => void }) {
+        this.url = url;
+        this.handlers = handlers;
+      }
+      async connect() {
+        return await connectMock();
+      }
+      async request(...args: unknown[]) {
+        return await requestMock(...args);
+      }
+      disconnect() {
+        disconnectMock();
+      }
+      emitEvent(event: { event?: string; opsSessionId?: string }) {
+        this.handlers.onEvent?.(event);
+      }
+      emitClose() {
+        this.handlers.onClose?.();
+      }
     }
-    async connect() {
-      return await connectMock();
-    }
-    async request(...args: unknown[]) {
-      return await requestMock(...args);
-    }
-    disconnect() {
-      disconnectMock();
-    }
-    emitEvent(event: { event?: string; opsSessionId?: string }) {
-      this.handlers.onEvent?.(event);
-    }
-    emitClose() {
-      this.handlers.onClose?.();
-    }
-  }
-}));
+  };
+});
 
 const makeConfig = (): OpenDevBrowserConfig => ({
   headless: false,
@@ -223,6 +228,8 @@ describe("OpsBrowserManager", () => {
       domIsVisible: vi.fn().mockResolvedValue({ value: true }),
       domIsEnabled: vi.fn().mockResolvedValue({ value: true }),
       domIsChecked: vi.fn().mockResolvedValue({ value: false }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({ html: "<div>component</div>" }),
+      clonePageWithOptions: vi.fn().mockResolvedValue({ component: "component", css: "" }),
       clonePage: vi.fn().mockResolvedValue({ component: "component", css: "" }),
       cloneComponent: vi.fn().mockResolvedValue({ component: "component", css: "" }),
       perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
@@ -272,10 +279,12 @@ describe("OpsBrowserManager", () => {
     await manager.domIsVisible("base-session", "ref-1");
     await manager.domIsEnabled("base-session", "ref-1");
     await manager.domIsChecked("base-session", "ref-1");
+    await manager.clonePageHtmlWithOptions("base-session", null, { maxNodes: 2500 });
+    await manager.clonePageWithOptions("base-session", null, { maxNodes: 2500 });
     await manager.clonePage("base-session");
     await manager.cloneComponent("base-session", "ref-1");
     await manager.perfMetrics("base-session");
-    await manager.screenshot("base-session", "/tmp/base.png");
+    await manager.screenshot("base-session", { path: "/tmp/base.png" });
     await manager.consolePoll("base-session", 0, 10);
     await manager.networkPoll("base-session", 0, 10);
     await manager.listTargets("base-session", true);
@@ -291,6 +300,113 @@ describe("OpsBrowserManager", () => {
     expect(base.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp");
     expect(base.goto).toHaveBeenCalled();
     expect(base.cookieList).toHaveBeenCalledWith("base-session", ["https://example.com"], "req-base-list");
+    expect(base.clonePageHtmlWithOptions).toHaveBeenCalledWith("base-session", null, { maxNodes: 2500 });
+    expect(base.clonePageWithOptions).toHaveBeenCalledWith("base-session", null, { maxNodes: 2500 });
+  });
+
+  it("delegates pointer primitives to the base manager for non-ops sessions", async () => {
+    const base = {
+      pointerMove: vi.fn().mockResolvedValue({ timingMs: 1 }),
+      pointerDown: vi.fn().mockResolvedValue({ timingMs: 2 }),
+      pointerUp: vi.fn().mockResolvedValue({ timingMs: 3 }),
+      drag: vi.fn().mockResolvedValue({ timingMs: 4 })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.pointerMove("base-session", 10, 20)).resolves.toEqual({ timingMs: 1 });
+    await expect(manager.pointerDown("base-session", 10, 20)).resolves.toEqual({ timingMs: 2 });
+    await expect(manager.pointerUp("base-session", 10, 20)).resolves.toEqual({ timingMs: 3 });
+    await expect(manager.drag("base-session", { x: 1, y: 2 }, { x: 3, y: 4 })).resolves.toEqual({ timingMs: 4 });
+
+    expect(base.pointerMove).toHaveBeenCalledWith("base-session", 10, 20, undefined, undefined);
+    expect(base.pointerDown).toHaveBeenCalledWith("base-session", 10, 20, undefined, "left", 1);
+    expect(base.pointerUp).toHaveBeenCalledWith("base-session", 10, 20, undefined, "left", 1);
+    expect(base.drag).toHaveBeenCalledWith("base-session", { x: 1, y: 2 }, { x: 3, y: 4 }, undefined, undefined);
+  });
+
+  it("delegates upload and dialog to the base manager for non-ops sessions", async () => {
+    const base = {
+      upload: vi.fn().mockResolvedValue({ fileCount: 1, mode: "direct_input" }),
+      dialog: vi.fn().mockResolvedValue({ dialog: { open: false }, handled: true })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.upload("base-session", {
+      ref: "ref-1",
+      files: ["/tmp/a.txt"]
+    })).resolves.toEqual({ fileCount: 1, mode: "direct_input" });
+    await expect(manager.dialog("base-session", {
+      targetId: "tab-1",
+      action: "dismiss"
+    })).resolves.toEqual({ dialog: { open: false }, handled: true });
+
+    expect(base.upload).toHaveBeenCalledWith("base-session", {
+      ref: "ref-1",
+      files: ["/tmp/a.txt"]
+    });
+    expect(base.dialog).toHaveBeenCalledWith("base-session", {
+      targetId: "tab-1",
+      action: "dismiss"
+    });
+  });
+
+  it("delegates ref-point resolution to the base manager for non-ops sessions", async () => {
+    const base = {
+      resolveRefPoint: vi.fn().mockResolvedValue({ x: 12, y: 34 })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.resolveRefPoint("base-session", "ref-1")).resolves.toEqual({ x: 12, y: 34 });
+    expect(base.resolveRefPoint).toHaveBeenCalledWith("base-session", "ref-1", undefined);
+  });
+
+  it("fails ref-point resolution when the base manager does not expose the helper", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+
+    await expect(manager.resolveRefPoint("base-session", "ref-1")).rejects.toThrow(
+      "Base browser manager does not support ref-point resolution."
+    );
+  });
+
+  it("routes ref-point resolution through ops requests for ops sessions", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-ref-point", activeTargetId: "tab-1", leaseId: "lease-ref-point" };
+      }
+      if (command === "dom.refPoint") {
+        return { x: 45, y: 67 };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await expect(manager.resolveRefPoint("ops-ref-point", "r8", "tab-1")).resolves.toEqual({ x: 45, y: 67 });
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      "dom.refPoint",
+      {
+        targetId: "tab-1",
+        ref: "r8"
+      },
+      "ops-ref-point",
+      30000,
+      "lease-ref-point"
+    );
   });
 
   it("passes startUrl when delegating cdp relay connections to the base manager", async () => {
@@ -371,7 +487,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const base = {
@@ -437,7 +560,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
@@ -494,7 +624,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
@@ -581,7 +718,14 @@ describe("OpsBrowserManager", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
     }));
 
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
@@ -677,6 +821,52 @@ describe("OpsBrowserManager", () => {
       undefined,
       30000,
       expect.any(String)
+    );
+  });
+
+  it("routes pointer primitives through ops sessions", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-pointer", activeTargetId: "tab-pointer", leaseId: "lease-pointer" };
+      }
+      return { timingMs: 5 };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ reconnectExternalBlockerMeta: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await manager.pointerMove("ops-pointer", 10, 20, null, 4);
+    await manager.pointerDown("ops-pointer", 10, 20);
+    await manager.pointerUp("ops-pointer", 10, 20);
+    await manager.drag("ops-pointer", { x: 1, y: 2 }, { x: 3, y: 4 }, null, 6);
+
+    expect(requestMock).toHaveBeenCalledWith("pointer.move", { x: 10, y: 20, steps: 4 }, "ops-pointer", 30000, "lease-pointer");
+    expect(requestMock).toHaveBeenCalledWith(
+      "pointer.down",
+      { x: 10, y: 20, button: "left", clickCount: 1 },
+      "ops-pointer",
+      30000,
+      "lease-pointer"
+    );
+    expect(requestMock).toHaveBeenCalledWith(
+      "pointer.up",
+      { x: 10, y: 20, button: "left", clickCount: 1 },
+      "ops-pointer",
+      30000,
+      "lease-pointer"
+    );
+    expect(requestMock).toHaveBeenCalledWith(
+      "pointer.drag",
+      { from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, steps: 6 },
+      "ops-pointer",
+      30000,
+      "lease-pointer"
     );
   });
 
@@ -942,6 +1132,342 @@ describe("OpsBrowserManager", () => {
     );
   });
 
+  it("builds ops debug traces without optional page metadata and resolves latest status helpers", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-trace", activeTargetId: "tab-1", leaseId: "lease-trace" };
+      }
+      if (command === "session.status") {
+        return { mode: "extension", activeTargetId: "tab-1", url: "", title: "" };
+      }
+      if (command === "devtools.consolePoll") {
+        return { events: [], nextSeq: 12 };
+      }
+      if (command === "devtools.networkPoll") {
+        return { events: [{ status: "bad" }, {}, { status: 503 }], nextSeq: 34 };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const base = {
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue(undefined)
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    const trace = await manager.debugTraceSnapshot("ops-trace", {
+      sinceConsoleSeq: 2,
+      sinceNetworkSeq: 3,
+      sinceExceptionSeq: 9
+    });
+
+    expect(trace.page).toEqual({
+      mode: "extension",
+      activeTargetId: "tab-1"
+    });
+    expect(trace.channels.exception.nextSeq).toBe(9);
+
+    const managerAny = manager as unknown as {
+      findLatestStatus: (events: Array<{ status?: number | string }>) => number | undefined;
+    };
+    expect(managerAny.findLatestStatus([{ status: "bad" }, {}, { status: 204 }])).toBe(204);
+    expect(managerAny.findLatestStatus([{ status: "bad" }, {}])).toBeUndefined();
+  });
+
+  it("covers ops meta passthrough, non-ops debug-trace delegation, and fallback page metadata branches", async () => {
+    const baseTrace = {
+      requestId: "base-trace",
+      generatedAt: "2026-03-22T00:00:00.000Z",
+      page: {
+        mode: "managed",
+        activeTargetId: null
+      },
+      channels: {
+        console: { nextSeq: 0, events: [] },
+        network: { nextSeq: 0, events: [] },
+        exception: { nextSeq: 0, events: [] }
+      },
+      fingerprint: { tier1: { ok: true } }
+    };
+    const base = {
+      debugTraceSnapshot: vi.fn().mockResolvedValue(baseTrace),
+      reconcileExternalBlockerMeta: vi.fn()
+        .mockReturnValueOnce(undefined)
+        .mockReturnValueOnce({ blockerState: "clear" })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const managerAny = manager as unknown as {
+      opsLeases: Map<string, string>;
+      withOpsMeta: <T extends Record<string, unknown>>(
+        sessionId: string,
+        result: T,
+        options: Record<string, unknown>
+      ) => T & { meta?: unknown };
+    };
+
+    managerAny.opsLeases.set("ops-meta", "lease-meta");
+    expect(managerAny.withOpsMeta("ops-meta", { timingMs: 1 }, {
+      source: "navigation",
+      url: "https://example.com"
+    })).toEqual({ timingMs: 1 });
+
+    await expect(manager.debugTraceSnapshot("base-session", { max: 5 })).resolves.toEqual(baseTrace);
+    expect(base.debugTraceSnapshot).toHaveBeenCalledWith("base-session", { max: 5 });
+
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-fallback", activeTargetId: null, leaseId: "lease-fallback" };
+      }
+      if (command === "session.status") {
+        return { mode: "extension", activeTargetId: null };
+      }
+      if (command === "nav.goto") {
+        return { timingMs: 7 };
+      }
+      if (command === "devtools.consolePoll") {
+        return { events: [], nextSeq: 4 };
+      }
+      if (command === "devtools.networkPoll") {
+        return { events: [{ status: "ignored" }], nextSeq: 5 };
+      }
+      return { ok: true };
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const goto = await manager.goto("ops-fallback", "https://example.com/fallback", "load", 1000);
+    expect(goto).toMatchObject({
+      timingMs: 7,
+      meta: {
+        blockerState: "clear"
+      }
+    });
+    expect(base.reconcileExternalBlockerMeta).toHaveBeenLastCalledWith("ops-fallback", expect.objectContaining({
+      finalUrl: "https://example.com/fallback",
+      targetKey: undefined
+    }));
+
+    const trace = await manager.debugTraceSnapshot("ops-fallback");
+    expect(trace.page).toEqual({
+      mode: "extension",
+      activeTargetId: null
+    });
+    expect(trace.channels.exception.nextSeq).toBe(0);
+    expect(base.reconcileExternalBlockerMeta).toHaveBeenLastCalledWith("ops-fallback", expect.objectContaining({
+      targetKey: undefined
+    }));
+  });
+
+  it("merges dialog state into blocker metadata when external blocker context exists", () => {
+    const base = {
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue({
+        blockerState: "active",
+        blocker: { kind: "challenge" }
+      })
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const managerAny = manager as unknown as {
+      opsLeases: Map<string, string>;
+      withOpsMeta: <T extends Record<string, unknown>>(
+        sessionId: string,
+        result: T,
+        options: Record<string, unknown>
+      ) => T & { meta?: unknown };
+    };
+
+    managerAny.opsLeases.set("ops-meta-dialog", "lease-meta-dialog");
+    expect(managerAny.withOpsMeta("ops-meta-dialog", {
+      timingMs: 2,
+      dialog: { open: true, type: "prompt", message: "Continue?" }
+    }, {
+      source: "navigation",
+      url: "https://example.com/dialog"
+    })).toEqual({
+      timingMs: 2,
+      meta: {
+        blockerState: "active",
+        blocker: { kind: "challenge" },
+        dialog: { open: true, type: "prompt", message: "Continue?" }
+      }
+    });
+  });
+
+  it("synthesizes clear blocker metadata when only dialog state exists", () => {
+    const base = {
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue(undefined)
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const managerAny = manager as unknown as {
+      withOpsMeta: <T extends Record<string, unknown>>(
+        sessionId: string,
+        result: T,
+        options: Record<string, unknown>
+      ) => T & { meta?: unknown };
+    };
+
+    expect(managerAny.withOpsMeta("ops-dialog-only", {
+      ok: true,
+      dialog: { open: true, type: "alert", message: "Heads up" }
+    }, {
+      source: "navigation",
+      url: "https://example.com/alert"
+    })).toEqual({
+      ok: true,
+      meta: {
+        blockerState: "clear",
+        dialog: { open: true, type: "alert", message: "Heads up" }
+      }
+    });
+  });
+
+  it("includes url and title in ops debug traces when status reports them", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-trace-page", activeTargetId: "tab-9", leaseId: "lease-trace-page" };
+      }
+      if (command === "session.status") {
+        return {
+          mode: "extension",
+          activeTargetId: "tab-9",
+          url: "https://example.com/trace",
+          title: "Trace Title"
+        };
+      }
+      if (command === "devtools.consolePoll") {
+        return { events: [], nextSeq: 1 };
+      }
+      if (command === "devtools.networkPoll") {
+        return { events: [], nextSeq: 2 };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue(undefined)
+    } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    const trace = await manager.debugTraceSnapshot("ops-trace-page");
+    expect(trace.page).toEqual({
+      mode: "extension",
+      activeTargetId: "tab-9",
+      url: "https://example.com/trace",
+      title: "Trace Title"
+    });
+  });
+
+  it("merges bounded challenge orchestration into ops status metadata", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-challenge", activeTargetId: "tab-4", leaseId: "lease-challenge" };
+      }
+      if (command === "session.status") {
+        return {
+          mode: "extension",
+          activeTargetId: "tab-4",
+          url: "https://example.com/login",
+          title: "Sign in"
+        };
+      }
+      return { ok: true };
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const base = {
+      setChallengeOrchestrator: vi.fn(),
+      reconcileExternalBlockerMeta: vi.fn().mockReturnValue({
+        blockerState: "active",
+        challenge: {
+          challengeId: "challenge-ops",
+          blockerType: "auth_required",
+          ownerSurface: "ops",
+          ownerLeaseId: "lease-challenge",
+          resumeMode: "manual",
+          status: "active",
+          updatedAt: "2026-03-22T00:00:00.000Z"
+        }
+      })
+    };
+    const orchestrate = vi.fn().mockResolvedValue({
+      action: {
+        status: "resolved",
+        attempts: 1,
+        noProgressCount: 0,
+        executedSteps: [],
+        verification: {
+          status: "clear",
+          blockerState: "clear",
+          changed: true,
+          reason: "Manager verification cleared the blocker."
+        },
+        reusedExistingSession: true,
+        reusedCookies: false
+      },
+      outcome: {
+        challengeId: "challenge-ops",
+        classification: "existing_session_reuse",
+        lane: "generic_browser_autonomy",
+        status: "resolved",
+        reason: "Manager verification cleared the blocker.",
+        attempts: 1,
+        reusedExistingSession: true,
+        reusedCookies: false,
+        verification: {
+          status: "clear",
+          blockerState: "clear",
+          changed: true,
+          reason: "Manager verification cleared the blocker."
+        },
+        evidence: {
+          url: "https://example.com/login",
+          title: "Sign in",
+          blockerType: "auth_required",
+          loginRefs: ["r1"],
+          humanVerificationRefs: [],
+          checkpointRefs: []
+        }
+      }
+    });
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const status = await manager.status("ops-challenge");
+
+    expect(base.setChallengeOrchestrator).toHaveBeenCalled();
+    expect(orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "ops-challenge",
+      canImportCookies: true
+    }));
+    expect(status.meta).toMatchObject({
+      blockerState: "clear",
+      challengeOrchestration: {
+        lane: "generic_browser_autonomy",
+        status: "resolved"
+      }
+    });
+  });
+
   it("normalizes secure relay status URLs and rejects invalid websocket endpoints", () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const managerAny = manager as unknown as {
@@ -950,6 +1476,20 @@ describe("OpsBrowserManager", () => {
 
     expect(managerAny.buildRelayStatusUrl("wss://example.com:9443/ops")?.toString()).toBe("https://example.com:9443/status");
     expect(managerAny.buildRelayStatusUrl("not a websocket url")).toBeNull();
+  });
+
+  it("ignores invalid remembered recovery urls", () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      opsSessionUrls: Map<string, string>;
+      rememberSessionUrl: (sessionId: string, url: string | null | undefined) => void;
+    };
+
+    managerAny.rememberSessionUrl("ops-bad-url", "not a valid url");
+    managerAny.rememberSessionUrl("ops-ftp-url", "ftp://example.com/file");
+
+    expect(managerAny.opsSessionUrls.has("ops-bad-url")).toBe(false);
+    expect(managerAny.opsSessionUrls.has("ops-ftp-url")).toBe(false);
   });
 
   it("recovers ops sessions without remembered targets or fallback URLs and preserves the prior lease", async () => {
@@ -1355,7 +1895,7 @@ describe("OpsBrowserManager", () => {
     await manager.cloneComponent("ops-2", "ref-1");
     await manager.perfMetrics("ops-2");
     await manager.screenshot("ops-2");
-    await manager.screenshot("ops-2", "/tmp/ops-screenshot.png");
+    await manager.screenshot("ops-2", { path: "/tmp/ops-screenshot.png" });
     await manager.consolePoll("ops-2", 0, 10);
     await manager.networkPoll("ops-2", 0, 10);
     await manager.listTargets("ops-2", true);
@@ -1455,6 +1995,144 @@ describe("OpsBrowserManager", () => {
     });
   });
 
+  it("routes upload and dialog through ops requests", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-dialog-upload", activeTargetId: "tab-1", leaseId: "lease-dialog-upload" };
+      }
+      if (command === "interact.upload") {
+        return { fileCount: 2, mode: "file_chooser" };
+      }
+      if (command === "page.dialog") {
+        return { dialog: { open: true, type: "prompt" }, handled: true };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await expect(manager.upload("ops-dialog-upload", {
+      targetId: "tab-1",
+      ref: "r4",
+      files: ["/tmp/a.txt", "/tmp/b.txt"]
+    })).resolves.toEqual({ fileCount: 2, mode: "file_chooser" });
+
+    await expect(manager.dialog("ops-dialog-upload", {
+      targetId: "tab-1",
+      action: "accept",
+      promptText: "hello"
+    })).resolves.toEqual({ dialog: { open: true, type: "prompt" }, handled: true });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      "interact.upload",
+      {
+        targetId: "tab-1",
+        ref: "r4",
+        files: ["/tmp/a.txt", "/tmp/b.txt"]
+      },
+      "ops-dialog-upload",
+      30000,
+      "lease-dialog-upload"
+    );
+    expect(requestMock).toHaveBeenNthCalledWith(
+      3,
+      "page.dialog",
+      {
+        targetId: "tab-1",
+        action: "accept",
+        promptText: "hello"
+      },
+      "ops-dialog-upload",
+      30000,
+      "lease-dialog-upload"
+    );
+  });
+
+  it("forwards clone-page overrides through ops export capture", async () => {
+    const domCapture = { html: "<div></div>", styles: {}, warnings: [], inlineStyles: true };
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-clone-options", activeTargetId: "tab-1", leaseId: "lease-clone-options" };
+      }
+      if (command === "export.clonePage") {
+        return { capture: domCapture };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await manager.clonePageWithOptions("ops-clone-options", null, { maxNodes: 2500 });
+    await expect(manager.clonePageHtmlWithOptions("ops-clone-options", null, { maxNodes: 2500 })).resolves.toEqual({
+      html: "<div></div>",
+      warnings: []
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      "export.clonePage",
+      expect.objectContaining({
+        sanitize: true,
+        maxNodes: 2500,
+        inlineStyles: true
+      }),
+      "ops-clone-options",
+      30000,
+      "lease-clone-options"
+    );
+    expect(requestMock).toHaveBeenNthCalledWith(
+      3,
+      "export.clonePage",
+      expect.objectContaining({
+        sanitize: true,
+        maxNodes: 2500,
+        inlineStyles: true
+      }),
+      "ops-clone-options",
+      30000,
+      "lease-clone-options"
+    );
+  });
+
+  it("omits warnings from clonePageHtmlWithOptions when ops capture returns none", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-clone-html", activeTargetId: "tab-1", leaseId: "lease-clone-html" };
+      }
+      if (command === "export.clonePage") {
+        return { capture: { html: "<section></section>" } };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await expect(manager.clonePageHtmlWithOptions("ops-clone-html", null, { maxNodes: 2500 })).resolves.toEqual({
+      html: "<section></section>"
+    });
+  });
+
   it("propagates ops screenshot warnings when writing to a path", async () => {
     requestMock.mockImplementation(async (...args: unknown[]) => {
       const command = args[0] as string;
@@ -1475,11 +2153,91 @@ describe("OpsBrowserManager", () => {
     const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
     await manager.connectRelay("ws://127.0.0.1:8787/ops");
 
-    const result = await manager.screenshot("ops-10", "/tmp/ops-warning.png");
+    const result = await manager.screenshot("ops-10", { path: "/tmp/ops-warning.png" });
     expect(result).toEqual({
       path: "/tmp/ops-warning.png",
       warnings: ["visible_only_fallback"]
     });
+  });
+
+  it("routes screenshot ref/full-page payloads and defaults dialog to status in ops mode", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-lanes", activeTargetId: "tab-1", leaseId: "lease-lanes" };
+      }
+      if (command === "page.screenshot") {
+        return { base64: Buffer.from("lane-image").toString("base64"), warnings: ["captured"] };
+      }
+      if (command === "page.dialog") {
+        return { dialog: { open: false, targetId: "tab-1" } };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await expect(manager.screenshot("ops-lanes", {
+      targetId: "tab-1",
+      ref: "r4"
+    })).resolves.toEqual({
+      base64: Buffer.from("lane-image").toString("base64"),
+      warnings: ["captured"]
+    });
+
+    await expect(manager.screenshot("ops-lanes", {
+      fullPage: true
+    })).resolves.toEqual({
+      base64: Buffer.from("lane-image").toString("base64"),
+      warnings: ["captured"]
+    });
+
+    await expect(manager.dialog("ops-lanes")).resolves.toEqual({
+      dialog: { open: false, targetId: "tab-1" }
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      "page.screenshot",
+      expect.objectContaining({
+        targetId: "tab-1",
+        ref: "r4"
+      }),
+      "ops-lanes",
+      30000,
+      "lease-lanes"
+    );
+    expect(requestMock).toHaveBeenNthCalledWith(
+      3,
+      "page.screenshot",
+      expect.objectContaining({
+        fullPage: true
+      }),
+      "ops-lanes",
+      30000,
+      "lease-lanes"
+    );
+    expect(requestMock).toHaveBeenNthCalledWith(
+      4,
+      "page.dialog",
+      expect.objectContaining({
+        action: "status"
+      }),
+      "ops-lanes",
+      30000,
+      "lease-lanes"
+    );
+
+    await expect(manager.screenshot("ops-lanes", {
+      ref: "r4",
+      fullPage: true
+    })).rejects.toThrow("Screenshot ref and fullPage options are mutually exclusive.");
   });
 
   it("throws when ops screenshot payload is missing", async () => {
@@ -1612,6 +2370,129 @@ describe("OpsBrowserManager", () => {
     expect((manager as { opsSessionUrls: Map<string, string> }).opsSessionUrls.get("ops-safe-url")).toBe("https://example.com/root");
   });
 
+  it("recovers an ops session from the latest selected tab before falling back to the stable reconnect tab", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return {
+          opsSessionId: "ops-root-proto",
+          activeTargetId: "tab-41",
+          leaseId: "lease-root",
+          url: "https://example.com/root"
+        };
+      }
+      if (command === "targets.use") {
+        return {
+          activeTargetId: "tab-202",
+          url: "https://example.com/popup",
+          title: "Popup"
+        };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    await manager.useTarget(connected.sessionId, "tab-202");
+
+    const managerAny = manager as unknown as {
+      opsSessionTabs: Map<string, number>;
+      opsSessionReconnectTabs: Map<string, number>;
+      recoverOpsSession: (sessionId: string, payload: Record<string, unknown>) => Promise<boolean>;
+    };
+
+    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(202);
+    expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
+
+    requestMock.mockReset();
+    requestMock.mockResolvedValueOnce({
+      opsSessionId: "ops-root-proto-2",
+      activeTargetId: "tab-202",
+      leaseId: "lease-root",
+      url: "https://example.com/popup"
+    });
+
+    await expect(managerAny.recoverOpsSession(connected.sessionId, {})).resolves.toBe(true);
+    expect(requestMock).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({
+        sessionId: connected.sessionId,
+        tabId: 202,
+        parallelismPolicy: expect.any(Object)
+      }),
+      undefined,
+      30000,
+      "lease-root"
+    );
+    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(202);
+    expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
+  });
+
+  it("recovers an ops session from an explicit targetId before using remembered tabs", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return {
+          opsSessionId: "ops-root-proto",
+          activeTargetId: "tab-41",
+          leaseId: "lease-root",
+          url: "https://example.com/root"
+        };
+      }
+      if (command === "targets.use") {
+        return {
+          activeTargetId: "tab-202",
+          url: "https://example.com/popup",
+          title: "Popup"
+        };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    await manager.useTarget(connected.sessionId, "tab-202");
+
+    const managerAny = manager as unknown as {
+      opsSessionTabs: Map<string, number>;
+      opsSessionReconnectTabs: Map<string, number>;
+      recoverOpsSession: (sessionId: string, payload: Record<string, unknown>) => Promise<boolean>;
+    };
+
+    requestMock.mockReset();
+    requestMock.mockResolvedValueOnce({
+      opsSessionId: "ops-root-proto-3",
+      activeTargetId: "tab-303",
+      leaseId: "lease-root",
+      url: "https://example.com/explicit"
+    });
+
+    await expect(managerAny.recoverOpsSession(connected.sessionId, { targetId: "tab-303" })).resolves.toBe(true);
+    expect(requestMock).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({
+        sessionId: connected.sessionId,
+        tabId: 303,
+        parallelismPolicy: expect.any(Object)
+      }),
+      undefined,
+      30000,
+      "lease-root"
+    );
+    expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(303);
+    expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
+  });
+
   it("covers ops recovery, idle disconnect reuse, and protocol session mapping helpers", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const managerAny = manager as unknown as {
@@ -1674,6 +2555,50 @@ describe("OpsBrowserManager", () => {
     expect(managerAny.opsLeases.get("ops-2")).toBe("lease-4");
     expect(managerAny.opsSessionTabs.get("ops-2")).toBe(91);
     expect(managerAny.publicSessionIdsByProtocolId.get("ops-4")).toBe("ops-2");
+
+    managerAny.opsLeases.set("ops-timeout-retry", "lease-timeout-retry");
+    managerAny.opsSessionTabs.set("ops-timeout-retry", 99);
+    managerAny.opsSessionUrls.set("ops-timeout-retry", "https://example.com/recovered-timeout");
+    managerAny.opsClient.request = vi.fn()
+      .mockRejectedValueOnce(new OpsRequestTimeoutError({
+        command: "session.connect",
+        timeoutMs: 30000,
+        requestId: "ops-timeout-connect",
+        leaseId: "lease-timeout-retry"
+      }))
+      .mockResolvedValueOnce({
+        opsSessionId: "ops-timeout-recovered",
+        activeTargetId: "tab-109",
+        leaseId: "lease-timeout-recovered",
+        url: "https://example.com/recovered-timeout"
+      });
+
+    await expect(managerAny.recoverOpsSession("ops-timeout-retry", { url: "   " })).resolves.toBe(true);
+    expect(managerAny.opsClient.request).toHaveBeenNthCalledWith(
+      1,
+      "session.connect",
+      expect.objectContaining({
+        sessionId: "ops-timeout-retry",
+        tabId: 99
+      }),
+      undefined,
+      expect.any(Number),
+      "lease-timeout-retry"
+    );
+    expect(managerAny.opsClient.request).toHaveBeenNthCalledWith(
+      2,
+      "session.connect",
+      expect.objectContaining({
+        sessionId: "ops-timeout-retry",
+        startUrl: "https://example.com/recovered-timeout"
+      }),
+      undefined,
+      expect.any(Number),
+      "lease-timeout-retry"
+    );
+    expect(managerAny.opsLeases.get("ops-timeout-retry")).toBe("lease-timeout-recovered");
+    expect(managerAny.opsSessionTabs.get("ops-timeout-retry")).toBe(109);
+    expect(managerAny.publicSessionIdsByProtocolId.get("ops-timeout-recovered")).toBe("ops-timeout-retry");
 
     managerAny.trackProtocolSession("ops-1", "ops-3");
     expect(managerAny.publicSessionIdsByProtocolId.has("ops-2")).toBe(false);
@@ -1800,6 +2725,36 @@ describe("OpsBrowserManager", () => {
     expect(managerAny.opsSessions.has("ops-url")).toBe(true);
   });
 
+  it("surfaces startUrl reconnect timeouts with stageful details", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const timeoutError = new OpsRequestTimeoutError({
+      command: "session.connect",
+      timeoutMs: 30000,
+      requestId: "ops-starturl-timeout"
+    });
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      opsSessionUrls: Map<string, string>;
+      recoverOpsSession: (sessionId: string, payload: Record<string, unknown>) => Promise<boolean>;
+    };
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(timeoutError)
+    };
+    managerAny.opsLeases.set("ops-starturl", "lease-starturl");
+    managerAny.opsSessionUrls.set("ops-starturl", "https://example.com/recover-start");
+
+    const error = await managerAny.recoverOpsSession("ops-starturl", {}).catch((caught) => caught);
+    expect(error).toBeInstanceOf(OpsRequestTimeoutError);
+    expect(error).toMatchObject({
+      details: {
+        command: "session.connect",
+        requestId: "ops-starturl-timeout",
+        stage: "session.connect.startUrl"
+      }
+    });
+  });
+
   it("rethrows session.connect failures without attempting recovery", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const error = new Error("connect failed");
@@ -1856,6 +2811,93 @@ describe("OpsBrowserManager", () => {
     expect(recoveredClient.request).toHaveBeenCalledWith("targets.list", { includeUrls: true }, "ops-retry", 30000, "lease-retry");
   });
 
+  it.each([
+    ["unknown-session", new Error("[invalid_session] Unknown ops session")],
+    ["recoverable-timeout", new OpsRequestTimeoutError({
+      command: "targets.list",
+      timeoutMs: 30000,
+      requestId: "ops-timeout-gated",
+      opsSessionId: "ops-timeout-proto",
+      leaseId: "lease-gated"
+    })]
+  ])("waits for a healthy relay handshake before recovering %s failures", async (_label, failure) => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const recoveredClient = {
+      request: vi.fn().mockResolvedValue({ activeTargetId: "tab-202", targets: [] })
+    };
+    const steps: string[] = [];
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsEndpoint: string | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      waitForRelayExtensionReady: ReturnType<typeof vi.fn>;
+      ensureOpsClient: ReturnType<typeof vi.fn>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(failure)
+    };
+    managerAny.opsEndpoint = "ws://127.0.0.1:8787/ops";
+    managerAny.opsLeases.set("ops-handshake-gated", "lease-gated");
+    managerAny.waitForRelayExtensionReady = vi.fn().mockImplementation(async () => {
+      steps.push("wait");
+      return true;
+    });
+    managerAny.ensureOpsClient = vi.fn().mockResolvedValue(recoveredClient);
+    managerAny.recoverOpsSession = vi.fn().mockImplementation(async () => {
+      steps.push("recover");
+      managerAny.opsClient = recoveredClient;
+      return true;
+    });
+
+    await expect(managerAny.requestOps("ops-handshake-gated", "targets.list", { includeUrls: true })).resolves.toEqual({
+      activeTargetId: "tab-202",
+      targets: []
+    });
+
+    expect(managerAny.waitForRelayExtensionReady).toHaveBeenCalledTimes(1);
+    expect(managerAny.ensureOpsClient).not.toHaveBeenCalled();
+    expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-handshake-gated", { includeUrls: true });
+    expect(steps).toEqual(["wait", "recover"]);
+    expect(recoveredClient.request).toHaveBeenCalledWith(
+      "targets.list",
+      { includeUrls: true },
+      "ops-handshake-gated",
+      30000,
+      "lease-gated"
+    );
+  });
+
+  it("rethrows unknown-session errors when relay handshake never becomes healthy during recovery", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const error = new Error("[invalid_session] Unknown ops session");
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsEndpoint: string | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      waitForRelayExtensionReady: ReturnType<typeof vi.fn>;
+      ensureOpsClient: ReturnType<typeof vi.fn>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(error)
+    };
+    managerAny.opsEndpoint = "ws://127.0.0.1:8787/ops";
+    managerAny.opsLeases.set("ops-unhealthy-handshake", "lease-unhealthy-handshake");
+    managerAny.waitForRelayExtensionReady = vi.fn().mockResolvedValue(false);
+    managerAny.ensureOpsClient = vi.fn();
+    managerAny.recoverOpsSession = vi.fn();
+
+    await expect(managerAny.requestOps("ops-unhealthy-handshake", "targets.list", { includeUrls: true })).rejects.toBe(error);
+    expect(managerAny.waitForRelayExtensionReady).toHaveBeenCalledTimes(1);
+    expect(managerAny.ensureOpsClient).not.toHaveBeenCalled();
+    expect(managerAny.recoverOpsSession).not.toHaveBeenCalled();
+  });
+
   it("rethrows unknown-session errors when request recovery cannot restore the session", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const error = new Error("[invalid_session] Unknown ops session");
@@ -1874,6 +2916,362 @@ describe("OpsBrowserManager", () => {
 
     await expect(managerAny.requestOps("ops-unrecovered", "targets.list", { includeUrls: true })).rejects.toBe(error);
     expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-unrecovered", { includeUrls: true });
+  });
+
+  it("rethrows the original error when recovery succeeds without a replacement client", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const error = new Error("[invalid_session] Unknown ops session");
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(error)
+    };
+    managerAny.opsLeases.set("ops-client-missing", "lease-client-missing");
+    managerAny.recoverOpsSession = vi.fn().mockImplementation(async () => {
+      managerAny.opsClient = null;
+      return true;
+    });
+
+    await expect(managerAny.requestOps("ops-client-missing", "targets.list", { includeUrls: true })).rejects.toBe(error);
+  });
+
+  it("retries timed-out ops requests after recovering the session", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const timeoutError = new OpsRequestTimeoutError({
+      command: "targets.list",
+      timeoutMs: 30000,
+      requestId: "ops-timeout-request",
+      opsSessionId: "ops-timeout-proto",
+      leaseId: "lease-timeout"
+    });
+    const recoveredClient = {
+      request: vi.fn().mockResolvedValue({ activeTargetId: "tab-202", targets: [] })
+    };
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(timeoutError)
+    };
+    managerAny.opsLeases.set("ops-timeout-recover", "lease-timeout");
+    managerAny.recoverOpsSession = vi.fn().mockImplementation(async () => {
+      managerAny.opsClient = recoveredClient;
+      return true;
+    });
+
+    await expect(managerAny.requestOps("ops-timeout-recover", "targets.list", { includeUrls: true })).resolves.toEqual({
+      activeTargetId: "tab-202",
+      targets: []
+    });
+    expect(managerAny.recoverOpsSession).toHaveBeenCalledWith("ops-timeout-recover", { includeUrls: true });
+    expect(recoveredClient.request).toHaveBeenCalledWith(
+      "targets.list",
+      { includeUrls: true },
+      "ops-timeout-recover",
+      30000,
+      "lease-timeout"
+    );
+  });
+
+  it("keeps an ops click pending while dialog status and accept complete without reconnecting", async () => {
+    requestMock.mockResolvedValueOnce({
+      opsSessionId: "ops-dialog-handoff",
+      activeTargetId: "tab-101",
+      leaseId: "lease-dialog-handoff"
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    requestMock.mockReset();
+
+    let resolveClick: ((value: { timingMs: number; navigated: boolean }) => void) | null = null;
+    const clickResult = new Promise<{ timingMs: number; navigated: boolean }>((resolve) => {
+      resolveClick = resolve;
+    });
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      const payload = args[1] as Record<string, unknown>;
+      if (command === "interact.click") {
+        return await clickResult;
+      }
+      if (command === "page.dialog" && payload.action === "status") {
+        return {
+          dialog: {
+            open: true,
+            type: "alert",
+            message: "I am a JS Alert"
+          }
+        };
+      }
+      if (command === "page.dialog" && payload.action === "accept") {
+        resolveClick?.({ timingMs: 11822, navigated: false });
+        return {
+          dialog: { open: false },
+          handled: true
+        };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const clickPromise = manager.click(connected.sessionId, "r2", "tab-101");
+    await Promise.resolve();
+
+    await expect(manager.dialog(connected.sessionId, {
+      targetId: "tab-101",
+      action: "status"
+    })).resolves.toEqual({
+      dialog: {
+        open: true,
+        type: "alert",
+        message: "I am a JS Alert"
+      }
+    });
+    await expect(manager.dialog(connected.sessionId, {
+      targetId: "tab-101",
+      action: "accept"
+    })).resolves.toEqual({
+      dialog: { open: false },
+      handled: true
+    });
+    await expect(clickPromise).resolves.toEqual({ timingMs: 11822, navigated: false });
+
+    expect(requestMock.mock.calls.filter(([command]) => command === "interact.click")).toHaveLength(1);
+    expect(requestMock.mock.calls.filter(([command]) => command === "page.dialog")).toHaveLength(2);
+    expect(requestMock.mock.calls.filter(([command]) => command === "session.connect")).toHaveLength(0);
+  });
+
+  it("uses a click-specific ops request timeout budget", async () => {
+    requestMock.mockResolvedValueOnce({
+      opsSessionId: "ops-click-timeout-budget",
+      activeTargetId: "tab-101",
+      leaseId: "lease-click-timeout-budget"
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    requestMock.mockReset();
+    requestMock.mockResolvedValue({ timingMs: 11822, navigated: false });
+
+    await expect(manager.click(connected.sessionId, "r2", "tab-101")).resolves.toEqual({
+      timingMs: 11822,
+      navigated: false
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      "interact.click",
+      {
+        targetId: "tab-101",
+        ref: "r2"
+      },
+      connected.sessionId,
+      expect.any(Number),
+      "lease-click-timeout-budget"
+    );
+    expect((requestMock.mock.calls[0] ?? [])[3]).toBeGreaterThan(30000);
+  });
+
+  it.each([
+    ["interact.click", { ref: "r2" }],
+    ["page.dialog", { action: "accept" }]
+  ])("rethrows timed-out %s commands without attempting recovery", async (command, payload) => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const timeoutError = new OpsRequestTimeoutError({
+      command,
+      timeoutMs: 30000,
+      requestId: `${command}-timeout`,
+      opsSessionId: "ops-timeout-no-recover",
+      leaseId: "lease-timeout-no-recover"
+    });
+    const managerAny = manager as unknown as {
+      opsClient: { request: ReturnType<typeof vi.fn> } | null;
+      opsLeases: Map<string, string>;
+      requestOps: (sessionId: string, command: string, payload: Record<string, unknown>) => Promise<unknown>;
+      recoverOpsSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.opsClient = {
+      request: vi.fn().mockRejectedValue(timeoutError)
+    };
+    managerAny.opsLeases.set("ops-timeout-no-recover", "lease-timeout-no-recover");
+    managerAny.recoverOpsSession = vi.fn().mockResolvedValue(true);
+
+    await expect(managerAny.requestOps("ops-timeout-no-recover", command, payload)).rejects.toBe(timeoutError);
+    expect(managerAny.recoverOpsSession).not.toHaveBeenCalled();
+    expect(managerAny.opsClient.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns deferred challenge guidance when manager suppression is active", async () => {
+    const base = { setChallengeOrchestrator: vi.fn() };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const orchestrate = vi.fn();
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-suppressed", 1);
+
+    const result = await managerAny.maybeOrchestrateChallenge("ops-suppressed", "tab-1", {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "auth_required" },
+        challenge: { challengeId: "challenge-suppressed" }
+      }
+    });
+
+    expect(orchestrate).not.toHaveBeenCalled();
+    expect(result.meta).toMatchObject({
+      challengeOrchestration: {
+        status: "deferred",
+        standDownReason: "suppressed_by_manager",
+        helperEligibility: {
+          allowed: false,
+          standDownReason: "suppressed_by_manager"
+        }
+      }
+    });
+  });
+
+  it("restores nested challenge suppression counts after wrapped actions complete", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      withChallengeAutomationSuppressed: <T>(sessionId: string, action: () => Promise<T>) => Promise<T>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-nested", 1);
+
+    await expect(
+      managerAny.withChallengeAutomationSuppressed("ops-nested", async () => {
+        expect(managerAny.challengeAutomationSuppression.get("ops-nested")).toBe(2);
+        return "ok";
+      })
+    ).resolves.toBe("ok");
+
+    expect(managerAny.challengeAutomationSuppression.get("ops-nested")).toBe(1);
+  });
+
+  it("tolerates suppression bookkeeping disappearing during wrapped actions", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      withChallengeAutomationSuppressed: <T>(sessionId: string, action: () => Promise<T>) => Promise<T>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-missing", 1);
+
+    await expect(
+      managerAny.withChallengeAutomationSuppressed("ops-missing", async () => {
+        managerAny.challengeAutomationSuppression.delete("ops-missing");
+        return "ok";
+      })
+    ).resolves.toBe("ok");
+
+    expect(managerAny.challengeAutomationSuppression.has("ops-missing")).toBe(false);
+  });
+
+  it("classifies suppressed non-auth challenges as unsupported third-party work", async () => {
+    const base = { setChallengeOrchestrator: vi.fn() };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const orchestrate = vi.fn();
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+    const managerAny = manager as unknown as {
+      challengeAutomationSuppression: Map<string, number>;
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    managerAny.challengeAutomationSuppression.set("ops-third-party", 1);
+
+    const result = await managerAny.maybeOrchestrateChallenge("ops-third-party", "tab-1", {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "challenge_detected" },
+        challenge: { challengeId: "challenge-third-party" }
+      }
+    });
+
+    expect(orchestrate).not.toHaveBeenCalled();
+    expect(result.meta).toMatchObject({
+      challengeOrchestration: {
+        classification: "unsupported_third_party_challenge",
+        status: "deferred",
+        standDownReason: "suppressed_by_manager"
+      }
+    });
+  });
+
+  it("returns blocked challenge results unchanged when no orchestrator is configured", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    const original = {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "auth_required" },
+        challenge: { challengeId: "challenge-no-orchestrator" }
+      }
+    };
+
+    await expect(managerAny.maybeOrchestrateChallenge("ops-no-orchestrator", "tab-1", original)).resolves.toEqual(original);
+  });
+
+  it("returns the original challenge result when orchestration throws", async () => {
+    const base = { setChallengeOrchestrator: vi.fn() };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+    const orchestrate = vi.fn().mockRejectedValue(new Error("challenge failed"));
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+    const managerAny = manager as unknown as {
+      maybeOrchestrateChallenge: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        result: Record<string, unknown> & { meta?: Record<string, unknown> }
+      ) => Promise<Record<string, unknown> & { meta?: Record<string, unknown> }>;
+    };
+    const original = {
+      ok: true,
+      meta: {
+        blockerState: "blocked",
+        blocker: { type: "auth_required" },
+        challenge: { challengeId: "challenge-failed" }
+      }
+    };
+
+    await expect(managerAny.maybeOrchestrateChallenge("ops-challenge-error", "tab-1", original)).resolves.toEqual(original);
+    expect(orchestrate).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to the existing lease when recovered sessions do not return a replacement", async () => {

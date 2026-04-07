@@ -4,9 +4,13 @@ export type TargetInfo = {
   browserContextId?: string;
   title?: string;
   url?: string;
+  openerId?: string;
 };
 
-export type DebuggerSession = chrome.debugger.Debuggee & { sessionId?: string };
+export type DebuggerSession = chrome.debugger.Debuggee & {
+  sessionId?: string;
+  attachBy?: "tabId" | "targetId";
+};
 
 export type TargetRecord = {
   tabId: number;
@@ -30,6 +34,7 @@ export class TargetSessionMap {
   private readonly tabTargets = new Map<number, TargetRecord>();
   private readonly sessionsById = new Map<string, SessionRecord>();
   private readonly sessionByTarget = new Map<string, string>();
+  private readonly rootTargetAliases = new Map<string, number>();
   private readonly rootWaiters = new Map<number, Array<{ resolve: (session: SessionRecord) => void; reject: (error: Error) => void; timeoutId: number }>>();
 
   registerRootTab(
@@ -41,6 +46,8 @@ export class TargetSessionMap {
   ): SessionRecord {
     const existing = this.tabTargets.get(tabId) ?? null;
     if (existing) {
+      this.rememberRootTargetAlias(tabId, existing.targetInfo.targetId);
+      this.rememberRootTargetAlias(tabId, existing.attachTargetId);
       this.sessionByTarget.delete(existing.targetInfo.targetId);
       if (existing.rootSessionId !== sessionId) {
         this.sessionsById.delete(existing.rootSessionId);
@@ -65,6 +72,8 @@ export class TargetSessionMap {
     };
     this.sessionsById.set(sessionId, session);
     this.sessionByTarget.set(targetInfo.targetId, sessionId);
+    this.rememberRootTargetAlias(tabId, targetInfo.targetId);
+    this.rememberRootTargetAlias(tabId, record.attachTargetId);
     this.resolveRootWaiters(tabId, session);
     return session;
   }
@@ -75,6 +84,7 @@ export class TargetSessionMap {
       return;
     }
     record.attachTargetId = attachTargetId;
+    this.rememberRootTargetAlias(tabId, attachTargetId);
   }
 
   getAttachedRootSession(tabId: number): SessionRecord | null {
@@ -99,7 +109,13 @@ export class TargetSessionMap {
       sessionId,
       tabId,
       targetId: record.targetInfo.targetId,
-      debuggerSession: { tabId, sessionId },
+      debuggerSession: {
+        tabId,
+        sessionId,
+        ...(typeof record.attachTargetId === "string" && record.attachTargetId.length > 0
+          ? { targetId: record.attachTargetId }
+          : {})
+      },
       targetInfo: record.targetInfo
     };
     this.sessionsById.set(sessionId, session);
@@ -164,6 +180,10 @@ export class TargetSessionMap {
     return this.sessionsById.get(sessionId) ?? null;
   }
 
+  getTabIdByTargetAlias(targetId: string): number | null {
+    return this.rootTargetAliases.get(targetId) ?? null;
+  }
+
   getByTabId(tabId: number): TargetRecord | null {
     return this.tabTargets.get(tabId) ?? null;
   }
@@ -215,6 +235,7 @@ export class TargetSessionMap {
     this.tabTargets.clear();
     this.sessionsById.clear();
     this.sessionByTarget.clear();
+    this.rootTargetAliases.clear();
   }
 
   removeByTabId(tabId: number): TargetRecord | null {
@@ -231,6 +252,11 @@ export class TargetSessionMap {
       const session = this.sessionsById.get(sessionId);
       if (!session || session.tabId === tabId) {
         this.sessionByTarget.delete(targetId);
+      }
+    }
+    for (const [targetId, mappedTabId] of this.rootTargetAliases.entries()) {
+      if (mappedTabId === tabId) {
+        this.rootTargetAliases.delete(targetId);
       }
     }
     this.tabTargets.delete(tabId);
@@ -293,5 +319,12 @@ export class TargetSessionMap {
     } else {
       this.rootWaiters.set(tabId, remaining);
     }
+  }
+
+  private rememberRootTargetAlias(tabId: number, targetId?: string): void {
+    if (typeof targetId !== "string" || targetId.length === 0) {
+      return;
+    }
+    this.rootTargetAliases.set(targetId, tabId);
   }
 }

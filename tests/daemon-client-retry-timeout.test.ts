@@ -102,5 +102,10 @@ describe("daemon-client retry timeout propagation", () => {
     expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledTimes(2);
     expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBe(45_000);
     expect(mocks.fetchWithTimeoutContext.mock.calls[1]?.[2]).toBe(45_000);
+    expect(mocks.fetchDaemonStatus).toHaveBeenCalledWith(
+      8788,
+      "fresh-token",
+      expect.objectContaining({ retryAttempts: 5, retryDelayMs: 250 })
+    );
   });
 });

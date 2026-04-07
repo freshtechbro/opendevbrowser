@@ -1,10 +1,15 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import type { OpenDevBrowserConfig } from "../src/config";
+import { resolveConfig, type OpenDevBrowserConfig } from "../src/config";
 import type { AnnotationCommand, AnnotationResponse } from "../src/relay/protocol";
 
 type RelayStatus = { running: boolean; port: number | null };
 
-const managerInstances: Array<{ cacheRoot: string; config: OpenDevBrowserConfig; closeAll: ReturnType<typeof vi.fn> }> = [];
+const managerInstances: Array<{
+  cacheRoot: string;
+  config: OpenDevBrowserConfig;
+  closeAll: ReturnType<typeof vi.fn>;
+  setChallengeOrchestrator: ReturnType<typeof vi.fn>;
+}> = [];
 const runnerInstances: Array<{ manager: unknown }> = [];
 const skillsInstances: Array<{ root: string; paths: string[] }> = [];
 
@@ -26,10 +31,16 @@ vi.mock("../src/browser/browser-manager", () => ({
     cacheRoot: string;
     config: OpenDevBrowserConfig;
     closeAll = vi.fn().mockResolvedValue(undefined);
+    setChallengeOrchestrator = vi.fn();
     constructor(cacheRoot: string, config: OpenDevBrowserConfig) {
       this.cacheRoot = cacheRoot;
       this.config = config;
-      managerInstances.push({ cacheRoot, config, closeAll: this.closeAll });
+      managerInstances.push({
+        cacheRoot,
+        config,
+        closeAll: this.closeAll,
+        setChallengeOrchestrator: this.setChallengeOrchestrator
+      });
     }
   }
 }));
@@ -185,6 +196,23 @@ describe("createOpenDevBrowserCore", () => {
     const core = createOpenDevBrowserCore({ directory: "/tmp/root" });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(core.config).toBe(config);
+  });
+
+  it("wires configured challenge orchestration into the browser managers", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");
+    const config = resolveConfig({
+      ...makeConfig(),
+      providers: {
+        challengeOrchestration: {
+          mode: "browser_with_helper"
+        }
+      }
+    });
+
+    createOpenDevBrowserCore({ directory: "/tmp/root", config });
+
+    expect(managerInstances[0]?.setChallengeOrchestrator).toHaveBeenCalled();
+    expect(managerInstances[0]?.setChallengeOrchestrator.mock.calls[0]?.[0]).toBeDefined();
   });
 
   it("omits browserFallbackPort when the fallback factory returns undefined", async () => {

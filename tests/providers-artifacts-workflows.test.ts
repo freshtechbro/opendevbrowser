@@ -165,6 +165,9 @@ describe("artifact and workflow runtime", () => {
   });
 
   it("runs research workflow with strict source resolution and artifacts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-15T00:00:00.000Z"));
+
     const runtime = toRuntime({
       search: vi.fn(async (_input, options) => {
         const source = options?.source ?? "web";
@@ -223,6 +226,241 @@ describe("artifact and workflow runtime", () => {
     expect(pathMode).toMatchObject({
       mode: "path",
       path: expect.any(String)
+    });
+  });
+
+  it("persists sanitized research output without shell records", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-research-sanitized-"));
+    createdDirs.push(root);
+
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const source = options?.source ?? "web";
+        if (source === "web") {
+          return makeAggregate({
+            sourceSelection: "web",
+            providerOrder: ["web/default"],
+            records: [{
+              id: "duckduckgo-shell",
+              source: "web",
+              provider: "web/default",
+              url: "https://html.duckduckgo.com/html",
+              title: "https://html.duckduckgo.com/html",
+              content: "coffee shop website design inspiration at DuckDuckGo",
+              timestamp: "2026-03-10T00:00:00.000Z",
+              confidence: 0.7,
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }]
+          });
+        }
+        if (source === "community") {
+          return makeAggregate({
+            sourceSelection: "community",
+            providerOrder: ["community/default"],
+            records: [{
+              id: "reddit-login-shell",
+              source: "community",
+              provider: "community/default",
+              url: "https://www.reddit.com/login",
+              title: "https://www.reddit.com/login",
+              content: "Welcome to Reddit. Log in to continue.",
+              timestamp: "2026-02-10T00:00:00.000Z",
+              confidence: 0.6,
+              attributes: {
+                retrievalPath: "community:fetch:url"
+              }
+            }]
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "social",
+          providerOrder: ["social/default"],
+          records: [
+            {
+              id: "reddit-generic-shell",
+              source: "social",
+              provider: "social/default",
+              url: "https://www.reddit.com/answers/example?q=coffee+shop+website+design+inspiration",
+              title: "https://www.reddit.com/answers/example?q=coffee+shop+website+design+inspiration",
+              content: "Reddit - The heart of the internet. Please wait for verification. Skip to main content.",
+              timestamp: "2026-03-10T00:00:00.000Z",
+              confidence: 0.6,
+              attributes: {
+                retrievalPath: "social:fetch:url"
+              }
+            },
+            {
+              id: "clean-inspiration-record",
+              source: "social",
+              provider: "social/default",
+              url: "https://studio.example.com/inspiration/coffee-shop",
+              title: "Coffee shop website design inspiration",
+              content: "A warm editorial coffee shop website with strong typography and photography.",
+              timestamp: "2026-03-10T00:00:00.000Z",
+              confidence: 0.95,
+              attributes: {
+                retrievalPath: "social:post:url"
+              }
+            }
+          ]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      days: 30,
+      sourceSelection: "auto",
+      mode: "json",
+      outputDir: root
+    });
+
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["clean-inspiration-record"]);
+    expect((output.meta as {
+      metrics: {
+        sanitized_records: number;
+        sanitized_reason_distribution: Record<string, number>;
+      };
+    }).metrics).toMatchObject({
+      sanitized_records: 3,
+      sanitized_reason_distribution: {
+        search_index_shell: 1,
+        login_shell: 1,
+        search_results_shell: 1
+      }
+    });
+
+    const artifactPath = output.artifact_path as string;
+    const recordsPayload = JSON.parse(await readFile(join(artifactPath, "records.json"), "utf8")) as {
+      records: Array<{ id: string }>;
+    };
+    const metaPayload = JSON.parse(await readFile(join(artifactPath, "meta.json"), "utf8")) as {
+      metrics: {
+        sanitized_records: number;
+      };
+    };
+    expect(recordsPayload.records.map((record) => record.id)).toEqual(["clean-inspiration-record"]);
+    expect(metaPayload.metrics.sanitized_records).toBe(3);
+  });
+
+  it("persists fetched web research pages after search-index shells are sanitized", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-research-web-fetch-"));
+    createdDirs.push(root);
+
+    const fetch = vi.fn(async (input) => {
+      if (input.url === "https://design.example.com/inspiration") {
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [{
+            id: "fetched-design-page",
+            source: "web",
+            provider: "web/default",
+            url: "https://design.example.com/inspiration",
+            title: "Coffee shop inspiration",
+            content: "A warm editorial coffee shop website with strong typography and photography.",
+            timestamp: "2026-03-10T00:00:00.000Z",
+            confidence: 0.95,
+            attributes: {
+              retrievalPath: "web:fetch:url"
+            }
+          }]
+        });
+      }
+      if (input.url === "https://dribbble.com/tags/coffee-shop-website") {
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [{
+            id: "fetched-js-shell",
+            source: "web",
+            provider: "web/default",
+            url: "https://dribbble.com/tags/coffee-shop-website",
+            title: "https://dribbble.com/tags/coffee-shop-website",
+            content: "JavaScript is disabled. In order to continue, we need to verify that you're not a robot.",
+            timestamp: "2026-03-10T00:00:00.000Z",
+            confidence: 0.5,
+            attributes: {}
+          }]
+        });
+      }
+      return makeAggregate();
+    });
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const source = options?.source ?? "web";
+        if (source !== "web") {
+          return makeAggregate({
+            sourceSelection: source as "web",
+            providerOrder: [`${source}/default`],
+            records: []
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [{
+            id: "duckduckgo-shell-link",
+            source: "web",
+            provider: "web/default",
+            url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdesign.example.com%2Finspiration",
+            title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdesign.example.com%2Finspiration",
+            content: "coffee shop website design inspiration at DuckDuckGo",
+            timestamp: "2026-03-10T00:00:00.000Z",
+            confidence: 0.7,
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          }, {
+            id: "duckduckgo-js-shell-link",
+            source: "web",
+            provider: "web/default",
+            url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdribbble.com%2Ftags%2Fcoffee-shop-website",
+            title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdribbble.com%2Ftags%2Fcoffee-shop-website",
+            content: "coffee shop website design inspiration at DuckDuckGo",
+            timestamp: "2026-03-10T00:00:00.000Z",
+            confidence: 0.65,
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          }]
+        });
+      }),
+      fetch
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      days: 30,
+      sourceSelection: "auto",
+      mode: "json",
+      outputDir: root
+    });
+
+    expect(fetch).toHaveBeenCalledWith({
+      url: "https://design.example.com/inspiration"
+    }, expect.objectContaining({
+      source: "web"
+    }));
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["fetched-design-page"]);
+
+    const artifactPath = output.artifact_path as string;
+    const recordsPayload = JSON.parse(await readFile(join(artifactPath, "records.json"), "utf8")) as {
+      records: Array<{ id: string }>;
+    };
+    const metaPayload = JSON.parse(await readFile(join(artifactPath, "meta.json"), "utf8")) as {
+      metrics: {
+        sanitized_records: number;
+        final_records: number;
+      };
+    };
+    expect(recordsPayload.records.map((record) => record.id)).toEqual(["fetched-design-page"]);
+    expect(metaPayload.metrics).toMatchObject({
+      sanitized_records: 3,
+      final_records: 1
     });
   });
 
@@ -335,7 +573,7 @@ describe("artifact and workflow runtime", () => {
       failures: Array<{ provider: string; error: { reasonCode?: string; details?: { noOfferRecords?: boolean } } }>;
       metrics: {
         failed_providers: string[];
-        reason_code_distribution: Record<string, number>;
+        reasonCodeDistribution: Record<string, number>;
       };
     })).toMatchObject({
       failures: [{
@@ -349,11 +587,217 @@ describe("artifact and workflow runtime", () => {
       }],
       metrics: {
         failed_providers: ["shopping/walmart"],
-        reason_code_distribution: {
+        reasonCodeDistribution: {
           env_limited: 1
         }
       }
     });
+    expect((output.meta as { metrics: Record<string, unknown> }).metrics).not.toHaveProperty("reason_code_distribution");
+  });
+
+  it("summarizes shopping challenge orchestration from successful browser-assisted records", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/target";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [{
+            id: `${providerId}-offer`,
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.target.com/p/portable-monitor/-/A-123",
+            title: "Portable monitor",
+            content: "$129.99",
+            timestamp: "2026-02-16T00:00:00.000Z",
+            confidence: 0.8,
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              browser_fallback_mode: "extension",
+              browser_fallback_reason_code: "challenge_detected",
+              browser_fallback_challenge_orchestration: {
+                mode: "browser_with_helper",
+                source: "config",
+                status: "resolved"
+              },
+              shopping_offer: {
+                provider: providerId,
+                product_id: "target-monitor",
+                title: "Portable monitor",
+                url: "https://www.target.com/p/portable-monitor/-/A-123",
+                price: {
+                  amount: 129.99,
+                  currency: "USD",
+                  retrieved_at: "2026-02-16T00:00:00.000Z"
+                },
+                shipping: {
+                  amount: 0,
+                  currency: "USD",
+                  notes: "free"
+                },
+                availability: "in_stock",
+                rating: 4.7,
+                reviews_count: 42
+              }
+            }
+          }]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "portable monitor",
+      providers: ["shopping/target"],
+      mode: "json"
+    });
+
+    expect((output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+      };
+    }).metrics.challenge_orchestration).toEqual([
+      expect.objectContaining({
+        provider: "shopping/target",
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "challenge_detected",
+        mode: "browser_with_helper",
+        source: "config",
+        status: "resolved"
+      })
+    ]);
+  });
+
+  it("summarizes shopping challenge orchestration from failure details when browser recovery stays blocked", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/temu";
+        return makeAggregate({
+          ok: false,
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          failures: [{
+            provider: providerId,
+            source: "shopping",
+            error: {
+              code: "unavailable",
+              message: "challenge remains active",
+              retryable: false,
+              reasonCode: "challenge_detected",
+              provider: providerId,
+              source: "shopping",
+              details: {
+                browserFallbackMode: "extension",
+                browserFallbackReasonCode: "challenge_detected",
+                challengeOrchestration: {
+                  mode: "browser_with_helper",
+                  source: "config",
+                  status: "deferred"
+                }
+              }
+            }
+          }]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "wireless mouse",
+      providers: ["shopping/temu"],
+      mode: "json"
+    });
+
+    expect((output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+      };
+    }).metrics.challenge_orchestration).toEqual([
+      expect.objectContaining({
+        provider: "shopping/temu",
+        reasonCode: "challenge_detected",
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "challenge_detected",
+        mode: "browser_with_helper",
+        source: "config",
+        status: "deferred"
+      })
+    ]);
+  });
+
+  it("reports preserved extension challenge diagnostics unchanged for auto shopping mode", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/walmart";
+        return makeAggregate({
+          ok: false,
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          failures: [{
+            provider: providerId,
+            source: "shopping",
+            error: {
+              code: "unavailable",
+              message: "challenge remains active",
+              retryable: false,
+              reasonCode: "challenge_detected",
+              provider: providerId,
+              source: "shopping",
+              details: {
+                disposition: "challenge_preserved",
+                browserFallbackMode: "extension",
+                browserFallbackReasonCode: "challenge_detected",
+                preservedSessionId: "preserved-session-1",
+                preservedTargetId: "tab-123",
+                challengeOrchestration: {
+                  mode: "browser_with_helper",
+                  source: "config",
+                  status: "deferred"
+                }
+              }
+            }
+          }],
+          metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "macbook pro m4 32gb ram",
+      providers: ["shopping/walmart"],
+      browserMode: "auto",
+      mode: "json"
+    });
+
+    expect((output.meta as {
+      selection: { requested_browser_mode?: string };
+      metrics: {
+        browser_fallback_modes_observed: string[];
+        challenge_orchestration: Array<Record<string, unknown>>;
+      };
+    })).toMatchObject({
+      selection: {
+        requested_browser_mode: "auto"
+      },
+      metrics: {
+        browser_fallback_modes_observed: ["extension"],
+        challenge_orchestration: [
+          expect.objectContaining({
+            provider: "shopping/walmart",
+            reasonCode: "challenge_detected",
+            browserFallbackMode: "extension",
+            browserFallbackReasonCode: "challenge_detected",
+            mode: "browser_with_helper",
+            source: "config",
+            status: "deferred"
+          })
+        ]
+      }
+    });
+    expect((output.meta as {
+      metrics: { browser_fallback_modes_observed: string[] };
+    }).metrics.browser_fallback_modes_observed).not.toContain("managed_headed");
   });
 
   it("preserves auth-required blocker reasons when empty shopping runs are actually login pages", async () => {
@@ -390,7 +834,7 @@ describe("artifact and workflow runtime", () => {
     expect((output.meta as {
       failures: Array<{ provider: string; error: { reasonCode?: string; details?: { blockerType?: string; title?: string } } }>;
       metrics: {
-        reason_code_distribution: Record<string, number>;
+        reasonCodeDistribution: Record<string, number>;
       };
     })).toMatchObject({
       failures: [{
@@ -404,11 +848,12 @@ describe("artifact and workflow runtime", () => {
         }
       }],
       metrics: {
-        reason_code_distribution: {
+        reasonCodeDistribution: {
           token_required: 1
         }
       }
     });
+    expect((output.meta as { metrics: Record<string, unknown> }).metrics).not.toHaveProperty("reason_code_distribution");
   });
 
   it("filters search-index and asset rows out of shopping offers", async () => {
@@ -667,5 +1112,51 @@ describe("artifact and workflow runtime", () => {
     });
 
     await expect(runProductVideoWorkflow(runtime, {})).rejects.toThrow("product_url or product_name is required");
+  });
+
+  it("rejects invalid product targets before creating a product-video artifact bundle", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-product-invalid-"));
+    createdDirs.push(root);
+
+    const auxiliaryFetch = vi.fn(async () => ({
+      ok: true,
+      url: "https://www.shoott.com/headshots",
+      text: async () => "<html></html>",
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+    }));
+    vi.stubGlobal("fetch", auxiliaryFetch as unknown as typeof fetch);
+
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate()),
+      fetch: vi.fn(async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [{
+          id: "shoott-404",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.shoott.com/headshots",
+          title: "Shoott | 404",
+          content: "Error 404 We can’t seem to find the page you were looking for.",
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.8,
+          attributes: {
+            status: 404,
+            links: ["https://cdn.example.com/404-image.jpg"]
+          }
+        }]
+      }))
+    });
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.shoott.com/headshots",
+      output_dir: root,
+      include_screenshots: true,
+      include_all_images: true,
+      include_copy: true
+    })).rejects.toThrow("Product target appears to be a not-found page");
+
+    await expect(stat(join(root, "product-assets"))).rejects.toThrow();
+    expect(auxiliaryFetch).not.toHaveBeenCalled();
   });
 });

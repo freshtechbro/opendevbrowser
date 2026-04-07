@@ -2,13 +2,16 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-03
 
 This reference is intentionally exhaustive and should stay synchronized with:
+- `src/public-surface/source.ts`
+- `scripts/generate-public-surface-manifest.mjs`
+- `src/public-surface/generated-manifest.ts`
+- `src/public-surface/generated-manifest.json`
 - `src/cli/args.ts`
 - `src/cli/help.ts`
 - `src/tools/index.ts`
-- `src/tools/surface.ts`
 - `extension/src/ops/ops-runtime.ts`
 - `extension/src/canvas/canvas-runtime.ts`
 - `src/relay/protocol.ts`
@@ -17,156 +20,182 @@ Operational mirror:
 - `npx opendevbrowser --help` (all commands with usage + primary flags, all grouped flags, all tools)
 - `npx opendevbrowser help` (same inventory as `--help`)
 
+First-contact note:
+- Start with generated help and `docs/FIRST_RUN_ONBOARDING.md`; this page stays inventory-only.
+- Installer lifecycle owns refresh and cleanup of the 9 canonical bundled skill packs; this page stays inventory-only.
+
 ---
 
-## CLI Command Inventory (56)
+## CLI Command Inventory (64)
 
 ### Install and runtime management (10)
-- `install`
-- `update`
-- `uninstall`
-- `help`
-- `version`
-- `serve`
-- `daemon`
-- `native`
-- `run`
-- `artifacts`
+- `install` - Install the plugin.
+- `update` - Clear cached plugin to trigger reinstall.
+- `uninstall` - Remove plugin from config.
+- `help` - Show help.
+- `version` - Show version.
+- `serve` - Start or stop the local daemon.
+- `daemon` - Install, uninstall, or inspect daemon auto-start.
+- `native` - Install, uninstall, or inspect the native messaging host.
+- `run` - Execute a JSON script in a single process.
+- `artifacts` - Manage workflow artifact lifecycle.
 
 ### Session, connection, and workflow wrappers (9)
-- `launch`
-- `connect`
-- `disconnect`
-- `status`
-- `cookie-import`
-- `cookie-list`
-- `research`
-- `shopping`
-- `product-video`
+- `launch` - Launch a managed browser session via daemon.
+- `connect` - Connect to an existing browser via daemon.
+- `disconnect` - Disconnect a daemon session.
+- `status` - Get daemon or session status.
+- `cookie-import` - Import validated cookies into a session.
+- `cookie-list` - List cookies for a session, optionally filtered by URL.
+- `research` - Run research workflows.
+- `shopping` - Run shopping workflows.
+- `product-video` - Run product presentation asset workflows.
 
-### Navigation (3)
-- `goto`
-- `wait`
-- `snapshot`
+### Navigation (4)
+- `goto` - Navigate the current session to a URL.
+- `wait` - Wait for load completion or a ref/state condition.
+- `snapshot` - Capture a snapshot of the active page.
+- `review` - Capture a first-class review payload for the active target.
 
-### Interaction (9)
-- `click`
-- `hover`
-- `press`
-- `check`
-- `uncheck`
-- `type`
-- `select`
-- `scroll`
-- `scroll-into-view`
+### Interaction (14)
+- `click` - Click an element by ref.
+- `hover` - Hover an element by ref.
+- `press` - Press a keyboard key.
+- `check` - Check a checkbox by ref.
+- `uncheck` - Uncheck a checkbox by ref.
+- `type` - Type into an element by ref.
+- `select` - Select values in a select by ref.
+- `scroll` - Scroll the page or an element by ref.
+- `scroll-into-view` - Scroll an element into view by ref.
+- `upload` - Upload files to a file input or chooser by ref.
+- `pointer-move` - Move the pointer to viewport coordinates.
+- `pointer-down` - Press a mouse button at viewport coordinates.
+- `pointer-up` - Release a mouse button at viewport coordinates.
+- `pointer-drag` - Drag the pointer between two viewport coordinates.
 
 ### Targets and pages (7)
-- `targets-list`
-- `target-use`
-- `target-new`
-- `target-close`
-- `page`
-- `pages`
-- `page-close`
+- `targets-list` - List page targets.
+- `target-use` - Focus a target by id.
+- `target-new` - Open a new target.
+- `target-close` - Close a target by id.
+- `page` - Open or focus a named page.
+- `pages` - List named pages.
+- `page-close` - Close a named page.
 
 ### DOM inspection (7)
-- `dom-html`
-- `dom-text`
-- `dom-attr`
-- `dom-value`
-- `dom-visible`
-- `dom-enabled`
-- `dom-checked`
+- `dom-html` - Capture HTML for a ref.
+- `dom-text` - Capture text for a ref.
+- `dom-attr` - Capture an attribute value for a ref.
+- `dom-value` - Capture an input value for a ref.
+- `dom-visible` - Check visibility for a ref.
+- `dom-enabled` - Check enabled state for a ref.
+- `dom-checked` - Check checked state for a ref.
 
 ### Design canvas (1)
-- `canvas`
+- `canvas` - Execute a design-canvas command.
 
-### Export, diagnostics, macro, annotation, power (10)
-- `clone-page`
-- `clone-component`
-- `perf`
-- `screenshot`
-- `console-poll`
-- `network-poll`
-- `debug-trace-snapshot`
-- `macro-resolve`
-- `annotate`
-- `rpc` (CLI-only, internal power surface)
+### Export, diagnostics, macro, annotation, power (12)
+- `clone-page` - Clone the active page to React.
+- `clone-component` - Clone a component by ref.
+- `perf` - Capture performance metrics.
+- `screenshot` - Capture a screenshot.
+- `dialog` - Inspect or handle a JavaScript dialog.
+- `console-poll` - Poll console events.
+- `network-poll` - Poll network events.
+- `debug-trace-snapshot` - Capture page, console, network, and exception diagnostics.
+- `session-inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
+- `macro-resolve` - Resolve or execute a macro expression via provider actions.
+- `annotate` - Request interactive annotations via direct or relay transport.
+- `rpc` - Execute an internal daemon RPC command. CLI-only, internal power surface.
 
 ---
 
-## Tool Inventory (49)
+## Tool Inventory (57)
 
 ### Session and cookies (6)
-- `opendevbrowser_launch`
-- `opendevbrowser_connect`
-- `opendevbrowser_disconnect`
-- `opendevbrowser_status`
-- `opendevbrowser_cookie_import`
-- `opendevbrowser_cookie_list`
+- `opendevbrowser_launch` - Launch a managed browser session.
+- `opendevbrowser_connect` - Connect to an existing browser session.
+- `opendevbrowser_disconnect` - Disconnect a managed or connected session.
+- `opendevbrowser_status` - Inspect session and relay status.
+- `opendevbrowser_cookie_import` - Import validated cookies into a session.
+- `opendevbrowser_cookie_list` - List cookies in a session with optional URL filters.
 
 ### Targets and pages (7)
-- `opendevbrowser_targets_list`
-- `opendevbrowser_target_use`
-- `opendevbrowser_target_new`
-- `opendevbrowser_target_close`
-- `opendevbrowser_page`
-- `opendevbrowser_list`
-- `opendevbrowser_close`
+- `opendevbrowser_targets_list` - List available page targets and tabs.
+- `opendevbrowser_target_use` - Switch the active target by id.
+- `opendevbrowser_target_new` - Create a new target or tab.
+- `opendevbrowser_target_close` - Close a target or tab by id.
+- `opendevbrowser_page` - Open or focus a named page.
+- `opendevbrowser_list` - List named pages in the session.
+- `opendevbrowser_close` - Close a named page.
 
-### Navigation and interaction (13)
-- `opendevbrowser_goto`
-- `opendevbrowser_wait`
-- `opendevbrowser_snapshot`
-- `opendevbrowser_click`
-- `opendevbrowser_hover`
-- `opendevbrowser_press`
-- `opendevbrowser_check`
-- `opendevbrowser_uncheck`
-- `opendevbrowser_type`
-- `opendevbrowser_select`
-- `opendevbrowser_scroll`
-- `opendevbrowser_scroll_into_view`
-- `opendevbrowser_run`
+### Navigation and interaction (19)
+- `opendevbrowser_goto` - Navigate to a URL.
+- `opendevbrowser_wait` - Wait for load, ref, or state conditions.
+- `opendevbrowser_snapshot` - Capture AX-tree refs for actions.
+- `opendevbrowser_review` - Capture a first-class review payload with status and actionables.
+- `opendevbrowser_click` - Click an element by ref.
+- `opendevbrowser_hover` - Hover an element by ref.
+- `opendevbrowser_press` - Send a keyboard key.
+- `opendevbrowser_check` - Check a checkbox or radio by ref.
+- `opendevbrowser_uncheck` - Uncheck a checkbox or radio by ref.
+- `opendevbrowser_type` - Type text into an input by ref.
+- `opendevbrowser_select` - Set select values by ref.
+- `opendevbrowser_scroll` - Scroll a page or element.
+- `opendevbrowser_scroll_into_view` - Scroll a target element into view.
+- `opendevbrowser_upload` - Upload files to a file input or chooser by ref.
+- `opendevbrowser_pointer_move` - Move the pointer to viewport coordinates.
+- `opendevbrowser_pointer_down` - Press a mouse button at viewport coordinates.
+- `opendevbrowser_pointer_up` - Release a mouse button at viewport coordinates.
+- `opendevbrowser_pointer_drag` - Drag the pointer between viewport coordinates.
+- `opendevbrowser_run` - Execute multi-action automation scripts.
 
 ### DOM inspection (7)
-- `opendevbrowser_dom_get_html`
-- `opendevbrowser_dom_get_text`
-- `opendevbrowser_get_attr`
-- `opendevbrowser_get_value`
-- `opendevbrowser_is_visible`
-- `opendevbrowser_is_enabled`
-- `opendevbrowser_is_checked`
+- `opendevbrowser_dom_get_html` - Get HTML for a page or ref.
+- `opendevbrowser_dom_get_text` - Get text for a page or ref.
+- `opendevbrowser_get_attr` - Read a DOM attribute by ref.
+- `opendevbrowser_get_value` - Read a form or control value by ref.
+- `opendevbrowser_is_visible` - Check ref visibility.
+- `opendevbrowser_is_enabled` - Check ref enabled state.
+- `opendevbrowser_is_checked` - Check ref checked state.
 
-### Diagnostics and export (8)
-- `opendevbrowser_console_poll`
-- `opendevbrowser_network_poll`
-- `opendevbrowser_debug_trace_snapshot`
-- `opendevbrowser_perf`
-- `opendevbrowser_screenshot`
-- `opendevbrowser_clone_page`
-- `opendevbrowser_clone_component`
-- `opendevbrowser_annotate`
+### Diagnostics and export (10)
+- `opendevbrowser_console_poll` - Poll redacted console events.
+- `opendevbrowser_network_poll` - Poll redacted network events.
+- `opendevbrowser_debug_trace_snapshot` - Capture page, console, and network diagnostics.
+- `opendevbrowser_session_inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
+- `opendevbrowser_perf` - Collect browser performance metrics.
+- `opendevbrowser_screenshot` - Capture a page screenshot.
+- `opendevbrowser_dialog` - Inspect or handle a JavaScript dialog.
+- `opendevbrowser_clone_page` - Export the active page into React code.
+- `opendevbrowser_clone_component` - Export a component by ref into React code.
+- `opendevbrowser_annotate` - Capture interactive annotations.
 
 ### Design canvas (1)
-- `opendevbrowser_canvas`
+- `opendevbrowser_canvas` - Execute a typed design-canvas command surface call.
 
 ### Macro, workflow, and skill surfaces (7)
-- `opendevbrowser_macro_resolve`
-- `opendevbrowser_research_run`
-- `opendevbrowser_shopping_run`
-- `opendevbrowser_product_video_run`
-- `opendevbrowser_prompting_guide` (tool-only)
-- `opendevbrowser_skill_list` (tool-only)
-- `opendevbrowser_skill_load` (tool-only)
+- `opendevbrowser_macro_resolve` - Resolve or execute provider macro expressions.
+- `opendevbrowser_research_run` - Run the research workflow directly.
+- `opendevbrowser_shopping_run` - Run the shopping workflow directly.
+- `opendevbrowser_product_video_run` - Run the product-video asset workflow directly.
+- `opendevbrowser_prompting_guide` - Return best-practice prompting guidance and the bundled quick start. Tool-only.
+- `opendevbrowser_skill_list` - List available bundled and discovered skill packs. Tool-only.
+- `opendevbrowser_skill_load` - Load a specific skill pack locally without browser work. Tool-only.
 
 ---
 
 ## Relay Channel Inventory
 
-### `/ops` command names (44)
+### `/ops` command names (59)
 
 `/ops` is the high-level relay protocol used by default extension sessions.
+
+#### Target lifecycle events (4)
+- `Target.targetCreated`
+- `Target.attachedToTarget`
+- `Target.targetDestroyed`
+- `Target.detachedFromTarget`
 
 #### Session (4)
 - `session.launch`
@@ -185,18 +214,25 @@ Operational mirror:
 - `targets.new`
 - `targets.close`
 
-#### Pages (4)
+#### Pages (5)
 - `page.open`
 - `page.list`
 - `page.close`
 - `page.screenshot`
+- `page.dialog`
 
-#### Navigation (3)
+#### Page lifecycle events (3)
+- `Page.javascriptDialogOpening`
+- `Page.javascriptDialogClosed`
+- `Page.fileChooserOpened`
+
+#### Navigation (4)
 - `nav.goto`
 - `nav.wait`
 - `nav.snapshot`
+- `nav.review`
 
-#### Interaction (9)
+#### Interaction (10)
 - `interact.click`
 - `interact.hover`
 - `interact.press`
@@ -206,8 +242,15 @@ Operational mirror:
 - `interact.select`
 - `interact.scroll`
 - `interact.scrollIntoView`
+- `interact.upload`
 
-#### DOM (7)
+#### Pointer (4)
+- `pointer.move`
+- `pointer.down`
+- `pointer.up`
+- `pointer.drag`
+
+#### DOM (8)
 - `dom.getHtml`
 - `dom.getText`
 - `dom.getAttr`
@@ -215,6 +258,7 @@ Operational mirror:
 - `dom.isVisible`
 - `dom.isEnabled`
 - `dom.isChecked`
+- `dom.refPoint`
 
 #### Overlay and runtime preview (5)
 - `canvas.overlay.mount`
@@ -238,6 +282,25 @@ Envelope contract:
 - error: `ops_error`
 - stream/event: `ops_event`, `ops_chunk`
 - liveness: `ops_ping`, `ops_pong`
+
+## Blocker and challenge surface
+
+- Managed and `/ops`-backed manager responses preserve the shipped blocker fields `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution`.
+- `meta.challenge` is additive and may appear on manager-shaped `status`, `goto`, `wait`, and `debugTraceSnapshot` responses after blocker reconciliation.
+- `meta.challengeOrchestration` is additive and may appear on manager-shaped `status`, `goto`, `wait`, and `waitForRef` responses after bounded challenge orchestration runs.
+- `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can include `mode`, `source`, `standDownReason`, and `helperEligibility`.
+- Workflow and daemon surfaces expose the same override field name: `challengeAutomationMode`.
+- Accepted override values are `off`, `browser`, and `browser_with_helper`.
+- Effective precedence is `run > session > config`.
+- Shipped config defaults resolve to helper-capable posture: `mode=browser_with_helper` and `optionalComputerUseBridge.enabled=true`.
+- The optional helper bridge stays browser-scoped and is not a desktop agent.
+- Provider browser fallback uses explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`, and may include `details.challengeOrchestration` when the shared challenge plane ran during fallback.
+- `ProviderRegistry` is the only durable anti-bot pressure authority. Workflow outputs keep their existing keys while reading registry-backed pressure instead of provider-local durable state.
+
+## Legitimacy boundary
+
+- In scope: preserved sessions, low-level pointer control, visual observation loops, bounded auth-navigation and session-reuse attempts, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
 
 ### `/canvas` command names (35)
 
@@ -415,7 +478,7 @@ Auth and policy:
 ### Command taxonomy (contract)
 
 - `TargetScoped`:
-  - `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`, `page.screenshot`
+  - `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`, `page.screenshot`, `page.dialog`
 - `SessionStructural`:
   - `session.*`, `targets.*`, `page.open`, `page.list`, `page.close`, storage commands
 
@@ -441,6 +504,8 @@ Auth and policy:
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
+- Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
+- Workflow response keys: provider follow-up summaries use `meta.primaryConstraintSummary`; failure tallies use `meta.metrics.reasonCodeDistribution` for research/shopping and `meta.reasonCodeDistribution` for product-video.
 
 For complete argument and flag coverage by command, see `docs/CLI.md`.
 

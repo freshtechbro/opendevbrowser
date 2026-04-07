@@ -6,10 +6,12 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and distribut
 
 - `<public-repo-root>/README.md` - product overview, installation, and first-run flow
 - `<public-repo-root>/docs/ARCHITECTURE.md` - canonical ASCII runtime architecture map, relay modes, and security boundaries
-- `<public-repo-root>/docs/CLI.md` - CLI commands, flags, generated help parity, and operational usage
-- `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md` - first-time local-package onboarding and first-task verification flow
+- `<public-repo-root>/docs/CLI.md` - CLI commands, flags, generated help ownership, and operational usage
+- `<public-repo-root>/docs/FIRST_RUN_ONBOARDING.md` - first-time local-package onboarding and the manual proof checklist for the help-led quick-start path
 - `<public-repo-root>/docs/SURFACE_REFERENCE.md` - canonical command/tool/channel inventory mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`
 - `<public-repo-root>/docs/EXTENSION.md` - extension setup, relay behavior, and diagnostics
+- `<public-repo-root>/docs/DESIGN_CANVAS_TECHNICAL_SPEC.md` - active design-canvas runtime and document architecture reference
+- `<public-repo-root>/docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md` - active code-sync and framework-adapter reference
 - `<public-repo-root>/docs/TROUBLESHOOTING.md` - deterministic recovery and verification guidance
 - `<public-repo-root>/docs/ANNOTATE.md` - annotation workflows and artifact expectations
 - `<public-repo-root>/docs/privacy.md` - extension privacy policy
@@ -21,7 +23,7 @@ Canonical documentation map for OpenDevBrowser runtime, extension, and distribut
 - `<public-repo-root>/docs/EXTENSION_RELEASE_RUNBOOK.md` - extension artifact/store publication operations
 - `<public-repo-root>/docs/CUTOVER_CHECKLIST.md` - public/private cutover and rollback checklist
 - `<public-repo-root>/CHANGELOG.md` - release delta history and version-to-version summaries
-- `<public-repo-root>/skills/opendevbrowser-best-practices/SKILL.md` - canonical direct-run release evidence policy and operator runbooks
+- `<public-repo-root>/skills/opendevbrowser-best-practices/SKILL.md` - canonical bundled quick-start runbook and direct-run release evidence policy
 
 ## Website and design docs
 
@@ -42,7 +44,7 @@ Use these as planning references only; verify against runtime code and active do
 
 ## Update workflow
 
-1. Validate implementation truth in source files (`src/**`, `extension/**`) and mirrored website inputs (`docs/**`, `skills/**`, `assets/**`, `CHANGELOG.md`, `src/cli/help.ts`, `src/tools/surface.ts`, `src/tools/index.ts`).
+1. Validate implementation truth in source files (`src/**`, `extension/**`) and mirrored website inputs (`docs/**`, `skills/**`, `assets/**`, `CHANGELOG.md`, `src/cli/help.ts`, `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, `src/tools/index.ts`).
 2. Update active documentation sources in this directory.
 3. Dispatch private website sync after public source updates:
    - `.github/workflows/dispatch-private-sync.yml`
@@ -52,12 +54,14 @@ Use these as planning references only; verify against runtime code and active do
    - `npm run lint --prefix frontend`
    - `npm run typecheck --prefix frontend`
    - `npm run build --prefix frontend`
-5. Run public quality gates before closing the task.
+5. Keep local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` uncommitted; `.gitignore` is the policy owner, and `node scripts/audit-zombie-files.mjs` is the duplicate-file guard.
+6. Run public quality gates before closing the task.
    - `npx opendevbrowser --help`
    - `npx opendevbrowser help`
+   - `node scripts/cli-onboarding-smoke.mjs`
    - touched canonical skill validators (for example `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`)
    - `npm run test:release-gate`
    - `node scripts/audit-zombie-files.mjs`
    - `node scripts/docs-drift-check.mjs`
    - `node scripts/chrome-store-compliance-check.mjs`
-6. Treat `skills/opendevbrowser-best-practices/SKILL.md` as the canonical owner of direct-run release evidence policy; other docs should point there instead of restating the full policy.
+7. Treat generated help as the canonical first-contact discovery surface, `docs/FIRST_RUN_ONBOARDING.md` as the first-run proof checklist, and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook and direct-run release evidence owner. Keep the onboarding smoke lane isolated inside temp config/cache homes when validating bundled behavior or managed skill lifecycle changes.

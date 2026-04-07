@@ -13,6 +13,22 @@ import {
   shoppingProvidersForMode,
   socialPlatformsForMode
 } from './provider-live-scenarios.mjs';
+import {
+  AUTH_GATED_SHOPPING_PROVIDERS,
+  HIGH_FRICTION_SHOPPING_PROVIDERS,
+  MATRIX_ENV_LIMITED_CODES,
+  MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS,
+  SOCIAL_POST_CASES
+} from './shared/workflow-lane-constants.mjs';
+import {
+  classifyLaneRecords,
+  normalizedCodesFromFailures,
+  summarizeFailures
+} from './shared/workflow-lane-verdicts.mjs';
+import {
+  DEFAULT_YOUTUBE_TRANSCRIPT_MODE,
+  YOUTUBE_TRANSCRIPT_PROBE_STEP_ID
+} from './youtube-transcript-live-probe.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'dist', 'cli', 'index.js');
@@ -38,19 +54,10 @@ const EXTENSION_LAUNCH_RECOVERY_RETRIES = Math.max(
   1,
   Number.parseInt(process.env.PROVIDER_LIVE_EXTENSION_LAUNCH_RETRIES ?? '1', 10) || 1
 );
-const AUTH_GATED_SHOPPING_PROVIDERS = new Set(['shopping/costco', 'shopping/macys']);
-const HIGH_FRICTION_SHOPPING_PROVIDERS = new Set(['shopping/bestbuy']);
-const SHOPPING_PROVIDER_TIMEOUT_MS = new Map([
-  ['shopping/bestbuy', '120000'],
-  ['shopping/walmart', '120000'],
-  ['shopping/target', '120000'],
-  ['shopping/temu', '120000']
-]);
-const SOCIAL_POST_CASES = [
-  { id: 'provider.social.x.post', expr: '@social.post("x", "me", "ship realworld test", true, true)' },
-  { id: 'provider.social.instagram.post', expr: '@social.post("instagram", "me", "ship realworld test", true, true)' },
-  { id: 'provider.social.facebook.post', expr: '@social.post("facebook", "me", "ship realworld test", true, true)' }
-];
+export const NESTED_LIVE_REGRESSION_TIMEOUT_MS = Math.max(
+  900_000,
+  Number.parseInt(process.env.PROVIDER_LIVE_NESTED_LIVE_REGRESSION_TIMEOUT_MS ?? '1500000', 10) || 1_500_000
+);
 const EXTENSION_HEAVY_NAV_TARGETS = new Set([
   'youtube.search',
   'instagram.explore',
@@ -65,23 +72,26 @@ const BROWSER_REALWORLD_TARGETS = [
   { id: 'facebook.search', url: 'https://www.facebook.com/search/top/?q=browser%20automation' },
   { id: 'linkedin.search', url: 'https://www.linkedin.com/search/results/content/?keywords=browser%20automation' }
 ];
-
-const ENV_LIMITED_CODES = new Set([
-  'unavailable',
-  'env_limited',
-  'auth',
-  'rate_limited',
-  'upstream',
-  'network',
-  'timeout',
-  'token_required',
-  'challenge_detected',
-  'cooldown_active',
-  'policy_blocked',
-  'caption_missing',
-  'transcript_unavailable',
-  'strategy_unapproved'
-]);
+export const WORKFLOW_RESEARCH_PROBE_ARGS = [
+  'research',
+  'run',
+  '--topic',
+  'browser automation production blockers',
+  '--source-selection',
+  'auto',
+  '--mode',
+  'json',
+  '--limit-per-source',
+  '4',
+  '--timeout-ms',
+  '120000'
+];
+export const WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS = [
+  'scripts/youtube-transcript-live-probe.mjs',
+  '--quiet',
+  '--youtube-mode',
+  DEFAULT_YOUTUBE_TRANSCRIPT_MODE
+];
 
 const ownedHeadlessMarkers = new Set();
 const ownedHeadlessProfileDirs = new Set();
@@ -430,13 +440,15 @@ function summarizeCliDetail(result) {
   return 'unknown failure';
 }
 
-const REQUIRED_PLAYWRIGHT_CORE_FILES = [
+export const REQUIRED_PLAYWRIGHT_CORE_FILES = [
   'lib/inprocess.js',
   'lib/inProcessFactory.js',
   'lib/androidServerImpl.js',
   'lib/browserServerImpl.js',
   'lib/client/connection.js',
-  'lib/utilsBundle.js'
+  'lib/utilsBundle.js',
+  'lib/server/index.js',
+  'lib/server/registry/index.js'
 ];
 
 let playwrightCoreIntegrityChecked = false;
@@ -642,62 +654,21 @@ async function launchExtensionWithRecovery(env) {
   return last;
 }
 
-function normalizedCodesFromFailures(failures) {
-  if (!Array.isArray(failures)) return [];
-  return failures
-    .map((entry) => entry?.error?.reasonCode || entry?.error?.code)
-    .filter((value) => typeof value === 'string');
-}
-
-function failureMessages(failures) {
-  if (!Array.isArray(failures)) return [];
-  return failures
-    .map((entry) => entry?.error?.message)
-    .filter((value) => typeof value === 'string');
-}
-
-function summarizeFailures(failures, limit = 3) {
-  if (!Array.isArray(failures)) return [];
-  return failures.slice(0, limit).map((entry) => {
-    const error = entry?.error ?? {};
-    return {
-      provider: typeof entry?.provider === 'string' ? entry.provider : null,
-      code: typeof error.code === 'string' ? error.code : null,
-      reasonCode: typeof error.reasonCode === 'string' ? error.reasonCode : null,
-      message: typeof error.message === 'string' ? error.message.slice(0, 220) : null
-    };
+export function classifyMatrixRecords(recordsCount, failures, extra = {}) {
+  const verdict = classifyLaneRecords(recordsCount, failures, {
+    envLimitedCodes: MATRIX_ENV_LIMITED_CODES,
+    allowExpectedUnavailable: extra.allowExpectedUnavailable === true,
+    allowNoRecordsNoFailures: extra.allowNoRecordsNoFailures === true,
+    expectedUnavailableMessageDetails: [
+      {
+        includes: 'posting transport is not configured',
+        detail: 'expected_gating_post_transport_not_configured'
+      }
+    ]
   });
-}
-
-function classify(recordsCount, failures, extra = {}) {
-  if (recordsCount > 0) {
-    return { status: 'pass', reason: null };
-  }
-
-  const normalizedFailures = Array.isArray(failures) ? failures : [];
-  const codes = normalizedCodesFromFailures(normalizedFailures);
-  if (codes.length > 0 && codes.every((code) => ENV_LIMITED_CODES.has(code))) {
-    return { status: 'env_limited', reason: `reason_codes=${codes.join(',')}` };
-  }
-
-  if (extra.allowExpectedUnavailable === true && normalizedFailures.length > 0) {
-    const messages = failureMessages(normalizedFailures).map((message) => message.toLowerCase());
-    const expectedGating = messages.some((message) => message.includes('posting transport is not configured'));
-    if (expectedGating) {
-      return { status: 'env_limited', reason: 'expected_gating_post_transport_not_configured' };
-    }
-    return { status: 'env_limited', reason: 'expected_unavailable_by_surface' };
-  }
-
-  if (extra.allowNoRecordsNoFailures === true && normalizedFailures.length === 0) {
-    return { status: 'env_limited', reason: 'no_records_no_failures' };
-  }
-
   return {
-    status: 'fail',
-    reason: normalizedFailures.length > 0
-      ? `unexpected_reason_codes=${codes.join(',') || 'none'}`
-      : 'no_records_no_failures'
+    status: verdict.status,
+    reason: verdict.detail
   };
 }
 
@@ -1220,7 +1191,10 @@ async function main() {
           useGlobalEnv: options.useGlobalEnv,
           stopDaemon: false
         });
-        const mode = runNode(matrixArgs, liveMatrixEnv, { allowFailure: true, timeoutMs: 900000 });
+        const mode = runNode(matrixArgs, liveMatrixEnv, {
+          allowFailure: true,
+          timeoutMs: NESTED_LIVE_REGRESSION_TIMEOUT_MS
+        });
         const parsed = mode.json;
         const releaseGateFailure = options.strictGate && mode.status !== 0;
         const nonStrictStatus = mode.status === 0 ? 'pass' : ((parsed?.counts?.fail ?? 1) === 0 ? 'env_limited' : 'fail');
@@ -1252,7 +1226,7 @@ async function main() {
       try {
         const res = runCli(env, testCase.args, { allowFailure: true, timeoutMs: 180000 });
         const execution = collectMacroExecution(res);
-        const verdict = classify(execution.records.length, execution.failures);
+        const verdict = classifyMatrixRecords(execution.records.length, execution.failures);
 
         pushStep({
           id: testCase.id,
@@ -1372,7 +1346,7 @@ async function main() {
         }
 
         const linkedinAuthWall = platform === 'linkedin' && hasLinkedInAuthWall(execution.records);
-        const verdict = classify(execution.records.length, execution.failures, {
+        const verdict = classifyMatrixRecords(execution.records.length, execution.failures, {
           allowNoRecordsNoFailures: true
         });
 
@@ -1446,12 +1420,12 @@ async function main() {
     if (options.runSocialPostCases) {
       for (const testCase of SOCIAL_POST_CASES) {
         try {
-          const res = runCli(env, ['macro-resolve', '--execute', '--expression', testCase.expr, '--timeout-ms', '120000'], {
+          const res = runCli(env, ['macro-resolve', '--execute', '--expression', testCase.expression, '--timeout-ms', '120000'], {
             allowFailure: true,
             timeoutMs: 180000
           });
           const execution = collectMacroExecution(res);
-          const verdict = classify(execution.records.length, execution.failures, { allowExpectedUnavailable: true });
+          const verdict = classifyMatrixRecords(execution.records.length, execution.failures, { allowExpectedUnavailable: true });
           const reasonCodes = normalizedCodesFromFailures(execution.failures);
           const expectedTransportGateVerified = options.strictGate
             && verdict.status === 'env_limited'
@@ -1518,7 +1492,7 @@ async function main() {
         continue;
       }
       try {
-        const providerTimeoutMs = SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? '45000';
+        const providerTimeoutMs = MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? '45000';
         const cliTimeoutMs = options.strictGate && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)
           ? 360000
           : 240000;
@@ -1527,7 +1501,7 @@ async function main() {
           timeoutMs: cliTimeoutMs
         });
         const execution = collectShoppingExecution(res);
-        const verdict = classify(execution.offers.length, execution.failures);
+        const verdict = classifyMatrixRecords(execution.offers.length, execution.failures);
         const reasonCodes = normalizedCodesFromFailures(execution.failures);
         const baseStatus = res.status === 0
           ? verdict.status
@@ -1563,7 +1537,7 @@ async function main() {
 
     if (options.runWorkflows) {
       try {
-        const research = runCli(env, ['research', 'run', '--topic', 'browser automation production blockers', '--source-selection', 'all', '--mode', 'json', '--limit-per-source', '4'], {
+        const research = runCli(env, WORKFLOW_RESEARCH_PROBE_ARGS, {
           allowFailure: true,
           timeoutMs: 240000
         });
@@ -1571,13 +1545,13 @@ async function main() {
         const records = Array.isArray(data.records) ? data.records.length : 0;
         const failures = Array.isArray(data.meta?.failures) ? data.meta.failures.length : 0;
         pushStep({
-          id: 'workflow.research.all_sources',
+          id: 'workflow.research.auto_sources',
           status: research.status === 0 ? (records > 0 ? 'pass' : 'env_limited') : 'fail',
           data: { records, failures, artifactPath: data.artifact_path ?? data.path ?? null },
           detail: research.status === 0 ? null : research.detail
         });
       } catch (error) {
-        pushStep({ id: 'workflow.research.all_sources', status: 'fail', detail: String(error) });
+        pushStep({ id: 'workflow.research.auto_sources', status: 'fail', detail: String(error) });
       }
 
       try {
@@ -1600,9 +1574,39 @@ async function main() {
       } catch (error) {
         pushStep({ id: 'workflow.product_video.amazon', status: 'fail', detail: String(error) });
       }
+
+      try {
+        const transcriptOut = runtime.tempRoot
+          ? path.join(runtime.tempRoot, 'youtube-transcript-live-probe.json')
+          : `/tmp/odb-youtube-transcript-live-probe-matrix-${Date.now()}.json`;
+        const transcript = runNode(
+          [...WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS, '--out', transcriptOut],
+          env,
+          { allowFailure: true, timeoutMs: 240000 }
+        );
+        const summary = transcript.json?.summary ?? null;
+        const status = typeof summary?.status === 'string'
+          ? summary.status
+          : 'fail';
+        const detail = typeof summary?.detail === 'string'
+          ? summary.detail
+          : (transcript.stderr || transcript.stdout || 'youtube_transcript_probe_failed');
+        pushStep({
+          id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID,
+          status,
+          detail,
+          data: {
+            artifactPath: transcript.json?.out ?? transcriptOut,
+            ...(summary?.data ?? {})
+          }
+        });
+      } catch (error) {
+        pushStep({ id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID, status: 'fail', detail: String(error) });
+      }
     } else {
-      pushStep({ id: 'workflow.research.all_sources', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
+      pushStep({ id: 'workflow.research.auto_sources', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
       pushStep({ id: 'workflow.product_video.amazon', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
+      pushStep({ id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID, status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
     }
 
     if (options.strictGate) {

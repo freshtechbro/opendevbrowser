@@ -328,10 +328,12 @@ describe("CanvasClient", () => {
     let requestRejected: Error | null = null;
     let chunkResolved: unknown = null;
     let nullResolved: unknown = "unset";
+    let emptyChunkResolved: unknown = "unset";
     let pingResolved = false;
     const requestTimeout = setTimeout(() => undefined, 1000);
     const chunkTimeout = setTimeout(() => undefined, 1000);
     const nullTimeout = setTimeout(() => undefined, 1000);
+    const emptyChunkTimeout = setTimeout(() => undefined, 1000);
     const invalidErrorTimeout = setTimeout(() => undefined, 1000);
     const zeroChunkTimeout = setTimeout(() => undefined, 1000);
     const pingTimeout = setTimeout(() => undefined, 1000);
@@ -355,6 +357,11 @@ describe("CanvasClient", () => {
       resolve: (value) => { nullResolved = value; },
       reject: () => undefined,
       timeoutId: nullTimeout
+    });
+    internals(client).pendingRequests.set("req_empty_chunk", {
+      resolve: (value) => { emptyChunkResolved = value; },
+      reject: () => undefined,
+      timeoutId: emptyChunkTimeout
     });
     internals(client).pendingRequests.set("req_invalid_error", {
       resolve: () => undefined,
@@ -431,6 +438,12 @@ describe("CanvasClient", () => {
       chunked: true
     })));
     internals(client).handleMessage(Buffer.from(JSON.stringify({
+      type: "canvas_response",
+      requestId: "req_empty_chunk",
+      chunked: true,
+      totalChunks: 0
+    })));
+    internals(client).handleMessage(Buffer.from(JSON.stringify({
       type: "canvas_chunk",
       requestId: "req_chunk",
       payloadId: "payload-1",
@@ -447,6 +460,15 @@ describe("CanvasClient", () => {
       data: "true}"
     })));
     expect(chunkResolved).toEqual({ ok: true });
+    internals(client).handleMessage(Buffer.from(JSON.stringify({
+      type: "canvas_chunk",
+      requestId: "req_empty_chunk",
+      payloadId: "payload-empty",
+      chunkIndex: 0,
+      totalChunks: 0,
+      data: ""
+    })));
+    expect(emptyChunkResolved).toBeNull();
 
     internals(client).handleMessage(Buffer.from(JSON.stringify({
       type: "canvas_event",
@@ -470,6 +492,7 @@ describe("CanvasClient", () => {
     clearTimeout(requestTimeout);
     clearTimeout(chunkTimeout);
     clearTimeout(nullTimeout);
+    clearTimeout(emptyChunkTimeout);
     clearTimeout(invalidErrorTimeout);
     clearTimeout(zeroChunkTimeout);
     clearTimeout(pingTimeout);
@@ -618,7 +641,21 @@ describe("CanvasClient", () => {
       clearTimerClient.disconnect();
       await vi.advanceTimersByTimeAsync(50);
 
+      const heartbeatStartClient = new CanvasClient(baseUrl, {
+        autoReconnect: false,
+        pingIntervalMs: 50
+      });
+      const sendPingSpy = vi.spyOn(internals(heartbeatStartClient), "sendPing").mockResolvedValue(undefined);
+      internals(heartbeatStartClient).startHeartbeat();
+      const heartbeatTimer = internals(heartbeatStartClient).heartbeatTimer;
+      internals(heartbeatStartClient).startHeartbeat();
+      expect(internals(heartbeatStartClient).heartbeatTimer).toBe(heartbeatTimer);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(sendPingSpy).toHaveBeenCalledTimes(1);
+      heartbeatStartClient.disconnect();
+
       connectSpy.mockRestore();
+      sendPingSpy.mockRestore();
     } finally {
       vi.useRealTimers();
     }

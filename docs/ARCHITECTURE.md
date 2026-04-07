@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-03
 
 ---
 
@@ -18,15 +18,20 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `56`
-- Plugin tools: `49`
-- `/ops` command names: `44`
+- CLI commands: `64`
+- Plugin tools: `57`
+- `/ops` command names: `59`
 - `/canvas` command names: `35`
 
-Human-facing inventory metadata is split intentionally:
-- `src/cli/help.ts` owns CLI usage and primary-flag snippets for `opendevbrowser --help` / `opendevbrowser help`
-- `src/tools/surface.ts` owns the help-facing `opendevbrowser_*` tool catalog
-- `src/cli/args.ts` and `src/tools/index.ts` remain the runtime inventory authorities
+Human-facing inventory metadata now composes through one generated manifest:
+- `src/public-surface/source.ts` owns the canonical public CLI command, tool, and CLI-tool pair metadata
+- `scripts/generate-public-surface-manifest.mjs` regenerates the public manifest snapshots
+- `src/public-surface/generated-manifest.ts` and `.json` are the consumed inventory mirrors for runtime help, docs parity, and tests
+- `src/cli/onboarding-metadata.json` owns the canonical first-contact skill, topic, quick-start commands, and onboarding doc pointers
+- `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/index.ts` consume or re-export the generated manifest for human-facing command and tool inventory output
+- `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
+- `docs/CLI.md` carries the longer operator guide and help parity runbook
+- `src/tools/index.ts` remains the runtime tool registry authority
 
 The shared runtime core is in `src/core/` and wires `BrowserManager`, `CanvasManager`, `AnnotationManager`, `AgentInbox`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
 `CanvasManager` lives in `src/browser/canvas-manager.ts` and composes dedicated session-sync, code-sync, starter-catalog, and runtime-preview bridge helpers while delegating document, export, framework-adapter, library-adapter, plugin, starter, kit, and token primitives to `src/canvas/` plus deterministic Figma import helpers under `src/integrations/figma/`.
@@ -41,6 +46,49 @@ supported platforms, and when the macOS LaunchAgent is malformed; unsupported pl
 transient temp-root path, install-time reconciliation refuses to persist it and surfaces guidance to rerun `daemon install` from a
 stable install location. `getAutostartStatus()` remains the canonical source of auto-start truth for both install reconciliation
 and `daemon status`, and a stable persisted auto-start entry remains authoritative even when the current invocation is transient.
+
+## Challenge orchestration ownership
+
+The anti-bot cutover keeps blocker truth and challenge lifecycle separate on purpose:
+
+- `src/browser/session-store.ts` remains the only blocker FSM authority.
+- `src/browser/browser-manager.ts` and `src/browser/ops-browser-manager.ts` remain the only writers of surfaced blocker and challenge metadata. Existing `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` fields stay stable; additive `meta.challenge` and `meta.challengeOrchestration` are layered on top, and the public `review` surface composes that manager status with a fresh actionables capture before action.
+- `src/browser/global-challenge-coordinator.ts` owns lifecycle-only state for claim, refresh, resolve, defer, expire, and release. It does not classify blockers.
+- `src/challenges/` is the shared Part 2 intelligence plane. It builds canonical evidence, interprets the incident, selects one bounded lane, executes browser-native steps, verifies via manager-owned checks, and emits reclaimable yield or outcome records without becoming a second truth authority.
+- `src/providers/runtime-factory.ts` plus `src/providers/browser-fallback.ts` own preserve-or-complete browser fallback transport. Responses use explicit `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`.
+- `src/providers/registry.ts` is the sole durable anti-bot pressure authority. `src/providers/shared/anti-bot-policy.ts`, `src/providers/policy.ts`, `src/providers/index.ts`, and `src/providers/workflows.ts` read or write that registry-backed state instead of maintaining parallel durable maps.
+- Provider modules keep extraction logic and `recoveryHints()` only. Shared runtime owns fallback ordering, preserve or resume decisions, and legacy compatibility translation for older fallback callers.
+
+Legitimacy boundary:
+
+- In scope: preserved sessions, standard browser controls, bounded auth-navigation and session-reuse attempts, bounded interaction experimentation, reclaimable human yield for secret or human-authority boundaries, and owned-environment challenge fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
+
+### Challenge automation override contract
+
+- Public override field: `challengeAutomationMode`
+- Accepted values: `off`, `browser`, `browser_with_helper`
+- Effective precedence: `run > session > config`
+- Config baseline: `providers.challengeOrchestration.mode`
+- `BrowserManager` and `OpsBrowserManager` remain the only surfaced challenge metadata writers.
+- `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can expose `mode`, `source`, `standDownReason`, and helper eligibility so stand-down decisions stay explicit.
+- The optional helper bridge is browser-scoped, not a desktop agent. `browser` disables it, while `browser_with_helper` only evaluates it when the existing hard gates pass.
+- Governed advanced lanes stay separately entitlement-gated and are never granted by `challengeAutomationMode`.
+
+### Roadmap-only desktop boundary
+
+This section is roadmap-only and non-shipping.
+
+- A future desktop agent must use a new runtime contract separate from `ChallengeRuntimeHandle`.
+- Minimum capability bar before any desktop-agent claim is allowed:
+  - OS-level input actuation outside the browser
+  - cross-window and cross-app focus management
+  - desktop capture or accessibility-tree observation beyond browser DOM
+  - explicit permission and consent gating
+  - bounded workspace and abort controls
+  - audit artifacts and replay-safe execution logs
+  - a typed failure taxonomy separate from the current helper bridge
+- Until that runtime exists, public docs and surfaces must not describe the current helper bridge as a desktop agent.
 
 ---
 
@@ -277,7 +325,7 @@ sequenceDiagram
 - Canonical contract: `docs/CLI.md` (concurrency semantics) and `src/config.ts` (`parallelism` settings).
 - Execution key: `ExecutionKey = (sessionId, targetId)`.
 - Command taxonomy:
-  - `TargetScoped`: `goto`, `wait`, `snapshot`, interaction commands, DOM commands, `page.screenshot`, export/devtools target-bound commands.
+  - `TargetScoped`: `goto`, `wait`, `snapshot`, `review`, interaction commands, DOM commands, `page.screenshot`, `page.dialog`, export/devtools target-bound commands.
   - `SessionStructural`: connect/disconnect, target/page create/close/select/list.
 - Scheduler guarantees:
   - Same target: strict FIFO.
@@ -294,6 +342,7 @@ sequenceDiagram
   - `research.run` / `opendevbrowser_research_run` / `opendevbrowser research run`
   - `shopping.run` / `opendevbrowser_shopping_run` / `opendevbrowser shopping run`
   - `product.video.run` / `opendevbrowser_product_video_run` / `opendevbrowser product-video run`
+- Those workflow wrappers also expose `challengeAutomationMode` (`off|browser|browser_with_helper`) as a run-scoped override with `run > session > config` precedence.
 - Workflow runtime primitives are layered as:
   - `timebox` (strict `days|from|to` resolution)
   - `orchestrator` (source/provider fanout + partial-failure accumulation)
@@ -302,7 +351,7 @@ sequenceDiagram
   - `artifact writer` (owner-only paths, TTL metadata, cleanup support)
 - Macro engine resolves `@macro(...)` expressions into provider operations (`src/macros/*`) and is exposed through tool/CLI/daemon (`macro_resolve`, `macro-resolve`, `macro.resolve`) with resolve-only and execute modes.
 - Execute-mode macro responses keep existing shapes and add metadata fields: `meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, and `meta.provenance.retrievedAt`.
-- Diagnostics include console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).
+- Diagnostics include a session-first inspection lane (`session.inspect`, `opendevbrowser_session_inspector`, `session-inspector`) plus console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).
 - Design canvas surfaces expose `canvas.execute` / `opendevbrowser_canvas` / `opendevbrowser canvas` and are layered as:
   - `session handshake + attach` (`canvas.session.open`, `canvas.session.attach`, `canvas.capabilities.get`) for governance, plan requirements, same-user observer joins, and explicit lease reclaim
   - `document store` (`canvas.document.load`, `canvas.document.import`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`) for repo-native JSON artifacts, typed Yjs-backed document state, Figma file or node ingestion, governance completion, save/export policy gates, and patch-driven preview re-materialization
@@ -388,6 +437,7 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - **CLI build** via `npm run build`.
 - **Private website checks** via `npm run lint --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend` in `opendevbrowser-website-deploy`.
 - **CLI inventory/help parity check** via `npx opendevbrowser --help` and `npx opendevbrowser help`.
+- **CLI onboarding proof lane** via `node scripts/cli-onboarding-smoke.mjs` (generated help -> bundled quick-start guidance -> minimal managed happy path).
 - **Docs drift gate** via `node scripts/docs-drift-check.mjs`.
 - **Zombie duplicate audit** via `node scripts/audit-zombie-files.mjs`.
 - **Chrome extension compliance gate** via `node scripts/chrome-store-compliance-check.mjs`.

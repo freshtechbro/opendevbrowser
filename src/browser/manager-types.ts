@@ -1,5 +1,8 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
+import type { BrowserMode } from "./session-store";
+import type { BlockerSignalV1, SessionChallengeSummary } from "../providers/types";
+import type { ChallengeAutomationMode, ChallengeOrchestrationSnapshot } from "../challenges";
 import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
@@ -31,6 +34,16 @@ export type BrowserCanvasOverlaySelectInput = {
   selectionHint: Record<string, unknown>;
 };
 
+export type BrowserClonePageOptions = {
+  maxNodes?: number;
+  inlineStyles?: boolean;
+};
+
+export type BrowserCloneHtmlResult = {
+  html: string;
+  warnings?: string[];
+};
+
 export type BrowserCanvasOverlayResult = {
   mountId?: string;
   targetId?: string;
@@ -40,6 +53,91 @@ export type BrowserCanvasOverlayResult = {
   selection?: Record<string, unknown>;
   warnings?: Array<Record<string, unknown>>;
   ok?: boolean;
+};
+
+export type BrowserBlockerResolutionMeta = {
+  status: "resolved" | "unresolved" | "deferred";
+  reason: "verifier_passed" | "verification_timeout" | "verifier_failed" | "env_limited" | "manual_clear";
+  updatedAt: string;
+};
+
+export type BrowserChallengeMeta = SessionChallengeSummary;
+
+export type BrowserScreenshotOptions = {
+  targetId?: string | null;
+  path?: string;
+  ref?: string;
+  fullPage?: boolean;
+};
+
+export type BrowserScreenshotResult = {
+  path?: string;
+  base64?: string;
+  warnings?: string[];
+};
+
+export type BrowserUploadInput = {
+  targetId?: string | null;
+  ref: string;
+  files: string[];
+};
+
+export type BrowserUploadResult = {
+  targetId?: string;
+  fileCount: number;
+  mode: "direct_input" | "file_chooser";
+  warnings?: string[];
+};
+
+export type BrowserDialogAction = "status" | "accept" | "dismiss";
+
+export type BrowserDialogType = "alert" | "confirm" | "prompt" | "beforeunload";
+
+export type BrowserDialogInput = {
+  targetId?: string | null;
+  action?: BrowserDialogAction;
+  promptText?: string;
+};
+
+export type BrowserDialogState = {
+  open: boolean;
+  targetId?: string;
+  type?: BrowserDialogType;
+  message?: string;
+  defaultPrompt?: string;
+  url?: string;
+  openedAt?: string;
+};
+
+export type BrowserDialogResult = {
+  dialog: BrowserDialogState;
+  handled?: boolean;
+};
+
+export type BrowserResponseMeta = {
+  blocker?: BlockerSignalV1;
+  blockerState: "clear" | "active" | "resolving";
+  blockerUpdatedAt?: string;
+  blockerResolution?: BrowserBlockerResolutionMeta;
+  challenge?: BrowserChallengeMeta;
+  challengeOrchestration?: ChallengeOrchestrationSnapshot;
+  dialog?: BrowserDialogState;
+};
+
+export type BrowserReviewResult = {
+  sessionId: string;
+  targetId: string | null;
+  mode: BrowserMode;
+  snapshotId: string;
+  url?: string;
+  title?: string;
+  content: string;
+  truncated: boolean;
+  nextCursor?: string;
+  refCount: number;
+  timingMs: number;
+  warnings?: string[];
+  meta?: BrowserResponseMeta;
 };
 
 export type BrowserManagerLike = Pick<BrowserManager,
@@ -74,8 +172,11 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "cloneComponent"
   | "perfMetrics"
   | "screenshot"
+  | "upload"
+  | "dialog"
   | "consolePoll"
   | "networkPoll"
+  | "debugTraceSnapshot"
   | "listPages"
   | "page"
   | "closePage"
@@ -83,6 +184,10 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "useTarget"
   | "newTarget"
   | "closeTarget"
+  | "pointerMove"
+  | "pointerDown"
+  | "pointerUp"
+  | "drag"
 > & {
   connectRelay: (
     wsEndpoint: string,
@@ -120,4 +225,57 @@ export type BrowserManagerLike = Pick<BrowserManager,
     targetId: string,
     input: BrowserCanvasOverlaySyncInput
   ) => Promise<BrowserCanvasOverlayResult>;
+  getSessionChallengeAutomationMode?: (
+    sessionId: string
+  ) => ChallengeAutomationMode | undefined;
+  setSessionChallengeAutomationMode?: (
+    sessionId: string,
+    mode?: ChallengeAutomationMode
+  ) => void;
+  createChallengeRuntimeHandle?: () => ChallengeRuntimeHandle;
+  createSessionInspector?: () => SessionInspectorHandle;
+  clonePageHtmlWithOptions?: (
+    sessionId: string,
+    targetId?: string | null,
+    options?: BrowserClonePageOptions
+  ) => Promise<BrowserCloneHtmlResult>;
+  clonePageWithOptions?: (
+    sessionId: string,
+    targetId?: string | null,
+    options?: BrowserClonePageOptions
+  ) => ReturnType<BrowserManager["clonePage"]>;
+};
+
+export type SessionInspectorHandle = Pick<BrowserManagerLike,
+  | "status"
+  | "listTargets"
+  | "consolePoll"
+  | "networkPoll"
+  | "debugTraceSnapshot"
+>;
+
+export type ChallengeRuntimeHandle = Pick<BrowserManagerLike,
+  | "status"
+  | "goto"
+  | "waitForLoad"
+  | "snapshot"
+  | "click"
+  | "hover"
+  | "press"
+  | "type"
+  | "select"
+  | "scroll"
+  | "pointerMove"
+  | "pointerDown"
+  | "pointerUp"
+  | "drag"
+  | "cookieList"
+  | "cookieImport"
+  | "debugTraceSnapshot"
+> & {
+  resolveRefPoint: (
+    sessionId: string,
+    ref: string,
+    targetId?: string | null
+  ) => Promise<{ x: number; y: number }>;
 };

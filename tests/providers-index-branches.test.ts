@@ -417,6 +417,43 @@ describe("provider runtime internal branches", () => {
     expect(realism).toContain("placeholder_token");
   });
 
+  it("filters anti-bot snapshots to requested provider ids while leaving empty filters unscoped", () => {
+    const runtime = new ProviderRuntime();
+    runtime.register(makeProvider("web/anti-bot", "web"));
+    runtime.register(makeProvider("social/anti-bot", "social"));
+
+    const internals = runtime as unknown as {
+      registry: {
+        recordAntiBotOutcome: (args: {
+          providerId: string;
+          reasonCode?: "challenge_detected" | "rate_limited";
+          disposition?: "challenge_preserved";
+          nowMs?: number;
+        }) => void;
+      };
+    };
+
+    internals.registry.recordAntiBotOutcome({
+      providerId: "web/anti-bot",
+      reasonCode: "challenge_detected",
+      disposition: "challenge_preserved",
+      nowMs: 1
+    });
+    internals.registry.recordAntiBotOutcome({
+      providerId: "social/anti-bot",
+      reasonCode: "rate_limited",
+      nowMs: 2
+    });
+
+    expect(runtime.getAntiBotSnapshots(["social/anti-bot"]).map((snapshot) => snapshot.providerId)).toEqual([
+      "social/anti-bot"
+    ]);
+    expect(runtime.getAntiBotSnapshots([]).map((snapshot) => snapshot.providerId).sort()).toEqual([
+      "social/anti-bot",
+      "web/anti-bot"
+    ]);
+  });
+
   it("covers sequential fallback metadata branches and empty-provider failure envelope", async () => {
     const runtime = new ProviderRuntime({
       budgets: {

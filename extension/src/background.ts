@@ -66,6 +66,7 @@ let autoConnectInFlight = false;
 let statusNoteOverride: string | null = null;
 let retryScheduled = false;
 let retryDelayMs = 5000;
+let autoConnectEnabled = DEFAULT_AUTO_CONNECT;
 let nativeEnabled = DEFAULT_NATIVE_ENABLED;
 
 const RETRY_ALARM_NAME = "opendevbrowser-auto-connect";
@@ -271,7 +272,7 @@ const buildRelayHealthNote = (health: RelayHealthStatus | null): string => {
     case "pairing_required":
       return "Pairing required. Enable auto-pair or set the token.";
     case "handshake_incomplete":
-      return "Extension handshake pending. Keep the relay running and retry.";
+      return "Extension websocket is up but the daemon-extension handshake is incomplete. Open the popup and click Connect again to re-establish a clean handshake, then confirm `status --daemon` shows ext=on and handshake=on.";
     case "extension_disconnected":
       return "Extension not connected to relay. Click Connect.";
     case "annotation_disconnected":
@@ -1467,6 +1468,7 @@ const attemptAutoConnect = async (): Promise<void> => {
   });
 
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
+  autoConnectEnabled = autoConnect;
   if (!autoConnect || connection.getStatus() === "connected") {
     clearRetry();
     return;
@@ -1538,6 +1540,7 @@ const attemptAutoConnect = async (): Promise<void> => {
         if (config.instanceId && fetched.instanceId && config.instanceId !== fetched.instanceId) {
           console.warn("[opendevbrowser] Relay instance mismatch during auto-pair. Retrying later.");
           setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
+          scheduleRetry();
           return;
         }
         const tokenEpoch = fetched.epoch ?? configEpoch;
@@ -1595,6 +1598,9 @@ connection.onStatus((status) => {
       clearTimeout(session.timeoutId);
     }
     annotationSessions.clear();
+    if (autoConnectEnabled) {
+      scheduleRetry();
+    }
   }
 });
 updateBadge(getEffectiveStatus());
@@ -1682,10 +1688,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
     updateBadge(getEffectiveStatus());
   }
+  if (changes.autoConnect) {
+    autoConnectEnabled =
+      typeof changes.autoConnect.newValue === "boolean" ? changes.autoConnect.newValue : DEFAULT_AUTO_CONNECT;
+  }
   if (changes.autoConnect?.newValue === true) {
     autoConnect().catch((error) => {
       logError("auto_connect.setting", error, { code: "auto_connect_failed" });
     });
+  } else if (changes.autoConnect?.newValue === false) {
+    clearRetry();
   }
   if (changes.pairingToken) {
     autoConnect().catch((error) => {

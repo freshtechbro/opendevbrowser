@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyWorkflowFailure,
   DISCONNECT_TIMEOUT_MS,
   DISCONNECT_WRAPPER_TIMEOUT_MS,
   getSurfaceConfig,
@@ -42,5 +43,31 @@ describe("canvas-live-workflow script", () => {
     expect(cdp?.closeBrowser).toBe(false);
     expect(DISCONNECT_TIMEOUT_MS).toBe(120_000);
     expect(DISCONNECT_WRAPPER_TIMEOUT_MS).toBeGreaterThan(DISCONNECT_TIMEOUT_MS);
+  });
+
+  it("classifies restricted-url preview failures as env-limited only for extension-backed surfaces", () => {
+    const detail = "[restricted_url] Active tab uses a restricted URL scheme. Focus a normal http(s) tab and retry.";
+
+    expect(classifyWorkflowFailure("extension", detail)).toEqual({
+      status: "env_limited",
+      detail
+    });
+    expect(classifyWorkflowFailure("cdp", detail)).toEqual({
+      status: "env_limited",
+      detail
+    });
+    expect(classifyWorkflowFailure("managed-headless", detail)).toEqual({
+      status: "fail",
+      detail
+    });
+  });
+
+  it("uses tighter bounded retries for the direct cdp canvas surface", () => {
+    const cdp = getSurfaceConfig("cdp");
+
+    expect(cdp?.connectAttempts).toBe(2);
+    expect(cdp?.connectTimeoutMs).toBe(45_000);
+    expect(cdp?.gotoTimeoutMs).toBe(30_000);
+    expect(cdp?.statusTimeoutMs).toBe(15_000);
   });
 });

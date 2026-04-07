@@ -39,11 +39,14 @@ const CONSTRAINT_KINDS = new Set<ProviderConstraintKind>([
 const RENDER_REQUIRED_SHELLS = new Set<string>([
   "bestbuy_international_gate",
   "duckduckgo_non_js_redirect",
+  "social_first_party_help_shell",
+  "social_js_required_shell",
+  "social_render_shell",
   "target_shell_page",
   "temu_empty_shell"
 ]);
 
-const CHALLENGE_SHELLS = new Set<string>(["temu_challenge_shell"]);
+const CHALLENGE_SHELLS = new Set<string>(["social_verification_wall", "temu_challenge_shell"]);
 
 const toNonEmptyString = (value: unknown): string | undefined => {
   return typeof value === "string" && value.trim().length > 0

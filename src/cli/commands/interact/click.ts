@@ -1,10 +1,22 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
-import { parseOptionalStringFlag } from "../../utils/parse";
+import { DEFAULT_CLICK_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
+import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
-function parseClickArgs(rawArgs: string[]): { sessionId?: string; ref?: string } {
-  const parsed: { sessionId?: string; ref?: string } = {};
+type ClickArgs = {
+  sessionId?: string;
+  ref?: string;
+  timeoutMs?: number;
+};
+
+function parseClickArgs(rawArgs: string[]): ClickArgs {
+  const timeoutValue = parseOptionalStringFlag(rawArgs, "--timeout-ms");
+  const parsed: ClickArgs = {
+    timeoutMs: typeof timeoutValue === "string"
+      ? parseNumberFlag(timeoutValue, "--timeout-ms", { min: 1 })
+      : undefined
+  };
   for (let i = 0; i < rawArgs.length; i += 1) {
     const arg = rawArgs[i];
     if (arg === "--session-id") {
@@ -34,14 +46,17 @@ function parseClickArgs(rawArgs: string[]): { sessionId?: string; ref?: string }
 }
 
 export async function runClick(args: ParsedArgs) {
-  const { sessionId, ref } = parseClickArgs(args.rawArgs);
+  const { sessionId, ref, timeoutMs } = parseClickArgs(args.rawArgs);
   const targetId = parseOptionalStringFlag(args.rawArgs, "--target-id");
   if (!sessionId) throw createUsageError("Missing --session-id");
   if (!ref) throw createUsageError("Missing --ref");
-  const result = await callDaemon("interact.click", {
+  const params = {
     sessionId,
     ref,
     ...(typeof targetId === "string" ? { targetId } : {})
+  };
+  const result = await callDaemon("interact.click", params, {
+    timeoutMs: timeoutMs ?? DEFAULT_CLICK_TRANSPORT_TIMEOUT_MS
   });
   return { success: true, message: "Click complete.", data: result };
 }

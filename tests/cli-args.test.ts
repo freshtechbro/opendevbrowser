@@ -88,6 +88,32 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("debug-trace-snapshot");
   });
 
+  it("accepts session-inspector command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "session-inspector",
+      "--session-id",
+      "s1",
+      "--max=20"
+    ]);
+    expect(parsed.command).toBe("session-inspector");
+  });
+
+  it("accepts review command", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "review",
+      "--session-id",
+      "s1",
+      "--target-id",
+      "tab-9",
+      "--max-chars=1200"
+    ]);
+    expect(parsed.command).toBe("review");
+  });
+
   it("accepts cookie-import command", () => {
     const parsed = parseArgs([
       "node",
@@ -198,6 +224,57 @@ describe("parseArgs", () => {
       "--product-url=https://example.com/p/1",
       "--use-cookies=true",
       "--cookie-policy",
+      "off"
+    ]);
+  });
+
+  it("accepts workflow challenge automation flags through top-level CLI parsing", () => {
+    const research = parseArgs([
+      "node",
+      "cli",
+      "research",
+      "run",
+      "--topic=agent workflows",
+      "--challenge-automation-mode=browser_with_helper"
+    ]);
+    expect(research.command).toBe("research");
+    expect(research.rawArgs).toEqual([
+      "run",
+      "--topic=agent workflows",
+      "--challenge-automation-mode=browser_with_helper"
+    ]);
+
+    const shopping = parseArgs([
+      "node",
+      "cli",
+      "shopping",
+      "run",
+      "--query=usb hub",
+      "--challenge-automation-mode",
+      "browser"
+    ]);
+    expect(shopping.command).toBe("shopping");
+    expect(shopping.rawArgs).toEqual([
+      "run",
+      "--query=usb hub",
+      "--challenge-automation-mode",
+      "browser"
+    ]);
+
+    const productVideo = parseArgs([
+      "node",
+      "cli",
+      "product-video",
+      "run",
+      "--product-url=https://example.com/p/1",
+      "--challenge-automation-mode",
+      "off"
+    ]);
+    expect(productVideo.command).toBe("product-video");
+    expect(productVideo.rawArgs).toEqual([
+      "run",
+      "--product-url=https://example.com/p/1",
+      "--challenge-automation-mode",
       "off"
     ]);
   });
@@ -434,6 +511,32 @@ describe("parseMacroResolveArgs", () => {
       "120000"
     ]);
     expect(parsed.timeoutMs).toBe(120000);
+  });
+
+  it("parses challenge automation mode flags", () => {
+    const spaced = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--challenge-automation-mode",
+      "browser_with_helper"
+    ]);
+    expect(spaced.challengeAutomationMode).toBe("browser_with_helper");
+
+    const equalsForm = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--challenge-automation-mode=browser"
+    ]);
+    expect(equalsForm.challengeAutomationMode).toBe("browser");
+  });
+
+  it("rejects invalid challenge automation mode", () => {
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--challenge-automation-mode",
+      "invalid"
+    ])).toThrow("Invalid --challenge-automation-mode: invalid");
   });
 
   it("rejects invalid timeout-ms", () => {

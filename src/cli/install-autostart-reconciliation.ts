@@ -1,6 +1,8 @@
 import { getAutostartStatus, installAutostart } from "./daemon-autostart";
 import type { AutostartInstallResult, AutostartStatus } from "./daemon-autostart";
 
+export const INSTALL_AUTOSTART_SKIP_ENV_VAR = "OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION";
+
 export type InstallResultLike = {
   success: boolean;
   alreadyInstalled: boolean;
@@ -25,16 +27,30 @@ export type InstallAutostartReconciliationDeps = {
   installAutostart?: () => AutostartInstallResult;
 };
 
+export type InstallAutostartReconciliationOptions = {
+  env?: NodeJS.ProcessEnv;
+};
+
 const defaultDeps = (): Required<InstallAutostartReconciliationDeps> => ({
   getAutostartStatus,
   installAutostart
 });
 
+export function shouldSkipInstallAutostartReconciliation(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env[INSTALL_AUTOSTART_SKIP_ENV_VAR];
+  if (raw === undefined) {
+    return false;
+  }
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
 export function reconcileInstallAutostart(
   installResult: InstallResultLike,
-  deps: InstallAutostartReconciliationDeps = {}
+  deps: InstallAutostartReconciliationDeps = {},
+  options: InstallAutostartReconciliationOptions = {}
 ): InstallAutostartReconciliationResult {
-  if (!installResult.success) {
+  if (!installResult.success || shouldSkipInstallAutostartReconciliation(options.env)) {
     return { attempted: false };
   }
 

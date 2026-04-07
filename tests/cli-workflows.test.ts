@@ -4,6 +4,7 @@ import { runMacroResolve } from "../src/cli/commands/macro-resolve";
 import { runProductVideoCommand } from "../src/cli/commands/product-video";
 import { runResearchCommand } from "../src/cli/commands/research";
 import { runShoppingCommand } from "../src/cli/commands/shopping";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -58,6 +59,7 @@ describe("workflow CLI commands", () => {
       mode: "context",
       includeEngagement: true,
       limitPerSource: 5,
+      timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
       outputDir: "/tmp/out",
       ttlHours: 72,
       useCookies: undefined,
@@ -90,8 +92,6 @@ describe("workflow CLI commands", () => {
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
-    }, {
-      timeoutMs: 45000
     });
   });
 
@@ -115,6 +115,7 @@ describe("workflow CLI commands", () => {
       region: "us",
       sort: "lowest_price",
       mode: "md",
+      timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
       outputDir: undefined,
       ttlHours: undefined,
       useCookies: undefined,
@@ -144,9 +145,40 @@ describe("workflow CLI commands", () => {
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
-    }, {
-      timeoutMs: 45000
     });
+  });
+
+  it("forwards explicit shopping browser-mode overrides", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=macbook pro m4 32gb ram",
+      "--browser-mode=extension"
+    ]));
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=macbook pro m4 32gb ram",
+      "--browser-mode=managed"
+    ]));
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=macbook pro m4 32gb ram",
+      "--browser-mode=auto"
+    ]));
+
+    expect(callDaemon).toHaveBeenNthCalledWith(1, "shopping.run", expect.objectContaining({
+      query: "macbook pro m4 32gb ram",
+      browserMode: "extension"
+    }));
+    expect(callDaemon).toHaveBeenNthCalledWith(2, "shopping.run", expect.objectContaining({
+      query: "macbook pro m4 32gb ram",
+      browserMode: "managed"
+    }));
+    expect(callDaemon).toHaveBeenNthCalledWith(3, "shopping.run", expect.objectContaining({
+      query: "macbook pro m4 32gb ram",
+      browserMode: "auto"
+    }));
   });
 
   it("surfaces provider follow-up requirements in workflow completion messages", async () => {
@@ -176,6 +208,37 @@ describe("workflow CLI commands", () => {
 
     expect(result.message).toBe(
       "Shopping workflow completed with provider follow-up required: Costco requires login or an existing session."
+    );
+  });
+
+  it("prefers explicit camelCase workflow summaries in completion messages", async () => {
+    callDaemon.mockResolvedValue({
+      meta: {
+        primaryConstraintSummary: "Manual browser follow-up is required before provider resolution can continue.",
+        failures: [{
+          provider: "shopping/costco",
+          error: {
+            code: "auth",
+            reasonCode: "token_required",
+            details: {
+              constraint: {
+                kind: "session_required",
+                evidenceCode: "auth_required"
+              }
+            }
+          }
+        }]
+      }
+    });
+
+    const result = await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse",
+      "--providers=shopping/costco"
+    ]));
+
+    expect(result.message).toBe(
+      "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue."
     );
   });
 
@@ -292,9 +355,46 @@ describe("workflow CLI commands", () => {
     }));
   });
 
+  it("propagates challengeAutomationMode across workflow commands", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runResearchCommand(makeArgs("research", [
+      "run",
+      "--topic=browser automation",
+      "--challenge-automation-mode=browser_with_helper"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("research.run", expect.objectContaining({
+      topic: "browser automation",
+      challengeAutomationMode: "browser_with_helper"
+    }));
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless keyboard",
+      "--challenge-automation-mode",
+      "browser"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("shopping.run", expect.objectContaining({
+      query: "wireless keyboard",
+      challengeAutomationMode: "browser"
+    }));
+
+    await runProductVideoCommand(makeArgs("product-video", [
+      "run",
+      "--product-url=https://example.com/item",
+      "--challenge-automation-mode",
+      "off"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("product.video.run", expect.objectContaining({
+      product_url: "https://example.com/item",
+      challengeAutomationMode: "off"
+    }));
+  });
+
   it("enforces run subcommand and required input", async () => {
     await expect(runResearchCommand(makeArgs("research", ["status"]))).rejects.toThrow("Usage: opendevbrowser research run");
     await expect(runShoppingCommand(makeArgs("shopping", ["run"]))).rejects.toThrow("Missing --query");
+    await expect(runShoppingCommand(makeArgs("shopping", ["run", "--query=macbook", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
     await expect(runProductVideoCommand(makeArgs("product-video", ["run"]))).rejects.toThrow("Missing --product-url or --product-name");
   });
 });

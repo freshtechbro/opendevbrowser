@@ -3,7 +3,8 @@ import {
   buildChildArgs,
   buildScenarioCases,
   classifyScenarioPreflight,
-  parseCliOptions
+  parseCliOptions,
+  waitForExtensionReconnect
 } from "../scripts/live-regression-direct.mjs";
 import { parseJsonFromStdout } from "../scripts/live-direct-utils.mjs";
 
@@ -28,6 +29,7 @@ describe("live-regression-direct", () => {
       "feature.cli.smoke"
     ]);
     expect(cdp?.requiresOpsDisconnect).toBeUndefined();
+    expect(cdp?.timeoutMs).toBe(300_000);
   });
 
   it("only forwards --release-gate to child scripts that support it", () => {
@@ -62,6 +64,89 @@ describe("live-regression-direct", () => {
       data: {
         relay: {
           extensionHandshakeComplete: false
+        }
+      }
+    });
+  });
+
+  it("waits through transient extension reconnects before classifying later scenarios", async () => {
+    const statuses = [
+      {
+        status: 0,
+        json: {
+          data: {
+            relay: {
+              extensionHandshakeComplete: false
+            }
+          }
+        }
+      },
+      {
+        status: 0,
+        json: {
+          data: {
+            relay: {
+              extensionHandshakeComplete: true
+            }
+          }
+        }
+      }
+    ];
+
+    const result = await waitForExtensionReconnect({
+      scenario: { id: "feature.canvas.cdp", requiresExtension: true },
+      initialExtensionReady: true,
+      reconnectGraceMs: 5,
+      pollMs: 0,
+      statusReader: () => statuses.shift() ?? statuses.at(-1)
+    });
+
+    expect(result).toEqual({
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            extensionHandshakeComplete: true
+          }
+        }
+      }
+    });
+  });
+
+  it("waits through one transient daemon-status failure before classifying extension loss", async () => {
+    const statuses = [
+      {
+        status: 1,
+        json: null,
+        detail: "Daemon not running. Start with `opendevbrowser serve`."
+      },
+      {
+        status: 0,
+        json: {
+          data: {
+            relay: {
+              extensionHandshakeComplete: true
+            }
+          }
+        }
+      }
+    ];
+
+    const result = await waitForExtensionReconnect({
+      scenario: { id: "feature.annotate.relay", requiresExtension: true },
+      initialExtensionReady: true,
+      reconnectGraceMs: 5,
+      pollMs: 0,
+      statusReader: () => statuses.shift() ?? statuses.at(-1)
+    });
+
+    expect(result).toEqual({
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            extensionHandshakeComplete: true
+          }
         }
       }
     });

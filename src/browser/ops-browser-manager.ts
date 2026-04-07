@@ -4,12 +4,25 @@ import type { OpenDevBrowserConfig } from "../config";
 import { createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
+import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import type {
+  BrowserCloneHtmlResult,
+  BrowserClonePageOptions,
+  BrowserDialogInput,
+  BrowserDialogResult,
+  BrowserDialogState,
   BrowserCanvasOverlayMountInput,
   BrowserCanvasOverlayResult,
   BrowserCanvasOverlaySelectInput,
   BrowserCanvasOverlaySyncInput,
-  BrowserManagerLike
+  BrowserManagerLike,
+  BrowserResponseMeta,
+  BrowserScreenshotOptions,
+  BrowserScreenshotResult,
+  BrowserUploadInput,
+  BrowserUploadResult,
+  ChallengeRuntimeHandle,
+  SessionInspectorHandle
 } from "./manager-types";
 import type { ConnectOptions, LaunchOptions } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
@@ -18,7 +31,11 @@ import type { ReactExport } from "../export/react-emitter";
 import { emitReactComponent } from "../export/react-emitter";
 import { extractCss, STYLE_ALLOWLIST, SKIP_STYLE_VALUES } from "../export/css-extract";
 import type { DomCapture } from "../export/dom-capture";
-import { OpsClient } from "./ops-client";
+import {
+  OpsClient,
+  isOpsRequestTimeoutError,
+  withOpsRequestTimeoutDetails
+} from "./ops-client";
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { BrowserManager } from "./browser-manager";
@@ -59,13 +76,130 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private opsProtocolSessions = new Map<string, string>();
   private publicSessionIdsByProtocolId = new Map<string, string>();
   private opsSessionTabs = new Map<string, number>();
+  private opsSessionReconnectTabs = new Map<string, number>();
   private opsSessionUrls = new Map<string, string>();
+  private opsSessionChallengeAutomationModes = new Map<string, ChallengeAutomationMode>();
   private closedOpsSessions = new Map<string, number>();
   private idleDisconnectPromise: Promise<void> | null = null;
+  private challengeOrchestrator?: ChallengeOrchestrator;
+  private readonly challengeAutomationSuppression = new Map<string, number>();
 
   constructor(base: BrowserManager, config: OpenDevBrowserConfig) {
     this.base = base;
     this.config = config;
+  }
+
+  setChallengeOrchestrator(orchestrator?: ChallengeOrchestrator): void {
+    this.challengeOrchestrator = orchestrator;
+    this.base.setChallengeOrchestrator(orchestrator);
+  }
+
+  getSessionChallengeAutomationMode(sessionId: string): ChallengeAutomationMode | undefined {
+    return this.opsSessionChallengeAutomationModes.get(sessionId);
+  }
+
+  setSessionChallengeAutomationMode(sessionId: string, mode?: ChallengeAutomationMode): void {
+    if (typeof mode === "undefined") {
+      this.opsSessionChallengeAutomationModes.delete(sessionId);
+      return;
+    }
+    this.opsSessionChallengeAutomationModes.set(sessionId, mode);
+  }
+
+  createChallengeRuntimeHandle(): ChallengeRuntimeHandle {
+    return {
+      status: (sessionId) => this.withChallengeAutomationSuppressed(sessionId, () => this.status(sessionId)),
+      goto: (sessionId, url, waitUntil, timeoutMs, sessionOverride, targetId) => (
+        this.withChallengeAutomationSuppressed(
+          sessionId,
+          () => this.goto(sessionId, url, waitUntil, timeoutMs, sessionOverride, targetId)
+        )
+      ),
+      waitForLoad: (sessionId, until, timeoutMs, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.waitForLoad(sessionId, until, timeoutMs, targetId))
+      ),
+      snapshot: (sessionId, mode, maxChars, cursor, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.snapshot(sessionId, mode, maxChars, cursor, targetId))
+      ),
+      click: (sessionId, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.click(sessionId, ref, targetId)),
+      hover: (sessionId, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.hover(sessionId, ref, targetId)),
+      press: (sessionId, key, ref, targetId) => this.withChallengeAutomationSuppressed(sessionId, () => this.press(sessionId, key, ref, targetId)),
+      type: (sessionId, ref, text, clear, submit, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.type(sessionId, ref, text, clear, submit, targetId))
+      ),
+      select: (sessionId, ref, values, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.select(sessionId, ref, values, targetId))
+      ),
+      scroll: (sessionId, dy, ref, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.scroll(sessionId, dy, ref, targetId))
+      ),
+      pointerMove: (sessionId, x, y, targetId, steps) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerMove(sessionId, x, y, targetId, steps))
+      ),
+      pointerDown: (sessionId, x, y, targetId, button, clickCount) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerDown(sessionId, x, y, targetId, button, clickCount))
+      ),
+      pointerUp: (sessionId, x, y, targetId, button, clickCount) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.pointerUp(sessionId, x, y, targetId, button, clickCount))
+      ),
+      drag: (sessionId, from, to, targetId, steps) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.drag(sessionId, from, to, targetId, steps))
+      ),
+      resolveRefPoint: (sessionId, ref, targetId) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.resolveRefPoint(sessionId, ref, targetId))
+      ),
+      cookieList: (sessionId, urls) => this.withChallengeAutomationSuppressed(sessionId, () => this.cookieList(sessionId, urls)),
+      cookieImport: (sessionId, cookies, replaceExisting) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.cookieImport(sessionId, cookies, replaceExisting))
+      ),
+      debugTraceSnapshot: (sessionId, options) => (
+        this.withChallengeAutomationSuppressed(sessionId, () => this.debugTraceSnapshot(sessionId, options))
+      )
+    };
+  }
+
+  createSessionInspector(): SessionInspectorHandle {
+    return {
+      status: (sessionId) => this.status(sessionId),
+      listTargets: (sessionId, includeUrls) => this.listTargets(sessionId, includeUrls),
+      consolePoll: (sessionId, sinceSeq, max) => this.consolePoll(sessionId, sinceSeq, max),
+      networkPoll: (sessionId, sinceSeq, max) => this.networkPoll(sessionId, sinceSeq, max),
+      debugTraceSnapshot: (sessionId, options) => this.debugTraceSnapshot(sessionId, options)
+    };
+  }
+
+  private async withChallengeAutomationSuppressed<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+    const current = this.challengeAutomationSuppression.get(sessionId) ?? 0;
+    this.challengeAutomationSuppression.set(sessionId, current + 1);
+    try {
+      return await action();
+    } finally {
+      const next = (this.challengeAutomationSuppression.get(sessionId) ?? 1) - 1;
+      if (next <= 0) {
+        this.challengeAutomationSuppression.delete(sessionId);
+      } else {
+        this.challengeAutomationSuppression.set(sessionId, next);
+      }
+    }
+  }
+
+  private isChallengeAutomationSuppressed(sessionId: string): boolean {
+    return (this.challengeAutomationSuppression.get(sessionId) ?? 0) > 0;
+  }
+
+  private reserveExternalBlockerSlot(sessionId: string): void {
+    this.base.reserveExternalBlockerSlot?.(sessionId);
+  }
+
+  private releaseExternalBlockerSlot(sessionId: string): void {
+    this.base.releaseExternalBlockerSlot?.(sessionId);
+  }
+
+  private reconcileExternalBlockerMeta(
+    sessionId: string,
+    input: Parameters<BrowserManager["reconcileExternalBlockerMeta"]>[1]
+  ): BrowserResponseMeta | undefined {
+    return this.base.reconcileExternalBlockerMeta?.(sessionId, input);
   }
 
   async launch(options: LaunchOptions): ReturnType<BrowserManagerLike["launch"]> {
@@ -106,8 +240,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const sessionId = result.opsSessionId;
     this.opsSessions.add(sessionId);
     this.opsLeases.set(sessionId, result.leaseId ?? leaseId);
+    this.reserveExternalBlockerSlot(sessionId);
     this.trackProtocolSession(sessionId, result.opsSessionId);
     this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberReconnectTarget(sessionId, result.activeTargetId ?? null, true);
     this.rememberSessionUrl(sessionId, result.url);
     this.trackClosedSessionCleanup();
     return {
@@ -164,7 +300,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.opsSessions.delete(sessionId);
     this.opsLeases.delete(sessionId);
     this.releaseProtocolSession(sessionId);
+    this.releaseExternalBlockerSlot(sessionId);
     this.opsSessionTabs.delete(sessionId);
+    this.opsSessionReconnectTabs.delete(sessionId);
     this.opsSessionUrls.delete(sessionId);
     this.closedOpsSessions.delete(sessionId);
     await this.disconnectOpsClientIfIdle();
@@ -177,14 +315,14 @@ export class OpsBrowserManager implements BrowserManagerLike {
       }
       return this.base.status(sessionId);
     }
-    const result = await this.requestOps<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string }>(
-      sessionId,
-      "session.status",
-      {}
-    );
-    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
-    this.rememberSessionUrl(sessionId, result.url);
-    return result;
+    const result = await this.getRawOpsStatus(sessionId);
+    return await this.maybeOrchestrateChallenge(sessionId, result.activeTargetId, this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      finalUrl: result.url,
+      title: result.title,
+      targetId: result.activeTargetId,
+      verifier: false
+    }));
   }
 
   async withPage<T>(sessionId: string, targetId: string | null, fn: (page: never) => Promise<T>): Promise<T> {
@@ -336,8 +474,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
       "nav.goto",
       this.withTarget({ url, waitUntil, timeoutMs }, targetId)
     );
-    this.rememberSessionUrl(sessionId, result.finalUrl ?? url);
-    return result;
+    const status = await this.getRawOpsStatus(sessionId);
+    const rememberedUrl = typeof result.finalUrl === "string" ? result.finalUrl : url;
+    const finalUrl = typeof result.finalUrl === "string" ? result.finalUrl : status.url ?? url;
+    this.rememberSessionUrl(sessionId, rememberedUrl);
+    return await this.maybeOrchestrateChallenge(sessionId, targetId ?? status.activeTargetId, this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      url,
+      finalUrl,
+      title: status.title,
+      status: typeof result.status === "number" ? result.status : undefined,
+      targetId: targetId ?? status.activeTargetId,
+      verifier: true
+    }));
   }
 
   async waitForLoad(
@@ -349,7 +498,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.waitForLoad(sessionId, until, timeoutMs, targetId);
     }
-    return await this.requestOps(sessionId, "nav.wait", this.withTarget({ until, timeoutMs }, targetId));
+    const result = await this.requestOps<Awaited<ReturnType<BrowserManagerLike["waitForLoad"]>>>(
+      sessionId,
+      "nav.wait",
+      this.withTarget({ until, timeoutMs }, targetId)
+    );
+    const status = await this.getRawOpsStatus(sessionId);
+    return await this.maybeOrchestrateChallenge(sessionId, targetId ?? status.activeTargetId, this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      finalUrl: status.url,
+      title: status.title,
+      targetId: targetId ?? status.activeTargetId,
+      verifier: true
+    }));
   }
 
   async waitForRef(
@@ -362,7 +523,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.waitForRef(sessionId, ref, state, timeoutMs, targetId);
     }
-    return await this.requestOps(sessionId, "nav.wait", this.withTarget({ ref, state, timeoutMs }, targetId));
+    const result = await this.requestOps<Awaited<ReturnType<BrowserManagerLike["waitForRef"]>>>(
+      sessionId,
+      "nav.wait",
+      this.withTarget({ ref, state, timeoutMs }, targetId)
+    );
+    const status = await this.getRawOpsStatus(sessionId);
+    return await this.maybeOrchestrateChallenge(sessionId, targetId ?? status.activeTargetId, this.withOpsMeta(sessionId, result, {
+      source: "navigation",
+      finalUrl: status.url,
+      title: status.title,
+      targetId: targetId ?? status.activeTargetId,
+      verifier: true
+    }));
   }
 
   async snapshot(
@@ -453,6 +626,64 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return await this.requestOps(sessionId, "interact.scrollIntoView", this.withTarget({ ref }, targetId));
   }
 
+  async pointerMove(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.pointerMove(sessionId, x, y, targetId, steps);
+    }
+    return await this.requestOps(sessionId, "pointer.move", this.withTarget({ x, y, steps }, targetId));
+  }
+
+  async pointerDown(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.pointerDown(sessionId, x, y, targetId, button, clickCount);
+    }
+    return await this.requestOps(sessionId, "pointer.down", this.withTarget({ x, y, button, clickCount }, targetId));
+  }
+
+  async pointerUp(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.pointerUp(sessionId, x, y, targetId, button, clickCount);
+    }
+    return await this.requestOps(sessionId, "pointer.up", this.withTarget({ x, y, button, clickCount }, targetId));
+  }
+
+  async drag(
+    sessionId: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    targetId?: string | null,
+    steps?: number
+  ): Promise<{ timingMs: number }> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.drag(sessionId, from, to, targetId, steps);
+    }
+    return await this.requestOps(
+      sessionId,
+      "pointer.drag",
+      this.withTarget({ from, to, steps }, targetId)
+    );
+  }
+
   async domGetHtml(
     sessionId: string,
     ref: string,
@@ -517,19 +748,57 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return await this.requestOps(sessionId, "dom.isChecked", this.withTarget({ ref }, targetId));
   }
 
-  async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
+  async resolveRefPoint(
+    sessionId: string,
+    ref: string,
+    targetId?: string | null
+  ): Promise<{ x: number; y: number }> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.clonePage(sessionId, targetId);
+      const resolver = (this.base as BrowserManagerLike & {
+        resolveRefPoint?: (
+          sessionId: string,
+          ref: string,
+          targetId?: string | null
+        ) => Promise<{ x: number; y: number }>;
+      }).resolveRefPoint;
+      if (!resolver) {
+        throw new Error("Base browser manager does not support ref-point resolution.");
+      }
+      return await resolver(sessionId, ref, targetId);
     }
-    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.clonePage", this.withTarget({
-      sanitize: !this.config.security.allowUnsafeExport,
-      maxNodes: this.config.export.maxNodes,
-      inlineStyles: this.config.export.inlineStyles,
-      styleAllowlist: Array.from(STYLE_ALLOWLIST),
-      skipStyleValues: Array.from(SKIP_STYLE_VALUES)
-    }, targetId));
-    const css = extractCss(capture.capture);
-    return emitReactComponent(capture.capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
+    return await this.requestOps(sessionId, "dom.refPoint", this.withTarget({ ref }, targetId));
+  }
+
+  async clonePageWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<ReactExport> {
+    if (!this.opsSessions.has(sessionId)) {
+      return await this.base.clonePageWithOptions(sessionId, targetId, options);
+    }
+    const capture = await this.requestClonePageCapture(sessionId, targetId, options);
+    const css = extractCss(capture);
+    return emitReactComponent(capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
+  }
+
+  async clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
+    return await this.clonePageWithOptions(sessionId, targetId);
+  }
+
+  async clonePageHtmlWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options: BrowserClonePageOptions = {}
+  ): Promise<BrowserCloneHtmlResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      return await this.base.clonePageHtmlWithOptions(sessionId, targetId, options);
+    }
+    const capture = await this.requestClonePageCapture(sessionId, targetId, options);
+    return {
+      html: capture.html,
+      ...(capture.warnings ? { warnings: [...capture.warnings] } : {})
+    };
   }
 
   async cloneComponent(sessionId: string, ref: string, targetId?: string | null): Promise<ReactExport> {
@@ -548,6 +817,21 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return emitReactComponent(capture.capture, css, { allowUnsafeExport: this.config.security.allowUnsafeExport });
   }
 
+  private async requestClonePageCapture(
+    sessionId: string,
+    targetId: string | null | undefined,
+    options: BrowserClonePageOptions
+  ): Promise<DomCapture> {
+    const capture = await this.requestOps<{ capture: DomCapture }>(sessionId, "export.clonePage", this.withTarget({
+      sanitize: !this.config.security.allowUnsafeExport,
+      maxNodes: options.maxNodes ?? this.config.export.maxNodes,
+      inlineStyles: options.inlineStyles ?? this.config.export.inlineStyles,
+      styleAllowlist: Array.from(STYLE_ALLOWLIST),
+      skipStyleValues: Array.from(SKIP_STYLE_VALUES)
+    }, targetId));
+    return capture.capture;
+  }
+
   async perfMetrics(sessionId: string, targetId?: string | null): ReturnType<BrowserManagerLike["perfMetrics"]> {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.perfMetrics(sessionId, targetId);
@@ -555,24 +839,57 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return await this.requestOps(sessionId, "devtools.perf", this.withTarget({}, targetId));
   }
 
-  async screenshot(sessionId: string, path?: string, targetId?: string | null): ReturnType<BrowserManagerLike["screenshot"]> {
+  async screenshot(sessionId: string, options: BrowserScreenshotOptions = {}): Promise<BrowserScreenshotResult> {
     if (!this.opsSessions.has(sessionId)) {
-      return this.base.screenshot(sessionId, path, targetId);
+      return this.base.screenshot(sessionId, options);
     }
-    const result = await this.requestOps<{ base64?: string; warning?: string }>(
+    if (options.ref && options.fullPage) {
+      throw new Error("Screenshot ref and fullPage options are mutually exclusive.");
+    }
+    const result = await this.requestOps<{ base64?: string; warning?: string; warnings?: string[] }>(
       sessionId,
       "page.screenshot",
-      this.withTarget({}, targetId)
+      this.withTarget({
+        ref: options.ref,
+        fullPage: options.fullPage
+      }, options.targetId)
     );
     if (!result.base64) {
       throw new Error("Screenshot failed");
     }
-    const warnings = result.warning ? [result.warning] : undefined;
-    if (path) {
-      await writeFile(path, Buffer.from(result.base64, "base64"));
-      return warnings ? { path, warnings } : { path };
+    const warnings = Array.isArray(result.warnings)
+      ? result.warnings
+      : (typeof result.warning === "string" ? [result.warning] : undefined);
+    if (options.path) {
+      await writeFile(options.path, Buffer.from(result.base64, "base64"));
+      return warnings ? { path: options.path, warnings } : { path: options.path };
     }
     return warnings ? { base64: result.base64, warnings } : { base64: result.base64 };
+  }
+
+  async upload(sessionId: string, input: BrowserUploadInput): Promise<BrowserUploadResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.upload(sessionId, input);
+    }
+    return await this.requestOps<BrowserUploadResult>(
+      sessionId,
+      "interact.upload",
+      this.withTarget({ ref: input.ref, files: input.files }, input.targetId)
+    );
+  }
+
+  async dialog(sessionId: string, input: BrowserDialogInput = {}): Promise<BrowserDialogResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.dialog(sessionId, input);
+    }
+    return await this.requestOps<BrowserDialogResult>(
+      sessionId,
+      "page.dialog",
+      this.withTarget({
+        action: input.action ?? "status",
+        promptText: input.promptText
+      }, input.targetId)
+    );
   }
 
   async consolePoll(sessionId: string, sinceSeq?: number, max = 50): Promise<{ events: ReturnType<ConsoleTracker["poll"]>["events"]; nextSeq: number }> {
@@ -587,6 +904,104 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.base.networkPoll(sessionId, sinceSeq, max);
     }
     return await this.requestOps(sessionId, "devtools.networkPoll", { sinceSeq, max });
+  }
+
+  async debugTraceSnapshot(
+    sessionId: string,
+    options: {
+      sinceConsoleSeq?: number;
+      sinceNetworkSeq?: number;
+      sinceExceptionSeq?: number;
+      max?: number;
+      requestId?: string;
+    } = {}
+  ): ReturnType<BrowserManagerLike["debugTraceSnapshot"]> {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.debugTraceSnapshot(sessionId, options);
+    }
+    const requestId = options.requestId ?? createRequestId();
+    const status = await this.getRawOpsStatus(sessionId);
+    const consoleChannel = await this.consolePoll(sessionId, options.sinceConsoleSeq, options.max ?? 500);
+    const networkChannel = await this.networkPoll(sessionId, options.sinceNetworkSeq, options.max ?? 500);
+    const meta = this.reconcileExternalBlockerMeta(sessionId, {
+      source: "network",
+      url: status.url,
+      finalUrl: status.url,
+      title: status.title,
+      status: this.findLatestStatus(networkChannel.events),
+      traceRequestId: requestId,
+      networkEvents: networkChannel.events,
+      consoleEvents: consoleChannel.events,
+      exceptionEvents: [],
+      verifier: true,
+      includeArtifacts: true,
+      ownerLeaseId: this.opsLeases.get(sessionId),
+      targetKey: status.activeTargetId ?? undefined
+    });
+    const fingerprint = {
+      tier1: {
+        ok: true,
+        warnings: [],
+        issues: []
+      },
+      tier2: {
+        enabled: false,
+        mode: "disabled",
+        profileId: "extension-ops",
+        healthScore: 0,
+        challengeCount: 0,
+        rotationCount: 0,
+        lastRotationTs: 0,
+        lastAppliedNetworkSeq: 0,
+        recentChallenges: []
+      },
+      tier3: {
+        enabled: false,
+        status: "disabled",
+        adapterName: "extension-ops",
+        fallbackTier: "A",
+        canary: {
+          level: 0,
+          averageScore: 0,
+          lastAction: "ops",
+          sampleCount: 0
+        }
+      }
+    } as unknown as Awaited<ReturnType<BrowserManagerLike["debugTraceSnapshot"]>>["fingerprint"];
+    return {
+      requestId,
+      generatedAt: new Date().toISOString(),
+      page: {
+        mode: status.mode,
+        activeTargetId: status.activeTargetId,
+        ...(status.url ? { url: status.url } : {}),
+        ...(status.title ? { title: status.title } : {})
+      },
+      channels: {
+        console: {
+          nextSeq: consoleChannel.nextSeq,
+          events: consoleChannel.events.map((event) => ({
+            ...event,
+            requestId,
+            sessionId
+          }))
+        },
+        network: {
+          nextSeq: networkChannel.nextSeq,
+          events: networkChannel.events.map((event) => ({
+            ...event,
+            requestId,
+            sessionId
+          }))
+        },
+        exception: {
+          nextSeq: options.sinceExceptionSeq ?? 0,
+          events: []
+        }
+      },
+      fingerprint,
+      meta
+    };
   }
 
   async listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {
@@ -643,6 +1058,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
     await this.requestOps(sessionId, "targets.close", { targetId });
     if (this.opsSessionTabs.get(sessionId) === parseTabTargetId(targetId)) {
       this.opsSessionTabs.delete(sessionId);
+    }
+    if (this.opsSessionReconnectTabs.get(sessionId) === parseTabTargetId(targetId)) {
+      this.opsSessionReconnectTabs.delete(sessionId);
     }
   }
 
@@ -707,20 +1125,35 @@ export class OpsBrowserManager implements BrowserManagerLike {
     };
   }
 
+  private resolveOpsRequestTimeoutMs(command: string): number {
+    if (command === "interact.click") {
+      return OPS_CLICK_REQUEST_TIMEOUT_MS;
+    }
+    return OPS_REQUEST_TIMEOUT_MS;
+  }
+
+  private shouldRecoverOpsTimeout(command: string): boolean {
+    return command !== "interact.click" && command !== "page.dialog";
+  }
+
   private async requestOps<T>(sessionId: string, command: string, payload: Record<string, unknown>): Promise<T> {
     const leaseId = this.opsLeases.get(sessionId);
     if (!leaseId) {
       throw new Error("Ops lease not found for session");
     }
+    const requestTimeoutMs = this.resolveOpsRequestTimeoutMs(command);
     let client = this.opsClient;
     if (!client) {
       client = await this.reconnectOpsClient(sessionId, payload);
     }
     let protocolSessionId = this.getProtocolSessionId(sessionId);
     try {
-      return await client.request<T>(command, payload, protocolSessionId, 30000, leaseId);
+      return await client.request<T>(command, payload, protocolSessionId, requestTimeoutMs, leaseId);
     } catch (error) {
       if (command === "session.connect") {
+        throw error;
+      }
+      if (isOpsRequestTimeoutError(error) && !this.shouldRecoverOpsTimeout(command)) {
         throw error;
       }
       if (isOpsRelayUnavailableError(error)) {
@@ -731,8 +1164,16 @@ export class OpsBrowserManager implements BrowserManagerLike {
         if (!this.opsClient && this.opsEndpoint) {
           client = await this.ensureOpsClient(this.opsEndpoint);
         }
-      } else if (!isUnknownOpsSessionError(error)) {
+      } else if (!isUnknownOpsSessionError(error) && !isOpsRequestTimeoutError(error)) {
         throw error;
+      } else if (this.opsEndpoint) {
+        const relayReady = await this.waitForRelayExtensionReady();
+        if (!relayReady) {
+          throw error;
+        }
+        if (!this.opsClient) {
+          client = await this.ensureOpsClient(this.opsEndpoint);
+        }
       }
       const recovered = await this.recoverOpsSession(sessionId, payload);
       if (!recovered) {
@@ -744,7 +1185,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
         throw error;
       }
       protocolSessionId = this.getProtocolSessionId(sessionId);
-      return await recoveredClient.request<T>(command, payload, protocolSessionId, 30000, recoveredLeaseId);
+      return await recoveredClient.request<T>(command, payload, protocolSessionId, requestTimeoutMs, recoveredLeaseId);
     }
   }
 
@@ -817,8 +1258,11 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.opsSessions.delete(sessionId);
       this.opsLeases.delete(sessionId);
       this.releaseProtocolSession(sessionId);
+      this.releaseExternalBlockerSlot(sessionId);
       this.opsSessionTabs.delete(sessionId);
+      this.opsSessionReconnectTabs.delete(sessionId);
       this.opsSessionUrls.delete(sessionId);
+      this.opsSessionChallengeAutomationModes.delete(sessionId);
       this.closedOpsSessions.set(sessionId, Date.now());
       this.trackClosedSessionCleanup();
       void this.disconnectOpsClientIfIdle();
@@ -884,6 +1328,21 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.opsSessionTabs.set(sessionId, tabId);
   }
 
+  private rememberReconnectTarget(
+    sessionId: string,
+    targetId: string | null | undefined,
+    overwrite = false
+  ): void {
+    const tabId = parseTabTargetId(targetId);
+    if (tabId === null) {
+      return;
+    }
+    if (!overwrite && this.opsSessionReconnectTabs.has(sessionId)) {
+      return;
+    }
+    this.opsSessionReconnectTabs.set(sessionId, tabId);
+  }
+
   private rememberSessionUrl(sessionId: string, url: string | null | undefined): void {
     const normalized = normalizeRecoverableOpsUrl(url);
     if (!normalized) {
@@ -903,7 +1362,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
       sessionId,
       parallelismPolicy: this.buildParallelismPolicyPayload()
     };
-    const rememberedTabId = this.opsSessionTabs.get(sessionId);
+    const requestedTabId = parseTabTargetId(typeof payload.targetId === "string" ? payload.targetId : null);
+    const rememberedTabId = requestedTabId
+      ?? this.opsSessionTabs.get(sessionId)
+      ?? this.opsSessionReconnectTabs.get(sessionId);
     const fallbackUrl = normalizeRecoverableOpsUrl(payload.url) ?? this.opsSessionUrls.get(sessionId) ?? null;
     if (typeof rememberedTabId === "number") {
       reconnectPayload.tabId = rememberedTabId;
@@ -911,36 +1373,64 @@ export class OpsBrowserManager implements BrowserManagerLike {
       reconnectPayload.startUrl = fallbackUrl;
     }
 
+    const recoveryDeadlineMs = Date.now() + 30000;
+    const nextRecoveryTimeoutMs = (): number => {
+      const remainingMs = Math.floor(recoveryDeadlineMs - Date.now());
+      return remainingMs > 0 ? remainingMs : 1;
+    };
+    const reconnectStage = (candidatePayload: Record<string, unknown>): string => {
+      if (typeof candidatePayload.tabId === "number") {
+        return "session.connect.tabId";
+      }
+      if (typeof candidatePayload.startUrl === "string") {
+        return "session.connect.startUrl";
+      }
+      return "session.connect";
+    };
+    const reconnectSession = async (
+      candidatePayload: Record<string, unknown>
+    ): Promise<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }> => {
+      const timeoutMs = nextRecoveryTimeoutMs();
+      try {
+        return await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
+          "session.connect",
+          candidatePayload,
+          undefined,
+          timeoutMs,
+          leaseId
+        );
+      } catch (error) {
+        throw withOpsRequestTimeoutDetails(error, {
+          timeoutMs,
+          stage: reconnectStage(candidatePayload)
+        });
+      }
+    };
+
     let result: { opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string };
     try {
-      result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
-        "session.connect",
-        reconnectPayload,
-        undefined,
-        30000,
-        leaseId
-      );
+      result = await reconnectSession(reconnectPayload);
     } catch (error) {
-      if (!isUnknownOpsTabError(error) || !fallbackUrl || !("tabId" in reconnectPayload)) {
+      if (
+        (!isUnknownOpsTabError(error) && !isOpsRequestTimeoutError(error))
+        || !fallbackUrl
+        || !("tabId" in reconnectPayload)
+      ) {
         throw error;
       }
-      result = await client.request<{ opsSessionId: string; activeTargetId?: string | null; leaseId?: string; url?: string }>(
-        "session.connect",
-        {
-          sessionId,
-          parallelismPolicy: this.buildParallelismPolicyPayload(),
-          startUrl: fallbackUrl
-        },
-        undefined,
-        30000,
-        leaseId
-      );
+      result = await reconnectSession({
+        sessionId,
+        parallelismPolicy: this.buildParallelismPolicyPayload(),
+        startUrl: fallbackUrl
+      });
     }
 
     this.opsSessions.add(sessionId);
     this.opsLeases.set(sessionId, result.leaseId ?? leaseId);
+    this.reserveExternalBlockerSlot(sessionId);
     this.trackProtocolSession(sessionId, result.opsSessionId);
     this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberReconnectTarget(sessionId, result.activeTargetId ?? null);
     this.rememberSessionUrl(sessionId, result.url ?? fallbackUrl);
     this.closedOpsSessions.delete(sessionId);
     return true;
@@ -966,14 +1456,167 @@ export class OpsBrowserManager implements BrowserManagerLike {
     }
     this.opsProtocolSessions.delete(sessionId);
   }
+
+  private async getRawOpsStatus(
+    sessionId: string
+  ): Promise<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string; dialog?: BrowserDialogState }> {
+    const result = await this.requestOps<{ mode: BrowserMode; activeTargetId: string | null; url?: string; title?: string; dialog?: BrowserDialogState }>(
+      sessionId,
+      "session.status",
+      {}
+    );
+    this.rememberSessionTarget(sessionId, result.activeTargetId ?? null);
+    this.rememberSessionUrl(sessionId, result.url);
+    return result;
+  }
+
+  private async maybeOrchestrateChallenge<T extends Record<string, unknown> & { meta?: BrowserResponseMeta }>(
+    sessionId: string,
+    targetId: string | null | undefined,
+    result: T
+  ): Promise<T> {
+    if (!result.meta?.challenge || result.meta.blockerState === "clear") {
+      return result;
+    }
+    if (!this.challengeOrchestrator) {
+      return result;
+    }
+    const policy = resolveChallengeAutomationPolicy({
+      sessionMode: this.getSessionChallengeAutomationMode(sessionId),
+      configMode: this.config.providers?.challengeOrchestration.mode ?? "browser_with_helper"
+    });
+    if (this.isChallengeAutomationSuppressed(sessionId)) {
+      return {
+        ...result,
+        meta: {
+          ...result.meta,
+          challengeOrchestration: {
+            challengeId: result.meta.challenge.challengeId,
+            classification: result.meta.blocker?.type === "auth_required"
+              ? "auth_required"
+              : "unsupported_third_party_challenge",
+            mode: policy.mode,
+            source: policy.source,
+            lane: "defer",
+            status: "deferred",
+            reason: "Challenge automation is suppressed while a bounded challenge action is already in progress.",
+            attempts: 0,
+            reusedExistingSession: false,
+            reusedCookies: false,
+            standDownReason: "suppressed_by_manager",
+            helperEligibility: {
+              allowed: false,
+              reason: "Challenge automation is currently suppressed by the manager guard.",
+              standDownReason: "suppressed_by_manager"
+            },
+            verification: {
+              status: "still_blocked",
+              blockerState: result.meta.blockerState,
+              blocker: result.meta.blocker,
+              challenge: result.meta.challenge,
+              changed: false,
+              reason: "Challenge automation is currently suppressed by the manager guard."
+            },
+            evidence: {
+              loginRefs: [],
+              humanVerificationRefs: [],
+              checkpointRefs: []
+            }
+          }
+        }
+      };
+    }
+    try {
+      const orchestration = await this.challengeOrchestrator.orchestrate({
+        handle: this.createChallengeRuntimeHandle(),
+        sessionId,
+        targetId,
+        policy,
+        canImportCookies: true
+      });
+      const verification = orchestration.action.verification;
+      return {
+        ...result,
+        meta: {
+          ...result.meta,
+          blocker: verification.blocker,
+          blockerState: verification.blockerState,
+          blockerResolution: verification.bundle?.blockerResolution ?? result.meta.blockerResolution,
+          challenge: verification.challenge ?? verification.bundle?.challenge ?? result.meta.challenge,
+          challengeOrchestration: orchestration.outcome
+        }
+      };
+    } catch {
+      return result;
+    }
+  }
+
+  private withOpsMeta<T extends Record<string, unknown>>(
+    sessionId: string,
+    result: T,
+    options: {
+      source: "navigation" | "network";
+      url?: string;
+      finalUrl?: string;
+      title?: string;
+      status?: number;
+      targetId?: string | null;
+      verifier?: boolean;
+      includeArtifacts?: boolean;
+      traceRequestId?: string;
+      networkEvents?: Array<{ url?: string; status?: number }>;
+      consoleEvents?: unknown[];
+      exceptionEvents?: unknown[];
+      envLimited?: boolean;
+    }
+  ): T & { meta?: BrowserResponseMeta } {
+    const { dialog, ...rest } = result as T & { dialog?: BrowserDialogState };
+    const meta = this.reconcileExternalBlockerMeta(sessionId, {
+      source: options.source,
+      url: options.url,
+      finalUrl: options.finalUrl,
+      title: options.title,
+      status: options.status,
+      traceRequestId: options.traceRequestId,
+      networkEvents: options.networkEvents,
+      consoleEvents: options.consoleEvents,
+      exceptionEvents: options.exceptionEvents,
+      verifier: options.verifier,
+      includeArtifacts: options.includeArtifacts,
+      envLimited: options.envLimited,
+      ownerLeaseId: this.opsLeases.get(sessionId),
+      targetKey: options.targetId ?? undefined
+    });
+    if (meta) {
+      return dialog ? { ...rest as T, meta: { ...meta, dialog } } : { ...rest as T, meta };
+    }
+    if (dialog) {
+      return { ...rest as T, meta: { blockerState: "clear", dialog } };
+    }
+    return rest as T;
+  }
+
+  private findLatestStatus(events: Array<{ status?: number }>): number | undefined {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const status = events[index]?.status;
+      if (typeof status === "number") {
+        return status;
+      }
+    }
+    return undefined;
+  }
 }
 
 const isIgnorableOpsDisconnectError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  return message.includes("Ops request timed out")
+  return isOpsRequestTimeoutError(error)
+    || message.includes("Ops request timed out")
     || message.includes("[invalid_session] Unknown ops session")
     || message.includes("Ops socket closed");
 };
+
+const OPS_REQUEST_TIMEOUT_MS = 30_000;
+const OPS_CLICK_REQUEST_TIMEOUT_MS = 55_000;
 
 const isUnknownOpsSessionError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? "");

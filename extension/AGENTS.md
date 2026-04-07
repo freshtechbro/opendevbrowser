@@ -44,6 +44,7 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 - **Annotation relay**: `/annotation` channel forwards annotation commands/events to `background.ts`, including one-off `store_agent_payload` send requests and `fetch_stored` retrieval.
 - **Ops relay**: `/ops` channel routes high-level ops commands through `OpsRuntime`.
 - **Canvas relay**: `/canvas` channel routes design-tab state, overlay sync, and preview/selection updates through `CanvasRuntime`.
+- **Canvas design runtime**: `extension/src/canvas/` owns extension-hosted design-tab state, patch application, overlay sync, viewport fit, and editor-side feedback handling.
 - **Canvas payload shape**: design-tab runtime expects normalized canvas documents plus additive session-summary metadata such as `availableInventoryCount`, `catalogKitIds`, `availableStarterCount`, applied starter fields, framework or plugin capability summaries, and token state required for collection or mode authoring, alias editing, bindings, and usage inspection; keep extension-side parsing compatibility-first when core contract fields expand.
 - **Preview boundary**: projected `canvas_html` remains the default compatibility path; `bound_app_runtime` only succeeds when the binding opts in and the target app exposes the required instrumentation.
 
@@ -91,3 +92,9 @@ node scripts/chrome-store-compliance-check.mjs  # Verify store/compliance invari
 ## Testing
 
 Extension tests use Chrome mocks in `tests/`. Build before validating changes.
+
+## Layered AGENTS
+
+- `extension/src/canvas/AGENTS.md` — extension-hosted design-tab runtime
+- `extension/src/ops/AGENTS.md` — ops runtime and ownership/backpressure
+- `extension/src/services/AGENTS.md` — relay/CDP routing and session mapping

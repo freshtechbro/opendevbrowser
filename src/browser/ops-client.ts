@@ -28,6 +28,15 @@ export type OpsClientOptions = {
   onClose?: (detail?: { code?: number; reason?: string }) => void;
 };
 
+export type OpsRequestTimeoutDetails = {
+  command: string;
+  timeoutMs: number;
+  requestId: string;
+  opsSessionId?: string;
+  leaseId?: string;
+  stage?: string;
+};
+
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -44,6 +53,44 @@ type PendingPing = {
   resolve: () => void;
   reject: (error: Error) => void;
   timeoutId: NodeJS.Timeout;
+};
+
+export class OpsRequestTimeoutError extends Error {
+  readonly details: OpsRequestTimeoutDetails;
+
+  constructor(details: OpsRequestTimeoutDetails, cause?: unknown) {
+    super("Ops request timed out", typeof cause === "undefined" ? undefined : { cause });
+    this.name = "OpsRequestTimeoutError";
+    this.details = details;
+  }
+}
+
+export const isOpsRequestTimeoutError = (value: unknown): value is OpsRequestTimeoutError => {
+  return value instanceof OpsRequestTimeoutError
+    || (
+      value instanceof Error
+      && value.name === "OpsRequestTimeoutError"
+      && typeof (value as { details?: { command?: unknown; timeoutMs?: unknown; requestId?: unknown } }).details?.command === "string"
+      && typeof (value as { details?: { timeoutMs?: unknown } }).details?.timeoutMs === "number"
+      && typeof (value as { details?: { requestId?: unknown } }).details?.requestId === "string"
+    );
+};
+
+export const withOpsRequestTimeoutDetails = (
+  error: unknown,
+  details: Partial<OpsRequestTimeoutDetails>
+): unknown => {
+  if (!isOpsRequestTimeoutError(error)) {
+    return error;
+  }
+
+  return new OpsRequestTimeoutError(
+    {
+      ...error.details,
+      ...details
+    },
+    error.cause
+  );
 };
 
 export class OpsClient {
@@ -260,7 +307,13 @@ export class OpsClient {
     return await new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        reject(new Error("Ops request timed out"));
+        reject(new OpsRequestTimeoutError({
+          command,
+          timeoutMs,
+          requestId,
+          ...(typeof opsSessionId === "string" ? { opsSessionId } : {}),
+          ...(typeof leaseId === "string" ? { leaseId } : {})
+        }));
       }, timeoutMs);
       const resolvePending = (value: unknown) => resolve(value as T);
       this.pendingRequests.set(requestId, { resolve: resolvePending, reject, timeoutId });

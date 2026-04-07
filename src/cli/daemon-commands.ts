@@ -1,15 +1,23 @@
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
-import { createConfiguredProviderRuntime } from "../providers/runtime-factory";
+import { buildBrowserReviewResult } from "../browser/review-surface";
+import { inspectSession } from "../browser/session-inspector";
+import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
+import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
-  executeMacroResolution,
-  shapeExecutionPayload,
   type MacroExecutionPayload,
   type MacroResolution
 } from "../macros/execute";
+import { executeMacroWithRuntime } from "../macros/execute-runtime";
+import type { RuntimeInit } from "../providers";
 import type { AnnotationDispatchSource, AnnotationPayload } from "../relay/protocol";
+import {
+  buildLoopbackSessionRelayEndpoint,
+  classifySessionRelayEndpoint,
+  resolveSessionRelayRoute
+} from "../relay/relay-endpoints";
 import {
   bindRelay,
   waitForBinding,
@@ -20,6 +28,7 @@ import {
   getSessionLease,
   requireSessionLease,
   releaseSessionLease,
+  releaseOwnedSessionLease,
   getBindingRenewConfig,
   getHubInstanceId
 } from "./daemon-state";
@@ -30,11 +39,24 @@ export type DaemonCommandRequest = {
   params?: Record<string, unknown>;
 };
 
+const createDaemonWorkflowRuntime = (
+  core: OpenDevBrowserCore,
+  options?: { init?: Omit<RuntimeInit, "providers"> }
+) => resolveBundledProviderRuntime({
+  existingRuntime: core.providerRuntime,
+  config: core.config,
+  manager: core.manager,
+  browserFallbackPort: core.browserFallbackPort,
+  init: options?.init
+});
+
 export async function handleDaemonCommand(core: OpenDevBrowserCore, request: DaemonCommandRequest): Promise<unknown> {
   const params = request.params ?? {};
   const bindingId = optionalString(params.bindingId);
 
-  switch (request.name) {
+  try {
+    return await (async () => {
+      switch (request.name) {
     case "relay.status":
       return core.relay.status();
     case "relay.cdpUrl":
@@ -100,6 +122,23 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "session.status":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.status(requireString(params.sessionId, "sessionId"));
+    case "session.inspect": {
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const inspector = core.manager.createSessionInspector?.();
+      if (!inspector) {
+        throw new Error("Session inspector is unavailable for the current runtime.");
+      }
+      return inspectSession(inspector, {
+        sessionId: requireString(params.sessionId, "sessionId"),
+        includeUrls: optionalBoolean(params.includeUrls) ?? true,
+        sinceConsoleSeq: optionalNumber(params.sinceConsoleSeq, "sinceConsoleSeq") ?? undefined,
+        sinceNetworkSeq: optionalNumber(params.sinceNetworkSeq, "sinceNetworkSeq") ?? undefined,
+        sinceExceptionSeq: optionalNumber(params.sinceExceptionSeq, "sinceExceptionSeq") ?? undefined,
+        max: optionalNumber(params.max, "max") ?? undefined,
+        requestId: optionalString(params.requestId),
+        relayStatus: core.relay.status()
+      });
+    }
     case "annotate": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
       const sessionId = requireString(params.sessionId, "sessionId");
@@ -266,6 +305,15 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           targetId
       );
       }
+    case "nav.review":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return buildBrowserReviewResult({
+        manager: core.manager,
+        sessionId: requireString(params.sessionId, "sessionId"),
+        targetId: optionalString(params.targetId),
+        maxChars: optionalNumber(params.maxChars, "maxChars") ?? core.config.snapshot.maxChars,
+        cursor: optionalString(params.cursor)
+      });
     case "interact.click":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.click(
@@ -320,6 +368,16 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireStringArray(params.values, "values"),
         optionalString(params.targetId)
       );
+    case "interact.upload":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.upload(
+        requireString(params.sessionId, "sessionId"),
+        {
+          ref: requireString(params.ref, "ref"),
+          files: requireStringArray(params.files, "files"),
+          ...(typeof params.targetId === "string" ? { targetId: params.targetId } : {})
+        }
+      );
     case "interact.scroll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.scroll(
@@ -334,6 +392,44 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
         optionalString(params.targetId)
+      );
+    case "pointer.move":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.pointerMove(
+        requireString(params.sessionId, "sessionId"),
+        requireFiniteNumber(params.x, "x"),
+        requireFiniteNumber(params.y, "y"),
+        optionalString(params.targetId),
+        optionalNumber(params.steps, "steps")
+      );
+    case "pointer.down":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.pointerDown(
+        requireString(params.sessionId, "sessionId"),
+        requireFiniteNumber(params.x, "x"),
+        requireFiniteNumber(params.y, "y"),
+        optionalString(params.targetId),
+        optionalPointerButton(params.button),
+        optionalNumber(params.clickCount, "clickCount") ?? 1
+      );
+    case "pointer.up":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.pointerUp(
+        requireString(params.sessionId, "sessionId"),
+        requireFiniteNumber(params.x, "x"),
+        requireFiniteNumber(params.y, "y"),
+        optionalString(params.targetId),
+        optionalPointerButton(params.button),
+        optionalNumber(params.clickCount, "clickCount") ?? 1
+      );
+    case "pointer.drag":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.drag(
+        requireString(params.sessionId, "sessionId"),
+        requirePointerPoint(params.from, "from"),
+        requirePointerPoint(params.to, "to"),
+        optionalString(params.targetId),
+        optionalNumber(params.steps, "steps")
       );
     case "dom.getHtml":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -410,8 +506,22 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.screenshot(
         requireString(params.sessionId, "sessionId"),
-        optionalString(params.path),
-        optionalString(params.targetId)
+        {
+          ...(typeof params.path === "string" ? { path: params.path } : {}),
+          ...(typeof params.targetId === "string" ? { targetId: params.targetId } : {}),
+          ...(typeof params.ref === "string" ? { ref: params.ref } : {}),
+          ...(params.fullPage === true ? { fullPage: true } : {})
+        }
+      );
+    case "page.dialog":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.dialog(
+        requireString(params.sessionId, "sessionId"),
+        {
+          ...(typeof params.targetId === "string" ? { targetId: params.targetId } : {}),
+          ...(typeof params.action === "string" ? { action: requireDialogAction(params.action) } : {}),
+          ...(typeof params.promptText === "string" ? { promptText: params.promptText } : {})
+        }
       );
     case "devtools.consolePoll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -584,17 +694,17 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           defaultProvider: optionalString(params.defaultProvider),
           includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
           execute: optionalBoolean(params.execute) ?? false,
-          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs")
+          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode)
         },
         core.config,
-        core.manager
+        core.manager,
+        core.browserFallbackPort,
+        core.providerRuntime
       );
     case "research.run":
       return runResearchWorkflow(
-        createConfiguredProviderRuntime({
-          config: core.config,
-          manager: core.manager
-        }),
+        createDaemonWorkflowRuntime(core),
         {
           topic: requireString(params.topic, "topic"),
           days: optionalNumber(params.days, "days"),
@@ -605,39 +715,37 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           mode: optionalRenderMode(params.mode) ?? "compact",
           includeEngagement: optionalBoolean(params.includeEngagement),
           limitPerSource: optionalNumber(params.limitPerSource, "limitPerSource"),
+          timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
           outputDir: optionalString(params.outputDir),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
     case "shopping.run":
       return runShoppingWorkflow(
-        createConfiguredProviderRuntime({
-          config: core.config,
-          manager: core.manager
-        }),
+        createDaemonWorkflowRuntime(core),
         {
           query: requireString(params.query, "query"),
           providers: optionalStringArray(params.providers),
           budget: optionalNumber(params.budget, "budget"),
           region: optionalString(params.region),
+          browserMode: optionalWorkflowBrowserMode(params.browserMode),
           sort: optionalShoppingSort(params.sort),
           mode: optionalRenderMode(params.mode) ?? "compact",
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
           outputDir: optionalString(params.outputDir),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
     case "product.video.run": {
       const productVideoTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
       return runProductVideoWorkflow(
-        createConfiguredProviderRuntime({
-          config: core.config,
-          manager: core.manager
-        }),
+        createDaemonWorkflowRuntime(core),
         {
           product_url: optionalString(params.product_url),
           product_name: optionalString(params.product_name),
@@ -649,6 +757,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
           timeoutMs: productVideoTimeoutMs,
           useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         },
         {
@@ -681,8 +790,12 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         }
       );
     }
-    default:
-      throw new Error(`Unknown daemon command: ${request.name}`);
+      default:
+        throw new Error(`Unknown daemon command: ${request.name}`);
+      }
+    })();
+  } catch (error) {
+    throw coerceDaemonSessionError(params, error);
   }
 }
 
@@ -723,24 +836,30 @@ async function launchWithRelay(
   }
 
   const observedPort = resolveObservedPort(relayStatus, relayPort);
-  const shouldFetchObserved = !managedExplicit && (!relayUrl || !(relayStatus.extensionHandshakeComplete || relayStatus.extensionConnected));
+  const shouldFetchObserved = !managedExplicit && (!relayUrl || !relayStatus.extensionHandshakeComplete);
   const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
   if (!relayUrl) {
     const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
-    relayUrl = fallbackPort ? `ws://127.0.0.1:${fallbackPort}/${extensionLegacy ? "cdp" : "ops"}` : null;
+    relayUrl = fallbackPort ? buildLoopbackSessionRelayEndpoint(fallbackPort, { extensionLegacy }) : null;
   }
   const extensionReady = Boolean(
     relayUrl && (
       relayStatus.extensionHandshakeComplete ||
-      observedStatus?.extensionHandshakeComplete ||
-      relayStatus.extensionConnected ||
-      observedStatus?.extensionConnected
+      observedStatus?.extensionHandshakeComplete
     )
   );
+  const extensionSocketConnected = Boolean(relayStatus.extensionConnected || observedStatus?.extensionConnected);
+  const handshakePending = Boolean(relayUrl && extensionSocketConnected && !extensionReady);
   const diagnostics = observedStatus
     ? `Diagnostics: relayPort=${observedPort ?? "?"} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} ops=${observedStatus.opsConnected} cdp=${observedStatus.cdpConnected}`
     : null;
-  const missingReason = diagnostics ? `Extension not connected. ${diagnostics}` : "Extension not connected.";
+  const missingReason = handshakePending
+    ? diagnostics
+      ? `Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake. ${diagnostics}`
+      : "Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake."
+    : diagnostics
+      ? `Extension not connected. ${diagnostics}`
+      : "Extension not connected.";
 
   if (extensionOnly && !extensionReady) {
     throw new Error(buildExtensionMissingMessage(missingReason));
@@ -756,6 +875,9 @@ async function launchWithRelay(
         ? await core.manager.connectRelay(relayUrl, { startUrl })
         : await core.manager.connectRelay(relayUrl);
       const leaseId = extractLeaseId(result);
+      if (result.mode === "extension" && !extensionLegacy && !leaseId) {
+        throw new Error("[invalid_session] Extension relay session missing leaseId.");
+      }
       if (result.mode === "extension" && leaseId) {
         registerSessionLease(result.sessionId, leaseId, clientId);
       }
@@ -786,26 +908,6 @@ async function launchWithRelay(
   }
 }
 
-function normalizeRelayEndpoint(
-  wsEndpoint: string | undefined,
-  path: "cdp" | "ops",
-  allowBase: boolean
-): string | null {
-  if (!wsEndpoint) return null;
-  try {
-    const url = new URL(wsEndpoint);
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") return null;
-    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return null;
-    if (!url.port || !/^\d+$/.test(url.port)) return null;
-    const normalizedPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    if (!allowBase && normalizedPath === "") return null;
-    if (normalizedPath && normalizedPath !== `/${path}`) return null;
-    return `${url.protocol}//${url.hostname}:${url.port}/${path}`;
-  } catch {
-    return null;
-  }
-}
-
 async function connectWithRelayRouting(
   core: OpenDevBrowserCore,
   params: Record<string, unknown>,
@@ -815,19 +917,19 @@ async function connectWithRelayRouting(
   const wsEndpoint = optionalString(params.wsEndpoint);
   const extensionLegacy = optionalBoolean(params.extensionLegacy) ?? false;
   const relayUrl = extensionLegacy ? core.relay.getCdpUrl() : core.relay.getOpsUrl?.() ?? null;
-  const normalizedOpsEndpoint = normalizeRelayEndpoint(wsEndpoint, "ops", true);
-  const normalizedLegacyEndpoint = normalizeRelayEndpoint(wsEndpoint, "cdp", extensionLegacy);
+  const parsedRelayEndpoint = classifySessionRelayEndpoint(wsEndpoint);
+  const resolvedRelayEndpoint = parsedRelayEndpoint
+    ? resolveSessionRelayRoute(parsedRelayEndpoint, { extensionLegacy })
+    : null;
+  if (resolvedRelayEndpoint && "code" in resolvedRelayEndpoint) {
+    throw new Error("Legacy extension relay (/cdp) requires --extension-legacy.");
+  }
   const relayEndpoint = relayUrl && wsEndpoint === relayUrl
     ? relayUrl
-    : extensionLegacy
-      ? normalizedLegacyEndpoint ?? normalizedOpsEndpoint
-      : normalizedOpsEndpoint;
+    : resolvedRelayEndpoint?.normalizedEndpoint ?? null;
 
   const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
   const headlessExplicit = optionalBoolean(params.headless) === true;
-  if (normalizedLegacyEndpoint && !extensionLegacy) {
-    throw new Error("Legacy extension relay (/cdp) requires --extension-legacy.");
-  }
 
   if (headlessExplicit && !hasExplicitCdp) {
     throw unsupportedModeError(
@@ -849,6 +951,9 @@ async function connectWithRelayRouting(
       ? await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "", { startUrl })
       : await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
     const leaseId = extractLeaseId(result);
+    if (result.mode === "extension" && !extensionLegacy && !leaseId) {
+      throw new Error("[invalid_session] Extension relay session missing leaseId.");
+    }
     if (result.mode === "extension" && leaseId) {
       registerSessionLease(result.sessionId, leaseId, clientId);
     }
@@ -942,7 +1047,7 @@ function extractLeaseId(result: unknown): string | undefined {
 function buildExtensionMissingMessage(reason: string): string {
   return [
     reason,
-    "Connect the extension: open the Chrome extension popup and click Connect, then retry.",
+    "Connect the extension: open the Chrome extension popup and click Connect. If ext=on but handshake=off, click Connect again to re-establish a clean daemon-extension handshake, then retry.",
     "Tip: If the popup says Connected, it may be connected to a different relay instance/port than the daemon expects.",
     "Legend: ext=extension websocket, handshake=extension handshake, ops=active /ops client, cdp=active /cdp client, pairing=token required.",
     "",
@@ -992,10 +1097,40 @@ function unsupportedModeError(message: string): Error {
   return new Error(`[unsupported_mode] ${message}`);
 }
 
+function coerceDaemonSessionError(params: Record<string, unknown>, error: unknown): Error {
+  const sessionId = optionalString(params.sessionId);
+  const clientId = optionalString(params.clientId);
+  const baseError = error instanceof Error ? error : new Error(String(error ?? ""));
+  if (!sessionId || !clientId) {
+    return baseError;
+  }
+  if (!isStaleExtensionSessionError(baseError.message)) {
+    return baseError;
+  }
+  const released = releaseOwnedSessionLease(sessionId, clientId, optionalString(params.leaseId));
+  if (!released) {
+    return baseError;
+  }
+  return new Error([
+    `[relaunch_required] Extension session ${sessionId} is no longer valid.`,
+    "Relaunch the extension-backed session and retry the command.",
+    `Previous error: ${baseError.message}`
+  ].join(" "));
+}
+
 function isIgnorableDisconnectStatusError(message: string): boolean {
   return message.includes("[invalid_session]")
     || message.includes("Unknown ops session")
     || message.includes("Ops client not connected");
+}
+
+function isStaleExtensionSessionError(message: string): boolean {
+  return message.includes("[invalid_session]")
+    || message.includes("Unknown sessionId:")
+    || message.includes("Unknown ops session")
+    || message.includes("[not_owner]")
+    || message.includes("Client does not own session")
+    || message.includes("Lease does not match session owner");
 }
 
 async function attachBlockerMetaForNavigation(
@@ -1142,6 +1277,13 @@ function requireStringArray(value: unknown, label: string): string[] {
     throw new Error(`Invalid ${label}`);
   }
   return value as string[];
+}
+
+function requireDialogAction(value: unknown): "status" | "accept" | "dismiss" {
+  if (value === "status" || value === "accept" || value === "dismiss") {
+    return value;
+  }
+  throw new Error("Invalid action");
 }
 
 type CookieImportRecord = {
@@ -1337,6 +1479,28 @@ function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function requireFiniteNumber(value: unknown, label: string): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  throw new Error(`Invalid ${label}`);
+}
+
+function requirePointerPoint(value: unknown, label: string): { x: number; y: number } {
+  const point = requireRecord(value, label);
+  return {
+    x: requireFiniteNumber(point.x, `${label}.x`),
+    y: requireFiniteNumber(point.y, `${label}.y`)
+  };
+}
+
+function optionalPointerButton(value: unknown): "left" | "middle" | "right" {
+  if (value === "middle" || value === "right") {
+    return value;
+  }
+  return "left";
+}
+
 function optionalRenderMode(value: unknown): "compact" | "json" | "md" | "context" | "path" | undefined {
   if (typeof value === "undefined") return undefined;
   if (value === "compact" || value === "json" || value === "md" || value === "context" || value === "path") {
@@ -1373,12 +1537,28 @@ function optionalCookiePolicy(value: unknown): "off" | "auto" | "required" | und
   throw new Error("Invalid cookiePolicyOverride");
 }
 
+function optionalChallengeAutomationMode(value: unknown): ChallengeAutomationMode | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (isChallengeAutomationMode(value)) {
+    return value;
+  }
+  throw new Error("Invalid challengeAutomationMode");
+}
+
 function optionalShoppingSort(value: unknown): "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping" | undefined {
   if (typeof value === "undefined") return undefined;
   if (value === "best_deal" || value === "lowest_price" || value === "highest_rating" || value === "fastest_shipping") {
     return value;
   }
   throw new Error("Invalid shopping sort");
+}
+
+function optionalWorkflowBrowserMode(value: unknown): "auto" | "extension" | "managed" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "auto" || value === "extension" || value === "managed") {
+    return value;
+  }
+  throw new Error("Invalid browserMode");
 }
 
 function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networkidle" {
@@ -1479,22 +1659,13 @@ type MacroResolveOptions = {
   includeCatalog: boolean;
   execute: boolean;
   timeoutMs?: number;
+  challengeAutomationMode?: ChallengeAutomationMode;
 };
 
 const MIN_WAIT_TIMEOUT_MS = 3000;
 const WAIT_MIN_DELAY_MS = 250;
 const WAIT_MAX_DELAY_MS = 2000;
 const RELAY_STATUS_TIMEOUT_MS = 1500;
-const MACRO_TIMEOUT_MIN_MS = 1_000;
-const MACRO_TIMEOUT_MAX_MS = 300_000;
-
-function clampMacroRuntimeTimeout(timeoutMs: number | undefined): number | null {
-  if (!Number.isFinite(timeoutMs ?? NaN)) {
-    return null;
-  }
-  const parsed = Math.floor(timeoutMs as number);
-  return Math.max(MACRO_TIMEOUT_MIN_MS, Math.min(MACRO_TIMEOUT_MAX_MS, parsed));
-}
 
 function clampWaitTimeout(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs)) {
@@ -1641,7 +1812,9 @@ function parseFallbackMacro(expression: string, defaultProvider?: string): {
 async function resolveMacroExpression(
   options: MacroResolveOptions,
   config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security" | "providers">,
-  manager: OpenDevBrowserCore["manager"]
+  manager: OpenDevBrowserCore["manager"],
+  browserFallbackPort: OpenDevBrowserCore["browserFallbackPort"],
+  existingRuntime?: OpenDevBrowserCore["providerRuntime"]
 ): Promise<{
   runtime: "macros" | "fallback";
   resolution: MacroResolution;
@@ -1678,30 +1851,15 @@ async function resolveMacroExpression(
     };
   }
 
-  const macroTimeoutMs = clampMacroRuntimeTimeout(options.timeoutMs);
-  const execution = shapeExecutionPayload(
-    await executeMacroResolution(
-      resolution,
-      createConfiguredProviderRuntime({
-        config,
-        manager,
-        ...(macroTimeoutMs !== null
-          ? {
-            init: {
-              budgets: {
-                timeoutMs: {
-                  search: macroTimeoutMs,
-                  fetch: macroTimeoutMs,
-                  crawl: macroTimeoutMs,
-                  post: macroTimeoutMs
-                }
-              }
-            }
-          }
-          : {})
-      })
-    )
-  );
+  const execution = await executeMacroWithRuntime({
+    resolution,
+    existingRuntime,
+    config,
+    manager,
+    browserFallbackPort,
+    timeoutMs: options.timeoutMs,
+    challengeAutomationMode: options.challengeAutomationMode
+  });
   return {
     runtime: resolvedRuntime,
     resolution,

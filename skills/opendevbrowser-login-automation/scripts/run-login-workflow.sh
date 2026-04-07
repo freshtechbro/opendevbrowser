@@ -13,6 +13,7 @@ Workflows:
   mfa
   sso-popup
   challenge-checkpoint
+  pointer-checkpoint
   challenge-loop-guard
   lockout-recovery
   session-persistence
@@ -62,7 +63,22 @@ FLOW
     cat <<'FLOW'
 # Detect challenge state, then pause automated actions.
 opendevbrowser_snapshot sessionId="<session-id>" format="outline"
-# Manual checkpoint required: solve challenge with approved flow/test keys.
+# If the environment exposes a deterministic slider/test gate, complete it with pointer controls, then re-snapshot.
+# Otherwise manual checkpoint required: solve challenge with approved flow/test keys.
+# Resume only after challenge is solved.
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
+opendevbrowser_click sessionId="<session-id>" ref="<continue-ref>"
+opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+FLOW
+    ;;
+  pointer-checkpoint)
+    cat <<'FLOW'
+# Use only for deterministic test gates or slider controls that are part of the approved workflow.
+opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
+opendevbrowser_pointer_move sessionId="<session-id>" x=<start-x> y=<start-y>
+opendevbrowser_pointer_down sessionId="<session-id>" x=<start-x> y=<start-y> button="left"
+opendevbrowser_pointer_drag sessionId="<session-id>" startX=<start-x> startY=<start-y> endX=<end-x> endY=<end-y> steps=12
+opendevbrowser_pointer_up sessionId="<session-id>" x=<end-x> y=<end-y> button="left"
 # Resume only after challenge is solved.
 opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
 opendevbrowser_click sessionId="<session-id>" ref="<continue-ref>"

@@ -25,7 +25,9 @@ const CHALLENGE_PATTERNS: Array<{ id: string; regex: RegExp; confidence: number 
   { id: "prove_humanity", regex: /prove your humanity/i, confidence: 0.96 },
   { id: "robot_or_human", regex: /robot or human/i, confidence: 0.98 },
   { id: "confirm_human", regex: /confirm that you(?:'|’)re human/i, confidence: 0.96 },
+  { id: "click_and_hold", regex: /\b(?:click|press|tap|activate)\s+(?:and\s+)?hold\b/i, confidence: 0.95 },
   { id: "press_and_hold", regex: /activate and hold the button/i, confidence: 0.95 },
+  { id: "drag_slider", regex: /\b(?:drag|slide|move)(?:\s+the)?\s+(?:slider|puzzle(?:\s+piece)?|piece|button)\b/i, confidence: 0.95 },
   { id: "pardon_interruption", regex: /pardon our interruption/i, confidence: 0.97 },
   { id: "checking_browser_gate", regex: /checking your browser before you access/i, confidence: 0.97 }
 ];

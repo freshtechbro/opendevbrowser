@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { classifyRecords } from "../scripts/live-direct-utils.mjs";
 import {
+  DIRECT_ENV_LIMITED_CODES,
+  DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS,
+  SOCIAL_POST_CASES
+} from "../scripts/shared/workflow-lane-constants.mjs";
+import {
+  buildProviderCoverageStep,
   buildProviderCases,
   classifyDaemonPreflight,
   evaluateMacroCase,
   evaluateShoppingCase,
-  parseArgs
+  mergeRetriedMacroStep,
+  mergeRetriedShoppingStep,
+  parseArgs,
+  shouldRetryShoppingTimeoutCase,
+  shouldRetryMacroTimeoutCase
 } from "../scripts/provider-direct-runs.mjs";
 
 describe("provider-direct-runs", () => {
@@ -34,6 +44,37 @@ describe("provider-direct-runs", () => {
     expect(ids).toContain("provider.social.linkedin.search");
   });
 
+  it("requests helper-capable challenge mode for macro execute cases", () => {
+    const cases = buildProviderCases(parseArgs(["--include-social-posts"]));
+    const communitySearch = cases.find((entry) => entry.id === "provider.community.search.keyword");
+    const linkedinSearch = cases.find((entry) => entry.id === "provider.social.linkedin.search");
+    const socialPost = cases.find((entry) => entry.id === "provider.social.x.post");
+
+    expect(communitySearch?.args).toContain("--challenge-automation-mode");
+    expect(communitySearch?.args).toContain("browser_with_helper");
+    expect(linkedinSearch?.args).toContain("--challenge-automation-mode");
+    expect(linkedinSearch?.args).toContain("browser_with_helper");
+    expect(socialPost?.args).toContain("--challenge-automation-mode");
+    expect(socialPost?.args).toContain("browser_with_helper");
+  });
+
+  it("builds social post probes from the shared governance inventory", () => {
+    const cases = buildProviderCases(parseArgs(["--include-social-posts"]));
+    const ids = cases
+      .filter((entry) => entry.id.startsWith("provider.social.") && entry.id.endsWith(".post"))
+      .map((entry) => entry.id);
+
+    expect(ids).toEqual(SOCIAL_POST_CASES.map((entry) => entry.id));
+  });
+
+  it("requests helper-capable challenge mode for shopping cases", () => {
+    const cases = buildProviderCases(parseArgs(["--include-high-friction", "--include-auth-gated"]));
+    const target = cases.find((entry) => entry.id === "provider.shopping.target.search");
+
+    expect(target?.args).toContain("--challenge-automation-mode");
+    expect(target?.args).toContain("browser_with_helper");
+  });
+
   it("marks gated shopping providers as skipped outside release mode", () => {
     const cases = buildProviderCases(parseArgs([]));
     const costco = cases.find((entry) => entry.id === "provider.shopping.costco.search");
@@ -43,7 +84,7 @@ describe("provider-direct-runs", () => {
     expect(bestbuy?.skipped).toBe(true);
   });
 
-  it("uses extended shopping timeouts for the slow and high-friction shopping providers", () => {
+  it("uses the Target-specific timeout without widening other slow shopping providers", () => {
     const cases = buildProviderCases(parseArgs(["--include-high-friction", "--include-auth-gated"]));
     const ebay = cases.find((entry) => entry.id === "provider.shopping.ebay.search");
     const costco = cases.find((entry) => entry.id === "provider.shopping.costco.search");
@@ -51,11 +92,11 @@ describe("provider-direct-runs", () => {
     const target = cases.find((entry) => entry.id === "provider.shopping.target.search");
     const temu = cases.find((entry) => entry.id === "provider.shopping.temu.search");
 
-    expect(ebay?.args).toContain("120000");
-    expect(costco?.args).toContain("120000");
-    expect(walmart?.args).toContain("120000");
-    expect(target?.args).toContain("120000");
-    expect(temu?.args).toContain("120000");
+    expect(ebay?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/ebay"));
+    expect(costco?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/costco"));
+    expect(walmart?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/walmart"));
+    expect(target?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target"));
+    expect(temu?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/temu"));
   });
 
   it("classifies daemon preflight failures before provider cases run", () => {
@@ -70,6 +111,42 @@ describe("provider-direct-runs", () => {
       detail: "Daemon not running. Start with `opendevbrowser serve`.",
       data: null
     });
+  });
+
+  it("downgrades non-release provider coverage gaps into explicit skipped advisories", () => {
+    const step = buildProviderCoverageStep({
+      expected: { all: Array.from({ length: 22 }, (_, index) => `provider-${index}`) },
+      scenarios: { all: Array.from({ length: 8 }, (_, index) => `provider-${index}`) },
+      missingProviderIds: ["provider-8", "provider-9"],
+      extraScenarioProviderIds: [],
+      ok: false
+    }, { releaseGate: false });
+
+    expect(step).toEqual({
+      id: "infra.provider_scenario_coverage",
+      status: "skipped",
+      detail: "missing=provider-8,provider-9 extra=none",
+      data: {
+        expectedCount: 22,
+        scenarioCount: 8,
+        missingProviderIds: ["provider-8", "provider-9"],
+        extraScenarioProviderIds: [],
+        coverageGap: true
+      }
+    });
+  });
+
+  it("keeps release-gate provider coverage gaps blocking", () => {
+    const step = buildProviderCoverageStep({
+      expected: { all: ["provider-a", "provider-b"] },
+      scenarios: { all: ["provider-a"] },
+      missingProviderIds: ["provider-b"],
+      extraScenarioProviderIds: [],
+      ok: false
+    }, { releaseGate: true });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("missing=provider-b extra=none");
   });
 
   it("preserves nested shopping provider shell diagnostics", () => {
@@ -110,6 +187,7 @@ describe("provider-direct-runs", () => {
   });
 
   it("treats timeout-only provider failures as fail instead of env-limited", () => {
+    expect(DIRECT_ENV_LIMITED_CODES.has("timeout")).toBe(false);
     expect(classifyRecords(0, [
       {
         error: {
@@ -138,6 +216,134 @@ describe("provider-direct-runs", () => {
     expect(step.detail).toBe("Request timed out after 120000ms");
   });
 
+  it("treats a raw Temu timeout boundary as env-limited instead of a hard failure", () => {
+    const step = evaluateShoppingCase({
+      id: "provider.shopping.temu.search",
+      providerId: "shopping/temu",
+      args: ["shopping", "run"]
+    }, {
+      status: 1,
+      detail: "Request timed out after 125000ms",
+      json: null
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("Request timed out after 125000ms");
+  });
+
+  it("prefers structured macro failures over non-zero raw challenge detail", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.keyword",
+      providerId: "community/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Challenge detected while resolving provider output.",
+      json: {
+        data: {
+          execution: {
+            records: [],
+            failures: [
+              {
+                error: {
+                  code: "timeout",
+                  message: "Provider request timed out after 120000ms"
+                }
+              }
+            ],
+            meta: {
+              providerOrder: ["community/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("unexpected_reason_codes=timeout");
+    expect(step.data).toMatchObject({
+      hasExecutionPayload: true,
+      reasonCodes: ["timeout"],
+      shellOnlyReasons: []
+    });
+  });
+
+  it("prefers structured shopping boundaries over non-zero raw auth detail", () => {
+    const step = evaluateShoppingCase({
+      id: "provider.shopping.target.search",
+      providerId: "shopping/target",
+      args: ["shopping", "run"]
+    }, {
+      status: 1,
+      detail: "Authentication required before continuing.",
+      json: {
+        data: {
+          offers: [],
+          meta: {
+            failures: [
+              {
+                error: {
+                  code: "unavailable",
+                  reasonCode: "env_limited",
+                  details: {
+                    constraint: {
+                      kind: "render_required",
+                      evidenceCode: "target_shell_page"
+                    },
+                    providerShell: "target_shell_page",
+                    blockerReason: "render_required"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("reason_codes=env_limited");
+    expect(step.data).toMatchObject({
+      reasonCodes: ["env_limited"],
+      providerShell: "target_shell_page",
+      constraintKind: "render_required"
+    });
+  });
+
+  it("keeps non-zero raw auth detail blocking when macro execution payload is missing", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.keyword",
+      providerId: "community/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Authentication required before continuing.",
+      json: null
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("Authentication required before continuing.");
+    expect(step.data).toMatchObject({
+      hasExecutionPayload: false,
+      shellOnlyReasons: []
+    });
+  });
+
+  it("keeps non-zero raw challenge detail blocking when shopping payload is missing", () => {
+    const step = evaluateShoppingCase({
+      id: "provider.shopping.target.search",
+      providerId: "shopping/target",
+      args: ["shopping", "run"]
+    }, {
+      status: 1,
+      detail: "Challenge detected while loading provider page.",
+      json: null
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("Challenge detected while loading provider page.");
+  });
+
   it("fails macro cases when the CLI exits zero without an execution payload", () => {
     const step = evaluateMacroCase({
       id: "provider.community.search.url",
@@ -154,7 +360,1140 @@ describe("provider-direct-runs", () => {
     expect(step.data).toMatchObject({
       hasExecutionPayload: false,
       records: 0,
-      failures: 0
+      failures: 0,
+      requestedChallengeAutomationMode: null,
+      helperCapableRequested: false
+    });
+  });
+
+  it("surfaces requested helper-capable macro metadata in evaluated macro steps", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.keyword",
+      providerId: "community/default",
+      args: [
+        "macro-resolve",
+        "--execute",
+        "--expression",
+        '@community.search("browser automation failures", 4)',
+        "--challenge-automation-mode",
+        "browser_with_helper"
+      ]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [{ id: "1" }],
+            failures: [],
+            meta: {
+              providerOrder: ["community/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.data).toMatchObject({
+      requestedChallengeAutomationMode: "browser_with_helper",
+      helperCapableRequested: true
+    });
+  });
+
+  it("retries linkedin timeout rows only when the first pass has no execution payload", () => {
+    expect(shouldRetryMacroTimeoutCase({
+      providerId: "social/linkedin"
+    }, {
+      status: "fail",
+      detail: "Request timed out after 120000ms",
+      data: {
+        hasExecutionPayload: false
+      }
+    })).toBe(true);
+
+    expect(shouldRetryMacroTimeoutCase({
+      providerId: "social/linkedin"
+    }, {
+      status: "fail",
+      detail: "Request timed out after 120000ms",
+      data: {
+        hasExecutionPayload: true
+      }
+    })).toBe(false);
+
+    expect(shouldRetryMacroTimeoutCase({
+      providerId: "social/facebook"
+    }, {
+      status: "fail",
+      detail: "Request timed out after 120000ms",
+      data: {
+        hasExecutionPayload: false
+      }
+    })).toBe(false);
+
+    expect(shouldRetryMacroTimeoutCase({
+      providerId: "social/youtube"
+    }, {
+      status: "fail",
+      detail: "shell_only_records=generic_shell",
+      data: {
+        hasExecutionPayload: false
+      }
+    })).toBe(true);
+  });
+
+  it("promotes a recovered linkedin retry result while preserving retry metadata", () => {
+    const merged = mergeRetriedMacroStep({
+      id: "provider.social.linkedin.search",
+      status: "fail",
+      detail: "Request timed out after 120000ms",
+      data: {
+        hasExecutionPayload: false
+      }
+    }, {
+      id: "provider.social.linkedin.search",
+      status: "pass",
+      detail: null,
+      data: {
+        hasExecutionPayload: true,
+        records: 1
+      }
+    });
+
+    expect(merged.status).toBe("pass");
+    expect(merged.data).toMatchObject({
+      hasExecutionPayload: true,
+      records: 1,
+      retryAttempted: true,
+      retryRecovered: true,
+      retryInitialStatus: "fail",
+      retryInitialDetail: "Request timed out after 120000ms"
+    });
+  });
+
+  it("keeps the original linkedin timeout row when the isolated retry still fails", () => {
+    const merged = mergeRetriedMacroStep({
+      id: "provider.social.linkedin.search",
+      status: "fail",
+      detail: "Request timed out after 120000ms",
+      data: {
+        hasExecutionPayload: false
+      }
+    }, {
+      id: "provider.social.linkedin.search",
+      status: "fail",
+      detail: "Request timed out after 120000ms",
+      data: {
+        hasExecutionPayload: false
+      }
+    });
+
+    expect(merged.status).toBe("fail");
+    expect(merged.detail).toBe("Request timed out after 120000ms");
+    expect(merged.data).toMatchObject({
+      hasExecutionPayload: false,
+      retryAttempted: true,
+      retryRecovered: false,
+      retryFinalStatus: "fail",
+      retryFinalDetail: "Request timed out after 120000ms"
+    });
+  });
+
+  it("retries Temu timeout rows when the first pass fails with provider timeout reason codes", () => {
+    expect(shouldRetryShoppingTimeoutCase({
+      providerId: "shopping/temu"
+    }, {
+      status: "fail",
+      detail: "unexpected_reason_codes=timeout",
+      data: {
+        reasonCodes: ["timeout"]
+      }
+    })).toBe(true);
+
+    expect(shouldRetryShoppingTimeoutCase({
+      providerId: "shopping/walmart"
+    }, {
+      status: "fail",
+      detail: "unexpected_reason_codes=timeout",
+      data: {
+        reasonCodes: ["timeout"]
+      }
+    })).toBe(false);
+  });
+
+  it("promotes a recovered Temu retry result while preserving retry metadata", () => {
+    const merged = mergeRetriedShoppingStep({
+      id: "provider.shopping.temu.search",
+      status: "fail",
+      detail: "unexpected_reason_codes=timeout",
+      data: {
+        reasonCodes: ["timeout"]
+      }
+    }, {
+      id: "provider.shopping.temu.search",
+      status: "env_limited",
+      detail: "reason_codes=env_limited",
+      data: {
+        reasonCodes: ["env_limited"],
+        offers: 0
+      }
+    });
+
+    expect(merged.status).toBe("env_limited");
+    expect(merged.data).toMatchObject({
+      reasonCodes: ["env_limited"],
+      offers: 0,
+      retryAttempted: true,
+      retryRecovered: true,
+      retryInitialStatus: "fail",
+      retryInitialDetail: "unexpected_reason_codes=timeout"
+    });
+  });
+
+  it("classifies duckduckgo challenge and index shells as env-limited macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.web.search.keyword",
+      providerId: "web/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "duckduckgo-challenge",
+                url: "https://duckduckgo.com",
+                title: "https://duckduckgo.com",
+                content: "Unfortunately, bots use DuckDuckGo too. Please complete the following challenge.",
+                attributes: {
+                  retrievalPath: "web:search:index",
+                  extractionQuality: {
+                    contentChars: 78
+                  }
+                }
+              },
+              {
+                id: "duckduckgo-index",
+                url: "https://html.duckduckgo.com/html",
+                title: "https://html.duckduckgo.com/html",
+                content: "",
+                attributes: {
+                  retrievalPath: "web:search:index",
+                  extractionQuality: {
+                    contentChars: 0
+                  }
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["web/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=challenge_shell,search_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["challenge_shell", "search_shell"]);
+  });
+
+  it("classifies Reddit verification walls as env-limited community macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.url",
+      providerId: "community/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "reddit-verification-wall",
+                url: "https://www.reddit.com/answers/example?q=browser+automation",
+                title: "https://www.reddit.com/answers/example?q=browser+automation",
+                content: "Reddit - The heart of the internet. Please wait for verification. Skip to main content.",
+                attributes: {
+                  retrievalPath: "community:fetch:url"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["community/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=challenge_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["challenge_shell"]);
+  });
+
+  it("classifies X javascript-required shells as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.x.search",
+      providerId: "social/x",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "x-js-shell",
+                url: "https://x.com/search?q=browser+automation&f=live&page=1",
+                title: "X search",
+                content: "JavaScript is disabled in this browser. Please enable JavaScript.",
+                attributes: {
+                  retrievalPath: "social:search:index"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/x"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_js_required_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_js_required_shell"]);
+  });
+
+  it("keeps X macro rows as pass when warning text coexists with a usable X result link", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.x.search",
+      providerId: "social/x",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "x-mixed-search-record",
+                url: "https://x.com/search?q=browser+automation&f=live&page=1",
+                title: "X search",
+                content: "JavaScript is disabled in this browser. Please enable JavaScript. Top Latest People Media Lists.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://x.com/acct/status/1"
+                  ]
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/x"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.detail).toBeNull();
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("classifies live-like X policy and legal shells as env-limited macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.x.search",
+      providerId: "social/x",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "x-search-shell",
+                url: "https://x.com/search?q=browser+automation&f=live&page=1",
+                title: "X search",
+                content: "JavaScript is disabled in this browser. Please enable JavaScript. Something went wrong, but don't fret.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://x.com/privacy",
+                    "https://x.com/tos",
+                    "https://t.co",
+                    "https://help.x.com/using-x/x-supported-browsers"
+                  ]
+                }
+              },
+              {
+                id: "x-legal-shell",
+                url: "https://legal.x.com/de/imprint.html",
+                title: "Legal",
+                content: "Imprint",
+                attributes: {
+                  retrievalPath: "social:fetch:url"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/x"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_js_required_shell,social_first_party_help_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_js_required_shell", "social_first_party_help_shell"]);
+  });
+
+  it("classifies X metadata-only shells as env-limited macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.x.search",
+      providerId: "social/x",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "x-search-shell",
+                url: "https://x.com/search?q=browser+automation&f=live&page=1",
+                title: "X search",
+                content: "JavaScript is not available. We’ve detected that JavaScript is disabled in this browser.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://x.com/os-x.xml",
+                    "https://x.com/manifest.json",
+                    "https://x.com/os-grok.xml",
+                    "https://help.x.com/using-x/x-supported-browsers"
+                  ]
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/x"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_js_required_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_js_required_shell"]);
+  });
+
+  it("classifies Bluesky first-party docs shells as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.bluesky.search",
+      providerId: "social/bluesky",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "bluesky-help-shell",
+                url: "https://atproto.com/guides/overview",
+                title: "AT Protocol",
+                content: "Overview",
+                attributes: {
+                  retrievalPath: "social:fetch:url"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/bluesky"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_first_party_help_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_first_party_help_shell"]);
+  });
+
+  it("keeps Bluesky macro rows as pass when warning text coexists with a usable Bluesky result link", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.bluesky.search",
+      providerId: "social/bluesky",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "bluesky-mixed-search-record",
+                url: "https://bsky.app/search?q=browser+automation&page=1",
+                title: "Bluesky Search",
+                content: "Bluesky JavaScript Required Top Latest.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://bsky.app/profile/acct/post/1"
+                  ]
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/bluesky"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.detail).toBeNull();
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("classifies Bluesky feed-only js-required search shells as env-limited macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.bluesky.search",
+      providerId: "social/bluesky",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "bluesky-feed-only-shell",
+                url: "https://bsky.app/search?q=browser+automation&page=1",
+                title: "Bluesky Search",
+                content: "Bluesky JavaScript Required Top Latest.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://bsky.app/profile/trending.bsky.app/feed/665497821"
+                  ]
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/bluesky"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_js_required_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_js_required_shell"]);
+  });
+
+  it("classifies logged-out Bluesky search and help shells as env-limited macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.bluesky.search",
+      providerId: "social/bluesky",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "bluesky-search-shell",
+                url: "https://bsky.app/search?q=browser+automation&page=1",
+                title: "Explore - Bluesky",
+                content: "Search is currently unavailable when logged out. Bluesky JavaScript Required.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://bsky.app/profile/trending.bsky.app/feed/665497821",
+                    "https://blueskyweb.zendesk.com/hc/en-us"
+                  ]
+                }
+              },
+              {
+                id: "bluesky-help-shell",
+                url: "https://blueskyweb.zendesk.com/hc/en-us",
+                title: "Bluesky Help",
+                content: "Help center",
+                attributes: {
+                  retrievalPath: "social:fetch:url"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/bluesky"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_js_required_shell,social_first_party_help_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_js_required_shell", "social_first_party_help_shell"]);
+  });
+
+  it("classifies signed-in Bluesky empty search shells with nav-only links as env-limited macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.bluesky.search",
+      providerId: "social/bluesky",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "bluesky-empty-search-shell",
+                url: "https://bsky.app/search?page=1&q=browser+automation+bluesky",
+                title: "bluesky search: browser automation bluesky",
+                content: "All languages Top Latest People Feeds Home Explore Notifications Chat Feeds Lists Saved Profile Settings New Post Discover Following Video More feeds Follow 10 people to get started Find people to follow Trending 1. 2. 3. 4. 5.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://bsky.app/notifications",
+                    "https://bsky.app/messages",
+                    "https://bsky.app/feeds",
+                    "https://bsky.app/lists",
+                    "https://bsky.app/saved",
+                    "https://bsky.app/profile/freshtechbro.bsky.social",
+                    "https://bsky.app/settings"
+                  ]
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/bluesky"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
+  it("classifies signed-in Bluesky navigation-only search shells with only profile and shell links as env-limited macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.bluesky.search",
+      providerId: "social/bluesky",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "bluesky-nav-shell",
+                url: "https://bsky.app/search?page=1&q=browser+automation+bluesky",
+                title: "bluesky search: browser automation bluesky",
+                content: "All languages Top Latest People Feeds Home Explore Notifications Chat Feeds Lists Saved Profile Settings New Post Feedback Privacy Terms Help",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: [
+                    "https://bsky.app/notifications",
+                    "https://bsky.app/messages",
+                    "https://bsky.app/feeds",
+                    "https://bsky.app/lists",
+                    "https://bsky.app/saved",
+                    "https://bsky.app/profile/freshtechbro.bsky.social",
+                    "https://bsky.app/settings"
+                  ]
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/bluesky"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
+  it("classifies Reddit non-content route shells as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.reddit.search",
+      providerId: "social/reddit",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "reddit-submit-shell",
+                url: "https://www.reddit.com/submit",
+                title: "Submit to Reddit",
+                content: "Submit to Reddit",
+                attributes: {
+                  retrievalPath: "social:fetch:url"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/reddit"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
+  it("keeps community macro passes when a Reddit verification wall appears with a usable record", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.keyword",
+      providerId: "community/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "reddit-verification-wall",
+                url: "https://www.reddit.com/answers/example?q=browser+automation",
+                title: "https://www.reddit.com/answers/example?q=browser+automation",
+                content: "Reddit - The heart of the internet. Please wait for verification. Skip to main content.",
+                attributes: {
+                  retrievalPath: "community:fetch:url"
+                }
+              },
+              {
+                id: "usable-community-record",
+                url: "https://forum.example.com/t/browser-automation-checklist",
+                title: "Browser automation checklist",
+                content: "A working checklist for diagnosing browser automation failures across real sites.",
+                attributes: {
+                  retrievalPath: "community:search:index",
+                  extractionQuality: {
+                    contentChars: 79
+                  }
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["community/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("fails fetch macros that only return truncated page chrome", () => {
+    const step = evaluateMacroCase({
+      id: "provider.web.fetch.url",
+      providerId: "web/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "mdn-fetch",
+                url: "https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector",
+                title: "Document: querySelector() method - Web APIs | MDN",
+                content: "\"The",
+                attributes: {
+                  links: Array.from({ length: 32 }, (_, index) => `https://example.com/${index}`),
+                  extractionQuality: {
+                    contentChars: 4
+                  }
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["web/default"],
+              provenance: {
+                retrievalPath: "fetch:developer.mozilla.org"
+              }
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("shell_only_records=truncated_fetch_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["truncated_fetch_shell"]);
+  });
+
+  it("classifies non-zero challenge and search shell failures as env-limited", () => {
+    const step = evaluateMacroCase({
+      id: "provider.web.search.keyword",
+      providerId: "web/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Macro execution returned only shell records (challenge_shell,search_shell).",
+      json: null
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=challenge_shell,search_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["challenge_shell", "search_shell"]);
+  });
+
+  it("classifies non-zero social verification shell failures as env-limited", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.reddit.search",
+      providerId: "social/reddit",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Macro execution returned only shell records (social_verification_wall).",
+      json: null
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_verification_wall");
+    expect(step.data.shellOnlyReasons).toEqual(["social_verification_wall"]);
+  });
+
+  it("keeps non-zero truncated fetch shell failures blocking", () => {
+    const step = evaluateMacroCase({
+      id: "provider.web.fetch.url",
+      providerId: "web/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Macro execution returned only shell records (truncated_fetch_shell).",
+      json: null
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("shell_only_records=truncated_fetch_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["truncated_fetch_shell"]);
+  });
+
+  it("keeps mixed non-zero shell failures blocking", () => {
+    const step = evaluateMacroCase({
+      id: "provider.web.fetch.url",
+      providerId: "web/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Macro execution returned only shell records (challenge_shell,truncated_fetch_shell).",
+      json: null
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("shell_only_records=challenge_shell,truncated_fetch_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["challenge_shell", "truncated_fetch_shell"]);
+  });
+
+  it("classifies youtube search chrome as env-limited when the provider emits a structured boundary failure", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.youtube.search",
+      providerId: "social/youtube",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [],
+            failures: [
+              {
+                provider: "social/youtube",
+                source: "social",
+                error: {
+                  code: "unavailable",
+                  reasonCode: "env_limited",
+                  details: {
+                    providerShell: "youtube_search_shell",
+                    browserRequired: true
+                  }
+                }
+              }
+            ],
+            meta: {
+              providerOrder: ["social/youtube"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("reason_codes=env_limited");
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("keeps macro passes when at least one usable record survives the shell gate", () => {
+    const step = evaluateMacroCase({
+      id: "provider.web.search.keyword",
+      providerId: "web/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "duckduckgo-shell",
+                url: "https://html.duckduckgo.com/html",
+                title: "https://html.duckduckgo.com/html",
+                content: "",
+                attributes: {
+                  retrievalPath: "web:search:index",
+                  extractionQuality: {
+                    contentChars: 0
+                  }
+                }
+              },
+              {
+                id: "usable-doc",
+                url: "https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector",
+                title: "Document: querySelector() method - Web APIs | MDN",
+                content: "Returns the first matching element within the document using CSS selectors.",
+                attributes: {
+                  retrievalPath: "web:search:index",
+                  extractionQuality: {
+                    contentChars: 79
+                  }
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["web/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("keeps macro passes when surviving web search records use canonical urls as titles", () => {
+    const step = evaluateMacroCase({
+      id: "provider.web.search.keyword",
+      providerId: "web/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "duckduckgo-shell",
+                url: "https://html.duckduckgo.com/html",
+                title: "https://html.duckduckgo.com/html",
+                content: "query at DuckDuckGo",
+                attributes: {
+                  retrievalPath: "web:search:index",
+                  extractionQuality: {
+                    contentChars: 700
+                  }
+                }
+              },
+              {
+                id: "usable-doc",
+                url: "https://developer.chrome.com/docs/extensions/reference/api/debugger",
+                title: "https://developer.chrome.com/docs/extensions/reference/api/debugger",
+                content: "",
+                attributes: {
+                  retrievalPath: "web:search:index",
+                  extractionQuality: {
+                    contentChars: 0
+                  }
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["web/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("surfaces helper execution metadata from macro record attributes", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.reddit.search",
+      providerId: "social/reddit",
+      args: [
+        "macro-resolve",
+        "--execute",
+        "--expression",
+        '@media.search("browser automation reddit", "reddit", 5)',
+        "--challenge-automation-mode",
+        "browser_with_helper"
+      ]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [{
+              id: "reddit-1",
+              attributes: {
+                browser_fallback_mode: "extension",
+                browser_fallback_reason_code: "challenge_detected",
+                browser_fallback_challenge_orchestration: {
+                  mode: "browser_with_helper",
+                  source: "config",
+                  status: "resolved"
+                }
+              }
+            }],
+            failures: [],
+            meta: {
+              providerOrder: ["social/reddit"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.data.challengeOrchestration).toMatchObject({
+      mode: "browser_with_helper",
+      source: "config",
+      status: "resolved"
+    });
+    expect(step.data.browserFallbackMode).toBe("extension");
+    expect(step.data.browserFallbackReasonCode).toBe("challenge_detected");
+  });
+
+  it("surfaces helper-capable shopping metadata and orchestration summaries", () => {
+    const step = evaluateShoppingCase({
+      id: "provider.shopping.target.search",
+      providerId: "shopping/target",
+      args: [
+        "shopping",
+        "run",
+        "--query",
+        "portable monitor",
+        "--challenge-automation-mode",
+        "browser_with_helper"
+      ]
+    }, {
+      status: 0,
+      json: {
+        data: {
+          offers: [],
+          meta: {
+            metrics: {
+              challenge_orchestration: [{
+                provider: "shopping/target",
+                browserFallbackMode: "extension",
+                mode: "browser_with_helper",
+                source: "config",
+                status: "resolved"
+              }]
+            },
+            failures: [{
+              error: {
+                code: "unavailable",
+                reasonCode: "env_limited",
+                details: {
+                  browserFallbackMode: "extension",
+                  browserFallbackReasonCode: "env_limited",
+                  constraint: {
+                    kind: "render_required",
+                    evidenceCode: "target_shell_page"
+                  },
+                  providerShell: "target_shell_page",
+                  blockerReason: "render_required"
+                }
+              }
+            }]
+          }
+        }
+      }
+    });
+
+    expect(step.data).toMatchObject({
+      requestedChallengeAutomationMode: "browser_with_helper",
+      helperCapableRequested: true,
+      browserFallbackMode: "extension",
+      browserFallbackReasonCode: "env_limited",
+      challengeOrchestration: {
+        mode: "browser_with_helper",
+        source: "config",
+        status: "resolved"
+      }
     });
   });
 });

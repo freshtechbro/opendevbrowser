@@ -20,7 +20,7 @@ describe("social platform adapters", () => {
       return {
         status: 200,
         url,
-        text: async () => `<html><body><main>social content ${url}</main><a href="https://x.com/acct/post/2">post</a></body></html>`
+        text: async () => `<html><body><main>social content ${url}</main><a href="https://x.com/acct/status/2">post</a></body></html>`
       };
     }) as unknown as typeof fetch);
 
@@ -35,6 +35,42 @@ describe("social platform adapters", () => {
       expect(result.records.length).toBeGreaterThan(0);
       expect(result.failures).toHaveLength(0);
       expect(result.records[0]?.provider).toBe("social/x");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("builds youtube social search URLs and ignores malformed extracted links", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      return {
+        status: 200,
+        url,
+        text: async () => [
+          "<html><body>",
+          "<main>youtube social search</main>",
+          "<a href=\"http://[\">bad</a>",
+          "<a href=\"/watch?v=123\">good</a>",
+          "</body></html>"
+        ].join("")
+      };
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "social", providerIds: ["social/youtube"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records.length).toBeGreaterThan(0);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records[0]?.provider).toBe("social/youtube");
+      expect(result.records[0]?.url).toBe("https://www.youtube.com/watch?v=123");
+      expect(result.records[0]?.attributes.links).toEqual([
+        "https://www.youtube.com/watch?v=123"
+      ]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -79,15 +115,25 @@ describe("social platform adapters", () => {
 
   it("falls back to browser retrieval for auth-blocked social defaults across all social platforms (including reddit)", async () => {
     const fallbackResolve = vi.fn(async (request: {
+      provider?: string;
       reasonCode: "token_required" | "auth_required" | "challenge_detected" | "rate_limited" | "env_limited" | "ip_blocked";
       url?: string;
+      runtimePolicy?: { browser?: { preferredModes?: string[] } };
     }) => ({
       ok: true,
       reasonCode: request.reasonCode,
-      mode: "managed_headed" as const,
+      mode: request.runtimePolicy?.browser?.preferredModes?.[0] === "extension"
+        ? "extension" as const
+        : "managed_headed" as const,
       output: {
         url: request.url ?? "https://www.facebook.com/search/top?q=browser%20automation",
-        html: `<html><body>fallback social content <a href="https://www.facebook.com/post/1">post</a></body></html>`
+        html: request.provider === "social/x"
+          ? `<html><body><main><article><a href="https://x.com/acct/status/123">Recovered X result</a></article></main></body></html>`
+          : request.provider === "social/bluesky"
+            ? `<html><body><main><article><a href="https://bsky.app/profile/alice.bsky.app/post/123">Recovered Bluesky result</a></article></main></body></html>`
+            : request.provider === "social/reddit"
+              ? `<html><body><main><article><a href="https://www.reddit.com/r/browserautomation/comments/abc123/runtime_fix/">Recovered Reddit result</a></article></main></body></html>`
+              : `<html><body>fallback social content <a href="https://www.facebook.com/post/1">post</a></body></html>`
       },
       details: {}
     }));
@@ -131,6 +177,19 @@ describe("social platform adapters", () => {
         .map((call) => call[0]?.provider)
         .filter((provider): provider is string => typeof provider === "string");
       expect(providers).toEqual(expect.arrayContaining(authBlockedProviders));
+
+      const fallbackCalls = new Map(
+        fallbackResolve.mock.calls
+          .map(([request]) => [request?.provider, request] as const)
+          .filter((
+            entry
+          ): entry is readonly [string, { runtimePolicy?: { browser?: { preferredModes?: string[] } } }] => typeof entry[0] === "string")
+      );
+      expect(fallbackCalls.get("social/x")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
+      expect(fallbackCalls.get("social/bluesky")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
+      expect(fallbackCalls.get("social/linkedin")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
+      expect(fallbackCalls.get("social/instagram")?.runtimePolicy?.browser?.preferredModes).toEqual(["managed_headed"]);
+      expect(fallbackCalls.get("social/reddit")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -162,6 +221,938 @@ describe("social platform adapters", () => {
             kind: "session_required",
             evidenceCode: "auth_required"
           }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back to browser retrieval for 200 auth-wall social pages when browser fallback is available", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string; preferredModes?: string[] }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
+        html: "<html><body><main>fallback social content</main><a href=\"https://www.linkedin.com/feed/update/urn:li:activity:1\">post</a></body></html>"
+      },
+      details: {}
+    }));
+
+    const fetchSpy = vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    }));
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records.length).toBeGreaterThan(0);
+      expect(result.failures).toHaveLength(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/linkedin",
+        reasonCode: "token_required",
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        })
+      }));
+      expect(fallbackResolve.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves helper execution metadata on successful linkedin browser fallback recovery", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string; preferredModes?: string[] }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
+        html: "<html><body><main>fallback social content</main></body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.attributes).toMatchObject({
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "token_required",
+        browser_fallback_cookie_diagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        browser_fallback_challenge_orchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves browser fallback metadata when linkedin recovery completes but the auth wall remains", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string; preferredModes?: string[] }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.linkedin.com/search/results/content/?keywords=browser%20automation&page=1",
+        html: "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "token_required",
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 2
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces non-completed linkedin fallback dispositions as provider failures", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "token_required" as const,
+      disposition: "challenge_preserved" as const,
+      details: {
+        message: "Browser fallback preserved a challenge session for LinkedIn."
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Browser fallback preserved a challenge session for LinkedIn.",
+        details: {
+          disposition: "challenge_preserved"
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/linkedin",
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces linkedin browser fallback timeouts as provider timeout failures", async () => {
+    const fallbackResolve = vi.fn(async () => {
+      throw new ProviderRuntimeError("timeout", "Browser fallback timed out after 25ms", {
+        provider: "social/linkedin",
+        source: "social",
+        retryable: true,
+        details: {
+          stage: "challenge_orchestration",
+          timeoutMs: 25
+        }
+      });
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Sign in | LinkedIn</title></head><body>Please sign in to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "timeout",
+        message: "Browser fallback timed out after 25ms",
+        details: {
+          stage: "challenge_orchestration",
+          timeoutMs: 25
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/linkedin",
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies X javascript-required search shells as render-required env-limited failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>X</title></head><body>JavaScript is disabled in this browser. Please enable JavaScript.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_js_required_shell",
+          blockerType: "env_limited",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_js_required_shell"
+          }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps usable X result links while omitting first-party search seed rows", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>(1) browser automation x - Search / X</title></head><body>",
+        "<main>",
+        "<p>JavaScript is disabled in this browser. Please enable JavaScript.</p>",
+        "<nav><a href=\"/search?q=browser+automation&f=live\">Top</a><a href=\"/search?q=browser+automation&f=live\">Latest</a></nav>",
+        "<article><a href=\"https://x.com/acct/status/1\">A real X post about browser automation</a></article>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records.map((record) => record.url)).toEqual(["https://x.com/acct/status/1"]);
+      expect(result.records[0]?.attributes.links).not.toContain("https://x.com/search?f=live&page=1&q=browser+automation");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps late-position X result links inside truncated search record attributes", async () => {
+    const fillerLinks = Array.from({ length: 24 }, (_, index) => `https://docs.example.com/browser-automation-${index + 1}`);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>(1) browser automation x - Search / X</title></head><body>",
+        "<main>",
+        "<p>JavaScript is disabled in this browser. Please enable JavaScript.</p>",
+        ...fillerLinks.map((link, index) => `<a href="${link}">Filler ${index + 1}</a>`),
+        "<article><a href=\"https://x.com/acct/status/999\">Late X result</a></article>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records.map((record) => record.url)).toEqual(["https://x.com/acct/status/999"]);
+      expect(result.records[0]?.attributes).toMatchObject({
+        retrievalPath: "social:search:index",
+        links: ["https://x.com/acct/status/999"]
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps X javascript-required search shells blocked when only policy and help links are present", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>(1) browser automation x - Search / X</title></head><body>",
+        "<main>",
+        "<p>JavaScript is disabled in this browser. Please enable JavaScript.</p>",
+        "<a href=\"https://x.com/privacy\">Privacy</a>",
+        "<a href=\"https://x.com/tos\">Terms</a>",
+        "<a href=\"https://t.co\">Shortener</a>",
+        "<a href=\"https://help.x.com/using-x/x-supported-browsers\">Help</a>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        providerShell: "social_js_required_shell"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps X javascript-required shells blocked when only first-party metadata links are present", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>(1) browser automation x - Search / X</title></head><body>",
+        "<main>",
+        "<p>JavaScript is not available. We’ve detected that JavaScript is disabled in this browser.</p>",
+        "<a href=\"https://x.com/os-x.xml\">OpenSearch</a>",
+        "<a href=\"https://x.com/manifest.json\">Manifest</a>",
+        "<a href=\"https://x.com/os-grok.xml\">Grok OpenSearch</a>",
+        "<a href=\"https://help.x.com/using-x/x-supported-browsers\">Help</a>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        providerShell: "social_js_required_shell"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("recovers X javascript-required search shells through extension-first browser fallback and preserves fallback metadata", async () => {
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      url?: string;
+      runtimePolicy?: { browser?: { preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: request.runtimePolicy?.browser?.preferredModes?.[0] === "extension"
+        ? "extension" as const
+        : "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://x.com/search?q=browser%20automation&f=live&page=1",
+        html: "<html><body><main><article><a href=\"https://x.com/acct/status/999\">X fallback content</a></article></main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>X</title></head><body>JavaScript is disabled in this browser. Please enable JavaScript.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records[0]?.url).toBe("https://x.com/acct/status/999");
+      expect(result.records[0]?.attributes).toMatchObject({
+        retrievalPath: "social:search:index",
+        links: ["https://x.com/acct/status/999"],
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "env_limited"
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/x",
+        reasonCode: "env_limited",
+        url: "https://x.com/search?f=live&page=1&q=browser+automation",
+        runtimePolicy: expect.objectContaining({
+          browser: expect.objectContaining({
+            preferredModes: ["extension", "managed_headed"]
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies Bluesky javascript-required search shells as render-required env-limited failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Bluesky</title></head><body>Bluesky JavaScript Required</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/bluesky"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_js_required_shell",
+          blockerType: "env_limited",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_js_required_shell"
+          }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps usable Bluesky result links while omitting first-party search seed rows", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Bluesky Search</title></head><body>",
+        "<main>",
+        "<p>Bluesky JavaScript Required</p>",
+        "<nav><a href=\"/search?q=browser+automation\">Top</a></nav>",
+        "<article><a href=\"https://bsky.app/profile/acct/post/1\">A real Bluesky post about browser automation</a></article>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/bluesky"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records.map((record) => record.url)).toEqual(["https://bsky.app/profile/acct/post/1"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps logged-out Bluesky search shells blocked when only feed and help links are present", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Explore - Bluesky</title></head><body>",
+        "<main>",
+        "<p>Search is currently unavailable when logged out</p>",
+        "<p>Bluesky JavaScript Required</p>",
+        "<a href=\"https://bsky.app/profile/trending.bsky.app/feed/665497821\">Trending feed</a>",
+        "<a href=\"https://blueskyweb.zendesk.com/hc/en-us\">Help</a>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/bluesky"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        providerShell: "social_js_required_shell"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps signed-in Bluesky empty search shells blocked when only shell navigation and profile links are present", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>bluesky search: browser automation bluesky</title></head><body>",
+        "<main>",
+        "<p>All languages Top Latest People Feeds Home Explore Notifications Chat Feeds Lists Saved Profile Settings New Post Discover Following Video More feeds</p>",
+        "<p>Follow 10 people to get started Find people to follow Trending 1. 2. 3. 4. 5.</p>",
+        "<a href=\"https://bsky.app/notifications\">Notifications</a>",
+        "<a href=\"https://bsky.app/messages\">Messages</a>",
+        "<a href=\"https://bsky.app/feeds\">Feeds</a>",
+        "<a href=\"https://bsky.app/lists\">Lists</a>",
+        "<a href=\"https://bsky.app/saved\">Saved</a>",
+        "<a href=\"https://bsky.app/profile/freshtechbro.bsky.social\">Profile</a>",
+        "<a href=\"https://bsky.app/settings\">Settings</a>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/bluesky"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        providerShell: "social_render_shell",
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "social_render_shell"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps signed-in Bluesky navigation-only search shells blocked when only profile and shell navigation links are present", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>bluesky search: browser automation bluesky</title></head><body>",
+        "<main>",
+        "<p>All languages Top Latest People Feeds Home Explore Notifications Chat Feeds Lists Saved Profile Settings New Post Feedback Privacy Terms Help</p>",
+        "<a href=\"https://bsky.app/notifications\">Notifications</a>",
+        "<a href=\"https://bsky.app/messages\">Messages</a>",
+        "<a href=\"https://bsky.app/feeds\">Feeds</a>",
+        "<a href=\"https://bsky.app/lists\">Lists</a>",
+        "<a href=\"https://bsky.app/saved\">Saved</a>",
+        "<a href=\"https://bsky.app/profile/freshtechbro.bsky.social\">Profile</a>",
+        "<a href=\"https://bsky.app/settings\">Settings</a>",
+        "</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/bluesky"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        providerShell: "social_render_shell",
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "social_render_shell"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves extension-first fallback metadata when Bluesky recovery completes but still returns a javascript shell", async () => {
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      url?: string;
+      runtimePolicy?: { browser?: { preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: request.runtimePolicy?.browser?.preferredModes?.[0] === "extension"
+        ? "extension" as const
+        : "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://bsky.app/search?q=browser%20automation&page=1",
+        html: "<html><head><title>Bluesky</title></head><body>Bluesky JavaScript Required</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Bluesky</title></head><body>Bluesky JavaScript Required</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/bluesky"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "env_limited",
+        providerShell: "social_js_required_shell"
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/bluesky",
+        runtimePolicy: expect.objectContaining({
+          browser: expect.objectContaining({
+            preferredModes: ["extension", "managed_headed"]
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies Reddit verification walls before search rows are returned and can still recover via fallback", async () => {
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      url?: string;
+      runtimePolicy?: { browser?: { preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: request.runtimePolicy?.browser?.preferredModes?.[0] === "extension"
+        ? "extension" as const
+        : "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation&page=1",
+        html: "<html><body><main><article><a href=\"https://www.reddit.com/r/browserautomation/comments/abc123/runtime_fix/\">Reddit fallback content</a></article></main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Reddit</title></head><body>Please wait for verification.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/reddit"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/reddit",
+        reasonCode: "challenge_detected",
+        url: "https://www.reddit.com/search?page=1&q=browser+automation&sort=relevance&t=all",
+        runtimePolicy: expect.objectContaining({
+          browser: expect.objectContaining({
+            preferredModes: ["extension", "managed_headed"]
+          })
+        })
+      }));
+      expect(result.records[0]?.url).toBe("https://www.reddit.com/r/browserautomation/comments/abc123/runtime_fix");
+      expect(result.records[0]?.attributes).toMatchObject({
+        retrievalPath: "social:search:index",
+        links: ["https://www.reddit.com/r/browserautomation/comments/abc123/runtime_fix"],
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "challenge_detected"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies Reddit help destinations as render-required env-limited failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://support.reddithelp.com/hc/en-us/articles/verification",
+      text: async () => "<html><head><title>Reddit Help</title></head><body>Verification help</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/reddit"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_first_party_help_shell",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_first_party_help_shell"
+          }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies direct Reddit non-content routes as render-required env-limited failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.reddit.com/submit",
+      text: async () => "<html><head><title>Submit to Reddit</title></head><body>Submit to Reddit</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/reddit"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_render_shell",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_render_shell"
+          }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not attempt browser recovery for instagram auth-wall pages that are already explicit session boundaries", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "token_required" as const,
+      mode: "managed_headed" as const,
+      output: {
+        url: "https://www.instagram.com/explore/search/keyword/?q=browser%20automation&page=1",
+        html: "<html><body>fallback social content</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Login • Instagram</title></head><body>Log in to see photos and videos from friends.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        { source: "social", providerIds: ["social/instagram"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        details: {
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      });
+      expect(fallbackResolve).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies 200 anti-bot social search pages before traversal rows are returned", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Security verification</title></head><body>Verify you're human to continue.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "social", providerIds: ["social/linkedin"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        details: {
+          blockerType: "anti_bot_challenge"
         }
       });
     } finally {
@@ -767,5 +1758,120 @@ describe("social platform adapters", () => {
       "https://x.com/acct/root",
       "https://x.com/acct/child"
     ]);
+  });
+
+  it("filters first-party help and home links out of social traversal expansions", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => ({
+      url: input.url,
+      title: "expanded",
+      content: "expanded"
+    }));
+    const provider = createSocialProvider("bluesky", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 4,
+        maxRecords: 5
+      },
+      search: async () => ([{
+        url: "https://bsky.app/search?q=browser+automation",
+        title: "search",
+        attributes: {
+          links: [
+            "https://atproto.com/guides/overview",
+            "https://bsky.social/about",
+            "https://bsky.app",
+            "https://bsky.app/profile/acct/post/1"
+          ]
+        }
+      }]),
+      fetch
+    });
+
+    const result = await provider.search?.({ query: "browser automation", limit: 5 }, context("bluesky-traversal-filter"));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://bsky.app/profile/acct/post/1"
+    }), expect.any(Object));
+    expect(result?.map((record) => record.url)).toEqual(["https://bsky.app/profile/acct/post/1"]);
+  });
+
+  it("prioritizes usable Bluesky result links before expansion slicing", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => ({
+      url: input.url,
+      title: "expanded",
+      content: "expanded"
+    }));
+    const provider = createSocialProvider("bluesky", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1,
+        maxRecords: 5
+      },
+      search: async () => ([{
+        url: "https://bsky.app/search?q=browser+automation",
+        title: "search",
+        attributes: {
+          links: [
+            "https://docs.example.com/browser-automation-1",
+            "https://docs.example.com/browser-automation-2",
+            "https://docs.example.com/browser-automation-3",
+            "https://bsky.app/profile/acct/post/9"
+          ]
+        }
+      }]),
+      fetch
+    });
+
+    const result = await provider.search?.({ query: "browser automation", limit: 5 }, context("bluesky-priority-slice"));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://bsky.app/profile/acct/post/9"
+    }), expect.any(Object));
+    expect(result?.map((record) => record.url)).toEqual(["https://bsky.app/profile/acct/post/9"]);
+  });
+
+  it("filters Reddit non-content and auth expansion links out of social traversal expansions", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => ({
+      url: input.url,
+      title: "expanded",
+      content: "expanded"
+    }));
+    const provider = createSocialProvider("reddit", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 8,
+        maxRecords: 6
+      },
+      search: async () => ([{
+        url: "https://www.reddit.com/search/?q=browser+automation",
+        title: "search",
+        attributes: {
+          links: [
+            "https://accounts.google.com/gsi/style",
+            "https://ads.reddit.com/register",
+            "https://www.reddit.com/submit",
+            "https://www.reddit.com/account/login",
+            "https://www.reddit.com/ads/library",
+            "https://www.reddit.com/notifications",
+            "https://www.reddit.com/verification",
+            "https://www.reddit.com/r/test/comments/abc123/thread/"
+          ]
+        }
+      }]),
+      fetch
+    });
+
+    const result = await provider.search?.({ query: "browser automation", limit: 6 }, context("reddit-traversal-filter"));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://www.reddit.com/r/test/comments/abc123/thread"
+    }), expect.any(Object));
+    expect(result?.map((record) => record.url)).toEqual(["https://www.reddit.com/r/test/comments/abc123/thread"]);
   });
 });

@@ -113,6 +113,34 @@ export class TargetManager {
     return page;
   }
 
+  replacePage(targetId: string, page: Page): void {
+    const previousName = this.targetToName.get(targetId) ?? null;
+
+    for (const [existingTargetId, existingPage] of this.targets.entries()) {
+      if (existingTargetId === targetId || existingPage !== page) {
+        continue;
+      }
+      this.targets.delete(existingTargetId);
+      const existingName = this.targetToName.get(existingTargetId) ?? null;
+      if (existingName) {
+        this.nameToTarget.delete(existingName);
+        this.targetToName.delete(existingTargetId);
+        if (!previousName) {
+          this.nameToTarget.set(existingName, targetId);
+          this.targetToName.set(targetId, existingName);
+        }
+      }
+      if (this.activeTargetId === existingTargetId) {
+        this.activeTargetId = targetId;
+      }
+    }
+
+    this.targets.set(targetId, page);
+    if (!this.activeTargetId) {
+      this.activeTargetId = targetId;
+    }
+  }
+
   async listTargets(includeUrls = false): Promise<TargetInfo[]> {
     const entries = Array.from(this.targets.entries());
     return Promise.all(entries.map(async ([targetId, page]) => {

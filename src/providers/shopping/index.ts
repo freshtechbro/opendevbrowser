@@ -1,4 +1,12 @@
 import { classifyBlockerSignal } from "../blocker";
+import {
+  browserFallbackObservationDetails,
+  browserFallbackObservationAttributes,
+  readFallbackString,
+  resolveProviderBrowserFallback,
+  toBrowserFallbackObservation,
+  toProviderFallbackError
+} from "../browser-fallback";
 import { applyProviderIssueHint, classifyProviderIssue } from "../constraint";
 import { providerErrorCodeFromReasonCode, ProviderRuntimeError, toProviderError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
@@ -6,6 +14,8 @@ import { providerRequestHeaders } from "../shared/request-headers";
 import { canonicalizeUrl } from "../web/crawler";
 import { extractStructuredContent, extractText, toSnippet } from "../web/extract";
 import type {
+  BrowserFallbackMode,
+  BrowserFallbackObservation,
   JsonValue,
   NormalizedRecord,
   ProviderAdapter,
@@ -14,6 +24,7 @@ import type {
   ProviderErrorCode,
   ProviderFetchInput,
   ProviderHealth,
+  ProviderRecoveryHints,
   ProviderReasonCode,
   ProviderSearchInput
 } from "../types";
@@ -21,6 +32,7 @@ import type {
 const SHOPPING_SOURCE = "shopping" as const;
 const DEFAULT_CURRENCY = "USD";
 const DEFAULT_RECOVERABLE_SHOPPING_FETCH_TIMEOUT_MS = 15_000;
+const DEFAULT_SHOPPING_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
 
 export type ShoppingProviderName =
   | "amazon"
@@ -46,6 +58,15 @@ export interface ShoppingProviderProfile {
   extractionFocus: string;
   legalReview: ProviderLegalReviewChecklist;
   searchPath: (query: string) => string;
+}
+
+export interface ShoppingRegionSupportDiagnostic {
+  provider: string;
+  requestedRegion: string;
+  enforced: boolean;
+  strategy: "default_storefront";
+  storefrontDomain: string | null;
+  reason: "provider_search_path_ignores_region";
 }
 
 export interface ProviderLegalReviewChecklist {
@@ -88,6 +109,7 @@ interface ShoppingFetchRecord {
   status: number;
   url: string;
   html: string;
+  browserFallback?: BrowserFallbackObservation;
 }
 
 interface ShoppingSearchCandidate {
@@ -96,13 +118,23 @@ interface ShoppingSearchCandidate {
   text: string;
   brand?: string;
   imageUrl?: string;
-  price?: {
-    amount: number;
-    currency: string;
-  };
+  price?: ResolvedShoppingPrice;
   rating?: number;
   reviews?: number;
   availability?: "in_stock" | "limited" | "out_of_stock" | "unknown";
+}
+
+type ShoppingPriceSource =
+  | "structured_metadata"
+  | "search_card_context"
+  | "search_title_inline"
+  | "unresolved";
+
+interface ResolvedShoppingPrice {
+  amount: number;
+  currency: string;
+  source: ShoppingPriceSource;
+  trustworthy: boolean;
 }
 
 export type ShoppingFetcher = (args: {
@@ -267,6 +299,27 @@ export const SHOPPING_PROVIDER_PROFILES: ShoppingProviderProfile[] = [
 
 export const SHOPPING_PROVIDER_IDS = SHOPPING_PROVIDER_PROFILES.map((profile) => profile.id);
 
+export const getShoppingRegionSupportDiagnostics = (
+  providerIds: string[],
+  region: string
+): ShoppingRegionSupportDiagnostic[] => {
+  const requestedRegion = region.trim().toLowerCase();
+  if (!requestedRegion) {
+    return [];
+  }
+  return providerIds.map((providerId) => {
+    const profile = SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === providerId);
+    return {
+      provider: providerId,
+      requestedRegion,
+      enforced: false,
+      strategy: "default_storefront",
+      storefrontDomain: profile?.domains[0] ?? null,
+      reason: "provider_search_path_ignores_region"
+    };
+  });
+};
+
 const hasValues = (values: string[]): boolean => values.some((value) => value.trim().length > 0);
 
 const parseIsoDate = (value: string): number => {
@@ -328,83 +381,73 @@ const bindRecoverableFetchSignal = (
   };
 };
 
-const readFallbackString = (output: Record<string, JsonValue> | undefined, key: "html" | "url"): string | undefined => {
-  const value = output?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-};
+const buildShoppingRecoveryHints = (profile: ShoppingProviderProfile): ProviderRecoveryHints => ({
+  preferredFallbackModes: DEFAULT_SHOPPING_FALLBACK_MODES,
+  highFrictionTarget: profile.name === "temu" || profile.name === "target",
+  challengeProne: profile.name === "temu" || profile.name === "target" || profile.name === "bestbuy",
+  settleTimeoutMs: 15000,
+  captureDelayMs: 2000
+});
 
 const resolveBrowserFallback = async (args: {
   error: ProviderRuntimeError;
   url: string;
   provider: string;
   operation: "search" | "fetch";
+  recoveryHints: ProviderRecoveryHints;
   context?: ProviderContext;
-}): Promise<ShoppingFetchRecord | null> => {
-  const fallbackPort = args.context?.browserFallbackPort;
-  if (!fallbackPort) return null;
-
+}): Promise<{
+  record: ShoppingFetchRecord | null;
+  failure?: ProviderRuntimeError;
+}> => {
   const normalized = toProviderError(args.error, {
     provider: args.provider,
     source: SHOPPING_SOURCE
   });
   const reasonCode = fallbackReasonCodeForError(normalized);
 
-  const fallback = await fallbackPort.resolve({
+  const fallback = await resolveProviderBrowserFallback({
+    browserFallbackPort: args.context?.browserFallbackPort,
     provider: args.provider,
     source: SHOPPING_SOURCE,
     operation: args.operation,
     reasonCode,
-    // Shopping browser recovery should prefer managed headed first now that
-    // managed sessions can reuse the user's Chrome cookies directly. This
-    // avoids leaning on legacy extension /cdp attach for JS-heavy search pages.
-    preferredModes: ["managed_headed", "extension"],
-    trace: args.context?.trace ?? {
-      requestId: `shopping-fallback-${Date.now()}`,
-      provider: args.provider,
-      ts: new Date().toISOString()
-    },
     url: args.url,
-    timeoutMs: args.context?.timeoutMs,
-    signal: args.context?.signal,
+    context: args.context,
     details: {
       errorCode: normalized.code,
       message: normalized.message,
       ...(normalized.details ?? {})
     },
-    ...(typeof args.context?.useCookies === "boolean" ? { useCookies: args.context.useCookies } : {}),
-    ...(args.context?.cookiePolicyOverride ? { cookiePolicyOverride: args.context.cookiePolicyOverride } : {})
+    recoveryHints: args.recoveryHints
   });
-  if (!fallback.ok) {
+  if (!fallback) {
+    return { record: null };
+  }
+  if (fallback.disposition !== "completed") {
+    const failure = toProviderFallbackError({
+      provider: args.provider,
+      source: SHOPPING_SOURCE,
+      url: args.url,
+      fallback
+    });
     if (fallback.reasonCode !== "env_limited") {
-      throw new ProviderRuntimeError(
-        fallback.reasonCode === "token_required" || fallback.reasonCode === "auth_required"
-          ? "auth"
-          : fallback.reasonCode === "rate_limited"
-            ? "rate_limited"
-            : "unavailable",
-        typeof fallback.details?.message === "string"
-          ? fallback.details.message
-          : `Browser fallback failed for ${args.url}`,
-        {
-          provider: args.provider,
-          source: SHOPPING_SOURCE,
-          retryable: fallback.reasonCode === "rate_limited",
-          reasonCode: fallback.reasonCode,
-          details: {
-            url: args.url,
-            ...(fallback.details ?? {})
-          }
-        }
-      );
+      throw failure;
     }
-    return null;
+    return {
+      record: null,
+      failure
+    };
   }
 
   const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
   return {
-    status: 200,
-    url: resolvedUrl,
-    html: readFallbackString(fallback.output, "html") ?? ""
+    record: {
+      status: 200,
+      url: resolvedUrl,
+      html: readFallbackString(fallback.output, "html") ?? "",
+      browserFallback: toBrowserFallbackObservation(fallback)
+    }
   };
 };
 
@@ -445,10 +488,12 @@ export const validateShoppingLegalReviewChecklist = (
 const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operation, context }) => {
   const providerId = provider;
   const profile = getShoppingProviderProfile(providerId) ?? SHOPPING_PROVIDER_PROFILES.at(-1)!;
+  const recoveryHints = buildShoppingRecoveryHints(profile);
   const buildSurfaceIssueError = (
     responseUrl: string,
     issue: ReturnType<typeof classifyProviderIssue>,
-    details: Record<string, JsonValue>
+    details: Record<string, JsonValue>,
+    browserFallback?: BrowserFallbackObservation
   ): ProviderRuntimeError => {
     /* c8 ignore next -- browser-assistance classification always returns a reasonCode when issue is present */
     const reasonCode = issue?.reasonCode ?? "env_limited";
@@ -465,14 +510,18 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
         source: SHOPPING_SOURCE,
         retryable: reasonCode === "env_limited",
         reasonCode,
-        details: applyProviderIssueHint(details, issue)
+        details: {
+          ...applyProviderIssueHint(details, issue),
+          ...browserFallbackObservationDetails(browserFallback)
+        }
       }
     );
   };
   const detectFetchedPageError = (
     responseUrl: string,
     status: number,
-    html: string
+    html: string,
+    browserFallback?: BrowserFallbackObservation
   ): ProviderRuntimeError | null => {
     const extracted = extractStructuredContent(html, responseUrl);
     const message = toSnippet(
@@ -505,7 +554,8 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
           blockerType: blocker.type,
           blockerConfidence: blocker.confidence,
           ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-          reasonCode: blocker.reasonCode ?? "env_limited"
+          reasonCode: blocker.reasonCode ?? "env_limited",
+          ...browserFallbackObservationDetails(browserFallback)
         }
       });
     }
@@ -530,25 +580,57 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       providerShell: requirement.reason,
       ...(requirement.title ? { title: requirement.title } : {}),
       ...(requirement.message ? { message: requirement.message } : {})
-    });
+    }, browserFallback);
   };
-  const resolveFallbackOrThrow = async (error: ProviderRuntimeError): Promise<ShoppingFetchRecord> => {
+  const resolveFallbackOrThrow = async (
+    error: ProviderRuntimeError,
+    options?: { preserveFallbackFailure?: boolean }
+  ): Promise<ShoppingFetchRecord> => {
     const fallback = await resolveBrowserFallback({
       error,
       url,
       provider: providerId,
       operation,
+      recoveryHints,
       context
     });
-    if (fallback) {
-      const fallbackError = detectFetchedPageError(fallback.url, fallback.status, fallback.html);
+    if (fallback.record) {
+      const fallbackError = detectFetchedPageError(
+        fallback.record.url,
+        fallback.record.status,
+        fallback.record.html,
+        fallback.record.browserFallback
+      );
       if (fallbackError) {
         throw fallbackError;
       }
-      return fallback;
+      return fallback.record;
+    }
+    if (options?.preserveFallbackFailure && fallback.failure) {
+      throw fallback.failure;
     }
     throw error;
   };
+
+  if (context?.runtimePolicy?.browser.forceTransport) {
+    return resolveFallbackOrThrow(
+      new ProviderRuntimeError(
+        "unavailable",
+        `Explicit browser transport requested for ${url}`,
+        {
+          provider: providerId,
+          source: SHOPPING_SOURCE,
+          retryable: true,
+          reasonCode: "env_limited",
+          details: {
+            url,
+            stage: `${operation}:forced_browser_transport`
+          }
+        }
+      ),
+      { preserveFallbackFailure: true }
+    );
+  }
 
   let response: Response;
   const rawFetchSignal = bindRecoverableFetchSignal(signal, resolveRecoverableFetchTimeoutMs(context));
@@ -632,8 +714,12 @@ const PRICE_SYMBOL_RE = /([$€£])\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1
 const PRICE_CODE_RE = /\b(USD|CAD|EUR|GBP)\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/i;
 const RATING_RE = /([0-5](?:\.[0-9])?)\s*(?:out of 5|\/5)/i;
 const REVIEWS_RE = /([0-9][0-9,]*)\s*(?:ratings|reviews)/i;
+const FETCH_TEXT_PRICE_TOKEN_RE = /(?:\b(?:USD|CAD|EUR|GBP)\s*[0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?|[$€£]\s*[0-9]{1,4}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)/gi;
+const FETCH_TEXT_PRICE_NEGATIVE_PREFIX_RE = /\b(?:customer review|reviews?|ratings?|stars?)\b/i;
+const FETCH_TEXT_PRICE_MAX_PREFIX_CHARS = 180;
 const ANCHOR_RE = /<a\b([^>]*?)href\s*=\s*(?:(["'])(.*?)\2|([^\s>]+))([^>]*)>([\s\S]*?)<\/a>/gi;
 const NEWEGG_CARD_RE = /<div class="item-cell"[\s\S]*?(?=<div class="item-cell"|$)/gi;
+const EBAY_CARD_RE = /<li\b[^>]*class=(["'])[^"']*\bs-card\b[^"']*\1[^>]*>[\s\S]*?<\/li>/gi;
 const GENERIC_NOISE_TITLE_RE = /^(quick view|previous page|next page|home|compare|\([0-9][0-9,]*\))$/i;
 const GENERIC_NOISE_URL_RE = /(?:\/(?:p\/pl|s(?:earch)?|signin|login|orders|cart|promotions|clearance|brandstore)\b|#IsFeedbackTab\b|\/Product\/RSS\b|[?&](?:page|k|d|n)=)/i;
 const DEFAULT_PRODUCT_URL_HINT_RE = /(?:\/dp\/|\/gp\/product\/|\/p\/[a-z0-9-]+|\/product(?:s)?\/|\/item(?:[/?-]|$)|\/sku\/)/i;
@@ -735,6 +821,59 @@ const parsePrice = (text: string): { amount: number; currency: string } => {
   return {
     amount: Number.isFinite(amount) ? amount : 0,
     currency
+  };
+};
+
+const resolveFetchTextPrice = (text: string): ResolvedShoppingPrice | undefined => {
+  const normalized = normalizePriceText(text);
+  for (const match of normalized.matchAll(FETCH_TEXT_PRICE_TOKEN_RE)) {
+    const token = match[0]?.trim();
+    const index = match.index ?? -1;
+    if (!token || index < 0 || index > FETCH_TEXT_PRICE_MAX_PREFIX_CHARS) {
+      continue;
+    }
+    if (FETCH_TEXT_PRICE_NEGATIVE_PREFIX_RE.test(normalized.slice(0, index))) {
+      continue;
+    }
+    const price = parsePrice(token);
+    if (price.amount <= 0) {
+      continue;
+    }
+    return {
+      ...price,
+      source: "search_card_context",
+      trustworthy: false
+    };
+  }
+  return undefined;
+};
+
+const resolvePrice = (
+  primaryText: string,
+  ...fallbackTexts: string[]
+): ResolvedShoppingPrice => {
+  const primary = parsePrice(primaryText);
+  if (primary.amount > 0) {
+    return {
+      ...primary,
+      source: "search_card_context",
+      trustworthy: true
+    };
+  }
+  for (const fallbackText of fallbackTexts) {
+    const fallback = parsePrice(fallbackText);
+    if (fallback.amount > 0) {
+      return {
+        ...fallback,
+        source: "search_title_inline",
+        trustworthy: true
+      };
+    }
+  }
+  return {
+    ...primary,
+    source: "unresolved",
+    trustworthy: false
   };
 };
 
@@ -1000,6 +1139,15 @@ const dedupeCandidates = (candidates: ShoppingSearchCandidate[], limit: number):
   return [...deduped.values()];
 };
 
+const toSearchCandidatePrice = (
+  price: { amount: number; currency: string },
+  source: ShoppingPriceSource = "search_card_context"
+): ResolvedShoppingPrice => ({
+  ...price,
+  source,
+  trustworthy: price.amount > 0
+});
+
 const extractNeweggSearchCandidates = (
   html: string,
   baseUrl: string,
@@ -1041,9 +1189,56 @@ const extractNeweggSearchCandidates = (
       text,
       ...(brand ? { brand: extractText(brand) } : {}),
       ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
-      ...(price.amount > 0 ? { price } : {}),
+      ...(price.amount > 0 ? { price: toSearchCandidatePrice(price) } : {}),
       ...(Number.isFinite(rating) && rating > 0 ? { rating } : {}),
       ...(Number.isFinite(reviews) && reviews > 0 ? { reviews } : {}),
+      availability
+    });
+    if (candidates.length >= limit) break;
+  }
+  return dedupeCandidates(candidates, limit);
+};
+
+const extractEbaySearchCandidates = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile,
+  limit: number
+): ShoppingSearchCandidate[] => {
+  const candidates: ShoppingSearchCandidate[] = [];
+  for (const match of html.matchAll(EBAY_CARD_RE)) {
+    const cardHtml = match[0];
+    const linkAnchor = findAnchorByClass(cardHtml, "s-card__link");
+    if (!linkAnchor?.href) continue;
+
+    const url = normalizeCandidateUrl(linkAnchor.href, baseUrl, profile);
+    if (!url || !isLikelyProductUrl(url, profile)) continue;
+
+    const titleHtml = /<(?:div|span)\b[^>]*class=(["'])[^"']*\bs-card__title\b[^"']*\1[^>]*>([\s\S]*?)<\/(?:div|span)>/i.exec(cardHtml)?.[2]
+      ?? linkAnchor.innerHtml;
+    const title = extractText(titleHtml).replace(/\bOpens in a new window or tab\b/gi, "").trim()
+      || readAttribute(linkAnchor.tag, "aria-label")
+      || readAttribute(linkAnchor.tag, "title");
+    if (!title || title.length < 20 || GENERIC_NOISE_TITLE_RE.test(title) || isPriceOnlyTitle(title)) continue;
+
+    const text = toSnippet(extractText(cardHtml), 2000);
+    const priceFragment = /<(?:div|span)\b[^>]*class=(["'])[^"']*\bs-card__price\b[^"']*\1[^>]*>([\s\S]*?)<\/(?:div|span)>/i.exec(cardHtml)?.[2]
+      ?? text;
+    const price = parsePrice(priceFragment);
+    const rating = parseRating(text);
+    const reviews = parseReviews(text);
+    const imageUrl = /<img\b[^>]*class=(["'])[^"']*\bs-card__image\b[^"']*\1[^>]*src=(["'])(.*?)\2/i.exec(cardHtml)?.[3]
+      ?? /<img\b[^>]*src=(["'])(.*?)\1/i.exec(cardHtml)?.[2];
+    const availability = parseAvailability(text);
+
+    candidates.push({
+      url,
+      title,
+      text,
+      ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
+      ...(price.amount > 0 ? { price: toSearchCandidatePrice(price) } : {}),
+      ...(rating > 0 ? { rating } : {}),
+      ...(reviews > 0 ? { reviews } : {}),
       availability
     });
     if (candidates.length >= limit) break;
@@ -1075,7 +1270,7 @@ const extractGenericSearchCandidates = (
     const start = Math.max(0, matchIndex - 400);
     const end = Math.min(html.length, matchIndex + inner.length + 1800);
     const context = toSnippet(extractText(html.slice(start, end)), 1800);
-    const price = parsePrice(context);
+    const price = resolvePrice(context, title);
     const rating = parseRating(context);
     const reviews = parseReviews(context);
     const imageUrl = /<img\b[^>]*src=(["'])(.*?)\1/i.exec(inner)?.[2];
@@ -1102,6 +1297,10 @@ const extractSearchCandidates = (
   profile: ShoppingProviderProfile,
   limit: number
 ): ShoppingSearchCandidate[] => {
+  if (profile.name === "ebay") {
+    const ebay = extractEbaySearchCandidates(html, baseUrl, profile, limit);
+    if (ebay.length > 0) return ebay;
+  }
   if (profile.name === "newegg") {
     const newegg = extractNeweggSearchCandidates(html, baseUrl, profile, limit);
     if (newegg.length > 0) return newegg;
@@ -1134,12 +1333,20 @@ const deriveOfferAttributes = (args: {
     amount: number;
     currency: string;
   };
+  priceSource?: ShoppingPriceSource;
+  priceIsTrustworthy?: boolean;
   rating?: number;
   reviews?: number;
   availability?: "in_stock" | "limited" | "out_of_stock" | "unknown";
+  allowTextPriceFallback?: boolean;
 }): Record<string, JsonValue> => {
   const nowIso = new Date().toISOString();
-  const price = args.price ?? parsePrice(args.text);
+  const fallbackPrice = args.allowTextPriceFallback === false ? { amount: 0, currency: DEFAULT_CURRENCY } : parsePrice(args.text);
+  const price = args.price ?? fallbackPrice;
+  const priceSource = price.amount > 0
+    ? (args.priceSource ?? (args.price ? "structured_metadata" : "search_card_context"))
+    : "unresolved";
+  const priceIsTrustworthy = args.priceIsTrustworthy ?? Boolean(args.price);
   const rating = args.rating ?? parseRating(args.text);
   const reviews = args.reviews ?? parseReviews(args.text);
   const availability = args.availability ?? parseAvailability(args.text);
@@ -1159,6 +1366,8 @@ const deriveOfferAttributes = (args: {
         currency: price.currency,
         retrieved_at: nowIso
       },
+      price_source: priceSource,
+      price_is_trustworthy: priceIsTrustworthy,
       shipping: {
         amount: 0,
         currency: price.currency,
@@ -1292,13 +1501,21 @@ const createDefaultSearch = (
           rank: index + 1,
           ...(candidate.brand ? { brand: candidate.brand } : {}),
           ...(candidate.imageUrl ? { imageUrl: candidate.imageUrl } : {}),
-          ...(candidate.price ? { price: candidate.price } : {}),
+          ...(candidate.price ? {
+            price: {
+              amount: candidate.price.amount,
+              currency: candidate.price.currency
+            },
+            priceSource: candidate.price.source,
+            priceIsTrustworthy: candidate.price.trustworthy
+          } : {}),
           ...(candidate.rating ? { rating: candidate.rating } : {}),
           ...(candidate.reviews ? { reviews: candidate.reviews } : {}),
-          ...(candidate.availability ? { availability: candidate.availability } : {})
+          availability: candidate.availability ?? "unknown"
         }),
         rank: index + 1,
-        retrievalPath: "shopping:search:result-card"
+        retrievalPath: "shopping:search:result-card",
+        ...browserFallbackObservationAttributes(fetched.browserFallback)
       }
     }));
   }
@@ -1309,20 +1526,21 @@ const createDefaultSearch = (
       providerErrorCodeFromReasonCode(reasonCode),
       reasonCode === "token_required"
         ? `Authentication required for ${fetched.url}`
-        : reasonCode === "challenge_detected"
-          ? `Detected anti-bot challenge while retrieving ${fetched.url}`
-          : `Browser assistance required for ${fetched.url}`,
+        : `Detected anti-bot challenge while retrieving ${fetched.url}`,
       {
         provider: providerId,
         source: SHOPPING_SOURCE,
         retryable: reasonCode === "env_limited",
         reasonCode,
-        details: applyProviderIssueHint({
-          status: fetched.status,
-          url: fetched.url,
-          ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-          ...(content ? { message: content } : {})
-        }, pageIssue)
+        details: {
+          ...applyProviderIssueHint({
+            status: fetched.status,
+            url: fetched.url,
+            ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
+            ...(content ? { message: content } : {})
+          }, pageIssue),
+          ...browserFallbackObservationDetails(fetched.browserFallback)
+        }
       }
     );
   }
@@ -1346,7 +1564,7 @@ const createDefaultSearch = (
         retrievalPath: isHttpUrl(query) ? "shopping:search:url" : "shopping:search:index",
         ...(pageIssue ? { reasonCode: pageIssue.reasonCode } : {}),
         ...(pageIssue?.blockerType ? { blockerType: pageIssue.blockerType } : {}),
-        ...(pageIssue?.constraint ? { constraint: pageIssue.constraint } : {})
+        ...browserFallbackObservationAttributes(fetched.browserFallback)
       }
     }
   ];
@@ -1368,6 +1586,14 @@ const createDefaultFetch = (
   });
   const extracted = extractStructuredContent(fetched.html, fetched.url);
   const title = toSnippet(extracted.text, 120) || fetched.url;
+  const extractedPrice = extracted.metadata.price
+    ? {
+      amount: extracted.metadata.price.amount,
+      currency: extracted.metadata.price.currency,
+      source: "structured_metadata" as const,
+      trustworthy: true
+    }
+    : resolveFetchTextPrice(extracted.text);
 
   return {
     url: fetched.url,
@@ -1382,17 +1608,24 @@ const createDefaultFetch = (
         rank: 1,
         ...(extracted.metadata.brand ? { brand: extracted.metadata.brand } : {}),
         ...(extracted.metadata.imageUrls.length > 0 ? { imageUrls: extracted.metadata.imageUrls } : {}),
-        ...(extracted.metadata.price ? {
+        ...(extractedPrice ? {
           price: {
-            amount: extracted.metadata.price.amount,
-            currency: extracted.metadata.price.currency
-          }
-        } : {})
+            amount: extractedPrice.amount,
+            currency: extractedPrice.currency
+          },
+          priceSource: extractedPrice.source,
+          priceIsTrustworthy: extractedPrice.trustworthy
+        } : {
+          priceSource: "unresolved" as const,
+          priceIsTrustworthy: false
+        }),
+        allowTextPriceFallback: false
       }),
       status: fetched.status,
       links: dedupeLinks(extracted.links, 30),
       selectors: extracted.selectors,
-      retrievalPath: "shopping:fetch:url"
+      retrievalPath: "shopping:fetch:url",
+      ...browserFallbackObservationAttributes(fetched.browserFallback)
     }
   };
 };
@@ -1419,6 +1652,7 @@ export const createShoppingProvider = (
       const row = await fetch(input, context);
       return [normalizeRecord(providerId, SHOPPING_SOURCE, row)];
     },
+    recoveryHints: () => buildShoppingRecoveryHints(profile),
     health: async () => resolveHealth(),
     capabilities: () => buildCapabilities(profile, providerId)
   };

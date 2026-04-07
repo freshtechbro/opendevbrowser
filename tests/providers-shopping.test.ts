@@ -5,11 +5,13 @@ import {
   createShoppingProvider,
   createShoppingProviderById,
   createShoppingProviders,
+  getShoppingRegionSupportDiagnostics,
   validateLegalReviewChecklist,
   validateShoppingLegalReviewChecklist,
   type ShoppingProviderProfile
 } from "../src/providers/shopping";
 import { ProviderRuntimeError } from "../src/providers/errors";
+import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
 
 const context = {
   trace: { requestId: "shopping-test", ts: "2026-02-16T00:00:00.000Z" },
@@ -123,6 +125,18 @@ describe("shopping providers", () => {
     expect(() => createShoppingProviderById("shopping/unknown")).toThrow(ProviderRuntimeError);
   });
 
+  it("exposes extension-first recovery hints for shopping providers", () => {
+    expect(createShoppingProviderById("shopping/target").recoveryHints?.()).toMatchObject({
+      preferredFallbackModes: ["extension", "managed_headed"]
+    });
+    expect(createShoppingProviderById("shopping/costco").recoveryHints?.()).toMatchObject({
+      preferredFallbackModes: ["extension", "managed_headed"]
+    });
+    expect(createShoppingProviderById("shopping/amazon").recoveryHints?.()).toMatchObject({
+      preferredFallbackModes: ["extension", "managed_headed"]
+    });
+  });
+
   it("normalizes search and fetch records with shopping_offer metadata", async () => {
     const provider = createShoppingProvider(amazonProfile, {
       fetcher: async ({ url }) => ({
@@ -187,7 +201,132 @@ describe("shopping providers", () => {
       price: {
         amount: 59.99,
         currency: "USD"
-      }
+      },
+      price_source: "structured_metadata",
+      price_is_trustworthy: true
+    });
+  });
+
+  it("keeps fetch pricing at zero when a PDP only exposes review-body dollar amounts", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head>
+              <title>Wireless Earbuds Ultra</title>
+            </head>
+            <body>
+              <main>
+                Wireless Earbuds Ultra deliver active noise cancellation and all-day comfort.
+                Customer review: I actually prefer my knockoff $70 earbuds for music.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0REVIEW701" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/amazon",
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false
+    });
+  });
+
+  it("keeps fetch pricing at zero when an early customer-review prefix reaches a dollar amount", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <body>
+              <main>
+                Customer review: $70 sounded fair for the backup pair, but Wireless Earbuds Ultra is the actual product page.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0REVIEW702" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false
+    });
+  });
+
+  it("keeps fetch pricing at zero when the first PDP price token appears beyond the bounded prefix window", async () => {
+    const intro = "Wireless Earbuds Ultra deliver active noise cancellation and all-day comfort. ".repeat(4);
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <body>
+              <main>
+                ${intro}
+                Buy now for $129.99 after reading the full feature summary.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0LONGPREFIX" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false
+    });
+  });
+
+  it("recovers a PDP text price when metadata is absent and the first price token appears early", async () => {
+    const provider = createShoppingProvider(amazonProfile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <body>
+              <main>
+                $129.99 Wireless Earbuds Ultra deliver active noise cancellation and all-day comfort.
+              </main>
+            </body>
+          </html>
+        `
+      })
+    });
+
+    const records = await provider.fetch?.({ url: "https://www.amazon.com/dp/B0TEXTPRICE" }, context);
+
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 129.99,
+        currency: "USD"
+      },
+      price_source: "search_card_context",
+      price_is_trustworthy: false
     });
   });
 
@@ -260,6 +399,31 @@ describe("shopping providers", () => {
       rating: 4.7,
       reviews_count: 81
     });
+  });
+
+  it("returns no region support diagnostics when the requested region is blank", () => {
+    expect(getShoppingRegionSupportDiagnostics(["shopping/walmart"], "   ")).toEqual([]);
+  });
+
+  it("fills storefront domains only for known providers in region support diagnostics", () => {
+    expect(getShoppingRegionSupportDiagnostics(["shopping/walmart", "shopping/unknown"], "us")).toEqual([
+      {
+        provider: "shopping/walmart",
+        requestedRegion: "us",
+        enforced: false,
+        strategy: "default_storefront",
+        storefrontDomain: "walmart.com",
+        reason: "provider_search_path_ignores_region"
+      },
+      {
+        provider: "shopping/unknown",
+        requestedRegion: "us",
+        enforced: false,
+        strategy: "default_storefront",
+        storefrontDomain: null,
+        reason: "provider_search_path_ignores_region"
+      }
+    ]);
   });
 
   it("maps auth/rate-limit/unavailable status codes through the default fetcher", async () => {
@@ -736,6 +900,63 @@ describe("shopping providers", () => {
     }
   });
 
+  it("preserves helper execution metadata on successful shopping browser fallback recovery", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://amazon.com/s?k=wireless%20mouse",
+        html: "<html><body><main>fallback shopping content</main><a href=\"https://amazon.com/product/1\">item</a></body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(rows?.[0]?.attributes).toMatchObject({
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "env_limited",
+        browser_fallback_cookie_diagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        browser_fallback_challenge_orchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("maps token-required browser fallback failures to auth errors", async () => {
     const provider = createShoppingProvider(amazonProfile);
 
@@ -1058,6 +1279,80 @@ describe("shopping providers", () => {
     }
   });
 
+  it("falls back to a walmart title price when inline-style noise truncates the generic context window", async () => {
+    const noisyPrefix = "inline noise ".repeat(220);
+    const provider = createShoppingProviderById("shopping/walmart", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div>
+              <a href="/ip/Apple-16-MacBook-Pro-with-M4-Max-Chip-14-Core-CPU-32-Core-GPU-36GB-Memory-1TB-SSD-Space-Black-2024/13733910451?classType=VARIANT&amp;from=/search">
+                <span>${noisyPrefix}</span>
+                <span>
+                  <h3>Apple 16" MacBook Pro with M4 Max Chip 14-Core CPU / 32-Core GPU, 36GB Memory, 1TB SSD, Space Black, 2024 $3,499.00</h3>
+                </span>
+              </a>
+              <div>4.7 out of 5 81 reviews in stock</div>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.walmart.com/ip/Apple-16-MacBook-Pro-with-M4-Max-Chip-14-Core-CPU-32-Core-GPU-36GB-Memory-1TB-SSD-Space-Black-2024/13733910451?classType=VARIANT&from=%2Fsearch"
+    });
+    expect(rows?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/walmart",
+      price: {
+        amount: 3499,
+        currency: "USD"
+      },
+      price_source: "search_title_inline",
+      price_is_trustworthy: true
+    });
+  });
+
+  it("keeps a zero price when both walmart context and title miss a dollar amount", async () => {
+    const noisyStyle = "background:blue;".repeat(400);
+    const provider = createShoppingProviderById("shopping/walmart", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div style="${noisyStyle}">
+              <a href="/ip/Apple-16-MacBook-Pro-with-M4-Max-Chip-14-Core-CPU-32-Core-GPU-36GB-Memory-1TB-SSD-Space-Black-2024/13733910451?classType=VARIANT&amp;from=/search">
+                <span style="${noisyStyle}">
+                  <h3 style="${noisyStyle}">Apple 16" MacBook Pro with M4 Max Chip 14-Core CPU / 32-Core GPU, 36GB Memory, 1TB SSD, Space Black, 2024</h3>
+                </span>
+              </a>
+              <div style="${noisyStyle}">4.7 out of 5 81 reviews in stock</div>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/walmart",
+      price: {
+        amount: 0,
+        currency: "USD"
+      }
+    });
+  });
+
   it("routes best buy international splash pages through browser fallback", async () => {
     const provider = createShoppingProviderById("shopping/bestbuy");
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
@@ -1183,6 +1478,167 @@ describe("shopping providers", () => {
     });
   });
 
+  it("parses inline-style-heavy eBay s-card results without losing the primary price", async () => {
+    const noisyStyle = "display:block;visibility:visible;".repeat(90);
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal" style="${noisyStyle}">
+                <div class="su-card-container su-card-container--horizontal" style="${noisyStyle}">
+                  <div class="su-card-container__media" style="${noisyStyle}">
+                    <div class="su-image" style="${noisyStyle}">
+                      <a class="s-card__link image-treatment" href="https://www.ebay.com/itm/298017366287?itmmeta=abc123" style="${noisyStyle}">
+                        <img class="s-card__image" src="https://i.ebayimg.com/images/g/zSEAAeSwUaRpil-q/s-l500.webp" alt="Apple MacBook Pro 2023 A2918 14in M3 10 Core GPU 16GB RAM 512GB SSD Excellent" />
+                      </a>
+                    </div>
+                  </div>
+                  <div class="su-card-container__content" style="${noisyStyle}">
+                    <div class="su-card-container__header" style="${noisyStyle}">
+                      <a class="s-card__link" href="https://www.ebay.com/itm/298017366287?itmmeta=abc123" style="${noisyStyle}">
+                        <div class="s-card__title" style="${noisyStyle}">
+                          <span>Apple MacBook Pro 2023 A2918 14in M3 10 Core GPU 16GB RAM 512GB SSD Excellent</span>
+                          <span class="clipped">Opens in a new window or tab</span>
+                        </div>
+                      </a>
+                      <div class="s-card__subtitle-row" style="${noisyStyle}">
+                        <div class="s-card__subtitle" style="${noisyStyle}"><span>FREE FEDEX 2 DAY - 60 DAY RETURNS - 1 YEAR WARRANTY</span></div>
+                      </div>
+                      <div class="s-card__subtitle-row" style="${noisyStyle}">
+                        <div class="s-card__subtitle" style="${noisyStyle}"><span>Excellent - Refurbished</span></div>
+                      </div>
+                    </div>
+                    <div class="su-card-container__attributes su-card-container__attributes--has-secondary" style="${noisyStyle}">
+                      <div class="su-card-container__attributes__primary" style="${noisyStyle}">
+                        <div class="s-card__attribute-row" style="${noisyStyle}">
+                          <span class="su-styled-text primary bold large-1 s-card__price" style="${noisyStyle}">$1,082.95</span>
+                          <span class="su-styled-text secondary strikethrough large" style="${noisyStyle}">$1,799.00</span>
+                        </div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>Buy It Now</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>+$272.06 delivery</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>Located in United States</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>17+ watchers</span></div>
+                        <div class="s-card__attribute-row" style="${noisyStyle}"><span>$5 off 2+ with coupon</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/298017366287?itmmeta=abc123",
+      title: "Apple MacBook Pro 2023 A2918 14in M3 10 Core GPU 16GB RAM 512GB SSD Excellent"
+    });
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/ebay",
+      price: {
+        amount: 1082.95,
+        currency: "USD"
+      }
+    });
+    expect(rows?.[0]?.attributes.image_urls).toEqual(["https://i.ebayimg.com/images/g/zSEAAeSwUaRpil-q/s-l500.webp"]);
+  });
+
+  it("falls back to aria-label text pricing and generic image extraction for eBay s-card variants", async () => {
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal">
+                <a class="s-card__link" href="https://www.ebay.com/sch/i.html?_nkw=macbook+pro+m4+32gb+ram">Search noise card</a>
+              </li>
+              <li class="s-card s-card--horizontal">
+                <a
+                  class="s-card__link image-treatment"
+                  href="https://www.ebay.com/itm/987654321000?itmmeta=xyz123"
+                  aria-label="Refurbished MacBook Pro M4 with 32GB RAM and 1TB SSD for studio editing"
+                >
+                  <img src="https://i.ebayimg.com/images/g/example/s-l500.webp" alt="Refurbished MacBook Pro M4" />
+                </a>
+                <div>USD 1,999.99 4.8 out of 5 205 reviews only 2 left</div>
+              </li>
+            </ul>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "macbook pro m4 32gb ram", limit: 2 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/987654321000?itmmeta=xyz123",
+      title: "Refurbished MacBook Pro M4 with 32GB RAM and 1TB SSD for studio editing"
+    });
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/ebay",
+      price: {
+        amount: 1999.99,
+        currency: "USD"
+      },
+      availability: "limited",
+      rating: 4.8,
+      reviews_count: 205
+    });
+    expect(rows?.[0]?.attributes.image_urls).toEqual(["https://i.ebayimg.com/images/g/example/s-l500.webp"]);
+  });
+
+  it("falls back to title attributes and raw generic image urls for sparse eBay s-card variants", async () => {
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal">
+                <a
+                  class="s-card__link image-treatment"
+                  href="https://www.ebay.com/itm/555555555555?itmmeta=sparse123"
+                  title="Portable Monitor Delta with fold-flat stand and travel sleeve"
+                >
+                  <img src="http://[oops" alt="Portable Monitor Delta" />
+                </a>
+                <div>Buy It Now only 1 left</div>
+              </li>
+            </ul>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "portable monitor", limit: 1 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/555555555555?itmmeta=sparse123",
+      title: "Portable Monitor Delta with fold-flat stand and travel sleeve"
+    });
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      provider: "shopping/ebay",
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      availability: "limited"
+    });
+    expect(rows?.[0]?.attributes.image_urls).toEqual(["http://[oops"]);
+  });
+
   it("routes target shell pages through browser fallback", async () => {
     const provider = createShoppingProviderById("shopping/target");
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
@@ -1218,7 +1674,12 @@ describe("shopping providers", () => {
         provider: "shopping/target",
         operation: "search",
         reasonCode: "env_limited",
-        preferredModes: ["managed_headed", "extension"],
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        }),
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "target_shell_page",
@@ -1254,6 +1715,29 @@ describe("shopping providers", () => {
           kind: "session_required",
           evidenceCode: "auth_required",
           message: "Sign In | Costco Please sign in to continue."
+        }
+      })
+    });
+  });
+
+  it("surfaces auth-required no-candidate shopping shells even when title and body text are absent", async () => {
+    const provider = createShoppingProviderById("shopping/costco", {
+      fetcher: async ({ url }) => ({
+        status: 401,
+        url,
+        html: "<html><body></body></html>"
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context)).rejects.toMatchObject({
+      code: "auth",
+      reasonCode: "token_required",
+      message: "Authentication required for https://www.costco.com/CatalogSearch?dept=All&keyword=wireless%20mouse",
+      details: expect.objectContaining({
+        blockerType: "auth_required",
+        constraint: {
+          kind: "session_required",
+          evidenceCode: "auth_required"
         }
       })
     });
@@ -1314,7 +1798,12 @@ describe("shopping providers", () => {
         provider: "shopping/target",
         operation: "search",
         reasonCode: "env_limited",
-        preferredModes: ["managed_headed", "extension"],
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension", "managed_headed"],
+            forceTransport: false
+          }
+        }),
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "target_shell_page",
@@ -1324,6 +1813,72 @@ describe("shopping providers", () => {
           })
         })
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves browser fallback metadata when target recovery still ends on a render-required shell", async () => {
+    const provider = createShoppingProviderById("shopping/target");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.target.com/s?searchTerm=wireless%20mouse",
+        html: "<html><head><title>\"wireless mouse\" : Target</title></head><body>skip to main content skip to footer weekly ad registry target circle</body></html>"
+      },
+      details: {
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        }
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>\"wireless mouse\" : Target</title></head><body>skip to main content skip to footer weekly ad registry target circle</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+      throw new Error("Expected target shell recovery to stay blocked");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderRuntimeError);
+      expect((error as ProviderRuntimeError).reasonCode).toBe("env_limited");
+      expect((error as ProviderRuntimeError).details).toMatchObject({
+        browserFallbackMode: "extension",
+        browserFallbackReasonCode: "env_limited",
+        cookieDiagnostics: {
+          available: true,
+          verifiedCount: 1
+        },
+        challengeOrchestration: {
+          mode: "browser_with_helper",
+          source: "config",
+          status: "resolved"
+        },
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "target_shell_page"
+        },
+        providerShell: "target_shell_page"
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1383,6 +1938,7 @@ describe("shopping providers", () => {
         provider: "shopping/temu",
         operation: "search",
         reasonCode: "env_limited",
+        timeoutMs: 1000,
         details: expect.objectContaining({
           browserRequired: true,
           providerShell: "temu_empty_shell",
@@ -1391,6 +1947,48 @@ describe("shopping providers", () => {
             evidenceCode: "temu_empty_shell"
           })
         })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps raw shopping fetches capped while browser fallback uses the caller timeout budget", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+        html: "<html><body><a href=\"https://www.temu.com/g-601099522700389.html\">Ergonomic mouse</a><div>USD 18.99 4.5 out of 5 88 reviews in stock</div></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          timeoutMs: 120000,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(rows?.length).toBeGreaterThan(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/temu",
+        operation: "search",
+        timeoutMs: 120000
       }));
     } finally {
       vi.unstubAllGlobals();
@@ -1568,8 +2166,12 @@ describe("shopping providers", () => {
         {
           timeoutMs: 1000,
           attempt: 1,
-          useCookies: true,
-          cookiePolicyOverride: "required",
+          runtimePolicy: resolveProviderRuntimePolicy({
+            source: "shopping",
+            preferredFallbackModes: ["managed_headed"],
+            useCookies: true,
+            cookiePolicyOverride: "required"
+          }),
           browserFallbackPort: {
             resolve: fallbackResolve
           }
@@ -1581,11 +2183,153 @@ describe("shopping providers", () => {
         provider: "shopping/amazon",
         operation: "search",
         reasonCode: "env_limited",
-        useCookies: true,
-        cookiePolicyOverride: "required",
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["managed_headed"],
+            forceTransport: false
+          },
+          cookies: {
+            requested: true,
+            policy: "required"
+          }
+        }),
+        settleTimeoutMs: 15000,
+        captureDelayMs: 2000,
         trace: expect.objectContaining({
           provider: "shopping/amazon",
-          requestId: expect.stringMatching(/^shopping-fallback-/)
+          requestId: expect.stringMatching(/^provider-fallback-/)
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses browser transport immediately when explicit browser mode is forced", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { url?: string }) => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.amazon.com/dp/macbook-pro-force-browser",
+        html: `
+          <html>
+            <head>
+              <title>Apple MacBook Pro 14</title>
+              <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "Product",
+                  "name": "Apple MacBook Pro 14",
+                  "offers": {
+                    "@type": "Offer",
+                    "price": 1999,
+                    "priceCurrency": "USD"
+                  }
+                }
+              </script>
+            </head>
+            <body>
+              <main>Apple MacBook Pro 14 with M4 and 32GB unified memory.</main>
+            </body>
+          </html>
+        `
+      },
+      details: {}
+    }));
+    const fetchMock = vi.fn(async () => {
+      throw new Error("raw fetch should not run when browser transport is forced");
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    try {
+      const rows = await provider.fetch?.(
+        { url: "https://www.amazon.com/dp/macbook-pro-force-browser" },
+        {
+          ...context,
+          runtimePolicy: resolveProviderRuntimePolicy({
+            source: "shopping",
+            runtimePolicy: {
+              browserMode: "extension"
+            }
+          }),
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        } as never
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/amazon",
+        operation: "fetch",
+        reasonCode: "env_limited",
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension"],
+            forceTransport: true
+          }
+        }),
+        url: "https://www.amazon.com/dp/macbook-pro-force-browser"
+      }));
+      expect(rows?.[0]?.attributes.browser_fallback_mode).toBe("extension");
+      expect(rows?.[0]?.title).toContain("Apple MacBook Pro 14");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves deferred fallback failure details when explicit browser mode cannot complete", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "env_limited" as const,
+      disposition: "deferred" as const,
+      mode: "extension" as const,
+      details: {
+        message: "Extension relay connection failed: Relay /cdp connectOverCDP failed after 512ms."
+      }
+    }));
+    const fetchMock = vi.fn(async () => {
+      throw new Error("raw fetch should not run when browser transport is forced");
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    try {
+      await expect(provider.fetch?.(
+        { url: "https://www.amazon.com/dp/macbook-pro-force-browser-failure" },
+        {
+          ...context,
+          runtimePolicy: resolveProviderRuntimePolicy({
+            source: "shopping",
+            runtimePolicy: {
+              browserMode: "extension"
+            }
+          }),
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        } as never
+      )).rejects.toMatchObject({
+        message: "Extension relay connection failed: Relay /cdp connectOverCDP failed after 512ms.",
+        reasonCode: "env_limited",
+        details: {
+          disposition: "deferred",
+          browserFallbackMode: "extension",
+          url: "https://www.amazon.com/dp/macbook-pro-force-browser-failure"
+        }
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension"],
+            forceTransport: true
+          }
         })
       }));
     } finally {

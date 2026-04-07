@@ -22,6 +22,7 @@ const makeDeps = () => {
       const source = options?.source ?? "web";
       const providerId = options?.providerIds?.[0] ?? `${source}/default`;
       const price = providerId.includes("others") ? 10 : 20;
+      const timestamp = new Date().toISOString();
       return {
         ok: true,
         records: [{
@@ -31,7 +32,7 @@ const makeDeps = () => {
           url: `https://example.com/${providerId}`,
           title: `${input.query} ${providerId}`,
           content: `$${price}`,
-          timestamp: "2026-02-16T00:00:00.000Z",
+          timestamp,
           confidence: 0.8,
           attributes: {
             shopping_offer: {
@@ -39,7 +40,7 @@ const makeDeps = () => {
               product_id: `${providerId}-product`,
               title: `${input.query} ${providerId}`,
               url: `https://example.com/${providerId}`,
-              price: { amount: price, currency: "USD", retrieved_at: "2026-02-16T00:00:00.000Z" },
+              price: { amount: price, currency: "USD", retrieved_at: timestamp },
               shipping: { amount: 0, currency: "USD", notes: "free" },
               availability: "in_stock",
               rating: 4.5,
@@ -158,6 +159,61 @@ describe("workflow tools", () => {
     expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
       { url: "https://example.com/product" },
       expect.objectContaining({ timeoutMs: 9876 })
+    );
+  });
+
+  it("forwards challengeAutomationMode through workflow tools", async () => {
+    const deps = makeDeps();
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const { createShoppingRunTool } = await import("../src/tools/shopping_run");
+    const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+
+    const researchTool = createResearchRunTool(deps as never);
+    const shoppingTool = createShoppingRunTool(deps as never);
+    const productVideoTool = createProductVideoRunTool(deps as never);
+
+    await researchTool.execute({
+      topic: "automation",
+      sourceSelection: "web",
+      days: 7,
+      challengeAutomationMode: "browser_with_helper"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          challengeAutomationMode: "browser_with_helper"
+        })
+      })
+    );
+
+    deps.providerRuntime.search.mockClear();
+    await shoppingTool.execute({
+      query: "usb microphone",
+      providers: ["shopping/amazon"],
+      challengeAutomationMode: "browser"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          challengeAutomationMode: "browser"
+        })
+      })
+    );
+
+    await productVideoTool.execute({
+      product_url: "https://example.com/product",
+      include_screenshots: false,
+      challengeAutomationMode: "off"
+    } as never);
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/product" },
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          challengeAutomationMode: "off"
+        })
+      })
     );
   });
 

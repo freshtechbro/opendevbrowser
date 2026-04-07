@@ -1,0 +1,674 @@
+{
+  "schemaVersion": "1.0.0",
+  "canonicalPacks": [
+    {
+      "packId": "opendevbrowser-best-practices",
+      "packType": "governance",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "docs-drift",
+        "best-practices-robustness",
+        "cli-smoke",
+        "provider-direct",
+        "live-regression",
+        "canvas-competitive"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "serve",
+          "status",
+          "launch",
+          "research",
+          "shopping",
+          "product-video",
+          "canvas"
+        ],
+        "tools": [
+          "opendevbrowser_canvas",
+          "opendevbrowser_research_run",
+          "opendevbrowser_shopping_run",
+          "opendevbrowser_product_video_run",
+          "opendevbrowser_skill_list",
+          "opendevbrowser_skill_load"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "auth",
+        "challenge",
+        "rate_limited",
+        "extension_unavailable",
+        "upstream_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-continuity-ledger",
+      "packType": "doc_only",
+      "docOnly": true,
+      "validatorCommands": [
+        "./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "docs-drift",
+        "skill-discovery"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [],
+        "tools": [
+          "opendevbrowser_skill_list",
+          "opendevbrowser_skill_load"
+        ],
+        "modes": []
+      },
+      "allowsEnvLimited": false,
+      "envLimitedReasons": []
+    },
+    {
+      "packId": "opendevbrowser-data-extraction",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "cli-smoke",
+        "product-video-fixture"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "snapshot",
+          "dom-html",
+          "dom-text",
+          "dom-attr",
+          "scroll",
+          "wait"
+        ],
+        "tools": [
+          "opendevbrowser_snapshot",
+          "opendevbrowser_dom_get_html",
+          "opendevbrowser_dom_get_text",
+          "opendevbrowser_get_attr",
+          "opendevbrowser_scroll",
+          "opendevbrowser_wait"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "extension_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-design-agent",
+      "packType": "browser_surface",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "live-regression",
+        "canvas-competitive"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "canvas",
+          "annotate",
+          "screenshot",
+          "debug-trace-snapshot"
+        ],
+        "tools": [
+          "opendevbrowser_canvas",
+          "opendevbrowser_annotate",
+          "opendevbrowser_screenshot",
+          "opendevbrowser_debug_trace_snapshot"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "extension_unavailable",
+        "figma_token_missing"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-form-testing",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "cli-smoke",
+        "login-fixture"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "snapshot",
+          "type",
+          "click",
+          "wait",
+          "network-poll"
+        ],
+        "tools": [
+          "opendevbrowser_snapshot",
+          "opendevbrowser_type",
+          "opendevbrowser_click",
+          "opendevbrowser_wait",
+          "opendevbrowser_network_poll"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "extension_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-login-automation",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [],
+      "probeId": "login-fixture",
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "launch",
+          "goto",
+          "snapshot",
+          "type",
+          "click",
+          "network-poll"
+        ],
+        "tools": [
+          "opendevbrowser_launch",
+          "opendevbrowser_goto",
+          "opendevbrowser_snapshot",
+          "opendevbrowser_type",
+          "opendevbrowser_click",
+          "opendevbrowser_network_poll"
+        ],
+        "modes": [
+          "managed"
+        ]
+      },
+      "allowsEnvLimited": false,
+      "envLimitedReasons": []
+    },
+    {
+      "packId": "opendevbrowser-product-presentation-asset",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [],
+      "probeId": "product-video-fixture",
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "product-video"
+        ],
+        "tools": [
+          "opendevbrowser_product_video_run"
+        ],
+        "modes": [
+          "managed"
+        ]
+      },
+      "allowsEnvLimited": false,
+      "envLimitedReasons": []
+    },
+    {
+      "packId": "opendevbrowser-research",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-research/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [],
+      "probeId": "research-live",
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "research"
+        ],
+        "tools": [
+          "opendevbrowser_research_run"
+        ],
+        "modes": [
+          "managed"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "auth",
+        "challenge",
+        "rate_limited",
+        "upstream_unavailable"
+      ]
+    },
+    {
+      "packId": "opendevbrowser-shopping",
+      "packType": "workflow",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-shopping/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "provider-direct"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "shopping"
+        ],
+        "tools": [
+          "opendevbrowser_shopping_run"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "auth",
+        "challenge",
+        "rate_limited",
+        "upstream_unavailable"
+      ]
+    }
+  ],
+  "auditDomains": [
+    {
+      "id": "skills-assets-discovery",
+      "label": "Skills, assets, and discovery",
+      "priority": 1,
+      "packIds": [
+        "opendevbrowser-best-practices",
+        "opendevbrowser-continuity-ledger",
+        "opendevbrowser-data-extraction",
+        "opendevbrowser-design-agent",
+        "opendevbrowser-form-testing",
+        "opendevbrowser-login-automation",
+        "opendevbrowser-product-presentation-asset",
+        "opendevbrowser-research",
+        "opendevbrowser-shopping"
+      ],
+      "proofLanes": [
+        "skill-discovery",
+        "docs-drift"
+      ],
+      "contractTests": [
+        "tests/skill-loader.test.ts",
+        "tests/skill-workflow-packs.test.ts",
+        "tests/cli-skills-installer.test.ts"
+      ],
+      "sourceSeams": [
+        "skills/opendevbrowser-best-practices/SKILL.md",
+        "src/skills/skill-loader.ts",
+        "src/cli/installers/global.ts",
+        "src/cli/installers/local.ts",
+        "src/tools/skill_list.ts",
+        "src/tools/skill_load.ts"
+      ],
+      "targetedRerunCommands": [
+        "./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh",
+        "node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json"
+      ]
+    },
+    {
+      "id": "cli-tools-surface",
+      "label": "CLI, tools, and surface inventory",
+      "priority": 2,
+      "packIds": [
+        "opendevbrowser-best-practices"
+      ],
+      "proofLanes": [
+        "docs-drift",
+        "cli-smoke"
+      ],
+      "contractTests": [
+        "tests/cli-help.test.ts",
+        "tests/cli-help-parity.test.ts",
+        "tests/daemon-commands.integration.test.ts"
+      ],
+      "sourceSeams": [
+        "src/cli/args.ts",
+        "src/cli/help.ts",
+        "src/tools/index.ts",
+        "src/public-surface/source.ts",
+        "docs/SURFACE_REFERENCE.md"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/docs-drift-check.mjs",
+        "node scripts/cli-smoke-test.mjs",
+        "npm run test -- tests/cli-help.test.ts tests/cli-help-parity.test.ts tests/daemon-commands.integration.test.ts"
+      ]
+    },
+    {
+      "id": "scripts-and-governance",
+      "label": "Scripts and audit governance",
+      "priority": 3,
+      "packIds": [
+        "opendevbrowser-best-practices"
+      ],
+      "proofLanes": [
+        "docs-drift",
+        "best-practices-robustness",
+        "skill-discovery"
+      ],
+      "contractTests": [
+        "tests/docs-drift-check.test.ts",
+        "tests/skill-runtime-audit.test.ts",
+        "tests/audit-zombie-files.test.ts"
+      ],
+      "sourceSeams": [
+        "scripts/skill-runtime-audit.mjs",
+        "scripts/skill-runtime-scenarios.mjs",
+        "scripts/docs-drift-check.mjs",
+        "skills/opendevbrowser-best-practices/scripts/odb-workflow.sh",
+        "skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh"
+      ],
+      "targetedRerunCommands": [
+        "./skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh",
+        "node scripts/docs-drift-check.mjs",
+        "npm run test -- tests/docs-drift-check.test.ts tests/skill-runtime-audit.test.ts"
+      ]
+    },
+    {
+      "id": "browser-snapshot-interaction",
+      "label": "Browser, snapshot, DOM, and interaction",
+      "priority": 4,
+      "packIds": [
+        "opendevbrowser-data-extraction",
+        "opendevbrowser-form-testing",
+        "opendevbrowser-login-automation"
+      ],
+      "proofLanes": [
+        "cli-smoke",
+        "login-fixture",
+        "product-video-fixture"
+      ],
+      "contractTests": [
+        "tests/tools-workflows.test.ts",
+        "tests/tools-workflows-branches.test.ts",
+        "tests/browser-manager.test.ts"
+      ],
+      "sourceSeams": [
+        "src/browser/browser-manager.ts",
+        "src/snapshot/snapshotter.ts",
+        "src/snapshot/refs.ts",
+        "src/tools/snapshot.ts",
+        "src/tools/click.ts",
+        "src/tools/type.ts",
+        "src/tools/dom_get_html.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/cli-smoke-test.mjs",
+        "node scripts/login-fixture-live-probe.mjs --out artifacts/skill-runtime-audit/lanes/login-fixture.json",
+        "node scripts/product-video-fixture-live-probe.mjs --out artifacts/skill-runtime-audit/lanes/product-video-fixture.json"
+      ]
+    },
+    {
+      "id": "canvas-annotate-design",
+      "label": "Canvas, annotate, and design surfaces",
+      "priority": 5,
+      "packIds": [
+        "opendevbrowser-design-agent"
+      ],
+      "proofLanes": [
+        "live-regression",
+        "canvas-competitive"
+      ],
+      "contractTests": [
+        "tests/canvas-command-inventory.test.ts",
+        "tests/canvas-live-workflow-script.test.ts",
+        "tests/annotate-live-probe-script.test.ts"
+      ],
+      "sourceSeams": [
+        "src/browser/canvas-manager.ts",
+        "src/annotate/direct-annotator.ts",
+        "src/annotate/agent-inbox.ts",
+        "src/tools/index.ts",
+        "src/public-surface/source.ts",
+        "extension/src/canvas/canvas-runtime.ts",
+        "extension/src/annotate-content.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/live-regression-direct.mjs --out artifacts/skill-runtime-audit/lanes/live-regression.json",
+        "node scripts/canvas-competitive-validation.mjs --out artifacts/skill-runtime-audit/lanes/canvas-competitive.json",
+        "node scripts/canvas-live-workflow.mjs --surface managed-headless",
+        "node scripts/annotate-live-probe.mjs --transport direct"
+      ]
+    },
+    {
+      "id": "extension-relay-cdp",
+      "label": "Extension, relay, and CDP modes",
+      "priority": 6,
+      "packIds": [
+        "opendevbrowser-best-practices",
+        "opendevbrowser-design-agent",
+        "opendevbrowser-shopping"
+      ],
+      "proofLanes": [
+        "live-regression",
+        "docs-drift"
+      ],
+      "contractTests": [
+        "tests/parity-matrix.test.ts",
+        "tests/relay-server.test.ts",
+        "tests/ops-browser-manager.test.ts"
+      ],
+      "sourceSeams": [
+        "src/relay/protocol.ts",
+        "src/browser/ops-browser-manager.ts",
+        "extension/src/services/TabManager.ts",
+        "extension/src/services/TargetSessionMap.ts",
+        "src/cli/daemon-status.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/live-regression-direct.mjs --out artifacts/skill-runtime-audit/lanes/live-regression.json",
+        "npm run test -- tests/parity-matrix.test.ts tests/relay-server.test.ts tests/ops-browser-manager.test.ts",
+        "./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh cdp-channel-check",
+        "./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh ops-channel-check"
+      ]
+    },
+    {
+      "id": "providers-macros-workflows",
+      "label": "Providers, macros, and workflow wrappers",
+      "priority": 7,
+      "packIds": [
+        "opendevbrowser-research",
+        "opendevbrowser-shopping",
+        "opendevbrowser-product-presentation-asset"
+      ],
+      "proofLanes": [
+        "provider-direct",
+        "research-live",
+        "product-video-fixture"
+      ],
+      "contractTests": [
+        "tests/provider-direct-runs.test.ts",
+        "tests/macro-resolve.test.ts",
+        "tests/cli-macro-resolve.test.ts"
+      ],
+      "sourceSeams": [
+        "src/providers/registry.ts",
+        "src/providers/runtime-factory.ts",
+        "src/providers/workflows.ts",
+        "src/macros/execute.ts",
+        "src/tools/macro_resolve.ts",
+        "src/cli/commands/macro-resolve.ts"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/provider-direct-runs.mjs --smoke --out artifacts/skill-runtime-audit/lanes/provider-direct.json",
+        "node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json",
+        "npm run test -- tests/provider-direct-runs.test.ts tests/macro-resolve.test.ts tests/cli-macro-resolve.test.ts"
+      ]
+    },
+    {
+      "id": "challenges-and-guardrails",
+      "label": "Challenges and guardrails",
+      "priority": 8,
+      "packIds": [
+        "opendevbrowser-form-testing",
+        "opendevbrowser-login-automation",
+        "opendevbrowser-research",
+        "opendevbrowser-shopping"
+      ],
+      "proofLanes": [
+        "login-fixture",
+        "provider-direct",
+        "research-live",
+        "live-regression"
+      ],
+      "contractTests": [
+        "tests/challenges-capability-matrix.test.ts",
+        "tests/browser-manager-challenge-runtime-handle.test.ts",
+        "tests/ops-browser-manager-challenge-runtime-handle.test.ts"
+      ],
+      "sourceSeams": [
+        "src/browser/global-challenge-coordinator.ts",
+        "src/challenges/capability-matrix.ts",
+        "skills/opendevbrowser-login-automation/assets/templates/challenge-checkpoint.md",
+        "skills/opendevbrowser-form-testing/assets/templates/challenge-decision-tree.json"
+      ],
+      "targetedRerunCommands": [
+        "node scripts/login-fixture-live-probe.mjs --out artifacts/skill-runtime-audit/lanes/login-fixture.json",
+        "node scripts/provider-direct-runs.mjs --smoke --out artifacts/skill-runtime-audit/lanes/provider-direct.json",
+        "npm run test -- tests/challenges-capability-matrix.test.ts tests/browser-manager-challenge-runtime-handle.test.ts tests/ops-browser-manager-challenge-runtime-handle.test.ts"
+      ]
+    },
+    {
+      "id": "runtime-infrastructure",
+      "label": "Runtime infrastructure and utilities",
+      "priority": 9,
+      "packIds": [
+        "opendevbrowser-best-practices"
+      ],
+      "proofLanes": [
+        "cli-smoke",
+        "live-regression"
+      ],
+      "contractTests": [
+        "tests/core-bootstrap.test.ts",
+        "tests/providers-runtime-factory.test.ts",
+        "tests/daemon-client.test.ts"
+      ],
+      "sourceSeams": [
+        "src/core/bootstrap.ts",
+        "src/utils/hub-enabled.ts",
+        "src/providers/runtime-factory.ts",
+        "src/cli/daemon-client.ts",
+        "src/browser/browser-manager.ts"
+      ],
+      "targetedRerunCommands": [
+        "npm run test -- tests/core-bootstrap.test.ts tests/providers-runtime-factory.test.ts tests/daemon-client.test.ts",
+        "node scripts/cli-smoke-test.mjs",
+        "node scripts/live-regression-direct.mjs --out artifacts/skill-runtime-audit/lanes/live-regression.json"
+      ]
+    }
+  ],
+  "runtimeFamilies": [
+    {
+      "id": "session-lifecycle",
+      "label": "Session lifecycle and daemon control",
+      "proofLanes": [
+        "cli-smoke",
+        "live-regression"
+      ]
+    },
+    {
+      "id": "navigation-interaction",
+      "label": "Navigation and interaction",
+      "proofLanes": [
+        "cli-smoke",
+        "login-fixture"
+      ]
+    },
+    {
+      "id": "pointer-controls",
+      "label": "Pointer controls",
+      "proofLanes": [
+        "docs-drift",
+        "login-fixture"
+      ]
+    },
+    {
+      "id": "dom-and-extraction",
+      "label": "DOM and extraction",
+      "proofLanes": [
+        "cli-smoke",
+        "product-video-fixture"
+      ]
+    },
+    {
+      "id": "targets-pages",
+      "label": "Targets and pages",
+      "proofLanes": [
+        "cli-smoke"
+      ]
+    },
+    {
+      "id": "diagnostics-export",
+      "label": "Diagnostics and export",
+      "proofLanes": [
+        "cli-smoke",
+        "live-regression"
+      ]
+    },
+    {
+      "id": "workflow-wrappers",
+      "label": "Workflow wrappers",
+      "proofLanes": [
+        "research-live",
+        "provider-direct",
+        "product-video-fixture"
+      ]
+    },
+    {
+      "id": "canvas-design-relay",
+      "label": "Canvas and design relay",
+      "proofLanes": [
+        "live-regression",
+        "canvas-competitive"
+      ]
+    },
+    {
+      "id": "extension-ops-relay",
+      "label": "Extension /ops relay",
+      "proofLanes": [
+        "live-regression",
+        "docs-drift"
+      ]
+    },
+    {
+      "id": "skill-discovery",
+      "label": "Skill discovery and loading",
+      "proofLanes": [
+        "skill-discovery"
+      ]
+    }
+  ]
+}

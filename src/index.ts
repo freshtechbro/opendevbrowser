@@ -32,10 +32,7 @@ import { extractExtension } from "./extension-extractor";
 import { isHubEnabled } from "./utils/hub-enabled";
 import type { RelayLike } from "./relay/relay-types";
 import type { ToolDeps } from "./tools/deps";
-import {
-  createBrowserFallbackPort,
-  createConfiguredProviderRuntime
-} from "./providers/runtime-factory";
+import { createProviderRuntimeBundle } from "./providers/runtime-bundle";
 
 const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const core = createOpenDevBrowserCore({ directory, worktree });
@@ -88,18 +85,10 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     annotationManager.setRelay(relay);
     annotationManager.setBrowserManager(manager);
     runner = new ScriptRunner(manager);
-    browserFallbackPort = createBrowserFallbackPort(
-      manager,
-      {},
-      configStore.get().relayPort > 0 && configStore.get().relayToken !== false
-        ? { extensionWsEndpoint: `ws://127.0.0.1:${configStore.get().relayPort}` }
-        : {}
-    );
-    providerRuntime = createConfiguredProviderRuntime({
+    ({ providerRuntime, browserFallbackPort } = createProviderRuntimeBundle({
       config: configStore.get(),
-      manager,
-      browserFallbackPort
-    });
+      manager
+    }));
     toolDeps.manager = manager;
     toolDeps.canvasManager = canvasManager;
     toolDeps.relay = relay;

@@ -1,9 +1,10 @@
-import type { BrowserManagerLike } from "../browser/manager-types";
+import type { BrowserManagerLike, SessionInspectorHandle } from "../browser/manager-types";
 import type { ConnectOptions, LaunchOptions } from "../browser/browser-manager";
 import type { TargetInfo } from "../browser/target-manager";
 import type { ReactExport } from "../export/react-emitter";
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
+import { classifySessionRelayEndpoint } from "../relay/relay-endpoints";
 import { DaemonClient } from "./daemon-client";
 
 type CookieImportRecord = {
@@ -27,16 +28,6 @@ type BrowserManagerMethodKey = keyof BrowserManagerMethods;
 
 type CallResult<K extends BrowserManagerMethodKey> = Awaited<ReturnType<BrowserManagerMethods[K]>>;
 
-function isLegacyRelayEndpoint(wsEndpoint: string): boolean {
-  try {
-    const url = new URL(wsEndpoint);
-    const path = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    return path === "/cdp";
-  } catch {
-    return false;
-  }
-}
-
 export class RemoteManager implements BrowserManagerLike {
   private client: DaemonClient;
 
@@ -56,18 +47,14 @@ export class RemoteManager implements BrowserManagerLike {
     const startUrl = typeof options?.startUrl === "string" && options.startUrl.trim().length > 0
       ? options.startUrl.trim()
       : undefined;
+    const parsedRelayEndpoint = classifySessionRelayEndpoint(wsEndpoint);
     return this.client.call<CallResult<"connectRelay">>(
       "session.connect",
-      isLegacyRelayEndpoint(wsEndpoint)
-        ? {
-          wsEndpoint,
-          extensionLegacy: true,
-          ...(startUrl ? { startUrl } : {})
-        }
-        : {
-          wsEndpoint,
-          ...(startUrl ? { startUrl } : {})
-        }
+      {
+        wsEndpoint,
+        ...(parsedRelayEndpoint?.inputPath === "/cdp" ? { extensionLegacy: true } : {}),
+        ...(startUrl ? { startUrl } : {})
+      }
     );
   }
 
@@ -334,11 +321,31 @@ export class RemoteManager implements BrowserManagerLike {
     });
   }
 
-  screenshot(sessionId: string, path?: string, targetId?: string | null): ReturnType<BrowserManagerLike["screenshot"]> {
+  screenshot(sessionId: string, options: Parameters<BrowserManagerLike["screenshot"]>[1] = {}): ReturnType<BrowserManagerLike["screenshot"]> {
     return this.client.call<CallResult<"screenshot">>("page.screenshot", {
       sessionId,
-      path,
-      ...(typeof targetId === "string" ? { targetId } : {})
+      ...(typeof options.path === "string" ? { path: options.path } : {}),
+      ...(typeof options.targetId === "string" ? { targetId: options.targetId } : {}),
+      ...(typeof options.ref === "string" ? { ref: options.ref } : {}),
+      ...(options.fullPage === true ? { fullPage: true } : {})
+    });
+  }
+
+  upload(sessionId: string, input: Parameters<BrowserManagerLike["upload"]>[1]): ReturnType<BrowserManagerLike["upload"]> {
+    return this.client.call<CallResult<"upload">>("interact.upload", {
+      sessionId,
+      ref: input.ref,
+      files: input.files,
+      ...(typeof input.targetId === "string" ? { targetId: input.targetId } : {})
+    });
+  }
+
+  dialog(sessionId: string, input: Parameters<BrowserManagerLike["dialog"]>[1] = {}): ReturnType<BrowserManagerLike["dialog"]> {
+    return this.client.call<CallResult<"dialog">>("page.dialog", {
+      sessionId,
+      action: input.action ?? "status",
+      ...(typeof input.promptText === "string" ? { promptText: input.promptText } : {}),
+      ...(typeof input.targetId === "string" ? { targetId: input.targetId } : {})
     });
   }
 
@@ -354,6 +361,100 @@ export class RemoteManager implements BrowserManagerLike {
       events: ReturnType<NetworkTracker["poll"]>["events"];
       nextSeq: number;
     }>;
+  }
+
+  debugTraceSnapshot(
+    sessionId: string,
+    options: {
+      sinceConsoleSeq?: number;
+      sinceNetworkSeq?: number;
+      sinceExceptionSeq?: number;
+      max?: number;
+      requestId?: string;
+    } = {}
+  ): ReturnType<BrowserManagerLike["debugTraceSnapshot"]> {
+    return this.client.call<CallResult<"debugTraceSnapshot">>("devtools.debugTraceSnapshot", {
+      sessionId,
+      ...options
+    });
+  }
+
+  createSessionInspector(): SessionInspectorHandle {
+    return {
+      status: (sessionId) => this.status(sessionId),
+      listTargets: (sessionId, includeUrls) => this.listTargets(sessionId, includeUrls),
+      consolePoll: (sessionId, sinceSeq, max) => this.consolePoll(sessionId, sinceSeq, max),
+      networkPoll: (sessionId, sinceSeq, max) => this.networkPoll(sessionId, sinceSeq, max),
+      debugTraceSnapshot: (sessionId, options) => this.debugTraceSnapshot(sessionId, options)
+    };
+  }
+
+  pointerMove(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    steps?: number
+  ): ReturnType<BrowserManagerLike["pointerMove"]> {
+    return this.client.call<CallResult<"pointerMove">>("pointer.move", {
+      sessionId,
+      x,
+      y,
+      ...(typeof steps === "number" ? { steps } : {}),
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
+  }
+
+  pointerDown(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): ReturnType<BrowserManagerLike["pointerDown"]> {
+    return this.client.call<CallResult<"pointerDown">>("pointer.down", {
+      sessionId,
+      x,
+      y,
+      button,
+      clickCount,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
+  }
+
+  pointerUp(
+    sessionId: string,
+    x: number,
+    y: number,
+    targetId?: string | null,
+    button: "left" | "middle" | "right" = "left",
+    clickCount = 1
+  ): ReturnType<BrowserManagerLike["pointerUp"]> {
+    return this.client.call<CallResult<"pointerUp">>("pointer.up", {
+      sessionId,
+      x,
+      y,
+      button,
+      clickCount,
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
+  }
+
+  drag(
+    sessionId: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    targetId?: string | null,
+    steps?: number
+  ): ReturnType<BrowserManagerLike["drag"]> {
+    return this.client.call<CallResult<"drag">>("pointer.drag", {
+      sessionId,
+      from,
+      to,
+      ...(typeof steps === "number" ? { steps } : {}),
+      ...(typeof targetId === "string" ? { targetId } : {})
+    });
   }
 
   listTargets(sessionId: string, includeUrls = false): Promise<{ activeTargetId: string | null; targets: TargetInfo[] }> {

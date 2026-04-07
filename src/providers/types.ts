@@ -1,3 +1,10 @@
+import type {
+  ChallengeAutomationMode,
+  ChallengeAutomationModeSource,
+  ChallengeAutomationStandDownReason
+} from "../challenges/types";
+import type { WorkflowResumeEnvelope } from "./workflow-contracts";
+
 export type ProviderSource = "web" | "community" | "social" | "shopping";
 export type ProviderSelection = "auto" | ProviderSource | "all";
 export type ProviderOperation = "search" | "fetch" | "crawl" | "post";
@@ -234,9 +241,9 @@ export interface ProviderContext {
   timeoutMs: number;
   attempt: number;
   signal?: AbortSignal;
-  useCookies?: boolean;
-  cookiePolicyOverride?: ProviderCookiePolicy;
+  runtimePolicy?: ResolvedProviderRuntimePolicy;
   browserFallbackPort?: BrowserFallbackPort;
+  suspendedIntent?: SuspendedIntentSummary;
 }
 
 export interface ProviderHealth {
@@ -377,6 +384,7 @@ export interface ProviderAdapter {
   crawl?: (input: ProviderCrawlInput, context: ProviderContext) => Promise<NormalizedRecord[]>;
   post?: (input: ProviderPostInput, context: ProviderContext) => Promise<NormalizedRecord[]>;
   health?: (context: Omit<ProviderContext, "attempt">) => Promise<ProviderHealth>;
+  recoveryHints?: () => ProviderRecoveryHints;
   capabilities: () => ProviderCapabilities;
 }
 
@@ -402,8 +410,13 @@ export interface ProviderRunOptions {
   providerIds?: string[];
   timeoutMs?: number;
   trace?: Partial<TraceContext>;
+  runtimePolicy?: ProviderRuntimePolicyInput;
+  preferredFallbackModes?: BrowserFallbackMode[];
+  forceBrowserTransport?: boolean;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  suspendedIntent?: SuspendedIntentSummary;
   tier?: {
     preferred?: ProviderTier;
     forceRestrictedSafe?: boolean;
@@ -420,6 +433,92 @@ export interface ProviderRunOptions {
 }
 
 export type BrowserFallbackMode = "managed_headed" | "extension";
+export type ResumeMode = "manual" | "auto";
+export type ChallengeOwnerSurface = "direct_browser" | "ops" | "provider_fallback" | "workflow";
+export type SuspendedIntentKind =
+  | "navigation"
+  | "login"
+  | "provider.search"
+  | "provider.fetch"
+  | "provider.crawl"
+  | "provider.post"
+  | "workflow.research"
+  | "workflow.shopping"
+  | "workflow.product_video"
+  | "youtube.transcript";
+export type WorkflowSuspendedIntentKind =
+  | "workflow.research"
+  | "workflow.shopping"
+  | "workflow.product_video";
+export type BrowserFallbackDisposition = "completed" | "challenge_preserved" | "deferred" | "failed";
+export type SessionChallengeStatus = "active" | "resolved" | "deferred" | "expired";
+
+export type WorkflowResumePayload = {
+  workflow: WorkflowResumeEnvelope;
+};
+
+export type SuspendedIntentInput = JsonValue | WorkflowResumePayload;
+
+export interface SuspendedIntentSummary {
+  kind: SuspendedIntentKind;
+  provider?: string;
+  source?: ProviderSource;
+  operation?: ProviderOperation;
+  note?: string;
+  input?: SuspendedIntentInput;
+}
+
+export interface ChallengeTimelineEntry {
+  at: string;
+  event: "claimed" | "refreshed" | "resolved" | "deferred" | "expired" | "released";
+  status: SessionChallengeStatus;
+}
+
+export interface SessionChallengeSummary {
+  challengeId: string;
+  blockerType: Extract<BlockerType, "auth_required" | "anti_bot_challenge">;
+  reasonCode?: ProviderReasonCode;
+  ownerSurface: ChallengeOwnerSurface;
+  ownerLeaseId?: string;
+  resumeMode: ResumeMode;
+  suspendedIntent?: SuspendedIntentSummary;
+  preservedSessionId?: string;
+  preservedTargetId?: string;
+  status: SessionChallengeStatus;
+  preserveUntil?: string;
+  verifyUntil?: string;
+  updatedAt: string;
+  timeline?: ChallengeTimelineEntry[];
+}
+
+export interface ProviderRecoveryHints {
+  preferredFallbackModes?: BrowserFallbackMode[];
+  highFrictionTarget?: boolean;
+  challengeProne?: boolean;
+  settleTimeoutMs?: number;
+  captureDelayMs?: number;
+}
+
+export type WorkflowBrowserMode = "auto" | "extension" | "managed";
+
+export interface ProviderRuntimePolicyInput {
+  browserMode?: WorkflowBrowserMode;
+  useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
+  cookiePolicyOverride?: ProviderCookiePolicy;
+}
+
+export interface ResolvedProviderRuntimePolicy {
+  browser: {
+    preferredModes: BrowserFallbackMode[];
+    forceTransport: boolean;
+  };
+  cookies: {
+    requested?: boolean;
+    policy: ProviderCookiePolicy;
+  };
+  challenge: ChallengeAutomationResolutionMetadata;
+}
 
 export interface BrowserFallbackRequest {
   provider: string;
@@ -432,16 +531,50 @@ export interface BrowserFallbackRequest {
   signal?: AbortSignal;
   details?: Record<string, JsonValue>;
   preferredModes?: BrowserFallbackMode[];
-  useCookies?: boolean;
-  cookiePolicyOverride?: ProviderCookiePolicy;
+  settleTimeoutMs?: number;
+  captureDelayMs?: number;
+  runtimePolicy?: ResolvedProviderRuntimePolicy;
+  ownerSurface?: ChallengeOwnerSurface;
+  ownerLeaseId?: string;
+  resumeMode?: ResumeMode;
+  suspendedIntent?: SuspendedIntentSummary;
 }
 
 export interface BrowserFallbackResponse {
   ok: boolean;
   reasonCode: ProviderReasonCode;
+  disposition: BrowserFallbackDisposition;
   mode?: BrowserFallbackMode;
   output?: Record<string, JsonValue>;
   details?: Record<string, JsonValue>;
+  challenge?: SessionChallengeSummary;
+  preservedSessionId?: string;
+  preservedTargetId?: string;
+}
+
+export interface BrowserFallbackObservation {
+  reasonCode: ProviderReasonCode;
+  mode?: BrowserFallbackMode;
+  cookieDiagnostics?: Record<string, JsonValue>;
+  challengeOrchestration?: Record<string, JsonValue>;
+}
+
+export interface ChallengeAutomationResolutionMetadata {
+  mode: ChallengeAutomationMode;
+  source: ChallengeAutomationModeSource;
+  standDownReason?: ChallengeAutomationStandDownReason;
+  helperEligibility?: {
+    allowed: boolean;
+    reason: string;
+    standDownReason?: ChallengeAutomationStandDownReason;
+  };
+}
+
+export interface PreservedChallengeContext {
+  challenge: SessionChallengeSummary;
+  fallbackDisposition: BrowserFallbackDisposition;
+  preservedSessionId?: string;
+  preservedTargetId?: string;
 }
 
 export interface BrowserFallbackPort {

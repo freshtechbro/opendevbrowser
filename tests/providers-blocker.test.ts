@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   __test__,
   buildBlockerArtifacts,
@@ -42,6 +42,13 @@ describe("provider blocker classifier + artifacts", () => {
       status: 401
     });
     expect(auth401?.type).toBe("auth_required");
+
+    const authProviderCode = classifyBlockerSignal({
+      source: "runtime_fetch",
+      providerErrorCode: "auth"
+    });
+    expect(authProviderCode?.type).toBe("auth_required");
+    expect(authProviderCode?.reasonCode).toBe("token_required");
 
     const authLoginHtml = classifyBlockerSignal({
       source: "navigation",
@@ -131,6 +138,14 @@ describe("provider blocker classifier + artifacts", () => {
     });
     expect(rateLimited?.type).toBe("rate_limited");
 
+    const rateLimitedByStatus = classifyBlockerSignal({
+      source: "network",
+      status: 429,
+      message: "slow down"
+    });
+    expect(rateLimitedByStatus?.type).toBe("rate_limited");
+    expect(rateLimitedByStatus?.reasonCode).toBe("rate_limited");
+
     const upstream = classifyBlockerSignal({
       source: "runtime_fetch",
       providerErrorCode: "network",
@@ -151,6 +166,17 @@ describe("provider blocker classifier + artifacts", () => {
       message: "Extension not connected. Operation not available in this environment."
     });
     expect(envLimited?.type).toBe("env_limited");
+
+    const envLimitedFlag = classifyBlockerSignal({
+      source: "macro_execution",
+      envLimited: true,
+      traceRequestId: "trace-123"
+    });
+    expect(envLimitedFlag).toMatchObject({
+      type: "env_limited",
+      confidence: 0.9
+    });
+    expect(envLimitedFlag?.evidence.traceRequestId).toBe("trace-123");
 
     const unknown = classifyBlockerSignal({
       source: "network",
@@ -249,6 +275,31 @@ describe("provider blocker classifier + artifacts", () => {
       hosts: [],
       sanitation: { entries: 0, quarantinedSegments: 0 }
     });
+  });
+
+  it("coerces non-string redaction results into bounded text", async () => {
+    vi.resetModules();
+    vi.doMock("../src/core/logging", () => ({
+      redactSensitive: (value: unknown) => (typeof value === "string" ? { masked: true } : value)
+    }));
+
+    try {
+      const blockerModule = await import("../src/providers/blocker");
+      const artifacts = blockerModule.buildBlockerArtifacts({
+        networkEvents: [{ note: "hello" }],
+        promptGuardEnabled: false,
+        caps: {
+          maxTextLength: 64
+        }
+      });
+
+      expect(artifacts.network[0]).toEqual({
+        note: "[object Object]"
+      });
+    } finally {
+      vi.doUnmock("../src/core/logging");
+      vi.resetModules();
+    }
   });
 
   it("clamps artifact caps to enforced bounds", () => {

@@ -345,6 +345,7 @@ describe("provider performance release gate", () => {
     }).metrics;
 
     expect(metrics.reasonCodeDistribution.transcript_unavailable).toBe(1);
+    expect(metrics).not.toHaveProperty("reason_code_distribution");
     expect(metrics.transcriptStrategyFailures["native_caption_parse:caption_missing"]).toBe(1);
     expect(metrics.transcriptStrategyDetailFailures).toEqual(metrics.transcriptStrategyFailures);
     expect(metrics.transcriptStrategyDetailDistribution).toEqual({

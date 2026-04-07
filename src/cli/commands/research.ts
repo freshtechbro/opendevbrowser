@@ -3,6 +3,8 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
+import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 
 type ResearchCommandArgs = {
   topic?: string;
@@ -18,6 +20,7 @@ type ResearchCommandArgs = {
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: "off" | "auto" | "required";
 };
 
@@ -25,7 +28,6 @@ const SOURCE_VALUES = new Set(["web", "community", "social", "shopping"]);
 const SOURCE_SELECTION_VALUES = new Set(["auto", "web", "community", "social", "shopping", "all"]);
 const MODE_VALUES = new Set(["compact", "json", "md", "context", "path"]);
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
-
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
   if (!value) {
@@ -205,6 +207,24 @@ const parseResearchRunArgs = (rawArgs: string[]): ResearchCommandArgs => {
       continue;
     }
 
+    if (arg === "--challenge-automation-mode") {
+      const value = requireValue(rawArgs, index, "--challenge-automation-mode");
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--challenge-automation-mode=")) {
+      const value = arg.split("=", 2)[1] ?? "";
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      continue;
+    }
+
     if (arg === "--cookie-policy-override" || arg === "--cookie-policy") {
       const value = requireValue(rawArgs, index, arg).toLowerCase();
       if (!COOKIE_POLICY_VALUES.has(value)) {
@@ -248,16 +268,15 @@ export async function runResearchCommand(args: ParsedArgs) {
     mode: parsed.mode ?? "compact",
     includeEngagement: parsed.includeEngagement ?? false,
     limitPerSource: parsed.limitPerSource,
-    ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {}),
+    timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
     outputDir: parsed.outputDir,
     ttlHours: parsed.ttlHours,
     useCookies: parsed.useCookies,
+    challengeAutomationMode: parsed.challengeAutomationMode,
     cookiePolicyOverride: parsed.cookiePolicyOverride
   };
 
-  const data = typeof parsed.timeoutMs === "number"
-    ? await callDaemon("research.run", payload, { timeoutMs: parsed.timeoutMs })
-    : await callDaemon("research.run", payload);
+  const data = await callDaemon("research.run", payload);
 
   return {
     success: true,

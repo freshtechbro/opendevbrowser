@@ -2,7 +2,12 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AddressInfo } from "net";
-import { OpsClient } from "../src/browser/ops-client";
+import {
+  OpsClient,
+  OpsRequestTimeoutError,
+  isOpsRequestTimeoutError,
+  withOpsRequestTimeoutDetails
+} from "../src/browser/ops-client";
 
 type TestServer = {
   wss: WebSocketServer;
@@ -567,10 +572,89 @@ describe("OpsClient", () => {
     });
 
     const client = new OpsClient(server.url, { pingIntervalMs: 100000 });
-    await expect(client.request("session.status", {}, undefined, 20)).rejects.toThrow("Ops request timed out");
+    const error = await client.request("session.status", {}, "ops-timeout", 20, "lease-timeout").catch((caught) => caught);
+    expect(error).toBeInstanceOf(OpsRequestTimeoutError);
+    expect(error).toMatchObject({
+      message: "Ops request timed out",
+      details: {
+        command: "session.status",
+        timeoutMs: 20,
+        opsSessionId: "ops-timeout",
+        leaseId: "lease-timeout"
+      }
+    });
+    expect(isOpsRequestTimeoutError(error)).toBe(true);
 
     client.disconnect();
     await new Promise((resolve) => server.wss.close(() => resolve(null)));
+  });
+
+  it("omits optional session metadata when request timeouts occur without attach context", async () => {
+    const server = await createServer((socket, raw) => {
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      if (message.type === "ops_hello") {
+        send(socket, { type: "ops_hello_ack", version: "1", clientId: "client-21", maxPayloadBytes: 1024, capabilities: [] });
+      }
+      // Ignore ops_request to force timeout.
+    });
+
+    const client = new OpsClient(server.url, { pingIntervalMs: 100000 });
+    const error = await client.request("session.status", {}, undefined, 20).catch((caught) => caught);
+    expect(error).toBeInstanceOf(OpsRequestTimeoutError);
+    expect(error).toMatchObject({
+      details: {
+        command: "session.status",
+        timeoutMs: 20
+      }
+    });
+    expect(error.details).not.toHaveProperty("opsSessionId");
+    expect(error.details).not.toHaveProperty("leaseId");
+
+    client.disconnect();
+    await new Promise((resolve) => server.wss.close(() => resolve(null)));
+  });
+
+  it("detects structural timeout errors and merges timeout details", () => {
+    const structural = Object.assign(new Error("Ops request timed out"), {
+      name: "OpsRequestTimeoutError",
+      details: {
+        command: "session.status",
+        timeoutMs: 25,
+        requestId: "req-structural"
+      }
+    });
+
+    expect(isOpsRequestTimeoutError(structural)).toBe(true);
+    expect(isOpsRequestTimeoutError(new Error("plain"))).toBe(false);
+
+    const merged = withOpsRequestTimeoutDetails(structural, {
+      stage: "session.connect.tabId",
+      leaseId: "lease-structural"
+    });
+    expect(merged).toBeInstanceOf(OpsRequestTimeoutError);
+    expect(merged).toMatchObject({
+      details: {
+        command: "session.status",
+        timeoutMs: 25,
+        requestId: "req-structural",
+        stage: "session.connect.tabId",
+        leaseId: "lease-structural"
+      }
+    });
+
+    const passthrough = new Error("unrelated");
+    expect(withOpsRequestTimeoutDetails(passthrough, { stage: "ignored" })).toBe(passthrough);
+  });
+
+  it("preserves timeout causes on typed timeout errors", () => {
+    const cause = new Error("socket-stalled");
+    const error = new OpsRequestTimeoutError({
+      command: "targets.list",
+      timeoutMs: 30,
+      requestId: "req-cause"
+    }, cause);
+
+    expect(error.cause).toBe(cause);
   });
 
   it("rejects when request sends throw non-errors", async () => {

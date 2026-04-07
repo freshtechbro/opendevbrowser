@@ -57,6 +57,16 @@ find_odb_cli_from_node_resolution() {
 
 resolve_odb_cli() {
   local helper_dir package_root cli_entry
+
+  if [[ -n "${ODB_CLI_VALIDATOR_OVERRIDE:-}" ]]; then
+    if [[ ! -x "$ODB_CLI_VALIDATOR_OVERRIDE" ]]; then
+      echo "ODB_CLI_VALIDATOR_OVERRIDE is not executable: $ODB_CLI_VALIDATOR_OVERRIDE" >&2
+      return 1
+    fi
+    ODB_CLI=("$ODB_CLI_VALIDATOR_OVERRIDE")
+    return 0
+  fi
+
   helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   package_root="$(cd "$helper_dir/../../.." && pwd)"
   cli_entry="$package_root/dist/cli/index.js"

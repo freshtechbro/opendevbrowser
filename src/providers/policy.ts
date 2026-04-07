@@ -24,6 +24,10 @@ const rankHealth = (status: HealthStatus): number => {
   return 2;
 };
 
+const rankPressure = (registry: ProviderRegistry, providerId: string): number => {
+  return registry.getAntiBotPressure(providerId);
+};
+
 export const selectProviders = (
   registry: ProviderRegistry,
   operation: ProviderOperation,
@@ -38,6 +42,9 @@ export const selectProviders = (
   });
 
   return bySelection.sort((left, right) => {
+    const pressureDelta = rankPressure(registry, left.id) - rankPressure(registry, right.id);
+    if (pressureDelta !== 0) return pressureDelta;
+
     const healthDelta = rankHealth(registry.getHealth(left.id).status) - rankHealth(registry.getHealth(right.id).status);
     if (healthDelta !== 0) return healthDelta;
 

@@ -146,9 +146,21 @@ function createApplyPatches(store: CanvasDocumentStore): (patches: CanvasPatch[]
 
 async function flushWatchCallbacks(expectedCalls: number, callback: ReturnType<typeof vi.fn>): Promise<void> {
   for (let attempt = 0; attempt < 25 && callback.mock.calls.length < expectedCalls; attempt += 1) {
+    await drainWatchWork();
+  }
+  if (callback.mock.calls.length < expectedCalls) {
+    throw new Error(
+      `Expected ${expectedCalls} watch callbacks, saw ${callback.mock.calls.length} with ${vi.getTimerCount()} pending timers.`
+    );
+  }
+}
+
+async function drainWatchWork(): Promise<void> {
+  await vi.runAllTimersAsync();
     await waitForIo();
     await Promise.resolve();
-  }
+  await waitForIo();
+  await Promise.resolve();
 }
 
 describe("canvas code sync manager", () => {
@@ -342,7 +354,7 @@ describe("canvas code sync manager", () => {
     const runtime = getRuntime(manager, "session-watch-callbacks", binding.id);
     runtime.watch = null;
     onChange();
-    await vi.runAllTimersAsync();
+    await drainWatchWork();
     expect(watchedChanges).not.toHaveBeenCalled();
 
     runtime.watch = {
@@ -353,14 +365,13 @@ describe("canvas code sync manager", () => {
 
     runtime.watch.lastSourceHash = null;
     onChange();
-    await vi.runAllTimersAsync();
     await flushWatchCallbacks(1, watchedChanges);
     expect(watchedChanges).toHaveBeenCalledTimes(1);
     watchedChanges.mockClear();
     runtime.watch.lastSourceHash = hashCodeSyncValue(initialSource);
 
     onChange();
-    await vi.advanceTimersByTimeAsync(200);
+    await drainWatchWork();
     expect(watchedChanges).not.toHaveBeenCalled();
 
     await writeFile(sourcePath, initialSource.replace("Hello watch", "Hello changed"));
@@ -371,15 +382,13 @@ describe("canvas code sync manager", () => {
       driftState: "source_changed"
     });
     onChange();
-    await vi.runAllTimersAsync();
     await flushWatchCallbacks(1, watchedChanges);
     expect(watchedChanges).toHaveBeenCalledTimes(1);
     expect(watchedChanges).toHaveBeenCalledWith("session-watch-callbacks", binding.id);
 
     await unlink(sourcePath);
     onChange();
-    await vi.runAllTimersAsync();
-    await waitForIo();
+    await drainWatchWork();
     expect(runtime.status).toMatchObject({
       state: "drift_detected",
       driftState: "source_changed"

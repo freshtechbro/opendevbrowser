@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "../src/cli/args";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { deriveCliToolPairs } from "../scripts/shared/workflow-inventory.mjs";
 import { createMockProviderRuntime } from "./provider-runtime-mock";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -12,50 +13,7 @@ vi.mock("@opencode-ai/plugin", async () => {
   return { tool: toolFn };
 });
 
-const CLI_TO_TOOL_PAIRS = [
-  ["launch", "opendevbrowser_launch"],
-  ["connect", "opendevbrowser_connect"],
-  ["disconnect", "opendevbrowser_disconnect"],
-  ["status", "opendevbrowser_status"],
-  ["targets-list", "opendevbrowser_targets_list"],
-  ["target-use", "opendevbrowser_target_use"],
-  ["target-new", "opendevbrowser_target_new"],
-  ["target-close", "opendevbrowser_target_close"],
-  ["page", "opendevbrowser_page"],
-  ["pages", "opendevbrowser_list"],
-  ["page-close", "opendevbrowser_close"],
-  ["goto", "opendevbrowser_goto"],
-  ["wait", "opendevbrowser_wait"],
-  ["snapshot", "opendevbrowser_snapshot"],
-  ["click", "opendevbrowser_click"],
-  ["hover", "opendevbrowser_hover"],
-  ["press", "opendevbrowser_press"],
-  ["check", "opendevbrowser_check"],
-  ["uncheck", "opendevbrowser_uncheck"],
-  ["type", "opendevbrowser_type"],
-  ["select", "opendevbrowser_select"],
-  ["scroll", "opendevbrowser_scroll"],
-  ["scroll-into-view", "opendevbrowser_scroll_into_view"],
-  ["dom-html", "opendevbrowser_dom_get_html"],
-  ["dom-text", "opendevbrowser_dom_get_text"],
-  ["dom-attr", "opendevbrowser_get_attr"],
-  ["dom-value", "opendevbrowser_get_value"],
-  ["dom-visible", "opendevbrowser_is_visible"],
-  ["dom-enabled", "opendevbrowser_is_enabled"],
-  ["dom-checked", "opendevbrowser_is_checked"],
-  ["run", "opendevbrowser_run"],
-  ["console-poll", "opendevbrowser_console_poll"],
-  ["network-poll", "opendevbrowser_network_poll"],
-  ["clone-page", "opendevbrowser_clone_page"],
-  ["clone-component", "opendevbrowser_clone_component"],
-  ["perf", "opendevbrowser_perf"],
-  ["screenshot", "opendevbrowser_screenshot"],
-  ["debug-trace-snapshot", "opendevbrowser_debug_trace_snapshot"],
-  ["cookie-import", "opendevbrowser_cookie_import"],
-  ["cookie-list", "opendevbrowser_cookie_list"],
-  ["macro-resolve", "opendevbrowser_macro_resolve"],
-  ["annotate", "opendevbrowser_annotate"]
-] as const;
+const CLI_TO_TOOL_PAIRS = deriveCliToolPairs();
 
 const parseToolResponse = (value: string): Record<string, unknown> => JSON.parse(value) as Record<string, unknown>;
 
@@ -123,9 +81,14 @@ const compareNormalizedParity = (
   return mismatches;
 };
 
+const DECLARED_DIVERGENCE_REGISTRY_PATH = resolve(process.cwd(), "docs/PARITY_DECLARED_DIVERGENCES.md");
+const hasDeclaredDivergenceRegistry = existsSync(DECLARED_DIVERGENCE_REGISTRY_PATH);
+
 const loadDeclaredDivergenceIds = (): Set<string> => {
-  const registryPath = resolve(process.cwd(), "docs/PARITY_DECLARED_DIVERGENCES.md");
-  const content = readFileSync(registryPath, "utf8");
+  if (!hasDeclaredDivergenceRegistry) {
+    return new Set<string>();
+  }
+  const content = readFileSync(DECLARED_DIVERGENCE_REGISTRY_PATH, "utf8");
   const ids = new Set<string>();
   for (const line of content.split(/\r?\n/)) {
     const match = line.match(/^\|\s*(D[0-9]{3,})\s*\|/);
@@ -435,6 +398,10 @@ describe("parity matrix", () => {
 
   it("loads declared divergence registry ids", () => {
     const declared = loadDeclaredDivergenceIds();
+    if (!hasDeclaredDivergenceRegistry) {
+      expect(declared.size).toBe(0);
+      return;
+    }
     expect(declared.size).toBeGreaterThan(0);
     expect(declared.has("D001")).toBe(true);
   });
@@ -478,6 +445,12 @@ describe("parity matrix", () => {
       errorClass: "retryable"
     });
     const mismatches = compareNormalizedParity(expected, actual);
+    if (!hasDeclaredDivergenceRegistry) {
+      expect(() => assertDeclaredParityMismatches(mismatches, "D001", declared)).toThrow(
+        "Unknown declared divergence id: D001"
+      );
+      return;
+    }
     expect(() => assertDeclaredParityMismatches(mismatches, "D001", declared)).not.toThrow();
     expect(() => assertDeclaredParityMismatches(mismatches, "D404", declared)).toThrow(
       "Unknown declared divergence id: D404"

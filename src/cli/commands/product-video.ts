@@ -3,6 +3,8 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
+import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 
 type ProductVideoCommandArgs = {
   productUrl?: string;
@@ -15,6 +17,7 @@ type ProductVideoCommandArgs = {
   ttlHours?: number;
   timeoutMs?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: "off" | "auto" | "required";
 };
 
@@ -33,7 +36,6 @@ const parseBoolean = (value: string, flag: string): boolean => {
 };
 
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
-
 const parseProductVideoArgs = (rawArgs: string[]): ProductVideoCommandArgs => {
   const parsed: ProductVideoCommandArgs = {};
 
@@ -136,6 +138,24 @@ const parseProductVideoArgs = (rawArgs: string[]): ProductVideoCommandArgs => {
       continue;
     }
 
+    if (arg === "--challenge-automation-mode") {
+      const value = requireValue(rawArgs, index, "--challenge-automation-mode");
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--challenge-automation-mode=")) {
+      const value = arg.split("=", 2)[1] ?? "";
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      continue;
+    }
+
     if (arg === "--cookie-policy-override" || arg === "--cookie-policy") {
       const value = requireValue(rawArgs, index, arg).toLowerCase();
       if (!COOKIE_POLICY_VALUES.has(value)) {
@@ -169,7 +189,7 @@ export async function runProductVideoCommand(args: ParsedArgs) {
     throw createUsageError("Missing --product-url or --product-name");
   }
 
-  const timeoutMs = parsed.timeoutMs ?? 120000;
+  const timeoutMs = parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS;
   const data = await callDaemon("product.video.run", {
     product_url: parsed.productUrl,
     product_name: parsed.productName,
@@ -181,6 +201,7 @@ export async function runProductVideoCommand(args: ParsedArgs) {
     ttl_hours: parsed.ttlHours,
     timeoutMs,
     useCookies: parsed.useCookies,
+    challengeAutomationMode: parsed.challengeAutomationMode,
     cookiePolicyOverride: parsed.cookiePolicyOverride
   });
 

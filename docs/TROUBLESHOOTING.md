@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-06
 
 ## Hub daemon status
 
@@ -199,7 +199,7 @@ Provider workflows support cookie controls with defaults from `providers.cookieP
 
 Where to inspect:
 
-- Workflow outputs: `meta.metrics.reason_code_distribution`/`meta.metrics.reasonCodeDistribution` and `meta.metrics.transcript_strategy_failures`/`meta.metrics.transcriptStrategyFailures`.
+- Workflow outputs: `meta.primaryConstraintSummary`, `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `meta.metrics.transcript_strategy_failures`/`meta.metrics.transcriptStrategyFailures`.
 - Strategy-detail workflow diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
 - Workflow health dimensions: `meta.metrics.transcriptDurability` (or `meta.metrics.transcript_durability`) and `meta.metrics.antiBotPressure` (or `meta.metrics.anti_bot_pressure`).
 - Provider failure entries: `error.reasonCode`.
@@ -207,9 +207,9 @@ Where to inspect:
 
 Transcript controls checklist:
 
-1. Default behavior is exhaustive chain-on (`enableYtdlpAudioAsr=true`, `enableApify=true`, `enableBrowserFallback=true`).
+1. Default behavior is public-first (`enableYtdlpAudioAsr=true`, `enableApify=true`, `enableBrowserFallback=false`).
 2. Mode precedence is `filters.youtube_mode > providers.transcript.modeDefault > auto`; no new CLI mode flag is added in this phase.
-3. Keep the progressive fallback chain enabled for non-forced modes: `youtubei -> native_caption_parse -> ytdlp_audio_asr -> apify`.
+3. Keep the progressive resolver chain enabled for non-forced modes: `youtubei -> native_caption_parse -> ytdlp_audio_asr -> apify`.
 4. Enable Apify only when all are true:
    - `providers.transcript.enableApify`
    - `providers.transcript.apifyActorId` is configured
@@ -220,7 +220,8 @@ Transcript controls checklist:
 7. Enable browser fallback only when all are true:
    - `providers.transcript.enableBrowserFallback`
    - `providers.antiBotPolicy.allowBrowserEscalation`
-8. If `env_limited` appears for browser fallback, disable browser fallback and continue with deterministic resolver strategies.
+8. If browser fallback is enabled, use an isolated automation profile instead of a daily logged-in Google profile.
+9. If `env_limited` appears for browser fallback, disable browser fallback and continue with deterministic resolver strategies.
 
 Strategy-specific quick checks:
 
@@ -237,6 +238,13 @@ Strategy-specific quick checks:
    - confirm `APIFY_TOKEN` and legal approval for `apify`
 5. `transcript_strategy_detail=browser_assisted` failures:
    - verify browser escalation policy and fallback enablement settings
+   - rerun in an isolated automation profile before treating the failure as a resolver regression
+
+### Shopping region trust quick check
+
+1. Treat `--region` as advisory unless `meta.selection.region_authoritative=true`.
+2. Inspect `meta.selection.region_support` and `meta.alerts` for `reasonCode=region_unenforced`.
+3. If `meta.primaryConstraintSummary` says the requested region was not enforced or that offers were filtered by the currency heuristic, do not present the run as a trustworthy regional comparison.
 
 Reliability promotion and rollback criteria:
 

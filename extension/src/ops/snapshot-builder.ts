@@ -5,6 +5,7 @@ export type { SnapshotMode };
 export async function buildSnapshot(
   send: (method: string, params: object) => Promise<unknown>,
   mode: SnapshotMode,
+  createRef: () => string,
   mainFrameOnly: boolean = true,
   maxNodes?: number
 ): Promise<{
@@ -12,5 +13,5 @@ export async function buildSnapshot(
   lines: string[];
   warnings: string[];
 }> {
-  return await buildSnapshotFromCdp(send, mode, mainFrameOnly, maxNodes);
+  return await buildSnapshotFromCdp(send, mode, createRef, mainFrameOnly, maxNodes);
 }

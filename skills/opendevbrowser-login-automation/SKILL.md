@@ -39,6 +39,7 @@ Use this skill for deterministic auth testing that handles MFA and anti-bot chec
 
 - Use snapshot refs, not ad-hoc selectors.
 - Run one decision loop at a time: snapshot -> action -> snapshot.
+- Use low-level pointer controls when a deterministic test gate or slider challenge requires gesture input, then re-snapshot before resuming auth steps.
 - Never store credentials in skill files, logs, screenshots, or committed fixtures.
 - Treat anti-bot challenges as checkpoints (manual solve or approved test keys), not bypass targets.
 - Keep a bounded retry budget (max 2 automated retries) and honor `Retry-After` when present.
@@ -78,6 +79,7 @@ Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-i
    - authenticated shell appears -> success validation
    - MFA prompt appears -> continue MFA branch
    - popup/new-tab SSO appears -> switch target and continue auth branch
+   - deterministic slider or pointer gate appears -> complete pointer workflow, then re-snapshot
    - anti-bot challenge appears -> checkpoint branch
    - invalid credentials or lockout message -> failure branch
 
@@ -98,8 +100,9 @@ Use this when CAPTCHA/turnstile/challenge pages appear.
 
 1. Detect challenge UI from snapshot refs or page text.
 2. Pause automation and mark checkpoint in run log.
-3. Complete challenge manually (or with provider-approved test key in non-production).
-4. Resume from a fresh snapshot and continue auth validation.
+3. If the environment exposes a deterministic test slider or pointer gate, use low-level pointer commands and re-snapshot before continuing.
+4. Otherwise complete the challenge manually (or with provider-approved test key in non-production).
+5. Resume from a fresh snapshot and continue auth validation.
 
 Signals to monitor:
 - challenge iframe/widget visible
@@ -132,6 +135,7 @@ Validate at least two independent signals:
 - URL/route transition to authenticated area.
 - Auth-only element visible (`opendevbrowser_is_visible`).
 - Auth request success from `opendevbrowser_network_poll`.
+- Invalid-credential rejection from `opendevbrowser_network_poll` is acceptable failure proof when UI copy is suppressed or delayed.
 
 ```text
 opendevbrowser_network_poll sessionId="<session-id>" max=50
@@ -151,7 +155,7 @@ Close and relaunch, then confirm one of:
 
 ## Failure Modes
 
-- Invalid credentials: assert explicit field/banner errors.
+- Invalid credentials: prefer explicit field/banner errors, but accept network rejection evidence when UI copy is absent.
 - Rate limit/lockout: stop retries, apply cooldown, rotate test account.
 - Challenge loop: escalate as anti-bot pressure issue.
 - MFA unavailable for test account: mark incomplete test prerequisite.

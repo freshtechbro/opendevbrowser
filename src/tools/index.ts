@@ -4,6 +4,7 @@ import { createLaunchTool } from "./launch";
 import { createConnectTool } from "./connect";
 import { createDisconnectTool } from "./disconnect";
 import { createStatusTool } from "./status";
+import { createSessionInspectorTool } from "./session_inspector";
 import { createTargetsListTool } from "./targets_list";
 import { createTargetUseTool } from "./target_use";
 import { createTargetNewTool } from "./target_new";
@@ -14,6 +15,7 @@ import { createCloseTool } from "./close";
 import { createGotoTool } from "./goto";
 import { createWaitTool } from "./wait";
 import { createSnapshotTool } from "./snapshot";
+import { createReviewTool } from "./review";
 import { createClickTool } from "./click";
 import { createHoverTool } from "./hover";
 import { createPressTool } from "./press";
@@ -23,6 +25,11 @@ import { createTypeTool } from "./type";
 import { createSelectTool } from "./select";
 import { createScrollTool } from "./scroll";
 import { createScrollIntoViewTool } from "./scroll_into_view";
+import { createUploadTool } from "./upload";
+import { createPointerMoveTool } from "./pointer_move";
+import { createPointerDownTool } from "./pointer_down";
+import { createPointerUpTool } from "./pointer_up";
+import { createPointerDragTool } from "./pointer_drag";
 import { createDomGetHtmlTool } from "./dom_get_html";
 import { createDomGetTextTool } from "./dom_get_text";
 import { createGetAttrTool } from "./get_attr";
@@ -42,6 +49,7 @@ import { createClonePageTool } from "./clone_page";
 import { createCloneComponentTool } from "./clone_component";
 import { createPerfTool } from "./perf";
 import { createScreenshotTool } from "./screenshot";
+import { createDialogTool } from "./dialog";
 import { createAnnotateTool } from "./annotate";
 import { createResearchRunTool } from "./research_run";
 import { createShoppingRunTool } from "./shopping_run";
@@ -49,14 +57,11 @@ import { createProductVideoRunTool } from "./product_video_run";
 import { createCanvasTool } from "./canvas";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
-export type { ToolSurfaceEntry } from "./surface";
-export { TOOL_SURFACE_ENTRIES } from "./surface";
+import onboardingMetadata from "../cli/onboarding-metadata.json";
+export type { ToolSurfaceEntry } from "../public-surface/source";
+export { TOOL_SURFACE_ENTRIES } from "../public-surface/generated-manifest";
 
-const LOCAL_ONLY_TOOL_NAMES = new Set([
-  "opendevbrowser_prompting_guide",
-  "opendevbrowser_skill_list",
-  "opendevbrowser_skill_load"
-]);
+export const LOCAL_ONLY_TOOL_NAMES = new Set(onboardingMetadata.localOnlyToolNames);
 
 export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
   const wrap = (name: string, definition: ToolDefinition): ToolDefinition => {
@@ -79,6 +84,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_connect: wrap("opendevbrowser_connect", createConnectTool(deps)),
     opendevbrowser_disconnect: wrap("opendevbrowser_disconnect", createDisconnectTool(deps)),
     opendevbrowser_status: wrap("opendevbrowser_status", createStatusTool(deps)),
+    opendevbrowser_session_inspector: wrap("opendevbrowser_session_inspector", createSessionInspectorTool(deps)),
     opendevbrowser_targets_list: wrap("opendevbrowser_targets_list", createTargetsListTool(deps)),
     opendevbrowser_target_use: wrap("opendevbrowser_target_use", createTargetUseTool(deps)),
     opendevbrowser_target_new: wrap("opendevbrowser_target_new", createTargetNewTool(deps)),
@@ -89,6 +95,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_goto: wrap("opendevbrowser_goto", createGotoTool(deps)),
     opendevbrowser_wait: wrap("opendevbrowser_wait", createWaitTool(deps)),
     opendevbrowser_snapshot: wrap("opendevbrowser_snapshot", createSnapshotTool(deps)),
+    opendevbrowser_review: wrap("opendevbrowser_review", createReviewTool(deps)),
     opendevbrowser_click: wrap("opendevbrowser_click", createClickTool(deps)),
     opendevbrowser_hover: wrap("opendevbrowser_hover", createHoverTool(deps)),
     opendevbrowser_press: wrap("opendevbrowser_press", createPressTool(deps)),
@@ -98,6 +105,11 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_select: wrap("opendevbrowser_select", createSelectTool(deps)),
     opendevbrowser_scroll: wrap("opendevbrowser_scroll", createScrollTool(deps)),
     opendevbrowser_scroll_into_view: wrap("opendevbrowser_scroll_into_view", createScrollIntoViewTool(deps)),
+    opendevbrowser_upload: wrap("opendevbrowser_upload", createUploadTool(deps)),
+    opendevbrowser_pointer_move: wrap("opendevbrowser_pointer_move", createPointerMoveTool(deps)),
+    opendevbrowser_pointer_down: wrap("opendevbrowser_pointer_down", createPointerDownTool(deps)),
+    opendevbrowser_pointer_up: wrap("opendevbrowser_pointer_up", createPointerUpTool(deps)),
+    opendevbrowser_pointer_drag: wrap("opendevbrowser_pointer_drag", createPointerDragTool(deps)),
     opendevbrowser_dom_get_html: wrap("opendevbrowser_dom_get_html", createDomGetHtmlTool(deps)),
     opendevbrowser_dom_get_text: wrap("opendevbrowser_dom_get_text", createDomGetTextTool(deps)),
     opendevbrowser_get_attr: wrap("opendevbrowser_get_attr", createGetAttrTool(deps)),
@@ -121,6 +133,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_clone_component: wrap("opendevbrowser_clone_component", createCloneComponentTool(deps)),
     opendevbrowser_perf: wrap("opendevbrowser_perf", createPerfTool(deps)),
     opendevbrowser_screenshot: wrap("opendevbrowser_screenshot", createScreenshotTool(deps)),
+    opendevbrowser_dialog: wrap("opendevbrowser_dialog", createDialogTool(deps)),
     opendevbrowser_annotate: wrap("opendevbrowser_annotate", createAnnotateTool(deps)),
     opendevbrowser_skill_list: wrap("opendevbrowser_skill_list", createSkillListTool(deps)),
     opendevbrowser_skill_load: wrap("opendevbrowser_skill_load", createSkillLoadTool(deps))

@@ -5,7 +5,7 @@ import { ok } from "./response";
 
 export function createSkillListTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "List available skills from OpenCode skill directories (compatibility wrapper)",
+    description: "List bundled and discovered skill packs before choosing a local onboarding or workflow lane.",
     args: {},
     async execute() {
       const skills = await deps.skills.listSkills();
@@ -14,7 +14,10 @@ export function createSkillListTool(deps: ToolDeps): ToolDefinition {
         description: s.description,
         version: s.version
       }));
-      return ok({ skills: skillList, count: skillList.length });
+      return ok({
+        skills: skillList,
+        count: skillList.length
+      });
     }
   });
 }

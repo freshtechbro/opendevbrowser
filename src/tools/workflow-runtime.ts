@@ -1,14 +1,16 @@
 import type { ToolDeps } from "./deps";
+import type { RuntimeInit } from "../providers";
+import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 
-export const resolveProviderRuntime = async (deps: ToolDeps): Promise<NonNullable<ToolDeps["providerRuntime"]>> => {
-  if (deps.providerRuntime) {
-    return deps.providerRuntime;
-  }
-
-  const { createConfiguredProviderRuntime } = await import("../providers/runtime-factory");
-  return createConfiguredProviderRuntime({
+export const resolveProviderRuntime = async (
+  deps: ToolDeps,
+  options?: { init?: Omit<RuntimeInit, "providers"> }
+): Promise<NonNullable<ToolDeps["providerRuntime"]>> => {
+  return resolveBundledProviderRuntime({
+    existingRuntime: deps.providerRuntime,
     config: deps.config?.get?.(),
     manager: deps.manager,
-    browserFallbackPort: deps.browserFallbackPort
+    browserFallbackPort: deps.browserFallbackPort,
+    init: options?.init
   });
 };

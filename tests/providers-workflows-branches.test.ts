@@ -6,15 +6,19 @@ import {
   runShoppingWorkflow,
   type ProviderExecutor
 } from "../src/providers/workflows";
+import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type { ResearchRecord } from "../src/providers/enrichment";
 import { SHOPPING_PROVIDER_IDS, SHOPPING_PROVIDER_PROFILES } from "../src/providers/shopping";
 import type {
+  JsonValue,
   NormalizedRecord,
   ProviderAggregateResult,
   ProviderError,
   ProviderFailureEntry,
   ProviderSource
 } from "../src/providers/types";
+
+type WorkflowKind = "research" | "shopping" | "product_video";
 
 const isoHoursAgo = (hours: number): string => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 const isoHoursAhead = (hours: number): string => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
@@ -62,9 +66,87 @@ const makeAggregate = (overrides: Partial<ProviderAggregateResult> = {}): Provid
 const toRuntime = (handlers: {
   search?: ProviderExecutor["search"];
   fetch?: ProviderExecutor["fetch"];
+  getAntiBotSnapshots?: ProviderExecutor["getAntiBotSnapshots"];
 }): ProviderExecutor => ({
   search: handlers.search ?? (async () => makeAggregate()),
-  fetch: handlers.fetch ?? (async () => makeAggregate())
+  fetch: handlers.fetch ?? (async () => makeAggregate()),
+  ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
+});
+
+const WALMART_PREOWNED_AIRPODS_URL = "https://www.walmart.com/ip/Pre-Owned-Apple-AirPods-Pro-2nd-Generation-Lightning/19336719172?classType=REGULAR&conditionGroupCode=3&from=%2Fsearch";
+const WALMART_NEW_AIRPODS_URL = "https://www.walmart.com/ip/Apple-AirPods-Pro-2nd-Generation-with-MagSafe-Case-USB-C/5689912134?classType=REGULAR&from=%2Fsearch";
+
+const makeWalmartPreownedAirpodsRecord = (): NormalizedRecord => makeRecord({
+  id: "walmart-preowned-airpods",
+  source: "shopping",
+  provider: "shopping/walmart",
+  url: WALMART_PREOWNED_AIRPODS_URL,
+  title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning - Walmart.com Skip to Main Content Pickup or delivery? Cancel …",
+  content: [
+    "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+    "Key item features",
+    "‌Richer audio experience Apple-designed H2 chip, the new force behind AirPods Pro, pushes advanced audio performance even further.",
+    "Brand Apple Color White View full specifications Current price is USD $139.99",
+    "Free shipping",
+    "Sold and shipped by TheRightOne"
+  ].join(" "),
+  attributes: {
+    brand: "Apple",
+    shopping_offer: {
+      provider: "shopping/walmart",
+      product_id: "shopping/walmart:1:aHR0cHM6",
+      title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning - Walmart.com Skip to Main Content Pickup or delivery? Cancel …",
+      url: WALMART_PREOWNED_AIRPODS_URL,
+      price: { amount: 139.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+      shipping: { amount: 0, currency: "USD", notes: "free" },
+      availability: "in_stock",
+      rating: 3.8,
+      reviews_count: 2158
+    }
+  }
+});
+
+const makeWalmartNewAirpodsRecord = (): NormalizedRecord => makeRecord({
+  id: "walmart-new-airpods",
+  source: "shopping",
+  provider: "shopping/walmart",
+  url: WALMART_NEW_AIRPODS_URL,
+  title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C) - Walmart.com",
+  content: [
+    "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+    "Key item features",
+    "Adaptive audio and active noise cancellation for focused listening.",
+    "Brand Apple View full specifications Current price is USD $189.99",
+    "Free shipping",
+    "Sold and shipped by Walmart"
+  ].join(" "),
+  attributes: {
+    brand: "Apple",
+    shopping_offer: {
+      provider: "shopping/walmart",
+      product_id: "walmart-new-airpods",
+      title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C) - Walmart.com",
+      url: WALMART_NEW_AIRPODS_URL,
+      price: { amount: 189.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+      shipping: { amount: 0, currency: "USD", notes: "free" },
+      availability: "in_stock",
+      rating: 4.7,
+      reviews_count: 325
+    }
+  }
+});
+
+const expectWorkflowSuspendedIntent = (
+  kind: WorkflowKind,
+  input: Record<string, unknown>
+) => expect.objectContaining({
+  kind: `workflow.${kind}`,
+  input: {
+    workflow: expect.objectContaining({
+      kind,
+      input: expect.objectContaining(input)
+    })
+  }
 });
 
 describe("workflow branch coverage", () => {
@@ -159,6 +241,39 @@ describe("workflow branch coverage", () => {
     expect(meta.metrics.total_records).toBe(3);
     expect(meta.metrics.within_timebox).toBe(2);
     expect(meta.metrics.final_records).toBe(1);
+  });
+
+  it("keeps non-web research runs inside their declared source scope", async () => {
+    const search = vi.fn(async (_input, options) => makeAggregate({
+      sourceSelection: "social",
+      providerOrder: ["social/youtube"],
+      records: [makeRecord({
+        id: "social-only-record",
+        source: "social",
+        provider: "social/youtube",
+        url: "https://example.com/social-only",
+        title: "Social-only result",
+        content: "Operators reported a reliable extension debugging workflow.",
+        attributes: {}
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate());
+
+    const output = await runResearchWorkflow(toRuntime({ search, fetch }), {
+      topic: "extension debugging sessions",
+      sources: ["social"],
+      mode: "json",
+      limitPerSource: 3
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(output.meta).toMatchObject({
+      selection: {
+        source_selection: "auto",
+        resolved_sources: ["social"]
+      }
+    });
+    expect((output.records as Array<{ source: string }>).map((record) => record.source)).toEqual(["social"]);
   });
 
   it("promotes provider alerts from warning to degraded across windows", async () => {
@@ -324,6 +439,230 @@ describe("workflow branch coverage", () => {
       alerts: Array<{ provider: string; state: string; reason: string }>;
     }).alerts;
     expect(alerts).toEqual([]);
+  });
+
+  it("downgrades degraded alerts to warning once recovery lowers the ratio below the degraded threshold", async () => {
+    const provider = "web/recovery-waiting-pending";
+    let callCount = 0;
+    const runtime = toRuntime({
+      search: async () => {
+        callCount += 1;
+        if (callCount <= 2) {
+          return makeAggregate({
+            ok: false,
+            sourceSelection: "web",
+            providerOrder: [provider],
+            failures: [makeFailure(provider, "web", {
+              code: "rate_limited",
+              message: "rate limited",
+              retryable: true
+            })],
+            metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: [provider],
+          records: [makeRecord({
+            id: `healthy-${callCount}`,
+            source: "web",
+            provider
+          })]
+        });
+      }
+    });
+
+    await runResearchWorkflow(runtime, {
+      topic: "recovery waiting pending seed one",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+    await runResearchWorkflow(runtime, {
+      topic: "recovery waiting pending seed two",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    let recoveryOutput: Record<string, unknown> | null = null;
+    for (let index = 0; index < 7; index += 1) {
+      recoveryOutput = await runResearchWorkflow(runtime, {
+        topic: `recovery waiting pending healthy ${index}`,
+        sourceSelection: "web",
+        days: 1,
+        mode: "json"
+      });
+    }
+    if (!recoveryOutput) {
+      throw new Error("expected recovery output");
+    }
+    const alerts = (recoveryOutput.meta as {
+      alerts: Array<{ provider: string; state: string; reason: string }>;
+    }).alerts;
+    const recoveryAlert = alerts.find((alert) => alert.provider === provider);
+
+    expect(recoveryAlert).toEqual(expect.objectContaining({
+      provider,
+      state: "warning",
+      reason: "signal ratio >= 15%"
+    }));
+  });
+
+  it("uses runtime snapshots to emit degraded challenge and cooldown alerts", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        failures: [makeFailure("web/default", "web")],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      }),
+      getAntiBotSnapshots: () => [{
+        providerId: "web/default",
+        activeChallenges: 1,
+        recentChallengeRatio: 0.1,
+        recentRateLimitRatio: 0.1,
+        cooldownUntilMs: Date.now() + 60_000
+      }]
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "runtime snapshot alerts",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (output.meta as {
+      alerts: Array<{ signal: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        signal: "anti_bot_challenge",
+        state: "degraded",
+        reason: "preserved challenge session is still active"
+      }),
+      expect.objectContaining({
+        signal: "rate_limited",
+        state: "degraded",
+        reason: "cooldown active"
+      })
+    ]));
+  });
+
+  it("uses runtime snapshot ratios for warning alerts and dedupes transcript failures", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/youtube"],
+        failures: [
+          makeFailure("social/youtube", "social", {
+            code: "unavailable",
+            message: "captions unavailable",
+            reasonCode: "transcript_unavailable"
+          }),
+          makeFailure("social/youtube", "social", {
+            code: "unavailable",
+            message: "captions still unavailable",
+            reasonCode: "transcript_unavailable"
+          }),
+          makeFailure("social/youtube", "social", {
+            code: "rate_limited",
+            message: "rate limited",
+            reasonCode: "rate_limited"
+          })
+        ],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      }),
+      getAntiBotSnapshots: () => [{
+        providerId: "social/youtube",
+        activeChallenges: 0,
+        recentChallengeRatio: 0.2,
+        recentRateLimitRatio: 0.2,
+        cooldownUntilMs: 0
+      }]
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "runtime snapshot warning alerts",
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (output.meta as {
+      alerts: Array<{ provider: string; signal: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "social/youtube",
+        signal: "anti_bot_challenge",
+        state: "warning",
+        reason: "signal ratio >= 15%"
+      }),
+      expect.objectContaining({
+        provider: "social/youtube",
+        signal: "rate_limited",
+        state: "warning",
+        reason: "signal ratio >= 15%"
+      }),
+      expect.objectContaining({
+        provider: "social/youtube",
+        signal: "transcript_unavailable",
+        state: "warning"
+      })
+    ]));
+    expect(alerts.filter((alert) => alert.signal === "transcript_unavailable")).toHaveLength(1);
+  });
+
+  it("uses runtime snapshot ratios to emit degraded alerts without preserved sessions or cooldowns", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/x"],
+        failures: [makeFailure("social/x", "social", {
+          code: "rate_limited",
+          message: "rate limited",
+          reasonCode: "rate_limited"
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      }),
+      getAntiBotSnapshots: () => [{
+        providerId: "social/x",
+        activeChallenges: 0,
+        recentChallengeRatio: 0.3,
+        recentRateLimitRatio: 0.3,
+        cooldownUntilMs: 0
+      }]
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "runtime snapshot degraded ratio alerts",
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    });
+
+    const alerts = (output.meta as {
+      alerts: Array<{ provider: string; signal: string; state: string; reason: string }>;
+    }).alerts;
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "social/x",
+        signal: "anti_bot_challenge",
+        state: "degraded",
+        reason: "signal ratio >= 25%"
+      }),
+      expect.objectContaining({
+        provider: "social/x",
+        signal: "rate_limited",
+        state: "degraded",
+        reason: "signal ratio >= 25%"
+      })
+    ]));
   });
 
   it("orders research records by timebox status and date confidence", () => {
@@ -571,6 +910,60 @@ describe("workflow branch coverage", () => {
     expect((explicitOutput.meta as { selection: { providers: string[] } }).selection.providers).toEqual(["shopping/amazon"]);
   });
 
+  it("excludes runtime-degraded shopping providers from default routing", async () => {
+    const calledProviders: string[][] = [];
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerIds = [...(options?.providerIds ?? [])];
+        calledProviders.push(providerIds);
+        const providerId = providerIds[0] ?? "shopping/others";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: providerIds,
+          records: [makeRecord({
+            id: `runtime-${providerId}`,
+            source: "shopping",
+            provider: providerId,
+            url: `https://shop.example/${providerId}`,
+            title: `Offer ${providerId}`,
+            content: "$10.00",
+            attributes: {
+              shopping_offer: {
+                provider: providerId,
+                product_id: `${providerId}-product`,
+                title: `Offer ${providerId}`,
+                url: `https://shop.example/${providerId}`,
+                price: { amount: 10, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.5,
+                reviews_count: 3
+              }
+            }
+          })]
+        });
+      },
+      getAntiBotSnapshots: (providerIds) => (providerIds ?? SHOPPING_PROVIDER_IDS).map((providerId) => ({
+        providerId,
+        activeChallenges: providerId === "shopping/amazon" ? 1 : 0,
+        recentChallengeRatio: providerId === "shopping/amazon" ? 1 : 0,
+        recentRateLimitRatio: 0,
+        cooldownUntilMs: 0
+      }))
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "runtime-degraded-routing",
+      mode: "json"
+    });
+
+    expect(calledProviders[0]).toBeDefined();
+    expect(calledProviders[0]).not.toContain("shopping/amazon");
+    expect((output.meta as {
+      selection: { excluded_providers?: string[] };
+    }).selection.excluded_providers).toContain("shopping/amazon");
+  });
+
   it("returns shopping provider ids for known/unknown/invalid URLs", () => {
     expect(workflowTestUtils.resolveShoppingProviderIdForUrl("https://www.amazon.com/dp/example")).toBe("shopping/amazon");
     expect(workflowTestUtils.resolveShoppingProviderIdForUrl("https://store.example.com/item")).toBe("shopping/others");
@@ -585,7 +978,7 @@ describe("workflow branch coverage", () => {
     expect(workflowTestUtils.toProviderSource("custom/unknown")).toBeNull();
   });
 
-  it("covers signal recovery helper branches across degraded cooldown windows", () => {
+  it("covers pure nextSignalState recovery helper branches outside end-to-end tracked-window alert emission", () => {
     expect(workflowTestUtils.nextSignalState("degraded", true, false, 0)).toEqual({
       state: "warning",
       healthyWindows: 0
@@ -602,6 +995,31 @@ describe("workflow branch coverage", () => {
       state: "degraded",
       healthyWindows: 0
     });
+  });
+
+  it("covers workflow helper branches for resume payload wrapping, brand parsing, and http url validation", () => {
+    const rawPayload = workflowTestUtils.buildWorkflowResumePayload("workflow.research", {
+      topic: "browser automation"
+    } as JsonValue);
+    expect(rawPayload.workflow).toMatchObject({
+      kind: "research",
+      input: { topic: "browser automation" }
+    });
+
+    const existingEnvelope = buildWorkflowResumeEnvelope("shopping", {
+      query: "portable monitor"
+    } as JsonValue);
+    expect(
+      workflowTestUtils.buildWorkflowResumePayload("workflow.shopping", existingEnvelope)
+    ).toEqual({ workflow: existingEnvelope });
+
+    expect(
+      workflowTestUtils.inferBrandFromContent("Brand Acme Audio keeps setup simple for travel.")
+    ).toBe("Acme Audio keeps setup simple for travel");
+
+    expect(workflowTestUtils.isValidHttpUrl("http://shop.example/item")).toBe(true);
+    expect(workflowTestUtils.isValidHttpUrl("https://shop.example/item")).toBe(true);
+    expect(workflowTestUtils.isValidHttpUrl("ftp://shop.example/item")).toBe(false);
   });
 
   it("covers helper branches for feature sanitization and price parsing", () => {
@@ -909,6 +1327,30 @@ describe("workflow branch coverage", () => {
     })).rejects.toThrow("All default shopping providers are temporarily excluded");
   });
 
+  it("limits default shopping routing to tier1 providers unless the caller opts into specific providers", async () => {
+    const search = vi.fn(async (_input, options) => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: [options?.providerIds?.[0] ?? "shopping/amazon"],
+      records: []
+    }));
+
+    await runShoppingWorkflow(toRuntime({ search }), {
+      query: "macbook air m4 32gb",
+      mode: "json"
+    });
+
+    const requestedProviders = search.mock.calls
+      .map(([, options]) => options?.providerIds?.[0])
+      .filter((value): value is string => typeof value === "string");
+    expect(requestedProviders).toEqual(
+      SHOPPING_PROVIDER_PROFILES
+        .filter((profile) => profile.tier === "tier1")
+        .map((profile) => profile.id)
+    );
+    expect(requestedProviders).not.toContain("shopping/target");
+    expect(requestedProviders).not.toContain("shopping/temu");
+  });
+
   it("resolves explicit single-source research selection", async () => {
     const runtime = toRuntime({
       search: async (_input, _options) => makeAggregate({
@@ -929,6 +1371,413 @@ describe("workflow branch coverage", () => {
     expect(meta.selection).toEqual({
       source_selection: "social",
       resolved_sources: ["social"]
+    });
+  });
+
+  it("fetches top web research result URLs before sanitizing search-index shells", async () => {
+    const fetch = vi.fn(async (input) => {
+      const url = input.url;
+      if (url === "https://design.example.com/inspiration") {
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [makeRecord({
+            id: "fetched-design-page",
+            source: "web",
+            provider: "web/default",
+            url,
+            title: "Coffee shop inspiration",
+            content: "Cafe design systems, visual references, and photography direction.",
+            attributes: {
+              retrievalPath: "web:fetch:url"
+            }
+          })]
+        });
+      }
+      if (url === "https://dribbble.com/tags/coffee-shop-website") {
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [makeRecord({
+            id: "fetched-js-shell",
+            source: "web",
+            provider: "web/default",
+            url,
+            title: url,
+            content: "JavaScript is disabled. In order to continue, we need to verify that you're not a robot.",
+            attributes: {}
+          })]
+        });
+      }
+      return makeAggregate();
+    });
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source !== "web") {
+          return makeAggregate({
+            sourceSelection: source,
+            providerOrder: [`${source}/default`],
+            records: []
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [
+            makeRecord({
+              id: "duckduckgo-search-result",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdesign.example.com%2Finspiration",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdesign.example.com%2Finspiration",
+              content: "coffee shop website design inspiration at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "duckduckgo-js-shell-result",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdribbble.com%2Ftags%2Fcoffee-shop-website",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fdribbble.com%2Ftags%2Fcoffee-shop-website",
+              content: "coffee shop website design inspiration at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })
+          ]
+        });
+      },
+      fetch
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      sourceSelection: "auto",
+      days: 30,
+      mode: "json"
+    });
+
+    expect(fetch).toHaveBeenCalledWith({
+      url: "https://design.example.com/inspiration"
+    }, expect.objectContaining({
+      source: "web"
+    }));
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["fetched-design-page"]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        sanitized_records: 3,
+        final_records: 1
+      }
+    });
+  });
+
+  it("forwards explicit timeout overrides through research search and follow-up fetch", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: "research-timeout-forwarded-search",
+        source: "web",
+        provider: "web/default",
+        url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fresearch-timeout-forwarded",
+        title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fresearch-timeout-forwarded",
+        content: "browser automation timeout forwarded",
+        attributes: {
+          retrievalPath: "web:search:index"
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: "research-timeout-forwarded-fetch",
+        source: "web",
+        provider: "web/default",
+        url: "https://example.com/research-timeout-forwarded",
+        title: "Research Timeout Forwarded",
+        content: "Concrete browser automation notes with reproducible details.",
+        attributes: {
+          retrievalPath: "web:fetch:url"
+        }
+      })]
+    }));
+
+    await runResearchWorkflow(toRuntime({ search, fetch }), {
+      topic: "browser automation timeout forwarded",
+      sourceSelection: "web",
+      days: 7,
+      timeoutMs: 4321,
+      mode: "json"
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      source: "web",
+      timeoutMs: 4321,
+      suspendedIntent: expectWorkflowSuspendedIntent("research", {
+        topic: "browser automation timeout forwarded",
+        sourceSelection: "web",
+        days: 7,
+        timeoutMs: 4321,
+        mode: "json"
+      })
+    }));
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/research-timeout-forwarded" },
+      expect.objectContaining({
+        source: "web",
+        timeoutMs: 4321,
+        suspendedIntent: expectWorkflowSuspendedIntent("research", {
+          topic: "browser automation timeout forwarded",
+          sourceSelection: "web",
+          days: 7,
+          timeoutMs: 4321,
+          mode: "json"
+        })
+      })
+    );
+  });
+
+  it("preserves research timeout failures in structured workflow output", async () => {
+    const output = await runResearchWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        records: [],
+        partial: false,
+        failures: [makeFailure("web/default", "web", {
+          code: "timeout",
+          message: "Browser fallback timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        })],
+        metrics: {
+          attempted: 1,
+          succeeded: 0,
+          failed: 1,
+          retries: 0,
+          latencyMs: 15000
+        },
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        error: {
+          code: "timeout",
+          message: "Browser fallback timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      })
+    }), {
+      topic: "browser automation timeout",
+      sourceSelection: "web",
+      days: 7,
+      mode: "json"
+    });
+
+    expect(output.records).toEqual([]);
+    expect(output.meta).toMatchObject({
+      failures: [{
+        provider: "web/default",
+        error: {
+          code: "timeout",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      }],
+      metrics: {
+        failed_sources: ["web"]
+      }
+    });
+    expect((output.meta as {
+      failures: Array<{ error: { reasonCode?: string } }>;
+    }).failures[0]?.error.reasonCode).not.toBe("env_limited");
+  });
+
+  it("does not synthesize primary constraint summaries for timeout-only research failures", async () => {
+    const output = await runResearchWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/x"],
+        records: [],
+        partial: false,
+        failures: [makeFailure("social/x", "social", {
+          code: "timeout",
+          message: "Rendered social search timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000,
+            browserRequired: true,
+            providerShell: "social_render_shell"
+          }
+        })],
+        metrics: {
+          attempted: 1,
+          succeeded: 0,
+          failed: 1,
+          retries: 0,
+          latencyMs: 15000
+        }
+      })
+    }), {
+      topic: "browser automation timeout masking",
+      sourceSelection: "social",
+      days: 7,
+      mode: "compact"
+    });
+
+    expect(output.summary).toBe("No records matched the requested timebox.");
+    expect(output.meta).not.toHaveProperty("primary_constraint");
+    expect(output.meta).not.toHaveProperty("primaryConstraint");
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
+    expect(output.meta).not.toHaveProperty("primaryConstraintSummary");
+    expect((output.meta as {
+      failures: Array<{ error: { code?: string; reasonCode?: string } }>;
+    }).failures[0]?.error).toMatchObject({
+      code: "timeout"
+    });
+    expect((output.meta as {
+      failures: Array<{ error: { reasonCode?: string } }>;
+    }).failures[0]?.error.reasonCode).not.toBe("env_limited");
+  });
+
+  it("keeps real research primary constraint summaries when timeout failures are mixed with auth failures", async () => {
+    const output = await runResearchWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        sourceSelection: "social",
+        providerOrder: ["social/x", "social/linkedin"],
+        records: [],
+        partial: false,
+        failures: [
+          makeFailure("social/x", "social", {
+            code: "timeout",
+            message: "Rendered social search timed out after 15000ms",
+            retryable: true,
+            details: {
+              stage: "capture",
+              timeoutMs: 15000,
+              browserRequired: true,
+              providerShell: "social_render_shell"
+            }
+          }),
+          makeFailure("social/linkedin", "social", {
+            code: "auth",
+            message: "Authentication required",
+            retryable: false,
+            reasonCode: "token_required",
+            details: {
+              blockerType: "auth_required",
+              constraint: {
+                kind: "session_required",
+                evidenceCode: "auth_required"
+              }
+            }
+          })
+        ],
+        metrics: {
+          attempted: 2,
+          succeeded: 0,
+          failed: 2,
+          retries: 0,
+          latencyMs: 15001
+        }
+      })
+    }), {
+      topic: "browser automation linkedin timeout masking",
+      sourceSelection: "social",
+      days: 7,
+      mode: "compact"
+    });
+
+    expect((output.meta as {
+      failures: Array<{ provider: string; error: { code?: string } }>;
+    }).failures).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "social/x",
+        error: expect.objectContaining({
+          code: "timeout"
+        })
+      }),
+      expect.objectContaining({
+        provider: "social/linkedin",
+        error: expect.objectContaining({
+          code: "auth"
+        })
+      })
+    ]));
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Linkedin requires login or an existing session."
+    });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
+    expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
+  });
+
+  it("keeps failed_sources derived from search failures only when web follow-up fetches fail", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      ok: false,
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      failures: [makeFailure("web/default", "web", {
+        code: "unavailable",
+        message: "follow-up fetch failed",
+        retryable: false
+      })],
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source !== "web") {
+          return makeAggregate({
+            sourceSelection: source,
+            providerOrder: [`${source}/default`],
+            records: []
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [makeRecord({
+            id: "search-shell",
+            source: "web",
+            provider: "web/default",
+            url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ffollow-up",
+            title: "search shell",
+            content: "resume topic",
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          })]
+        });
+      },
+      fetch
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "follow-up failure accounting",
+      sourceSelection: "auto",
+      days: 7,
+      mode: "json"
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        failed_sources: []
+      }
     });
   });
 
@@ -985,21 +1834,15 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Linkedin requires login or an existing session.",
       primaryConstraintSummary: "Linkedin requires login or an existing session."
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("No records matched the requested timebox.");
     expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
   });
 
   it("threads cookie overrides and aggregates cookie diagnostics across failures, records, and attempt chains", async () => {
-    const search = vi.fn(async (_input, options) => {
-      expect(options).toMatchObject({
-        source: "web",
-        useCookies: true,
-        cookiePolicyOverride: "required"
-      });
-
+    const search = vi.fn(async () => {
       return makeAggregate({
         sourceSelection: "web",
         providerOrder: ["web/default"],
@@ -1118,6 +1961,18 @@ describe("workflow branch coverage", () => {
       useCookies: true,
       cookiePolicyOverride: "required"
     });
+
+    const searchOptions = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(searchOptions).toBeDefined();
+    expect(searchOptions).toMatchObject({
+      source: "web",
+      runtimePolicy: {
+        useCookies: true,
+        cookiePolicyOverride: "required"
+      }
+    });
+    expect(searchOptions).not.toHaveProperty("useCookies");
+    expect(searchOptions).not.toHaveProperty("cookiePolicyOverride");
 
     const metrics = (output.meta as {
       metrics: {
@@ -1307,7 +2162,7 @@ describe("workflow branch coverage", () => {
       mode: "json"
     });
     const allMeta = fromAll.meta as { selection: { resolved_sources: string[] } };
-    expect(allMeta.selection.resolved_sources).toEqual(["web", "community", "social", "shopping"]);
+    expect(allMeta.selection.resolved_sources).toEqual(["web", "community", "social"]);
 
     const explicitSourcesNoSelection = await runResearchWorkflow(rankingRuntime, {
       topic: "ranking",
@@ -1431,6 +2286,151 @@ describe("workflow branch coverage", () => {
     })).rejects.toThrow("No valid shopping providers were requested");
   });
 
+  it("prefers direct product matches over accessories for best-deal shopping queries", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeRecord({
+              id: "macbook-direct",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0DIRECTM4",
+              title: "Apple MacBook Air Laptop 13-inch M4 32GB 1TB",
+              content: "$1899.00",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "macbook-direct",
+                  title: "Apple MacBook Air Laptop 13-inch M4 32GB 1TB",
+                  url: "https://www.amazon.com/dp/B0DIRECTM4",
+                  price: { amount: 1899, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.8,
+                  reviews_count: 129
+                }
+              }
+            }),
+            makeRecord({
+              id: "macbook-accessory",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0CASEM4001",
+              title: "Protective Case for MacBook Air 13-inch M4",
+              content: "$29.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "macbook-accessory",
+                  title: "Protective Case for MacBook Air 13-inch M4",
+                  url: "https://www.amazon.com/dp/B0CASEM4001",
+                  price: { amount: 29.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 5,
+                  reviews_count: 999
+                }
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const bestDeal = await runShoppingWorkflow(runtime, {
+      query: "macbook air m4 32gb",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+    expect((bestDeal.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual([
+      "Apple MacBook Air Laptop 13-inch M4 32GB 1TB",
+      "Protective Case for MacBook Air 13-inch M4"
+    ]);
+
+    const lowestPrice = await runShoppingWorkflow(runtime, {
+      query: "macbook air m4 32gb",
+      providers: ["shopping/amazon"],
+      sort: "lowest_price",
+      mode: "json"
+    });
+    expect((lowestPrice.offers as Array<{ title: string }>)[0]?.title).toBe("Protective Case for MacBook Air 13-inch M4");
+  });
+
+  it("does not treat echoed search query params as product-intent matches", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/ebay";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeRecord({
+              id: "wrong-spec-query-echo",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.ebay.com/itm/111?_skw=macbook+air+m4+32gb",
+              title: "Apple MacBook Air 15-inch M3 8GB 256GB Midnight",
+              content: "$775.00",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "wrong-spec-query-echo",
+                  title: "Apple MacBook Air 15-inch M3 8GB 256GB Midnight",
+                  url: "https://www.ebay.com/itm/111?_skw=macbook+air+m4+32gb",
+                  price: { amount: 775, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.8,
+                  reviews_count: 32
+                }
+              }
+            }),
+            makeRecord({
+              id: "requested-spec-match",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.ebay.com/itm/222",
+              title: "Apple MacBook Air 15-inch M4 32GB 1TB Midnight",
+              content: "$1329.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "requested-spec-match",
+                  title: "Apple MacBook Air 15-inch M4 32GB 1TB Midnight",
+                  url: "https://www.ebay.com/itm/222",
+                  price: { amount: 1329.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.6,
+                  reviews_count: 14
+                }
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const bestDeal = await runShoppingWorkflow(runtime, {
+      query: "macbook air m4 32gb",
+      providers: ["shopping/ebay"],
+      mode: "json"
+    });
+
+    expect((bestDeal.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual([
+      "Apple MacBook Air 15-inch M4 32GB 1TB Midnight",
+      "Apple MacBook Air 15-inch M3 8GB 256GB Midnight"
+    ]);
+  });
+
   it("applies shopping budget/region filters and tie-break sort branches", async () => {
     const search = vi.fn(async (input, options) => {
       const providerId = options?.providerIds?.[0] ?? "shopping/others";
@@ -1504,6 +2504,27 @@ describe("workflow branch coverage", () => {
     expect((highest.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/others");
     expect(search.mock.calls[0]?.[0]).toMatchObject({
       filters: { budget: 100, region: "us" }
+    });
+    expect(highest.meta).toMatchObject({
+      selection: {
+        requested_region: "us",
+        region_enforced: false,
+        region_authoritative: false,
+        region_support: expect.arrayContaining([
+          expect.objectContaining({
+            provider: "shopping/amazon",
+            requestedRegion: "us",
+            enforced: false,
+            reason: "provider_search_path_ignores_region"
+          })
+        ])
+      },
+      alerts: expect.arrayContaining([
+        expect.objectContaining({
+          signal: "region_unenforced",
+          reasonCode: "region_unenforced"
+        })
+      ])
     });
 
     const fastest = await runShoppingWorkflow(runtime, {
@@ -1604,6 +2625,253 @@ describe("workflow branch coverage", () => {
     expect((output.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual(["Under Budget Monitor"]);
   });
 
+  it("explains region-filtered empty shopping runs as non-authoritative currency-heuristic results", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [makeRecord({
+            id: "cad-only-offer",
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.amazon.com/dp/B0CADONLY01",
+            title: "Region-mismatched earbuds",
+            content: "CAD 36.25",
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: providerId,
+                product_id: "cad-only-offer",
+                title: "Region-mismatched earbuds",
+                url: "https://www.amazon.com/dp/B0CADONLY01",
+                price: { amount: 36.25, currency: "CAD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "CAD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.7,
+                reviews_count: 120
+              }
+            }
+          })]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "wireless earbuds",
+      providers: ["shopping/amazon"],
+      region: "us",
+      mode: "compact"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Requested region us was not enforced by the selected providers, and all candidate offers were filtered by the USD currency heuristic.",
+      selection: {
+        requested_region: "us",
+        region_enforced: false,
+        region_authoritative: false
+      },
+      metrics: {
+        candidate_offers: 1,
+        region_currency_excluded: 1,
+        zero_price_excluded: 0
+      }
+    });
+    expect(output.summary).toContain("Primary constraint: Requested region us was not enforced by the selected providers, and all candidate offers were filtered by the USD currency heuristic.");
+  });
+
+  it("explains budget-filtered empty shopping runs instead of collapsing to generic no-offer output", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/bestbuy";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [makeRecord({
+            id: "over-budget-offer",
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.bestbuy.com/site/4k-monitor/123.p",
+            title: "4K Monitor",
+            content: "$399.99",
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: providerId,
+                product_id: "over-budget-offer",
+                title: "4K Monitor",
+                url: "https://www.bestbuy.com/site/4k-monitor/123.p",
+                price: { amount: 399.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.6,
+                reviews_count: 88
+              }
+            }
+          })]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "27 inch 4k monitor",
+      providers: ["shopping/bestbuy"],
+      budget: 350,
+      mode: "compact"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "All candidate offers exceeded the requested budget of 350.00.",
+      metrics: {
+        candidate_offers: 1,
+        budget_excluded: 1,
+        zero_price_excluded: 0
+      },
+      failures: [{
+        provider: "shopping/bestbuy",
+        error: {
+          details: {
+            filterReason: "budget",
+            budgetExcluded: 1
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: All candidate offers exceeded the requested budget of 350.00.");
+  });
+
+  it("drops zero-price shopping offers even without a budget and reports the exclusion count", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeRecord({
+              id: "priced-offer",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0PRICE0001",
+              title: "Priced Dock",
+              content: "$89.99",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "priced-offer",
+                  title: "Priced Dock",
+                  url: "https://www.amazon.com/dp/B0PRICE0001",
+                  price: { amount: 89.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 4.6,
+                  reviews_count: 18
+                }
+              }
+            }),
+            makeRecord({
+              id: "zero-offer",
+              source: "shopping",
+              provider: providerId,
+              url: "https://www.amazon.com/dp/B0ZERO00001",
+              title: "Zero Price Dock",
+              content: "Price unavailable",
+              attributes: {
+                retrievalPath: "shopping:search:result-card",
+                shopping_offer: {
+                  provider: providerId,
+                  product_id: "zero-offer",
+                  title: "Zero Price Dock",
+                  url: "https://www.amazon.com/dp/B0ZERO00001",
+                  price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                  shipping: { amount: 0, currency: "USD", notes: "free" },
+                  availability: "in_stock",
+                  rating: 5,
+                  reviews_count: 999
+                }
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "usb-c dock",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    expect((output.offers as Array<{ title: string }>).map((offer) => offer.title)).toEqual(["Priced Dock"]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        zero_price_excluded: 1
+      }
+    });
+  });
+
+  it("summarizes zero-price-only shopping runs as a trustworthy-price constraint", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [makeRecord({
+            id: "zero-price-only-offer",
+            source: "shopping",
+            provider: providerId,
+            url: "https://www.amazon.com/dp/B0ZEROONLY2",
+            title: "USB-C Dock",
+            content: "Price unavailable",
+            attributes: {
+              retrievalPath: "shopping:search:result-card",
+              shopping_offer: {
+                provider: providerId,
+                product_id: "zero-price-only-offer",
+                title: "USB-C Dock",
+                url: "https://www.amazon.com/dp/B0ZEROONLY2",
+                price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.4,
+                reviews_count: 74
+              }
+            }
+          })]
+        });
+      }
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "usb-c dock",
+      providers: ["shopping/amazon"],
+      mode: "compact"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.",
+      metrics: {
+        candidate_offers: 1,
+        zero_price_excluded: 1
+      },
+      failures: [{
+        provider: "shopping/amazon",
+        error: {
+          details: {
+            filterReason: "zero_price"
+          }
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.");
+  });
+
   it("covers shopping offer extraction fallbacks and availability mapping branches", async () => {
     const runtime = toRuntime({
       search: async (_input, options) => {
@@ -1620,6 +2888,7 @@ describe("workflow branch coverage", () => {
               title: "Fallback Amazon",
               content: "£99.50 only 2 left 4.2 out of 5 1,500 reviews",
               attributes: {
+                retrievalPath: "shopping:search:result-card",
                 shopping_offer: {
                   provider: providerId,
                   product_id: "",
@@ -1708,8 +2977,11 @@ describe("workflow branch coverage", () => {
     }>;
 
     expect(offers.some((offer) => offer.availability === "limited")).toBe(true);
-    expect(offers.some((offer) => offer.availability === "out_of_stock")).toBe(true);
-    expect(offers.some((offer) => offer.availability === "unknown")).toBe(true);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        zero_price_excluded: 2
+      }
+    });
     const limitedOffer = offers.find((offer) => offer.provider === "shopping/amazon");
     expect(limitedOffer?.price.currency).toBe("GBP");
     expect(limitedOffer?.shipping.currency).toBe("GBP");
@@ -1730,6 +3002,7 @@ describe("workflow branch coverage", () => {
           url: undefined,
           content: "Fallback text includes €1,299.00 and details",
           attributes: {
+            retrievalPath: "shopping:search:result-card",
             shopping_offer: {
               provider: "shopping/others",
               product_id: "",
@@ -1870,11 +3143,12 @@ describe("workflow branch coverage", () => {
       metrics: {
         total_offers: 0,
         failed_providers: ["shopping/amazon"],
-        reason_code_distribution: {
+        reasonCodeDistribution: {
           env_limited: 1
         }
       }
     });
+    expect((output.meta as { metrics: Record<string, unknown> }).metrics).not.toHaveProperty("reason_code_distribution");
   });
 
   it("preserves restricted-target blockers when empty shopping runs only surface browser-owned URLs", async () => {
@@ -1998,7 +3272,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Costco requires login or an existing session.",
       primaryConstraintSummary: "Costco requires login or an existing session.",
       failures: [{
         provider: "shopping/costco",
@@ -2016,6 +3289,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Costco requires login or an existing session.");
   });
 
@@ -2052,7 +3326,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Target requires a live browser-rendered page.",
       primaryConstraintSummary: "Target requires a live browser-rendered page.",
       failures: [{
         provider: "shopping/target",
@@ -2069,7 +3342,82 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Target requires a live browser-rendered page.");
+  });
+
+  it("surfaces blocker-specific recovery fetch failures instead of generic no-offer output", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/costco"],
+      records: [makeRecord({
+        id: "costco-search-index",
+        source: "shopping",
+        provider: "shopping/costco",
+        url: "https://www.costco.com/CatalogSearch?keyword=wireless%20mouse",
+        title: "Search Results",
+        attributes: {
+          retrievalPath: "shopping:search:index",
+          links: ["https://www.costco.com/wireless-mouse.html"]
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      ok: false,
+      partial: true,
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/costco"],
+      records: [makeRecord({
+        id: "costco-auth-shell",
+        source: "shopping",
+        provider: "shopping/costco",
+        url: "https://www.costco.com/wireless-mouse.html",
+        title: "Sign In | Costco",
+        content: "Please sign in to continue.",
+        attributes: {
+          retrievalPath: "shopping:fetch:url",
+          reasonCode: "auth_required",
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      })],
+      failures: [makeFailure("shopping/costco", "shopping", {
+        code: "auth",
+        message: "Authentication required",
+        reasonCode: "auth_required",
+        provider: "shopping/costco",
+        source: "shopping",
+        details: {
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      })],
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+
+    const output = await runShoppingWorkflow(toRuntime({ search, fetch }), {
+      query: "membership gate",
+      providers: ["shopping/costco"],
+      mode: "compact"
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Costco requires login or an existing session.",
+      failures: [{
+        provider: "shopping/costco",
+        error: {
+          reasonCode: "auth_required"
+        }
+      }]
+    });
+    expect(output.summary).toContain("Primary constraint: Costco requires login or an existing session.");
   });
 
   it("upgrades higher-priority auth_required no-offer records even when url and title are missing", async () => {
@@ -2124,7 +3472,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Costco requires login or an existing session.",
       primaryConstraintSummary: "Costco requires login or an existing session.",
       failures: [{
         provider: "shopping/costco",
@@ -2142,6 +3489,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
 
     const failureDetails = ((output.meta as {
       failures: Array<{ error: { details: Record<string, unknown> } }>;
@@ -2201,7 +3549,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Temu hit an anti-bot challenge that requires manual completion.",
       primaryConstraintSummary: "Temu hit an anti-bot challenge that requires manual completion.",
       failures: [{
         provider: "shopping/temu",
@@ -2215,6 +3562,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Temu hit an anti-bot challenge that requires manual completion.");
   });
 
@@ -2245,7 +3593,6 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
-      primary_constraint_summary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.",
       primaryConstraintSummary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.",
       failures: [{
         provider: "shopping/costco",
@@ -2258,6 +3605,7 @@ describe("workflow branch coverage", () => {
         }
       }]
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.");
   });
 
@@ -2309,7 +3657,6 @@ describe("workflow branch coverage", () => {
 
     const metrics = (output.meta as {
       metrics: {
-        reason_code_distribution: Record<string, number>;
         reasonCodeDistribution: Record<string, number>;
         transcript_strategy_failures: Record<string, number>;
         transcriptStrategyFailures: Record<string, number>;
@@ -2342,12 +3689,12 @@ describe("workflow branch coverage", () => {
       };
     }).metrics;
 
-    expect(metrics.reason_code_distribution).toMatchObject({
+    expect(metrics.reasonCodeDistribution).toMatchObject({
       caption_missing: 1,
       transcript_unavailable: 1
     });
-    expect(metrics.reasonCodeDistribution).toEqual(metrics.reason_code_distribution);
-    expect(metrics.reason_code_distribution.internal).toBeUndefined();
+    expect(metrics).not.toHaveProperty("reason_code_distribution");
+    expect(metrics.reasonCodeDistribution.internal).toBeUndefined();
     expect(metrics.transcript_strategy_failures).toEqual({
       "native_caption_parse:caption_missing": 2
     });
@@ -2402,6 +3749,335 @@ describe("workflow branch coverage", () => {
         reasonCode: "transcript_unavailable"
       })
     ]));
+  });
+
+  it("sanitizes shell research records before enrichment and ranking", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source === "web") {
+          return makeAggregate({
+            sourceSelection: "web",
+            providerOrder: ["web/default"],
+            records: [makeRecord({
+              id: "duckduckgo-shell",
+              source: "web",
+              provider: "web/default",
+              url: "https://html.duckduckgo.com/html",
+              title: "https://html.duckduckgo.com/html",
+              content: "coffee shop website design inspiration at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })]
+          });
+        }
+        if (source === "community") {
+          return makeAggregate({
+            sourceSelection: "community",
+            providerOrder: ["community/default"],
+            records: [
+              makeRecord({
+                id: "reddit-search-shell",
+                source: "community",
+                provider: "community/default",
+                url: "https://www.reddit.com/search/?q=coffee+shop+website+design+inspiration",
+                title: "Community search: coffee shop website design inspiration",
+                content: "All Posts Communities Comments Search results",
+                attributes: {
+                  retrievalPath: "community:search:index"
+                }
+              }),
+              makeRecord({
+                id: "reddit-login-shell",
+                source: "community",
+                provider: "community/default",
+                url: "https://www.reddit.com/login",
+                title: "https://www.reddit.com/login",
+                content: "Welcome to Reddit. Log in to continue.",
+                attributes: {
+                  retrievalPath: "community:fetch:url"
+                }
+              })
+            ]
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "social",
+          providerOrder: ["social/default"],
+          records: [
+            makeRecord({
+              id: "bluesky-js-shell",
+              source: "social",
+              provider: "social/default",
+              url: "https://bsky.app/search?q=coffee+shop+website+design+inspiration",
+              title: "Bluesky search",
+              content: "JavaScript is not available.",
+              attributes: {
+                retrievalPath: "social:fetch:url"
+              }
+            }),
+            makeRecord({
+              id: "reddit-generic-shell",
+              source: "social",
+              provider: "social/default",
+              url: "https://www.reddit.com/answers/example?q=coffee+shop+website+design+inspiration",
+              title: "https://www.reddit.com/answers/example?q=coffee+shop+website+design+inspiration",
+              content: "Reddit - The heart of the internet. Please wait for verification. Skip to main content.",
+              attributes: {
+                retrievalPath: "social:fetch:url"
+              }
+            }),
+            makeRecord({
+              id: "clean-inspiration-record",
+              source: "social",
+              provider: "social/default",
+              url: "https://studio.example.com/inspiration/coffee-shop",
+              title: "Coffee shop website design inspiration",
+              content: "A warm editorial coffee shop website with strong typography and photography.",
+              attributes: {
+                retrievalPath: "social:post:url"
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      sourceSelection: "auto",
+      days: 30,
+      mode: "json"
+    });
+
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["clean-inspiration-record"]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        sanitized_records: 5,
+        sanitized_reason_distribution: {
+          search_index_shell: 2,
+          login_shell: 1,
+          js_required_shell: 1,
+          search_results_shell: 1
+        }
+      }
+    });
+  });
+
+  it("fails research runs when every gathered record sanitizes away without explicit provider failures", async () => {
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source === "web") {
+          return makeAggregate({
+            sourceSelection: "web",
+            providerOrder: ["web/default"],
+            records: [makeRecord({
+              id: "duckduckgo-shell",
+              source: "web",
+              provider: "web/default",
+              url: "https://html.duckduckgo.com/html",
+              title: "https://html.duckduckgo.com/html",
+              content: "browser automation blockers at DuckDuckGo",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })]
+          });
+        }
+        if (source === "community") {
+          return makeAggregate({
+            sourceSelection: "community",
+            providerOrder: ["community/default"],
+            records: [makeRecord({
+              id: "reddit-login-shell",
+              source: "community",
+              provider: "community/default",
+              url: "https://www.reddit.com/login",
+              title: "https://www.reddit.com/login",
+              content: "Welcome to Reddit. Log in to continue.",
+              attributes: {
+                retrievalPath: "community:fetch:url"
+              }
+            })]
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "social",
+          providerOrder: ["social/default"],
+          records: [makeRecord({
+            id: "bluesky-js-shell",
+            source: "social",
+            provider: "social/default",
+            url: "https://bsky.app/search?q=browser+automation+blockers",
+            title: "Bluesky search",
+            content: "JavaScript is not available.",
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          })]
+        });
+      }
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "browser automation blockers",
+      sourceSelection: "auto",
+      days: 14,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced only shell records and no usable results"
+    );
+  });
+
+  it("fails research runs when sanitized survivors all fall outside the requested timebox without explicit provider failures", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [
+          makeRecord({
+            id: "duckduckgo-shell",
+            source: "web",
+            provider: "web/default",
+            url: "https://html.duckduckgo.com/html",
+            title: "https://html.duckduckgo.com/html",
+            content: "browser automation blockers at DuckDuckGo",
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          }),
+          makeRecord({
+            id: "historic-launch-roundup",
+            source: "web",
+            provider: "web/default",
+            url: "https://example.com/agentic-browser-launches",
+            title: "Agentic browser tooling launches roundup",
+            content: "A detailed roundup of agentic browser tooling launches and operator workflows from earlier this quarter.",
+            timestamp: isoHoursAgo(24 * 90),
+            attributes: {
+              retrievalPath: "web:fetch:url"
+            }
+          })
+        ]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "agentic browser tooling launches",
+      sourceSelection: "web",
+      from: isoHoursAgo(72),
+      to: isoHoursAhead(1),
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable in-timebox results after sanitization."
+    );
+  });
+
+  it("caps research web follow-up fetches and ignores malformed search redirect urls", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: input.url,
+        source: "web",
+        provider: "web/default",
+        url: input.url,
+        title: `Resolved ${input.url}`,
+        content: "Coffee shop design inspiration with strong photography and typography.",
+        attributes: {
+          retrievalPath: "web:fetch:url"
+        }
+      })]
+    }));
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const source = (options?.source ?? "web") as ProviderSource;
+        if (source !== "web") {
+          return makeAggregate({
+            sourceSelection: source,
+            providerOrder: [`${source}/default`],
+            records: []
+          });
+        }
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          records: [
+            makeRecord({
+              id: "bad-redirect-url",
+              source: "web",
+              provider: "web/default",
+              url: "://bad",
+              title: "https://duckduckgo.com/l?uddg=%3A%2F%2Fbad",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-1",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fone",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fone",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-2",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ftwo",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ftwo",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-3",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fthree",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fthree",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            }),
+            makeRecord({
+              id: "ddg-4",
+              source: "web",
+              provider: "web/default",
+              url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ffour",
+              title: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ffour",
+              content: "coffee shop website design inspiration",
+              attributes: {
+                retrievalPath: "web:search:index"
+              }
+            })
+          ]
+        });
+      },
+      fetch
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "coffee shop website design inspiration",
+      sourceSelection: "auto",
+      days: 30,
+      mode: "json"
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenNthCalledWith(1, { url: "https://example.com/one" }, expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(2, { url: "https://example.com/two" }, expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(3, { url: "https://example.com/three" }, expect.any(Object));
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toHaveLength(3);
   });
 
   it("sorts multiple auto-excluded providers across social and shopping sources", async () => {
@@ -2587,10 +4263,17 @@ describe("workflow branch coverage", () => {
       include_copy: false
     });
 
-    expect(fetch).toHaveBeenNthCalledWith(1, { url: "https://www.amazon.com/dp/example" }, {
-      source: "shopping",
-      providerIds: ["shopping/amazon"]
-    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      { url: "https://www.amazon.com/dp/example" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_url: "https://www.amazon.com/dp/example"
+        })
+      })
+    );
 
     await runProductVideoWorkflow(toRuntime({ fetch }), {
       product_url: "https://www.amazon.com/dp/example",
@@ -2600,10 +4283,18 @@ describe("workflow branch coverage", () => {
       include_copy: false
     });
 
-    expect(fetch).toHaveBeenNthCalledWith(2, { url: "https://www.amazon.com/dp/example" }, {
-      source: "shopping",
-      providerIds: ["shopping/amazon"]
-    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      { url: "https://www.amazon.com/dp/example" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_url: "https://www.amazon.com/dp/example",
+          provider_hint: "amazon"
+        })
+      })
+    );
   });
 
   it("falls back to zero when transcript price parsing becomes non-finite", async () => {
@@ -2641,10 +4332,11 @@ describe("workflow branch coverage", () => {
       providers: ["shopping/others"],
       mode: "json"
     });
-    const offer = (output.offers as Array<{ price: { amount: number; currency: string } }>)[0];
-    expect(offer?.price).toMatchObject({
-      amount: 0,
-      currency: "USD"
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        zero_price_excluded: 1
+      }
     });
   });
 
@@ -2687,6 +4379,473 @@ describe("workflow branch coverage", () => {
       providerIds: ["shopping/amazon"],
       timeoutMs: 4321
     }));
+  });
+
+  it("preserves shopping timeout failures in structured workflow output", async () => {
+    const output = await runShoppingWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        records: [],
+        partial: false,
+        failures: [{
+          provider: "shopping/ebay",
+          source: "shopping",
+          error: {
+            code: "timeout",
+            message: "Browser fallback timed out after 15000ms",
+            retryable: true,
+            details: {
+              stage: "capture",
+              timeoutMs: 15000
+            }
+          }
+        }],
+        metrics: {
+          attempted: 1,
+          succeeded: 0,
+          failed: 1,
+          retries: 0,
+          latencyMs: 15000
+        },
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        error: {
+          code: "timeout",
+          message: "Browser fallback timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      })
+    }), {
+      query: "portable monitor",
+      providers: ["shopping/ebay"],
+      mode: "json"
+    });
+
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      failures: [{
+        provider: "shopping/ebay",
+        error: {
+          code: "timeout",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        }
+      }],
+      metrics: {
+        total_offers: 0,
+        failed_providers: ["shopping/ebay"]
+      }
+    });
+  });
+
+  it("forwards explicit shopping browser-mode overrides into provider run options", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "browser-mode-forwarded",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/browser-mode-forwarded",
+        title: "Browser Mode Forwarded",
+        content: "$49.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "browser-mode-forwarded",
+            title: "Browser Mode Forwarded",
+            url: "https://www.amazon.com/dp/browser-mode-forwarded",
+            price: { amount: 49.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.4,
+            reviews_count: 12
+          }
+        }
+      })]
+    }));
+
+    const extensionOutput = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "browser mode extension",
+      providers: ["shopping/amazon"],
+      browserMode: "extension",
+      mode: "json"
+    });
+    const managedOutput = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "browser mode managed",
+      providers: ["shopping/amazon"],
+      browserMode: "managed",
+      mode: "json"
+    });
+    const autoOutput = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "browser mode auto",
+      providers: ["shopping/amazon"],
+      browserMode: "auto",
+      mode: "json"
+    });
+
+    const extensionCall = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    const managedCall = search.mock.calls[1]?.[1] as Record<string, unknown> | undefined;
+    const autoCall = search.mock.calls[2]?.[1] as Record<string, unknown> | undefined;
+
+    expect(extensionCall).toBeDefined();
+    expect(extensionCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        browserMode: "extension"
+      }
+    });
+    expect(managedCall).toBeDefined();
+    expect(managedCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        browserMode: "managed"
+      }
+    });
+    expect(autoCall).toBeDefined();
+    expect(autoCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        browserMode: "auto"
+      }
+    });
+    for (const callOptions of [extensionCall, managedCall, autoCall]) {
+      expect(callOptions).not.toHaveProperty("preferredFallbackModes");
+      expect(callOptions).not.toHaveProperty("forceBrowserTransport");
+    }
+    expect(extensionOutput.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "extension"
+      },
+      metrics: {
+        browser_fallback_modes_observed: []
+      }
+    });
+    expect(managedOutput.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "managed"
+      },
+      metrics: {
+        browser_fallback_modes_observed: []
+      }
+    });
+    expect(autoOutput.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "auto"
+      },
+      metrics: {
+        browser_fallback_modes_observed: []
+      }
+    });
+  });
+
+  it("resumes shopping without replaying completed provider searches", async () => {
+    let searchOptions: Record<string, unknown> | undefined;
+    const search = vi.fn(async (input, options) => {
+      searchOptions = options as Record<string, unknown>;
+      expect(options?.providerIds).toEqual(["shopping/walmart"]);
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeRecord({
+          id: "resume-walmart",
+          source: "shopping",
+          provider: "shopping/walmart",
+          url: "https://www.walmart.com/ip/resume-walmart",
+          title: input.query,
+          content: "$24.99",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/walmart",
+              product_id: "resume-walmart",
+              title: input.query,
+              url: "https://www.walmart.com/ip/resume-walmart",
+              price: { amount: 24.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.1,
+              reviews_count: 8
+            }
+          }
+        })]
+      });
+    });
+
+    const checkpointedAmazonResult = makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "resume-amazon",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/resume-amazon",
+        title: "Resume Amazon",
+        content: "$19.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "resume-amazon",
+            title: "Resume Amazon",
+            url: "https://www.amazon.com/dp/resume-amazon",
+            price: { amount: 19.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.8,
+            reviews_count: 18
+          }
+        }
+      })]
+    });
+
+    const envelope = buildWorkflowResumeEnvelope("shopping", {
+      query: "resume without replay",
+      providers: ["shopping/amazon", "shopping/walmart"],
+      mode: "json",
+      timeoutMs: 4321,
+      browserMode: "extension",
+      useCookies: true,
+      challengeAutomationMode: "browser_with_helper",
+      cookiePolicyOverride: "required"
+    } as unknown as JsonValue, {
+      checkpoint: {
+        stage: "execute",
+        stepId: "search:shopping/amazon",
+        stepIndex: 0,
+        state: {
+          completed_step_ids: ["search:shopping/amazon"],
+          step_results_by_id: {
+            "search:shopping/amazon": checkpointedAmazonResult
+          }
+        },
+        updatedAt: "2026-03-30T22:00:00.000Z"
+      },
+      trace: [{
+        at: "2026-03-30T22:00:00.000Z",
+        stage: "compile",
+        event: "compile_completed"
+      }]
+    });
+
+    const output = await runShoppingWorkflow(toRuntime({ search }), envelope);
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(searchOptions).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/walmart"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        browserMode: "extension",
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: {
+        kind: "workflow.shopping",
+        input: {
+          workflow: {
+            checkpoint: {
+              state: {
+                completed_step_ids: ["search:shopping/amazon"]
+              }
+            }
+          }
+        }
+      }
+    });
+    expect((output.offers as Array<{ provider: string }>).map((offer) => offer.provider)).toEqual(
+      expect.arrayContaining(["shopping/amazon", "shopping/walmart"])
+    );
+  });
+
+  it("forwards timeout, browser mode, and cookie overrides through shopping search and derived fetch steps", async () => {
+    let searchOptions: Record<string, unknown> | undefined;
+    let fetchOptions: Record<string, unknown> | undefined;
+    const search = vi.fn(async (_input, options) => {
+      searchOptions = options as Record<string, unknown>;
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "derived-fetch-search-index",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/s?k=derived+fetch",
+          title: "Search Results",
+          attributes: {
+            retrievalPath: "shopping:search:index",
+            links: ["https://www.amazon.com/dp/DERIVEDFETCH001"]
+          }
+        })]
+      });
+    });
+    const fetch = vi.fn(async (_input, options) => {
+      fetchOptions = options as Record<string, unknown>;
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "derived-fetch-offer",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/DERIVEDFETCH001",
+          title: "Derived Fetch Offer",
+          content: "$59.99",
+          attributes: {
+            retrievalPath: "shopping:search:result-card",
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "DERIVEDFETCH001",
+              title: "Derived Fetch Offer",
+              url: "https://www.amazon.com/dp/DERIVEDFETCH001",
+              price: { amount: 59.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 16
+            }
+          }
+        })]
+      });
+    });
+
+    const output = await runShoppingWorkflow(toRuntime({ search, fetch }), {
+      query: "derived fetch",
+      providers: ["shopping/amazon"],
+      timeoutMs: 4321,
+      browserMode: "extension",
+      useCookies: true,
+      challengeAutomationMode: "browser_with_helper",
+      cookiePolicyOverride: "required",
+      mode: "json"
+    });
+
+    expect(searchOptions).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        browserMode: "extension",
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: {
+        kind: "workflow.shopping",
+        input: {
+          workflow: {
+            checkpoint: {
+              stepId: "search:shopping/amazon",
+              state: {
+                completed_step_ids: []
+              }
+            }
+          }
+        }
+      }
+    });
+    expect(fetchOptions).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        browserMode: "extension",
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: {
+        kind: "workflow.shopping",
+        input: {
+          workflow: {
+            checkpoint: {
+              state: {
+                completed_step_ids: ["search:shopping/amazon"]
+              }
+            }
+          }
+        }
+      }
+    });
+    expect((output.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/amazon");
+  });
+
+  it("keeps auto shopping preserved extension challenges as single-run manual-yield outcomes", async () => {
+    const search = vi.fn(async (_input, options) => {
+      const providerId = options?.providerIds?.[0] ?? "shopping/walmart";
+      return makeAggregate({
+        ok: false,
+        sourceSelection: "shopping",
+        providerOrder: [providerId],
+        failures: [makeFailure(providerId, "shopping", {
+          code: "unavailable",
+          message: "challenge remains active",
+          reasonCode: "challenge_detected",
+          provider: providerId,
+          source: "shopping",
+          details: {
+            disposition: "challenge_preserved",
+            browserFallbackMode: "extension",
+            browserFallbackReasonCode: "challenge_detected",
+            preservedSessionId: "preserved-session-1",
+            preservedTargetId: "tab-123",
+            challengeOrchestration: {
+              mode: "browser_with_helper",
+              source: "config",
+              status: "deferred"
+            }
+          }
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      });
+    });
+
+    const output = await runShoppingWorkflow(toRuntime({ search }), {
+      query: "macbook pro m4 32gb ram",
+      providers: ["shopping/walmart"],
+      browserMode: "auto",
+      mode: "json"
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    const autoCall = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(autoCall).toBeDefined();
+    expect(autoCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/walmart"]
+    });
+    expect(autoCall).not.toHaveProperty("preferredFallbackModes");
+    expect(autoCall).not.toHaveProperty("forceBrowserTransport");
+    expect(output.offers).toEqual([]);
+    expect(output.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "auto"
+      },
+      metrics: {
+        browser_fallback_modes_observed: ["extension"]
+      },
+      failures: [{
+        provider: "shopping/walmart",
+        error: {
+          reasonCode: "challenge_detected",
+          details: {
+            disposition: "challenge_preserved",
+            browserFallbackMode: "extension",
+            preservedSessionId: "preserved-session-1",
+            preservedTargetId: "tab-123"
+          }
+        }
+      }]
+    });
   });
 
   it("forwards explicit timeout overrides through product-video search and fetch", async () => {
@@ -2754,14 +4913,132 @@ describe("workflow branch coverage", () => {
     expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       source: "shopping",
       providerIds: ["shopping/amazon"],
-      timeoutMs: 4321
+      timeoutMs: 4321,
+      suspendedIntent: expectWorkflowSuspendedIntent("shopping", {
+        query: "product timeout forwarded",
+        providers: ["amazon"],
+        mode: "json",
+        timeoutMs: 4321
+      })
     }));
     expect(fetch).toHaveBeenCalledWith(
       { url: "https://www.amazon.com/dp/product-timeout-forwarded" },
       expect.objectContaining({
         source: "shopping",
         providerIds: ["shopping/amazon"],
-        timeoutMs: 4321
+        timeoutMs: 4321,
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_name: "product timeout forwarded",
+          provider_hint: "amazon",
+          timeoutMs: 4321
+        })
+      })
+    );
+  });
+
+  it("forwards runtime-policy overrides through product-video resolution and detail fetch", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "product-runtime-policy-forwarded-search",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+        title: "Product Runtime Policy Forwarded",
+        content: "$44.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "product-runtime-policy-forwarded-search",
+            title: "Product Runtime Policy Forwarded",
+            url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+            price: { amount: 44.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.5,
+            reviews_count: 19
+          }
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "product-runtime-policy-forwarded-fetch",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+        title: "Product Runtime Policy Forwarded",
+        content: "Feature one with enough detail. Feature two with enough detail.",
+        attributes: {
+          links: [],
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "product-runtime-policy-forwarded-fetch",
+            title: "Product Runtime Policy Forwarded",
+            url: "https://www.amazon.com/dp/product-runtime-policy-forwarded",
+            price: { amount: 44.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.5,
+            reviews_count: 19
+          }
+        }
+      })]
+    }));
+
+    await runProductVideoWorkflow(toRuntime({ search, fetch }), {
+      product_name: "product runtime policy forwarded",
+      provider_hint: "amazon",
+      timeoutMs: 4321,
+      useCookies: true,
+      challengeAutomationMode: "browser_with_helper",
+      cookiePolicyOverride: "required",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      timeoutMs: 4321,
+      runtimePolicy: {
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      },
+      suspendedIntent: expectWorkflowSuspendedIntent("shopping", {
+        query: "product runtime policy forwarded",
+        providers: ["amazon"],
+        mode: "json",
+        timeoutMs: 4321,
+        useCookies: true,
+        challengeAutomationMode: "browser_with_helper",
+        cookiePolicyOverride: "required"
+      })
+    }));
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://www.amazon.com/dp/product-runtime-policy-forwarded" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        timeoutMs: 4321,
+        runtimePolicy: {
+          useCookies: true,
+          challengeAutomationMode: "browser_with_helper",
+          cookiePolicyOverride: "required"
+        },
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_name: "product runtime policy forwarded",
+          provider_hint: "amazon",
+          timeoutMs: 4321,
+          useCookies: true,
+          challengeAutomationMode: "browser_with_helper",
+          cookiePolicyOverride: "required"
+        })
       })
     );
   });
@@ -2778,6 +5055,10 @@ describe("workflow branch coverage", () => {
     })).rejects.toThrow(
       "Amazon requires manual browser follow-up; this run did not determine whether login or page rendering is required."
     );
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "not-a-url"
+    })).rejects.toThrow("product_url must be an http(s) URL");
 
     const missingUrlRuntime = toRuntime({
       search: async () => makeAggregate({
@@ -2841,11 +5122,80 @@ describe("workflow branch coverage", () => {
     })).rejects.toThrow("Target requires a live browser-rendered page.");
   });
 
+  it("rejects obvious 404 product targets before metadata refresh or asset fetches", async () => {
+    const auxiliaryFetch = vi.fn(async () => ({
+      ok: true,
+      url: "https://www.shoott.com/headshots",
+      text: async () => "<html></html>",
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+    }));
+    vi.stubGlobal("fetch", auxiliaryFetch as unknown as typeof fetch);
+
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "shoott-404",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.shoott.com/headshots",
+          title: "Shoott | 404",
+          content: "Error 404 We can’t seem to find the page you were looking for.",
+          attributes: {
+            status: 404,
+            links: ["https://cdn.example.com/404-image.jpg"]
+          }
+        })]
+      })
+    });
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.shoott.com/headshots",
+      include_screenshots: true,
+      include_all_images: true,
+      include_copy: true
+    })).rejects.toThrow("Product target appears to be a not-found page");
+    expect(auxiliaryFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects strong not-found product targets even when the fetch response omits status metadata", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "shoott-not-found-copy",
+          source: "web",
+          provider: "web/default",
+          url: "https://www.shoott.com/headshots",
+          title: "Shoott | 404",
+          content: "We can’t seem to find the page you were looking for. Return to homepage.",
+          attributes: {
+            links: ["https://cdn.example.com/404-image.jpg"]
+          }
+        })]
+      })
+    });
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.shoott.com/headshots",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    })).rejects.toThrow("Product target appears to be a not-found page");
+  });
+
   it("threads provider hints into product-name shopping resolution before fetching the product page", async () => {
     const search = vi.fn(async (_input, options) => {
       expect(options).toMatchObject({
         source: "shopping",
-        providerIds: ["shopping/amazon"]
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: expectWorkflowSuspendedIntent("shopping", {
+          query: "hint resolved product",
+          providers: ["amazon"],
+          mode: "json"
+        })
       });
       return makeAggregate({
         sourceSelection: "shopping",
@@ -2909,10 +5259,17 @@ describe("workflow branch coverage", () => {
     });
 
     expect(search).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith({ url: "https://www.amazon.com/dp/B0HINT00001" }, {
-      source: "shopping",
-      providerIds: ["shopping/amazon"]
-    });
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://www.amazon.com/dp/B0HINT00001" },
+      expect.objectContaining({
+        source: "shopping",
+        providerIds: ["shopping/amazon"],
+        suspendedIntent: expectWorkflowSuspendedIntent("product_video", {
+          product_name: "hint resolved product",
+          provider_hint: "amazon"
+        })
+      })
+    );
     expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
   });
 
@@ -2926,7 +5283,7 @@ describe("workflow branch coverage", () => {
           id: "product-1",
           source: "web",
           provider: "web/default",
-          url: "not-a-url",
+          url: "https://example.com/fallback-product",
           title: "Fallback Product",
           content: "Feature alpha with good detail. Feature beta with enough text for extraction.",
           attributes: {
@@ -2939,7 +5296,7 @@ describe("workflow branch coverage", () => {
               provider: "shopping/others",
               product_id: "p1",
               title: "Fallback Product",
-              url: "not-a-url",
+              url: "https://example.com/fallback-product",
               price: { amount: 22.5, currency: "USD", retrieved_at: isoHoursAgo(1) },
               shipping: { amount: 0, currency: "USD", notes: "std" },
               availability: "in_stock",
@@ -2964,7 +5321,7 @@ describe("workflow branch coverage", () => {
     }) as unknown as typeof fetch);
 
     const output = await runProductVideoWorkflow(toRuntime({ fetch }), {
-      product_url: "not-a-url",
+      product_url: "https://example.com/fallback-product",
       include_screenshots: true,
       include_all_images: false,
       include_copy: false
@@ -3482,6 +5839,441 @@ describe("workflow branch coverage", () => {
     expect(output.screenshots).toEqual([]);
   });
 
+  it("fails honestly when storefront chrome leaves only a polluted marketplace overlay price on a marketplace PDP", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "marketplace-overlay-product",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0CHWRXH8B",
+          title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+          content: [
+            "Shipper / Seller mrhumanitygives.com",
+            "See current price, availability, shipping cost, and delivery date on mrhumanitygives.com.",
+            "Continue to site.",
+            "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging, White",
+            "Visit the Apple Store",
+            "Brand Apple",
+            "About this item",
+            "RICHER AUDIO EXPERIENCE - The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.",
+            "NEXT-LEVEL ACTIVE NOISE CANCELLATION - Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus.",
+            "Report an issue with this product or seller",
+            "About this item From the Brand From the Author Similar Product information Questions Reviews"
+          ].join(" "),
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0CHWRXH8B",
+              title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+              url: "https://www.amazon.com/dp/B0CHWRXH8B",
+              price: { amount: 36.25, currency: "CAD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "CAD", notes: "unknown" },
+              availability: "out_of_stock",
+              rating: 4.7,
+              reviews_count: 28_597
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      text: async () => [
+        "<html><head>",
+        "<title>Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics</title>",
+        "<meta property=\"og:site_name\" content=\"Amazon\" />",
+        "<meta name=\"description\" content=\"Shipper / Seller Main content\" />",
+        "</head><body>",
+        "<ul>",
+        "<li>Shipper / Seller</li>",
+        "<li>Main content</li>",
+        "<li>About this item</li>",
+        "<li>Buying options</li>",
+        "<li>Compare with similar items</li>",
+        "</ul>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    })).rejects.toThrow(
+      "Amazon requires manual browser follow-up; this run did not determine a reliable PDP price."
+    );
+  });
+
+  it("uses refreshed trustworthy PDP pricing after suppressing a polluted marketplace overlay price", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "marketplace-overlay-refreshed-price",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/B0CHWRXH8B",
+          title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+          content: [
+            "Shipper / Seller mrhumanitygives.com",
+            "See current price, availability, shipping cost, and delivery date on mrhumanitygives.com.",
+            "Continue to site.",
+            "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging, White",
+            "Visit the Apple Store",
+            "Brand Apple",
+            "About this item",
+            "RICHER AUDIO EXPERIENCE - The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.",
+            "NEXT-LEVEL ACTIVE NOISE CANCELLATION - Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus.",
+            "Report an issue with this product or seller"
+          ].join(" "),
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0CHWRXH8B",
+              title: "Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics",
+              url: "https://www.amazon.com/dp/B0CHWRXH8B",
+              price: { amount: 36.25, currency: "CAD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "CAD", notes: "unknown" },
+              availability: "out_of_stock",
+              rating: 4.7,
+              reviews_count: 28_597
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      text: async () => [
+        "<html><head>",
+        "<title>Amazon.com: Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging : Electronics</title>",
+        "<meta property=\"og:site_name\" content=\"Amazon\" />",
+        "<meta name=\"description\" content=\"Apple AirPods Pro (2nd Generation) with USB-C deliver adaptive audio and all-day comfort.\" />",
+        "<script type=\"application/ld+json\">",
+        JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "Product",
+          name: "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging",
+          brand: { "@type": "Brand", name: "Apple" },
+          offers: { "@type": "Offer", price: 249.99, priceCurrency: "USD" },
+          description: "Apple AirPods Pro (2nd Generation) with USB-C deliver adaptive audio and all-day comfort."
+        }),
+        "</script>",
+        "</head><body>",
+        "<ul>",
+        "<li>The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.</li>",
+        "<li>Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus.</li>",
+        "</ul>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.amazon.com/dp/B0CHWRXH8B",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 249.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging",
+      copy: "Apple AirPods Pro (2nd Generation) with USB-C deliver adaptive audio and all-day comfort."
+    });
+    expect((output.product as { features: string[] }).features).toEqual([
+      "The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.",
+      "Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus."
+    ]);
+  });
+
+  it("prefers Walmart key item features over retailer branding, specs, and shipping chrome", async () => {
+    const productUrl = "https://www.walmart.com/ip/FIFINE-USB-Microphone-for-Recording-Computer-Condenser-Mic-Plug-Play-in-PC-Laptop-for-Meeting-Voice-Overs-Black-K669/5635598352?adsRedirect=true&classType=VARIANT";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeRecord({
+          id: "walmart-feature-section-product",
+          source: "shopping",
+          provider: "shopping/walmart",
+          url: productUrl,
+          title: "Free Shipping! FIFINE USB Microphone for PC PS5 Gaming Streaming Recording with Gain Control Metal Condenser - Walmart.com",
+          content: [
+            "Pickup or delivery? Cancel",
+            "Visit the FIFINE Store",
+            "FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings",
+            "Key item features",
+            "Clear Audio : Durable metal construction and a 16mm capsule reduce vibrations and focus on mouth sounds, rejecting 70% of fan/AC noise for clear output.",
+            "Precise Control : An integrated volume knob allows for smooth and stable sound adjustment, enabling precise volume setting for meetings or voice recording without software.",
+            "Robust Build : Features a solid, sturdy metal design with a stable tripod stand, making it convenient for voice-overs or livestreams.",
+            "Universal Connectivity : Comes with a Type-B to Type-C USB cable, offering plug-and-play compatibility with PC, PS4, and PS5 for gaming or recording.",
+            "Portable Design : The PC microphone is only 4.8 inches long, lightweight, and portable, suitable for urgent meetings during business trips or outdoor communication.",
+            "Included Accessories : The box contains one condenser microphone with a USB cable, one tripod stand, and a user manual.",
+            "Technical Specifications : Model K669B is a cardioid condenser microphone with a USB connector, a frequency range of 80Hz-20KHz, and -43±3dB sensitivity.",
+            "View all item details Generated by AI Specs Connection USB Microphone polar pattern Cardioid Mic tech Condenser",
+            "Departments Services"
+          ].join(" "),
+          attributes: {
+            brand: "Walmart.com",
+            shopping_offer: {
+              provider: "shopping/walmart",
+              product_id: "5635598352",
+              title: "Free Shipping! FIFINE USB Microphone for PC PS5 Gaming Streaming Recording with Gain Control Metal Condenser - Walmart.com",
+              url: productUrl,
+              price: { amount: 23.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 191
+            }
+          }
+        })]
+      })
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: productUrl,
+      text: async () => [
+        "<html><head>",
+        "<title>FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings - Walmart.com</title>",
+        "<meta property=\"og:title\" content=\"FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings - Walmart.com\" />",
+        "<meta property=\"og:site_name\" content=\"Walmart.com\" />",
+        "<meta name=\"description\" content=\"Free Shipping! FIFINE USB Microphone for PC PS5 Gaming Streaming Recording with Gain Control Metal Condenser\" />",
+        "</head><body>",
+        "<ul>",
+        "<li>Connection</li>",
+        "<li>Microphone polar pattern</li>",
+        "<li>Mic tech</li>",
+        "<li>Freq range</li>",
+        "<li>Maximum sound pressure level</li>",
+        "</ul>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 23.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "FIFINE",
+      title: "FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings",
+      copy: expect.stringContaining("Durable metal construction and a 16mm capsule reduce vibrations")
+    });
+    expect((output.product as { copy: string }).copy).not.toContain("Free Shipping!");
+    expect((output.product as { copy: string }).copy).not.toContain("Departments");
+    expect((output.product as { features: string[] }).features).toEqual([
+      "Durable metal construction and a 16mm capsule reduce vibrations and focus on mouth sounds, rejecting 70% of fan/AC noise for clear output.",
+      "An integrated volume knob allows for smooth and stable sound adjustment, enabling precise volume setting for meetings or voice recording without software.",
+      "Features a solid, sturdy metal design with a stable tripod stand, making it convenient for voice-overs or livestreams.",
+      "Comes with a Type-B to Type-C USB cable, offering plug-and-play compatibility with PC, PS4, and PS5 for gaming or recording.",
+      "The PC microphone is only 4.8 inches long, lightweight, and portable, suitable for urgent meetings during business trips or outdoor communication.",
+      "The box contains one condenser microphone with a USB cable, one tripod stand, and a user manual."
+    ]);
+  });
+
+  it("strips Walmart storefront chrome from direct product-video title and brand output without a metadata refresh", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeWalmartPreownedAirpodsRecord()]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: WALMART_PREOWNED_AIRPODS_URL,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 139.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+      provider: "shopping/walmart",
+      url: WALMART_PREOWNED_AIRPODS_URL
+    });
+  });
+
+  it("prefers a new Walmart listing over a pre-owned listing for generic product-name resolution while keeping the resolved PDP output clean", async () => {
+    const search = vi.fn(async (_input, options) => {
+      expect(options?.providerIds).toEqual(["shopping/walmart"]);
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [
+          makeRecord({
+            id: "walmart-search-match-preowned",
+            source: "shopping",
+            provider: "shopping/walmart",
+            url: WALMART_PREOWNED_AIRPODS_URL,
+            title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+            content: "$139.99",
+            attributes: {
+              shopping_offer: {
+                provider: "shopping/walmart",
+                product_id: "walmart-search-match-preowned",
+                title: "Pre-Owned Apple AirPods Pro (2nd Generation) - Lightning",
+                url: WALMART_PREOWNED_AIRPODS_URL,
+                price: { amount: 139.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 3.8,
+                reviews_count: 2158
+              }
+            }
+          }),
+          makeRecord({
+            id: "walmart-search-match-new",
+            source: "shopping",
+            provider: "shopping/walmart",
+            url: WALMART_NEW_AIRPODS_URL,
+            title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+            content: "$189.99",
+            attributes: {
+              shopping_offer: {
+                provider: "shopping/walmart",
+                product_id: "walmart-search-match-new",
+                title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+                url: WALMART_NEW_AIRPODS_URL,
+                price: { amount: 189.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.7,
+                reviews_count: 325
+              }
+            }
+          })
+        ]
+      });
+    });
+    const fetch = vi.fn(async (_input, options) => {
+      expect(options?.providerIds).toEqual(["shopping/walmart"]);
+      return makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/walmart"],
+        records: [makeWalmartNewAirpodsRecord()]
+      });
+    });
+
+    const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), {
+      product_name: "Apple AirPods Pro 2nd Generation",
+      provider_hint: "shopping/walmart",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(output.pricing).toMatchObject({
+      amount: 189.99,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Apple AirPods Pro (2nd Generation) with MagSafe Case (USB-C)",
+      provider: "shopping/walmart",
+      url: WALMART_NEW_AIRPODS_URL
+    });
+  });
+
+  it("prefers the eBay product summary over marketplace navigation chrome in product-video outputs", async () => {
+    const productUrl = "https://www.ebay.com/p/4062765295?iid=327063271610";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-product-summary",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay Skip to main content",
+          content: [
+            "Hi! Sign in or register Deals Brand Outlet Gift Cards Help & Contact Sell Watchlist Expand Watch List My eBay Expand My eBay Summary",
+            "Expand Cart Loading...",
+            "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay",
+            "Condition: New New",
+            "The Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case is a premium pair of wireless earbuds designed for an immersive listening experience.",
+            "With Active Noise Cancellation and water-resistant features, these white earbuds provide high-quality sound in a sleek and compact design.",
+            "The built-in microphone and Bluetooth connectivity ensure hands-free calls and easy connection to your devices.",
+            "Perfect for those who value style, functionality, and convenience in their audio accessories.",
+            "Buy It Now Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C)...",
+            "Sign in to check out Check out as guest Add to cart Adding to your cart See all details Oops!",
+            "About this product Product Identifiers Brand Apple MPN MTJV3AM/A UPC 0195949052484 Model Apple AirPods Pro (2nd generation)",
+            "All listings for this product Ratings and Reviews"
+          ].join(" "),
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "4062765295",
+              title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay",
+              url: productUrl,
+              price: { amount: 110, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock",
+              rating: 4.1,
+              reviews_count: 325
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+
+    expect(output.pricing).toMatchObject({
+      amount: 110,
+      currency: "USD"
+    });
+    expect(output.product).toMatchObject({
+      brand: "Apple",
+      title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White",
+      copy: expect.stringContaining("With Active Noise Cancellation and water-resistant features")
+    });
+    expect((output.product as { copy: string }).copy).not.toContain("Expand Cart Loading");
+    expect((output.product as { copy: string }).copy).not.toContain("Watchlist");
+    expect((output.product as { features: string[] }).features).toEqual([
+      "The Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case is a premium pair of wireless earbuds designed for an immersive listening experience.",
+      "With Active Noise Cancellation and water-resistant features, these white earbuds provide high-quality sound in a sleek and compact design.",
+      "The built-in microphone and Bluetooth connectivity ensure hands-free calls and easy connection to your devices.",
+      "Perfect for those who value style, functionality, and convenience in their audio accessories."
+    ]);
+  });
+
   it("refreshes malformed shopping-offer payloads and still resolves stable product output", async () => {
     const makeRuntime = (shoppingOffer: unknown) => toRuntime({
       fetch: async () => makeAggregate({
@@ -3527,6 +6319,60 @@ describe("workflow branch coverage", () => {
     expect((fromMissingPrice.product as { title: string }).title).toBe("https://fallback.example/device");
   });
 
+  it("emits canonical product-video summary keys when detail fetch succeeds with follow-up failures", async () => {
+    const productUrl = "https://www.costco.com/studio-display.html";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/costco"],
+        records: [makeRecord({
+          id: "costco-product-video-summary",
+          source: "shopping",
+          provider: "shopping/costco",
+          url: productUrl,
+          title: "Studio Display",
+          content: "Brilliant OLED panel with stable product detail copy.",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/costco",
+              product_id: "costco-product-video-summary",
+              title: "Studio Display",
+              url: productUrl,
+              price: { amount: 699, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.7,
+              reviews_count: 21
+            }
+          }
+        })],
+        failures: [makeFailure("shopping/costco", "shopping", {
+          code: "unavailable",
+          message: "Costco login required",
+          retryable: false,
+          reasonCode: "auth_required"
+        })],
+        metrics: { attempted: 1, succeeded: 1, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Costco requires login or an existing session.",
+      reasonCodeDistribution: {
+        auth_required: 1
+      }
+    });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
+    expect(output.meta).not.toHaveProperty("reason_code_distribution");
+  });
+
   it("sanitizes noisy feature lists and ignores negative-context promotional prices", async () => {
     const runtime = toRuntime({
       fetch: async () => makeAggregate({
@@ -3555,7 +6401,7 @@ describe("workflow branch coverage", () => {
     });
 
     const output = await runProductVideoWorkflow(runtime, {
-      product_url: "not-a-url",
+      product_url: "https://example.com/design-monitor",
       include_screenshots: false,
       include_all_images: false,
       include_copy: true
@@ -3581,7 +6427,7 @@ describe("workflow branch coverage", () => {
           id: "negative-only-pricing",
           source: "web",
           provider: "web/default",
-          url: "not-a-url",
+          url: "https://example.com/negative-only-pricing",
           title: "Negative Only Pricing Example",
           content: [
             "12345",
@@ -3597,7 +6443,7 @@ describe("workflow branch coverage", () => {
     });
 
     const output = await runProductVideoWorkflow(runtime, {
-      product_url: "not-a-url",
+      product_url: "https://example.com/negative-only-pricing",
       include_screenshots: false,
       include_all_images: false,
       include_copy: false
@@ -3782,5 +6628,467 @@ describe("workflow branch coverage", () => {
     await expect(runProductVideoWorkflow(emptyRuntime, {
       product_url: "https://shop.example/item"
     })).rejects.toThrow("Product details unavailable");
+  });
+
+  it("tracks research sanitization reason counts across multiple shell variants", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [
+          makeRecord({
+            id: "community-index-shell",
+            url: "https://www.reddit.com/search?q=browser+automation",
+            title: "Community search index",
+            content: "Search index",
+            attributes: {
+              retrievalPath: "community:search:index"
+            }
+          }),
+          makeRecord({
+            id: "duckduckgo-index-shell",
+            url: "https://duckduckgo.com/?q=browser+automation",
+            title: "DuckDuckGo",
+            content: "Result overview",
+            attributes: {
+              retrievalPath: "web:search:index"
+            }
+          }),
+          makeRecord({
+            id: "generic-results-shell",
+            url: "https://example.com/result",
+            title: "https://example.com/result",
+            content: "Skip to main content",
+            attributes: {
+              retrievalPath: "social:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "search-results-shell",
+            url: "https://example.com/search?q=browser+automation",
+            title: "Search page",
+            content: "Search results",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "url-search-shell",
+            url: "https://example.com/search?q=deep+browser+automation",
+            title: "https://example.com/search?q=deep+browser+automation",
+            content: "Detailed page body",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "duckduckgo-redirect-shell",
+            url: "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fbrowser-automation",
+            title: "Redirect result",
+            content: "Detailed page body",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "duckduckgo-html-shell",
+            url: "https://html.duckduckgo.com/html/?q=browser+automation",
+            title: "HTML shell",
+            content: "Detailed page body",
+            attributes: {
+              retrievalPath: "community:fetch:url"
+            }
+          }),
+          makeRecord({
+            id: "login-shell",
+            url: "https://example.com/login",
+            title: "Sign in",
+            content: "Continue with Google"
+          }),
+          makeRecord({
+            id: "js-shell",
+            url: "https://example.com/article",
+            title: "Article",
+            content: "You need to enable JavaScript"
+          }),
+          makeRecord({
+            id: "not-found-shell",
+            url: "https://example.com/missing",
+            title: "Error 404",
+            content: "Page not found"
+          }),
+          makeRecord({
+            id: "usable-record",
+            url: "https://example.com/usable-record",
+            title: "Usable record",
+            content: "Concrete browser automation field notes with reproducible details."
+          })
+        ]
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "research shell inventory",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    const metrics = (output.meta as {
+      metrics: {
+        total_records: number;
+        sanitized_records: number;
+        sanitized_reason_distribution: Record<string, number>;
+        sanitizedReasonDistribution: Record<string, number>;
+      };
+    }).metrics;
+
+    expect(metrics.total_records).toBe(11);
+    expect(metrics.sanitized_records).toBe(10);
+    expect(metrics.sanitized_reason_distribution).toEqual({
+      search_index_shell: 2,
+      search_results_shell: 5,
+      login_shell: 1,
+      js_required_shell: 1,
+      not_found_shell: 1
+    });
+    expect(metrics.sanitizedReasonDistribution).toEqual(metrics.sanitized_reason_distribution);
+  });
+
+  it("fails research when only out-of-timebox records remain after sanitization", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "stale-usable-record",
+          url: "https://example.com/stale-record",
+          title: "Stale usable record",
+          content: "Concrete browser automation field notes.",
+          timestamp: "2020-01-01T00:00:00.000Z"
+        })]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "stale browser automation incident",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    })).rejects.toThrow("Research workflow produced no usable in-timebox results after sanitization.");
+  });
+
+  it("rejects mismatched research and shopping workflow envelopes", async () => {
+    const runtime = toRuntime({});
+    const shoppingEnvelope = buildWorkflowResumeEnvelope("shopping", {
+      query: "kind mismatch shopping",
+      mode: "json"
+    } as unknown as JsonValue);
+    const researchEnvelope = buildWorkflowResumeEnvelope("research", {
+      topic: "kind mismatch research",
+      days: 1,
+      mode: "json"
+    } as unknown as JsonValue);
+
+    await expect(runResearchWorkflow(runtime, shoppingEnvelope)).rejects.toThrow(
+      "Research workflow envelope kind mismatch. Expected research but received shopping."
+    );
+    await expect(runShoppingWorkflow(runtime, researchEnvelope)).rejects.toThrow(
+      "Shopping workflow envelope kind mismatch. Expected shopping but received research."
+    );
+  });
+
+  it("keeps only structured challenge-orchestration diagnostics in shopping metrics", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [
+          makeRecord({
+            id: "challenge-orchestration-offer",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/challenge-orchestration-offer",
+            title: "Challenge Orchestration Offer",
+            content: "$49.99",
+            attributes: {
+              browser_fallback_challenge_orchestration: {
+                status: "recorded"
+              },
+              browser_fallback_reason_code: "challenge_detected",
+              browser_fallback_mode: "managed_headed",
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "challenge-orchestration-offer",
+                title: "Challenge Orchestration Offer",
+                url: "https://www.amazon.com/dp/challenge-orchestration-offer",
+                price: { amount: 49.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.3,
+                reviews_count: 27
+              }
+            }
+          }),
+          makeRecord({
+            id: "challenge-orchestration-noise",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/challenge-orchestration-noise",
+            title: "Noise",
+            attributes: {
+              browser_fallback_challenge_orchestration: [],
+              browser_fallback_reason_code: "challenge_detected",
+              browser_fallback_mode: "extension"
+            }
+          })
+        ],
+        failures: [
+          makeFailure("shopping/amazon", "shopping", {
+            code: "unavailable",
+            message: "challenge preserved",
+            reasonCode: "challenge_detected",
+            details: {
+              challengeOrchestration: {
+                status: "deferred",
+                mode: "browser_with_helper"
+              },
+              browserFallbackReasonCode: "challenge_detected",
+              browserFallbackMode: "extension"
+            }
+          }),
+          makeFailure("shopping/amazon", "shopping", {
+            code: "unavailable",
+            message: "bad challenge diagnostics",
+            details: {
+              challengeOrchestration: []
+            }
+          }),
+          makeFailure("shopping/amazon", "shopping", {
+            code: "unavailable",
+            message: "structured challenge diagnostics without fallback metadata",
+            details: {
+              challengeOrchestration: {
+                status: "pending"
+              }
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "challenge orchestration metrics",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    const metrics = (output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+        challengeOrchestration: Array<Record<string, unknown>>;
+        browser_fallback_modes_observed: string[];
+        browserFallbackModesObserved: string[];
+      };
+    }).metrics;
+
+    expect(metrics.challenge_orchestration).toHaveLength(3);
+    expect(metrics.challenge_orchestration).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "shopping/amazon",
+        source: "shopping",
+        reasonCode: "challenge_detected",
+        browserFallbackReasonCode: "challenge_detected",
+        browserFallbackMode: "extension",
+        status: "deferred",
+        mode: "browser_with_helper"
+        }),
+        expect.objectContaining({
+          provider: "shopping/amazon",
+          source: "shopping",
+          browserFallbackReasonCode: "challenge_detected",
+          browserFallbackMode: "managed_headed",
+          status: "recorded"
+        }),
+        expect.objectContaining({
+        provider: "shopping/amazon",
+        source: "shopping",
+        status: "pending"
+      })
+    ]));
+    expect(metrics.challengeOrchestration).toEqual(metrics.challenge_orchestration);
+    expect(metrics.browser_fallback_modes_observed).toEqual(["extension", "managed_headed"]);
+    expect(metrics.browserFallbackModesObserved).toEqual(metrics.browser_fallback_modes_observed);
+  });
+
+  it("omits fallback metadata when challenge-orchestration diagnostics are present without reason or mode labels", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [
+          makeRecord({
+            id: "challenge-orchestration-record-only",
+            source: "shopping",
+            provider: "shopping/amazon",
+            url: "https://www.amazon.com/dp/challenge-orchestration-record-only",
+            title: "Challenge Orchestration Record Only",
+            content: "$39.99",
+            attributes: {
+              browser_fallback_challenge_orchestration: {
+                status: "pending"
+              },
+              shopping_offer: {
+                provider: "shopping/amazon",
+                product_id: "challenge-orchestration-record-only",
+                title: "Challenge Orchestration Record Only",
+                url: "https://www.amazon.com/dp/challenge-orchestration-record-only",
+                price: { amount: 39.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "free" },
+                availability: "in_stock",
+                rating: 4.1,
+                reviews_count: 11
+              }
+            }
+          })
+        ],
+        failures: [{
+          provider: "shopping/amazon",
+          source: "shopping",
+          error: {
+            code: "",
+            message: "",
+            retryable: true,
+            details: {
+              challengeOrchestration: {
+                status: "pending"
+              }
+            }
+          }
+        }]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "challenge orchestration labels",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    });
+
+    const diagnostics = ((output.meta as {
+      metrics: {
+        challenge_orchestration: Array<Record<string, unknown>>;
+      };
+    }).metrics.challenge_orchestration);
+    const recordDiagnostic = diagnostics.find((entry) => entry.status === "pending" && entry.provider === "shopping/amazon");
+
+    expect(recordDiagnostic).toBeDefined();
+    expect(recordDiagnostic).not.toHaveProperty("reasonCode");
+    expect(recordDiagnostic).not.toHaveProperty("browserFallbackReasonCode");
+    expect(recordDiagnostic).not.toHaveProperty("browserFallbackMode");
+  });
+
+  it("rejects product-video urls that use non-http protocols even when they parse cleanly", async () => {
+    const runtime = toRuntime({});
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "ftp://example.com/item"
+    })).rejects.toThrow("product_url must be an http(s) URL");
+  });
+
+  it("accepts plain http product-video urls and continues into product retrieval", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: true,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "plain-http-product",
+          url: "http://shop.example/item",
+          title: "Plain HTTP Product",
+          content: "A concise product summary with stable detail copy."
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "http://shop.example/item"
+    });
+
+    expect((output.product as { url: string; title: string }).url).toBe("http://shop.example/item");
+    expect((output.product as { url: string; title: string }).title).toBe("Plain HTTP Product");
+  });
+
+  it("derives product brands from top-brand and product-identifier copy when storefront labels are absent", async () => {
+    const topBrandRuntime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [makeRecord({
+          id: "top-brand-product",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://www.amazon.com/dp/top-brand-product",
+          title: "Amazon.com: Noise Canceling Headphones : Electronics",
+          content: "Top Brand: Bose. Noise Canceling Headphones About this item Immersive audio. All-day battery life.",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "top-brand-product",
+              title: "Amazon.com: Noise Canceling Headphones : Electronics",
+              url: "https://www.amazon.com/dp/top-brand-product",
+              price: { amount: 199, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.8,
+              reviews_count: 120
+            }
+          }
+        })]
+      })
+    });
+    const identifierRuntime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "identifier-brand-product",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: "https://www.ebay.com/p/identifier-brand-product",
+          title: "Wireless Earbuds for sale online | eBay",
+          content: "About this product Product Identifiers Brand Acme Audio MPN A1 UPC 000000000000 Model Wireless Earbuds",
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "identifier-brand-product",
+              title: "Wireless Earbuds for sale online | eBay",
+              url: "https://www.ebay.com/p/identifier-brand-product",
+              price: { amount: 89, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.2,
+              reviews_count: 48
+            }
+          }
+        })]
+      })
+    });
+
+    const topBrandOutput = await runProductVideoWorkflow(topBrandRuntime, {
+      product_url: "https://www.amazon.com/dp/top-brand-product",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+    const identifierOutput = await runProductVideoWorkflow(identifierRuntime, {
+      product_url: "https://www.ebay.com/p/identifier-brand-product",
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect((topBrandOutput.product as { brand: string }).brand).toBe("Bose");
+    expect((identifierOutput.product as { brand: string }).brand).toBe("Acme Audio");
   });
 });

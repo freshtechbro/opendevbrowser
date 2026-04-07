@@ -52,10 +52,12 @@ const CLEAR_STATE: SessionBlockerState = { state: "clear" };
 export class SessionStore {
   private sessions = new Map<string, BrowserSession>();
   private blockerStates = new Map<string, SessionBlockerState>();
+  private reservedBlockerSlots = new Set<string>();
 
   add(session: BrowserSession): void {
     this.sessions.set(session.id, session);
     this.blockerStates.set(session.id, { ...CLEAR_STATE });
+    this.reservedBlockerSlots.delete(session.id);
   }
 
   get(sessionId: string): BrowserSession {
@@ -73,6 +75,7 @@ export class SessionStore {
   delete(sessionId: string): void {
     this.sessions.delete(sessionId);
     this.blockerStates.delete(sessionId);
+    this.reservedBlockerSlots.delete(sessionId);
   }
 
   list(): BrowserSession[] {
@@ -80,8 +83,12 @@ export class SessionStore {
   }
 
   getBlockerState(sessionId: string): SessionBlockerState {
-    this.ensureSession(sessionId);
+    this.ensureBlockerSlot(sessionId);
     return this.blockerStates.get(sessionId) ?? { ...CLEAR_STATE };
+  }
+
+  hasBlockerSlot(sessionId: string): boolean {
+    return this.sessions.has(sessionId) || this.reservedBlockerSlots.has(sessionId);
   }
 
   getBlockerSummary(sessionId: string): SessionBlockerSummary {
@@ -225,7 +232,7 @@ export class SessionStore {
   }
 
   clearBlocker(sessionId: string, nowMs = Date.now()): SessionBlockerState {
-    this.ensureSession(sessionId);
+    this.ensureBlockerSlot(sessionId);
     const cleared: SessionBlockerState = {
       state: "clear",
       updatedAtMs: nowMs,
@@ -239,8 +246,28 @@ export class SessionStore {
     return cleared;
   }
 
-  private ensureSession(sessionId: string): void {
+  reserveBlockerSlot(sessionId: string): void {
+    if (this.sessions.has(sessionId)) {
+      return;
+    }
+    this.reservedBlockerSlots.add(sessionId);
+    if (!this.blockerStates.has(sessionId)) {
+      this.blockerStates.set(sessionId, { ...CLEAR_STATE });
+    }
+  }
+
+  releaseBlockerSlot(sessionId: string): void {
+    if (!this.reservedBlockerSlots.has(sessionId)) {
+      return;
+    }
+    this.reservedBlockerSlots.delete(sessionId);
     if (!this.sessions.has(sessionId)) {
+      this.blockerStates.delete(sessionId);
+    }
+  }
+
+  private ensureBlockerSlot(sessionId: string): void {
+    if (!this.hasBlockerSlot(sessionId)) {
       throw new Error(`Unknown sessionId: ${sessionId}`);
     }
   }

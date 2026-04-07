@@ -64,6 +64,10 @@ The permission set is limited to three needs: attach to Chrome tabs, inject page
 
 `debugger` is required to attach Chrome DevTools Protocol to the selected tab and forward inspect, snapshot, click, type, and screenshot commands from OpenDevBrowser.
 
+### `webNavigation` Justification
+
+`webNavigation` is required to observe popup and tab-opening navigation targets so the extension can preserve opener ownership when Chrome omits `tabs.onCreated.openerTabId` during local automation flows.
+
 ### `alarms` Justification
 
 `alarms` is required for background reconnect and retry scheduling when the local relay is temporarily unavailable.

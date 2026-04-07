@@ -192,29 +192,7 @@ export class RelayClient {
         });
       }
 
-      const ackPromise = new Promise<RelayHandshakeAck>((resolve, reject) => {
-        this.clearHandshakeAckWait();
-        this.pendingHandshakeAckResolve = resolve;
-        this.pendingHandshakeAckReject = reject;
-        this.pendingHandshakeAckTimeoutId = setTimeout(() => {
-          this.clearHandshakeAckWait();
-          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.close(1000, "Handshake ack timeout");
-          }
-          reject(new Error("Relay handshake not acknowledged"));
-        }, 2000);
-      });
-
-      try {
-        this.send(handshake);
-      } catch (error) {
-        this.clearHandshakeAckWait();
-        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-          this.socket.close(1000, "Handshake send failed");
-        }
-        throw error;
-      }
-      return await ackPromise;
+      return await this.sendHandshake(handshake);
     })();
 
     this.connectPromise = run;
@@ -245,8 +223,32 @@ export class RelayClient {
     this.send(event);
   }
 
-  sendHandshake(handshake: RelayHandshake): void {
-    this.send(handshake);
+  async sendHandshake(handshake: RelayHandshake): Promise<RelayHandshakeAck> {
+    this.lastHandshakeAck = null;
+    const ackPromise = new Promise<RelayHandshakeAck>((resolve, reject) => {
+      this.clearHandshakeAckWait();
+      this.pendingHandshakeAckResolve = resolve;
+      this.pendingHandshakeAckReject = reject;
+      this.pendingHandshakeAckTimeoutId = setTimeout(() => {
+        this.clearHandshakeAckWait();
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+          this.socket.close(1000, "Handshake ack timeout");
+        }
+        reject(new Error("Relay handshake not acknowledged"));
+      }, 2000);
+    });
+
+    try {
+      this.send(handshake);
+    } catch (error) {
+      this.clearHandshakeAckWait();
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        this.socket.close(1000, "Handshake send failed");
+      }
+      throw error instanceof Error ? error : new Error("Relay handshake send failed");
+    }
+
+    return await ackPromise;
   }
 
   sendAnnotationResponse(response: RelayAnnotationResponse): void {

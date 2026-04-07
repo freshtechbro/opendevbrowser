@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import { ConfigStore, resolveConfig } from "../src/config";
 import { createMockProviderRuntime } from "./provider-runtime-mock";
 
@@ -88,6 +89,7 @@ const createDeps = () => {
     select: vi.fn().mockResolvedValue(undefined),
     scroll: vi.fn().mockResolvedValue(undefined),
     scrollIntoView: vi.fn().mockResolvedValue({ timingMs: 1 }),
+    upload: vi.fn().mockResolvedValue({ fileCount: 1, mode: "direct_input" }),
     domGetHtml: vi.fn().mockResolvedValue({ outerHTML: "<div></div>", truncated: false }),
     domGetText: vi.fn().mockResolvedValue({ text: "hi", truncated: false }),
     domGetAttr: vi.fn().mockResolvedValue({ value: "attr" }),
@@ -99,6 +101,7 @@ const createDeps = () => {
     cloneComponent: vi.fn().mockResolvedValue({ component: "<Component />", css: ".css{}" }),
     perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "Nodes", value: 1 }] }),
     screenshot: vi.fn().mockResolvedValue({ base64: "image" }),
+    dialog: vi.fn().mockResolvedValue({ dialog: { open: false } }),
     consolePoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
     exceptionPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
     networkPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
@@ -199,7 +202,8 @@ describe("tools", () => {
       ["opendevbrowser_goto", { sessionId: "s1", url: "https://" }, { ok: true, meta: { blockerState: "active", blocker: { type: "auth_required" } } }],
       ["opendevbrowser_wait", { sessionId: "s1", until: "load" }, { ok: true, meta: { blockerState: "clear" } }],
       ["opendevbrowser_wait", { sessionId: "s1", ref: "r1" }, { ok: true, meta: { blockerState: "clear" } }],
-      ["opendevbrowser_snapshot", { sessionId: "s1" }, { ok: true }]
+      ["opendevbrowser_snapshot", { sessionId: "s1" }, { ok: true }],
+      ["opendevbrowser_review", { sessionId: "s1" }, { ok: true }]
     ];
 
     await expectToolCases(tools, cases);
@@ -216,7 +220,8 @@ describe("tools", () => {
       ["opendevbrowser_type", { sessionId: "s1", ref: "r1", text: "hi" }, { ok: true }],
       ["opendevbrowser_select", { sessionId: "s1", ref: "r1", values: ["v"] }, { ok: true }],
       ["opendevbrowser_scroll", { sessionId: "s1", dy: 10 }, { ok: true }],
-      ["opendevbrowser_scroll_into_view", { sessionId: "s1", ref: "r1" }, { ok: true }]
+      ["opendevbrowser_scroll_into_view", { sessionId: "s1", ref: "r1" }, { ok: true }],
+      ["opendevbrowser_upload", { sessionId: "s1", ref: "r1", files: ["/tmp/a.txt"] }, { ok: true }]
     ];
 
     await expectToolCases(tools, cases);
@@ -240,7 +245,8 @@ describe("tools", () => {
       ["opendevbrowser_network_poll", { sessionId: "s1" }, { ok: true }],
       ["opendevbrowser_debug_trace_snapshot", { sessionId: "s1" }, { ok: true, meta: { blockerState: "clear" } }],
       ["opendevbrowser_cookie_import", { sessionId: "s1", cookies: [{ name: "session", value: "abc123", url: "https://example.com" }] }, { ok: true }],
-      ["opendevbrowser_cookie_list", { sessionId: "s1", urls: ["https://example.com"] }, { ok: true }]
+      ["opendevbrowser_cookie_list", { sessionId: "s1", urls: ["https://example.com"] }, { ok: true }],
+      ["opendevbrowser_dialog", { sessionId: "s1" }, { ok: true }]
     ];
 
     for (const [name, args, expected] of cases) {
@@ -308,6 +314,9 @@ describe("tools", () => {
     await runTool(tools, "opendevbrowser_snapshot", { sessionId: "s1", targetId: "tab-9" });
     expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "outline", defaultMaxChars, undefined, "tab-9");
 
+    await runTool(tools, "opendevbrowser_review", { sessionId: "s1", targetId: "tab-9" });
+    expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "actionables", defaultMaxChars, undefined, "tab-9");
+
     await runTool(tools, "opendevbrowser_click", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
     expect(deps.manager.click).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
 
@@ -334,6 +343,18 @@ describe("tools", () => {
 
     await runTool(tools, "opendevbrowser_scroll_into_view", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
     expect(deps.manager.scrollIntoView).toHaveBeenLastCalledWith("s1", "r1", "tab-9");
+
+    await runTool(tools, "opendevbrowser_upload", {
+      sessionId: "s1",
+      ref: "r1",
+      files: ["/tmp/a.txt"],
+      targetId: "tab-9"
+    });
+    expect(deps.manager.upload).toHaveBeenLastCalledWith("s1", expect.objectContaining({
+      ref: "r1",
+      files: ["/tmp/a.txt"],
+      targetId: "tab-9"
+    }));
 
     await runTool(tools, "opendevbrowser_dom_get_html", { sessionId: "s1", ref: "r1", targetId: "tab-9" });
     expect(deps.manager.domGetHtml).toHaveBeenLastCalledWith("s1", "r1", 8000, "tab-9");
@@ -366,8 +387,102 @@ describe("tools", () => {
     expect(deps.manager.perfMetrics).toHaveBeenLastCalledWith("s1", "tab-9");
 
     await runTool(tools, "opendevbrowser_screenshot", { sessionId: "s1", targetId: "tab-9" });
-    expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", undefined, "tab-9");
+    expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", expect.objectContaining({ targetId: "tab-9" }));
+
+    await runTool(tools, "opendevbrowser_screenshot", {
+      sessionId: "s1",
+      path: "/tmp/example.png",
+      ref: "r1"
+    });
+    expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", expect.objectContaining({
+      path: "/tmp/example.png",
+      ref: "r1"
+    }));
+
+    await runTool(tools, "opendevbrowser_screenshot", {
+      sessionId: "s1",
+      fullPage: true
+    });
+    expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", expect.objectContaining({ fullPage: true }));
+
+    await runTool(tools, "opendevbrowser_dialog", { sessionId: "s1", targetId: "tab-9", action: "dismiss" });
+    expect(deps.manager.dialog).toHaveBeenLastCalledWith("s1", expect.objectContaining({ targetId: "tab-9", action: "dismiss" }));
+
+    await runTool(tools, "opendevbrowser_dialog", {
+      sessionId: "s1",
+      action: "accept",
+      promptText: "hello"
+    });
+    expect(deps.manager.dialog).toHaveBeenLastCalledWith("s1", expect.objectContaining({
+      action: "accept",
+      promptText: "hello"
+    }));
   }, 30000);
+
+  it("builds review output from status and actionables snapshots", async () => {
+    const { deps, tools } = await loadTools();
+    deps.manager.status.mockResolvedValueOnce({
+      mode: "extension",
+      activeTargetId: "tab-9",
+      url: "https://example.com/status",
+      title: "Status Title",
+      meta: {
+        blockerState: "active",
+        blocker: {
+          schemaVersion: "1.0",
+          type: "anti_bot_challenge",
+          source: "navigation",
+          reasonCode: "challenge_detected",
+          confidence: 0.9,
+          retryable: true,
+          detectedAt: "2026-03-26T00:00:00.000Z",
+          evidence: { matchedPatterns: [], networkHosts: [] },
+          actionHints: []
+        }
+      }
+    });
+    deps.manager.snapshot.mockResolvedValueOnce({
+      snapshotId: "snap-review",
+      url: "https://example.com/review",
+      title: "Review Title",
+      content: "[r1] button \"Continue\"",
+      truncated: true,
+      nextCursor: "1",
+      refCount: 1,
+      timingMs: 12,
+      warnings: ["review warning"]
+    });
+
+    const result = parse(await tools.opendevbrowser_review.execute({
+      sessionId: "s1",
+      targetId: "tab-9",
+      maxChars: 1200,
+      cursor: "0"
+    } as never));
+
+    expect(deps.manager.snapshot).toHaveBeenLastCalledWith("s1", "actionables", 1200, "0", "tab-9");
+    expect(result).toMatchObject({
+      ok: true,
+      sessionId: "s1",
+      targetId: "tab-9",
+      mode: "extension",
+      snapshotId: "snap-review",
+      url: "https://example.com/review",
+      title: "Review Title",
+      content: "[r1] button \"Continue\"",
+      truncated: true,
+      nextCursor: "1",
+      refCount: 1,
+      timingMs: 12,
+      warnings: ["review warning"],
+      meta: {
+        blockerState: "active",
+        blocker: {
+          type: "anti_bot_challenge"
+        }
+      }
+    });
+  });
 
   it("wraps tool execution with ensureHub when provided", async () => {
     const deps = createDeps();
@@ -396,9 +511,10 @@ describe("tools", () => {
   it("does not wrap local skill tools with ensureHub", async () => {
     const deps = createDeps();
     const ensureHub = vi.fn().mockResolvedValue(undefined);
-    const { createTools } = await import("../src/tools");
+    const { createTools, LOCAL_ONLY_TOOL_NAMES } = await import("../src/tools");
     const tools = createTools({ ...deps, ensureHub } as never);
 
+    expect(new Set(onboardingMetadata.localOnlyToolNames)).toEqual(LOCAL_ONLY_TOOL_NAMES);
     expect(parse(await tools.opendevbrowser_prompting_guide.execute({} as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_skill_list.execute({} as never))).toMatchObject({ ok: true });
     expect(parse(await tools.opendevbrowser_skill_load.execute({ name: "opendevbrowser-best-practices" } as never))).toMatchObject({ ok: true });
@@ -1694,6 +1810,8 @@ describe("tools", () => {
     deps.manager.cloneComponent.mockRejectedValue(new Error("boom"));
     deps.manager.perfMetrics.mockRejectedValue(new Error("boom"));
     deps.manager.screenshot.mockRejectedValue(new Error("boom"));
+    deps.manager.upload.mockRejectedValue(new Error("boom"));
+    deps.manager.dialog.mockRejectedValue(new Error("boom"));
     deps.manager.consolePoll.mockImplementation(() => {
       throw new Error("boom");
     });
@@ -1740,6 +1858,8 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_upload.execute({ sessionId: "s1", ref: "r1", files: ["/tmp/a.txt"] } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_dialog.execute({ sessionId: "s1" } as never)).ok).toBe(false);
   });
 
   it("status tool handles null extensionPath", async () => {

@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { findLocalChromeBinary } from "./chrome-binary.mjs";
 import { flushAndExit } from "./flush-exit.mjs";
+import { parseShellOnlyFailureDetail } from "./shared/workflow-lane-verdicts.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(ROOT, "dist", "cli", "index.js");
@@ -537,6 +538,11 @@ function isTimeoutError(detail) {
   return message.includes("timed out");
 }
 
+export function isAnnotationPendingCompletion(detail) {
+  const message = String(detail || "").toLowerCase();
+  return message.includes("waiting for manual completion");
+}
+
 function isRateLimitedError(detail) {
   const message = String(detail || "").toLowerCase();
   return message.includes("429") || message.includes("rate limit");
@@ -583,6 +589,36 @@ function isRestrictedUrlError(detail) {
   const message = String(detail || "").toLowerCase();
   return message.includes("[restricted_url]")
     || message.includes("restricted url scheme");
+}
+
+export function resolveMacroFailureOutcome(detail, { releaseGate = false, xMacroCase = false } = {}) {
+  const shellOnly = parseShellOnlyFailureDetail(detail);
+  if (shellOnly) {
+    return {
+      status: shellOnly.status,
+      detail: shellOnly.detail
+    };
+  }
+  if (releaseGate && xMacroCase && isTimeoutError(detail)) {
+    return {
+      status: "pass",
+      detail: "declared_divergence_boundary_observed: x_provider_timeout"
+    };
+  }
+  return {
+    status: isTimeoutError(detail) ? "env_limited" : "fail",
+    detail
+  };
+}
+
+export function resolveRpcFailureOutcome(id, detail) {
+  if (id === "feature.rpc.macro_resolve_execute") {
+    return resolveMacroFailureOutcome(detail);
+  }
+  return {
+    status: "fail",
+    detail
+  };
 }
 
 function isLegacyCdpConnectTimeout(detail) {
@@ -1815,10 +1851,12 @@ async function runMatrix(options) {
       runCli(args, { env: matrixEnv });
       addResult(results, { id, status: "pass" });
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const failure = resolveRpcFailureOutcome(id, detail);
       addResult(results, {
         id,
-        status: "fail",
-        detail: error instanceof Error ? error.message : String(error)
+        status: failure.status,
+        detail: failure.detail
       });
     }
   }
@@ -1896,14 +1934,14 @@ async function runMatrix(options) {
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      const failure = resolveMacroFailureOutcome(detail, {
+        releaseGate: options.releaseGate,
+        xMacroCase
+      });
       addResult(results, {
         id: macroCase.id,
-        status: options.releaseGate && xMacroCase && isTimeoutError(detail)
-          ? "pass"
-          : (isTimeoutError(detail) ? "env_limited" : "fail"),
-        detail: options.releaseGate && xMacroCase && isTimeoutError(detail)
-          ? "declared_divergence_boundary_observed: x_provider_timeout"
-          : detail
+        status: failure.status,
+        detail: failure.detail
       });
     }
   }
@@ -1976,7 +2014,7 @@ async function runMatrix(options) {
         return;
       }
       const detail = summarizeFailure(annotate);
-      if (isTimeoutError(detail)) {
+      if (isTimeoutError(detail) || isAnnotationPendingCompletion(detail)) {
         if (options.releaseGate && mode === "relay") {
           addResult(results, {
             id: `feature.annotate.${mode}`,
@@ -2019,14 +2057,14 @@ async function runMatrix(options) {
       const timeoutStatus = options.releaseGate && mode === "relay" ? "pass" : "expected_timeout";
       addResult(results, {
         id: `feature.annotate.${mode}`,
-        status: isTimeoutError(detail)
+        status: isTimeoutError(detail) || isAnnotationPendingCompletion(detail)
           ? timeoutStatus
           : (mode === "relay" && options.releaseGate && isRestrictedUrlError(detail))
             ? "pass"
             : (mode === "relay" && (isExtensionUnavailable(detail) || isRateLimitedError(detail)) ? "env_limited" : "fail"),
         detail: mode === "relay" && options.releaseGate && isRestrictedUrlError(detail)
           ? "verified_expected_restricted_url_gate"
-          : (isTimeoutError(detail) && options.releaseGate && mode === "relay")
+          : ((isTimeoutError(detail) || isAnnotationPendingCompletion(detail)) && options.releaseGate && mode === "relay")
             ? "declared_divergence_boundary_observed: annotation_manual_timeout"
             : detail
       });

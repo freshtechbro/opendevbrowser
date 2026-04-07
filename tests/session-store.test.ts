@@ -226,6 +226,30 @@ describe("SessionStore blocker FSM", () => {
     expect(typeof next.updatedAtMs).toBe("number");
   });
 
+  it("manages reserved blocker slots for external and live sessions", () => {
+    const store = new SessionStore();
+
+    store.reserveBlockerSlot("ops-only");
+    expect(store.hasBlockerSlot("ops-only")).toBe(true);
+    expect(store.getBlockerSummary("ops-only")).toEqual({ state: "clear" });
+
+    store.releaseBlockerSlot("ops-only");
+    expect(store.hasBlockerSlot("ops-only")).toBe(false);
+    store.releaseBlockerSlot("ops-only");
+
+    store.add({
+      id: "s1",
+      mode: "managed",
+      browser: {} as never,
+      context: {} as never
+    });
+    store.reserveBlockerSlot("s1");
+    expect(store.hasBlockerSlot("s1")).toBe(true);
+
+    store.releaseBlockerSlot("s1");
+    expect(store.hasBlockerSlot("s1")).toBe(true);
+  });
+
   it("marks verifier failures as unresolved/deferred and preserves active blocker context", () => {
     const store = new SessionStore();
     store.add({
@@ -264,5 +288,78 @@ describe("SessionStore blocker FSM", () => {
     store.clearBlocker("s1", 40);
     const noop = store.markVerificationFailure("s1", { nowMs: 50 });
     expect(noop.state).toBe("clear");
+  });
+
+  it("retains reserved blocker slots until release and keeps live sessions registered", () => {
+    const store = new SessionStore();
+    const internals = store as unknown as {
+      blockerStates: Map<string, unknown>;
+      reservedBlockerSlots: Set<string>;
+    };
+
+    store.reserveBlockerSlot("reserved");
+    expect(internals.reservedBlockerSlots.has("reserved")).toBe(true);
+    expect(store.clearBlocker("reserved", 5)).toMatchObject({
+      state: "clear",
+      resolution: {
+        status: "resolved",
+        reason: "manual_clear"
+      }
+    });
+
+    store.releaseBlockerSlot("reserved");
+    expect(internals.reservedBlockerSlots.has("reserved")).toBe(false);
+    expect(internals.blockerStates.has("reserved")).toBe(false);
+    expect(() => store.clearBlocker("reserved")).toThrow("Unknown sessionId: reserved");
+
+    store.add({
+      id: "live",
+      mode: "managed",
+      browser: {} as never,
+      context: {} as never
+    });
+    store.reserveBlockerSlot("live");
+    expect(internals.reservedBlockerSlots.has("live")).toBe(false);
+
+    store.releaseBlockerSlot("live");
+    expect(internals.blockerStates.has("live")).toBe(true);
+  });
+
+  it("reuses existing blocker state for reserved slots and keeps live blocker state on reserved release", () => {
+    const store = new SessionStore();
+    const internals = store as unknown as {
+      blockerStates: Map<string, unknown>;
+      reservedBlockerSlots: Set<string>;
+    };
+
+    store.reserveBlockerSlot("ops-existing");
+    store.clearBlocker("ops-existing", 7);
+    store.reserveBlockerSlot("ops-existing");
+    expect(store.getBlockerSummary("ops-existing")).toMatchObject({
+      state: "clear",
+      resolution: {
+        status: "resolved",
+        reason: "manual_clear"
+      }
+    });
+
+    store.add({
+      id: "live-reserved",
+      mode: "managed",
+      browser: {} as never,
+      context: {} as never
+    });
+    internals.reservedBlockerSlots.add("live-reserved");
+    internals.blockerStates.set("live-reserved", {
+      state: "active",
+      blocker: makeBlocker("anti_bot_challenge"),
+      updatedAtMs: 9
+    });
+
+    store.releaseBlockerSlot("live-reserved");
+    expect(internals.reservedBlockerSlots.has("live-reserved")).toBe(false);
+    expect(internals.blockerStates.get("live-reserved")).toMatchObject({
+      state: "active"
+    });
   });
 });

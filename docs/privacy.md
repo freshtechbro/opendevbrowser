@@ -2,7 +2,7 @@
 
 **OpenDevBrowser Chrome Extension**
 
-Last updated: March 15, 2026
+Last updated: March 28, 2026
 
 ## Overview
 
@@ -18,6 +18,7 @@ The extension:
 - Does NOT track user behavior
 - Does NOT use analytics or telemetry
 - May access page URLs, titles, and page content locally when you use automation or annotation features
+- May honor a local `challengeAutomationMode` setting (`off`, `browser`, or `browser_with_helper`) so bounded browser challenge handling can stand down or proceed on your machine without sending challenge state to OpenDevBrowser-operated services
 - May store relay settings and the last user-triggered annotation payload locally on-device so the popup can reconnect and reopen recent annotation results
 - May store screenshot-free annotation payloads in a repo-local shared inbox when you explicitly use popup/canvas/in-page `Send` actions so the active chat for that worktree can consume them, or so the payload can be retrieved later when safe chat scoping is unavailable
 - May keep extension-hosted canvas stage annotation selections, region metadata, and optional local crop references on-device only when you explicitly capture or send them during a canvas session
@@ -32,7 +33,11 @@ The extension operates entirely on your local machine:
 
 3. **Tab Access**: The `tabs` permission is used to identify and manage browser tabs during automation sessions.
 
-4. **Local Storage**: The `storage` permission stores your relay configuration (port, pairing token, pairing toggle) and the last annotation payload metadata locally in Chrome. When you explicitly capture or send annotation results, the extension can also persist a local copy of the last annotation payload without screenshots so the popup can reopen it. If you explicitly use a `Send` action, OpenDevBrowser can also write a screenshot-free copy into `.opendevbrowser/annotate/agent-inbox.jsonl` in the current worktree so the intended active chat can consume it, or so the payload can be retrieved later with `annotate --stored` when safe chat scoping is unavailable. This data stays local to your machine and repository.
+4. **Popup Navigation Tracking**: The `webNavigation` permission is used only to detect new top-level navigation targets opened from an existing tab so the extension can preserve popup opener ownership when Chrome omits `tabs.onCreated.openerTabId`.
+
+5. **Local Storage**: The `storage` permission stores your relay configuration (port, pairing token, pairing toggle) and the last annotation payload metadata locally in Chrome. When you explicitly capture or send annotation results, the extension can also persist a local copy of the last annotation payload without screenshots so the popup can reopen it. If you explicitly use a `Send` action, OpenDevBrowser can also write a screenshot-free copy into `.opendevbrowser/annotate/agent-inbox.jsonl` in the current worktree so the intended active chat can consume it, or so the payload can be retrieved later with `annotate --stored` when safe chat scoping is unavailable. This data stays local to your machine and repository.
+
+Challenge automation evaluation also stays local. The optional helper bridge remains browser-scoped and is not a desktop agent.
 
 ## Data Flow
 
@@ -47,6 +52,7 @@ The relay and optional native-host transport stay local to your machine. OpenDev
 | Permission | Purpose |
 |------------|---------|
 | `debugger` | Required for CDP access to automate browser tabs |
+| `webNavigation` | Required to observe popup navigation targets and preserve opener ownership for local automation sessions |
 | `tabs` | Required to list and manage tabs during automation |
 | `activeTab` | Required for user-initiated active-tab actions |
 | `storage` | Required to persist relay configuration and the last local annotation payload metadata |

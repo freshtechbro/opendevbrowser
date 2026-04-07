@@ -3,25 +3,30 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
+import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
+import type { WorkflowBrowserMode } from "../../providers/types";
 
 type ShoppingCommandArgs = {
   query?: string;
   providers?: string[];
   budget?: number;
   region?: string;
+  browserMode?: WorkflowBrowserMode;
   sort?: "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping";
   mode?: "compact" | "json" | "md" | "context" | "path";
   timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
   useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: "off" | "auto" | "required";
 };
 
 const SORT_VALUES = new Set(["best_deal", "lowest_price", "highest_rating", "fastest_shipping"]);
 const MODE_VALUES = new Set(["compact", "json", "md", "context", "path"]);
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
-
+const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
   if (!value) {
@@ -90,6 +95,24 @@ const parseShoppingRunArgs = (rawArgs: string[]): ShoppingCommandArgs => {
     }
     if (arg?.startsWith("--region=")) {
       parsed.region = arg.split("=", 2)[1];
+      continue;
+    }
+
+    if (arg === "--browser-mode") {
+      const value = requireValue(rawArgs, index, "--browser-mode").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--browser-mode=")) {
+      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
       continue;
     }
 
@@ -168,6 +191,24 @@ const parseShoppingRunArgs = (rawArgs: string[]): ShoppingCommandArgs => {
       continue;
     }
 
+    if (arg === "--challenge-automation-mode") {
+      const value = requireValue(rawArgs, index, "--challenge-automation-mode");
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--challenge-automation-mode=")) {
+      const value = arg.split("=", 2)[1] ?? "";
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      continue;
+    }
+
     if (arg === "--cookie-policy-override" || arg === "--cookie-policy") {
       const value = requireValue(rawArgs, index, arg).toLowerCase();
       if (!COOKIE_POLICY_VALUES.has(value)) {
@@ -206,18 +247,20 @@ export async function runShoppingCommand(args: ParsedArgs) {
     providers: parsed.providers,
     budget: parsed.budget,
     region: parsed.region,
+    browserMode: parsed.browserMode,
     sort: parsed.sort,
     mode: parsed.mode ?? "compact",
-    ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {}),
+    timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
     outputDir: parsed.outputDir,
     ttlHours: parsed.ttlHours,
     useCookies: parsed.useCookies,
+    challengeAutomationMode: parsed.challengeAutomationMode,
     cookiePolicyOverride: parsed.cookiePolicyOverride
   };
 
-  const data = typeof parsed.timeoutMs === "number"
-    ? await callDaemon("shopping.run", payload, { timeoutMs: parsed.timeoutMs })
-    : await callDaemon("shopping.run", payload);
+  // Let daemon-client derive a small transport buffer from payload.timeoutMs so
+  // the workflow deadline does not race the HTTP response deadline.
+  const data = await callDaemon("shopping.run", payload);
 
   return {
     success: true,

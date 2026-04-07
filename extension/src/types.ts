@@ -95,6 +95,7 @@ export type RelayHandshakeError = {
 export const OPS_PROTOCOL_VERSION = "1";
 export const MAX_OPS_PAYLOAD_BYTES = 12 * 1024 * 1024;
 export const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
+export type OpsPointerCommand = "pointer.move" | "pointer.down" | "pointer.up" | "pointer.drag";
 
 export type ParallelismModeCapsPolicy = {
   managedHeaded: number;
@@ -203,6 +204,8 @@ export type OpsErrorResponse = {
 
 export type OpsEventType =
   | "ops_session_created"
+  | "ops_session_released"
+  | "ops_session_reclaimed"
   | "ops_session_closed"
   | "ops_session_expired"
   | "ops_tab_closed"

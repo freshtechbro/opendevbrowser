@@ -4,6 +4,7 @@ import * as os from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
 import { SkillLoader } from "../src/skills/skill-loader";
+import { bundledSkillDirectories } from "../src/skills/bundled-skill-directories";
 
 let tempRoot = "";
 let originalConfigDir: string | undefined;
@@ -170,6 +171,14 @@ Global content.
     expect(content).toContain("# OpenDevBrowser Best Practices");
   });
 
+  it("loads the canonical quick start topic from the real bundled best-practices skill", async () => {
+    const missingRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-topic-"));
+    const loader = new SkillLoader(missingRoot);
+    const content = await loader.loadSkill("opendevbrowser-best-practices", "quick start");
+    expect(content).toContain("## Quick Start");
+    expect(content).not.toContain("## Fast Start");
+  });
+
   it("reports bundled skills when only the bundled fallback is available", async () => {
     const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-none-"));
     const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-none-config-"));
@@ -284,6 +293,123 @@ Global content.
 
     await chmod(skillPath, 0o644);
   });
+
+  it("ignores unexpected non-canonical bundled directories even when they contain SKILL.md", async () => {
+    const emptyRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-extra-"));
+    const emptyConfig = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-extra-config-"));
+    const bundledRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-bundled-root-"));
+    const discoverableSkillName = bundledSkillDirectories[0]?.name;
+
+    if (!discoverableSkillName) {
+      throw new Error("Missing discoverable bundled skill for test setup.");
+    }
+
+    await mkdir(join(bundledRoot, discoverableSkillName), { recursive: true });
+    await writeFile(
+      join(bundledRoot, discoverableSkillName, "SKILL.md"),
+      `---
+name: ${discoverableSkillName}
+description: Bundled discoverable skill
+---
+# Bundled
+`
+    );
+
+    await mkdir(join(bundledRoot, "research"), { recursive: true });
+    await writeFile(
+      join(bundledRoot, "research", "SKILL.md"),
+      `---
+name: research
+description: Unexpected bundled dir
+---
+# Unexpected
+`
+    );
+    await mkdir(join(bundledRoot, "custom-skill"), { recursive: true });
+    await writeFile(
+      join(bundledRoot, "custom-skill", "SKILL.md"),
+      `---
+name: custom-skill
+description: Unexpected bundled dir
+---
+# Unexpected
+`
+    );
+
+    const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const originalHome = process.env.HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
+    const originalAmpCliHome = process.env.AMP_CLI_HOME;
+    const originalAmpHome = process.env.AMP_HOME;
+
+    process.env.OPENCODE_CONFIG_DIR = emptyConfig;
+    process.env.HOME = emptyConfig;
+    process.env.CODEX_HOME = join(emptyConfig, "codex-home");
+    process.env.CLAUDECODE_HOME = join(emptyConfig, "claudecode-home");
+    delete process.env.CLAUDE_HOME;
+    delete process.env.AMPCLI_HOME;
+    process.env.AMP_CLI_HOME = join(emptyConfig, "amp-home");
+    delete process.env.AMP_HOME;
+
+    vi.resetModules();
+    vi.doMock("../src/utils/package-assets", () => ({
+      findBundledSkillsDir: () => bundledRoot
+    }));
+
+    try {
+      const { SkillLoader: IsolatedSkillLoader } = await import("../src/skills/skill-loader");
+      const loader = new IsolatedSkillLoader(emptyRoot);
+      const skills = await loader.listSkills();
+
+      expect(skills.some((skill) => skill.name === discoverableSkillName)).toBe(true);
+      expect(skills.some((skill) => skill.name === "research")).toBe(false);
+      expect(skills.some((skill) => skill.name === "custom-skill")).toBe(false);
+    } finally {
+      if (originalConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = originalConfigDir;
+      }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = originalCodexHome;
+      }
+      if (originalClaudeCodeHome === undefined) {
+        delete process.env.CLAUDECODE_HOME;
+      } else {
+        process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+      }
+      if (originalClaudeHome === undefined) {
+        delete process.env.CLAUDE_HOME;
+      } else {
+        process.env.CLAUDE_HOME = originalClaudeHome;
+      }
+      if (originalAmpCliAliasHome === undefined) {
+        delete process.env.AMPCLI_HOME;
+      } else {
+        process.env.AMPCLI_HOME = originalAmpCliAliasHome;
+      }
+      if (originalAmpCliHome === undefined) {
+        delete process.env.AMP_CLI_HOME;
+      } else {
+        process.env.AMP_CLI_HOME = originalAmpCliHome;
+      }
+      if (originalAmpHome === undefined) {
+        delete process.env.AMP_HOME;
+      } else {
+        process.env.AMP_HOME = originalAmpHome;
+      }
+    }
+  });
 });
 
 describe("SkillLoader.listSkills", () => {
@@ -386,6 +512,163 @@ description: A custom skill
     const loader = new SkillLoader(tempRoot, ["/nonexistent/path/12345"]);
     const skills = await loader.listSkills();
     expect(skills.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("deduplicates repeated search paths in the discovery order", async () => {
+    const duplicatePath = join(tempRoot, ".opencode", "skill");
+    const loader = new SkillLoader(tempRoot, [duplicatePath, duplicatePath]);
+    const report = await loader.getDiscoveryReport();
+
+    expect(report.searchOrder.filter((entry) => entry.path === duplicatePath)).toHaveLength(1);
+  });
+
+  it("reuses the cached discovery report after the first build", async () => {
+    const loader = new SkillLoader(tempRoot);
+
+    const firstReport = await loader.getDiscoveryReport();
+    const secondReport = await loader.getDiscoveryReport();
+    const skills = await loader.listSkills();
+
+    expect(secondReport).toBe(firstReport);
+    expect(skills).toBe(firstReport.skills);
+  });
+
+  it("reports the winning source and shadowed alternatives in the discovery report", async () => {
+    const codexSkillDir = join(tempRoot, ".codex", "skills", "opendevbrowser-best-practices");
+    const claudeSkillDir = join(tempRoot, ".claude", "skills", "opendevbrowser-best-practices");
+    await mkdir(codexSkillDir, { recursive: true });
+    await mkdir(claudeSkillDir, { recursive: true });
+    await writeFile(
+      join(codexSkillDir, "SKILL.md"),
+      `---
+name: opendevbrowser-best-practices
+description: Codex copy
+---
+# Codex
+`
+    );
+    await writeFile(
+      join(claudeSkillDir, "SKILL.md"),
+      `---
+name: opendevbrowser-best-practices
+description: Claude copy
+---
+# Claude
+`
+    );
+
+    const loader = new SkillLoader(tempRoot);
+    const report = await loader.getDiscoveryReport();
+    const skill = report.skills.find((entry) => entry.name === "opendevbrowser-best-practices");
+
+    expect(skill?.sourceFamily).toBe("project-opencode");
+    expect(skill?.searchPath).toBe(join(tempRoot, ".opencode", "skill"));
+    expect(skill?.shadowedAlternatives).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceFamily: "project-codex",
+        path: join(codexSkillDir, "SKILL.md")
+      }),
+      expect.objectContaining({
+        sourceFamily: "project-claudecode",
+        path: join(claudeSkillDir, "SKILL.md")
+      })
+    ]));
+    expect(report.searchOrder[0]?.sourceFamily).toBe("project-opencode");
+  });
+
+  it("defaults shadowed alternative provenance when optional fields are missing", () => {
+    const loader = new SkillLoader(tempRoot);
+    const toAlternative = Reflect.get(loader, "toAlternative") as (skill: {
+      name: string;
+      path: string;
+      searchPath?: string;
+      sourceFamily?: string;
+      isBundled?: boolean;
+    }) => {
+      name: string;
+      path: string;
+      searchPath: string;
+      sourceFamily: string;
+      isBundled: boolean;
+    };
+
+    const alternative = toAlternative({
+      name: "test-skill",
+      path: "/tmp/test-skill/SKILL.md"
+    });
+
+    expect(alternative).toEqual({
+      name: "test-skill",
+      path: "/tmp/test-skill/SKILL.md",
+      searchPath: "",
+      sourceFamily: "custom",
+      isBundled: false
+    });
+  });
+
+  it("records missing-skill and metadata-mismatch discovery issues", async () => {
+    const missingSkillDir = join(tempRoot, ".codex", "skills", "broken-entry");
+    const mismatchSkillDir = join(tempRoot, ".claude", "skills", "mismatched-entry");
+    await mkdir(missingSkillDir, { recursive: true });
+    await mkdir(mismatchSkillDir, { recursive: true });
+    await writeFile(
+      join(mismatchSkillDir, "SKILL.md"),
+      `---
+name: not-the-directory
+description: Broken metadata
+---
+# Broken
+`
+    );
+
+    const loader = new SkillLoader(tempRoot);
+    const report = await loader.getDiscoveryReport();
+
+    expect(report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "ENOENT",
+        dirName: "broken-entry",
+        skillPath: join(missingSkillDir, "SKILL.md")
+      }),
+      expect.objectContaining({
+        code: "metadata_name_mismatch",
+        dirName: "mismatched-entry",
+        skillPath: join(mismatchSkillDir, "SKILL.md")
+      })
+    ]));
+  });
+
+  it("records non-ENOENT search-path issues and stringifies unknown error types", async () => {
+    const brokenSearchPath = "/mocked-error-path";
+
+    vi.resetModules();
+    vi.doMock("fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
+      return {
+        ...actual,
+        readdir: vi.fn(async (...args: Parameters<typeof actual.readdir>) => {
+          const [targetPath] = args;
+          if (targetPath === brokenSearchPath) {
+            throw "mocked-search-path-failure";
+          }
+          return actual.readdir(...args);
+        })
+      };
+    });
+
+    const { SkillLoader: IsolatedSkillLoader } = await import("../src/skills/skill-loader");
+    const loader = new IsolatedSkillLoader(tempRoot, [brokenSearchPath]);
+    const report = await loader.getDiscoveryReport();
+
+    expect(report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "search_path",
+        code: "unknown",
+        detail: "mocked-search-path-failure",
+        searchPath: brokenSearchPath,
+        sourceFamily: "custom"
+      })
+    ]));
   });
 
   it("discovers skills from codex and amp compatibility directories", async () => {

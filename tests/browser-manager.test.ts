@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { mkdtemp } from "fs/promises";
+import { mkdtemp, writeFile as writeFsFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Window } from "happy-dom";
@@ -59,10 +59,38 @@ let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
 type LegacyNode = { ref: string; role: string; name: string; tag: string; selector: string };
 
-const createPage = (nodes: LegacyNode[]) => {
+function createDeferred<T = void>(): { promise: Promise<T>; resolve: (value?: T | PromiseLike<T>) => void } {
+  let resolve!: (value?: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 100): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+const createPage = (nodes: LegacyNode[], options?: { blockMouseUp?: boolean }) => {
   let currentUrl = "about:blank";
   const emitter = new EventEmitter();
   const url = vi.fn(() => currentUrl);
+  const mouseUpBlocked = options?.blockMouseUp ? createDeferred<void>() : null;
+  const mouseUpRelease = options?.blockMouseUp ? createDeferred<void>() : null;
   const locator = {
     click: vi.fn().mockResolvedValue(undefined),
     hover: vi.fn().mockResolvedValue(undefined),
@@ -116,7 +144,17 @@ const createPage = (nodes: LegacyNode[]) => {
     }),
     evaluate: vi.fn().mockResolvedValue(nodes),
     screenshot: vi.fn(async () => Buffer.from("image")),
-    mouse: { wheel: vi.fn().mockResolvedValue(undefined) },
+    mouse: {
+      wheel: vi.fn().mockResolvedValue(undefined),
+      move: vi.fn().mockResolvedValue(undefined),
+      down: vi.fn().mockResolvedValue(undefined),
+      up: vi.fn(async () => {
+        mouseUpBlocked?.resolve();
+        if (mouseUpRelease) {
+          await mouseUpRelease.promise;
+        }
+      })
+    },
     keyboard: { press: vi.fn().mockResolvedValue(undefined) },
     close: vi.fn().mockResolvedValue(undefined),
     on: emitter.on.bind(emitter),
@@ -137,6 +175,9 @@ const createPage = (nodes: LegacyNode[]) => {
         const declaration = typeof params?.functionDeclaration === "string"
           ? params.functionDeclaration
           : "";
+        const args = Array.isArray(params?.arguments)
+          ? params.arguments.map((entry) => (isRecord(entry) ? entry.value : undefined))
+          : [];
         if (declaration.includes("odb-dom-get-attr")) {
           return { result: { value: "attr" } };
         }
@@ -151,6 +192,66 @@ const createPage = (nodes: LegacyNode[]) => {
         }
         if (declaration.includes("odb-dom-is-checked")) {
           return { result: { value: false } };
+        }
+        if (declaration.includes("odb-dom-selector-state")) {
+          return { result: { value: { attached: true, visible: true } } };
+        }
+        if (declaration.includes("odb-dom-outer-html")) {
+          return { result: { value: "<div>ok</div>" } };
+        }
+        if (declaration.includes("odb-dom-inner-text")) {
+          return { result: { value: "text" } };
+        }
+        if (declaration.includes("odb-dom-click")) {
+          await locator.click();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-hover")) {
+          await locator.hover();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-focus")) {
+          await locator.focus();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-set-checked")) {
+          if (args[0] === true) {
+            await locator.check();
+          } else {
+            await locator.uncheck();
+          }
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-type")) {
+          const value = typeof args[0] === "string" ? args[0] : String(args[0] ?? "");
+          const clear = args[1] === true;
+          const submit = args[2] === true;
+          if (clear) {
+            await locator.fill("");
+          }
+          await locator.fill(value);
+          if (submit) {
+            await locator.press("Enter");
+          }
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-select")) {
+          const values = Array.isArray(args[0]) ? args[0].map((value) => String(value)) : [];
+          await locator.selectOption(values);
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-scroll-into-view")) {
+          await locator.scrollIntoViewIfNeeded();
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-scroll-by")) {
+          await locator.evaluate((el, delta) => {
+            el.scrollBy(0, delta as number);
+          }, typeof args[0] === "number" ? args[0] : 0);
+          return { result: { value: undefined } };
+        }
+        if (declaration.includes("odb-dom-ref-point")) {
+          return { result: { value: { x: 320, y: 240 } } };
         }
         const selector = selectorByBackendId.get(lastBackendNodeId) ?? `#node-${lastBackendNodeId}`;
         return { result: { value: selector } };
@@ -176,7 +277,19 @@ const createPage = (nodes: LegacyNode[]) => {
     (page as unknown as { context: () => BrowserContextLike }).context = () => context;
   };
 
-  return { page, locator, cdpSession, setContext, frame };
+  return {
+    page,
+    locator,
+    cdpSession,
+    setContext,
+    frame,
+    mouseUpControl: mouseUpBlocked && mouseUpRelease
+      ? {
+        waitUntilBlocked: () => mouseUpBlocked.promise,
+        release: () => mouseUpRelease.resolve()
+      }
+      : null
+  };
 };
 
 type PageLike = ReturnType<typeof createPage>["page"];
@@ -207,10 +320,12 @@ type BrowserContextLike = {
 
 const createBrowserBundle = (
   nodes: LegacyNode[],
-  options?: { initialPages?: number; contextsEmpty?: boolean; wsEndpoint?: string }
+  options?: { initialPages?: number; contextsEmpty?: boolean; wsEndpoint?: string; blockMouseUp?: boolean }
 ) => {
   const initialPages = options?.initialPages ?? 1;
-  const { page, locator, cdpSession, setContext } = createPage(nodes);
+  const { page, locator, cdpSession, setContext, mouseUpControl } = createPage(nodes, {
+    blockMouseUp: options?.blockMouseUp
+  });
   const pages = initialPages === 0 ? [] : [page];
   let browser: BrowserLike;
 
@@ -239,7 +354,7 @@ const createBrowserBundle = (
     close: vi.fn().mockResolvedValue(undefined)
   };
 
-  return { browser, context, page, locator, cdpSession };
+  return { browser, context, page, locator, cdpSession, mouseUpControl };
 };
 
 beforeEach(async () => {
@@ -290,6 +405,68 @@ describe("BrowserManager", () => {
     const status = await manager.status(result.sessionId);
     expect(status.url).toBeDefined();
   }, 15000);
+
+  it("dispatches managed clicks through page mouse input", async () => {
+    const nodes = [
+      { ref: "r1", role: "link", name: "Open Popup Window", tag: "a", selector: "#open-popup" }
+    ];
+    const { context, page, locator } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/bin/chrome" });
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default", startUrl: "https://example.com/root" });
+    await manager.snapshot(result.sessionId, "actionables", 500);
+    await manager.click(result.sessionId, "r1");
+
+    expect(page.mouse.move).toHaveBeenCalledWith(320, 240);
+    expect(page.mouse.down).toHaveBeenCalledWith({ button: "left", clickCount: 1 });
+    expect(page.mouse.up).toHaveBeenCalledWith({ button: "left", clickCount: 1 });
+    expect(locator.click).not.toHaveBeenCalled();
+  });
+
+  it("syncs popup pages into managed target listings after click", async () => {
+    const nodes = [
+      { ref: "r1", role: "link", name: "Open Popup Window", tag: "a", selector: "#open-popup" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+    const popup = createPage(nodes);
+    popup.setContext(context);
+    popup.page.url.mockReturnValue("https://example.com/popup");
+    popup.page.title.mockResolvedValue("Popup Window");
+    page.mouse.up.mockImplementationOnce(async () => {
+      context.pages().push(popup.page as never);
+    });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/bin/chrome" });
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default", startUrl: "https://example.com/root" });
+    await manager.snapshot(result.sessionId, "actionables", 500);
+
+    const initial = await manager.listTargets(result.sessionId, true);
+    expect(initial.targets).toHaveLength(1);
+    expect(initial.targets[0]).toEqual(expect.objectContaining({ url: "https://example.com/root" }));
+
+    await manager.click(result.sessionId, "r1");
+
+    const listed = await manager.listTargets(result.sessionId, true);
+    expect(context.newPage).not.toHaveBeenCalled();
+    expect(listed.activeTargetId).toBe(initial.activeTargetId);
+    expect(listed.targets).toHaveLength(2);
+    expect(listed.targets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: "https://example.com/root" }),
+      expect.objectContaining({ title: "Popup Window", url: "https://example.com/popup" })
+    ]));
+  });
 
   it("imports system Chrome cookies into managed launches before first navigation", async () => {
     const nodes = [
@@ -610,8 +787,11 @@ describe("BrowserManager", () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
-    await manager.launch({ startUrl: "https://example.com" });
+    const result = await manager.launch({ startUrl: "https://example.com" });
+    const status = await manager.status(result.sessionId);
     expect(page.goto).toHaveBeenCalledWith("https://example.com", expect.objectContaining({ waitUntil: "load" }));
+    expect(result.activeTargetId).toBe(status.activeTargetId);
+    expect(status.url).toBe("https://example.com");
   });
 
   it("skips startUrl when no active target exists", async () => {
@@ -761,11 +941,14 @@ describe("BrowserManager", () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
-    await manager.connect({ host: "127.0.0.1", port: 9222, startUrl: "https://example.com/start" });
+    const result = await manager.connect({ host: "127.0.0.1", port: 9222, startUrl: "https://example.com/start" });
+    const status = await manager.status(result.sessionId);
     expect(page.goto).toHaveBeenCalledWith("https://example.com/start", {
       waitUntil: "load",
       timeout: 30000
     });
+    expect(result.activeTargetId).toBe(status.activeTargetId);
+    expect(status.url).toBe("https://example.com/start");
   });
 
   it("connects via relay endpoint", async () => {
@@ -844,6 +1027,42 @@ describe("BrowserManager", () => {
       waitUntil: "load",
       timeout: 30000
     });
+  });
+
+  it("returns the navigated relay target after startUrl switches away from a blank tab", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("about:blank");
+    page.goto.mockRejectedValue(new Error("should not use blank page"));
+
+    const stable = createPage(nodes);
+    stable.setContext(context);
+    context.pages().push(stable.page as never);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp", { startUrl: "https://example.com/start" });
+    const status = await manager.status(result.sessionId);
+    const targets = await manager.listTargets(result.sessionId, true);
+    const navigatedTarget = targets.targets.find((entry) => entry.url === "https://example.com/start");
+
+    expect(stable.page.goto).toHaveBeenCalledWith("https://example.com/start", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+    expect(page.goto).not.toHaveBeenCalled();
+    expect(result.activeTargetId).toBe(status.activeTargetId);
+    expect(result.activeTargetId).toBe(navigatedTarget?.targetId);
   });
 
   it("retries legacy relay connect when the extension drops the first /cdp attach", async () => {
@@ -1652,6 +1871,55 @@ describe("BrowserManager", () => {
     expect(page.waitForLoadState).toHaveBeenCalledWith("load", { timeout: 5000 });
     expect(navigation.finalUrl).toBe(dataUrl);
     expect(navigation).not.toHaveProperty("status");
+  });
+
+  it("recovers target-scoped legacy navigation when the relay session id goes stale", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context, page } = createBrowserBundle(nodes);
+    const fallback = createPage(nodes);
+    fallback.setContext(context);
+    page.url.mockReturnValue("https://stale.example/");
+    fallback.page.url
+      .mockReturnValueOnce("https://fallback.example/")
+      .mockReturnValue("https://example.com/next");
+    context.pages().push(fallback.page as never);
+    page.goto.mockRejectedValueOnce(new Error("page.goto: Protocol error (Page.navigate): Unknown sessionId: pw-tab-35"));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const navigation = await manager.goto(
+      result.sessionId,
+      "https://example.com/next",
+      "load",
+      30000,
+      undefined,
+      result.activeTargetId
+    );
+
+    expect(navigation.finalUrl).toBe("https://example.com/next");
+    expect(page.goto).toHaveBeenCalledTimes(1);
+    expect(fallback.page.goto).toHaveBeenCalledWith("https://example.com/next", {
+      waitUntil: "load",
+      timeout: 30000
+    });
+
+    await manager.screenshot(result.sessionId, { targetId: result.activeTargetId });
+    expect(fallback.page.screenshot).toHaveBeenCalled();
+    expect(page.screenshot).not.toHaveBeenCalled();
+    const managed = (manager as unknown as { sessions: Map<string, { targets: { getPage: (targetId: string | null) => unknown } }> })
+      .sessions.get(result.sessionId);
+    expect(managed?.targets.getPage(result.activeTargetId)).toBe(fallback.page);
   });
 
   it("skips legacy title probes for data-url navigation targets", async () => {
@@ -2593,12 +2861,28 @@ describe("BrowserManager", () => {
     const helper = manager as unknown as {
       isTargetNotAllowedError: (error: unknown) => boolean;
       isExtensionTargetReadyTimeout: (error: unknown) => boolean;
+      isLegacyUnknownSessionError: (error: unknown) => boolean;
+      isLegacyClosedTargetError: (managed: { extensionLegacy: boolean }, error: unknown) => boolean;
     };
 
     expect(helper.isTargetNotAllowedError(new Error("Target.createTarget Not allowed"))).toBe(true);
     expect(helper.isTargetNotAllowedError(new Error("Other error"))).toBe(false);
     expect(helper.isExtensionTargetReadyTimeout(new Error("EXTENSION_TARGET_READY_TIMEOUT: goto exceeded 5000ms."))).toBe(true);
     expect(helper.isExtensionTargetReadyTimeout(new Error("boom"))).toBe(false);
+    expect(helper.isLegacyUnknownSessionError(new Error("Protocol error (Page.navigate): Unknown sessionId: pw-tab-35"))).toBe(true);
+    expect(helper.isLegacyUnknownSessionError(new Error("boom"))).toBe(false);
+    expect(
+      helper.isLegacyClosedTargetError(
+        { extensionLegacy: true },
+        new Error("Protocol error (Page.navigate): Unknown sessionId: pw-tab-35")
+      )
+    ).toBe(true);
+    expect(
+      helper.isLegacyClosedTargetError(
+        { extensionLegacy: false },
+        new Error("Protocol error (Page.navigate): Unknown sessionId: pw-tab-35")
+      )
+    ).toBe(false);
   });
 
   it("throws when extension navigation fails with non-detached errors", async () => {
@@ -3807,14 +4091,14 @@ describe("BrowserManager", () => {
   it("throws on unknown session ids", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    await expect(manager.status("missing")).rejects.toThrow("Unknown sessionId");
+    await expect(manager.status("missing")).rejects.toThrow("[invalid_session] Unknown sessionId");
   });
 
   it("uses textContent and empty fallbacks for domGetText", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
-    const { context, page } = createBrowserBundle(nodes);
+    const { context } = createBrowserBundle(nodes);
 
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     launchPersistentContext.mockResolvedValue(context);
@@ -3824,13 +4108,43 @@ describe("BrowserManager", () => {
     const result = await manager.launch({ profile: "default" });
     await manager.snapshot(result.sessionId, "outline", 500);
 
-    page.$eval
-      .mockImplementationOnce(async (_selector: string, fn: (el: { outerHTML: string; innerText: string; textContent: string }) => unknown) => {
-        return fn({ outerHTML: "<div>ok</div>", innerText: "", textContent: "from textContent" });
-      })
-      .mockImplementationOnce(async (_selector: string, fn: (el: { outerHTML: string; innerText: string; textContent: string }) => unknown) => {
-        return fn({ outerHTML: "<div>ok</div>", innerText: "", textContent: "" });
-      });
+    const textSession = {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "obj-r1" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("odb-dom-inner-text")) {
+            return { result: { value: "from textContent" } };
+          }
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    };
+    const emptySession = {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "obj-r1" } };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          const declaration = typeof params?.functionDeclaration === "string"
+            ? params.functionDeclaration
+            : "";
+          if (declaration.includes("odb-dom-inner-text")) {
+            return { result: { value: "" } };
+          }
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    };
+    context.newCDPSession = vi.fn()
+      .mockResolvedValueOnce(textSession)
+      .mockResolvedValueOnce(emptySession);
 
     const textContent = await manager.domGetText(result.sessionId, "r1", 1000);
     expect(textContent.text).toBe("from textContent");
@@ -4059,7 +4373,7 @@ describe("BrowserManager", () => {
     expect(locator.isChecked).not.toHaveBeenCalled();
   });
 
-  it("uses locator-based DOM-state reads for extension sessions", async () => {
+  it("uses backend-node DOM-state reads for extension sessions", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
@@ -4087,11 +4401,11 @@ describe("BrowserManager", () => {
     expect(visible.value).toBe(true);
     expect(enabled.value).toBe(true);
     expect(checked.value).toBe(false);
-    expect(locator.getAttribute).toHaveBeenCalledTimes(1);
-    expect(locator.inputValue).toHaveBeenCalledTimes(1);
-    expect(locator.isVisible).toHaveBeenCalledTimes(1);
-    expect(locator.isEnabled).toHaveBeenCalledTimes(1);
-    expect(locator.isChecked).toHaveBeenCalledTimes(1);
+    expect(locator.getAttribute).not.toHaveBeenCalled();
+    expect(locator.inputValue).not.toHaveBeenCalled();
+    expect(locator.isVisible).not.toHaveBeenCalled();
+    expect(locator.isEnabled).not.toHaveBeenCalled();
+    expect(locator.isChecked).not.toHaveBeenCalled();
   });
 
   it("coerces managed backend DOM-state values without selector fallback", async () => {
@@ -4373,16 +4687,34 @@ describe("BrowserManager", () => {
     expect(clonePage.css).toContain(".opendevbrowser-root");
     expect(captureDom).toHaveBeenNthCalledWith(
       1,
+        page,
+        "body",
+        expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
+      );
+
+    const widenedClonePage = await manager.clonePageWithOptions(launch.sessionId, undefined, { maxNodes: 25 });
+    expect(widenedClonePage.component).toContain("OpenDevBrowserComponent");
+    expect(captureDom).toHaveBeenNthCalledWith(
+      2,
       page,
       "body",
-      expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
+      expect.objectContaining({ sanitize: true, maxNodes: 25, inlineStyles: false })
+    );
+
+    const widenedCloneHtml = await manager.clonePageHtmlWithOptions(launch.sessionId, undefined, { maxNodes: 25 });
+    expect(widenedCloneHtml.html).toContain("ok");
+    expect(captureDom).toHaveBeenNthCalledWith(
+      3,
+      page,
+      "body",
+      expect.objectContaining({ sanitize: true, maxNodes: 25, inlineStyles: false })
     );
 
     await manager.snapshot(launch.sessionId, "outline", 500);
     const cloneComponent = await manager.cloneComponent(launch.sessionId, "r1");
     expect(cloneComponent.component).toContain("OpenDevBrowserComponent");
     expect(captureDom).toHaveBeenNthCalledWith(
-      2,
+      4,
       page,
       expect.any(String),
       expect.objectContaining({ sanitize: true, maxNodes: 10, inlineStyles: false })
@@ -4394,7 +4726,7 @@ describe("BrowserManager", () => {
     const shot = await manager.screenshot(launch.sessionId);
     expect(shot.base64).toBe(Buffer.from("image").toString("base64"));
 
-    await manager.screenshot(launch.sessionId, "/tmp/example.png");
+    await manager.screenshot(launch.sessionId, { path: "/tmp/example.png" });
     expect(page.screenshot).toHaveBeenCalledWith(expect.objectContaining({ path: "/tmp/example.png" }));
   });
 
@@ -4432,7 +4764,7 @@ describe("BrowserManager", () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
 
     const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
-    const shot = await manager.screenshot(result.sessionId, undefined, result.activeTargetId);
+    const shot = await manager.screenshot(result.sessionId, { targetId: result.activeTargetId });
 
     expect(cdpSession.send).toHaveBeenCalledWith("Page.captureScreenshot", { format: "png" });
     expect(shot).toEqual({
@@ -4477,7 +4809,7 @@ describe("BrowserManager", () => {
 
     vi.useFakeTimers();
     try {
-      const shotPromise = manager.screenshot(result.sessionId, undefined, result.activeTargetId);
+      const shotPromise = manager.screenshot(result.sessionId, { targetId: result.activeTargetId });
       await vi.advanceTimersByTimeAsync(5000);
       await expect(shotPromise).resolves.toEqual({
         base64: Buffer.from("fallback-image-hang").toString("base64"),
@@ -4486,6 +4818,537 @@ describe("BrowserManager", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("captures managed ref screenshots with viewport-relative clips and keeps full-page semantics intact", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page, locator, cdpSession } = createBrowserBundle(nodes);
+    const baseSend = cdpSession.send.getMockImplementation();
+    const screenshotClipDeclarations: string[] = [];
+    cdpSession.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof params?.functionDeclaration === "string"
+          ? params.functionDeclaration
+          : "";
+        if (declaration.includes("odb-dom-screenshot-clip")) {
+          screenshotClipDeclarations.push(declaration);
+          const usesDocumentScrollOffsets = declaration.includes("window.scrollX") || declaration.includes("window.scrollY");
+          return { result: { value: { x: usesDocumentScrollOffsets ? 110 : 10, y: usesDocumentScrollOffsets ? 220 : 20, width: 30, height: 40 } } };
+        }
+      }
+      return await baseSend?.(method, params) ?? {};
+    });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    const refShot = await manager.screenshot(launch.sessionId, { ref: "r1" });
+    expect(refShot.base64).toBe(Buffer.from("image").toString("base64"));
+    expect(locator.scrollIntoViewIfNeeded).toHaveBeenCalled();
+    expect(screenshotClipDeclarations[0]).not.toContain("window.scrollX");
+    expect(screenshotClipDeclarations[0]).not.toContain("window.scrollY");
+    expect(page.screenshot).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      clip: { x: 10, y: 20, width: 30, height: 40 }
+    }));
+
+    await manager.screenshot(launch.sessionId, { fullPage: true });
+    expect(page.screenshot).toHaveBeenNthCalledWith(2, expect.objectContaining({ fullPage: true }));
+
+    page.screenshot.mockRejectedValueOnce(new Error("boom"));
+    await expect(manager.screenshot(launch.sessionId, { fullPage: true })).rejects.toThrow("boom");
+
+    await expect(manager.screenshot(launch.sessionId, { ref: "r1", fullPage: true })).rejects.toThrow(
+      "Screenshot ref and fullPage options are mutually exclusive."
+    );
+  });
+
+  it("returns stale snapshot guidance for managed ref screenshots before clip capture", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    context.newCDPSession = vi.fn(async () => ({
+      send: vi.fn(async (method: string) => {
+        if (method === "DOM.resolveNode") {
+          return { object: {} };
+        }
+        return {};
+      }),
+      detach: vi.fn(async () => undefined)
+    }));
+
+    await expect(manager.screenshot(launch.sessionId, { ref: "r1" }))
+      .rejects
+      .toThrow("Take a new snapshot first.");
+    expect(page.screenshot).not.toHaveBeenCalled();
+  });
+
+  it("writes legacy relay screenshot fallbacks to a requested path", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page, cdpSession } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    page.screenshot.mockRejectedValueOnce(new Error("page.screenshot: Timeout 30000ms exceeded."));
+    cdpSession.send.mockImplementation(async (method: string) => {
+      if (method === "Page.captureScreenshot") {
+        return { data: Buffer.from("fallback-image-path").toString("base64") };
+      }
+      if (method === "Accessibility.getFullAXTree") {
+        return { nodes: [] };
+      }
+      return {};
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const path = join(tmpdir(), "odb-fallback-path.png");
+
+    await expect(manager.screenshot(result.sessionId, {
+      targetId: result.activeTargetId,
+      path
+    })).resolves.toEqual({
+      path,
+      warnings: ["cdp_capture_fallback"]
+    });
+  });
+
+  it("uploads through direct input, chooser, disabled, and empty-file branches", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "Upload", tag: "input", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page, locator, cdpSession } = createBrowserBundle(nodes);
+    const baseSend = cdpSession.send.getMockImplementation();
+    const chooser = { setFiles: vi.fn().mockResolvedValue(undefined) };
+    let info: { isFileInput: boolean; disabled: boolean } = { isFileInput: true, disabled: false };
+    Object.assign(page, {
+      waitForEvent: vi.fn().mockResolvedValue(chooser)
+    });
+    cdpSession.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = typeof params?.functionDeclaration === "string"
+          ? params.functionDeclaration
+          : "";
+        if (declaration.includes("odb-dom-file-input-info")) {
+          return { result: { value: info } };
+        }
+      }
+      return await baseSend?.(method, params) ?? {};
+    });
+
+    const tempDir = await mkdtemp(join(tmpdir(), "odb-upload-"));
+    const filePath = join(tempDir, "fixture.txt");
+    await writeFsFile(filePath, "fixture");
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    await expect(manager.upload(launch.sessionId, {
+      ref: "r1",
+      files: [filePath]
+    })).resolves.toEqual({
+      targetId: launch.activeTargetId,
+      fileCount: 1,
+      mode: "direct_input"
+    });
+    expect(cdpSession.send).toHaveBeenCalledWith("DOM.setFileInputFiles", expect.objectContaining({
+      backendNodeId: 101,
+      files: [filePath]
+    }));
+
+    info = { isFileInput: false, disabled: false };
+    await expect(manager.upload(launch.sessionId, {
+      ref: "r1",
+      files: [filePath]
+    })).resolves.toEqual({
+      targetId: launch.activeTargetId,
+      fileCount: 1,
+      mode: "file_chooser"
+    });
+    expect(chooser.setFiles).toHaveBeenCalledWith([filePath]);
+
+    info = { isFileInput: true, disabled: true };
+    await expect(manager.upload(launch.sessionId, {
+      ref: "r1",
+      files: [filePath]
+    })).rejects.toThrow("Cannot upload files to disabled ref: r1");
+
+    await expect(manager.upload(launch.sessionId, {
+      ref: "r1",
+      files: []
+    })).rejects.toThrow("Upload requires at least one file.");
+  });
+
+  it("reports and handles pending dialogs across status, accept, dismiss, and no-pending actions", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    await expect(manager.dialog(launch.sessionId)).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId }
+    });
+    await expect(manager.dialog(launch.sessionId, { action: "dismiss" })).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId },
+      handled: false
+    });
+
+    const promptDialog = {
+      type: () => "prompt",
+      message: () => "Enter your name",
+      defaultValue: () => "old",
+      accept: vi.fn().mockResolvedValue(undefined),
+      dismiss: vi.fn().mockResolvedValue(undefined)
+    };
+    page.emit("dialog", promptDialog);
+
+    await expect(manager.dialog(launch.sessionId, { action: "status" })).resolves.toMatchObject({
+      dialog: {
+        open: true,
+        targetId: launch.activeTargetId,
+        type: "prompt",
+        message: "Enter your name",
+        defaultPrompt: "old"
+      }
+    });
+
+    await expect(manager.dialog(launch.sessionId, {
+      action: "accept",
+      promptText: "new"
+    })).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId },
+      handled: true
+    });
+    expect(promptDialog.accept).toHaveBeenCalledWith("new");
+
+    const confirmDialog = {
+      type: () => "confirm",
+      message: () => "Proceed?",
+      defaultValue: () => "",
+      accept: vi.fn().mockResolvedValue(undefined),
+      dismiss: vi.fn().mockResolvedValue(undefined)
+    };
+    page.emit("dialog", confirmDialog);
+
+    await expect(manager.dialog(launch.sessionId, { action: "dismiss" })).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId },
+      handled: true
+    });
+    expect(confirmDialog.dismiss).toHaveBeenCalled();
+  });
+
+  it("reports and accepts a pending prompt while the originating click is still blocked", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "Open dialog", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page, mouseUpControl } = createBrowserBundle(nodes, { blockMouseUp: true });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    expect(mouseUpControl).not.toBeNull();
+
+    let clickSettled = false;
+    const clickPromise = manager.click(launch.sessionId, "r1").finally(() => {
+      clickSettled = true;
+    });
+    await mouseUpControl?.waitUntilBlocked();
+    expect(clickSettled).toBe(false);
+
+    const promptDialog = {
+      type: () => "prompt",
+      message: () => "Enter your name",
+      defaultValue: () => "old",
+      accept: vi.fn(async () => {
+        setTimeout(() => {
+          mouseUpControl?.release();
+        }, 25);
+      }),
+      dismiss: vi.fn().mockResolvedValue(undefined)
+    };
+    page.emit("dialog", promptDialog);
+
+    await expect(withTimeout(manager.dialog(launch.sessionId, { action: "status" }))).resolves.toMatchObject({
+      dialog: {
+        open: true,
+        targetId: launch.activeTargetId,
+        type: "prompt",
+        message: "Enter your name",
+        defaultPrompt: "old"
+      }
+    });
+
+    const acceptPromise = manager.dialog(launch.sessionId, {
+      action: "accept",
+      promptText: "new"
+    });
+    await Promise.resolve();
+    expect(clickSettled).toBe(false);
+    await expect(withTimeout(acceptPromise, 200)).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId },
+      handled: true
+    });
+    expect(promptDialog.accept).toHaveBeenCalledWith("new");
+    await expect(withTimeout(clickPromise)).resolves.toMatchObject({ navigated: false });
+    expect(clickSettled).toBe(true);
+  });
+
+  it("dismisses a pending confirm while the originating click is still blocked", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "Open dialog", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page, mouseUpControl } = createBrowserBundle(nodes, { blockMouseUp: true });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    expect(mouseUpControl).not.toBeNull();
+
+    let clickSettled = false;
+    const clickPromise = manager.click(launch.sessionId, "r1").finally(() => {
+      clickSettled = true;
+    });
+    await mouseUpControl?.waitUntilBlocked();
+    expect(clickSettled).toBe(false);
+
+    const confirmDialog = {
+      type: () => "confirm",
+      message: () => "Proceed?",
+      defaultValue: () => "",
+      accept: vi.fn().mockResolvedValue(undefined),
+      dismiss: vi.fn(async () => {
+        setTimeout(() => {
+          mouseUpControl?.release();
+        }, 25);
+      })
+    };
+    page.emit("dialog", confirmDialog);
+
+    await expect(withTimeout(manager.dialog(launch.sessionId, { action: "status" }))).resolves.toMatchObject({
+      dialog: {
+        open: true,
+        targetId: launch.activeTargetId,
+        type: "confirm",
+        message: "Proceed?"
+      }
+    });
+
+    const dismissPromise = manager.dialog(launch.sessionId, { action: "dismiss" });
+    await Promise.resolve();
+    expect(clickSettled).toBe(false);
+    await expect(withTimeout(dismissPromise, 200)).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId },
+      handled: true
+    });
+    expect(confirmDialog.dismiss).toHaveBeenCalled();
+    await expect(withTimeout(clickPromise)).resolves.toMatchObject({ navigated: false });
+    expect(clickSettled).toBe(true);
+  });
+
+  it("keeps same-target actions queued until dialog handling completes the blocked click", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "Open dialog", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page, mouseUpControl } = createBrowserBundle(nodes, { blockMouseUp: true });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    expect(mouseUpControl).not.toBeNull();
+
+    let clickSettled = false;
+    const clickPromise = manager.click(launch.sessionId, "r1").finally(() => {
+      clickSettled = true;
+    });
+    await mouseUpControl?.waitUntilBlocked();
+
+    let pointerSettled = false;
+    const pointerPromise = manager.pointerMove(launch.sessionId, 10, 20).finally(() => {
+      pointerSettled = true;
+    });
+    await Promise.resolve();
+    expect(pointerSettled).toBe(false);
+
+    const alertDialog = {
+      type: () => "alert",
+      message: () => "Blocked action",
+      defaultValue: () => "",
+      accept: vi.fn(async () => {
+        setTimeout(() => {
+          mouseUpControl?.release();
+        }, 25);
+      }),
+      dismiss: vi.fn().mockResolvedValue(undefined)
+    };
+    page.emit("dialog", alertDialog);
+
+    const acceptPromise = manager.dialog(launch.sessionId, { action: "accept" });
+    await Promise.resolve();
+    expect(clickSettled).toBe(false);
+    expect(pointerSettled).toBe(false);
+    await expect(withTimeout(acceptPromise, 200)).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId },
+      handled: true
+    });
+    expect(alertDialog.accept).toHaveBeenCalled();
+    expect(clickSettled).toBe(true);
+    await expect(withTimeout(clickPromise)).resolves.toMatchObject({ navigated: false });
+    await expect(withTimeout(pointerPromise)).resolves.toMatchObject({ timingMs: expect.any(Number) });
+    expect(pointerSettled).toBe(true);
+  });
+
+  it("allows same-target follow-up actions after dialog handling returns for a blocked click", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "Open dialog", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page, mouseUpControl } = createBrowserBundle(nodes, { blockMouseUp: true });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    await manager.snapshot(launch.sessionId);
+
+    expect(mouseUpControl).not.toBeNull();
+
+    let clickSettled = false;
+    const clickPromise = manager.click(launch.sessionId, "r1").finally(() => {
+      clickSettled = true;
+    });
+    await mouseUpControl?.waitUntilBlocked();
+
+    const alertDialog = {
+      type: () => "alert",
+      message: () => "Blocked action",
+      defaultValue: () => "",
+      accept: vi.fn(async () => {
+        setTimeout(() => {
+          mouseUpControl?.release();
+        }, 25);
+      }),
+      dismiss: vi.fn().mockResolvedValue(undefined)
+    };
+    page.emit("dialog", alertDialog);
+
+    await expect(withTimeout(manager.dialog(launch.sessionId, { action: "accept" }), 200)).resolves.toEqual({
+      dialog: { open: false, targetId: launch.activeTargetId },
+      handled: true
+    });
+    expect(alertDialog.accept).toHaveBeenCalled();
+    expect(clickSettled).toBe(true);
+    await expect(withTimeout(clickPromise)).resolves.toMatchObject({ navigated: false });
+
+    let pointerSettled = false;
+    const pointerPromise = manager.pointerMove(launch.sessionId, 10, 20).finally(() => {
+      pointerSettled = true;
+    });
+    await expect(withTimeout(pointerPromise, 200)).resolves.toMatchObject({ timingMs: expect.any(Number) });
+    expect(pointerSettled).toBe(true);
+  });
+
+  it("clears only the disconnected session's pending dialog state", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "Open dialog", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const firstBundle = createBrowserBundle(nodes);
+    const secondBundle = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext
+      .mockResolvedValueOnce(firstBundle.context)
+      .mockResolvedValueOnce(secondBundle.context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const first = await manager.launch({ profile: "default" });
+    const second = await manager.launch({ profile: "default" });
+
+    firstBundle.page.emit("dialog", {
+      type: () => "alert",
+      message: () => "First session",
+      defaultValue: () => "",
+      accept: vi.fn().mockResolvedValue(undefined),
+      dismiss: vi.fn().mockResolvedValue(undefined)
+    });
+    secondBundle.page.emit("dialog", {
+      type: () => "confirm",
+      message: () => "Second session",
+      defaultValue: () => "",
+      accept: vi.fn().mockResolvedValue(undefined),
+      dismiss: vi.fn().mockResolvedValue(undefined)
+    });
+
+    await expect(manager.dialog(first.sessionId, { action: "status" })).resolves.toMatchObject({
+      dialog: { open: true, targetId: first.activeTargetId, message: "First session" }
+    });
+    await expect(manager.dialog(second.sessionId, { action: "status" })).resolves.toMatchObject({
+      dialog: { open: true, targetId: second.activeTargetId, message: "Second session" }
+    });
+
+    await manager.disconnect(first.sessionId, false);
+
+    await expect(manager.dialog(second.sessionId, { action: "status" })).resolves.toMatchObject({
+      dialog: { open: true, targetId: second.activeTargetId, message: "Second session" }
+    });
+    await expect(manager.dialog(second.sessionId, { action: "dismiss" })).resolves.toEqual({
+      dialog: { open: false, targetId: second.activeTargetId },
+      handled: true
+    });
+
+    await manager.disconnect(second.sessionId, false);
   });
 
   it("returns empty perf metrics when CDP response lacks metrics", async () => {
@@ -5428,6 +6291,383 @@ describe("BrowserManager", () => {
     });
   });
 
+  it("covers direct challenge meta helper branches for active, deferred, resolved, and clear transitions", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      store: {
+        reserveBlockerSlot: (sessionId: string) => void;
+      };
+      challengeCoordinator: {
+        getSummary: (sessionId: string) => unknown;
+      };
+      reconcileExternalBlockerMeta: (sessionId: string, input: { source: "navigation" | "network" }) => unknown;
+      syncChallengeMeta: (
+        sessionId: string,
+        meta: Record<string, unknown> | undefined,
+        context: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+      releaseExternalBlockerSlot: (sessionId: string) => void;
+    };
+    const blocker = {
+      schemaVersion: "1.0",
+      type: "auth_required",
+      source: "navigation",
+      confidence: 0.9,
+      retryable: false,
+      detectedAt: "2026-03-22T00:00:00.000Z",
+      evidence: {
+        matchedPatterns: [],
+        networkHosts: []
+      },
+      actionHints: []
+    };
+    const context = {
+      ownerSurface: "ops",
+      ownerLeaseId: "lease-1",
+      resumeMode: "manual",
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "social/youtube",
+        source: "social",
+        operation: "fetch"
+      },
+      preservedSessionId: "challenge-slot",
+      preservedTargetId: "tab-1"
+    };
+
+    expect(managerAny.reconcileExternalBlockerMeta("missing-slot", { source: "navigation" })).toBeUndefined();
+    expect(managerAny.syncChallengeMeta("missing-slot", undefined, context)).toBeUndefined();
+
+    managerAny.store.reserveBlockerSlot("challenge-slot");
+    const active = managerAny.syncChallengeMeta("challenge-slot", {
+      blocker,
+      blockerState: "active"
+    }, context);
+    expect(active?.challenge).toMatchObject({
+      blockerType: "auth_required",
+      ownerSurface: "ops",
+      ownerLeaseId: "lease-1",
+      status: "active"
+    });
+
+    const existing = managerAny.syncChallengeMeta("challenge-slot", {
+      blockerState: "active"
+    }, context);
+    expect(existing?.challenge).toMatchObject({
+      challengeId: (active?.challenge as { challengeId?: string } | undefined)?.challengeId
+    });
+
+    const deferred = managerAny.syncChallengeMeta("challenge-slot", {
+      blockerState: "active",
+      blockerResolution: {
+        status: "deferred",
+        reason: "env_limited",
+        updatedAt: "2026-03-22T00:01:00.000Z"
+      }
+    }, context);
+    expect(deferred?.challenge).toMatchObject({
+      status: "deferred"
+    });
+
+    const resolved = managerAny.syncChallengeMeta("challenge-slot", {
+      blockerState: "clear",
+      blockerResolution: {
+        status: "resolved",
+        reason: "verifier_passed",
+        updatedAt: "2026-03-22T00:02:00.000Z"
+      }
+    }, context);
+    expect((resolved?.challenge as { timeline?: Array<{ event?: string }> } | undefined)?.timeline?.at(-1)).toMatchObject({
+      event: "released"
+    });
+    expect(managerAny.challengeCoordinator.getSummary("challenge-slot")).toBeUndefined();
+
+    managerAny.store.reserveBlockerSlot("clear-slot");
+    const claimed = managerAny.syncChallengeMeta("clear-slot", {
+      blocker,
+      blockerState: "active"
+    }, {
+      ...context,
+      preservedSessionId: "clear-slot"
+    });
+    const cleared = managerAny.syncChallengeMeta("clear-slot", {
+      blockerState: "clear"
+    }, {
+      ...context,
+      preservedSessionId: "clear-slot"
+    });
+    expect(cleared?.challenge).toMatchObject({
+      challengeId: (claimed?.challenge as { challengeId?: string } | undefined)?.challengeId
+    });
+    expect((cleared?.challenge as { timeline?: Array<{ event?: string }> } | undefined)?.timeline?.at(-1)).toMatchObject({
+      event: "released"
+    });
+
+    managerAny.releaseExternalBlockerSlot("clear-slot");
+    expect(managerAny.challengeCoordinator.getSummary("clear-slot")).toBeUndefined();
+  });
+
+  it("covers blocker reconciliation helpers for ops and direct browser contexts", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const recentNetworkEvents = vi.spyOn(manager as unknown as {
+      recentNetworkEvents: (managed: unknown) => Array<{ url?: string; status?: number }>;
+    }, "recentNetworkEvents").mockReturnValue([
+      { url: "https://x.com/i/flow/login", status: 401 },
+      { url: "https://static.example.test/app.js", status: 200 }
+    ]);
+    const managerAny = manager as unknown as {
+      store: {
+        reserveBlockerSlot: (sessionId: string) => void;
+      };
+      reconcileExternalBlockerMeta: (
+        sessionId: string,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+      reconcileSessionBlocker: (
+        sessionId: string,
+        managed: unknown,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+    };
+    const suspendedIntent = {
+      kind: "provider.fetch",
+      provider: "social/youtube",
+      source: "social",
+      operation: "fetch"
+    } as const;
+
+    managerAny.store.reserveBlockerSlot("ops-active");
+    const opsMeta = managerAny.reconcileExternalBlockerMeta("ops-active", {
+      source: "network",
+      url: "https://x.com/i/flow/login",
+      finalUrl: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      verifier: true,
+      includeArtifacts: true,
+      consoleEvents: [{ type: "warning", text: "auth wall" }],
+      exceptionEvents: [{ message: "blocked" }],
+      ownerLeaseId: "lease-ops",
+      suspendedIntent,
+      targetKey: "tab-ops"
+    });
+    expect(opsMeta).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" },
+      challenge: {
+        ownerSurface: "ops",
+        ownerLeaseId: "lease-ops",
+        resumeMode: "manual",
+        preservedSessionId: "ops-active",
+        preservedTargetId: "tab-ops"
+      }
+    });
+    expect(opsMeta?.blockerArtifacts).toBeDefined();
+
+    managerAny.store.reserveBlockerSlot("ops-clear");
+    const opsClear = managerAny.reconcileExternalBlockerMeta("ops-clear", {
+      source: "network",
+      status: 204
+    });
+    expect(opsClear).toMatchObject({
+      blockerState: "clear"
+    });
+    expect(opsClear).not.toHaveProperty("blocker");
+    expect(opsClear).not.toHaveProperty("blockerArtifacts");
+    expect(opsClear).not.toHaveProperty("challenge");
+
+    managerAny.store.reserveBlockerSlot("direct-active");
+    const directMeta = managerAny.reconcileSessionBlocker("direct-active", {
+      targets: {
+        getActiveTargetId: () => null
+      }
+    }, {
+      source: "navigation",
+      url: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      verifier: true,
+      includeArtifacts: true,
+      suspendedIntent
+    });
+    expect(directMeta).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" },
+      challenge: {
+        ownerSurface: "direct_browser",
+        resumeMode: "manual",
+        preservedSessionId: "direct-active"
+      }
+    });
+    expect(directMeta?.challenge).not.toHaveProperty("preservedTargetId");
+    expect(directMeta?.blockerArtifacts).toBeDefined();
+
+    managerAny.store.reserveBlockerSlot("direct-clear");
+    const directClear = managerAny.reconcileSessionBlocker("direct-clear", {
+      targets: {
+        getActiveTargetId: () => "tab-direct"
+      }
+    }, {
+      source: "navigation",
+      url: "https://example.com",
+      finalUrl: "https://example.com/home",
+      title: "Example",
+      status: 204
+    });
+    expect(directClear).toMatchObject({
+      blockerState: "clear"
+    });
+    expect(directClear).not.toHaveProperty("blocker");
+    expect(directClear).not.toHaveProperty("challenge");
+
+    recentNetworkEvents.mockRestore();
+  });
+
+  it("covers disabled prompt-guard blocker helper branches", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      security: {
+        promptInjectionGuard: { enabled: false }
+      }
+    }));
+    const recentNetworkEvents = vi.spyOn(manager as unknown as {
+      recentNetworkEvents: (managed: unknown) => Array<{ url?: string; status?: number }>;
+    }, "recentNetworkEvents")
+      .mockReturnValueOnce([
+        { url: "https://x.com/i/flow/login", status: 401 }
+      ])
+      .mockReturnValueOnce([
+        { url: "https://x.com/home", status: 204 }
+      ])
+      .mockReturnValue([
+        { url: "https://x.com/i/flow/login", status: 401 }
+      ]);
+    const managerAny = manager as unknown as {
+      store: {
+        reserveBlockerSlot: (sessionId: string) => void;
+      };
+      reconcileExternalBlockerMeta: (
+        sessionId: string,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+      reconcileSessionBlocker: (
+        sessionId: string,
+        managed: unknown,
+        input: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+    };
+
+    managerAny.store.reserveBlockerSlot("ops-disabled-guard");
+    const active = managerAny.reconcileExternalBlockerMeta("ops-disabled-guard", {
+      source: "network",
+      url: "https://x.com/i/flow/login",
+      finalUrl: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      includeArtifacts: true,
+      consoleEvents: [{ type: "warning", text: "auth wall" }],
+      exceptionEvents: []
+    });
+    expect(active).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" }
+    });
+    expect(active?.blockerArtifacts).toBeDefined();
+
+    managerAny.store.reserveBlockerSlot("direct-disabled-guard");
+    const direct = managerAny.reconcileSessionBlocker("direct-disabled-guard", {
+      targets: {
+        getActiveTargetId: () => null
+      }
+    }, {
+      source: "navigation",
+      url: "https://x.com/i/flow/login",
+      finalUrl: "https://x.com/i/flow/login",
+      title: "Log in to X / X",
+      status: 401,
+      includeArtifacts: true
+    });
+    expect(direct).toMatchObject({
+      blockerState: "active",
+      blocker: { type: "auth_required" }
+    });
+    expect(direct?.blockerArtifacts).toBeDefined();
+
+    recentNetworkEvents.mockRestore();
+  });
+
+  it("preserves meta when challenge transitions have no tracked summary", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      syncChallengeMeta: (
+        sessionId: string,
+        meta: Record<string, unknown> | undefined,
+        context: Record<string, unknown>
+      ) => Record<string, unknown> | undefined;
+    };
+    const context = {
+      ownerSurface: "provider_fallback",
+      resumeMode: "auto",
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "social/youtube",
+        source: "social",
+        operation: "fetch"
+      }
+    };
+
+    const deferred = managerAny.syncChallengeMeta("fresh-deferred", {
+      blockerState: "active",
+      blockerResolution: {
+        status: "deferred",
+        reason: "env_limited",
+        updatedAt: "2026-03-22T00:03:00.000Z"
+      }
+    }, context);
+    expect(deferred).toMatchObject({
+      blockerState: "active",
+      blockerResolution: {
+        status: "deferred",
+        reason: "env_limited"
+      }
+    });
+    expect(deferred).not.toHaveProperty("challenge");
+
+    const resolved = managerAny.syncChallengeMeta("fresh-resolved", {
+      blockerState: "clear",
+      blockerResolution: {
+        status: "resolved",
+        reason: "verifier_passed",
+        updatedAt: "2026-03-22T00:04:00.000Z"
+      }
+    }, context);
+    expect(resolved).toMatchObject({
+      blockerState: "clear",
+      blockerResolution: {
+        status: "resolved",
+        reason: "verifier_passed"
+      }
+    });
+    expect(resolved).not.toHaveProperty("challenge");
+
+    const clear = managerAny.syncChallengeMeta("fresh-clear", {
+      blockerState: "clear"
+    }, context);
+    expect(clear).toEqual({
+      blockerState: "clear"
+    });
+
+    const untouched = managerAny.syncChallengeMeta("fresh-open", {
+      blockerState: "active"
+    }, context);
+    expect(untouched).toEqual({
+      blockerState: "active"
+    });
+  });
+
   it("covers parallel helper cleanup and mode resolution branches", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
@@ -5679,6 +6919,319 @@ describe("BrowserManager", () => {
     expect(() => managerAny.resolveSelector(managedWithoutSelectorTarget, "r1")).toThrow("No active target for ref resolution");
   });
 
+  it("covers resolved ref wait helpers for visible and hidden states", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      waitForResolvedRefState: (
+        managed: unknown,
+        ref: string,
+        state: "attached" | "visible" | "hidden",
+        timeoutMs: number,
+        targetId?: string
+      ) => Promise<void>;
+      callFunctionOnResolvedRef: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.callFunctionOnResolvedRef = vi.fn()
+      .mockResolvedValueOnce({ attached: true, visible: true })
+      .mockResolvedValueOnce({ attached: false, visible: false })
+      .mockResolvedValueOnce({ attached: true, visible: false }) as never;
+
+    await managerAny.waitForResolvedRefState({} as never, "r1", "visible", 100, "target-1");
+    await managerAny.waitForResolvedRefState({} as never, "r1", "hidden", 100, "target-1");
+    await managerAny.waitForResolvedRefState({} as never, "r1", "hidden", 100, "target-1");
+
+    expect(managerAny.callFunctionOnResolvedRef).toHaveBeenCalledTimes(3);
+  });
+
+  it("covers ref-point resolution from content and border box models", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      resolveRefPointForTarget: (managed: unknown, ref: string, targetId?: string) => Promise<{ x: number; y: number }>;
+      resolveRefEntryForTarget: ReturnType<typeof vi.fn>;
+      withResolvedRefSession: ReturnType<typeof vi.fn>;
+    };
+    const resolvedRef = {
+      targetId: "tab-main",
+      ref: "r1",
+      selector: "#node-main",
+      backendNodeId: 11,
+      snapshotId: "snap-1"
+    };
+    managerAny.resolveRefEntryForTarget = vi.fn(() => resolvedRef) as never;
+    const managed = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-main")
+      }
+    };
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {
+            content: [10, 20, 30, 20, 30, 40, 10, 40]
+          }
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1", "tab-explicit")).resolves.toEqual({ x: 20, y: 30 });
+    expect(managerAny.resolveRefEntryForTarget).toHaveBeenCalledWith(managed, "r1", "tab-explicit");
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {
+            content: [10, 20],
+            border: [5, 15, 25, 15, 25, 35, 5, 35]
+          }
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).resolves.toEqual({ x: 15, y: 25 });
+    expect(managerAny.resolveRefEntryForTarget).toHaveBeenCalledWith(managed, "r1", "tab-main");
+  });
+
+  it("covers ref-point resolution fallback, stale snapshot mapping, and invalid point errors", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      resolveRefPointForTarget: (managed: unknown, ref: string, targetId?: string) => Promise<{ x: number; y: number }>;
+      resolveRefEntryForTarget: ReturnType<typeof vi.fn>;
+      withResolvedRefSession: ReturnType<typeof vi.fn>;
+      callFunctionOnRefContextWithSession: ReturnType<typeof vi.fn>;
+    };
+    const resolvedRef = {
+      targetId: "tab-main",
+      ref: "r1",
+      selector: "#node-main",
+      backendNodeId: 11,
+      snapshotId: "snap-1"
+    };
+    managerAny.resolveRefEntryForTarget = vi.fn(() => resolvedRef) as never;
+    const managed = {
+      targets: {
+        getActiveTargetId: vi.fn(() => "tab-main")
+      }
+    };
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {}
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+    managerAny.callFunctionOnRefContextWithSession = vi.fn(async () => ({ x: 11.6, y: 18.2 })) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).resolves.toEqual({ x: 12, y: 18 });
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => {
+          throw new Error("No node with given id");
+        })
+      };
+      return await execute(session as never);
+    }) as never;
+    managerAny.callFunctionOnRefContextWithSession.mockClear();
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).rejects.toThrow("Unknown ref: r1. Take a new snapshot first.");
+    expect(managerAny.callFunctionOnRefContextWithSession).not.toHaveBeenCalled();
+
+    managerAny.withResolvedRefSession = vi.fn(async (_managed, _resolved, execute) => {
+      const session = {
+        send: vi.fn(async () => ({
+          model: {}
+        }))
+      };
+      return await execute(session as never);
+    }) as never;
+    managerAny.callFunctionOnRefContextWithSession = vi.fn(async () => ({ x: null, y: "bad" })) as never;
+
+    await expect(managerAny.resolveRefPointForTarget(managed as never, "r1")).rejects.toThrow(
+      "Could not resolve a clickable point for ref: r1"
+    );
+  });
+
+  it("covers runtime html document write rethrows for non-navigation errors", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      writeHtmlDocument: (managed: unknown, page: PageLike, html: string) => Promise<void>;
+    };
+    const nextPage = createPage([
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ]);
+    nextPage.page.evaluate.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(managerAny.writeHtmlDocument(undefined, nextPage.page as never, "<main>Broken</main>")).rejects.toThrow("boom");
+  });
+
+  it("covers extension target ready closed-page handling", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      waitForExtensionTargetReady: (page: PageLike, context: string, timeoutMs?: number) => Promise<void>;
+    };
+    const nextPage = createPage([
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ]);
+    nextPage.page.isClosed.mockReturnValue(true);
+
+    await expect(managerAny.waitForExtensionTargetReady(nextPage.page as never, "goto", 300)).rejects.toThrow(
+      "EXTENSION_TARGET_READY_CLOSED: goto page closed before navigation."
+    );
+  });
+
+  it("covers frame-detach ref invalidation for top-level and child frames", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const nextPage = createPage(nodes);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const internal = manager as unknown as {
+      attachRefInvalidationForPage: (
+        managed: { refStore: { clearTarget: (targetId: string) => void } },
+        targetId: string,
+        page: PageLike
+      ) => void;
+    };
+    const refStore = { clearTarget: vi.fn() };
+
+    internal.attachRefInvalidationForPage({ refStore }, "target-1", nextPage.page as never);
+    nextPage.page.emit("framedetached", { parentFrame: () => ({}) });
+    expect(refStore.clearTarget).not.toHaveBeenCalled();
+
+    nextPage.page.emit("framedetached", { parentFrame: () => null });
+    expect(refStore.clearTarget).toHaveBeenCalledWith("target-1");
+  });
+
+  it("covers page-title probe skipping for legacy relay pages", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      shouldSkipPageTitleProbe: (
+        managed: { extensionLegacy: boolean } | undefined,
+        page: { isClosed: () => boolean } | null
+      ) => boolean;
+    };
+
+    expect(managerAny.shouldSkipPageTitleProbe({ extensionLegacy: true }, { isClosed: () => false })).toBe(true);
+    expect(managerAny.shouldSkipPageTitleProbe({ extensionLegacy: true }, { isClosed: () => true })).toBe(false);
+    expect(managerAny.shouldSkipPageTitleProbe(undefined, null)).toBe(false);
+  });
+
+  it("covers legacy extension page recovery after replacement page sync", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const replacement = createPage(nodes);
+    const synced = createPage(nodes);
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      recoverLegacyExtensionPage: (
+        managed: unknown,
+        timeoutMs: number,
+        createExtensionPage: () => Promise<PageLike>,
+        failedPage?: PageLike
+      ) => Promise<PageLike | null>;
+      selectExistingExtensionEntry: ReturnType<typeof vi.fn>;
+      attachRefInvalidation: ReturnType<typeof vi.fn>;
+      attachTrackers: ReturnType<typeof vi.fn>;
+      reconnectLegacyExtensionSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.selectExistingExtensionEntry = vi.fn()
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce({ page: synced.page }) as never;
+    managerAny.attachRefInvalidation = vi.fn() as never;
+    managerAny.attachTrackers = vi.fn() as never;
+    managerAny.reconnectLegacyExtensionSession = vi.fn().mockResolvedValue(null) as never;
+
+    const managed = {
+      context: {
+        pages: vi.fn(() => [replacement.page]),
+        waitForEvent: vi.fn()
+      },
+      targets: {
+        syncPages: vi.fn()
+      }
+    };
+
+    await expect(
+      managerAny.recoverLegacyExtensionPage(managed as never, 500, vi.fn(async () => synced.page), replacement.page as never)
+    ).resolves.toBe(synced.page);
+    expect(managed.targets.syncPages).toHaveBeenCalledWith([replacement.page]);
+    expect(managerAny.attachRefInvalidation).toHaveBeenCalledWith(managed);
+    expect(managerAny.attachTrackers).toHaveBeenCalledWith(managed);
+  });
+
+  it("covers legacy extension page recovery create-page failure branches", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const recovered = createPage(nodes);
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      recoverLegacyExtensionPage: (
+        managed: unknown,
+        timeoutMs: number,
+        createExtensionPage: () => Promise<PageLike>,
+        failedPage?: PageLike
+      ) => Promise<PageLike | null>;
+      selectExistingExtensionEntry: ReturnType<typeof vi.fn>;
+      reconnectLegacyExtensionSession: ReturnType<typeof vi.fn>;
+    };
+
+    managerAny.selectExistingExtensionEntry = vi.fn(() => undefined) as never;
+
+    const managed = {
+      extensionLegacy: true,
+      relayWsEndpoint: "ws://127.0.0.1:8787/relay",
+      context: {
+        pages: vi.fn(() => []),
+        waitForEvent: vi.fn(async () => {
+          throw new Error("timeout");
+        })
+      }
+    };
+
+    managerAny.reconnectLegacyExtensionSession = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(recovered.page) as never;
+    await expect(
+      managerAny.recoverLegacyExtensionPage(
+        managed as never,
+        500,
+        async () => {
+          throw new Error("Target.createTarget Not allowed");
+        }
+      )
+    ).resolves.toBe(recovered.page);
+
+    managerAny.reconnectLegacyExtensionSession = vi.fn().mockResolvedValue(null) as never;
+    await expect(
+      managerAny.recoverLegacyExtensionPage(
+        managed as never,
+        500,
+        async () => {
+          throw new Error("boom");
+        }
+      )
+    ).rejects.toThrow("boom");
+  });
+
   it("covers wakeWaiters corner branches and missing release state", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
@@ -5854,6 +7407,7 @@ describe("BrowserManager", () => {
       normalizeCookieListUrls: (urls?: string[]) => string[] | undefined;
       isTargetNotAllowedError: (error: unknown) => boolean;
       isExtensionTargetReadyTimeout: (error: unknown) => boolean;
+      isLegacyClosedTargetError: (managed: { extensionLegacy: boolean }, error: unknown) => boolean;
     };
 
     expect(managerAny.normalizeCookieListUrls(undefined)).toBeUndefined();
@@ -5870,6 +7424,8 @@ describe("BrowserManager", () => {
     expect(managerAny.isTargetNotAllowedError(new Error("something else"))).toBe(false);
     expect(managerAny.isExtensionTargetReadyTimeout("EXTENSION_TARGET_READY_TIMEOUT: nav")).toBe(true);
     expect(managerAny.isExtensionTargetReadyTimeout(new Error("different"))).toBe(false);
+    expect(managerAny.isLegacyClosedTargetError({ extensionLegacy: true }, new Error("Unknown sessionId: pw-tab-35"))).toBe(true);
+    expect(managerAny.isLegacyClosedTargetError({ extensionLegacy: false }, new Error("Unknown sessionId: pw-tab-35"))).toBe(false);
   });
 
   it("reuses cached governor snapshots and records verifier failures only for tracked sessions", async () => {
@@ -6396,6 +7952,130 @@ describe("BrowserManager", () => {
     expect(waitForRefResult).not.toHaveProperty("meta");
   });
 
+  it("merges bounded challenge orchestration results into direct-browser goto metadata", async () => {
+    const nodes = [
+      { ref: "r1", role: "link", name: "Sign in", tag: "a", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    findChromeExecutable.mockResolvedValue("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const { buildChallengeEvidenceBundle } = await import("../src/challenges");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    vi.spyOn(manager as unknown as {
+      reconcileSessionBlocker: (...args: unknown[]) => unknown;
+    }, "reconcileSessionBlocker").mockReturnValue({
+      blockerState: "active",
+      challenge: {
+        challengeId: "challenge-direct",
+        blockerType: "auth_required",
+        ownerSurface: "direct_browser",
+        resumeMode: "manual",
+        status: "active",
+        updatedAt: "2026-03-22T00:00:00.000Z"
+      }
+    });
+
+    const verifiedBundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "managed",
+        activeTargetId: "tab-1",
+        url: "https://example.com/account",
+        title: "Account",
+        meta: {
+          blockerState: "clear",
+          blockerResolution: {
+            status: "resolved",
+            reason: "verifier_passed",
+            updatedAt: "2026-03-22T00:01:00.000Z"
+          }
+        }
+      },
+      snapshot: { content: "" },
+      canImportCookies: true
+    });
+    const verification = {
+      status: "clear" as const,
+      blockerState: "clear" as const,
+      changed: true,
+      reason: "Manager verification cleared the blocker.",
+      url: "https://example.com/account",
+      title: "Account",
+      bundle: verifiedBundle
+    };
+    const orchestrate = vi.fn().mockResolvedValue({
+      bundle: verifiedBundle,
+      interpretation: {
+        classification: "existing_session_reuse" as const,
+        authState: "session_reusable" as const,
+        humanBoundary: "none" as const,
+        requiredVerification: "full" as const,
+        continuityOpportunities: ["existing_session"] as const,
+        allowedActionFamilies: ["auth_navigation", "session_reuse", "verification", "debug_trace"] as const,
+        laneHints: ["generic_browser_autonomy"] as const,
+        stopRisk: "medium" as const,
+        summary: "classification=existing_session_reuse",
+        likelyCheckpoint: "r1"
+      },
+      decision: {
+        lane: "generic_browser_autonomy" as const,
+        rationale: "Reuse the existing session first.",
+        attemptBudget: 6,
+        noProgressLimit: 3,
+        verificationLevel: "full" as const,
+        stopConditions: ["manager_verification_clears_blocker"],
+        allowedActionFamilies: ["auth_navigation", "session_reuse", "verification", "debug_trace"] as const
+      },
+      action: {
+        status: "resolved" as const,
+        attempts: 1,
+        noProgressCount: 0,
+        executedSteps: [{ kind: "click" as const, ref: "r1", reason: "Use the existing session." }],
+        verification,
+        reusedExistingSession: true,
+        reusedCookies: false
+      },
+      outcome: {
+        challengeId: "challenge-direct",
+        classification: "existing_session_reuse" as const,
+        lane: "generic_browser_autonomy" as const,
+        status: "resolved" as const,
+        reason: verification.reason,
+        attempts: 1,
+        reusedExistingSession: true,
+        reusedCookies: false,
+        verification,
+        evidence: {
+          url: "https://example.com/login",
+          title: "Sign in",
+          blockerType: "auth_required" as const,
+          loginRefs: ["r1"],
+          humanVerificationRefs: [],
+          checkpointRefs: []
+        }
+      }
+    });
+
+    manager.setChallengeOrchestrator({ orchestrate } as never);
+
+    const launch = await manager.launch({ headless: true });
+    const result = await manager.goto(launch.sessionId, "https://example.com/login");
+
+    expect(orchestrate).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: launch.sessionId,
+      canImportCookies: true
+    }));
+    expect(result.meta).toMatchObject({
+      blockerState: "clear",
+      challengeOrchestration: {
+        lane: "generic_browser_autonomy",
+        status: "resolved",
+        reusedExistingSession: true
+      }
+    });
+  });
+
   it("covers connectOverCDP empty-browser failures and updateConfig sessions without parallel state", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
@@ -6660,7 +8340,8 @@ describe("BrowserManager", () => {
       captureScreenshotViaCdp: (
         managed: { extensionLegacy: boolean; context: { newCDPSession: (page: unknown) => Promise<{ send: (method: string, params?: Record<string, unknown>) => Promise<{ data?: string }>; detach: () => Promise<void> }> } },
         page: unknown,
-        error: unknown
+        error: unknown,
+        options: { ref?: string; fullPage?: boolean }
       ) => Promise<{ base64: string; warnings?: string[] } | null>;
       decodeHtmlDataUrl: (url: string) => string | null;
     };
@@ -6675,7 +8356,8 @@ describe("BrowserManager", () => {
       managerAny.captureScreenshotViaCdp(
         nonLegacyManaged,
         page,
-        new Error("page.screenshot: Timeout 30000ms exceeded.")
+        new Error("page.screenshot: Timeout 30000ms exceeded."),
+        {}
       )
     ).resolves.toBeNull();
     expect(nonLegacyManaged.context.newCDPSession).not.toHaveBeenCalled();
@@ -6685,9 +8367,33 @@ describe("BrowserManager", () => {
       context: { newCDPSession: vi.fn() }
     };
     await expect(
-      managerAny.captureScreenshotViaCdp(nonTimeoutManaged, page, new Error("page.screenshot: detached"))
+      managerAny.captureScreenshotViaCdp(nonTimeoutManaged, page, new Error("page.screenshot: detached"), {})
     ).resolves.toBeNull();
     expect(nonTimeoutManaged.context.newCDPSession).not.toHaveBeenCalled();
+
+    await expect(
+      managerAny.captureScreenshotViaCdp(
+        {
+          extensionLegacy: true,
+          context: { newCDPSession: vi.fn() }
+        },
+        page,
+        new Error("page.screenshot: Timeout 30000ms exceeded."),
+        { ref: "r1" }
+      )
+    ).resolves.toBeNull();
+
+    await expect(
+      managerAny.captureScreenshotViaCdp(
+        {
+          extensionLegacy: true,
+          context: { newCDPSession: vi.fn() }
+        },
+        page,
+        new Error("page.screenshot: Timeout 30000ms exceeded."),
+        { fullPage: true }
+      )
+    ).resolves.toBeNull();
 
     const invalidDataSession = {
       send: vi.fn(async () => ({ data: "" })),
@@ -6700,7 +8406,8 @@ describe("BrowserManager", () => {
           context: { newCDPSession: vi.fn(async () => invalidDataSession) }
         },
         page,
-        new Error("page.screenshot: Timeout 30000ms exceeded.")
+        new Error("page.screenshot: Timeout 30000ms exceeded."),
+        {}
       )
     ).resolves.toBeNull();
     expect(invalidDataSession.detach).toHaveBeenCalledTimes(1);
@@ -6718,7 +8425,8 @@ describe("BrowserManager", () => {
           context: { newCDPSession: vi.fn(async () => failingSession) }
         },
         page,
-        new Error("page.screenshot: Timeout 30000ms exceeded.")
+        new Error("page.screenshot: Timeout 30000ms exceeded."),
+        {}
       )
     ).resolves.toBeNull();
     expect(failingSession.detach).toHaveBeenCalledTimes(1);

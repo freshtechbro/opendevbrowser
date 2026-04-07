@@ -81,6 +81,22 @@ describe("provider policy + registry branches", () => {
     expect(shouldFallbackToNextProvider("shopping")).toBe(false);
   });
 
+  it("prioritizes lower anti-bot pressure ahead of health/source/id ties", () => {
+    const registry = new ProviderRegistry();
+    registry.register(makeProvider("web/a", "web", { search: true }));
+    registry.register(makeProvider("web/b", "web", { search: true }));
+
+    registry.recordAntiBotOutcome({
+      providerId: "web/a",
+      reasonCode: "challenge_detected"
+    });
+
+    expect(selectProviders(registry, "search", "all").map((provider) => provider.id)).toEqual([
+      "web/b",
+      "web/a"
+    ]);
+  });
+
   it("selects tiers deterministically with reason codes and deterministic fallback target", () => {
     const routeC = selectTierRoute(
       { defaultTier: "A", enableHybrid: true, enableRestrictedSafe: true },

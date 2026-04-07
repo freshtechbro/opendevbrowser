@@ -1,13 +1,22 @@
 import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import * as os from "os";
-import type { SkillInfo, SkillMetadata } from "./types";
+import type {
+  SkillAlternative,
+  SkillDiscoveryIssue,
+  SkillDiscoveryReport,
+  SkillInfo,
+  SkillMetadata,
+  SkillSearchPath
+} from "./types";
 import { findBundledSkillsDir } from "../utils/package-assets";
+import { isBundledSkillName } from "./bundled-skill-directories";
 
 export class SkillLoader {
   private rootDir: string;
   private additionalPaths: string[];
   private bundledSkillsDir: string | null;
+  private discoveryReportCache: SkillDiscoveryReport | null = null;
   private skillCache: SkillInfo[] | null = null;
 
   constructor(rootDir: string, additionalPaths: string[] = []) {
@@ -64,71 +73,173 @@ export class SkillLoader {
       return this.skillCache;
     }
 
+    const report = await this.getDiscoveryReport();
+    this.skillCache = report.skills;
+    return report.skills;
+  }
+
+  async getDiscoveryReport(): Promise<SkillDiscoveryReport> {
+    if (this.discoveryReportCache) {
+      return this.discoveryReportCache;
+    }
+
     const skills: SkillInfo[] = [];
+    const issues: SkillDiscoveryIssue[] = [];
+    const byName = new Map<string, SkillInfo>();
     const searchPaths = this.getSearchPaths();
 
     for (const searchPath of searchPaths) {
       const discovered = await this.discoverSkillsInPath(searchPath);
-      for (const skill of discovered) {
-        if (!skills.some((s) => s.name === skill.name)) {
-          skills.push(skill);
+      issues.push(...discovered.issues);
+      for (const skill of discovered.skills) {
+        const alternative = this.toAlternative(skill);
+        const existing = byName.get(skill.name);
+        if (!existing) {
+          const winner: SkillInfo = {
+            ...skill,
+            shadowedAlternatives: []
+          };
+          byName.set(skill.name, winner);
+          skills.push(winner);
+          continue;
         }
+        existing.shadowedAlternatives?.push(alternative);
       }
     }
 
+    this.discoveryReportCache = {
+      skills,
+      issues,
+      searchOrder: searchPaths
+    };
     this.skillCache = skills;
-    return skills;
+    return this.discoveryReportCache;
   }
 
-  private getSearchPaths(): string[] {
+  private getSearchPaths(): SkillSearchPath[] {
     const configDir = process.env.OPENCODE_CONFIG_DIR
       || join(os.homedir(), ".config", "opencode");
 
-    const searchPaths = [
-      join(this.rootDir, ".opencode", "skill"),
-      join(configDir, "skill"),
-      join(this.rootDir, ".codex", "skills"),
-      join(this.getCodexHome(), "skills"),
-      join(this.rootDir, ".claude", "skills"),
-      join(this.getClaudeCodeHome(), "skills"),
-      join(this.rootDir, ".amp", "skills"),
-      join(this.getAmpHome(), "skills"),
-      ...this.additionalPaths,
-      ...(this.bundledSkillsDir ? [this.bundledSkillsDir] : [])
+    const searchPaths: SkillSearchPath[] = [
+      {
+        path: join(this.rootDir, ".opencode", "skill"),
+        sourceFamily: "project-opencode",
+        isBundled: false
+      },
+      {
+        path: join(configDir, "skill"),
+        sourceFamily: "global-opencode",
+        isBundled: false
+      },
+      {
+        path: join(this.rootDir, ".codex", "skills"),
+        sourceFamily: "project-codex",
+        isBundled: false
+      },
+      {
+        path: join(this.getCodexHome(), "skills"),
+        sourceFamily: "global-codex",
+        isBundled: false
+      },
+      {
+        path: join(this.rootDir, ".claude", "skills"),
+        sourceFamily: "project-claudecode",
+        isBundled: false
+      },
+      {
+        path: join(this.getClaudeCodeHome(), "skills"),
+        sourceFamily: "global-claudecode",
+        isBundled: false
+      },
+      {
+        path: join(this.rootDir, ".amp", "skills"),
+        sourceFamily: "project-ampcli",
+        isBundled: false
+      },
+      {
+        path: join(this.getAmpHome(), "skills"),
+        sourceFamily: "global-ampcli",
+        isBundled: false
+      },
+      ...this.additionalPaths.map((path) => ({
+        path,
+        sourceFamily: "custom" as const,
+        isBundled: false
+      })),
+      ...(this.bundledSkillsDir
+        ? [{
+            path: this.bundledSkillsDir,
+            sourceFamily: "bundled" as const,
+            isBundled: true
+          }]
+        : [])
     ];
 
-    return Array.from(new Set(searchPaths));
+    const uniquePaths = new Set<string>();
+    return searchPaths.filter((entry) => {
+      if (uniquePaths.has(entry.path)) {
+        return false;
+      }
+      uniquePaths.add(entry.path);
+      return true;
+    });
   }
 
-  private async discoverSkillsInPath(searchPath: string): Promise<SkillInfo[]> {
+  private async discoverSkillsInPath(searchPath: SkillSearchPath): Promise<{
+    skills: SkillInfo[];
+    issues: SkillDiscoveryIssue[];
+  }> {
     const skills: SkillInfo[] = [];
+    const issues: SkillDiscoveryIssue[] = [];
 
     try {
-      const entries = await readdir(searchPath, { withFileTypes: true });
+      const entries = await readdir(searchPath.path, { withFileTypes: true });
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+        if (searchPath.isBundled) {
+          if (!isBundledSkillName(entry.name)) {
+            continue;
+          }
+        }
 
-        const skillPath = join(searchPath, entry.name, "SKILL.md");
+        const skillPath = join(searchPath.path, entry.name, "SKILL.md");
         try {
           const content = await readFile(skillPath, "utf8");
           const metadata = this.parseSkillMetadata(content, entry.name);
+          if (metadata.name !== entry.name) {
+            issues.push({
+              kind: "skill_entry",
+              code: "metadata_name_mismatch",
+              detail: `Frontmatter name "${metadata.name}" does not match directory "${entry.name}".`,
+              searchPath: searchPath.path,
+              sourceFamily: searchPath.sourceFamily,
+              dirName: entry.name,
+              skillPath
+            });
+          }
 
           skills.push({
             name: metadata.name,
             description: metadata.description,
             version: metadata.version ?? "1.0.0",
-            path: skillPath
+            path: skillPath,
+            searchPath: searchPath.path,
+            sourceFamily: searchPath.sourceFamily,
+            isBundled: searchPath.isBundled,
+            shadowedAlternatives: []
           });
-        } catch {
-          void 0;
+        } catch (error) {
+          issues.push(this.createDiscoveryIssue(searchPath, entry.name, skillPath, error));
         }
       }
-    } catch {
-      void 0;
+    } catch (error) {
+      if (this.readErrorCode(error) !== "ENOENT") {
+        issues.push(this.createSearchPathIssue(searchPath, error));
+      }
     }
 
-    return skills;
+    return { skills, issues };
   }
 
   parseSkillMetadata(content: string, dirName: string): SkillMetadata {
@@ -188,7 +299,59 @@ export class SkillLoader {
   }
 
   clearCache(): void {
+    this.discoveryReportCache = null;
     this.skillCache = null;
+  }
+
+  private createSearchPathIssue(searchPath: SkillSearchPath, error: unknown): SkillDiscoveryIssue {
+    return {
+      kind: "search_path",
+      code: this.readErrorCode(error),
+      detail: this.readErrorDetail(error),
+      searchPath: searchPath.path,
+      sourceFamily: searchPath.sourceFamily
+    };
+  }
+
+  private createDiscoveryIssue(
+    searchPath: SkillSearchPath,
+    dirName: string,
+    skillPath: string,
+    error: unknown
+  ): SkillDiscoveryIssue {
+    return {
+      kind: "skill_entry",
+      code: this.readErrorCode(error),
+      detail: this.readErrorDetail(error),
+      searchPath: searchPath.path,
+      sourceFamily: searchPath.sourceFamily,
+      dirName,
+      skillPath
+    };
+  }
+
+  private readErrorCode(error: unknown): string {
+    if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+      return error.code;
+    }
+    return "unknown";
+  }
+
+  private readErrorDetail(error: unknown): string {
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return error.message;
+    }
+    return String(error);
+  }
+
+  private toAlternative(skill: SkillInfo): SkillAlternative {
+    return {
+      name: skill.name,
+      path: skill.path,
+      searchPath: skill.searchPath ?? "",
+      sourceFamily: skill.sourceFamily ?? "custom",
+      isBundled: skill.isBundled ?? false
+    };
   }
 }
 

@@ -8,6 +8,7 @@ import {
   ROOT,
   runCli,
   runNode,
+  sleep,
   writeJson
 } from "./live-direct-utils.mjs";
 
@@ -16,6 +17,36 @@ function readDaemonStatus() {
     allowFailure: true,
     timeoutMs: 15_000
   });
+}
+
+export async function waitForExtensionReconnect({
+  scenario,
+  initialExtensionReady,
+  statusReader = readDaemonStatus,
+  reconnectGraceMs = 8_000,
+  pollMs = 1_000
+}) {
+  let currentDaemonStatus = statusReader();
+  const relay = currentDaemonStatus.json?.data?.relay ?? null;
+  const extensionReady = relay?.extensionHandshakeComplete === true;
+
+  if (!scenario.requiresExtension || !initialExtensionReady || extensionReady) {
+    return currentDaemonStatus;
+  }
+
+  const deadline = Date.now() + reconnectGraceMs;
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    currentDaemonStatus = statusReader();
+    if (
+      currentDaemonStatus.status === 0
+      && currentDaemonStatus.json?.data?.relay?.extensionHandshakeComplete === true
+    ) {
+      break;
+    }
+  }
+
+  return currentDaemonStatus;
 }
 
 export function parseCliOptions(argv) {
@@ -71,13 +102,32 @@ export function parseCliOptions(argv) {
 
 export function buildScenarioCases() {
   return [
-    { id: "feature.canvas.managed_headless", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headless"] },
-    { id: "feature.canvas.managed_headed", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headed"] },
-    { id: "feature.canvas.extension", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "extension"], requiresExtension: true },
-    { id: "feature.canvas.cdp", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "cdp"], requiresExtension: true },
-    { id: "feature.annotate.relay", script: "scripts/annotate-live-probe.mjs", args: ["--transport", "relay"], requiresExtension: true, supportsReleaseGate: true },
-    { id: "feature.annotate.direct", script: "scripts/annotate-live-probe.mjs", args: ["--transport", "direct"], supportsReleaseGate: true },
-    { id: "feature.cli.smoke", script: "scripts/cli-smoke-test.mjs" }
+    { id: "feature.canvas.managed_headless", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headless"], timeoutMs: 300_000 },
+    { id: "feature.canvas.managed_headed", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headed"], timeoutMs: 300_000 },
+    { id: "feature.canvas.extension", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "extension"], requiresExtension: true, timeoutMs: 240_000 },
+    {
+      id: "feature.canvas.cdp",
+      script: "scripts/canvas-live-workflow.mjs",
+      args: ["--surface", "cdp"],
+      requiresExtension: true,
+      timeoutMs: 300_000
+    },
+    {
+      id: "feature.annotate.relay",
+      script: "scripts/annotate-live-probe.mjs",
+      args: ["--transport", "relay"],
+      requiresExtension: true,
+      supportsReleaseGate: true,
+      timeoutMs: 180_000
+    },
+    {
+      id: "feature.annotate.direct",
+      script: "scripts/annotate-live-probe.mjs",
+      args: ["--transport", "direct"],
+      supportsReleaseGate: true,
+      timeoutMs: 180_000
+    },
+    { id: "feature.cli.smoke", script: "scripts/cli-smoke-test.mjs", timeoutMs: 240_000 }
   ];
 }
 
@@ -181,7 +231,10 @@ async function main() {
     const scriptPath = path.join(ROOT, scenario.script);
     let step;
     try {
-      const currentDaemonStatus = readDaemonStatus();
+      const currentDaemonStatus = await waitForExtensionReconnect({
+        scenario,
+        initialExtensionReady
+      });
       const preflightStep = classifyScenarioPreflight({
         scenario,
         initialDaemonOk,
@@ -212,7 +265,7 @@ async function main() {
         ],
         {
           allowFailure: true,
-          timeoutMs: 900_000
+          timeoutMs: scenario.timeoutMs ?? 900_000
         }
       );
       step = resolveChildStep(scenario, child);

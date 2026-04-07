@@ -16,6 +16,18 @@ required=(
 )
 
 status=0
+validator_cli="$root/../opendevbrowser-best-practices/scripts/validator-fixture-cli.sh"
+export ODB_CLI_VALIDATOR_OVERRIDE="$validator_cli"
+
+require_marker() {
+  local label="$1"
+  local output="$2"
+  local marker="$3"
+  if [[ "$output" != *"$marker"* ]]; then
+    echo "$label missing marker: $marker" >&2
+    status=1
+  fi
+}
 for rel in "${required[@]}"; do
   if [[ ! -f "$root/$rel" ]]; then
     echo "Missing required asset: $rel" >&2
@@ -52,6 +64,26 @@ if [[ -f "$root/assets/templates/context.json" ]]; then
     echo "Invalid JSON template: assets/templates/context.json" >&2
     status=1
   fi
+fi
+
+context_output="$("$root/scripts/run-research.sh" "ai browser automation" 30 context auto "web,docs")"
+require_marker "run-research context" "$context_output" "# Research Context"
+require_marker "run-research context" "$context_output" "ISSUE-09"
+
+report_output="$("$root/scripts/render-output.sh" "ai browser automation" report)"
+require_marker "render-output report" "$report_output" "# Research Report"
+require_marker "render-output report" "$report_output" "Source selection"
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+artifact_output="$("$root/scripts/write-artifacts.sh" "ai browser automation" "$tmpdir")"
+artifact_path="$(printf '%s\n' "$artifact_output" | node -e 'const fs=require("fs");const lines=fs.readFileSync(0,"utf8").split(/\r?\n/).map((line)=>line.trim()).filter(Boolean);let payload=null;for(const line of lines){try{payload=JSON.parse(line);}catch{}}const value=payload?.data?.path; if(typeof value==="string") process.stdout.write(value);')"
+if [[ -z "$artifact_path" || ! -d "$artifact_path" ]]; then
+  echo "write-artifacts.sh did not produce a valid artifact directory." >&2
+  status=1
+elif [[ ! -f "$artifact_path/bundle-manifest.json" || ! -f "$artifact_path/report.md" ]]; then
+  echo "write-artifacts.sh did not write the expected research bundle files." >&2
+  status=1
 fi
 
 if [[ $status -ne 0 ]]; then

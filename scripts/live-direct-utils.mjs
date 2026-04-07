@@ -1,30 +1,23 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { DIRECT_ENV_LIMITED_CODES } from "./shared/workflow-lane-constants.mjs";
+import {
+  classifyLaneRecords,
+  normalizedCodesFromFailures,
+  summarizeFailures
+} from "./shared/workflow-lane-verdicts.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CLI = path.join(ROOT, "dist", "cli", "index.js");
 export const MAX_BUFFER = 64 * 1024 * 1024;
 export const DEFAULT_CLI_TIMEOUT_MS = 120_000;
 export const DEFAULT_NODE_TIMEOUT_MS = 900_000;
+export const INSTALL_AUTOSTART_SKIP_ENV_VAR = "OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION";
 
-export const ENV_LIMITED_CODES = new Set([
-  "unavailable",
-  "env_limited",
-  "auth",
-  "rate_limited",
-  "upstream",
-  "network",
-  "token_required",
-  "challenge_detected",
-  "cooldown_active",
-  "policy_blocked",
-  "caption_missing",
-  "transcript_unavailable",
-  "strategy_unapproved"
-]);
+export const ENV_LIMITED_CODES = DIRECT_ENV_LIMITED_CODES;
 
 export function ensureCliBuilt() {
   if (!fs.existsSync(CLI)) {
@@ -80,6 +73,95 @@ export function summarizeFailure(result) {
   return typeof fromJson === "string" && fromJson.length > 0
     ? fromJson
     : result?.stderr || result?.stdout || result?.error || "Unknown failure";
+}
+
+function appendOutput(buffer, chunk) {
+  const next = buffer + String(chunk ?? "");
+  if (next.length <= MAX_BUFFER) {
+    return next;
+  }
+  return next.slice(-MAX_BUFFER);
+}
+
+async function runProcessAsync(command, args, {
+  allowFailure = false,
+  cwd = ROOT,
+  env = process.env,
+  timeoutLabel,
+  timeoutMs
+}) {
+  const start = Date.now();
+  const child = spawn(command, args, {
+    cwd,
+    env,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  let timedOut = false;
+
+  const result = await new Promise((resolve) => {
+    let settled = false;
+    let killTimer = null;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+        }
+      }, 1_000);
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk) => {
+      stdout = appendOutput(stdout, chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr = appendOutput(stderr, chunk);
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeoutTimer);
+      if (killTimer) clearTimeout(killTimer);
+      finish({
+        status: 1,
+        signal: child.signalCode ?? null,
+        error: String(error)
+      });
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timeoutTimer);
+      if (killTimer) clearTimeout(killTimer);
+      finish({
+        status: code ?? (signal ? 1 : 0),
+        signal: signal ?? null
+      });
+    });
+  });
+
+  const payload = {
+    status: result.status,
+    stdout,
+    stderr,
+    json: parseJsonFromStdout(stdout),
+    durationMs: Date.now() - start,
+    signal: result.signal,
+    timedOut,
+    ...(result.error ? { error: result.error } : {})
+  };
+  payload.detail = timedOut
+    ? `${timeoutLabel} timed out after ${timeoutMs}ms (${args.join(" ")}).`
+    : summarizeFailure(payload);
+
+  if (!allowFailure && payload.status !== 0) {
+    throw new Error(`${timeoutLabel} failed (${args.join(" ")}): ${payload.detail}`);
+  }
+  return payload;
 }
 
 export function runCli(args, {
@@ -152,8 +234,49 @@ export function runNode(args, {
   return payload;
 }
 
+export function runCliAsync(args, {
+  allowFailure = false,
+  env = process.env,
+  timeoutMs = DEFAULT_CLI_TIMEOUT_MS
+} = {}) {
+  return runProcessAsync(process.execPath, [CLI, ...args, "--output-format", "json"], {
+    allowFailure,
+    env,
+    timeoutLabel: "CLI",
+    timeoutMs
+  });
+}
+
+export function runNodeAsync(args, {
+  allowFailure = false,
+  env = process.env,
+  timeoutMs = DEFAULT_NODE_TIMEOUT_MS
+} = {}) {
+  return runProcessAsync(process.execPath, args, {
+    allowFailure,
+    env,
+    timeoutLabel: "Node script",
+    timeoutMs
+  });
+}
+
 export function defaultArtifactPath(prefix) {
   return `/tmp/${prefix}-${Date.now()}.json`;
+}
+
+export function readCliFlagValue(args, flag) {
+  if (!Array.isArray(args)) return null;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === flag) {
+      const next = args[index + 1];
+      return typeof next === "string" && !next.startsWith("--") ? next : null;
+    }
+    if (typeof arg === "string" && arg.startsWith(`${flag}=`)) {
+      return arg.slice(flag.length + 1) || null;
+    }
+  }
+  return null;
 }
 
 export function writeJson(targetPath, value) {
@@ -193,63 +316,17 @@ export function finalizeReport(report, { strictGate = false } = {}) {
   return report;
 }
 
-export function normalizedCodesFromFailures(failures) {
-  if (!Array.isArray(failures)) return [];
-  return failures
-    .map((entry) => entry?.error?.reasonCode || entry?.error?.code)
-    .filter((value) => typeof value === "string");
-}
-
-export function summarizeFailures(failures, limit = 3) {
-  if (!Array.isArray(failures)) return [];
-  return failures.slice(0, limit).map((entry) => {
-    const error = entry?.error ?? {};
-    return {
-      provider: typeof entry?.provider === "string" ? entry.provider : null,
-      code: typeof error.code === "string" ? error.code : null,
-      reasonCode: typeof error.reasonCode === "string" ? error.reasonCode : null,
-      message: typeof error.message === "string" ? error.message.slice(0, 220) : null
-    };
-  });
-}
+export { normalizedCodesFromFailures, summarizeFailures };
 
 export function classifyRecords(recordsCount, failures, {
   allowExpectedUnavailable = false,
   allowNoRecordsNoFailures = false
 } = {}) {
-  if (recordsCount > 0) {
-    return { status: "pass", detail: null };
-  }
-
-  const normalizedFailures = Array.isArray(failures) ? failures : [];
-  const reasonCodes = normalizedCodesFromFailures(normalizedFailures);
-  if (reasonCodes.length > 0 && reasonCodes.every((code) => ENV_LIMITED_CODES.has(code))) {
-    return {
-      status: "env_limited",
-      detail: `reason_codes=${reasonCodes.join(",")}`
-    };
-  }
-
-  if (allowExpectedUnavailable && normalizedFailures.length > 0) {
-    return {
-      status: "env_limited",
-      detail: "expected_unavailable_by_surface"
-    };
-  }
-
-  if (allowNoRecordsNoFailures && normalizedFailures.length === 0) {
-    return {
-      status: "env_limited",
-      detail: "no_records_no_failures"
-    };
-  }
-
-  return {
-    status: "fail",
-    detail: normalizedFailures.length > 0
-      ? `unexpected_reason_codes=${reasonCodes.join(",") || "none"}`
-      : "no_records_no_failures"
-  };
+  return classifyLaneRecords(recordsCount, failures, {
+    envLimitedCodes: DIRECT_ENV_LIMITED_CODES,
+    allowExpectedUnavailable,
+    allowNoRecordsNoFailures
+  });
 }
 
 export function pushStep(report, step, {

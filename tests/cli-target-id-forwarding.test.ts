@@ -18,8 +18,17 @@ import { runSelect } from "../src/cli/commands/interact/select";
 import { runType } from "../src/cli/commands/interact/type";
 import { runUncheck } from "../src/cli/commands/interact/uncheck";
 import { runGoto } from "../src/cli/commands/nav/goto";
+import { runReview } from "../src/cli/commands/nav/review";
 import { runSnapshot } from "../src/cli/commands/nav/snapshot";
 import { runWait } from "../src/cli/commands/nav/wait";
+import { runPageOpen } from "../src/cli/commands/pages/open";
+import { runTargetNew } from "../src/cli/commands/targets/new";
+import {
+  DEFAULT_CLICK_TRANSPORT_TIMEOUT_MS,
+  DEFAULT_REVIEW_TRANSPORT_TIMEOUT_MS,
+  DEFAULT_SNAPSHOT_TRANSPORT_TIMEOUT_MS,
+  DEFAULT_TARGET_CREATION_TRANSPORT_TIMEOUT_MS
+} from "../src/cli/transport-timeouts";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -52,6 +61,7 @@ const CASES: Array<{
   rawArgs: string[];
   method: string;
   payload: Record<string, unknown>;
+  options?: Record<string, unknown>;
 }> = [
   {
     title: "goto",
@@ -75,7 +85,17 @@ const CASES: Array<{
     run: runSnapshot,
     rawArgs: ["--session-id", "s1", "--mode", "outline", "--target-id", "tab-11"],
     method: "nav.snapshot",
-    payload: { sessionId: "s1", mode: "outline", maxChars: undefined, cursor: undefined, targetId: "tab-11" }
+    payload: { sessionId: "s1", mode: "outline", maxChars: undefined, cursor: undefined, targetId: "tab-11" },
+    options: { timeoutMs: DEFAULT_SNAPSHOT_TRANSPORT_TIMEOUT_MS }
+  },
+  {
+    title: "review",
+    command: "review",
+    run: runReview,
+    rawArgs: ["--session-id", "s1", "--target-id", "tab-11"],
+    method: "nav.review",
+    payload: { sessionId: "s1", maxChars: undefined, cursor: undefined, targetId: "tab-11" },
+    options: { timeoutMs: DEFAULT_REVIEW_TRANSPORT_TIMEOUT_MS }
   },
   {
     title: "click",
@@ -83,7 +103,8 @@ const CASES: Array<{
     run: runClick,
     rawArgs: ["--session-id", "s1", "--ref", "r1", "--target-id", "tab-11"],
     method: "interact.click",
-    payload: { sessionId: "s1", ref: "r1", targetId: "tab-11" }
+    payload: { sessionId: "s1", ref: "r1", targetId: "tab-11" },
+    options: { timeoutMs: DEFAULT_CLICK_TRANSPORT_TIMEOUT_MS }
   },
   {
     title: "hover",
@@ -221,10 +242,39 @@ describe("CLI target-id forwarding", () => {
     callDaemon.mockResolvedValue({});
   });
 
-  it.each(CASES)("passes target-id through $title", async ({ command, run, rawArgs, method, payload }) => {
+  it.each(CASES)("passes target-id through $title", async ({ command, run, rawArgs, method, payload, options }) => {
     await run(makeArgs(command, rawArgs));
 
-    expect(callDaemon).toHaveBeenCalledWith(method, payload);
+    expect(callDaemon).toHaveBeenCalledWith(method, payload, ...(options ? [options] : []));
+  });
+
+  it("forwards click timeout overrides to the daemon client", async () => {
+    await runClick(makeArgs("click", [
+      "--session-id", "s1",
+      "--ref", "r1",
+      "--target-id", "tab-11",
+      "--timeout-ms=15000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "interact.click",
+      {
+        sessionId: "s1",
+        ref: "r1",
+        targetId: "tab-11"
+      },
+      { timeoutMs: 15000 }
+    );
+  });
+
+  it("rejects invalid click timeout values before calling the daemon", async () => {
+    await expect(runClick(makeArgs("click", [
+      "--session-id", "s1",
+      "--ref", "r1",
+      "--timeout-ms", "oops"
+    ]))).rejects.toThrow("Invalid --timeout-ms");
+
+    expect(callDaemon).not.toHaveBeenCalled();
   });
 
   it("forwards snapshot timeout overrides to the daemon client", async () => {
@@ -245,6 +295,59 @@ describe("CLI target-id forwarding", () => {
         targetId: "tab-11"
       },
       { timeoutMs: 15000 }
+    );
+  });
+
+  it("forwards review timeout overrides to the daemon client", async () => {
+    await runReview(makeArgs("review", [
+      "--session-id", "s1",
+      "--target-id", "tab-11",
+      "--timeout-ms", "15000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "nav.review",
+      {
+        sessionId: "s1",
+        maxChars: undefined,
+        cursor: undefined,
+        targetId: "tab-11"
+      },
+      { timeoutMs: 15000 }
+    );
+  });
+
+  it("forwards the default target creation timeout for target-new", async () => {
+    await runTargetNew(makeArgs("target-new", [
+      "--session-id", "s1",
+      "--url", "https://example.com"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "targets.new",
+      {
+        sessionId: "s1",
+        url: "https://example.com"
+      },
+      { timeoutMs: DEFAULT_TARGET_CREATION_TRANSPORT_TIMEOUT_MS }
+    );
+  });
+
+  it("forwards the default target creation timeout for page-open", async () => {
+    await runPageOpen(makeArgs("page-open", [
+      "--session-id", "s1",
+      "--name", "docs",
+      "--url", "https://example.com/docs"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "page.open",
+      {
+        sessionId: "s1",
+        name: "docs",
+        url: "https://example.com/docs"
+      },
+      { timeoutMs: DEFAULT_TARGET_CREATION_TRANSPORT_TIMEOUT_MS }
     );
   });
 });

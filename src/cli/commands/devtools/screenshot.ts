@@ -1,75 +1,49 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
-import { parseNumberFlag } from "../../utils/parse";
+import { DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
+import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
 type ScreenshotArgs = {
   sessionId?: string;
   targetId?: string;
   path?: string;
+  ref?: string;
+  fullPage?: boolean;
   timeoutMs?: number;
 };
 
-const requireValue = (value: string | undefined, flag: string): string => {
-  if (!value) throw createUsageError(`Missing value for ${flag}`);
-  return value;
-};
-
 function parseScreenshotArgs(rawArgs: string[]): ScreenshotArgs {
-  const parsed: ScreenshotArgs = {};
-  for (let i = 0; i < rawArgs.length; i += 1) {
-    const arg = rawArgs[i];
-    if (arg === "--session-id") {
-      parsed.sessionId = requireValue(rawArgs[i + 1], "--session-id");
-      i += 1;
-      continue;
-    }
-    if (arg?.startsWith("--session-id=")) {
-      parsed.sessionId = requireValue(arg.split("=", 2)[1], "--session-id");
-      continue;
-    }
-    if (arg === "--target-id") {
-      parsed.targetId = requireValue(rawArgs[i + 1], "--target-id");
-      i += 1;
-      continue;
-    }
-    if (arg?.startsWith("--target-id=")) {
-      parsed.targetId = requireValue(arg.split("=", 2)[1], "--target-id");
-      continue;
-    }
-    if (arg === "--path") {
-      parsed.path = requireValue(rawArgs[i + 1], "--path");
-      i += 1;
-      continue;
-    }
-    if (arg?.startsWith("--path=")) {
-      parsed.path = requireValue(arg.split("=", 2)[1], "--path");
-      continue;
-    }
-    if (arg === "--timeout-ms") {
-      parsed.timeoutMs = parseNumberFlag(requireValue(rawArgs[i + 1], "--timeout-ms"), "--timeout-ms", { min: 1 });
-      i += 1;
-      continue;
-    }
-    if (arg?.startsWith("--timeout-ms=")) {
-      parsed.timeoutMs = parseNumberFlag(requireValue(arg.split("=", 2)[1], "--timeout-ms"), "--timeout-ms", { min: 1 });
-      continue;
-    }
+  const timeoutValue = parseOptionalStringFlag(rawArgs, "--timeout-ms");
+  const parsed: ScreenshotArgs = {
+    sessionId: parseOptionalStringFlag(rawArgs, "--session-id"),
+    targetId: parseOptionalStringFlag(rawArgs, "--target-id"),
+    path: parseOptionalStringFlag(rawArgs, "--path"),
+    ref: parseOptionalStringFlag(rawArgs, "--ref"),
+    fullPage: rawArgs.includes("--full-page"),
+    timeoutMs: typeof timeoutValue === "string"
+      ? parseNumberFlag(timeoutValue, "--timeout-ms", { min: 1 })
+      : undefined
+  };
+  if (parsed.ref && parsed.fullPage) {
+    throw createUsageError("Choose either --ref or --full-page.");
   }
   return parsed;
 }
 
 export async function runScreenshot(args: ParsedArgs) {
-  const { sessionId, targetId, path, timeoutMs } = parseScreenshotArgs(args.rawArgs);
+  const { sessionId, targetId, path, ref, fullPage, timeoutMs } = parseScreenshotArgs(args.rawArgs);
   if (!sessionId) throw createUsageError("Missing --session-id");
   const params = {
     sessionId,
-    path,
-    ...(typeof targetId === "string" ? { targetId } : {})
+    ...(typeof path === "string" ? { path } : {}),
+    ...(typeof targetId === "string" ? { targetId } : {}),
+    ...(typeof ref === "string" ? { ref } : {}),
+    ...(fullPage === true ? { fullPage: true } : {})
   };
-  const result = typeof timeoutMs === "number"
-    ? await callDaemon("page.screenshot", params, { timeoutMs })
-    : await callDaemon("page.screenshot", params);
+  const result = await callDaemon("page.screenshot", params, {
+    timeoutMs: timeoutMs ?? DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS
+  });
   return { success: true, message: "Screenshot captured.", data: result };
 }
 

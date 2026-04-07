@@ -10,13 +10,39 @@
 
 > **Script-first browser automation for AI agents.** Snapshot → Refs → Actions.
 
-OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it as an [OpenCode](https://opencode.ai) plugin, as a standalone CLI, or through the Chrome extension relay for logged-in browser sessions. It supports managed sessions, direct CDP attach, and extension-backed Ops sessions. Frontend website source and deployment are maintained in the private repo `opendevbrowser-website-deploy`.
+OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
+
+The current public surface includes [64 CLI commands and 57 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
   <br />
   <em>AI-assisted annotation and browser automation workflow</em>
 </p>
+
+## Table of Contents
+
+- [Use It Your Way](#use-it-your-way)
+- [Why OpenDevBrowser?](#why-opendevbrowser)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Challenge Handling Boundary](#challenge-handling-boundary)
+- [Recent Features](#recent-features)
+- [Features](#features)
+- [Tool Reference](#tool-reference)
+- [Bundled Skills](#bundled-skills)
+- [Browser Modes](#browser-modes)
+- [Relay Channels](#relay-channels)
+- [Breaking Changes (latest)](#breaking-changes-latest)
+- [Chrome Extension (Optional)](#chrome-extension-optional)
+- [Configuration](#configuration)
+- [CLI Commands](#cli-commands)
+- [Security](#security)
+- [Updating](#updating)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Privacy](#privacy)
+- [License](#license)
 
 ## Use It Your Way
 
@@ -27,32 +53,16 @@ OpenDevBrowser is an agent-agnostic browser automation runtime. You can use it a
 | **OpenCode Plugin Tools** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
 | **Frontend Website (private repo)** | No | Product website and generated docs routes |
 
-All core automation flows are available through the CLI command surface and the plugin tool surface.
-Private website docs routes are generated from public repository source-of-truth docs and skill packs.
-
-Distribution split (current target state):
-- Public repo (`opendevbrowser`): runtime, CLI, extension, docs, npm, release artifacts.
-- Private repo (`opendevbrowser-website-deploy`): website deployment (`website-production` branch).
+The public repo owns the automation runtime and canonical docs; see [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the full surface inventory.
 
 ## Why OpenDevBrowser?
 
-| Feature | Benefit |
-|---------|---------|
-| **Script-first UX** | Snapshot → Refs → Actions workflow optimized for AI agents |
-| **Accessibility-tree snapshots** | Token-efficient page representation (not raw DOM) |
-| **Stable refs** | Elements identified by `backendNodeId`, not fragile selectors |
-| **Security by default** | CDP localhost-only, timing-safe auth, HTML sanitization |
-| **3 browser modes** | Managed, CDP connect, or extension relay for logged-in sessions |
-| **Chrome-family session reuse** | Managed and `cdpConnect` sessions bootstrap readable cookies from the discovered system Chrome-family profile; extension mode reuses the already logged-in tab |
-| **Ops + Canvas + CDP channels** | High-level multi-client `/ops`, dedicated `/canvas`, plus legacy `/cdp` compatibility |
-| **Relay Hub (FIFO leases)** | Single-owner CDP binding with a FIFO queue for multi-client safety |
-| **Flat-session routing** | Extension relay uses DebuggerSession sessionId routing (Chrome 125+) |
-| **Design canvas + code sync** | Persist repo-native design documents, attach same-session observers, run framework-adapter-backed code sync across built-in React or HTML or custom-elements or Vue or Svelte lanes plus repo-local BYO plugins, author tokens in `canvas.html`, and drive preview tabs with `canvas_html` or opted-in `bound_app_runtime` reconciliation |
-| **Shared annotation inbox** | Popup/canvas `Send` actions deliver into the active chat when scope is safe and degrade cleanly to `annotate --stored` retrieval when it is not |
-| **Loop-closure diagnostics** | Console/network polling + unified debug trace snapshots for verification workflows |
-| **11 bundled skill directories** | Best practices, design-agent guidance, login, forms, data extraction, research, shopping, and product asset workflows |
-| **49 tools** | Complete browser automation coverage, including the design-canvas command surface |
-| **97% test coverage** | Production-ready with strict TypeScript |
+- **Script-first automation model**: snapshot → refs → actions, built around accessibility-tree capture instead of brittle selector-first workflows.
+- **Stable interaction primitives**: refs resolve through `backendNodeId`, and low-level pointer commands remain available when normal DOM actions are not enough.
+- **Flexible session control**: run managed sessions, attach through direct CDP, or reuse logged-in tabs through the extension relay and `/ops`.
+- **Design and review workflows**: use the design canvas, shared annotation inbox, and repo-backed code-sync flows without leaving the runtime surface.
+- **Diagnostics and bounded challenge handling**: start with `session-inspector`, then drop to console or network polling and unified debug traces when you need channel-level detail.
+- **Production guardrails**: local-only CDP by default, timing-safe auth, sanitized exports, strict TypeScript, and branch coverage held at 97% or higher.
 
 ---
 
@@ -80,7 +90,7 @@ opendevbrowser --version
 
 ### Pre-release Local Package (No npm publish required)
 
-Use this path to validate first-run onboarding before public distribution:
+Use this flow to validate first-run local package onboarding before npm publish.
 
 ```bash
 cd <public-repo-root>
@@ -94,28 +104,11 @@ npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
 
-Full validated flow: [`docs/FIRST_RUN_ONBOARDING.md`](docs/FIRST_RUN_ONBOARDING.md).
-Dependency/runtime inventory: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
-Live CLI inventory/help surface: `npx opendevbrowser --help` or `npx opendevbrowser help`.
+See [docs/FIRST_RUN_ONBOARDING.md](docs/FIRST_RUN_ONBOARDING.md) for the full onboarding checklist, [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for runtime inventory, and [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the live CLI and tool surface.
 
-Use OpenCode only if you want plugin tools. CLI and extension workflows work without OpenCode.
+Successful installs reconcile daemon auto-start on supported platforms so the relay is available on login. If the current CLI entrypoint lives under a transient temp-root path such as a first-run `/tmp` or `/private/tmp` workspace, OpenDevBrowser refuses to persist that path as auto-start. Rerun `opendevbrowser daemon install`, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, from a stable install location if you want login auto-start; remove it later with `opendevbrowser daemon uninstall`.
 
-On successful installs, the CLI reconciles daemon auto-start on supported platforms so the relay is available on login. Existing
-installs are rechecked and repaired when the per-user auto-start entry is missing, stale, or malformed. If the current CLI
-entrypoint lives under a transient temp-root path (for example a first-run `/tmp` or `/private/tmp` workspace), OpenDevBrowser
-refuses to persist that path as auto-start. Plugin install still succeeds, but you must rerun `opendevbrowser daemon install`
-from a stable install location, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, if you
-want login auto-start. You can remove it later with `opendevbrowser daemon uninstall`.
-
-During install, bundled skills are synced for **OpenCode, Codex, ClaudeCode, and AmpCLI**.
-Default `--skills-global` targets:
-- `~/.config/opencode/skill` (OpenCode)
-- `$CODEX_HOME/skills` (fallback `~/.codex/skills`)
-- `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`)
-- `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
-
-Use `--skills-local` for project-local targets:
-- `./.opencode/skill`, `./.codex/skills`, `./.claude/skills`, `./.amp/skills`
+Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. Use `--skills-global` for user-wide installs or `--skills-local` for project-local installs; see [docs/CLI.md](docs/CLI.md) for exact target paths.
 
 ### CLI + Extension (No OpenCode)
 
@@ -147,6 +140,8 @@ Website build/data pipeline lives in the private repo:
 - `npm run generate:docs` regenerates docs, metrics, and roadmap JSON consumed by `/docs`.
 
 ### Agent Installation (OpenCode)
+
+Use OpenCode only when you want native `opendevbrowser_*` tool calls; the CLI and extension workflows work without it.
 
 Recommended (CLI, installs plugin + config + bundled skills + extension assets):
 
@@ -182,9 +177,9 @@ OpenDevBrowser uses the same automation model across plugin tools and CLI comman
 ```
 1. Launch a browser session
 2. Navigate to a URL
-3. Take a snapshot to get element refs
+3. Take a review to get target-aware actionables and refs
 4. Interact using refs (click, type, select)
-5. Re-snapshot after navigation
+5. Re-review or re-snapshot after navigation
 ```
 
 Shipping checklist for first-time users (local-package install, daemon, extension, first task, multi-tab auth/cookies):
@@ -198,9 +193,10 @@ Parallel execution is target-scoped (`ExecutionKey = (sessionId,targetId)`): sam
 |------|------|---------|
 | 1 | `opendevbrowser_launch` | Launch a session (extension relay first; managed fallback is explicit) |
 | 2 | `opendevbrowser_goto` | Navigate to URL |
-| 3 | `opendevbrowser_snapshot` | Get page structure with refs |
+| 3 | `opendevbrowser_review` | Inspect the active target and capture fresh actionables before acting |
 | 4 | `opendevbrowser_click` / `opendevbrowser_type` | Interact with elements |
-| 5 | `opendevbrowser_disconnect` | Clean up session |
+| 5 | `opendevbrowser_snapshot` | Re-capture refs after navigation or DOM changes |
+| 6 | `opendevbrowser_disconnect` | Clean up session |
 
 ---
 
@@ -221,8 +217,8 @@ npx opendevbrowser serve --stop
 # Launch a session
 npx opendevbrowser launch --start-url https://example.com
 
-# Capture a snapshot
-npx opendevbrowser snapshot --session-id <session-id>
+# Review the active target and capture fresh refs
+npx opendevbrowser review --session-id <session-id>
 
 # Interact by ref
 npx opendevbrowser click --session-id <session-id> --ref r12
@@ -241,6 +237,17 @@ npx opendevbrowser run --script ./script.json --output-format json
 
 Use `--output-format json|stream-json` for automation-friendly output.
 
+## Challenge Handling Boundary
+
+- `SessionStore` remains the blocker FSM source of truth. Managed and `/ops`-backed responses keep `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` stable and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
+- Direct browser, `/ops`, and provider fallback paths now share one bounded challenge orchestration plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded interaction exploration before yielding to a human.
+- Workflow and manager callers can set `challengeAutomationMode` to `off`, `browser`, or `browser_with_helper`. Effective precedence is `run > session > config`, and hard gates still apply after resolution.
+- The optional helper bridge is browser-scoped, not a desktop agent. `browser` forces it to stand down, and `browser_with_helper` only evaluates it after the existing helper hard gates pass.
+- Browser fallback returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. When orchestration runs during fallback, decision evidence is recorded under `details.challengeOrchestration`.
+- `ProviderRegistry` is the only durable anti-bot pressure authority. Shared runtime and policy own fallback ordering and resume policy; provider modules only contribute extraction logic and `recoveryHints()`.
+- In scope: preserved sessions, normal browser controls, bounded interaction experimentation, human yield packets for secret or human-authority boundaries, and owned-environment fixtures that use vendor test keys only.
+- Out of scope: hidden bypasses, CAPTCHA-solving services, token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
+
 ---
 
 ## Recent Features
@@ -250,6 +257,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 - **Design canvas runtime is now shipped end-to-end** across core, CLI, tool, relay, and extension surfaces, including `canvas.html`, overlay control, preview feedback, starter or inventory flows, Figma import, and repo-backed framework-adapter code sync.
 - **Canvas token authoring and adapter-plugin validation are now first-class**: the extension token panel edits collections, modes, aliases, and bindings, while `scripts/canvas-competitive-validation.mjs` captures grouped evidence for adapters, token round-trip, inbox delivery, surface parity, and optional live Figma smoke.
 - **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
+- **Challenge automation override control is now first-class** across workflows and manager metadata via `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence and a browser-scoped helper boundary.
 - **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
 
 ### v0.0.16
@@ -289,6 +297,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 - **Click** - Click elements by ref
 - **Type** - Enter text into inputs
 - **Select** - Choose dropdown options
+- **Upload** - Send files to a file input or chooser by ref
 - **Scroll** - Scroll page or elements
 - **Wait** - Wait for selectors or navigation
 
@@ -296,12 +305,14 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 - **Console Capture** - Monitor console.log, errors, warnings
 - **Network Tracking** - Request/response metadata (method, url, status)
 - **Debug Trace Snapshot** - Combined page/console/network/exception diagnostics with blocker metadata
-- **Screenshot** - Viewport PNG screenshot (file or base64)
+- **Screenshot** - Visible, ref-targeted, or full-page PNG capture (file or base64)
+- **Dialog** - Inspect or handle JavaScript dialogs per target
 - **Performance** - Page load metrics
 
 ### Session & Macro Utilities
 - **Cookie Import** - Validate and import cookies into active sessions
 - **Cookie List** - First-class cookie inspection with optional URL filters
+- **Session Inspector** - Session-first diagnostics with relay health, trace proof, and a suggested next action
 - **Macro Resolve/Execute** - Expand macro expressions into provider actions with optional execution
 
 ### Export & Clone
@@ -313,10 +324,10 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **49 tools** organized by category:
+OpenDevBrowser provides **57 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
-Terminal help now mirrors the live command and tool surface directly from `src/cli/help.ts` and `src/tools/surface.ts`: `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
+Terminal help now mirrors the generated public-surface manifest rooted at `src/public-surface/source.ts` and refreshed by `scripts/generate-public-surface-manifest.mjs`. `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
 
 ### Session Management
 | Tool | Description |
@@ -327,6 +338,7 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_status` | Get session status and connection info (daemon status in hub mode) |
 | `opendevbrowser_cookie_import` | Import validated cookies into the current session |
 | `opendevbrowser_cookie_list` | List session cookies with optional URL filters |
+| `opendevbrowser_session_inspector` | Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action |
 
 ### Tab/Target Management
 | Tool | Description |
@@ -349,6 +361,7 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_goto` | Navigate to URL |
 | `opendevbrowser_wait` | Wait for load state or element |
 | `opendevbrowser_snapshot` | Capture page accessibility tree with refs |
+| `opendevbrowser_review` | Capture target-aware actionables plus status context before acting |
 | `opendevbrowser_click` | Click element by ref |
 | `opendevbrowser_hover` | Hover element by ref |
 | `opendevbrowser_press` | Press a keyboard key (optionally focusing a ref) |
@@ -358,6 +371,11 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_select` | Select dropdown option by ref |
 | `opendevbrowser_scroll` | Scroll page or element |
 | `opendevbrowser_scroll_into_view` | Scroll element into view by ref |
+| `opendevbrowser_upload` | Upload files to a file input or chooser by ref |
+| `opendevbrowser_pointer_move` | Move the pointer to viewport coordinates |
+| `opendevbrowser_pointer_down` | Press a mouse button at viewport coordinates |
+| `opendevbrowser_pointer_up` | Release a mouse button at viewport coordinates |
+| `opendevbrowser_pointer_drag` | Drag between viewport coordinates |
 | `opendevbrowser_run` | Execute multiple actions in sequence |
 
 ### DOM Inspection
@@ -378,6 +396,7 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 | `opendevbrowser_network_poll` | Poll network requests since sequence |
 | `opendevbrowser_debug_trace_snapshot` | Capture a unified page + console + network + exception diagnostic bundle |
 | `opendevbrowser_screenshot` | Capture page screenshot |
+| `opendevbrowser_dialog` | Inspect or handle a JavaScript dialog |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
 
@@ -405,14 +424,14 @@ Terminal help now mirrors the live command and tool surface directly from `src/c
 ### Skills
 | Tool | Description |
 |------|-------------|
-| `opendevbrowser_skill_list` | List available skills |
-| `opendevbrowser_skill_load` | Load a skill by name (with optional topic filter) |
+| `opendevbrowser_skill_list` | List available skills before choosing a local workflow lane |
+| `opendevbrowser_skill_load` | Load a skill by name and topic, especially the bundled quick start |
 
 ---
 
 ## Bundled Skills
 
-OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs** plus shared `research` and `shopping` compatibility directories that are synced by the installer:
+OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs**. Install, update, and uninstall own the managed skill lifecycle across OpenCode, Codex, ClaudeCode, and AmpCLI targets:
 
 | Skill | Purpose |
 |-------|---------|
@@ -427,7 +446,9 @@ OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs** plus shared `r
 | `opendevbrowser-product-presentation-asset` | Product screenshot/copy asset collection for presentation pipelines |
 
 Installer note:
-- `--skills-global` and `--skills-local` copy every directory under `skills/`, including the shared `research/` and `shopping/` packs.
+- `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs into managed global or project-local agent directories.
+- Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
+- Uninstall removes managed canonical packs and only prunes legacy `research` or `shopping` leftovers when those directories are empty and clearly obsolete.
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)
@@ -439,8 +460,10 @@ Skills are discovered from (priority order):
 7. `.amp/skills/` (AmpCLI project compatibility)
 8. `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
 9. Custom paths via `skillPaths` config
+10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
 
 Load a skill: `opendevbrowser_skill_load` with `name` and optional `topic` filter.
+`opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` are local onboarding helpers, so they do not require a browser session, relay, or daemon bootstrap.
 
 ---
 
@@ -586,6 +609,12 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
     "cookieSource": {
       "type": "file",
       "value": "~/.config/opencode/opendevbrowser.provider-cookies.json"
+    },
+    "challengeOrchestration": {
+      "mode": "browser",
+      "optionalComputerUseBridge": {
+        "enabled": false
+      }
     }
   },
 
@@ -632,7 +661,7 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 49 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 57 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -641,11 +670,11 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | Install/runtime | `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run` |
 | Session/connection | `launch`, `connect`, `disconnect`, `status`, `cookie-import`, `cookie-list` |
 | Navigation | `goto`, `wait`, `snapshot` |
-| Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view` |
+| Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
 | DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
 | Design canvas | `canvas` |
-| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `macro-resolve`, `annotate`, `rpc` |
+| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc` |
 
 ### Install/Management
 
@@ -671,6 +700,7 @@ Start the daemon with `npx opendevbrowser serve`, then use:
 | `npx opendevbrowser connect` | Connect via relay or direct CDP endpoint |
 | `npx opendevbrowser disconnect` | Disconnect session |
 | `npx opendevbrowser status` | Show session status |
+| `npx opendevbrowser session-inspector --session-id <id>` | Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action |
 | `npx opendevbrowser goto` | Navigate to URL |
 | `npx opendevbrowser wait` | Wait for load or element |
 | `npx opendevbrowser snapshot` | Capture snapshot with refs |
@@ -686,6 +716,14 @@ Workflow cookie controls (`research run`, `shopping run`, `product-video run`):
 - Defaults come from `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).
 - Per-run overrides: `--use-cookies`, `--cookie-policy-override` (alias `--cookie-policy`).
 - `auto` is non-blocking when cookies are unavailable; `required` fails fast with `reasonCode=auth_required`.
+
+Workflow challenge controls (`research run`, `shopping run`, `product-video run`):
+- Per-run override: `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode`.
+- Effective precedence is `run > session > config`.
+- `off` keeps detection and reporting active but stands down challenge actions.
+- `browser` allows browser-native lanes only and keeps the helper bridge disabled.
+- `browser_with_helper` keeps browser-native lanes first and evaluates the browser-scoped helper bridge second when hard gates pass.
+- The helper bridge remains browser-scoped and is not a desktop agent.
 
 ---
 
@@ -723,6 +761,7 @@ Release checklist: [docs/DISTRIBUTION_PLAN.md](docs/DISTRIBUTION_PLAN.md)
 Documentation index: [docs/README.md](docs/README.md)
 Frontend docs: [docs/FRONTEND.md](docs/FRONTEND.md)
 Dependency inventory: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)
+Local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` stay uncommitted; `.gitignore` is authoritative.
 
 ---
 
@@ -789,7 +828,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 49 opendevbrowser_* tool definitions
+│   ├── tools/        # 57 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)

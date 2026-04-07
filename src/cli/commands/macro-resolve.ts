@@ -2,6 +2,7 @@ import type { ParsedArgs } from "../args";
 import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
+import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 
 type MacroResolveArgs = {
   expression?: string;
@@ -9,6 +10,7 @@ type MacroResolveArgs = {
   includeCatalog?: boolean;
   execute?: boolean;
   timeoutMs?: number;
+  challengeAutomationMode?: ChallengeAutomationMode;
 };
 
 const requireValue = (value: string | undefined, flag: string): string => {
@@ -64,6 +66,24 @@ const parseMacroResolveArgs = (rawArgs: string[]): MacroResolveArgs => {
       parsed.timeoutMs = parseNumberFlag(requireValue(arg.split("=", 2)[1], "--timeout-ms"), "--timeout-ms", { min: 1 });
       continue;
     }
+
+    if (arg === "--challenge-automation-mode") {
+      const value = requireValue(rawArgs[index + 1], "--challenge-automation-mode");
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--challenge-automation-mode=")) {
+      const value = requireValue(arg.split("=", 2)[1], "--challenge-automation-mode");
+      if (!isChallengeAutomationMode(value)) {
+        throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
+      }
+      parsed.challengeAutomationMode = value;
+      continue;
+    }
   }
 
   return parsed;
@@ -80,7 +100,8 @@ export async function runMacroResolve(args: ParsedArgs) {
     defaultProvider: parsed.defaultProvider,
     includeCatalog: parsed.includeCatalog ?? false,
     execute: parsed.execute ?? false,
-    ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {})
+    ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {}),
+    ...(parsed.challengeAutomationMode ? { challengeAutomationMode: parsed.challengeAutomationMode } : {})
   };
   const result = typeof parsed.timeoutMs === "number"
     ? await callDaemon("macro.resolve", params, { timeoutMs: parsed.timeoutMs })

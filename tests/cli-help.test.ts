@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS, VALID_FLAGS } from "../src/cli/args";
+import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import { registerCommand } from "../src/cli/commands/registry";
-import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_TOOL_ENTRIES, getHelpText } from "../src/cli/help";
+import {
+  COMMAND_HELP_DETAILS,
+  HELP_COMMAND_GROUPS,
+  HELP_FLAG_GROUPS,
+  HELP_ONBOARDING_ENTRIES,
+  HELP_TOOL_ENTRIES,
+  getHelpText
+} from "../src/cli/help";
 
 function registerAllCommands(): void {
   for (const command of CLI_COMMANDS) {
@@ -56,13 +64,47 @@ describe("CLI help surface", () => {
       seen.add(entry.name);
     }
 
-    expect(seen.size).toBe(49);
+    expect(seen.size).toBe(HELP_TOOL_ENTRIES.length);
+  });
+
+  it("defines an explicit onboarding block for first-contact agents", () => {
+    const labels = HELP_ONBOARDING_ENTRIES.map((entry) => entry.label);
+
+    expect(labels).toEqual([
+      "prompting_guide",
+      "skill_load",
+      "validated_lanes",
+      "skill_list",
+      "research_reliable",
+      "shopping_reliable",
+      "happy_path",
+      "docs"
+    ]);
+    expect(HELP_ONBOARDING_ENTRIES[0]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.promptingGuide);
+    expect(HELP_ONBOARDING_ENTRIES[1]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillLoad);
+    expect(HELP_ONBOARDING_ENTRIES[2]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedLanes);
+    expect(HELP_ONBOARDING_ENTRIES[2]?.details).toHaveLength(1);
+    expect(HELP_ONBOARDING_ENTRIES[3]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillList);
+    expect(HELP_ONBOARDING_ENTRIES[4]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedResearch);
+    expect(HELP_ONBOARDING_ENTRIES[5]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedShopping);
+    expect(HELP_ONBOARDING_ENTRIES[7]?.details).toHaveLength(1);
   });
 
   it("prints complete command, flag, and tool inventories with descriptions", () => {
     registerAllCommands();
     const output = getHelpText();
 
+    expect(output).toContain(`${onboardingMetadata.sectionTitle}:`);
+    expect(output).toContain(onboardingMetadata.sectionSummary);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.promptingGuide);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.skillLoad);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.validatedLanes);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.skillList);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.validatedResearch);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.validatedShopping);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
+    expect(output).toContain(onboardingMetadata.referencePaths.onboardingDoc);
+    expect(output).toContain(onboardingMetadata.referencePaths.skillDoc);
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);
     expect(output).toContain("Flag Inventory (all supported flags):");
     expect(output).toContain(`Tool Inventory (all ${HELP_TOOL_ENTRIES.length} opendevbrowser_* tools):`);
@@ -88,5 +130,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("docs/SURFACE_REFERENCE.md");
     expect(output).toContain("src/tools/index.ts");
     expect(output).toContain("src/cli/help.ts");
+    expect(output).toContain("src/public-surface/generated-manifest.ts");
+    expect(output).not.toContain("src/tools/surface.ts");
   });
 });
