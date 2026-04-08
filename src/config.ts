@@ -4,6 +4,7 @@ import * as path from "path";
 import * as os from "os";
 import { parse as parseJsonc, modify, applyEdits } from "jsonc-parser";
 import { CODE_SYNC_CAPABILITIES } from "./canvas/code-sync/types";
+import type { DesktopPermissionLevel } from "./desktop/types";
 import { generateSecureToken } from "./utils/crypto";
 import { writeFileAtomic } from "./utils/fs";
 import type { CanvasAdapterPluginDeclaration } from "./canvas/adapter-plugins/types";
@@ -45,6 +46,14 @@ export type DevtoolsConfig = {
 export type ExportConfig = {
   maxNodes: number;
   inlineStyles: boolean;
+};
+
+export type DesktopConfig = {
+  permissionLevel: DesktopPermissionLevel;
+  commandTimeoutMs: number;
+  auditArtifactsDir: string;
+  accessibilityMaxDepth: number;
+  accessibilityMaxChildren: number;
 };
 
 export type BlockerArtifactCapsConfig = {
@@ -268,6 +277,7 @@ export type OpenDevBrowserConfig = {
   fingerprint: FingerprintConfig;
   canary?: CanaryConfig;
   export: ExportConfig;
+  desktop: DesktopConfig;
   parallelism: ParallelismGovernorConfig;
   skills: SkillsConfig;
   continuity: ContinuityConfig;
@@ -450,6 +460,14 @@ const exportSchema = z.object({
   inlineStyles: z.boolean().default(true)
 });
 
+const desktopSchema = z.object({
+  permissionLevel: z.enum(["off", "observe"]).default("off"),
+  commandTimeoutMs: z.number().int().min(250).max(300000).default(10000),
+  auditArtifactsDir: z.string().min(1).default(".opendevbrowser/desktop-runtime"),
+  accessibilityMaxDepth: z.number().int().min(1).max(8).default(2),
+  accessibilityMaxChildren: z.number().int().min(1).max(500).default(25)
+}).default({});
+
 const parallelismSchema = z.object({
   floor: z.number().int().min(1).max(32).default(1),
   backpressureTimeoutMs: z.number().int().min(100).max(120000).default(5000),
@@ -620,6 +638,7 @@ const configSchema = z.object({
   fingerprint: fingerprintSchema.default({}),
   canary: canarySchema.default({}),
   export: exportSchema.default({}),
+  desktop: desktopSchema,
   parallelism: parallelismSchema.default({}),
   skills: skillsSchema.default({}),
   continuity: continuitySchema.default({}),

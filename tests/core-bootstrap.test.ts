@@ -89,6 +89,13 @@ const makeConfig = (overrides: Partial<OpenDevBrowserConfig> = {}): OpenDevBrows
   security: { allowRawCDP: false, allowNonLocalCdp: false, allowUnsafeExport: false },
   devtools: { showFullUrls: false, showFullConsole: false },
   export: { maxNodes: 1000, inlineStyles: true },
+  desktop: {
+    permissionLevel: "off",
+    commandTimeoutMs: 10000,
+    auditArtifactsDir: ".opendevbrowser/desktop-runtime",
+    accessibilityMaxDepth: 2,
+    accessibilityMaxChildren: 25
+  },
   skills: { nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   continuity: { enabled: true, filePath: "/tmp/continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 8787,
@@ -122,17 +129,21 @@ describe("createOpenDevBrowserCore", () => {
   it("creates core components with provided config", async () => {
     const { createOpenDevBrowserCore } = await import("../src/core");
     const config = makeConfig();
+    const expectedConfig = resolveConfig(config);
     const core = createOpenDevBrowserCore({ directory: "/tmp/root", config });
 
     expect(core.cacheRoot).toBe("/tmp/root");
-    expect(core.config).toBe(config);
+    expect(core.config).toEqual(expectedConfig);
+    expect(core.config).not.toBe(config);
     expect(managerInstances[0]?.cacheRoot).toBe("/tmp/root");
-    expect(managerInstances[0]?.config).toBe(config);
+    expect(managerInstances[0]?.config).toBe(core.config);
     expect(runnerInstances.length).toBe(1);
     expect(skillsInstances[0]?.paths).toEqual([]);
     expect(lastRelay?.setToken).toHaveBeenCalledWith("token");
     expect(lastRelay?.setStoreAgentPayloadHandler).toHaveBeenCalledTimes(1);
     expect(core.agentInbox).toBeTruthy();
+    expect(core.desktopRuntime).toBeTruthy();
+    expect(core.automationCoordinator).toBeTruthy();
     expect(typeof core.getExtensionPath).toBe("function");
   });
 

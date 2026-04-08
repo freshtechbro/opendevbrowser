@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { resolveConfig } from "../src/config";
 import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../src/browser/manager-types";
 import { OpsRequestTimeoutError } from "../src/browser/ops-client";
 import { ProviderRuntimeError } from "../src/providers/errors";
@@ -4080,5 +4081,24 @@ describe("provider runtime factory", () => {
     });
 
     expect(setChallengeOrchestrator).toHaveBeenCalledWith(challengeOrchestrator);
+  });
+
+  it("keeps desktop config out of browser runtime init", () => {
+    const config = resolveConfig({
+      desktop: {
+        permissionLevel: "observe",
+        commandTimeoutMs: 1500,
+        auditArtifactsDir: ".opendevbrowser/desktop-runtime",
+        accessibilityMaxDepth: 3,
+        accessibilityMaxChildren: 30
+      }
+    });
+
+    const runtimeInit = buildRuntimeInitFromConfig(config);
+
+    expect(runtimeInit).not.toHaveProperty("desktop");
+    expect(runtimeInit.challengeAutomationModeDefault).toBe(
+      config.providers?.challengeOrchestration.mode
+    );
   });
 });

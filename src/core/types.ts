@@ -17,6 +17,8 @@ import type {
 } from "../providers/types";
 import type { RelayServer } from "../relay/relay-server";
 import type { SkillLoader } from "../skills/skill-loader";
+import type { AutomationCoordinatorLike } from "../automation/coordinator";
+import type { DesktopRuntimeLike } from "../desktop";
 
 export type CoreOptions = {
   directory: string;
@@ -35,6 +37,8 @@ export type OpenDevBrowserCore = {
   annotationManager: AnnotationManager;
   runner: ScriptRunner;
   skills: SkillLoader;
+  desktopRuntime: DesktopRuntimeLike;
+  automationCoordinator: AutomationCoordinatorLike;
   providerRuntime: {
     search: (
       input: ProviderCallResultByOperation["search"],
