@@ -81,7 +81,7 @@ Legitimacy boundary:
 This section is roadmap-only for any public desktop-agent claim. Shipped builds now include an internal sibling desktop observation runtime plus a top-level automation coordinator, but they remain non-public, observation-only, and permission-off by default.
 
 - The shipped internal runtime already uses a separate contract from `ChallengeRuntimeHandle`, `BrowserManagerLike`, and `/ops`; any future public desktop agent must preserve that separation.
-- Core composition creates `desktopRuntime` beside `BrowserManager` and `OpsBrowserManager`, then routes any desktop observation back through browser-owned review before surfacing completion.
+- Core composition creates `desktopRuntime` beside `BrowserManager` and `OpsBrowserManager`, then exposes a non-public `observeDesktopAndVerify` entrypoint that routes desktop observation back through browser-owned review before surfacing completion.
 - Minimum capability bar before any desktop-agent claim is allowed:
   - OS-level input actuation outside the browser
   - cross-window and cross-app focus management

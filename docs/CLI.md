@@ -163,7 +163,7 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority used by policy, runtime routing, and workflow summaries. Provider modules only contribute extraction logic and optional `recoveryHints()`.
 - Direct browser, `/ops`, and provider fallback flows share one bounded challenge plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded browser-native interaction experimentation before yielding.
 - The optional helper bridge is browser-scoped, not a desktop agent. `browser` keeps it disabled and `browser_with_helper` only evaluates it after the existing hard gates pass.
-- Separate `desktop.*` config controls the shipped internal sibling desktop observation runtime. It stays permission-off by default, adds no public CLI command family, and is never enabled by `challengeAutomationMode`.
+- Separate `desktop.*` config controls the shipped internal sibling desktop observation runtime. It stays permission-off by default, adds no public CLI command family, is never enabled by `challengeAutomationMode`, and only the internal core entrypoint composes observation with browser review.
 - Provider and workflow auto-resume still happen only after manager-owned verification clears the blocker.
 - In scope: preserved sessions, visual observation loops, low-level pointer controls, bounded interaction experimentation, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
 - Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
@@ -1628,6 +1628,13 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
       "enableBrowserFallback": false,
       "ytdlpTimeoutMs": 10000
     }
+  },
+  "desktop": {
+    "permissionLevel": "off",
+    "commandTimeoutMs": 10000,
+    "auditArtifactsDir": ".opendevbrowser/desktop-runtime",
+    "accessibilityMaxDepth": 2,
+    "accessibilityMaxChildren": 25
   },
   "daemonPort": 8788,
   "daemonToken": "auto-generated-on-first-run",
