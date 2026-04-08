@@ -73,13 +73,15 @@ Legitimacy boundary:
 - `BrowserManager` and `OpsBrowserManager` remain the only surfaced challenge metadata writers.
 - `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can expose `mode`, `source`, `standDownReason`, and helper eligibility so stand-down decisions stay explicit.
 - The optional helper bridge is browser-scoped, not a desktop agent. `browser` disables it, while `browser_with_helper` only evaluates it when the existing hard gates pass.
+- Shipped builds keep desktop entitlement separate under `desktop.*`; that sibling runtime is never granted by `challengeAutomationMode`.
 - Governed advanced lanes stay separately entitlement-gated and are never granted by `challengeAutomationMode`.
 
 ### Roadmap-only desktop boundary
 
-This section is roadmap-only and non-shipping.
+This section is roadmap-only for any public desktop-agent claim. Shipped builds now include an internal sibling desktop observation runtime plus a top-level automation coordinator, but they remain non-public, observation-only, and permission-off by default.
 
-- A future desktop agent must use a new runtime contract separate from `ChallengeRuntimeHandle`.
+- The shipped internal runtime already uses a separate contract from `ChallengeRuntimeHandle`, `BrowserManagerLike`, and `/ops`; any future public desktop agent must preserve that separation.
+- Core composition creates `desktopRuntime` beside `BrowserManager` and `OpsBrowserManager`, then routes any desktop observation back through browser-owned review before surfacing completion.
 - Minimum capability bar before any desktop-agent claim is allowed:
   - OS-level input actuation outside the browser
   - cross-window and cross-app focus management
@@ -88,7 +90,7 @@ This section is roadmap-only and non-shipping.
   - bounded workspace and abort controls
   - audit artifacts and replay-safe execution logs
   - a typed failure taxonomy separate from the current helper bridge
-- Until that runtime exists, public docs and surfaces must not describe the current helper bridge as a desktop agent.
+- Until a public desktop plane exists, public docs and surfaces must not describe the current helper bridge as a desktop agent or imply that `/ops` is a desktop control channel.
 
 ---
 
@@ -108,7 +110,8 @@ This section is roadmap-only and non-shipping.
          ▼                  ▼                  ▼                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Core Runtime (src/core/)                    │
-│  bootstrap.ts → wires managers, injects ToolDeps              │
+│  bootstrap.ts → wires managers, sibling desktop runtime,      │
+│                   automation coordinator, injects ToolDeps     │
 └────────┬────────────────────────────────────────────────────────┘
          │
     ┌────┴────┬─────────────┬──────────────┬──────────┬────────────┬────────────┬────────────┐

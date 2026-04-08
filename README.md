@@ -243,6 +243,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 - Direct browser, `/ops`, and provider fallback paths now share one bounded challenge orchestration plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded interaction exploration before yielding to a human.
 - Workflow and manager callers can set `challengeAutomationMode` to `off`, `browser`, or `browser_with_helper`. Effective precedence is `run > session > config`, and hard gates still apply after resolution.
 - The optional helper bridge is browser-scoped, not a desktop agent. `browser` forces it to stand down, and `browser_with_helper` only evaluates it after the existing helper hard gates pass.
+- Shipped builds also compose an internal sibling desktop observation runtime under separate `desktop.*` config. It is permission-off by default, does not widen `/ops` or `ChallengeRuntimeHandle`, and any desktop observation still routes back through browser-owned review.
 - Browser fallback returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. When orchestration runs during fallback, decision evidence is recorded under `details.challengeOrchestration`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Shared runtime and policy own fallback ordering and resume policy; provider modules only contribute extraction logic and `recoveryHints()`.
 - In scope: preserved sessions, normal browser controls, bounded interaction experimentation, human yield packets for secret or human-authority boundaries, and owned-environment fixtures that use vendor test keys only.
@@ -258,6 +259,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 - **Canvas token authoring and adapter-plugin validation are now first-class**: the extension token panel edits collections, modes, aliases, and bindings, while `scripts/canvas-competitive-validation.mjs` captures grouped evidence for adapters, token round-trip, inbox delivery, surface parity, and optional live Figma smoke.
 - **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
 - **Challenge automation override control is now first-class** across workflows and manager metadata via `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence and a browser-scoped helper boundary.
+- **Desktop observation now ships as an internal sibling runtime** with separate `desktop.*` config, repo-local audit artifacts, browser-owned re-verification, and no public desktop CLI or `/ops` plane yet.
 - **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
 
 ### v0.0.16
