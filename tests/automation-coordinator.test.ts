@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserManagerLike, BrowserReviewResult } from "../src/browser/manager-types";
 import type {
+  DesktopAccessibilityValue,
   DesktopCaptureValue,
   DesktopFailureCode,
   DesktopResult,
@@ -87,6 +88,13 @@ const makeDesktopCapture = (capturePath: string): DesktopCaptureValue => ({
   capture: { path: capturePath, mimeType: "image/png" }
 });
 
+const makeAccessibilitySnapshot = (
+  window: DesktopWindowSummary = primaryWindow
+): DesktopAccessibilityValue => ({
+  window,
+  tree: { role: "AXWindow", children: [] }
+});
+
 const makeDesktopRuntime = (overrides: Partial<DesktopRuntimeLike> = {}): DesktopRuntimeLike => ({
   status: vi.fn(async () => desktopStatus),
   listWindows: vi.fn(async () => okResult({ windows: windowList }, "windows")),
@@ -100,13 +108,10 @@ const makeDesktopRuntime = (overrides: Partial<DesktopRuntimeLike> = {}): Deskto
         window: matchedWindow
       },
       "window",
-      [`/tmp/${windowId}.png`]
-    );
+        [`/tmp/${windowId}.png`]
+      );
   }),
-  accessibilitySnapshot: vi.fn(async () => okResult({
-    window: primaryWindow,
-    tree: { role: "AXWindow", children: [] }
-  }, "ax")),
+  accessibilitySnapshot: vi.fn(async () => okResult(makeAccessibilitySnapshot(), "ax")),
   ...overrides
 });
 
@@ -541,6 +546,123 @@ describe("automation coordinator", () => {
     expect(observation.windows).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "window-alpha" })])
     );
+  });
+
+  it("returns active-window accessibility when requested", async () => {
+    const { createAutomationCoordinator } = await import("../src/automation/coordinator");
+    const activeWindow = vi.fn(async () => okResult(secondaryWindow, "active-window-accessibility"));
+    const accessibilitySnapshot = vi.fn(async (_reason: string, windowId?: string) =>
+      okResult(makeAccessibilitySnapshot(windowId === "window-beta" ? secondaryWindow : primaryWindow), "ax-active")
+    );
+    const desktopRuntime = makeDesktopRuntime({
+      activeWindow,
+      accessibilitySnapshot
+    });
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime
+    });
+
+    const observation = await coordinator.requestDesktopObservation({
+      reason: "active-window-accessibility",
+      accessibility: "active_window",
+      includeActiveWindow: true
+    });
+
+    expect(activeWindow).toHaveBeenCalledTimes(1);
+    expect(accessibilitySnapshot).toHaveBeenCalledWith("active-window-accessibility", "window-beta");
+    expect(observation).toMatchObject({
+      activeWindow: secondaryWindow,
+      accessibility: {
+        window: secondaryWindow,
+        tree: { role: "AXWindow", children: [] }
+      }
+    });
+  });
+
+  it("omits accessibility when no active window can be resolved", async () => {
+    const { createAutomationCoordinator } = await import("../src/automation/coordinator");
+    const activeWindow = vi.fn(async () => okResult<DesktopWindowSummary | null>(null, "missing-active-window-accessibility"));
+    const accessibilitySnapshot = vi.fn();
+    const desktopRuntime = makeDesktopRuntime({
+      activeWindow,
+      accessibilitySnapshot
+    });
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime
+    });
+
+    const observation = await coordinator.requestDesktopObservation({
+      reason: "missing-active-window-accessibility",
+      accessibility: "active_window"
+    });
+
+    expect(activeWindow).toHaveBeenCalledWith("missing-active-window-accessibility");
+    expect(accessibilitySnapshot).not.toHaveBeenCalled();
+    expect(observation).not.toHaveProperty("accessibility");
+  });
+
+  it("routes hinted-window accessibility through sibling runtime window discovery", async () => {
+    const { createAutomationCoordinator } = await import("../src/automation/coordinator");
+    const listWindows = vi.fn(async () => okResult({ windows: windowList }, "hinted-accessibility-windows"));
+    const accessibilitySnapshot = vi.fn(async (_reason: string, windowId?: string) =>
+      okResult(makeAccessibilitySnapshot(windowId === "window-alpha" ? primaryWindow : secondaryWindow), "ax-hinted")
+    );
+    const desktopRuntime = makeDesktopRuntime({
+      listWindows,
+      accessibilitySnapshot
+    });
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime
+    });
+
+    const observation = await coordinator.requestDesktopObservation({
+      reason: "hinted-window-accessibility",
+      targetWindowHint: {
+        ownerName: "Google Chrome",
+        title: "ChatGPT"
+      },
+      accessibility: "hinted_window",
+      includeWindows: true
+    });
+
+    expect(listWindows).toHaveBeenCalledTimes(1);
+    expect(accessibilitySnapshot).toHaveBeenCalledWith("hinted-window-accessibility", "window-alpha");
+    expect(observation.windows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "window-alpha" })])
+    );
+    expect(observation.accessibility).toMatchObject({
+      window: primaryWindow,
+      tree: { role: "AXWindow", children: [] }
+    });
+  });
+
+  it("omits accessibility when the sibling runtime accessibility lookup fails", async () => {
+    const { createAutomationCoordinator } = await import("../src/automation/coordinator");
+    const accessibilitySnapshot = vi.fn(async () =>
+      failResult<DesktopAccessibilityValue>(
+        "desktop_accessibility_unavailable",
+        "accessibility unavailable",
+        "ax-failed"
+      )
+    );
+    const desktopRuntime = makeDesktopRuntime({
+      accessibilitySnapshot
+    });
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime
+    });
+
+    const observation = await coordinator.requestDesktopObservation({
+      reason: "active-window-accessibility-failed",
+      accessibility: "active_window"
+    });
+
+    expect(accessibilitySnapshot).toHaveBeenCalledWith("active-window-accessibility-failed", "window-alpha");
+    expect(observation).not.toHaveProperty("accessibility");
   });
 
   it("returns browser-owned verification after desktop observation", async () => {

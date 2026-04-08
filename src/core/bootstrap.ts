@@ -101,6 +101,32 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     baseManager.closeAll().catch(() => {});
   };
 
+  const observeDesktopAndVerify: OpenDevBrowserCore["observeDesktopAndVerify"] = async (input) => {
+    const {
+      browserSessionId,
+      targetId,
+      maxChars,
+      cursor,
+      ...request
+    } = input;
+    const observation = await automationCoordinator.requestDesktopObservation({
+      ...request,
+      browserSessionId
+    });
+    const verification = await automationCoordinator.verifyAfterDesktopObservation({
+      browserSessionId,
+      targetId,
+      observationId: observation.observationId,
+      maxChars,
+      ...(typeof cursor === "string" ? { cursor } : {})
+    });
+
+    return {
+      observation,
+      verification
+    };
+  };
+
   return {
     cacheRoot,
     config,
@@ -114,6 +140,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     skills,
     desktopRuntime,
     automationCoordinator,
+    observeDesktopAndVerify,
     providerRuntime,
     ...(browserFallbackPort ? { browserFallbackPort } : {}),
     relay,

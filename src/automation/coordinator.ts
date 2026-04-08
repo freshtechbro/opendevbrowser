@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { BrowserManagerLike, BrowserReviewResult } from "../browser/manager-types";
 import { buildBrowserReviewResult } from "../browser/review-surface";
 import type {
+  DesktopAccessibilityValue,
   DesktopCaptureValue,
   DesktopRuntimeLike,
   DesktopRuntimeStatus,
   DesktopWindowSummary
 } from "../desktop";
+
+type WindowScopedObservationMode = "active_window" | "hinted_window";
 
 export type DesktopObservationRequest = {
   reason: string;
@@ -17,7 +20,8 @@ export type DesktopObservationRequest = {
   };
   includeWindows?: boolean;
   includeActiveWindow?: boolean;
-  capture?: "none" | "desktop" | "active_window" | "hinted_window";
+  capture?: "none" | "desktop" | WindowScopedObservationMode;
+  accessibility?: "none" | WindowScopedObservationMode;
 };
 
 export type DesktopObservationEnvelope = {
@@ -28,6 +32,7 @@ export type DesktopObservationEnvelope = {
   windows?: DesktopWindowSummary[];
   activeWindow?: DesktopWindowSummary | null;
   capture?: DesktopCaptureValue;
+  accessibility?: DesktopAccessibilityValue;
 };
 
 export type BrowserVerificationEnvelope = {
@@ -91,8 +96,14 @@ export function createAutomationCoordinator(
       const status = await args.desktopRuntime.status();
       const requestedAt = new Date().toISOString();
       const observationId = randomUUID();
-      const includeWindows = request.includeWindows || request.capture === "hinted_window";
-      const includeActiveWindow = request.includeActiveWindow || request.capture === "active_window";
+      const includeWindows =
+        request.includeWindows ||
+        request.capture === "hinted_window" ||
+        request.accessibility === "hinted_window";
+      const includeActiveWindow =
+        request.includeActiveWindow ||
+        request.capture === "active_window" ||
+        request.accessibility === "active_window";
 
       const windowsResult = includeWindows
         ? await args.desktopRuntime.listWindows(request.reason)
@@ -104,34 +115,52 @@ export function createAutomationCoordinator(
         : null;
       const activeWindow = activeWindowResult?.ok ? activeWindowResult.value : undefined;
 
+      const resolveScopedWindow = async (
+        mode: WindowScopedObservationMode
+      ): Promise<DesktopWindowSummary | null> => {
+        if (mode === "active_window") {
+          const resolvedActiveWindow =
+            activeWindowResult ?? await args.desktopRuntime.activeWindow(request.reason);
+          return resolvedActiveWindow.ok ? resolvedActiveWindow.value : null;
+        }
+        const knownWindows = windowsResult ?? await args.desktopRuntime.listWindows(request.reason);
+        if (!knownWindows.ok) {
+          return null;
+        }
+        return findHintedWindow(knownWindows.value.windows, request.targetWindowHint);
+      };
+
       let capture: DesktopCaptureValue | undefined;
       if (request.capture === "desktop") {
         const captureResult = await args.desktopRuntime.captureDesktop({ reason: request.reason });
         if (captureResult.ok) {
           capture = captureResult.value;
         }
-      } else if (request.capture === "active_window") {
-        const resolvedActiveWindow = activeWindowResult ?? await args.desktopRuntime.activeWindow(request.reason);
-        if (resolvedActiveWindow.ok && resolvedActiveWindow.value) {
-          const captureResult = await args.desktopRuntime.captureWindow(
-            resolvedActiveWindow.value.id,
-            { reason: request.reason }
-          );
+      } else if (request.capture === "active_window" || request.capture === "hinted_window") {
+        const scopedWindow = await resolveScopedWindow(request.capture);
+        if (scopedWindow) {
+          const captureResult = await args.desktopRuntime.captureWindow(scopedWindow.id, {
+            reason: request.reason
+          });
           if (captureResult.ok) {
             capture = captureResult.value;
           }
         }
-      } else if (request.capture === "hinted_window") {
-        const knownWindows = windowsResult ?? await args.desktopRuntime.listWindows(request.reason);
-        if (knownWindows.ok) {
-          const hintedWindow = findHintedWindow(knownWindows.value.windows, request.targetWindowHint);
-          if (hintedWindow) {
-            const captureResult = await args.desktopRuntime.captureWindow(hintedWindow.id, {
-              reason: request.reason
-            });
-            if (captureResult.ok) {
-              capture = captureResult.value;
-            }
+      }
+
+      let accessibility: DesktopAccessibilityValue | undefined;
+      if (
+        request.accessibility === "active_window" ||
+        request.accessibility === "hinted_window"
+      ) {
+        const scopedWindow = await resolveScopedWindow(request.accessibility);
+        if (scopedWindow) {
+          const accessibilityResult = await args.desktopRuntime.accessibilitySnapshot(
+            request.reason,
+            scopedWindow.id
+          );
+          if (accessibilityResult.ok) {
+            accessibility = accessibilityResult.value;
           }
         }
       }
@@ -143,7 +172,8 @@ export function createAutomationCoordinator(
         status,
         ...(windows ? { windows } : {}),
         ...(typeof activeWindow !== "undefined" ? { activeWindow } : {}),
-        ...(capture ? { capture } : {})
+        ...(capture ? { capture } : {}),
+        ...(accessibility ? { accessibility } : {})
       };
     },
 

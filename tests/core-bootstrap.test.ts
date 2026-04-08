@@ -144,6 +144,7 @@ describe("createOpenDevBrowserCore", () => {
     expect(core.agentInbox).toBeTruthy();
     expect(core.desktopRuntime).toBeTruthy();
     expect(core.automationCoordinator).toBeTruthy();
+    expect(typeof core.observeDesktopAndVerify).toBe("function");
     expect(typeof core.getExtensionPath).toBe("function");
   });
 
@@ -224,6 +225,115 @@ describe("createOpenDevBrowserCore", () => {
 
     expect(managerInstances[0]?.setChallengeOrchestrator).toHaveBeenCalled();
     expect(managerInstances[0]?.setChallengeOrchestrator.mock.calls[0]?.[0]).toBeDefined();
+  });
+
+  it("exposes a composed internal desktop observation and verification flow", async () => {
+    vi.resetModules();
+    const observation = {
+      observationId: "obs-1",
+      requestedAt: "2026-04-08T00:00:00.000Z",
+      browserSessionId: "browser-session",
+      status: {
+        platform: "darwin" as const,
+        permissionLevel: "observe" as const,
+        available: true,
+        capabilities: ["observe.windows"] as const,
+        auditArtifactsDir: "/tmp/desktop-audits"
+      }
+    };
+    const verification = {
+      observationId: "obs-1",
+      verifiedAt: "2026-04-08T00:00:01.000Z",
+      review: {
+        sessionId: "browser-session",
+        mode: "managed" as const,
+        snapshotId: "snapshot-1",
+        url: "https://example.com",
+        title: "Example Domain",
+        content: "[r1] heading \"Example Domain\"",
+        truncated: false,
+        refCount: 1,
+        timingMs: 1
+      }
+    };
+    const requestDesktopObservation = vi.fn(async () => observation);
+    const verifyAfterDesktopObservation = vi.fn(async () => verification);
+    const providerRuntime = {
+      search: vi.fn(),
+      fetch: vi.fn(),
+      crawl: vi.fn(),
+      post: vi.fn()
+    };
+    const desktopRuntime = {
+      status: vi.fn(),
+      listWindows: vi.fn(),
+      activeWindow: vi.fn(),
+      captureDesktop: vi.fn(),
+      captureWindow: vi.fn(),
+      accessibilitySnapshot: vi.fn()
+    };
+    const createCoreRuntimeAssemblies = vi.fn(() => ({
+      providerRuntime,
+      desktopRuntime,
+      automationCoordinator: {
+        desktopAvailable: vi.fn(),
+        requestDesktopObservation,
+        verifyAfterDesktopObservation
+      }
+    }));
+
+    vi.doMock("../src/core/runtime-assemblies", () => ({
+      createCoreRuntimeAssemblies
+    }));
+
+    try {
+      const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");
+      const core = createOpenDevBrowserCore({ directory: "/tmp/root", config: makeConfig() });
+      const result = await core.observeDesktopAndVerify({
+        reason: "live desktop proof",
+        browserSessionId: "browser-session",
+        targetId: "target-1",
+        targetWindowHint: {
+          ownerName: "Google Chrome",
+          title: "Example Domain"
+        },
+        includeWindows: true,
+        capture: "hinted_window",
+        accessibility: "hinted_window",
+        maxChars: 2048,
+        cursor: "80"
+      });
+
+      expect(createCoreRuntimeAssemblies).toHaveBeenCalledOnce();
+      expect(requestDesktopObservation).toHaveBeenCalledWith({
+        reason: "live desktop proof",
+        browserSessionId: "browser-session",
+        targetWindowHint: {
+          ownerName: "Google Chrome",
+          title: "Example Domain"
+        },
+        includeWindows: true,
+        capture: "hinted_window",
+        accessibility: "hinted_window"
+      });
+      expect(verifyAfterDesktopObservation).toHaveBeenCalledWith({
+        browserSessionId: "browser-session",
+        targetId: "target-1",
+        observationId: "obs-1",
+        maxChars: 2048,
+        cursor: "80"
+      });
+      expect(requestDesktopObservation.mock.invocationCallOrder[0]).toBeLessThan(
+        verifyAfterDesktopObservation.mock.invocationCallOrder[0]!
+      );
+      expect(result).toEqual({
+        observation,
+        verification
+      });
+    } finally {
+      vi.doUnmock("../src/core/runtime-assemblies");
+      vi.resetModules();
+    }
   });
 
   it("omits browserFallbackPort when the fallback factory returns undefined", async () => {
