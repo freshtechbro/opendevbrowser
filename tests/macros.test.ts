@@ -813,6 +813,68 @@ describe("macro parser + registry", () => {
     expect(result.records[0]?.attributes.links).toContain("https://x.com/acct/status/1");
   });
 
+  it("keeps concrete X post records when fallback warning text remains on the row", async () => {
+    const runtime = {
+      search: async () => ({
+        ok: true,
+        records: [
+          {
+            id: "x-fallback-post-record",
+            source: "social" as const,
+            provider: "social/x",
+            url: "https://x.com/acct/status/1",
+            title: "https://x.com/acct/status/1",
+            content: "JavaScript is disabled in this browser. Please enable JavaScript.",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            confidence: 0.8,
+            attributes: {
+              retrievalPath: "social:search:index",
+              links: [
+                "https://x.com/acct/status/1"
+              ]
+            }
+          }
+        ],
+        trace: { requestId: "req", ts: "2026-01-01T00:00:00.000Z" },
+        partial: false,
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        sourceSelection: "social" as const,
+        providerOrder: ["social/x"]
+      }),
+      fetch: async () => {
+        throw new Error("unused");
+      },
+      crawl: async () => {
+        throw new Error("unused");
+      },
+      post: async () => {
+        throw new Error("unused");
+      }
+    };
+
+    const result = await executeMacroResolution({
+      action: {
+        source: "social",
+        operation: "search",
+        input: {
+          query: "browser automation",
+          providerId: "social/x"
+        }
+      },
+      provenance: {
+        macro: "media.search",
+        provider: "social/x",
+        resolvedQuery: "browser automation",
+        pack: "core:media",
+        args: { positional: [], named: {} }
+      }
+    }, runtime);
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]?.url).toBe("https://x.com/acct/status/1");
+  });
+
   it("rejects shell-only X social macro results when only policy and help links are present", async () => {
     const runtime = {
       search: async () => ({

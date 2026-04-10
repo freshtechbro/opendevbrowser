@@ -249,7 +249,10 @@ const isUsableXSearchEvidenceUrl = (url: string): boolean => {
   const parsed = parseUrl(url);
   return parsed !== null
     && parsed.hostname.toLowerCase() === "x.com"
-    && /^\/[^/]+\/status\/\d+(?:\/|$)/.test(parsed.pathname.toLowerCase());
+    && (
+      /^\/[^/]+\/status\/\d+\/?$/.test(parsed.pathname.toLowerCase())
+      || /^\/i\/web\/status\/\d+\/?$/.test(parsed.pathname.toLowerCase())
+    );
 };
 
 const isUsableRedditSearchEvidenceUrl = (url: string): boolean => {
@@ -345,6 +348,8 @@ export const detectSocialSearchShell = (
 
   if (
     (platform === "x" || platform === "bluesky")
+    && parsed
+    && isFirstPartySearchRoute(platform, parsed)
     && SOCIAL_JS_REQUIRED_RE.test(combined)
     && !hasUsableFirstPartySearchEvidence(platform, parsed, links)
   ) {

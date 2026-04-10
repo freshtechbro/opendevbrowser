@@ -27,7 +27,7 @@ const PRODUCT_COPY_CUTOFF_PATTERNS = [
   /terms of use/i
 ] as const;
 const PRODUCT_FEATURE_NOISE_RE = /\b(?:frequently asked questions|footnote|carrier deals|connect to any carrier later|at&t|t-mobile|verizon|boost mobile|applecare|privacy policy|terms of use|returns?|refunds?|bill credits?|trade[- ]?in|required|monthly|\/mo\b|deductible|service fee|more ways to shop|shipper\s*\/\s*seller|main content|about this item|buying options|compare with similar items|search opt|cart shift|home shift|orders shift|add to cart shift|show\/hide shortcuts|image unavailable|brief content visible|full content visible|see more product details)\b/i;
-const PRODUCT_PRICE_NEGATIVE_CONTEXT_RE = /\b(?:save(?: up to)?|trade[- ]?in|bill credits?|credit|credits|off\b|monthly|per month|\/mo\b|deductible|service fee|activation fee)\b/i;
+const PRODUCT_PRICE_NEGATIVE_CONTEXT_RE = /\b(?:save(?: up to)?|trade[- ]?in|bill credits?|credit|credits|off\b|monthly|per month|payments?|\/mo\b|deductible|service fee|activation fee|finance options?|learn more|view your offers)\b/i;
 const PRODUCT_PRICE_POSITIVE_CONTEXT_RE = /\b(?:starting at|starts at|starting from|from|connect to any carrier later|buy now|buy for|unlocked)\b/i;
 const SHOPPING_INTENT_STOP_WORDS = new Set([
   "a",
@@ -244,7 +244,13 @@ export const parsePriceFromContent = (content: string | undefined): { amount: nu
   if (!normalized) return { amount: 0, currency: "USD" };
 
   const contextualMatches = [...normalized.matchAll(CONTEXTUAL_PRICE_TOKEN_RE)]
-    .map((match) => parseMatchedPrice(match[1]!, match[2]!))
+    .map((match) => {
+      const parsed = parseMatchedPrice(match[1]!, match[2]!);
+      if (!parsed) return null;
+      const index = match.index as number;
+      const context = normalized.slice(Math.max(0, index - 48), Math.min(normalized.length, index + match[0].length + 48));
+      return PRODUCT_PRICE_NEGATIVE_CONTEXT_RE.test(context) ? null : parsed;
+    })
     .filter((entry): entry is { amount: number; currency: string } => entry !== null)
     .sort((left, right) => left.amount - right.amount);
   if (contextualMatches.length > 0) {

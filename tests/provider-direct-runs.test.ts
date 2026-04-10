@@ -1216,6 +1216,51 @@ describe("provider-direct-runs", () => {
     expect(step.data.shellOnlyReasons).toEqual(["social_verification_wall"]);
   });
 
+  it("classifies structured community challenge failures as env-limited", () => {
+    const step = evaluateMacroCase({
+      id: "provider.community.search.keyword",
+      providerId: "community/default",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 1,
+      detail: "Detected anti-bot challenge while retrieving https://www.reddit.com/search/?q=browser+automation+failures",
+      json: {
+        data: {
+          execution: {
+            records: [],
+            failures: [
+              {
+                error: {
+                  code: "unavailable",
+                  reasonCode: "challenge_detected",
+                  details: {
+                    browserFallbackReasonCode: "challenge_detected"
+                  }
+                }
+              }
+            ],
+            meta: {
+              providerOrder: ["community/default"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("reason_codes=challenge_detected");
+    expect(step.data).toMatchObject({
+      reasonCodes: ["challenge_detected"],
+      failureSamples: [
+        {
+          code: "unavailable",
+          reasonCode: "challenge_detected"
+        }
+      ],
+      browserFallbackReasonCode: "challenge_detected"
+    });
+  });
+
   it("keeps non-zero truncated fetch shell failures blocking", () => {
     const step = evaluateMacroCase({
       id: "provider.web.fetch.url",

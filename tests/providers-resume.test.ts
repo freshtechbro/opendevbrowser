@@ -846,6 +846,24 @@ describe("provider runtime resume", () => {
     });
   });
 
+  it("rejects workflow resume envelopes whose kind does not match the suspended intent", async () => {
+    const runtime = new ProviderRuntime();
+
+    await expect(runtime.resumeChallengeIntent(makeChallenge({
+      suspendedIntent: {
+        kind: "workflow.research",
+        input: workflowResumeInput("shopping", {
+          query: "wireless mouse",
+          mode: "json",
+          providers: ["shopping/amazon"]
+        })
+      }
+    }))).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "Workflow resume payload kind mismatch. Expected research but received shopping."
+    });
+  });
+
   it("rejects manual or unresolved challenges before replay", async () => {
     const runtime = new ProviderRuntime();
 

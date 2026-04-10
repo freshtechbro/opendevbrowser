@@ -7,6 +7,7 @@ import {
 } from "../src/providers/shopping-workflow";
 import {
   extractShoppingOffer,
+  isLikelyOfferRecord,
   parsePriceFromContent,
   postprocessShoppingWorkflow,
   rankOffers,
@@ -228,6 +229,17 @@ describe("shopping workflow seam extraction", () => {
     });
     expect(parsePriceFromContent("Buy now for USD 27 . 99 with free shipping")).toEqual({
       amount: 27.99,
+      currency: "USD"
+    });
+  });
+
+  it("ignores installment financing copy when a full product price is also present", () => {
+    expect(parsePriceFromContent([
+      "Main Content Logitech - MX Master 3S Bluetooth Edition Performance Wireless Optical Mouse with Ultra-fast Scrolling and Quiet Clicks - Wireless - Black",
+      "Back to top $86.99 $86.99 The price was $99.99 Add to cart",
+      "or 4 payments starting at $21.75 with Learn more Finance Options View your offers"
+    ].join(" "))).toEqual({
+      amount: 86.99,
       currency: "USD"
     });
   });
@@ -692,6 +704,96 @@ describe("shopping workflow seam extraction", () => {
     }), now);
 
     expect(rankOffers([accessoryOffer, directOffer], "best_deal", "portable monitor")[0]?.url).toBe(directOffer.url);
+  });
+
+  it("keeps already-direct matches ahead of accessory rows during best-deal ranking", () => {
+    const now = new Date("2026-04-01T00:00:00.000Z");
+    const directOffer = extractShoppingOffer(makeRecord({
+      id: "direct-first-rank",
+      url: "https://www.amazon.com/dp/B0DIRECTKEEP",
+      title: "Portable Monitor 15.6 inch",
+      content: "$149.99",
+      attributes: {
+        retrievalPath: "shopping:search:result-card",
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "direct-first-rank",
+          title: "Portable Monitor 15.6 inch",
+          url: "https://www.amazon.com/dp/B0DIRECTKEEP",
+          price: {
+            amount: 149.99,
+            currency: "USD",
+            retrieved_at: isoHoursAgo(1)
+          },
+          shipping: {
+            amount: 0,
+            currency: "USD",
+            notes: "free"
+          },
+          availability: "in_stock",
+          rating: 4.4,
+          reviews_count: 82
+        }
+      }
+    }), now);
+    const accessoryOffer = extractShoppingOffer(makeRecord({
+      id: "accessory-second-rank",
+      url: "https://www.amazon.com/dp/B0STANDKEEP",
+      title: "Portable Monitor Stand",
+      content: "$19.99",
+      attributes: {
+        retrievalPath: "shopping:search:result-card",
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "accessory-second-rank",
+          title: "Portable Monitor Stand",
+          url: "https://www.amazon.com/dp/B0STANDKEEP",
+          price: {
+            amount: 19.99,
+            currency: "USD",
+            retrieved_at: isoHoursAgo(1)
+          },
+          shipping: {
+            amount: 0,
+            currency: "USD",
+            notes: "free"
+          },
+          availability: "in_stock",
+          rating: 4.9,
+          reviews_count: 500
+        }
+      }
+    }), now);
+
+    expect(rankOffers([directOffer, accessoryOffer], "best_deal", "portable monitor")[0]?.url).toBe(directOffer.url);
+  });
+
+  it("rejects shopping search records that are seed rows, assets, or provider-domain mismatches", () => {
+    expect(isLikelyOfferRecord(makeRecord({
+      attributes: {
+        retrievalPath: "shopping:search:index"
+      }
+    }))).toBe(false);
+    expect(isLikelyOfferRecord(makeRecord({
+      url: "https://images.example.com/item.png"
+    }))).toBe(false);
+    expect(isLikelyOfferRecord(makeRecord({
+      provider: "shopping/amazon",
+      url: "https://www.walmart.com/ip/123",
+      attributes: {
+        retrievalPath: "shopping:search:result-card"
+      }
+    }))).toBe(false);
+  });
+
+  it("keeps no-url records but rejects bare URL titles for likely-offer detection", () => {
+    expect(isLikelyOfferRecord(makeRecord({
+      url: "",
+      title: "Offer without canonical url"
+    }))).toBe(true);
+    expect(isLikelyOfferRecord(makeRecord({
+      title: "https://www.amazon.com/dp/B0TEST1234"
+    }))).toBe(false);
   });
 
   it("treats unsupported region codes as advisory and keeps priced offers available", () => {

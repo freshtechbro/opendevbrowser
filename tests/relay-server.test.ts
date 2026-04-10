@@ -108,6 +108,16 @@ const waitForHandshakeAck = async (socket: WebSocket): Promise<Record<string, un
   return message;
 };
 
+const waitForCondition = async (predicate: () => boolean, timeoutMs = 250): Promise<void> => {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start >= timeoutMs) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
+  }
+};
+
 describe("RelayServer", () => {
   let server: RelayServer | null = null;
   let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
@@ -1099,6 +1109,9 @@ describe("RelayServer", () => {
 
   it("keeps manual-completion context for in-process annotation timeouts after a ready event", async () => {
     server = new RelayServer();
+    const internal = server as RelayServer & {
+      annotationDirectPending: Map<string, { readySeen: boolean }>;
+    };
     const started = await server.start(0);
 
     const extension = await connect(`${started.url}/extension`);
@@ -1109,7 +1122,7 @@ describe("RelayServer", () => {
       version: 1,
       requestId: "req-direct-ready-timeout",
       command: "start"
-    }, 5);
+    }, 50);
 
     await nextMessage(extension);
     extension.send(JSON.stringify({
@@ -1121,6 +1134,7 @@ describe("RelayServer", () => {
         message: "Annotation session started."
       }
     }));
+    await waitForCondition(() => internal.annotationDirectPending.get("req-direct-ready-timeout")?.readySeen === true);
 
     await expect(requestPromise).resolves.toMatchObject({
       requestId: "req-direct-ready-timeout",

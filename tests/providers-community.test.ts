@@ -31,6 +31,8 @@ describe("community provider", () => {
       expect(result.records.length).toBeGreaterThan(0);
       expect(result.failures).toHaveLength(0);
       expect(result.records[0]?.provider).toBe("community/default");
+      expect(result.records[0]?.url).toBe("https://forums.local/thread/2");
+      expect(result.records[0]?.attributes?.rank).toBe(1);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -72,6 +74,60 @@ describe("community provider", () => {
         : [];
       expect(firstLinks).toContain("https://forums.local/thread/ok");
       expect(firstLinks.some((link) => link.includes("redditstatic"))).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps recovered reddit search shells blocked when fallback returns only blocked first-party links", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "challenge_detected" as const,
+      mode: "extension" as const,
+      output: {
+        url: "https://www.reddit.com/search/?q=browser+automation",
+        html: [
+          "<html><body>",
+          "<main>Continue to Reddit</main>",
+          "<a href=\"https://www.reddit.com/search/?q=browser+automation\">Search</a>",
+          "<a href=\"https://www.reddit.com/login/\">Login</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>Please wait for verification before continuing.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "challenge_detected",
+        details: {
+          browserRequired: true,
+          browserFallbackMode: "extension",
+          browserFallbackReasonCode: "challenge_detected",
+          blockedLinks: [
+            "https://www.reddit.com/search?q=browser+automation",
+            "https://www.reddit.com/login"
+          ]
+        }
+      });
     } finally {
       vi.unstubAllGlobals();
     }

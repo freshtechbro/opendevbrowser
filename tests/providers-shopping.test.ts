@@ -1449,7 +1449,16 @@ describe("shopping providers", () => {
         html: `
           <html><body>
             <div class="su-image">
+              <a class="s-card__link image-treatment">Missing href card should be ignored</a>
+            </div>
+            <div class="su-image">
+              <a class="s-card__link image-treatment" href=https://www.ebay.com/sch/i.html?_nkw=wireless+mouse>
+                Search noise card should be ignored
+              </a>
+            </div>
+            <div class="su-image">
               <a class="s-card__link image-treatment" href=https://www.ebay.com/itm/123456789012?itmmeta=abc123>
+                <img class="s-card__image" src="https://i.ebayimg.com/images/g/live-unquoted/s-l500.webp" alt="Logitech Pebble wireless mouse" />
                 Logitech Pebble wireless mouse with quiet clicks and slim travel shell
               </a>
             </div>
@@ -1476,6 +1485,7 @@ describe("shopping providers", () => {
       rating: 4.7,
       reviews_count: 1204
     });
+    expect(rows?.[0]?.attributes.image_urls).toEqual(["https://i.ebayimg.com/images/g/live-unquoted/s-l500.webp"]);
   });
 
   it("parses inline-style-heavy eBay s-card results without losing the primary price", async () => {
@@ -1558,6 +1568,12 @@ describe("shopping providers", () => {
         html: `
           <html><body>
             <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal">
+                <a class="s-card__link" aria-label="Missing href card"></a>
+              </li>
+              <li class="s-card s-card--horizontal">
+                <a class="s-card__link image-treatment" href="https://www.ebay.com/itm/111111111111?itmmeta=short123">Offer</a>
+              </li>
               <li class="s-card s-card--horizontal">
                 <a class="s-card__link" href="https://www.ebay.com/sch/i.html?_nkw=macbook+pro+m4+32gb+ram">Search noise card</a>
               </li>
@@ -1879,6 +1895,251 @@ describe("shopping providers", () => {
         },
         providerShell: "target_shell_page"
       });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves render-required shopping issues when browser fallback times out", async () => {
+    const provider = createShoppingProviderById("shopping/target");
+    const fallbackResolve = vi.fn(async () => {
+      throw new ProviderRuntimeError("timeout", "Browser fallback timed out after 6000ms", {
+        retryable: true,
+        details: {
+          stage: "capture",
+          timeoutMs: 6000
+        }
+      });
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>\"wireless mouse\" : Target</title></head><body>skip to main content skip to footer weekly ad registry target circle</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        message: "Browser assistance required for https://www.target.com/s?searchTerm=wireless%20mouse",
+        details: {
+          url: "https://www.target.com/s?searchTerm=wireless%20mouse",
+          fallbackTimeout: true,
+          fallbackTimeoutMessage: "Browser fallback timed out after 6000ms",
+          stage: "capture",
+          timeoutMs: 6000,
+          browserRequired: true,
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "target_shell_page"
+          },
+          reasonCode: "env_limited"
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/target",
+        operation: "search",
+        reasonCode: "env_limited",
+        url: "https://www.target.com/s?searchTerm=wireless%20mouse"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rethrows non-timeout browser fallback failures for render-required shopping issues", async () => {
+    const provider = createShoppingProviderById("shopping/target");
+    const fallbackError = new ProviderRuntimeError("unavailable", "Browser fallback capture failed.", {
+      retryable: false,
+      details: {
+        stage: "capture"
+      }
+    });
+    const fallbackResolve = vi.fn(async () => {
+      throw fallbackError;
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>\"wireless mouse\" : Target</title></head><body>skip to main content skip to footer weekly ad registry target circle</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toBe(fallbackError);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/target",
+        operation: "search",
+        reasonCode: "env_limited",
+        url: "https://www.target.com/s?searchTerm=wireless%20mouse"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves Macy's auth-required search issues when browser fallback times out", async () => {
+    const provider = createShoppingProviderById("shopping/macys");
+    const fallbackResolve = vi.fn(async () => {
+      throw new ProviderRuntimeError("timeout", "Browser fallback timed out after 15000ms", {
+        retryable: true,
+        details: {
+          stage: "capture",
+          timeoutMs: 15000
+        }
+      });
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 403,
+      url: String(input),
+      text: async () => "<html><body>Access denied.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Authentication required for https://www.macys.com/shop/featured/wireless%20mouse",
+        details: {
+          status: 403,
+          url: "https://www.macys.com/shop/featured/wireless%20mouse",
+          fallbackTimeout: true,
+          fallbackTimeoutMessage: "Browser fallback timed out after 15000ms",
+          stage: "capture",
+          timeoutMs: 15000,
+          reasonCode: "token_required"
+        }
+      });
+
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/macys",
+        operation: "search",
+        reasonCode: "token_required",
+        url: "https://www.macys.com/shop/featured/wireless%20mouse"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves challenge-detected shopping issues when browser fallback times out", async () => {
+    const provider = createShoppingProviderById("shopping/temu");
+    const fallbackResolve = vi.fn(async () => {
+      throw new ProviderRuntimeError("timeout", "Browser fallback timed out after 8000ms", {
+        retryable: true,
+        details: {
+          stage: "capture",
+          timeoutMs: 8000
+        }
+      });
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Robot or human?</title></head><body>Activate and hold the button to confirm that you're human.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        message: "Detected anti-bot challenge while retrieving https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+        details: {
+          url: "https://www.temu.com/search_result.html?search_key=wireless%20mouse",
+          fallbackTimeout: true,
+          fallbackTimeoutMessage: "Browser fallback timed out after 8000ms",
+          stage: "capture",
+          timeoutMs: 8000,
+          reasonCode: "challenge_detected"
+        }
+      });
+
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/temu",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        url: "https://www.temu.com/search_result.html?search_key=wireless%20mouse"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rethrows raw browser fallback timeouts when the initial shopping issue has no structured hint", async () => {
+    const provider = createShoppingProviderById("shopping/amazon");
+    const fallbackResolve = vi.fn(async () => {
+      throw new ProviderRuntimeError("timeout", "Browser fallback timed out after 5000ms", {
+        retryable: true,
+        details: {
+          stage: "goto",
+          timeoutMs: 5000
+        }
+      });
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 503,
+      url: String(input),
+      text: async () => "<html><body>Service unavailable.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "timeout",
+        message: "Browser fallback timed out after 5000ms",
+        details: {
+          stage: "goto",
+          timeoutMs: 5000
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/amazon",
+        operation: "search",
+        url: "https://www.amazon.com/s?k=wireless%20mouse"
+      }));
     } finally {
       vi.unstubAllGlobals();
     }
@@ -2331,6 +2592,65 @@ describe("shopping providers", () => {
             forceTransport: true
           }
         })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rethrows raw timeout details when forced browser transport fallback times out without a constraint", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async () => {
+      throw new ProviderRuntimeError("timeout", "Browser fallback timed out after 7000ms", {
+        retryable: true,
+        details: {
+          stage: "capture",
+          timeoutMs: 7000
+        }
+      });
+    });
+    const fetchMock = vi.fn(async () => {
+      throw new Error("raw fetch should not run when browser transport is forced");
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    try {
+      await expect(provider.fetch?.(
+        { url: "https://www.amazon.com/dp/macbook-pro-force-browser-timeout" },
+        {
+          ...context,
+          runtimePolicy: resolveProviderRuntimePolicy({
+            source: "shopping",
+            runtimePolicy: {
+              browserMode: "extension"
+            }
+          }),
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        } as never
+      )).rejects.toMatchObject({
+        code: "timeout",
+        message: "Browser fallback timed out after 7000ms",
+        details: {
+          stage: "capture",
+          timeoutMs: 7000
+        }
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "shopping/amazon",
+        operation: "fetch",
+        reasonCode: "env_limited",
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["extension"],
+            forceTransport: true
+          }
+        }),
+        url: "https://www.amazon.com/dp/macbook-pro-force-browser-timeout"
       }));
     } finally {
       vi.unstubAllGlobals();

@@ -540,6 +540,374 @@ describe("provider runtime branches", () => {
     }
   });
 
+  it("classifies Reddit verification-wall community search pages before rows are returned", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>Please wait for verification. Skip to main content.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        details: {
+          blockerType: "anti_bot_challenge"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("recovers Reddit verification-wall community searches through browser fallback", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation&sort=relevance&t=all&page=1",
+        html: [
+          "<html><body><main>Recovered community guidance for browser automation failures.</main>",
+          "<a href=\"https://forum.example.com/t/browser-automation-checklist\">Checklist</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>Please wait for verification. Skip to main content.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records[0]?.url).toBe("https://forum.example.com/t/browser-automation-checklist");
+      expect(result.records[0]?.attributes?.rank).toBe(1);
+      expect(result.records[0]?.attributes).toMatchObject({
+        retrievalPath: "community:search:index",
+        links: ["https://forum.example.com/t/browser-automation-checklist"],
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "challenge_detected"
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "community/default",
+        reasonCode: "challenge_detected"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("prioritizes recovered Reddit content links ahead of search chrome links", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation%20failures&sort=relevance&t=all&page=1",
+        html: [
+          "<html><body>",
+          "<a href=\"/search/?q=browser+automation+failures&type=communities\">Communities</a>",
+          "<a href=\"/search/?q=browser+automation+failures&type=comments\">Comments</a>",
+          "<a href=\"https://www.reddit.com/search/?q=browser+automation+failures&type=posts&sort=relevance&t=all\">Posts</a>",
+          "<a href=\"/r/automation/comments/1rrno54/why_is_browser_automation_still_so_fragile/\">why is browser automation still so fragile?</a>",
+          "<a href=\"/r/automation/comments/1s45jhq/i_keep_coming_back_to_the_same_problem_with/\">I keep coming back to the same problem with browser automation</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>Please wait for verification. Skip to main content.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation failures", limit: 2 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records).toHaveLength(2);
+      expect(result.records[0]?.url).toBe("https://www.reddit.com/r/automation/comments/1rrno54/why_is_browser_automation_still_so_fragile");
+      expect(result.records[1]?.url).toBe("https://www.reddit.com/r/automation/comments/1s45jhq/i_keep_coming_back_to_the_same_problem_with");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("fails community searches when browser fallback only returns blocked Reddit shell links", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation%20failures&sort=relevance&t=all&page=1",
+        html: [
+          "<html><body>",
+          "<a href=\"https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all\">Search</a>",
+          "<a href=\"https://www.reddit.com\">Home</a>",
+          "<a href=\"https://ads.reddit.com/register?amp%3Butm_name=nav_cta\">Ads</a>",
+          "<a href=\"https://www.reddit.com/submit\">Submit</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>Please wait for verification. Skip to main content.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation failures", limit: 4 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        details: {
+          browserFallbackReasonCode: "challenge_detected",
+          blockedLinks: [
+            "https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all",
+            "https://www.reddit.com",
+            "https://ads.reddit.com/register?amp%3Butm_name=nav_cta",
+            "https://www.reddit.com/submit"
+          ]
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces token-required community fallback failures as authentication-required errors", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: "token_required" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation%20failures&sort=relevance&t=all&page=1",
+        html: [
+          "<html><body>",
+          "<a href=\"https://www.reddit.com/login/\">Log in</a>",
+          "<a href=\"https://www.reddit.com/search/?q=browser+automation+failures&sort=relevance&t=all&page=1\">Search</a>",
+          "<a href=\"https://www.reddit.com\">Home</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>Please wait for verification. Skip to main content.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation failures", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Authentication required for https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all",
+        details: {
+          browserFallbackReasonCode: "token_required",
+          blockedLinks: [
+            "https://www.reddit.com/login",
+            "https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all",
+            "https://www.reddit.com"
+          ]
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps soft env-limited community pages when no render or session constraint is inferred", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: "https://www.reddit.com/search/?q=unused",
+        html: "<html><body>unused</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>This content is not available in this environment.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "soft env limited community", limit: 1 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.records).toHaveLength(1);
+      expect(result.records[0]?.content).toContain("not available in this environment");
+      expect(result.records[0]?.attributes).toMatchObject({
+        query: "soft env limited community",
+        retrievalPath: "community:search:index",
+        status: 200,
+        links: []
+      });
+      expect(fallbackResolve).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses browser-assistance messaging when community fallback ends in blocked shell links with env-limited status", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation%20failures&sort=relevance&t=all&page=1",
+        html: [
+          "<html><body>",
+          "<a href=\"https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all\">Search</a>",
+          "<a href=\"https://www.reddit.com\">Home</a>",
+          "<a href=\"https://ads.reddit.com/register?amp%3Butm_name=nav_cta\">Ads</a>",
+          "<a href=\"https://www.reddit.com/submit\">Submit</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>Please wait for verification. Skip to main content.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation failures", limit: 4 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        message: "Browser assistance required for https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all",
+        details: {
+          browserFallbackReasonCode: "env_limited",
+          blockedLinks: [
+            "https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all",
+            "https://www.reddit.com",
+            "https://ads.reddit.com/register?amp%3Butm_name=nav_cta",
+            "https://www.reddit.com/submit"
+          ]
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("times out direct default web provider fetches when the signal is already aborted", async () => {
     const cancel = vi.fn(async () => undefined);
     const text = vi.fn(async () => "<html><body>should not resolve</body></html>");
@@ -1143,6 +1511,159 @@ describe("provider runtime branches", () => {
     }
   });
 
+  it("returns soft env-limited social search pages without browser fallback when no constraint is inferred", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true as const,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: "https://x.com/search?q=unused",
+        html: "<html><body>unused</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>This provider is not available in this environment right now.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "https://example.com/social-soft", limit: 1 },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.records).toHaveLength(1);
+      expect(result.records[0]?.url).toBe("https://example.com/social-soft");
+      expect(result.records[0]?.content).toContain("not available in this environment");
+      expect(result.records[0]?.attributes).toMatchObject({
+        platform: "x",
+        retrievalPath: "social:search:url",
+        status: 200,
+        links: []
+      });
+      expect(fallbackResolve).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses recovered social fallback URLs when the fallback page no longer preserves first-party search links", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "challenge_detected",
+      mode: "extension" as const,
+      output: {
+        url: "https://example.com/recovered-thread",
+        html: "<html><body><main>Recovered social thread</main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>Please wait for verification.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 1 },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.records[0]?.url).toBe("https://example.com/recovered-thread");
+      expect(result.records[0]?.content).toContain("Recovered social thread");
+      expect(result.records[0]?.attributes).toMatchObject({
+        platform: "x",
+        retrievalPath: "social:search:index",
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "env_limited",
+        links: []
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/x",
+        source: "social",
+        operation: "search",
+        reasonCode: "env_limited"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("fails when completed social fallback still returns a render-required shell", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://x.com/search?q=browser%20automation%20shell&f=live&page=1",
+        html: "<html><body>manual interaction required</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>Please wait for verification.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation shell", limit: 1 },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        message: "Browser assistance required for https://x.com/search?f=live&page=1&q=browser+automation+shell",
+        details: {
+          providerShell: "social_render_shell",
+          browserFallbackReasonCode: "env_limited",
+          browserFallbackMode: "extension",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_render_shell"
+          }
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/x",
+        source: "social",
+        operation: "search",
+        reasonCode: "env_limited"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("preserves minimal social auth details when auth is inferred from the URL alone", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
       status: 200,
@@ -1170,6 +1691,200 @@ describe("provider runtime branches", () => {
       });
       expect(result.failures[0]?.error.details).not.toHaveProperty("title");
       expect(result.failures[0]?.error.details).not.toHaveProperty("message");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces community auth-required pages directly when no browser fallback is available", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "https://example.com/login", limit: 1 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Authentication required for https://example.com/login",
+        details: {
+          status: 200,
+          url: "https://example.com/login",
+          reasonCode: "token_required",
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces non-completed community fallback dispositions before reclassifying recovered content", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false as const,
+      reasonCode: "token_required" as const,
+      disposition: "challenge_preserved" as const,
+      mode: "extension" as const,
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "https://example.com/login", limit: 1 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Browser fallback preserved a challenge session for https://example.com/login",
+        details: {
+          url: "https://example.com/login",
+          disposition: "challenge_preserved",
+          browserFallbackMode: "extension"
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "community/default",
+        reasonCode: "token_required",
+        operation: "search"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps community auth-required classification when completed fallback omits url and html output", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true as const,
+      reasonCode: "token_required" as const,
+      mode: "extension" as const,
+      output: {},
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "https://example.com/login", limit: 1 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Authentication required for https://example.com/login",
+        details: {
+          status: 200,
+          url: "https://example.com/login",
+          reasonCode: "token_required",
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          },
+          browserFallbackReasonCode: "token_required",
+          browserFallbackMode: "extension"
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "community/default",
+        reasonCode: "token_required",
+        operation: "search"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps social auth-required classification when completed fallback omits url and html output", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true as const,
+      reasonCode: "token_required" as const,
+      mode: "extension" as const,
+      output: {},
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body></body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "https://example.com/login", limit: 1 },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "token_required",
+        message: "Authentication required for https://example.com/login",
+        details: {
+          status: 200,
+          url: "https://example.com/login",
+          reasonCode: "token_required",
+          blockerType: "auth_required",
+          constraint: {
+            kind: "session_required",
+            evidenceCode: "auth_required"
+          },
+          browserFallbackReasonCode: "token_required",
+          browserFallbackMode: "extension"
+        }
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/x",
+        reasonCode: "token_required",
+        operation: "search"
+      }));
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1310,7 +2025,9 @@ describe("provider runtime branches", () => {
           text: async () => [
             "<html><body>",
             "<a href=\"mailto:bad@example.com\">bad</a>",
+            "<a href=\"http://[::1\">broken</a>",
             "<a href=\"/result-one\">one</a>",
+            "<a href=\"https://duckduckgo.com/l/?uddg=javascript%3Avoid(0)\">redirect-shell</a>",
             "<a href=\"https://duckduckgo.com/result-one\">dup</a>",
             "<a href=\"https://duckduckgo.com/result-two\">two</a>",
             "</body></html>"
@@ -1346,6 +2063,7 @@ describe("provider runtime branches", () => {
       const webLimited = await runtimeLowThreshold.search({ query: "branch coverage", limit: 1 }, { source: "web" });
       expect(webLimited.ok).toBe(true);
       expect(webLimited.records).toHaveLength(1);
+      expect(webLimited.records[0]?.url).toBe("https://duckduckgo.com/result-one");
 
       const webDefaultLimit = await runtimeHighThreshold.search({ query: "branch coverage" }, { source: "web" });
       expect(webDefaultLimit.ok).toBe(true);

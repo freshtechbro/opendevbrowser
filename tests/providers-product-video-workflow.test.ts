@@ -505,6 +505,58 @@ describe("product-video substrate adoption", () => {
     expect((output.product as { title: string }).title).toBe("Recovered Detail Record");
   });
 
+  it("uses Best Buy PDP content pricing when the structured marketplace price is missing", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "bestbuy-content-price-record",
+        source: "shopping",
+        provider: "shopping/bestbuy",
+        url: "https://www.bestbuy.com/product/logitech-mx-master-3s-wireless-mouse/J7H7ZYG559",
+        title: "$(csi.user.businessName) Skip to content Go to Product Search Assistive Survey Yardbird Best Buy Outlet Best Buy Business Menu…",
+        content: [
+          "$(csi.user.businessName) Skip to content Go to Product Search Assistive Survey Yardbird Best Buy Outlet Best Buy Business Menu",
+          "Main Content Logitech - MX Master 3S Bluetooth Edition Performance Wireless Optical Mouse with Ultra-fast Scrolling and Quiet Clicks - Wireless - Black",
+          "Rating 4.8 out of 5 stars with 290 reviews 4.8 (290 reviews)",
+          "Back to top $86.99 $86.99 The price was $99.99 Add to cart",
+          "or 4 payments starting at $21.75 with Learn more > Finance Options View your offers",
+          "Availability Pickup Ready within 1 hour Shipping Get it by Sat, Apr 11"
+        ].join(" "),
+        attributes: {
+          links: [],
+          shopping_offer: {
+            provider: "shopping/bestbuy",
+            product_id: "J7H7ZYG559",
+            title: "$(csi.user.businessName) Skip to content Go to Product Search Assistive Survey Yardbird Best Buy Outlet Best Buy Business Menu…",
+            url: "https://www.bestbuy.com/product/logitech-mx-master-3s-wireless-mouse/J7H7ZYG559",
+            price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            price_source: "unresolved",
+            price_is_trustworthy: false,
+            shipping: { amount: 0, currency: "USD", notes: "unknown" },
+            availability: "in_stock",
+            rating: 4.8,
+            reviews_count: 290
+          }
+        }
+      })]
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false })) as typeof fetch);
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.bestbuy.com/product/logitech-mx-master-3s-wireless-mouse/J7H7ZYG559"
+    }));
+
+    expect(output.pricing).toMatchObject({
+      amount: 86.99,
+      currency: "USD"
+    });
+    expect((output.product as { brand: string }).brand).toBe("Logitech");
+    expect((output.product as { provider: string }).provider).toBe("shopping/bestbuy");
+    expect((output.product as { title: string }).title).toBe(
+      "Logitech - MX Master 3S Bluetooth Edition Performance Wireless Optical Mouse with Ultra-fast Scrolling and Quiet Clicks - Wireless - Black"
+    );
+  });
+
   it("fails honestly when an external seller overlay suppresses the only product price on a marketplace PDP", async () => {
     const fetch = vi.fn(async () => makeAggregate({
       records: [makeRecord({

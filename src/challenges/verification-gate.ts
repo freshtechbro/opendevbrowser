@@ -7,10 +7,9 @@ const hasProgress = (previous: ChallengeEvidenceBundle, next: ChallengeEvidenceB
   return previous.blockerState !== next.blockerState
     || previous.blocker?.type !== next.blocker?.type
     || previous.activeTargetId !== next.activeTargetId
-    || previous.snapshotId !== next.snapshotId
     || previous.url !== next.url
     || previous.title !== next.title
-    || previous.continuity.cookieCount !== next.continuity.cookieCount
+    || previous.continuity.canReuseExistingCookies !== next.continuity.canReuseExistingCookies
     || previous.continuity.loginRefs.join(",") !== next.continuity.loginRefs.join(",")
     || previous.continuity.sessionReuseRefs.join(",") !== next.continuity.sessionReuseRefs.join(",")
     || previous.continuity.humanVerificationRefs.join(",") !== next.continuity.humanVerificationRefs.join(",")

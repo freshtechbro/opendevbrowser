@@ -27,6 +27,16 @@ const SORT_VALUES = new Set(["best_deal", "lowest_price", "highest_rating", "fas
 const MODE_VALUES = new Set(["compact", "json", "md", "context", "path"]);
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
 const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
+const SHOPPING_TRANSPORT_TIMEOUT_BUFFER_MS = 60_000;
+const MAX_SHOPPING_TRANSPORT_TIMEOUT_MS = 300_000;
+
+const deriveShoppingTransportTimeoutMs = (timeoutMs: number): number => {
+  return Math.min(
+    MAX_SHOPPING_TRANSPORT_TIMEOUT_MS,
+    Math.max(DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS, timeoutMs + SHOPPING_TRANSPORT_TIMEOUT_BUFFER_MS)
+  );
+};
+
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
   if (!value) {
@@ -258,9 +268,9 @@ export async function runShoppingCommand(args: ParsedArgs) {
     cookiePolicyOverride: parsed.cookiePolicyOverride
   };
 
-  // Let daemon-client derive a small transport buffer from payload.timeoutMs so
-  // the workflow deadline does not race the HTTP response deadline.
-  const data = await callDaemon("shopping.run", payload);
+  const data = await callDaemon("shopping.run", payload, {
+    timeoutMs: deriveShoppingTransportTimeoutMs(payload.timeoutMs)
+  });
 
   return {
     success: true,
@@ -271,5 +281,6 @@ export async function runShoppingCommand(args: ParsedArgs) {
 
 export const __test__ = {
   parseShoppingRunArgs,
-  parseProviders
+  parseProviders,
+  deriveShoppingTransportTimeoutMs
 };
