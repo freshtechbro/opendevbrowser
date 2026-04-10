@@ -32,7 +32,7 @@ import { extractExtension } from "./extension-extractor";
 import { isHubEnabled } from "./utils/hub-enabled";
 import type { RelayLike } from "./relay/relay-types";
 import type { ToolDeps } from "./tools/deps";
-import { createProviderRuntimeBundle } from "./providers/runtime-bundle";
+import { createCoreRuntimeAssemblies } from "./core";
 
 const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const core = createOpenDevBrowserCore({ directory, worktree });
@@ -42,6 +42,8 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   let canvasManager = core.canvasManager;
   let runner = core.runner;
   let annotationManager = core.annotationManager;
+  let desktopRuntime = core.desktopRuntime;
+  let automationCoordinator = core.automationCoordinator;
   let providerRuntime = core.providerRuntime;
   let browserFallbackPort = core.browserFallbackPort;
   let hubStop: (() => Promise<void>) | null = null;
@@ -69,6 +71,8 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     runner,
     config: configStore,
     skills,
+    desktopRuntime,
+    automationCoordinator,
     providerRuntime,
     browserFallbackPort,
     relay,
@@ -85,7 +89,13 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     annotationManager.setRelay(relay);
     annotationManager.setBrowserManager(manager);
     runner = new ScriptRunner(manager);
-    ({ providerRuntime, browserFallbackPort } = createProviderRuntimeBundle({
+    ({
+      providerRuntime,
+      browserFallbackPort,
+      desktopRuntime,
+      automationCoordinator
+    } = createCoreRuntimeAssemblies({
+      cacheRoot: core.cacheRoot,
       config: configStore.get(),
       manager
     }));
@@ -93,6 +103,8 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     toolDeps.canvasManager = canvasManager;
     toolDeps.relay = relay;
     toolDeps.runner = runner;
+    toolDeps.desktopRuntime = desktopRuntime;
+    toolDeps.automationCoordinator = automationCoordinator;
     toolDeps.providerRuntime = providerRuntime;
     toolDeps.browserFallbackPort = browserFallbackPort;
   };

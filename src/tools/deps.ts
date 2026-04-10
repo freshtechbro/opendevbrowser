@@ -5,6 +5,8 @@ import type { ScriptRunner } from "../browser/script-runner";
 import type { ConfigStore } from "../config";
 import type { RelayLike } from "../relay/relay-types";
 import type { SkillLoader } from "../skills/skill-loader";
+import type { AutomationCoordinatorLike } from "../automation/coordinator";
+import type { DesktopRuntimeLike } from "../desktop";
 import type {
   BrowserFallbackPort,
   ProviderAggregateResult,
@@ -38,6 +40,8 @@ export type ToolDeps = {
   runner: ScriptRunner;
   config: ConfigStore;
   skills: SkillLoader;
+  desktopRuntime?: DesktopRuntimeLike;
+  automationCoordinator?: AutomationCoordinatorLike;
   providerRuntime?: ProviderRuntimeLike;
   browserFallbackPort?: BrowserFallbackPort;
   relay?: RelayLike;

@@ -545,7 +545,8 @@ describe("social platform adapters", () => {
         "<main>",
         "<p>JavaScript is disabled in this browser. Please enable JavaScript.</p>",
         "<nav><a href=\"/search?q=browser+automation&f=live\">Top</a><a href=\"/search?q=browser+automation&f=live\">Latest</a></nav>",
-        "<article><a href=\"https://x.com/acct/status/1\">A real X post about browser automation</a></article>",
+        "<article><a href=\"https://x.com/i/web/status/1\">A real X post about browser automation</a></article>",
+        "<article><a href=\"https://x.com/i/web/status/1/analytics\">Analytics</a></article>",
         "</main>",
         "</body></html>"
       ].join("")
@@ -560,8 +561,9 @@ describe("social platform adapters", () => {
 
       expect(result.ok).toBe(true);
       expect(result.failures).toHaveLength(0);
-      expect(result.records.map((record) => record.url)).toEqual(["https://x.com/acct/status/1"]);
+      expect(result.records.map((record) => record.url)).toEqual(["https://x.com/i/web/status/1"]);
       expect(result.records[0]?.attributes.links).not.toContain("https://x.com/search?f=live&page=1&q=browser+automation");
+      expect(result.records[0]?.attributes.links).not.toContain("https://x.com/i/web/status/1/analytics");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -723,6 +725,114 @@ describe("social platform adapters", () => {
           })
         })
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves X search-route semantics when fallback capture url drifts away from the search route", async () => {
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      runtimePolicy?: { browser?: { preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: request.runtimePolicy?.browser?.preferredModes?.[0] === "extension"
+        ? "extension" as const
+        : "managed_headed" as const,
+      output: {
+        url: "https://x.com/home",
+        html: "<html><body><main><article><a href=\"/i/web/status/999\">Recovered X status</a></article></main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/i/web/status/999")) {
+        return {
+          status: 200,
+          url,
+          text: async () => "<html><body><article>Expanded X fallback status</article></body></html>"
+        };
+      }
+      return {
+        status: 200,
+        url,
+        text: async () => "<html><head><title>X</title></head><body>JavaScript is disabled in this browser. Please enable JavaScript.</body></html>"
+      };
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(result.records.map((record) => record.url)).toEqual(["https://x.com/i/web/status/999"]);
+      expect(result.records[0]?.attributes).toMatchObject({
+        query: "browser automation",
+        retrievalPath: "social:search:index",
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "env_limited"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not preserve the X search route when recovered fallback links are not usable results", async () => {
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      runtimePolicy?: { browser?: { preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: request.runtimePolicy?.browser?.preferredModes?.[0] === "extension"
+        ? "extension" as const
+        : "managed_headed" as const,
+      output: {
+        url: "https://x.com/home",
+        html: [
+          "<html><body><main>Recovered X landing page</main>",
+          "<a href=\"https://x.com/privacy\">Privacy</a>",
+          "<a href=\"https://help.x.com/using-x/x-supported-browsers\">Help</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>X</title></head><body>JavaScript is disabled in this browser. Please enable JavaScript.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        url: "https://x.com/home",
+        browserFallbackReasonCode: "env_limited"
+      });
     } finally {
       vi.unstubAllGlobals();
     }

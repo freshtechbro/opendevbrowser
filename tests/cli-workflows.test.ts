@@ -120,6 +120,8 @@ describe("workflow CLI commands", () => {
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 180000
     });
   });
 
@@ -145,6 +147,35 @@ describe("workflow CLI commands", () => {
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 120000
+    });
+  });
+
+  it("extends shopping transport timeout beyond the previous client cap for long-running workflows", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse",
+      "--providers=shopping/bestbuy",
+      "--timeout-ms=360000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("shopping.run", {
+      query: "wireless mouse",
+      providers: ["shopping/bestbuy"],
+      budget: undefined,
+      region: undefined,
+      sort: undefined,
+      mode: "compact",
+      timeoutMs: 360000,
+      outputDir: undefined,
+      ttlHours: undefined,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 420000
     });
   });
 
@@ -170,15 +201,21 @@ describe("workflow CLI commands", () => {
     expect(callDaemon).toHaveBeenNthCalledWith(1, "shopping.run", expect.objectContaining({
       query: "macbook pro m4 32gb ram",
       browserMode: "extension"
-    }));
+    }), {
+      timeoutMs: 180000
+    });
     expect(callDaemon).toHaveBeenNthCalledWith(2, "shopping.run", expect.objectContaining({
       query: "macbook pro m4 32gb ram",
       browserMode: "managed"
-    }));
+    }), {
+      timeoutMs: 180000
+    });
     expect(callDaemon).toHaveBeenNthCalledWith(3, "shopping.run", expect.objectContaining({
       query: "macbook pro m4 32gb ram",
       browserMode: "auto"
-    }));
+    }), {
+      timeoutMs: 180000
+    });
   });
 
   it("surfaces provider follow-up requirements in workflow completion messages", async () => {
@@ -340,7 +377,9 @@ describe("workflow CLI commands", () => {
       query: "wireless keyboard",
       useCookies: true,
       cookiePolicyOverride: "auto"
-    }));
+    }), {
+      timeoutMs: 180000
+    });
 
     await runProductVideoCommand(makeArgs("product-video", [
       "run",
@@ -377,7 +416,9 @@ describe("workflow CLI commands", () => {
     expect(callDaemon).toHaveBeenLastCalledWith("shopping.run", expect.objectContaining({
       query: "wireless keyboard",
       challengeAutomationMode: "browser"
-    }));
+    }), {
+      timeoutMs: 180000
+    });
 
     await runProductVideoCommand(makeArgs("product-video", [
       "run",

@@ -7,12 +7,14 @@ import {
   toBrowserFallbackObservation,
   toProviderFallbackError
 } from "../browser-fallback";
-import { applyProviderIssueHint, classifyProviderIssue } from "../constraint";
+import { applyProviderIssueHint, classifyProviderIssue, readProviderIssueHint } from "../constraint";
 import { providerErrorCodeFromReasonCode, ProviderRuntimeError, toProviderError } from "../errors";
 import { normalizeRecord, normalizeRecords } from "../normalize";
 import { providerRequestHeaders } from "../shared/request-headers";
 import { canonicalizeUrl } from "../web/crawler";
 import { extractStructuredContent, extractText, toSnippet } from "../web/extract";
+import type { ProviderIssueHint } from "../constraint";
+import type { ExtractedContent } from "../web/extract";
 import type {
   BrowserFallbackMode,
   BrowserFallbackObservation,
@@ -405,22 +407,68 @@ const resolveBrowserFallback = async (args: {
     source: SHOPPING_SOURCE
   });
   const reasonCode = fallbackReasonCodeForError(normalized);
-
-  const fallback = await resolveProviderBrowserFallback({
-    browserFallbackPort: args.context?.browserFallbackPort,
-    provider: args.provider,
-    source: SHOPPING_SOURCE,
-    operation: args.operation,
-    reasonCode,
-    url: args.url,
-    context: args.context,
-    details: {
-      errorCode: normalized.code,
-      message: normalized.message,
-      ...(normalized.details ?? {})
-    },
-    recoveryHints: args.recoveryHints
+  const fallbackIssue = readProviderIssueHint({
+    reasonCode: normalized.reasonCode,
+    code: normalized.code,
+    message: normalized.message,
+    details: normalized.details
   });
+  const createTimedOutFallbackIssue = (timeoutError: ProviderRuntimeError): ProviderRuntimeError | null => {
+    if (!fallbackIssue) return null;
+    if (
+      fallbackIssue.reasonCode !== "token_required"
+      && fallbackIssue.reasonCode !== "challenge_detected"
+      && !fallbackIssue.constraint
+    ) {
+      return null;
+    }
+    const message = fallbackIssue.reasonCode === "token_required"
+      ? `Authentication required for ${args.url}`
+      : fallbackIssue.reasonCode === "challenge_detected"
+        ? `Detected anti-bot challenge while retrieving ${args.url}`
+        : `Browser assistance required for ${args.url}`;
+    return new ProviderRuntimeError(
+      providerErrorCodeFromReasonCode(fallbackIssue.reasonCode),
+      message,
+      {
+        provider: args.provider,
+        source: SHOPPING_SOURCE,
+        retryable: fallbackIssue.reasonCode === "env_limited",
+        reasonCode: fallbackIssue.reasonCode,
+        details: applyProviderIssueHint({
+          url: args.url,
+          fallbackTimeout: true,
+          fallbackTimeoutMessage: timeoutError.message,
+          ...(normalized.details ?? {}),
+          ...(timeoutError.details ?? {})
+        }, fallbackIssue)
+      }
+    );
+  };
+
+  let fallback;
+  try {
+    fallback = await resolveProviderBrowserFallback({
+      browserFallbackPort: args.context?.browserFallbackPort,
+      provider: args.provider,
+      source: SHOPPING_SOURCE,
+      operation: args.operation,
+      reasonCode,
+      url: args.url,
+      context: args.context,
+      details: {
+        errorCode: normalized.code,
+        message: normalized.message,
+        ...(normalized.details ?? {})
+      },
+      recoveryHints: args.recoveryHints
+    });
+  } catch (error) {
+    if (error instanceof ProviderRuntimeError && error.code === "timeout") {
+      throw createTimedOutFallbackIssue(error) ?? error;
+    }
+    throw error;
+  }
   if (!fallback) {
     return { record: null };
   }
@@ -718,6 +766,8 @@ const FETCH_TEXT_PRICE_TOKEN_RE = /(?:\b(?:USD|CAD|EUR|GBP)\s*[0-9]{1,4}(?:[.,][
 const FETCH_TEXT_PRICE_NEGATIVE_PREFIX_RE = /\b(?:customer review|reviews?|ratings?|stars?)\b/i;
 const FETCH_TEXT_PRICE_MAX_PREFIX_CHARS = 180;
 const ANCHOR_RE = /<a\b([^>]*?)href\s*=\s*(?:(["'])(.*?)\2|([^\s>]+))([^>]*)>([\s\S]*?)<\/a>/gi;
+const AMAZON_CARD_RE = /<div\b(?=[^>]*\bdata-component-type=(["'])s-search-result\1)(?=[^>]*\bclass=(["'])[^"']*\bs-result-item\b[^"']*\2)[^>]*>[\s\S]*?(?=<div\b(?=[^>]*\bdata-component-type=(["'])s-search-result\3)(?=[^>]*\bclass=(["'])[^"']*\bs-result-item\b[^"']*\4)|$)/gi;
+const COSTCO_CARD_RE = /<div\b(?=[^>]*\bdata-testid=(["'])ProductTile_[^"']+\1)[^>]*>[\s\S]*?(?=<div\b(?=[^>]*\bdata-testid=(["'])ProductTile_[^"']+\2)|$)/gi;
 const NEWEGG_CARD_RE = /<div class="item-cell"[\s\S]*?(?=<div class="item-cell"|$)/gi;
 const EBAY_CARD_RE = /<li\b[^>]*class=(["'])[^"']*\bs-card\b[^"']*\1[^>]*>[\s\S]*?<\/li>/gi;
 const GENERIC_NOISE_TITLE_RE = /^(quick view|previous page|next page|home|compare|\([0-9][0-9,]*\))$/i;
@@ -782,6 +832,30 @@ const findAnchorByClass = (
       href,
       innerHtml: readAnchorInnerHtml(match),
       tag
+    };
+  }
+  return null;
+};
+
+const resolveCardProductAnchor = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile
+): { url: string; title: string; innerHtml: string } | null => {
+  for (const match of html.matchAll(ANCHOR_RE)) {
+    const href = readAnchorHref(match);
+    if (!href) continue;
+    const url = normalizeCandidateUrl(href, baseUrl, profile);
+    if (!url || !isLikelyProductUrl(url, profile)) continue;
+    const tag = readAnchorTag(match);
+    const title = extractText(readAnchorInnerHtml(match))
+      || readAttribute(tag, "aria-label")
+      || readAttribute(tag, "title");
+    if (!title || title.length < 20 || GENERIC_NOISE_TITLE_RE.test(title) || isPriceOnlyTitle(title)) continue;
+    return {
+      url,
+      title,
+      innerHtml: readAnchorInnerHtml(match)
     };
   }
   return null;
@@ -922,9 +996,15 @@ const stripPriceScaffold = (title: string): string => {
     .trim();
 };
 
+const RATING_ONLY_TITLE_RE = /^(?:rating\s*)?[0-5](?:\.[0-9])?\s*out of 5 stars?(?:\s*with\s*[0-9][0-9,]*\s*reviews?)?(?:\s*\([0-9][0-9,]*\))?$/i;
+
 const isPriceOnlyTitle = (title: string): boolean => {
   const stripped = stripPriceScaffold(title);
   return stripped.length < 8 || !/[a-z]{4,}/i.test(stripped);
+};
+
+const isRatingOnlyTitle = (title: string): boolean => {
+  return RATING_ONLY_TITLE_RE.test(title.trim());
 };
 
 const TRACKING_DESTINATION_PARAM_KEYS = [
@@ -1003,6 +1083,20 @@ const requiresBrowserAssistance = (
     }
   }
 
+  if (profile.name === "macys") {
+    const hasAccessDeniedHeading = titleLower.includes("access denied") || textLower.includes("access denied");
+    const isAccessDeniedShell = hasAccessDeniedHeading
+      && textLower.includes("you don't have permission to access")
+      && (textLower.includes("on this server") || textLower.includes("reference #"));
+    if (isAccessDeniedShell) {
+      return {
+        reason: "macys_access_denied_shell",
+        ...(title ? { title } : {}),
+        message: toSnippet(text, 400)
+      };
+    }
+  }
+
   if (profile.name === "temu") {
     const htmlLower = html.toLowerCase();
     const hasChallengeShell = /static(?:-\d+)?\.kwcdn\.com/i.test(html)
@@ -1035,6 +1129,25 @@ const requiresBrowserAssistance = (
   }
 
   return null;
+};
+
+const classifySearchPageIssue = (
+  profile: ShoppingProviderProfile,
+  fetched: ShoppingFetchRecord,
+  extracted: ExtractedContent,
+  content: string
+): ProviderIssueHint | null => {
+  const providerShell = requiresBrowserAssistance(profile, fetched.url, fetched.html);
+  return classifyProviderIssue({
+    url: fetched.url,
+    title: providerShell?.title ?? (typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined),
+    message: providerShell?.message ?? content,
+    providerShell: providerShell?.reason,
+    browserRequired: providerShell ? true : undefined,
+    status: fetched.status,
+    providerErrorCode: "unavailable",
+    retryable: true
+  });
 };
 
 const unwrapTrackingUrl = (url: string, profile: ShoppingProviderProfile): string => {
@@ -1246,6 +1359,82 @@ const extractEbaySearchCandidates = (
   return dedupeCandidates(candidates, limit);
 };
 
+const extractAmazonSearchCandidates = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile,
+  limit: number
+): ShoppingSearchCandidate[] => {
+  const candidates: ShoppingSearchCandidate[] = [];
+  for (const match of html.matchAll(AMAZON_CARD_RE)) {
+    const cardHtml = match[0];
+    const anchor = resolveCardProductAnchor(cardHtml, baseUrl, profile);
+    if (!anchor) continue;
+
+    const cardText = extractText(cardHtml);
+    const text = toSnippet(cardText, 2000);
+    const price = resolvePrice(cardText, anchor.title);
+    const rating = parseRating(cardText);
+    const reviews = parseReviews(cardText);
+    const imageUrl = /<img\b[^>]*(?:data-old-hires|data-src|src)=([\"'])(.*?)\1/i.exec(cardHtml)?.[2]
+      ?? /<img\b[^>]*(?:data-old-hires|data-src|src)=([^\s>]+)/i.exec(cardHtml)?.[1];
+    const availability = parseAvailability(cardText);
+
+    candidates.push({
+      url: anchor.url,
+      title: anchor.title,
+      text,
+      ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
+      ...(price.amount > 0 ? { price } : {}),
+      ...(rating > 0 ? { rating } : {}),
+      ...(reviews > 0 ? { reviews } : {}),
+      availability
+    });
+    if (candidates.length >= limit) break;
+  }
+  return dedupeCandidates(candidates, limit);
+};
+
+const extractCostcoSearchCandidates = (
+  html: string,
+  baseUrl: string,
+  profile: ShoppingProviderProfile,
+  limit: number
+): ShoppingSearchCandidate[] => {
+  const candidates: ShoppingSearchCandidate[] = [];
+  for (const match of html.matchAll(COSTCO_CARD_RE)) {
+    const cardHtml = match[0];
+    const anchor = resolveCardProductAnchor(cardHtml, baseUrl, profile);
+    if (!anchor) continue;
+
+    const cardText = extractText(cardHtml);
+    const ratingLabel = [...cardHtml.matchAll(/aria-label=(["'])(.*?)\1/gi)]
+      .map((match) => match[2]?.trim() ?? "")
+      .find((value) => value.includes("out of 5"))
+      ?? "";
+    const ratingText = `${cardText} ${ratingLabel}`.trim();
+    const text = toSnippet(cardText, 2000);
+    const price = resolvePrice(cardText, anchor.title);
+    const rating = parseRating(ratingText);
+    const reviews = parseReviews(ratingText);
+    const imageUrl = /<img\b[^>]*src=(["'])(.*?)\1/i.exec(cardHtml)?.[2];
+    const availability = parseAvailability(cardText);
+
+    candidates.push({
+      url: anchor.url,
+      title: anchor.title,
+      text,
+      ...(imageUrl ? { imageUrl: normalizeCandidateUrl(imageUrl, baseUrl, profile) ?? imageUrl } : {}),
+      ...(price.amount > 0 ? { price } : {}),
+      ...(rating > 0 ? { rating } : {}),
+      ...(reviews > 0 ? { reviews } : {}),
+      availability
+    });
+    if (candidates.length >= limit) break;
+  }
+  return dedupeCandidates(candidates, limit);
+};
+
 const extractGenericSearchCandidates = (
   html: string,
   baseUrl: string,
@@ -1264,7 +1453,7 @@ const extractGenericSearchCandidates = (
     const title = extractText(inner)
       || readAttribute(anchorTag, "aria-label")
       || readAttribute(anchorTag, "title");
-    if (!title || title.length < 20 || GENERIC_NOISE_TITLE_RE.test(title) || isPriceOnlyTitle(title)) continue;
+    if (!title || title.length < 20 || GENERIC_NOISE_TITLE_RE.test(title) || isPriceOnlyTitle(title) || isRatingOnlyTitle(title)) continue;
 
     const matchIndex = match.index as number;
     const start = Math.max(0, matchIndex - 400);
@@ -1297,6 +1486,14 @@ const extractSearchCandidates = (
   profile: ShoppingProviderProfile,
   limit: number
 ): ShoppingSearchCandidate[] => {
+  if (profile.name === "amazon") {
+    const amazon = extractAmazonSearchCandidates(html, baseUrl, profile, limit);
+    if (amazon.length > 0) return amazon;
+  }
+  if (profile.name === "costco") {
+    const costco = extractCostcoSearchCandidates(html, baseUrl, profile, limit);
+    if (costco.length > 0) return costco;
+  }
   if (profile.name === "ebay") {
     const ebay = extractEbaySearchCandidates(html, baseUrl, profile, limit);
     if (ebay.length > 0) return ebay;
@@ -1476,14 +1673,7 @@ const createDefaultSearch = (
   const content = toSnippet(extracted.text, 2000);
   const candidates = extractSearchCandidates(fetched.html, fetched.url, profile, limit);
   const pageIssue = candidates.length === 0
-    ? classifyProviderIssue({
-      url: fetched.url,
-      title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
-      message: content,
-      status: fetched.status,
-      providerErrorCode: "unavailable",
-      retryable: true
-    })
+    ? classifySearchPageIssue(profile, fetched, extracted, content)
     : null;
 
   if (candidates.length > 0) {
@@ -1522,6 +1712,7 @@ const createDefaultSearch = (
 
   if (pageIssue && (pageIssue.reasonCode !== "env_limited" || pageIssue.constraint)) {
     const reasonCode = pageIssue.reasonCode;
+    const providerShell = requiresBrowserAssistance(profile, fetched.url, fetched.html);
     throw new ProviderRuntimeError(
       providerErrorCodeFromReasonCode(reasonCode),
       reasonCode === "token_required"
@@ -1537,7 +1728,8 @@ const createDefaultSearch = (
             status: fetched.status,
             url: fetched.url,
             ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-            ...(content ? { message: content } : {})
+            ...(content ? { message: content } : {}),
+            ...(providerShell?.reason ? { providerShell: providerShell.reason } : {})
           }, pageIssue),
           ...browserFallbackObservationDetails(fetched.browserFallback)
         }

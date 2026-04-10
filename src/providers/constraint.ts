@@ -39,6 +39,7 @@ const CONSTRAINT_KINDS = new Set<ProviderConstraintKind>([
 const RENDER_REQUIRED_SHELLS = new Set<string>([
   "bestbuy_international_gate",
   "duckduckgo_non_js_redirect",
+  "macys_access_denied_shell",
   "social_first_party_help_shell",
   "social_js_required_shell",
   "social_render_shell",

@@ -92,6 +92,37 @@ describe("social search quality helpers", () => {
     ])).toEqual(["https://x.com/opendevbrowser/status/123"]);
   });
 
+  it("accepts x i/web/status links as usable first-party search evidence", () => {
+    const baseUrl = "https://x.com/search?q=browser+automation";
+    const recoveredStatusUrl = "https://x.com/i/web/status/1234567890";
+
+    expect(detectSocialSearchShell("x", {
+      url: baseUrl,
+      content: "JavaScript is disabled in this browser",
+      links: [recoveredStatusUrl]
+    })).toBeNull();
+    expect(selectUsableSocialSearchLinks("x", baseUrl, [
+      "https://x.com/search",
+      recoveredStatusUrl
+    ])).toEqual([recoveredStatusUrl]);
+  });
+
+  it("treats concrete x status routes as usable while excluding analytics subpaths", () => {
+    const baseUrl = "https://x.com/search?q=browser+automation";
+    const statusUrl = "https://x.com/opendevbrowser/status/123";
+    const analyticsUrl = "https://x.com/opendevbrowser/status/123/analytics";
+
+    expect(detectSocialSearchShell("x", {
+      url: statusUrl,
+      content: "JavaScript is disabled in this browser",
+      links: [statusUrl]
+    })).toBeNull();
+    expect(selectUsableSocialSearchLinks("x", baseUrl, [
+      statusUrl,
+      analyticsUrl
+    ])).toEqual([statusUrl]);
+  });
+
   it("treats x login flows and tos routes as blocked first-party shell urls", () => {
     expect(detectSocialSearchShell("x", {
       url: "https://x.com/i/flow/login",
@@ -104,6 +135,22 @@ describe("social search quality helpers", () => {
     expect(selectUsableSocialSearchLinks("x", "https://x.com/search?q=browser+automation", [
       "https://mobile.x.com/opendevbrowser/status/123"
     ])).toEqual([]);
+  });
+
+  it("treats x help hosts, invalid urls, and login-flow roots as unusable search evidence", () => {
+    const baseUrl = "https://x.com/search?q=browser+automation";
+
+    expect(selectUsableSocialSearchLinks("x", baseUrl, [
+      "notaurl",
+      "https://help.x.com/en/using-x",
+      "https://x.com/i/flow/login"
+    ])).toEqual([]);
+    expect(detectSocialSearchShell("x", {
+      url: "https://x.com/i/flow/login",
+      content: "Sign in"
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
   });
 
   it("treats x root, login, and privacy routes as blocked first-party shells", () => {
@@ -156,6 +203,26 @@ describe("social search quality helpers", () => {
     ])).toEqual([
       "https://bsky.app/profile/test.bsky.social/post/abc123"
     ]);
+  });
+
+  it("treats bluesky search routes and metadata urls as blocked expansion paths", () => {
+    const baseUrl = "https://bsky.app/search?q=browser+automation";
+
+    expect(selectUsableSocialSearchLinks("bluesky", baseUrl, [
+      "https://bsky.app/search?q=browser+automation",
+      "https://bsky.app/manifest.json",
+      "https://bsky.app/profile/test.bsky.social/post/abc123"
+    ])).toEqual(["https://bsky.app/profile/test.bsky.social/post/abc123"]);
+  });
+
+  it("keeps reddit search routes and blocked first segments out of usable search evidence", () => {
+    const baseUrl = "https://www.reddit.com/search?q=browser+automation";
+
+    expect(selectUsableSocialSearchLinks("reddit", baseUrl, [
+      "https://www.reddit.com/search?q=browser+automation",
+      "https://www.reddit.com/login/",
+      "https://www.reddit.com/r/opendevbrowser/comments/123/example"
+    ])).toEqual(["https://www.reddit.com/r/opendevbrowser/comments/123/example"]);
   });
 
   it("ignores malformed and foreign-host bluesky evidence while keeping logged-out shells active", () => {

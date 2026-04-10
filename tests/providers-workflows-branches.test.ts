@@ -73,6 +73,15 @@ const toRuntime = (handlers: {
   ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
 });
 
+const expectBudgetedTimeout = (value: unknown, requestedTimeoutMs: number): void => {
+  expect(typeof value).toBe("number");
+  if (typeof value !== "number") {
+    return;
+  }
+  expect(value).toBeGreaterThan(0);
+  expect(value).toBeLessThanOrEqual(requestedTimeoutMs);
+};
+
 const WALMART_PREOWNED_AIRPODS_URL = "https://www.walmart.com/ip/Pre-Owned-Apple-AirPods-Pro-2nd-Generation-Lightning/19336719172?classType=REGULAR&conditionGroupCode=3&from=%2Fsearch";
 const WALMART_NEW_AIRPODS_URL = "https://www.walmart.com/ip/Apple-AirPods-Pro-2nd-Generation-with-MagSafe-Case-USB-C/5689912134?classType=REGULAR&from=%2Fsearch";
 
@@ -151,6 +160,7 @@ const expectWorkflowSuspendedIntent = (
 
 describe("workflow branch coverage", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     workflowTestUtils.resetProviderSignalState();
   });
@@ -3346,6 +3356,59 @@ describe("workflow branch coverage", () => {
     expect(output.summary).toContain("Primary constraint: Target requires a live browser-rendered page.");
   });
 
+  it("promotes Macy's access denied shells into live-browser-rendered primary summaries", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/macys"],
+        records: [makeRecord({
+          id: "macys-access-denied",
+          source: "shopping",
+          provider: "shopping/macys",
+          url: "https://www.macys.com/shop/featured/wireless%20mouse",
+          title: "Access Denied",
+          content: "You don't have permission to access this page on this server.",
+          attributes: {
+            retrievalPath: "shopping:search:index",
+            reasonCode: "env_limited",
+            blockerType: "env_limited",
+            providerShell: "macys_access_denied_shell",
+            constraint: {
+              kind: "render_required",
+              evidenceCode: "macys_access_denied_shell"
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "wireless mouse",
+      providers: ["shopping/macys"],
+      mode: "compact"
+    });
+
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Macys requires a live browser-rendered page.",
+      failures: [{
+        provider: "shopping/macys",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            blockerType: "env_limited",
+            providerShell: "macys_access_denied_shell",
+            constraint: {
+              kind: "render_required",
+              evidenceCode: "macys_access_denied_shell"
+            }
+          }
+        }
+      }]
+    });
+    expect(output.meta).not.toHaveProperty("primary_constraint_summary");
+    expect(output.summary).toContain("Primary constraint: Macys requires a live browser-rendered page.");
+  });
+
   it("surfaces blocker-specific recovery fetch failures instead of generic no-offer output", async () => {
     const search = vi.fn(async () => makeAggregate({
       sourceSelection: "shopping",
@@ -4374,11 +4437,12 @@ describe("workflow branch coverage", () => {
       mode: "json"
     });
 
-    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    const searchOptions = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(searchOptions).toMatchObject({
       source: "shopping",
-      providerIds: ["shopping/amazon"],
-      timeoutMs: 4321
-    }));
+      providerIds: ["shopping/amazon"]
+    });
+    expectBudgetedTimeout(searchOptions?.timeoutMs, 4321);
   });
 
   it("preserves shopping timeout failures in structured workflow output", async () => {
@@ -4550,6 +4614,8 @@ describe("workflow branch coverage", () => {
   });
 
   it("resumes shopping without replaying completed provider searches", async () => {
+    const resumeNowMs = Date.parse("2026-03-30T22:00:00.000Z");
+    vi.spyOn(Date, "now").mockImplementation(() => resumeNowMs);
     let searchOptions: Record<string, unknown> | undefined;
     const search = vi.fn(async (input, options) => {
       searchOptions = options as Record<string, unknown>;
@@ -4642,7 +4708,6 @@ describe("workflow branch coverage", () => {
     expect(searchOptions).toMatchObject({
       source: "shopping",
       providerIds: ["shopping/walmart"],
-      timeoutMs: 4321,
       runtimePolicy: {
         browserMode: "extension",
         useCookies: true,
@@ -4662,17 +4727,20 @@ describe("workflow branch coverage", () => {
         }
       }
     });
+    expectBudgetedTimeout(searchOptions?.timeoutMs, 4321);
     expect((output.offers as Array<{ provider: string }>).map((offer) => offer.provider)).toEqual(
       expect.arrayContaining(["shopping/amazon", "shopping/walmart"])
     );
   });
 
   it("forwards timeout, browser mode, and cookie overrides through shopping search and derived fetch steps", async () => {
+    let nowMs = Date.parse("2026-04-08T12:00:00.000Z");
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
     let searchOptions: Record<string, unknown> | undefined;
     let fetchOptions: Record<string, unknown> | undefined;
     const search = vi.fn(async (_input, options) => {
       searchOptions = options as Record<string, unknown>;
-      return makeAggregate({
+      const result = makeAggregate({
         sourceSelection: "shopping",
         providerOrder: ["shopping/amazon"],
         records: [makeRecord({
@@ -4687,6 +4755,8 @@ describe("workflow branch coverage", () => {
           }
         })]
       });
+      nowMs += 250;
+      return result;
     });
     const fetch = vi.fn(async (_input, options) => {
       fetchOptions = options as Record<string, unknown>;
@@ -4756,7 +4826,6 @@ describe("workflow branch coverage", () => {
     expect(fetchOptions).toMatchObject({
       source: "shopping",
       providerIds: ["shopping/amazon"],
-      timeoutMs: 4321,
       runtimePolicy: {
         browserMode: "extension",
         useCookies: true,
@@ -4776,6 +4845,7 @@ describe("workflow branch coverage", () => {
         }
       }
     });
+    expect(fetchOptions?.timeoutMs).toBe(4071);
     expect((output.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/amazon");
   });
 
@@ -4910,17 +4980,18 @@ describe("workflow branch coverage", () => {
       include_copy: false
     });
 
-    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    const searchOptions = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(searchOptions).toMatchObject({
       source: "shopping",
       providerIds: ["shopping/amazon"],
-      timeoutMs: 4321,
       suspendedIntent: expectWorkflowSuspendedIntent("shopping", {
         query: "product timeout forwarded",
         providers: ["amazon"],
         mode: "json",
         timeoutMs: 4321
       })
-    }));
+    });
+    expectBudgetedTimeout(searchOptions?.timeoutMs, 4321);
     expect(fetch).toHaveBeenCalledWith(
       { url: "https://www.amazon.com/dp/product-timeout-forwarded" },
       expect.objectContaining({
@@ -5001,10 +5072,10 @@ describe("workflow branch coverage", () => {
       include_copy: false
     });
 
-    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    const searchOptions = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(searchOptions).toMatchObject({
       source: "shopping",
       providerIds: ["shopping/amazon"],
-      timeoutMs: 4321,
       runtimePolicy: {
         useCookies: true,
         challengeAutomationMode: "browser_with_helper",
@@ -5019,7 +5090,8 @@ describe("workflow branch coverage", () => {
         challengeAutomationMode: "browser_with_helper",
         cookiePolicyOverride: "required"
       })
-    }));
+    });
+    expectBudgetedTimeout(searchOptions?.timeoutMs, 4321);
     expect(fetch).toHaveBeenCalledWith(
       { url: "https://www.amazon.com/dp/product-runtime-policy-forwarded" },
       expect.objectContaining({

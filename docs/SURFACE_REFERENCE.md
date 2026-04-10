@@ -294,6 +294,7 @@ Envelope contract:
 - Effective precedence is `run > session > config`.
 - Shipped config defaults resolve to helper-capable posture: `mode=browser_with_helper` and `optionalComputerUseBridge.enabled=true`.
 - The optional helper bridge stays browser-scoped and is not a desktop agent.
+- Separate `desktop.*` config gates the shipped internal sibling desktop observation runtime, but no public desktop CLI, tool, or `/ops` family is exposed and browser review remains the surfaced truth.
 - Provider browser fallback uses explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`, and may include `details.challengeOrchestration` when the shared challenge plane ran during fallback.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Workflow outputs keep their existing keys while reading registry-backed pressure instead of provider-local durable state.
 

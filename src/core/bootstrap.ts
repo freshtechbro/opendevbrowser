@@ -4,16 +4,18 @@ import { AnnotationManager } from "../browser/annotation-manager";
 import { CanvasManager } from "../browser/canvas-manager";
 import { ScriptRunner } from "../browser/script-runner";
 import { AgentInbox } from "../annotate/agent-inbox";
-import { ConfigStore, loadGlobalConfig } from "../config";
+import { ConfigStore, loadGlobalConfig, resolveConfig } from "../config";
 import { getExtensionPath } from "../extension-extractor";
 import { RelayServer } from "../relay/relay-server";
 import { SkillLoader } from "../skills/skill-loader";
-import { createProviderRuntimeBundle } from "../providers/runtime-bundle";
 import { ChallengeOrchestrator } from "../challenges";
 import type { CoreOptions, OpenDevBrowserCore } from "./types";
+import { createCoreRuntimeAssemblies } from "./runtime-assemblies";
 
 export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCore {
-  const config = options.config ?? loadGlobalConfig();
+  const config = typeof options.config === "undefined"
+    ? loadGlobalConfig()
+    : resolveConfig(options.config);
   const configStore = new ConfigStore(config);
   const cacheRoot = options.worktree ?? options.directory;
   const baseManager = new BrowserManager(cacheRoot, config);
@@ -28,7 +30,13 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const runner = new ScriptRunner(manager);
   const skills = new SkillLoader(cacheRoot, config.skillPaths);
   const agentInbox = new AgentInbox(cacheRoot);
-  const { providerRuntime, browserFallbackPort } = createProviderRuntimeBundle({
+  const {
+    providerRuntime,
+    browserFallbackPort,
+    desktopRuntime,
+    automationCoordinator
+  } = createCoreRuntimeAssemblies({
+    cacheRoot,
     config,
     manager,
     challengeOrchestrator
@@ -93,6 +101,32 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     baseManager.closeAll().catch(() => {});
   };
 
+  const observeDesktopAndVerify: OpenDevBrowserCore["observeDesktopAndVerify"] = async (input) => {
+    const {
+      browserSessionId,
+      targetId,
+      maxChars,
+      cursor,
+      ...request
+    } = input;
+    const observation = await automationCoordinator.requestDesktopObservation({
+      ...request,
+      browserSessionId
+    });
+    const verification = await automationCoordinator.verifyAfterDesktopObservation({
+      browserSessionId,
+      targetId,
+      observationId: observation.observationId,
+      maxChars,
+      ...(typeof cursor === "string" ? { cursor } : {})
+    });
+
+    return {
+      observation,
+      verification
+    };
+  };
+
   return {
     cacheRoot,
     config,
@@ -104,6 +138,9 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     annotationManager,
     runner,
     skills,
+    desktopRuntime,
+    automationCoordinator,
+    observeDesktopAndVerify,
     providerRuntime,
     ...(browserFallbackPort ? { browserFallbackPort } : {}),
     relay,

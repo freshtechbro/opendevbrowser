@@ -1,63 +1,78 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildChallengeEvidenceBundle, verifyChallengeProgress } from "../src/challenges";
-import * as evidenceBundleModule from "../src/challenges/evidence-bundle";
 import type { ChallengeRuntimeHandle } from "../src/browser/manager-types";
+import type { BrowserResponseMeta } from "../src/browser/manager-types";
 
-const buildHandle = (args: {
-  cleared?: boolean;
-  deferred?: boolean;
-  snapshot?: string;
-  url?: string | null;
-  title?: string;
+type EvidenceArgs = {
+  snapshotId: string;
+  content: string;
   cookieCount?: number;
-}): ChallengeRuntimeHandle => ({
-  status: vi.fn(async () => ({
+  meta?: BrowserResponseMeta;
+  url?: string;
+  title?: string;
+  activeTargetId?: string | null;
+};
+
+const activeMeta = (overrides: Partial<BrowserResponseMeta> = {}): BrowserResponseMeta => ({
+  blockerState: "active",
+  blocker: {
+    schemaVersion: "1.0",
+    type: "auth_required",
+    source: "navigation",
+    reasonCode: "token_required",
+    confidence: 0.9,
+    retryable: true,
+    detectedAt: "2026-03-22T00:00:00.000Z",
+    evidence: { matchedPatterns: [], networkHosts: [] },
+    actionHints: []
+  },
+  challenge: {
+    challengeId: "challenge-1",
+    blockerType: "auth_required",
+    ownerSurface: "direct_browser",
+    resumeMode: "manual",
+    status: "active",
+    updatedAt: "2026-03-22T00:00:00.000Z",
+    preservedSessionId: "session-1"
+  },
+  ...overrides
+});
+
+const buildStatus = (args: EvidenceArgs) => ({
+  status: {
     mode: "extension",
-    activeTargetId: "tab-1",
-    ...(args.url === null ? {} : {
-      url: args.url ?? (args.cleared ? "https://example.com/home" : "https://example.com/login")
-    }),
-    title: args.title ?? (args.cleared ? "Home" : "Sign in"),
-    meta: args.cleared
-      ? { blockerState: "clear" as const }
-      : args.deferred
-        ? {
-          blockerState: "active" as const,
-          blockerResolution: {
-            status: "deferred" as const,
-            reason: "need-human-review"
-          },
-          blocker: {
-            schemaVersion: "1.0" as const,
-            type: "auth_required" as const,
-            source: "navigation" as const,
-            reasonCode: "token_required" as const,
-            confidence: 0.9,
-            retryable: true,
-            detectedAt: "2026-03-22T00:00:00.000Z",
-            evidence: { matchedPatterns: [], networkHosts: [] },
-            actionHints: []
-          }
-        }
-        : {
-          blockerState: "active" as const,
-          blocker: {
-            schemaVersion: "1.0" as const,
-            type: "auth_required" as const,
-            source: "navigation" as const,
-            reasonCode: "token_required" as const,
-            confidence: 0.9,
-            retryable: true,
-            detectedAt: "2026-03-22T00:00:00.000Z",
-            evidence: { matchedPatterns: [], networkHosts: [] },
-            actionHints: []
-          }
-        }
-  })),
+    activeTargetId: args.activeTargetId ?? "tab-1",
+    url: args.url ?? "https://example.com/challenge",
+    title: args.title ?? "Challenge",
+    meta: args.meta ?? activeMeta()
+  }
+});
+
+const makeBundle = (args: EvidenceArgs) => buildChallengeEvidenceBundle({
+  ...buildStatus(args),
+  snapshot: {
+    snapshotId: args.snapshotId,
+    content: args.content,
+    warnings: []
+  },
+  debugTrace: {
+    channels: {
+      console: { events: [] },
+      network: { events: [] },
+      exception: { events: [] }
+    }
+  },
+  cookieCount: args.cookieCount ?? 1,
+  canImportCookies: true
+});
+
+const makeHandle = (args: EvidenceArgs): ChallengeRuntimeHandle => ({
+  status: vi.fn(async () => buildStatus(args).status),
   goto: vi.fn(async () => ({ timingMs: 1 })),
   waitForLoad: vi.fn(async () => ({ timingMs: 1 })),
   snapshot: vi.fn(async () => ({
-    content: args.snapshot ?? (args.cleared ? "[r9] button \"Done\"" : "[r1] link \"Sign in\""),
+    snapshotId: args.snapshotId,
+    content: args.content,
     warnings: []
   })),
   click: vi.fn(async () => ({ timingMs: 1, navigated: false })),
@@ -70,7 +85,7 @@ const buildHandle = (args: {
   pointerDown: vi.fn(async () => ({ timingMs: 1 })),
   pointerUp: vi.fn(async () => ({ timingMs: 1 })),
   drag: vi.fn(async () => ({ timingMs: 1 })),
-  cookieList: vi.fn(async () => ({ count: args.cookieCount ?? (args.cleared ? 2 : 0) })),
+  cookieList: vi.fn(async () => ({ count: args.cookieCount ?? 1 })),
   cookieImport: vi.fn(async () => ({ imported: 0, rejected: [] })),
   debugTraceSnapshot: vi.fn(async () => ({
     channels: {
@@ -78,173 +93,16 @@ const buildHandle = (args: {
       network: { events: [] },
       exception: { events: [] }
     }
-  }))
-});
-
-const previous = buildChallengeEvidenceBundle({
-  status: {
-    mode: "extension",
-    activeTargetId: "tab-1",
-    url: "https://example.com/login",
-    title: "Sign in",
-    meta: {
-      blockerState: "active",
-      blocker: {
-        schemaVersion: "1.0",
-        type: "auth_required",
-        source: "navigation",
-        reasonCode: "token_required",
-        confidence: 0.9,
-        retryable: true,
-        detectedAt: "2026-03-22T00:00:00.000Z",
-        evidence: { matchedPatterns: [], networkHosts: [] },
-        actionHints: []
-      }
-    }
-  },
-  snapshot: { content: "[r1] link \"Sign in\"" }
+  })),
+  resolveRefPoint: vi.fn(async () => ({ x: 640, y: 360 }))
 });
 
 describe("challenge verification gate", () => {
-  it("reports clear when manager verification clears the blocker", async () => {
+  it("ignores regenerated snapshot ids when the blocker evidence is otherwise unchanged", async () => {
     const result = await verifyChallengeProgress({
-      handle: buildHandle({ cleared: true }),
-      sessionId: "session-clear",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(result.status).toBe("clear");
-    expect(result.bundle?.blockerState).toBe("clear");
-  });
-
-  it("surfaces explicit manager deferrals", async () => {
-    const result = await verifyChallengeProgress({
-      handle: buildHandle({ deferred: true }),
-      sessionId: "session-deferred",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(result.status).toBe("deferred");
-    expect(result.reason).toContain("deferred");
-  });
-
-  it("treats resolved manager blocker metadata as a clear result", async () => {
-    const handle = buildHandle({});
-    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mode: "extension",
-      activeTargetId: "tab-1",
-      url: "https://example.com/home",
-      title: "Home",
-      meta: {
-        blockerState: "active",
-        blockerResolution: {
-          status: "resolved",
-          reason: "manager cleared the blocker"
-        },
-        blocker: {
-          schemaVersion: "1.0" as const,
-          type: "auth_required" as const,
-          source: "navigation" as const,
-          reasonCode: "token_required" as const,
-          confidence: 0.9,
-          retryable: true,
-          detectedAt: "2026-03-22T00:00:00.000Z",
-          evidence: { matchedPatterns: [], networkHosts: [] },
-          actionHints: []
-        }
-      }
-    });
-
-    const result = await verifyChallengeProgress({
-      handle,
-      sessionId: "session-resolved",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(result.status).toBe("clear");
-    expect(result.reason).toContain("cleared");
-  });
-
-  it("yields when verification detects a human boundary", async () => {
-    const result = await verifyChallengeProgress({
-      handle: buildHandle({
-        snapshot: "[r1] textbox \"Verification code\""
-      }),
-      sessionId: "session-mfa",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(result.status).toBe("yield_required");
-    expect(result.reason).toContain("mfa");
-  });
-
-  it("reports progress when state changed but the blocker is still active", async () => {
-    const result = await verifyChallengeProgress({
-      handle: buildHandle({
-        url: "https://example.com/login?step=2",
-        title: "Continue sign in",
-        cookieCount: 2
-      }),
-      sessionId: "session-progress",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(result.status).toBe("progress");
-    expect(result.changed).toBe(true);
-  });
-
-  it("reports progress when drag interaction evidence disappears even if the page url is stable", async () => {
-    const previousDrag = buildChallengeEvidenceBundle({
-      status: {
-        mode: "extension",
-        activeTargetId: "tab-1",
-        url: "https://example.com/challenge",
-        title: "Drag the slider",
-        meta: {
-          blockerState: "active",
-          blocker: {
-            schemaVersion: "1.0",
-            type: "anti_bot_challenge",
-            source: "navigation",
-            reasonCode: "challenge_detected",
-            confidence: 0.95,
-            retryable: true,
-            detectedAt: "2026-03-22T00:00:00.000Z",
-            evidence: { matchedPatterns: [], networkHosts: [] },
-            actionHints: []
-          }
-        }
-      },
-      snapshot: {
-        content: "Drag the slider to continue."
-      }
-    });
-
-    const result = await verifyChallengeProgress({
-      handle: buildHandle({
-        url: "https://example.com/challenge",
-        title: "Drag the slider",
-        snapshot: "[r1] button \"Continue\""
-      }),
-      sessionId: "session-interaction-progress",
-      previous: previousDrag,
-      canImportCookies: true
-    });
-
-    expect(result.status).toBe("progress");
-    expect(result.changed).toBe(true);
-  });
-
-  it("reports still blocked when verification observes no meaningful change", async () => {
-    const result = await verifyChallengeProgress({
-      handle: buildHandle({}),
-      sessionId: "session-still-blocked",
-      previous,
+      handle: makeHandle({ snapshotId: "snap-2", content: "[r1] button \"Continue\"" }),
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Continue\"" }),
       canImportCookies: true
     });
 
@@ -252,184 +110,156 @@ describe("challenge verification gate", () => {
     expect(result.changed).toBe(false);
   });
 
-  it("skips cookie listing when verification has no page url", async () => {
-    const handle = buildHandle({ url: null });
+  it("ignores raw cookie-count churn when cookie reuse availability is unchanged", async () => {
+    const result = await verifyChallengeProgress({
+      handle: makeHandle({ snapshotId: "snap-2", content: "[r1] button \"Continue\"", cookieCount: 2 }),
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Continue\"", cookieCount: 1 }),
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("still_blocked");
+    expect(result.changed).toBe(false);
+  });
+
+  it("treats cookie reuse availability changes as meaningful progress", async () => {
+    const result = await verifyChallengeProgress({
+      handle: makeHandle({ snapshotId: "snap-2", content: "[r1] button \"Continue\"", cookieCount: 0 }),
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Continue\"", cookieCount: 1 }),
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("progress");
+    expect(result.changed).toBe(true);
+  });
+
+  it("still reports progress when only drag refs change", async () => {
+    const result = await verifyChallengeProgress({
+      handle: makeHandle({ snapshotId: "snap-2", content: "[r2] button \"Drag the slider\"" }),
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Drag the slider\"" }),
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("progress");
+    expect(result.changed).toBe(true);
+  });
+
+  it("still reports progress when the actionable evidence changes", async () => {
+    const result = await verifyChallengeProgress({
+      handle: makeHandle({ snapshotId: "snap-2", content: "[r1] button \"Continue\"\n[r2] link \"Sign in\"" }),
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Continue\"" }),
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("progress");
+    expect(result.changed).toBe(true);
+  });
+
+  it("skips cookie inspection when the current status has no url", async () => {
+    const handle = makeHandle({
+      snapshotId: "snap-2",
+      content: "[r1] button \"Continue\"",
+      url: ""
+    });
+
     const result = await verifyChallengeProgress({
       handle,
-      sessionId: "session-no-url",
-      previous,
+      sessionId: "session-1",
+      previous: makeBundle({
+        snapshotId: "snap-1",
+        content: "[r1] button \"Continue\"",
+        url: "",
+        cookieCount: 0
+      }),
       canImportCookies: true
     });
 
     expect(handle.cookieList).not.toHaveBeenCalled();
-    expect(result.bundle?.url).toBeUndefined();
+    expect(result.status).toBe("still_blocked");
+    expect(result.changed).toBe(false);
   });
 
-  it("follows the manager's active target when verification discovers a popup target", async () => {
-    const handle = buildHandle({
-      url: "https://example.com/challenge?popup=1",
-      title: "Choose where you'd like to shop",
-      snapshot: "[r10] dialog \"Choose where you'd like to shop\"\n[r11] button \"Pickup\""
-    });
-    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mode: "extension",
-      activeTargetId: "popup-target",
-      url: "https://example.com/challenge?popup=1",
-      title: "Choose where you'd like to shop",
-      meta: {
-        blockerState: "active",
-        blocker: {
-          schemaVersion: "1.0" as const,
-          type: "anti_bot_challenge" as const,
-          source: "navigation" as const,
-          reasonCode: "challenge_detected" as const,
-          confidence: 0.95,
-          retryable: true,
-          detectedAt: "2026-03-22T00:00:00.000Z",
-          evidence: { matchedPatterns: [], networkHosts: [] },
-          actionHints: []
-        }
-      }
-    });
-
+  it("returns clear when manager status clears the blocker", async () => {
     const result = await verifyChallengeProgress({
-      handle,
-      sessionId: "session-popup-target",
-      targetId: "stale-target",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(handle.snapshot).toHaveBeenCalledWith("session-popup-target", "actionables", 2400, undefined, "popup-target");
-    expect(result.bundle?.activeTargetId).toBe("popup-target");
-    expect(result.changed).toBe(true);
-  });
-
-  it("falls back to the provided target id and detects drag interaction changes", async () => {
-    const handle = buildHandle({
-      url: "https://example.com/challenge?drag=1",
-      title: "Drag the slider",
-      snapshot: "Drag the slider to continue."
-    });
-    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mode: "extension",
-      activeTargetId: null,
-      url: "https://example.com/challenge?drag=1",
-      title: "Drag the slider",
-      meta: {
-        blockerState: "active",
-        blocker: {
-          schemaVersion: "1.0" as const,
-          type: "anti_bot_challenge" as const,
-          source: "navigation" as const,
-          reasonCode: "challenge_detected" as const,
-          confidence: 0.95,
-          retryable: true,
-          detectedAt: "2026-03-22T00:00:00.000Z",
-          evidence: { matchedPatterns: [], networkHosts: [] },
-          actionHints: []
-        }
-      }
-    });
-
-    const result = await verifyChallengeProgress({
-      handle,
-      sessionId: "session-drag-target",
-      targetId: "provided-target",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(handle.snapshot).toHaveBeenCalledWith("session-drag-target", "actionables", 2400, undefined, "provided-target");
-    expect(result.bundle?.interaction).toMatchObject({
-      preferredAction: "drag"
-    });
-    expect(result.changed).toBe(true);
-  });
-
-  it("passes a null target when neither the manager nor the caller provides one", async () => {
-    const handle = buildHandle({
-      url: "https://example.com/challenge",
-      title: "Continue",
-      snapshot: "[r1] button \"Continue\""
-    });
-    (handle.status as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mode: "extension",
-      activeTargetId: null,
-      url: "https://example.com/challenge",
-      title: "Continue",
-      meta: {
-        blockerState: "active",
-        blocker: {
-          schemaVersion: "1.0" as const,
-          type: "auth_required" as const,
-          source: "navigation" as const,
-          reasonCode: "token_required" as const,
-          confidence: 0.9,
-          retryable: true,
-          detectedAt: "2026-03-22T00:00:00.000Z",
-          evidence: { matchedPatterns: [], networkHosts: [] },
-          actionHints: []
-        }
-      }
-    });
-
-    await verifyChallengeProgress({
-      handle,
-      sessionId: "session-null-target",
-      previous,
-      canImportCookies: true
-    });
-
-    expect(handle.snapshot).toHaveBeenCalledWith("session-null-target", "actionables", 2400, undefined, null);
-  });
-
-  it("treats missing drag metadata as unchanged when neither bundle exposes drag refs", async () => {
-    const nextBundle = {
-      ...buildChallengeEvidenceBundle({
-        status: {
-          mode: "extension",
-          activeTargetId: "tab-1",
-          url: "https://example.com/login",
-          title: "Sign in",
-          meta: {
-            blockerState: "active",
-            blocker: {
-              schemaVersion: "1.0",
-              type: "auth_required",
-              source: "navigation",
-              reasonCode: "token_required",
-              confidence: 0.9,
-              retryable: true,
-              detectedAt: "2026-03-22T00:00:00.000Z",
-              evidence: { matchedPatterns: [], networkHosts: [] },
-              actionHints: []
-            }
-          }
-        },
-        snapshot: { content: "[r1] link \"Sign in\"" }
+      handle: makeHandle({
+        snapshotId: "snap-2",
+        content: "",
+        meta: activeMeta({ blockerState: "clear" }),
+        title: ""
       }),
-      interaction: undefined
-    };
-    const bundleSpy = vi.spyOn(evidenceBundleModule, "buildChallengeEvidenceBundle").mockReturnValue(
-      nextBundle as ReturnType<typeof buildChallengeEvidenceBundle>
-    );
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Continue\"" }),
+      canImportCookies: true
+    });
 
-    try {
-      const result = await verifyChallengeProgress({
-        handle: buildHandle({}),
-        sessionId: "session-missing-drag-metadata",
-        previous: {
-          ...previous,
-          interaction: undefined
-        },
-        canImportCookies: true
-      });
+    expect(result.status).toBe("clear");
+    expect(result.changed).toBe(true);
+  });
 
-      expect(result.status).toBe("still_blocked");
-      expect(result.changed).toBe(false);
-    } finally {
-      bundleSpy.mockRestore();
-    }
+  it("returns clear when manager resolution marks the blocker resolved", async () => {
+    const result = await verifyChallengeProgress({
+      handle: makeHandle({
+        snapshotId: "snap-2",
+        content: "[r1] button \"Continue\"",
+        meta: activeMeta({
+          blockerResolution: {
+            status: "resolved",
+            reason: "verifier_passed",
+            updatedAt: "2026-04-08T00:00:00.000Z"
+          }
+        })
+      }),
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Continue\"" }),
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("clear");
+    expect(result.changed).toBe(true);
+  });
+
+  it("returns deferred when manager resolution defers the blocker", async () => {
+    const result = await verifyChallengeProgress({
+      handle: makeHandle({
+        snapshotId: "snap-2",
+        content: "[r1] button \"Continue\"",
+        meta: activeMeta({
+          blockerResolution: {
+            status: "deferred",
+            reason: "env_limited",
+            updatedAt: "2026-04-08T00:00:00.000Z"
+          }
+        })
+      }),
+      sessionId: "session-1",
+      previous: makeBundle({ snapshotId: "snap-1", content: "[r1] button \"Continue\"" }),
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("deferred");
+    expect(result.changed).toBe(false);
+  });
+
+  it("returns yield_required when verification detects an mfa boundary", async () => {
+    const result = await verifyChallengeProgress({
+      handle: makeHandle({
+        snapshotId: "snap-2",
+        content: "[r1] textbox \"Verification code\"\n[r2] button \"Continue\"",
+        title: "Enter your verification code"
+      }),
+      sessionId: "session-1",
+      previous: makeBundle({
+        snapshotId: "snap-1",
+        content: "[r1] textbox \"Verification code\"\n[r2] button \"Continue\"",
+        title: "Enter your verification code"
+      }),
+      canImportCookies: true
+    });
+
+    expect(result.status).toBe("yield_required");
+    expect(result.reason).toContain("mfa");
   });
 });

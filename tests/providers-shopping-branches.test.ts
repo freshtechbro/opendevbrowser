@@ -104,6 +104,76 @@ describe("shopping provider branches", () => {
     });
   });
 
+  it("skips rating-only Best Buy anchors when a later same-url anchor carries the real product title", async () => {
+    const productUrl = "https://www.bestbuy.com/site/logitech-lift-vertical-wireless-optical-ergonomic-mouse-with-4-customizable-buttons-wireless-graphite/6501169.p?skuId=6501169";
+    const provider = createShoppingProviderById("shopping/bestbuy", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <a href="${productUrl}">Rating 4.7 out of 5 stars with 1,054 reviews (1,054)</a>
+            <a href="${productUrl}">Logitech Lift Vertical Wireless Optical Ergonomic Mouse with 4 Customizable Buttons - Graphite</a>
+            <div>$69.99 4.7 out of 5 1,054 reviews in stock</div>
+          </body></html>
+        `
+      })
+    });
+
+    const records = await provider.search?.({ query: "wireless ergonomic mouse", limit: 1 }, context);
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]).toMatchObject({
+      url: productUrl,
+      title: "Logitech Lift Vertical Wireless Optical Ergonomic Mouse with 4 Customizable Buttons - Graphite"
+    });
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      title: "Logitech Lift Vertical Wireless Optical Ergonomic Mouse with 4 Customizable Buttons - Graphite",
+      price: {
+        amount: 69.99,
+        currency: "USD"
+      },
+      rating: 4.7,
+      reviews_count: 1054,
+      availability: "in_stock"
+    });
+  });
+
+  it("skips rating-only Best Buy aria-label fallbacks when a later same-url anchor carries the real product title", async () => {
+    const productUrl = "https://www.bestbuy.com/site/acer-ergonomic-mouse-wireless-vertical-computer-mouse-for-office-ergo-mice-rechargeable-for-right-hand-2-4ghz-usb-rec-wireless-black/11973090.p?skuId=11973090";
+    const provider = createShoppingProviderById("shopping/bestbuy", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <a href="${productUrl}" aria-label="Rating 5 out of 5 stars with 2 reviews (2)"></a>
+            <a href="${productUrl}">Acer Ergonomic Mouse Wireless Vertical Computer Mouse for Office Ergo Mice Rechargeable</a>
+            <div>$24.99 5 out of 5 2 reviews in stock</div>
+          </body></html>
+        `
+      })
+    });
+
+    const records = await provider.search?.({ query: "wireless ergonomic mouse", limit: 1 }, context);
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]).toMatchObject({
+      url: productUrl,
+      title: "Acer Ergonomic Mouse Wireless Vertical Computer Mouse for Office Ergo Mice Rechargeable"
+    });
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      title: "Acer Ergonomic Mouse Wireless Vertical Computer Mouse for Office Ergo Mice Rechargeable",
+      price: {
+        amount: 24.99,
+        currency: "USD"
+      },
+      rating: 5,
+      reviews_count: 2,
+      availability: "in_stock"
+    });
+  });
+
   it("parses availability, currency, rating and reviews across content variants", async () => {
     const provider = createShoppingProvider(profile, {
       fetcher: async ({ url }) => {
@@ -719,6 +789,231 @@ describe("shopping provider branches", () => {
     });
   });
 
+  it("recovers Amazon card-local prices when generic anchor context misses delayed price markup", async () => {
+    const filler = "feature copy ".repeat(220);
+    const provider = createShoppingProvider(profile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div class="s-result-item" data-asin="B0NOANCHOR" data-component-type="s-search-result">
+              <a href="">Malformed card with a blank product anchor should be ignored.</a>
+            </div>
+            <div class="s-result-item" data-asin="B0AIRPODS2" data-component-type="s-search-result">
+              <a href="https://www.amazon.com/Apple-AirPods-Generation-Charging-Case/dp/B0AIRPODS2/ref=sr_1_1">
+                <img data-image-index="1" src="https://cdn.amazon.com/airpods-pro-2.jpg" alt="Apple AirPods Pro 2" />
+                Apple AirPods Pro (2nd generation) with MagSafe Charging Case (USB-C)
+              </a>
+              <div>4.5 out of 5 stars</div>
+              <div>${filler}</div>
+              <span class="a-price" data-a-size="xl">
+                <span class="a-offscreen">$189.99</span>
+                <span aria-hidden="true">
+                  <span class="a-price-symbol">$</span>
+                  <span class="a-price-whole">189</span>
+                  <span class="a-price-decimal">.</span>
+                  <span class="a-price-fraction">99</span>
+                </span>
+              </span>
+              <span>1,234 reviews</span>
+              <span>In Stock</span>
+            </div>
+            <div class="s-result-item" data-asin="B0BACKUP1" data-component-type="s-search-result">
+              <a href="https://www.amazon.com/Backup-AirPods-Case/dp/B0BACKUP1">
+                Backup AirPods case with silicone shell and wrist strap
+              </a>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const records = await provider.search?.({ query: "Apple AirPods Pro 2", limit: 1 }, context);
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.amazon.com/Apple-AirPods-Generation-Charging-Case/dp/B0AIRPODS2/ref=sr_1_1",
+      title: "Apple AirPods Pro (2nd generation) with MagSafe Charging Case (USB-C)"
+    });
+    expect(records?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(records?.[0]?.content).not.toContain("$189.99");
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 189.99,
+        currency: "USD"
+      },
+      rating: 4.5
+    });
+    expect(records?.[0]?.attributes.image_urls).toEqual(["https://cdn.amazon.com/airpods-pro-2.jpg"]);
+  });
+
+  it("covers Amazon card anchor fallthroughs for invalid urls, attribute-only titles, sparse metadata, and unquoted images", async () => {
+    const provider = createShoppingProviderById("shopping/amazon", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div class="s-result-item" data-asin="B0BADURL" data-component-type="s-search-result">
+              <a href="http://[bad">Broken href card that should be ignored before extraction.</a>
+            </div>
+            <div class="s-result-item" data-asin="B0PRICEONLY" data-component-type="s-search-result">
+              <a href="https://www.amazon.com/portable-monitor-price-only/dp/B0PRICEONLY" title="USD 299.99"></a>
+            </div>
+            <div class="s-result-item" data-asin="B0SHORT" data-component-type="s-search-result">
+              <a href="https://www.amazon.com/portable-monitor-short/dp/B0SHORT" aria-label="Short title"></a>
+            </div>
+            <div class="s-result-item" data-asin="B0ATTRONLY1" data-component-type="s-search-result">
+              <a href="https://www.amazon.com/portable-monitor-pro/dp/B0ATTRONLY1" aria-label="Portable Monitor Pro with fold-flat stand and cable passthrough for travel desks"></a>
+            </div>
+            <div class="s-result-item" data-asin="B0ATTRONLY2" data-component-type="s-search-result">
+              <a href="https://www.amazon.com/portable-monitor-air/dp/B0ATTRONLY2" title="Portable Monitor Air with matte panel and magnetic cover for remote work">
+                <img data-src=https://cdn.amazon.com/portable-monitor-air.jpg />
+              </a>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const records = await provider.search?.({ query: "portable monitor", limit: 5 }, context);
+
+    expect(records?.map((record) => record.url)).toEqual([
+      "https://www.amazon.com/portable-monitor-pro/dp/B0ATTRONLY1",
+      "https://www.amazon.com/portable-monitor-air/dp/B0ATTRONLY2"
+    ]);
+
+    const sparse = records?.[0];
+    expect(sparse).toMatchObject({
+      title: "Portable Monitor Pro with fold-flat stand and cable passthrough for travel desks"
+    });
+    expect(sparse?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false,
+      availability: "unknown",
+      rating: 0,
+      reviews_count: 0
+    });
+    expect(sparse?.attributes).not.toHaveProperty("image_urls");
+
+    const withUnquotedImage = records?.[1];
+    expect(withUnquotedImage).toMatchObject({
+      title: "Portable Monitor Air with matte panel and magnetic cover for remote work"
+    });
+    expect(withUnquotedImage?.attributes.image_urls).toEqual(["https://cdn.amazon.com/portable-monitor-air.jpg"]);
+    expect(withUnquotedImage?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false,
+      availability: "unknown",
+      rating: 0,
+      reviews_count: 0
+    });
+  });
+
+  it("recovers Costco card-local prices when generic anchor context misses deep product-tile pricing", async () => {
+    const filler = "membership bundle copy ".repeat(180);
+    const provider = createShoppingProviderById("shopping/costco", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div id="productList">
+              <div data-testid="ProductTile_3999999999" data-tile-index="0" role="group">
+                <a data-testid="Link" href="">Malformed product tile with a blank product link should be ignored.</a>
+              </div>
+              <div data-testid="ProductTile_4000362496" data-tile-index="0" role="group">
+                <a data-testid="Link" href="https://www.costco.com/logitech-mx-keyboard-and-mouse-combo.product.4000362496.html">
+                  <img src="https://cdn.costco.com/logitech-mx-combo.jpg" alt="Logitech MX Keyboard and Mouse Combo" />
+                  <span>Logitech MX Keyboard and Mouse Combo</span>
+                </a>
+                <div>${filler}</div>
+                <div data-testid="PriceGroup_4000362496">
+                  <div data-testid="Text_Price_4000362496">$99.99</div>
+                </div>
+                <div aria-label="Average rating is 3.86 out of 5 stars. Based on 59 reviews."></div>
+                <div>Delivery Available</div>
+                <button data-testid="addToCartBtn-PRODUCT_ACTIONS_4000362496">Add to Cart</button>
+              </div>
+              <div data-testid="ProductTile_4000000000">
+                <a href="https://www.costco.com/backup-mouse.product.4000000000.html">Backup wireless mouse bundle</a>
+              </div>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const records = await provider.search?.({ query: "ergonomic wireless mouse", limit: 1 }, context);
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.costco.com/logitech-mx-keyboard-and-mouse-combo.product.4000362496.html",
+      title: "Logitech MX Keyboard and Mouse Combo"
+    });
+    expect(records?.[0]?.attributes.retrievalPath).toBe("shopping:search:result-card");
+    expect(records?.[0]?.content).not.toContain("$99.99");
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 99.99,
+        currency: "USD"
+      },
+      reviews_count: 59,
+      availability: "in_stock"
+    });
+    expect(records?.[0]?.attributes.image_urls).toEqual(["https://cdn.costco.com/logitech-mx-combo.jpg"]);
+  });
+
+  it("keeps sparse Costco product tiles when rating labels, image tags, and price groups are absent", async () => {
+    const provider = createShoppingProviderById("shopping/costco", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <div id="productList">
+              <div data-testid="ProductTile_4000888888" data-tile-index="0" role="group">
+                <a data-testid="Link" href="https://www.costco.com/portable-monitor-travel-bundle.product.4000888888.html">
+                  Portable monitor travel bundle with matte panel and fold-flat magnetic cover
+                </a>
+                <div>Members-only assortment for hybrid desks.</div>
+              </div>
+            </div>
+          </body></html>
+        `
+      })
+    });
+
+    const records = await provider.search?.({ query: "portable monitor", limit: 2 }, context);
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.costco.com/portable-monitor-travel-bundle.product.4000888888.html",
+      title: "Portable monitor travel bundle with matte panel and fold-flat magnetic cover"
+    });
+    expect(records?.[0]?.attributes).not.toHaveProperty("image_urls");
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 0,
+        currency: "USD"
+      },
+      price_source: "unresolved",
+      price_is_trustworthy: false,
+      availability: "unknown",
+      rating: 0,
+      reviews_count: 0
+    });
+  });
+
   it("skips blank generic hrefs, uses unquoted aria labels, and preserves raw invalid generic card images", async () => {
     const provider = createShoppingProvider(profile, {
       fetcher: async ({ url }) => ({
@@ -871,6 +1166,45 @@ describe("shopping provider branches", () => {
       },
       rating: 4.7,
       reviews_count: 51
+    });
+  });
+
+  it("keeps eBay result cards without image elements while preserving priced offer metadata", async () => {
+    const provider = createShoppingProviderById("shopping/ebay", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <ul class="srp-results srp-list clearfix">
+              <li class="s-card s-card--horizontal">
+                <a class="s-card__link" href="https://www.ebay.com/itm/135791357913?itmmeta=minimal123">
+                  Refurbished ergonomic wireless mouse with silent wheel and compact travel shell for daily commuting
+                </a>
+                <div>USD 79.99 4.7 out of 5 18 reviews only 1 left</div>
+              </li>
+            </ul>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "wireless mouse", limit: 2 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      url: "https://www.ebay.com/itm/135791357913?itmmeta=minimal123",
+      title: "Refurbished ergonomic wireless mouse with silent wheel and compact travel shell for daily commuting"
+    });
+    expect(rows?.[0]?.attributes).not.toHaveProperty("image_urls");
+    expect(rows?.[0]?.attributes.shopping_offer).toMatchObject({
+      price: {
+        amount: 79.99,
+        currency: "USD"
+      },
+      availability: "limited",
+      rating: 4.7,
+      reviews_count: 18
     });
   });
 
@@ -1080,6 +1414,100 @@ describe("shopping provider branches", () => {
         providerShell: "target_shell_page",
         title: "\"wireless mouse\" : Target",
         message: expect.stringContaining("skip to main content")
+      }
+    });
+  });
+
+  it("surfaces Macy's access denied shells as render-required provider shells", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <head><title>Access Denied</title></head>
+          <body>
+            You don't have permission to access "http://www.macys.com/shop/featured/wireless-mouse"
+            on this server. Reference #18.4f5a2c17.1710000000.abcdef
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+    const provider = createShoppingProviderById("shopping/macys");
+
+    await expect(provider.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "macys_access_denied_shell"
+        },
+        providerShell: "macys_access_denied_shell",
+        title: "Access Denied",
+        message: expect.stringContaining("don't have permission to access")
+      }
+    });
+  });
+
+  it("promotes Macy's access denied shells from custom fetchers when search result extraction yields no candidates", async () => {
+    const provider = createShoppingProviderById("shopping/macys", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head><title>Access Denied</title></head>
+            <body>
+              You don't have permission to access the requested URL on this server.
+              Reference: 0.bb7c4217.1775701518.2a3d66da
+            </body>
+          </html>
+        `
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "macys_access_denied_shell"
+        },
+        providerShell: "macys_access_denied_shell",
+        title: "Access Denied",
+        message: expect.stringContaining("requested URL on this server")
+      }
+    });
+  });
+
+  it("detects Macy's access denied shells even when the heading appears only in body text", async () => {
+    const provider = createShoppingProviderById("shopping/macys", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <body>
+              <h1>Access Denied</h1>
+              You don't have permission to access the requested URL on this server.
+              Reference: 0.bb7c4217.1775701518.2a3d66da
+            </body>
+          </html>
+        `
+      })
+    });
+
+    await expect(provider.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "macys_access_denied_shell"
+        },
+        providerShell: "macys_access_denied_shell",
+        message: expect.stringContaining("requested URL on this server")
       }
     });
   });

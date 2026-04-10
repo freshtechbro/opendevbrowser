@@ -230,6 +230,8 @@ describe("artifact and workflow runtime", () => {
   });
 
   it("persists sanitized research output without shell records", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T00:00:00.000Z"));
     const root = await mkdtemp(join(tmpdir(), "odb-research-sanitized-"));
     createdDirs.push(root);
 
@@ -347,6 +349,8 @@ describe("artifact and workflow runtime", () => {
   });
 
   it("persists fetched web research pages after search-index shells are sanitized", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T00:00:00.000Z"));
     const root = await mkdtemp(join(tmpdir(), "odb-research-web-fetch-"));
     createdDirs.push(root);
 

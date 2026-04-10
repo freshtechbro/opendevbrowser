@@ -1070,9 +1070,22 @@ const fetchBinary = async (url: string, timeoutMs?: number): Promise<Buffer | nu
   }
 };
 
+const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | undefined) => {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return () => undefined;
+  }
+  const startedAtMs = Date.now();
+  return () => Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAtMs));
+};
+
 const inferBrandFromContent = (content: string | undefined): string | undefined => {
   const normalized = normalizePlainText(content);
   if (!normalized) return undefined;
+  const bestBuyTitle = inferBestBuyTitleFromContent(normalized);
+  const bestBuyBrand = inferBestBuyBrandFromTitle(bestBuyTitle) ?? extractBrandFromTitle(bestBuyTitle);
+  if (bestBuyBrand) {
+    return bestBuyBrand;
+  }
   const storeMatch = /\bVisit the ([A-Z][A-Za-z0-9&+' -]{1,60}) Store\b/i.exec(normalized);
   if (storeMatch?.[1]) {
     return storeMatch[1].trim();
@@ -1092,9 +1105,28 @@ const inferBrandFromContent = (content: string | undefined): string | undefined 
   return undefined;
 };
 
+const inferBestBuyBrandFromTitle = (title: string | undefined): string | undefined => {
+  const cleaned = normalizePlainText(title);
+  const match = /^([A-Z][A-Za-z0-9&+' ]{1,40})\s+-\s+/.exec(cleaned);
+  return match?.[1]?.trim() || undefined;
+};
+
+const inferBestBuyTitleFromContent = (normalized: string): string | undefined => {
+  const match = /\bMain Content\s+(.+?)(?=\s+Rating [0-9](?:\.[0-9])? out of 5 stars|\s+Model:|\s+SKU:|\s+Back to top\b)/i.exec(normalized);
+  const candidate = normalizePlainText(match?.[1]);
+  if (!candidate || candidate.length < 20 || LOOKS_LIKE_URL_RE.test(candidate)) {
+    return undefined;
+  }
+  return candidate;
+};
+
 const inferTitleFromContent = (content: string | undefined): string | undefined => {
   const normalized = normalizePlainText(content);
   if (!normalized) return undefined;
+  const bestBuyTitle = inferBestBuyTitleFromContent(normalized);
+  if (bestBuyTitle) {
+    return bestBuyTitle;
+  }
   const storeMatch = /\bVisit the [A-Z][A-Za-z0-9&+' -]{1,60} Store\s+(.+?)(?=\s+(?:Brand [A-Z]|About this item|Key item features|Current price is|Actual Color|[0-9]+(?:\.[0-9]+)? stars out of|Best seller\b))/i.exec(normalized);
   const candidate = normalizePlainText(storeMatch?.[1]);
   if (!candidate || candidate.length < 20 || LOOKS_LIKE_URL_RE.test(candidate)) {
@@ -1175,7 +1207,13 @@ const isMarketplaceTitleChrome = (title: string, productUrl: string): boolean =>
   if (!cleaned) return true;
   try {
     const host = new URL(productUrl).hostname.toLowerCase();
-    return host.includes("walmart.") && WALMART_TITLE_CHROME_RE.test(cleaned);
+    if (host.includes("walmart.")) {
+      return WALMART_TITLE_CHROME_RE.test(cleaned);
+    }
+    if (host.includes("bestbuy.")) {
+      return /\$\(csi\.user\.businessName\)|\bSkip to content\b|\bGo to Product Search\b/i.test(cleaned);
+    }
+    return false;
   } catch {
     return false;
   }
@@ -1349,9 +1387,13 @@ const resolveProductPrice = (
   return preferred;
 };
 
+const MANUAL_MARKETPLACE_PRICE_FOLLOW_UP_PROVIDER_IDS = new Set<string>([
+  "shopping/amazon"
+]);
+
 const requiresManualMarketplacePriceFollowUp = (productUrl: string): boolean => {
   const providerId = resolveShoppingProviderIdForUrl(productUrl);
-  return providerId !== null && providerId !== "shopping/others";
+  return providerId !== null && MANUAL_MARKETPLACE_PRICE_FOLLOW_UP_PROVIDER_IDS.has(providerId);
 };
 
 const buildManualProductPriceFollowUpMessage = (productUrl: string): string => {
@@ -1843,6 +1885,7 @@ export const runShoppingWorkflow = async (
   }
 
   const workflowInput = envelope.input as unknown as ShoppingRunInput;
+  const remainingTimeoutMs = createRemainingTimeoutResolver(workflowInput.timeoutMs);
   let trace: WorkflowTraceEntry[] = [
     ...(envelope.trace ?? []),
     {
@@ -1877,12 +1920,13 @@ export const runShoppingWorkflow = async (
     step: ShoppingWorkflowExecutionStep,
     stepEnvelope: WorkflowResumeEnvelope
   ): ProviderRunOptions => {
+    const timeoutMs = remainingTimeoutMs();
     const stepOptions = withBrowserModeOverride(
       withChallengeAutomationOverride(
         withCookieOverrides({
           source: "shopping",
           providerIds: [step.input.providerId],
-          ...(typeof workflowInput.timeoutMs === "number" ? { timeoutMs: workflowInput.timeoutMs } : {})
+          ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
         }, workflowInput),
         workflowInput
       ),
@@ -2069,19 +2113,13 @@ export const runProductVideoWorkflow = async (
   ];
 
   const workflowInput = plan.input;
-  const startedAtMs = Date.now();
   const includeScreenshots = plan.compiled.includeScreenshots;
   const includeAllImages = plan.compiled.includeAllImages;
   const includeCopy = plan.compiled.includeCopy;
   const timeoutOptions = typeof workflowInput.timeoutMs === "number"
     ? { timeoutMs: workflowInput.timeoutMs }
     : {};
-  const remainingTimeoutMs = (): number | undefined => {
-    if (typeof workflowInput.timeoutMs !== "number" || !Number.isFinite(workflowInput.timeoutMs) || workflowInput.timeoutMs <= 0) {
-      return undefined;
-    }
-    return Math.max(1, workflowInput.timeoutMs - Math.max(0, Date.now() - startedAtMs));
-  };
+  const remainingTimeoutMs = createRemainingTimeoutResolver(workflowInput.timeoutMs);
   const appendProductVideoTrace = (
     currentTrace: WorkflowTraceEntry[],
     stage: WorkflowTraceEntry["stage"],

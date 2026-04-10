@@ -36,6 +36,7 @@ import {
 } from "./social";
 import {
   detectSocialSearchShell,
+  isAllowedSocialSearchExpansionUrl,
   isFirstPartySocialSearchRoute,
   prioritizeSocialSearchLinks,
   selectUsableSocialSearchLinks
@@ -324,6 +325,239 @@ type RuntimeFetchedDocument = {
   links: string[];
   browserFallback?: BrowserFallbackObservation;
 };
+
+const describeDefaultFetchedIssue = (document: RuntimeFetchedDocument) => {
+  const extracted = extractStructuredContent(document.html, document.url);
+  const title = typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined;
+  const pageMessage = toSnippet(stripUrls(extracted.text), 1600);
+  const detectedCommunityShell = document.url.includes("reddit.com")
+    ? detectSocialSearchShell("reddit", {
+      url: document.url,
+      title,
+      content: pageMessage,
+      links: extracted.links
+    })
+    : null;
+  const communityShell = detectedCommunityShell?.providerShell === "social_verification_wall"
+    ? detectedCommunityShell
+    : null;
+  const issue = classifyProviderIssue({
+    url: document.url,
+    title,
+    message: pageMessage,
+    status: document.status,
+    providerErrorCode: "unavailable",
+    retryable: true,
+    ...(communityShell ?? {})
+  });
+  return {
+    extracted,
+    pageMessage,
+    issue,
+    details: applyProviderIssueHint({
+      status: document.status,
+      url: document.url,
+      ...(title ? { title } : {}),
+      ...(pageMessage ? { message: pageMessage } : {}),
+      ...(communityShell ? {
+        providerShell: communityShell.providerShell,
+        browserRequired: true
+      } : {})
+    }, issue)
+  };
+};
+
+const shouldRecoverDefaultFetchedIssue = (issue: ProviderIssueHint): boolean => (
+  issue.reasonCode === "challenge_detected"
+  || issue.reasonCode === "token_required"
+  || (issue.reasonCode === "env_limited" && !!issue.constraint)
+);
+
+const toDefaultFetchedIssueError = (args: {
+  providerId: string;
+  source: ProviderSource;
+  document: RuntimeFetchedDocument;
+  issueDetails: ReturnType<typeof describeDefaultFetchedIssue>;
+}): ProviderRuntimeError => {
+  const reasonCode = args.issueDetails.issue?.reasonCode ?? "env_limited";
+  return new ProviderRuntimeError(
+    providerErrorCodeFromReasonCode(reasonCode),
+    reasonCode === "token_required"
+      ? `Authentication required for ${args.document.url}`
+      : reasonCode === "challenge_detected"
+        ? `Detected anti-bot challenge while retrieving ${args.document.url}`
+        : `Browser assistance required for ${args.document.url}`,
+    {
+      provider: args.providerId,
+      source: args.source,
+      retryable: reasonCode === "env_limited",
+      reasonCode,
+      details: {
+        ...args.issueDetails.details,
+        ...browserFallbackObservationDetails(args.document.browserFallback)
+      }
+    }
+  );
+};
+
+const resolveDefaultFallbackDocumentIfNeeded = async (args: {
+  providerId: string;
+  source: ProviderSource;
+  operation: "search" | "fetch";
+  document: RuntimeFetchedDocument;
+  context: ProviderContext;
+  browserFallbackPort?: BrowserFallbackPort;
+}): Promise<{ document: RuntimeFetchedDocument } & ReturnType<typeof describeDefaultFetchedIssue>> => {
+  let currentDocument = args.document;
+  let described = describeDefaultFetchedIssue(currentDocument);
+  const initialIssue = described.issue;
+  if (!initialIssue) {
+    return { document: currentDocument, ...described };
+  }
+  if (initialIssue.reasonCode === "env_limited" && !initialIssue.constraint) {
+    return { document: currentDocument, ...described };
+  }
+  if (!shouldRecoverDefaultFetchedIssue(initialIssue)) {
+    throw toDefaultFetchedIssueError({
+      providerId: args.providerId,
+      source: args.source,
+      document: currentDocument,
+      issueDetails: described
+    });
+  }
+
+  const fallback = await resolveProviderBrowserFallback({
+    browserFallbackPort: args.context.browserFallbackPort ?? args.browserFallbackPort,
+    provider: args.providerId,
+    source: args.source,
+    operation: args.operation,
+    reasonCode: initialIssue.reasonCode,
+    url: currentDocument.url,
+    context: args.context,
+    details: described.details
+  });
+  if (fallback) {
+    if (fallback.disposition !== "completed") {
+      throw toProviderFallbackError({
+        provider: args.providerId,
+        source: args.source,
+        url: currentDocument.url,
+        fallback
+      });
+    }
+
+    const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? currentDocument.url);
+    const html = readFallbackString(fallback.output, "html") ?? "";
+    const extracted = extractStructuredContent(html, resolvedUrl);
+    currentDocument = {
+      url: resolvedUrl,
+      status: 200,
+      html,
+      text: extracted.text,
+      links: extracted.links,
+      browserFallback: toBrowserFallbackObservation(fallback)
+    };
+    described = describeDefaultFetchedIssue(currentDocument);
+    if (!described.issue || (described.issue.reasonCode === "env_limited" && !described.issue.constraint)) {
+      return { document: currentDocument, ...described };
+    }
+  }
+
+  throw toDefaultFetchedIssueError({
+    providerId: args.providerId,
+    source: args.source,
+    document: currentDocument,
+    issueDetails: described
+  });
+};
+
+const COMMUNITY_SEARCH_LINK_SCAN_MULTIPLIER = 4;
+const MIN_COMMUNITY_SEARCH_LINK_SCAN = 12;
+
+const resolveCommunitySearchLinks = (
+  document: RuntimeFetchedDocument,
+  limit: number
+): string[] => {
+  const scanLimit = Math.max(limit * COMMUNITY_SEARCH_LINK_SCAN_MULTIPLIER, MIN_COMMUNITY_SEARCH_LINK_SCAN);
+  const links = prioritizeSocialSearchLinks(
+    "reddit",
+    document.url,
+    dedupeLinks(document.links, document.url, scanLimit)
+  );
+  return links
+    .filter((url) => isAllowedSocialSearchExpansionUrl("reddit", url))
+    .slice(0, limit);
+};
+
+const shouldRejectBlockedCommunityFallback = (
+  document: RuntimeFetchedDocument,
+  links: readonly string[]
+): boolean => (
+  document.browserFallback !== undefined
+  && isFirstPartySocialSearchRoute("reddit", document.url)
+  && links.length === 0
+);
+
+const toCommunityFallbackSearchError = (args: {
+  providerId: string;
+  document: RuntimeFetchedDocument;
+  pageMessage: string;
+}): ProviderRuntimeError => {
+  const reasonCode = args.document.browserFallback?.reasonCode ?? "env_limited";
+  return new ProviderRuntimeError(
+    providerErrorCodeFromReasonCode(reasonCode),
+    reasonCode === "challenge_detected"
+      ? `Detected anti-bot challenge while retrieving ${args.document.url}`
+      : reasonCode === "token_required"
+        ? `Authentication required for ${args.document.url}`
+        : `Browser assistance required for ${args.document.url}`,
+    {
+      provider: args.providerId,
+      source: "community",
+      retryable: reasonCode === "env_limited",
+      reasonCode,
+      details: {
+        status: args.document.status,
+        url: args.document.url,
+        message: args.pageMessage,
+        blockedLinks: dedupeLinks(args.document.links, args.document.url, 12),
+        browserRequired: true,
+        ...browserFallbackObservationDetails(args.document.browserFallback)
+      }
+    }
+  );
+};
+
+const shouldPreserveRecoveredSocialSearchUrl = (args: {
+  platform: SocialPlatform;
+  operation: "search" | "fetch";
+  requestedUrl: string;
+  recoveredUrl: string;
+  recoveredLinks: readonly string[];
+}): boolean => {
+  if (args.operation !== "search") {
+    return false;
+  }
+  if (!isFirstPartySocialSearchRoute(args.platform, args.requestedUrl)) {
+    return false;
+  }
+  if (isFirstPartySocialSearchRoute(args.platform, args.recoveredUrl)) {
+    return false;
+  }
+  return selectUsableSocialSearchLinks(args.platform, args.requestedUrl, args.recoveredLinks).length > 0;
+};
+
+const resolveRecoveredSocialSearchDocumentUrl = (args: {
+  platform: SocialPlatform;
+  operation: "search" | "fetch";
+  requestedUrl: string;
+  recoveredUrl: string;
+  recoveredLinks: readonly string[];
+}): string => (
+  shouldPreserveRecoveredSocialSearchUrl(args)
+    ? args.requestedUrl
+    : args.recoveredUrl
+);
 
 const isHttpUrl = (value: string): boolean => {
   try {
@@ -2016,11 +2250,44 @@ const withDefaultCommunityOptions = (
   browserFallbackPort?: BrowserFallbackPort
 ): CommunityProviderOptions => {
   const providerId = options?.id ?? "community/default";
+  const buildSearchRows = (args: {
+    query: string;
+    page: number;
+    document: RuntimeFetchedDocument;
+    pageMessage: string;
+    links: string[];
+  }) => {
+    const searchPath = isHttpUrl(args.query) ? "community:search:url" : "community:search:index";
+    const attributes = {
+      query: args.query,
+      page: args.page,
+      status: args.document.status,
+      links: args.links,
+      retrievalPath: searchPath,
+      ...browserFallbackObservationAttributes(args.document.browserFallback)
+    };
+    if (args.links.length === 0) {
+      return [{
+        url: args.document.url,
+        title: isHttpUrl(args.query) ? args.document.url : `Community search: ${args.query}`,
+        content: args.pageMessage,
+        confidence: isHttpUrl(args.query) ? 0.75 : 0.6,
+        attributes
+      }];
+    }
+    return args.links.map((url, index) => ({
+      url,
+      title: url,
+      confidence: Math.max(0.35, 0.75 - index * 0.05),
+      attributes: { ...attributes, rank: index + 1 }
+    }));
+  };
   return {
     ...options,
     search: options?.search ?? (async (input, context) => {
       const query = input.query.trim();
       const page = toPositiveInt(input.filters?.page, 1);
+      const limit = Math.max(1, Math.min(input.limit ?? 5, 10));
       const lookupUrl = isHttpUrl(query)
         ? query
         : `https://www.reddit.com/search/?q=${encodeURIComponent(query)}&sort=relevance&t=all&page=${page}`;
@@ -2033,22 +2300,29 @@ const withDefaultCommunityOptions = (
         context,
         browserFallbackPort
       });
-      const links = dedupeLinks(document.links, document.url, 20);
-
-      return [{
-        url: document.url,
-        title: isHttpUrl(query) ? document.url : `Community search: ${query}`,
-        content: toSnippet(stripUrls(document.text), 1800),
-        confidence: isHttpUrl(query) ? 0.75 : 0.6,
-        attributes: {
-          query,
-          page,
-          status: document.status,
-          links,
-          retrievalPath: isHttpUrl(query) ? "community:search:url" : "community:search:index",
-          ...browserFallbackObservationAttributes(document.browserFallback)
-        }
-      }];
+      const { document: resolvedDocument, pageMessage } = await resolveDefaultFallbackDocumentIfNeeded({
+        providerId,
+        source: "community",
+        operation: "search",
+        document,
+        context,
+        browserFallbackPort
+      });
+      const links = resolveCommunitySearchLinks(resolvedDocument, limit);
+      if (shouldRejectBlockedCommunityFallback(resolvedDocument, links)) {
+        throw toCommunityFallbackSearchError({
+          providerId,
+          document: resolvedDocument,
+          pageMessage
+        });
+      }
+      return buildSearchRows({
+        query,
+        page,
+        document: resolvedDocument,
+        pageMessage,
+        links
+      });
     }),
     fetch: options?.fetch ?? (async (input, context) => {
       const document = await fetchRuntimeDocumentWithFallback({
@@ -2060,16 +2334,24 @@ const withDefaultCommunityOptions = (
         context,
         browserFallbackPort
       });
-      const links = dedupeLinks(document.links, document.url, 20);
+      const { document: resolvedDocument } = await resolveDefaultFallbackDocumentIfNeeded({
+        providerId,
+        source: "community",
+        operation: "fetch",
+        document,
+        context,
+        browserFallbackPort
+      });
+      const links = dedupeLinks(resolvedDocument.links, resolvedDocument.url, 20);
       return {
-        url: document.url,
-        title: document.url,
-        content: document.text,
+        url: resolvedDocument.url,
+        title: resolvedDocument.url,
+        content: resolvedDocument.text,
         attributes: {
-          status: document.status,
+          status: resolvedDocument.status,
           links,
           retrievalPath: "community:fetch:url",
-          ...browserFallbackObservationAttributes(document.browserFallback)
+          ...browserFallbackObservationAttributes(resolvedDocument.browserFallback)
         }
       };
     })
@@ -2192,11 +2474,19 @@ const withDefaultSocialPlatformOptions = (
         });
       }
 
+      const requestedUrl = currentDocument.url;
       const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? currentDocument.url);
       const html = readFallbackString(fallback.output, "html") ?? "";
       const extracted = extractStructuredContent(html, resolvedUrl);
+      const effectiveUrl = resolveRecoveredSocialSearchDocumentUrl({
+        platform,
+        operation,
+        requestedUrl,
+        recoveredUrl: resolvedUrl,
+        recoveredLinks: extracted.links
+      });
       currentDocument = {
-        url: resolvedUrl,
+        url: effectiveUrl,
         status: 200,
         html,
         text: extracted.text,

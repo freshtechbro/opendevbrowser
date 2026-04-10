@@ -10,6 +10,22 @@ import {
 describe("provider constraint helpers", () => {
   it("classifies render-required and challenge shells explicitly", () => {
     expect(classifyProviderIssue({
+      url: "https://www.macys.com/shop/featured/wireless-mouse",
+      providerShell: "macys_access_denied_shell",
+      browserRequired: true,
+      message: "You don't have permission to access this page on this server."
+    })).toEqual({
+      reasonCode: "env_limited",
+      blockerType: "env_limited",
+      constraint: {
+        kind: "render_required",
+        evidenceCode: "macys_access_denied_shell",
+        providerShell: "macys_access_denied_shell",
+        message: "You don't have permission to access this page on this server."
+      }
+    });
+
+    expect(classifyProviderIssue({
       url: "https://www.target.com/s?searchTerm=wireless+mouse",
       providerShell: "target_shell_page",
       browserRequired: true,

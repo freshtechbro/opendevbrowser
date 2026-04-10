@@ -5,7 +5,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { generateSecureToken } from "../utils/crypto";
 import { createOpenDevBrowserCore } from "../core";
-import { loadGlobalConfig, type OpenDevBrowserConfig } from "../config";
+import { loadGlobalConfig, resolveConfig, type OpenDevBrowserConfig } from "../config";
 import { handleDaemonCommand, type DaemonCommandRequest } from "./daemon-commands";
 import { clearBinding, getBindingDiagnostics, getHubInstanceId } from "./daemon-state";
 
@@ -124,7 +124,9 @@ const isDaemonCommandRequest = (value: Record<string, unknown>): value is Daemon
 };
 
 export async function startDaemon(options: DaemonOptions = {}): Promise<{ state: DaemonState; stop: () => Promise<void> }> {
-  const config = options.config ?? loadGlobalConfig();
+  const config = typeof options.config === "undefined"
+    ? loadGlobalConfig()
+    : resolveConfig(options.config);
   const port = options.port ?? config.daemonPort ?? DEFAULT_DAEMON_PORT;
   const token = options.token ?? config.daemonToken ?? generateSecureToken();
   const startedAt = new Date().toISOString();
