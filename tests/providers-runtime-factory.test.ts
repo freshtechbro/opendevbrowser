@@ -489,7 +489,8 @@ describe("provider runtime factory", () => {
     expect(manager.launch).not.toHaveBeenCalled();
   });
 
-  it("uses startUrl during explicit shopping extension attach even when status reports a different url", async () => {
+  it("corrects explicit shopping extension attaches when status reports a different url", async () => {
+    const requestUrl = "https://example.com/search?q=macbook";
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
       connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-fallback-mismatch" })),
@@ -502,7 +503,11 @@ describe("provider runtime factory", () => {
         component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
         css: ""
       })),
-      status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/home" })),
+      status: vi
+        .fn()
+        .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" })
+        .mockResolvedValueOnce({ mode: "extension", url: requestUrl })
+        .mockResolvedValueOnce({ mode: "extension", url: requestUrl }),
       cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
       disconnect: vi.fn(async () => undefined)
     } as unknown as BrowserManagerLike;
@@ -514,7 +519,7 @@ describe("provider runtime factory", () => {
       operation: "search",
       reasonCode: "rate_limited",
       trace: { requestId: "rf-shopping-extension-in-place-goto", ts: "2026-02-16T00:00:00.000Z" },
-      url: "https://example.com/search?q=macbook",
+      url: requestUrl,
       preferredModes: ["extension"]
     });
 
@@ -523,37 +528,41 @@ describe("provider runtime factory", () => {
       mode: "extension",
       output: {
         html: "<html><body>shopping extension fallback</body></html>",
-        url: "https://example.com/home"
+        url: requestUrl
       }
     });
     expect(manager.connectRelay).toHaveBeenCalledWith(
       "ws://127.0.0.1:8787/ops",
-      { startUrl: "https://example.com/search?q=macbook" }
+      { startUrl: requestUrl }
     );
-    expect(manager.goto).not.toHaveBeenCalled();
+    expect(manager.goto).toHaveBeenCalledWith(
+      "shopping-extension-fallback-mismatch",
+      requestUrl,
+      "load",
+      expect.any(Number)
+    );
     expect(manager.launch).not.toHaveBeenCalled();
   });
 
-  it("uses startUrl during explicit shopping extension attach even when the first status url trims empty", async () => {
+  it("reattaches explicit shopping extension sessions when the attached url value cannot be normalized", async () => {
     const requestUrl = "https://example.com/search?q=macbook";
-    let trimCall = 0;
     let statusCall = 0;
     const stagedUrl = {
-      trim: () => {
-        trimCall += 1;
-        return trimCall === 1 ? "https://example.com/home" : "   ";
-      }
+      trim: () => "https://example.com/home"
     } as unknown as string;
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
-      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-empty-comparable" })),
+      connectRelay: vi
+        .fn()
+        .mockResolvedValueOnce({ sessionId: "shopping-extension-empty-comparable-1" })
+        .mockResolvedValueOnce({ sessionId: "shopping-extension-empty-comparable-2" }),
       goto: vi.fn(async () => ({ ok: true })),
       waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
       withPage: vi.fn(async () => {
         throw new Error("Direct annotate is unavailable via extension ops sessions.");
       }),
-      clonePage: vi.fn(async () => ({
-        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
+      clonePage: vi.fn(async (sessionId: string) => ({
+        component: `export default function OpenDevBrowserComponent() { return (<div className="opendevbrowser-root" dangerouslySetInnerHTML={{ __html: "<html><body>${sessionId}</body></html>" }} />); }`,
         css: ""
       })),
       status: vi.fn(async () => {
@@ -581,16 +590,66 @@ describe("provider runtime factory", () => {
       ok: true,
       mode: "extension",
       output: {
-        html: "<html><body>shopping extension fallback</body></html>",
+        html: "<html><body>shopping-extension-empty-comparable-2</body></html>",
         url: requestUrl
       }
     });
-    expect(manager.connectRelay).toHaveBeenCalledWith(
-      "ws://127.0.0.1:8787/ops",
-      { startUrl: requestUrl }
-    );
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787/ops", { startUrl: requestUrl });
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787/ops", { startUrl: requestUrl });
     expect(manager.goto).not.toHaveBeenCalled();
     expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("returns env_limited when explicit shopping extension recovery still lands on a different url", async () => {
+    const requestUrl = "https://example.com/search?q=macbook";
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-still-mismatched" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension fallback</body></html>\" }} />); }",
+        css: ""
+      })),
+      status: vi
+        .fn()
+        .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" })
+        .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" }),
+      cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/target",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-still-mismatched", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl,
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      disposition: "deferred",
+      mode: "extension",
+      details: {
+        message: "Extension fallback did not reach the requested shopping URL.",
+        requestedUrl: requestUrl,
+        observedUrl: "https://example.com/home"
+      }
+    });
+    expect(manager.goto).toHaveBeenCalledWith(
+      "shopping-extension-still-mismatched",
+      requestUrl,
+      "load",
+      expect.any(Number)
+    );
   });
 
   it.each([

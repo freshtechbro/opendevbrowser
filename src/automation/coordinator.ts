@@ -4,12 +4,14 @@ import { buildBrowserReviewResult } from "../browser/review-surface";
 import type {
   DesktopAccessibilityValue,
   DesktopCaptureValue,
+  DesktopResult,
   DesktopRuntimeLike,
   DesktopRuntimeStatus,
   DesktopWindowSummary
 } from "../desktop";
 
 type WindowScopedObservationMode = "active_window" | "hinted_window";
+type DesktopObservationFailure = Extract<DesktopResult<never>, { ok: false }>;
 
 export type DesktopObservationRequest = {
   reason: string;
@@ -32,7 +34,9 @@ export type DesktopObservationEnvelope = {
   windows?: DesktopWindowSummary[];
   activeWindow?: DesktopWindowSummary | null;
   capture?: DesktopCaptureValue;
+  captureFailure?: DesktopObservationFailure;
   accessibility?: DesktopAccessibilityValue;
+  accessibilityFailure?: DesktopObservationFailure;
 };
 
 export type BrowserVerificationEnvelope = {
@@ -83,6 +87,27 @@ const findHintedWindow = (
   return null;
 };
 
+const toDesktopObservationFailure = (
+  code: DesktopObservationFailure["code"],
+  message: string,
+  audit: DesktopObservationFailure["audit"]
+): DesktopObservationFailure => ({
+  ok: false,
+  code,
+  message,
+  audit
+});
+
+const createWindowResolutionFailure = (
+  audit: DesktopObservationFailure["audit"]
+): DesktopObservationFailure => {
+  return toDesktopObservationFailure(
+    "desktop_window_not_found",
+    "Requested desktop window could not be resolved.",
+    audit
+  );
+};
+
 export function createAutomationCoordinator(
   args: CreateAutomationCoordinatorArgs
 ): AutomationCoordinatorLike {
@@ -117,51 +142,76 @@ export function createAutomationCoordinator(
 
       const resolveScopedWindow = async (
         mode: WindowScopedObservationMode
-      ): Promise<DesktopWindowSummary | null> => {
+      ): Promise<{ window: DesktopWindowSummary | null; failure?: DesktopObservationFailure }> => {
         if (mode === "active_window") {
-          const resolvedActiveWindow =
-            activeWindowResult ?? await args.desktopRuntime.activeWindow(request.reason);
-          return resolvedActiveWindow.ok ? resolvedActiveWindow.value : null;
+          const resolvedActiveWindow = activeWindowResult!;
+          if (!resolvedActiveWindow.ok) {
+            return {
+              window: null,
+              failure: resolvedActiveWindow
+            };
+          }
+          return resolvedActiveWindow.value
+            ? { window: resolvedActiveWindow.value }
+            : { window: null, failure: createWindowResolutionFailure(resolvedActiveWindow.audit) };
         }
-        const knownWindows = windowsResult ?? await args.desktopRuntime.listWindows(request.reason);
+        const knownWindows = windowsResult!;
         if (!knownWindows.ok) {
-          return null;
+          return {
+            window: null,
+            failure: knownWindows
+          };
         }
-        return findHintedWindow(knownWindows.value.windows, request.targetWindowHint);
+        const hintedWindow = findHintedWindow(knownWindows.value.windows, request.targetWindowHint);
+        return hintedWindow
+          ? { window: hintedWindow }
+          : { window: null, failure: createWindowResolutionFailure(knownWindows.audit) };
       };
 
       let capture: DesktopCaptureValue | undefined;
+      let captureFailure: DesktopObservationFailure | undefined;
       if (request.capture === "desktop") {
         const captureResult = await args.desktopRuntime.captureDesktop({ reason: request.reason });
         if (captureResult.ok) {
           capture = captureResult.value;
+        } else {
+          captureFailure = captureResult;
         }
       } else if (request.capture === "active_window" || request.capture === "hinted_window") {
         const scopedWindow = await resolveScopedWindow(request.capture);
-        if (scopedWindow) {
-          const captureResult = await args.desktopRuntime.captureWindow(scopedWindow.id, {
+        if (scopedWindow.window) {
+          const captureResult = await args.desktopRuntime.captureWindow(scopedWindow.window.id, {
             reason: request.reason
           });
           if (captureResult.ok) {
             capture = captureResult.value;
+          } else {
+            captureFailure = captureResult;
           }
+        } else {
+          captureFailure = scopedWindow.failure;
         }
       }
 
       let accessibility: DesktopAccessibilityValue | undefined;
+      let accessibilityFailure: DesktopObservationFailure | undefined;
       if (
         request.accessibility === "active_window" ||
         request.accessibility === "hinted_window"
       ) {
         const scopedWindow = await resolveScopedWindow(request.accessibility);
-        if (scopedWindow) {
+        if (scopedWindow.window) {
           const accessibilityResult = await args.desktopRuntime.accessibilitySnapshot(
             request.reason,
-            scopedWindow.id
+            scopedWindow.window.id
           );
           if (accessibilityResult.ok) {
             accessibility = accessibilityResult.value;
+          } else {
+            accessibilityFailure = accessibilityResult;
           }
+        } else {
+          accessibilityFailure = scopedWindow.failure;
         }
       }
 
@@ -173,7 +223,9 @@ export function createAutomationCoordinator(
         ...(windows ? { windows } : {}),
         ...(typeof activeWindow !== "undefined" ? { activeWindow } : {}),
         ...(capture ? { capture } : {}),
-        ...(accessibility ? { accessibility } : {})
+        ...(captureFailure ? { captureFailure } : {}),
+        ...(accessibility ? { accessibility } : {}),
+        ...(accessibilityFailure ? { accessibilityFailure } : {})
       };
     },
 

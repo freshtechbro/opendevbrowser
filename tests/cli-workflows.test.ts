@@ -152,6 +152,33 @@ describe("workflow CLI commands", () => {
     });
   });
 
+  it("extends shopping transport timeout beyond the previous client cap for long-running workflows", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse",
+      "--providers=shopping/bestbuy",
+      "--timeout-ms=360000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("shopping.run", {
+      query: "wireless mouse",
+      providers: ["shopping/bestbuy"],
+      budget: undefined,
+      region: undefined,
+      sort: undefined,
+      mode: "compact",
+      timeoutMs: 360000,
+      outputDir: undefined,
+      ttlHours: undefined,
+      useCookies: undefined,
+      cookiePolicyOverride: undefined
+    }, {
+      timeoutMs: 420000
+    });
+  });
+
   it("forwards explicit shopping browser-mode overrides", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 

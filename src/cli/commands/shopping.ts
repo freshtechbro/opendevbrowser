@@ -28,12 +28,11 @@ const MODE_VALUES = new Set(["compact", "json", "md", "context", "path"]);
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
 const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
 const SHOPPING_TRANSPORT_TIMEOUT_BUFFER_MS = 60_000;
-const MAX_SHOPPING_TRANSPORT_TIMEOUT_MS = 300_000;
 
 const deriveShoppingTransportTimeoutMs = (timeoutMs: number): number => {
-  return Math.min(
-    MAX_SHOPPING_TRANSPORT_TIMEOUT_MS,
-    Math.max(DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS, timeoutMs + SHOPPING_TRANSPORT_TIMEOUT_BUFFER_MS)
+  return Math.max(
+    DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
+    timeoutMs + SHOPPING_TRANSPORT_TIMEOUT_BUFFER_MS
   );
 };
 

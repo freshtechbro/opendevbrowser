@@ -109,12 +109,29 @@ const resolveFallbackNavigationWaitUntil = (
   ? "domcontentloaded"
   : "load";
 
+const normalizeExtensionAttachUrl = (value?: string): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const didExtensionAttachReachRequestUrl = (
+  requestUrl: string,
+  attachedUrl?: string
+): boolean => {
+  const normalizedAttachedUrl = normalizeExtensionAttachUrl(attachedUrl);
+  return typeof normalizedAttachedUrl === "string"
+    && canonicalizeUrl(requestUrl) === canonicalizeUrl(normalizedAttachedUrl);
+};
+
 const isRestrictedExtensionAttachUrl = (value?: string): boolean => {
-  const trimmed = value?.trim();
-  if (!trimmed) {
+  const normalizedUrl = normalizeExtensionAttachUrl(value);
+  if (!normalizedUrl) {
     return true;
   }
-  const normalized = trimmed.toLowerCase();
+  const normalized = normalizedUrl.toLowerCase();
   if (normalized === "about:blank") {
     return true;
   }
@@ -126,7 +143,7 @@ const isRestrictedExtensionAttachUrl = (value?: string): boolean => {
     return true;
   }
   try {
-    const parsed = new URL(trimmed);
+    const parsed = new URL(normalizedUrl);
     return parsed.protocol !== "http:" && parsed.protocol !== "https:";
   } catch {
     return true;
@@ -173,14 +190,15 @@ const reconnectExplicitShoppingExtensionSession = async (args: {
   sessionId: string;
   extensionWsEndpoint: string;
   requestUrl: string;
-}): Promise<{ sessionId: string; navigatedDuringAttach: true }> => {
+}): Promise<{ sessionId: string; navigatedDuringAttach: boolean }> => {
   await args.manager.disconnect(args.sessionId, true).catch(() => {
     // Best effort cleanup before reconnecting a fresh extension attach session.
   });
   const attached = await args.manager.connectRelay(args.extensionWsEndpoint, { startUrl: args.requestUrl });
+  const attachedUrl = (await args.manager.status(attached.sessionId)).url;
   return {
     sessionId: attached.sessionId,
-    navigatedDuringAttach: true
+    navigatedDuringAttach: didExtensionAttachReachRequestUrl(args.requestUrl, attachedUrl)
   };
 };
 
@@ -966,9 +984,9 @@ export const createBrowserFallbackPort = (
               : undefined;
             const attached = await manager.connectRelay(transportDefaults.extensionWsEndpoint, attachOptions);
             sessionId = attached.sessionId;
-            navigatedDuringAttach = Boolean(attachOptions?.startUrl);
             if (isExplicitShoppingExtensionRequest(request)) {
               attachedUrl = (await manager.status(sessionId)).url;
+              navigatedDuringAttach = didExtensionAttachReachRequestUrl(requestUrl, attachedUrl);
               if (isRestrictedExtensionAttachUrl(attachedUrl)) {
                 const recovered = await reconnectExplicitShoppingExtensionSession({
                   manager,
@@ -979,6 +997,8 @@ export const createBrowserFallbackPort = (
                 sessionId = recovered.sessionId;
                 navigatedDuringAttach = recovered.navigatedDuringAttach;
               }
+            } else {
+              navigatedDuringAttach = Boolean(attachOptions?.startUrl);
             }
           } else {
             const launched = await manager.launch({
@@ -1041,38 +1061,6 @@ export const createBrowserFallbackPort = (
             }
           }
 
-          if (!navigatedDuringAttach) {
-            await manager.goto(
-              sessionId,
-              requestUrl,
-              resolveFallbackNavigationWaitUntil(request.source, toFallbackMode(preferredMode)),
-              clampStepTimeoutMs(DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS, "goto")
-            );
-          }
-          await waitForFallbackPageToSettle(
-            manager,
-            sessionId,
-            request.source,
-            clampStepTimeoutMs(
-              sanitizeFallbackDelayMs(
-                request.settleTimeoutMs,
-                resolveFallbackSettleTimeoutMs(request.source)
-              ),
-              "settle"
-            )
-          );
-          if (policy !== "off" && preferredMode === "extension") {
-            const verified = await manager.cookieList(sessionId, [requestUrl]);
-            cookieDiagnostics.available = verified.count > 0;
-            cookieDiagnostics.verifiedCount = verified.count;
-            if (policy === "required" && verified.count === 0) {
-              const reasonMessage = "Provider cookies were not observable in the live extension session.";
-              cookieDiagnostics.reasonCode = "auth_required";
-              cookieDiagnostics.message = reasonMessage;
-              lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics, undefined, runtimePolicyRecord);
-              continue;
-            }
-          }
           if (sessionId === null) {
             lastFailure = fallbackFailure(
               "env_limited",
@@ -1087,6 +1075,63 @@ export const createBrowserFallbackPort = (
             continue;
           }
           const activeSessionId = sessionId;
+
+          if (!navigatedDuringAttach) {
+            await manager.goto(
+              activeSessionId,
+              requestUrl,
+              resolveFallbackNavigationWaitUntil(request.source, toFallbackMode(preferredMode)),
+              clampStepTimeoutMs(DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS, "goto")
+            );
+          }
+          await waitForFallbackPageToSettle(
+            manager,
+            activeSessionId,
+            request.source,
+            clampStepTimeoutMs(
+              sanitizeFallbackDelayMs(
+                request.settleTimeoutMs,
+                resolveFallbackSettleTimeoutMs(request.source)
+              ),
+              "settle"
+            )
+          );
+          if (
+            preferredMode === "extension"
+            && isExplicitShoppingExtensionRequest(request)
+          ) {
+            const resolvedAttachStatus = await runWithinFallbackDeadline("status", async () => manager.status(activeSessionId));
+            const observedUrl = normalizeExtensionAttachUrl(resolvedAttachStatus.url);
+            if (!didExtensionAttachReachRequestUrl(requestUrl, resolvedAttachStatus.url)) {
+              lastFailure = fallbackFailure(
+                "env_limited",
+                "Extension fallback did not reach the requested shopping URL.",
+                cookieDiagnostics,
+                undefined,
+                runtimePolicyRecord,
+                {
+                  mode: "extension",
+                  details: {
+                    requestedUrl: requestUrl,
+                    ...(observedUrl ? { observedUrl } : {})
+                  }
+                }
+              );
+              continue;
+            }
+          }
+          if (policy !== "off" && preferredMode === "extension") {
+            const verified = await manager.cookieList(activeSessionId, [requestUrl]);
+            cookieDiagnostics.available = verified.count > 0;
+            cookieDiagnostics.verifiedCount = verified.count;
+            if (policy === "required" && verified.count === 0) {
+              const reasonMessage = "Provider cookies were not observable in the live extension session.";
+              cookieDiagnostics.reasonCode = "auth_required";
+              cookieDiagnostics.message = reasonMessage;
+              lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics, undefined, runtimePolicyRecord);
+              continue;
+            }
+          }
 
           const captured = await captureStableFallbackHtml({
             source: request.source,
