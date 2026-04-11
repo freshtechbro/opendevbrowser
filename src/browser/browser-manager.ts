@@ -2058,15 +2058,7 @@ export class BrowserManager {
         sessionId,
         targetId,
         options,
-        captureFrame: async (path) => {
-          const screenshot = await this.screenshot(sessionId, { path, targetId });
-          const pageInfo = await this.getTargetPageInfo(sessionId, targetId, "BrowserManager.startScreencast");
-          return {
-            ...(pageInfo.url ? { url: pageInfo.url } : {}),
-            ...(pageInfo.title ? { title: pageInfo.title } : {}),
-            ...(screenshot.warnings ? { warnings: screenshot.warnings } : {})
-          };
-        }
+        captureFrame: async (path) => await this.captureScreencastFrame(sessionId, targetId, path)
       });
       const screencast = await recorder.start();
       this.trackScreencast(recorder);
@@ -2097,6 +2089,46 @@ export class BrowserManager {
     }
     this.completedScreencasts.delete(screencastId);
     return completed;
+  }
+
+  private async captureScreencastFrame(
+    sessionId: string,
+    targetId: string,
+    path: string
+  ): Promise<{ url?: string; title?: string; warnings?: string[] }> {
+    return await this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId, page }) => {
+      let activePage = page;
+      try {
+        managed.targets.syncPages(managed.context.pages());
+        activePage = managed.targets.getPage(resolvedTargetId);
+      } catch {
+        activePage = page;
+      }
+
+      let warnings: string[] | undefined;
+      try {
+        await this.withLegacyExtensionOperationTimeout(
+          managed,
+          activePage.screenshot({ type: "png", path }),
+          `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
+        );
+      } catch (error) {
+        const fallback = await this.captureScreenshotViaCdp(managed, activePage, error, { path });
+        if (!fallback) {
+          throw error;
+        }
+        await writeFile(path, Buffer.from(fallback.base64, "base64"));
+        warnings = fallback.warnings;
+      }
+
+      const url = this.safePageUrl(activePage, "BrowserManager.captureScreencastFrame");
+      const title = await this.safeManagedPageTitle(managed, activePage, "BrowserManager.captureScreencastFrame");
+      return {
+        ...(url ? { url } : {}),
+        ...(title ? { title } : {}),
+        ...(warnings ? { warnings } : {})
+      };
+    });
   }
 
   async upload(sessionId: string, input: BrowserUploadInput): Promise<BrowserUploadResult> {
