@@ -34,6 +34,7 @@ describe("BrowserManager target-scoped scheduler", () => {
         timeoutMs?: number
       ) => Promise<T>;
       getManaged: (sessionId: string) => unknown;
+      resolveTargetId: (managed: unknown, targetId: string | null | undefined) => string;
       resolveTargetContext: (managed: unknown, targetId: string | null | undefined) => { targetId: string; page: unknown };
       acquireParallelSlot: (sessionId: string, targetId: string, timeoutMs: number) => Promise<void>;
       releaseParallelSlot: (sessionId: string) => void;
@@ -41,6 +42,7 @@ describe("BrowserManager target-scoped scheduler", () => {
     };
 
     vi.spyOn(managerAny, "getManaged").mockReturnValue({ sessionId: "session-a" });
+    vi.spyOn(managerAny, "resolveTargetId").mockImplementation((_managed, targetId) => targetId ?? "tab-1");
     vi.spyOn(managerAny, "resolveTargetContext").mockImplementation((_managed, targetId) => ({
       targetId: targetId ?? "tab-1",
       page: {}
@@ -78,6 +80,60 @@ describe("BrowserManager target-scoped scheduler", () => {
     expect(managerAny.targetQueues.has("session-a:tab-1")).toBe(false);
   });
 
+  it("re-resolves the page after waiting on same-target queued work", async () => {
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      runTargetScoped: <T>(
+        sessionId: string,
+        targetId: string | null | undefined,
+        execute: (ctx: { managed: unknown; targetId: string; page: unknown }) => Promise<T>,
+        timeoutMs?: number
+      ) => Promise<T>;
+      getManaged: (sessionId: string) => unknown;
+      resolveTargetId: (managed: unknown, targetId: string | null | undefined) => string;
+      resolveTargetContext: (managed: unknown, targetId: string | null | undefined) => { targetId: string; page: unknown };
+      acquireParallelSlot: (sessionId: string, targetId: string, timeoutMs: number) => Promise<void>;
+      releaseParallelSlot: (sessionId: string) => void;
+    };
+    const pageA = { id: "page-a" };
+    const pageB = { id: "page-b" };
+    let currentPage: { id: string } = pageA;
+
+    vi.spyOn(managerAny, "getManaged").mockReturnValue({ sessionId: "session-fresh" });
+    vi.spyOn(managerAny, "resolveTargetId").mockImplementation((_managed, targetId) => targetId ?? "tab-1");
+    vi.spyOn(managerAny, "resolveTargetContext").mockImplementation((_managed, targetId) => ({
+      targetId: targetId ?? "tab-1",
+      page: currentPage
+    }));
+    vi.spyOn(managerAny, "acquireParallelSlot").mockResolvedValue(undefined);
+    vi.spyOn(managerAny, "releaseParallelSlot").mockImplementation(() => undefined);
+
+    let releaseFirst: () => void = () => undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = managerAny.runTargetScoped("session-fresh", "tab-1", async ({ page }) => {
+      expect(page).toBe(pageA);
+      await firstGate;
+      return "first";
+    });
+    await flushMicrotasks();
+
+    let queuedPage: unknown;
+    const second = managerAny.runTargetScoped("session-fresh", "tab-1", async ({ page }) => {
+      queuedPage = page;
+      return "second";
+    });
+
+    await flushMicrotasks();
+    currentPage = pageB;
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(queuedPage).toBe(pageB);
+  });
+
   it("runs different-target work in parallel when slots are available", async () => {
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
     const managerAny = manager as unknown as {
@@ -88,6 +144,7 @@ describe("BrowserManager target-scoped scheduler", () => {
         timeoutMs?: number
       ) => Promise<T>;
       getManaged: (sessionId: string) => unknown;
+      resolveTargetId: (managed: unknown, targetId: string | null | undefined) => string;
       resolveTargetContext: (managed: unknown, targetId: string | null | undefined) => { targetId: string; page: unknown };
       acquireParallelSlot: (sessionId: string, targetId: string, timeoutMs: number) => Promise<void>;
       releaseParallelSlot: (sessionId: string) => void;
@@ -95,6 +152,7 @@ describe("BrowserManager target-scoped scheduler", () => {
     };
 
     vi.spyOn(managerAny, "getManaged").mockReturnValue({ sessionId: "session-b" });
+    vi.spyOn(managerAny, "resolveTargetId").mockImplementation((_managed, targetId) => targetId ?? "tab-1");
     vi.spyOn(managerAny, "resolveTargetContext").mockImplementation((_managed, targetId) => ({
       targetId: targetId ?? "tab-1",
       page: {}

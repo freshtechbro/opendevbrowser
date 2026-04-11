@@ -146,6 +146,119 @@ describe("challenge verification gate", () => {
     expect(result.changed).toBe(true);
   });
 
+  it("treats isolated drag-ref changes as meaningful progress", async () => {
+    vi.resetModules();
+    const previous = makeBundle({
+      snapshotId: "snap-1",
+      content: ""
+    });
+    previous.interaction = {
+      surface: "page",
+      preferredAction: "drag",
+      clickRefs: [],
+      holdRefs: [],
+      dragRefs: ["r1"],
+      evidencePhrases: []
+    };
+    const nextBundle = {
+      ...previous,
+      interaction: {
+        ...previous.interaction,
+        dragRefs: ["r2"]
+      }
+    };
+
+    vi.doMock("../src/challenges/evidence-bundle", () => ({
+      buildChallengeEvidenceBundle: () => nextBundle
+    }));
+    vi.doMock("../src/challenges/interpreter", () => ({
+      interpretChallengeEvidence: () => ({
+        classification: "auth_required",
+        authState: "credentials_required",
+        humanBoundary: "none",
+        requiredVerification: "full",
+        continuityOpportunities: [],
+        allowedActionFamilies: ["wait"],
+        laneHints: ["generic_browser_autonomy"],
+        stopRisk: "medium",
+        summary: "mocked"
+      })
+    }));
+
+    try {
+      const { verifyChallengeProgress: verifyFresh } = await import("../src/challenges/verification-gate");
+      const result = await verifyFresh({
+        handle: makeHandle({ snapshotId: "snap-2", content: "" }),
+        sessionId: "session-1",
+        previous,
+        canImportCookies: true
+      });
+
+      expect(result.status).toBe("progress");
+      expect(result.changed).toBe(true);
+    } finally {
+      vi.doUnmock("../src/challenges/evidence-bundle");
+      vi.doUnmock("../src/challenges/interpreter");
+      vi.resetModules();
+    }
+  });
+
+  it("ignores identical drag refs when the interaction bundle is otherwise unchanged", async () => {
+    vi.resetModules();
+    const previous = makeBundle({
+      snapshotId: "snap-1",
+      content: ""
+    });
+    previous.interaction = {
+      surface: "page",
+      preferredAction: "drag",
+      clickRefs: [],
+      holdRefs: [],
+      dragRefs: ["r1"],
+      evidencePhrases: []
+    };
+    const nextBundle = {
+      ...previous,
+      interaction: {
+        ...previous.interaction
+      }
+    };
+
+    vi.doMock("../src/challenges/evidence-bundle", () => ({
+      buildChallengeEvidenceBundle: () => nextBundle
+    }));
+    vi.doMock("../src/challenges/interpreter", () => ({
+      interpretChallengeEvidence: () => ({
+        classification: "auth_required",
+        authState: "credentials_required",
+        humanBoundary: "none",
+        requiredVerification: "full",
+        continuityOpportunities: [],
+        allowedActionFamilies: ["wait"],
+        laneHints: ["generic_browser_autonomy"],
+        stopRisk: "medium",
+        summary: "mocked"
+      })
+    }));
+
+    try {
+      const { verifyChallengeProgress: verifyFresh } = await import("../src/challenges/verification-gate");
+      const result = await verifyFresh({
+        handle: makeHandle({ snapshotId: "snap-2", content: "" }),
+        sessionId: "session-1",
+        previous,
+        canImportCookies: true
+      });
+
+      expect(result.status).toBe("still_blocked");
+      expect(result.changed).toBe(false);
+    } finally {
+      vi.doUnmock("../src/challenges/evidence-bundle");
+      vi.doUnmock("../src/challenges/interpreter");
+      vi.resetModules();
+    }
+  });
+
   it("still reports progress when the actionable evidence changes", async () => {
     const result = await verifyChallengeProgress({
       handle: makeHandle({ snapshotId: "snap-2", content: "[r1] button \"Continue\"\n[r2] link \"Sign in\"" }),

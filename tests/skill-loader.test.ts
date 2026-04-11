@@ -4,7 +4,11 @@ import * as os from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
 import { SkillLoader } from "../src/skills/skill-loader";
-import { bundledSkillDirectories } from "../src/skills/bundled-skill-directories";
+import {
+  bundledSkillDirectories,
+  getBundledSkillDirectory,
+  isBundledSkillName
+} from "../src/skills/bundled-skill-directories";
 
 let tempRoot = "";
 let originalConfigDir: string | undefined;
@@ -169,6 +173,15 @@ Global content.
     const loader = new SkillLoader(missingRoot);
     const content = await loader.loadBestPractices();
     expect(content).toContain("# OpenDevBrowser Best Practices");
+  });
+
+  it("resolves bundled skill directories by name", () => {
+    expect(getBundledSkillDirectory("opendevbrowser-best-practices")).toEqual({
+      name: "opendevbrowser-best-practices"
+    });
+    expect(getBundledSkillDirectory("missing-skill")).toBeNull();
+    expect(isBundledSkillName("opendevbrowser-best-practices")).toBe(true);
+    expect(isBundledSkillName("missing-skill")).toBe(false);
   });
 
   it("loads the canonical quick start topic from the real bundled best-practices skill", async () => {

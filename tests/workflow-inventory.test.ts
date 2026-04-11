@@ -18,9 +18,9 @@ describe("workflow inventory", () => {
   it("builds a code-derived workflow inventory with the expected current splits", () => {
     const inventory = buildWorkflowInventory();
 
-    expect(inventory.coverage.commandCount).toBe(64);
-    expect(inventory.coverage.toolCount).toBe(57);
-    expect(inventory.coverage.cliToolPairCount).toBe(54);
+    expect(inventory.coverage.commandCount).toBe(72);
+    expect(inventory.coverage.toolCount).toBe(65);
+    expect(inventory.coverage.cliToolPairCount).toBe(62);
     expect(inventory.coverage.cliOnlyCommandCount).toBe(10);
     expect(inventory.coverage.toolOnlySurfaceCount).toBe(3);
   });

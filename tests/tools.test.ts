@@ -101,6 +101,27 @@ const createDeps = () => {
     cloneComponent: vi.fn().mockResolvedValue({ component: "<Component />", css: ".css{}" }),
     perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "Nodes", value: 1 }] }),
     screenshot: vi.fn().mockResolvedValue({ base64: "image" }),
+    startScreencast: vi.fn().mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "s1",
+      targetId: "t1",
+      outputDir: "/tmp/cast",
+      startedAt: "2026-04-10T00:00:00.000Z",
+      intervalMs: 1000,
+      maxFrames: 300
+    }),
+    stopScreencast: vi.fn().mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "s1",
+      targetId: "t1",
+      outputDir: "/tmp/cast",
+      startedAt: "2026-04-10T00:00:00.000Z",
+      endedAt: "2026-04-10T00:01:00.000Z",
+      endedReason: "stopped",
+      frameCount: 5,
+      manifestPath: "/tmp/cast/replay.json",
+      replayHtmlPath: "/tmp/cast/replay.html"
+    }),
     dialog: vi.fn().mockResolvedValue({ dialog: { open: false } }),
     consolePoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
     exceptionPoll: vi.fn().mockReturnValue({ events: [], nextSeq: 0 }),
@@ -150,8 +171,75 @@ const createDeps = () => {
   };
   const getExtensionPath = vi.fn().mockReturnValue("/path/to/extension");
   const providerRuntime = createMockProviderRuntime();
+  const desktopAudit = {
+    auditId: "desktop-audit-1",
+    at: "2026-04-10T00:00:00.000Z",
+    recordPath: "/tmp/desktop-audit.json",
+    artifactPaths: []
+  };
+  const desktopWindow = {
+    id: "window-1",
+    ownerName: "Codex",
+    ownerPid: 123,
+    title: "Codex",
+    bounds: { x: 0, y: 0, width: 1200, height: 800 },
+    layer: 0,
+    alpha: 1,
+    isOnscreen: true
+  };
+  const desktopRuntime = {
+    status: vi.fn().mockResolvedValue({
+      platform: "darwin",
+      permissionLevel: "observe",
+      available: true,
+      capabilities: ["observe.windows"],
+      auditArtifactsDir: "/tmp/desktop-audit"
+    }),
+    listWindows: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { windows: [desktopWindow] },
+      audit: desktopAudit
+    }),
+    activeWindow: vi.fn().mockResolvedValue({
+      ok: true,
+      value: null,
+      audit: desktopAudit
+    }),
+    captureDesktop: vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        capture: {
+          path: "/tmp/desktop.png",
+          mimeType: "image/png"
+        }
+      },
+      audit: desktopAudit
+    }),
+    captureWindow: vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        capture: {
+          path: "/tmp/window.png",
+          mimeType: "image/png"
+        },
+        window: desktopWindow
+      },
+      audit: desktopAudit
+    }),
+    accessibilitySnapshot: vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        window: desktopWindow,
+        tree: {
+          role: "AXWindow",
+          children: []
+        }
+      },
+      audit: desktopAudit
+    })
+  };
 
-  return { manager, canvasManager, runner, config, skills, getExtensionPath, providerRuntime };
+  return { manager, canvasManager, runner, config, skills, getExtensionPath, providerRuntime, desktopRuntime };
 };
 
 type ExecutableTool = {
@@ -296,6 +384,55 @@ describe("tools", () => {
     ] as Array<[string, Record<string, unknown>]>) {
       expect(await runTool(tools, name, args)).toMatchObject({ ok: true });
     }
+
+    expect(await runTool(tools, "opendevbrowser_screencast_start", {
+      sessionId: "s1",
+      targetId: "tab-9",
+      outputDir: "/tmp/cast",
+      intervalMs: 750,
+      maxFrames: 5
+    })).toMatchObject({ ok: true, screencastId: "cast-1" });
+    expect(await runTool(tools, "opendevbrowser_screencast_stop", {
+      screencastId: "cast-1"
+    })).toMatchObject({ ok: true, endedReason: "stopped" });
+    expect(await runTool(tools, "opendevbrowser_desktop_status", {})).toMatchObject({
+      ok: true,
+      available: true
+    });
+    expect(await runTool(tools, "opendevbrowser_desktop_windows", {
+      reason: "inventory"
+    })).toMatchObject({
+      ok: true,
+      windows: [expect.objectContaining({ id: "window-1" })],
+      audit: expect.objectContaining({ auditId: "desktop-audit-1" })
+    });
+    expect(await runTool(tools, "opendevbrowser_desktop_active_window", {
+      reason: "active"
+    })).toMatchObject({
+      ok: true,
+      value: null,
+      audit: expect.objectContaining({ auditId: "desktop-audit-1" })
+    });
+    expect(await runTool(tools, "opendevbrowser_desktop_capture_desktop", {
+      reason: "capture-desktop"
+    })).toMatchObject({
+      ok: true,
+      capture: expect.objectContaining({ path: "/tmp/desktop.png" })
+    });
+    expect(await runTool(tools, "opendevbrowser_desktop_capture_window", {
+      windowId: "window-1",
+      reason: "capture-window"
+    })).toMatchObject({
+      ok: true,
+      window: expect.objectContaining({ id: "window-1" })
+    });
+    expect(await runTool(tools, "opendevbrowser_desktop_accessibility_snapshot", {
+      reason: "accessibility",
+      windowId: "window-1"
+    })).toMatchObject({
+      ok: true,
+      tree: expect.objectContaining({ role: "AXWindow" })
+    });
   }, 30000);
 
   it("forwards targetId across target-aware tool handlers", async () => {
@@ -405,6 +542,25 @@ describe("tools", () => {
     });
     expect(deps.manager.screenshot).toHaveBeenLastCalledWith("s1", expect.objectContaining({ fullPage: true }));
 
+    await runTool(tools, "opendevbrowser_screencast_start", {
+      sessionId: "s1",
+      targetId: "tab-9",
+      outputDir: "/tmp/cast",
+      intervalMs: 750,
+      maxFrames: 5
+    });
+    expect(deps.manager.startScreencast).toHaveBeenLastCalledWith("s1", {
+      targetId: "tab-9",
+      outputDir: "/tmp/cast",
+      intervalMs: 750,
+      maxFrames: 5
+    });
+
+    await runTool(tools, "opendevbrowser_screencast_stop", {
+      screencastId: "cast-1"
+    });
+    expect(deps.manager.stopScreencast).toHaveBeenLastCalledWith("cast-1");
+
     await runTool(tools, "opendevbrowser_dialog", { sessionId: "s1", targetId: "tab-9", action: "dismiss" });
     expect(deps.manager.dialog).toHaveBeenLastCalledWith("s1", expect.objectContaining({ targetId: "tab-9", action: "dismiss" }));
 
@@ -480,6 +636,40 @@ describe("tools", () => {
         blocker: {
           type: "anti_bot_challenge"
         }
+      }
+    });
+  });
+
+  it("builds review output without a dialog when no review target is active", async () => {
+    const { deps, tools } = await loadTools();
+    deps.manager.status.mockResolvedValueOnce({
+      mode: "managed",
+      activeTargetId: null,
+      url: "https://example.com/status",
+      title: "Status Title",
+      meta: {
+        blockerState: "clear"
+      }
+    });
+    deps.manager.snapshot.mockResolvedValueOnce({
+      snapshotId: "snap-review-empty",
+      content: "",
+      truncated: false,
+      refCount: 0,
+      timingMs: 7
+    });
+
+    const result = parse(await tools.opendevbrowser_review.execute({
+      sessionId: "s1"
+    } as never));
+
+    expect(deps.manager.dialog).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: true,
+      sessionId: "s1",
+      targetId: null,
+      meta: {
+        blockerState: "clear"
       }
     });
   });
@@ -1810,6 +2000,8 @@ describe("tools", () => {
     deps.manager.cloneComponent.mockRejectedValue(new Error("boom"));
     deps.manager.perfMetrics.mockRejectedValue(new Error("boom"));
     deps.manager.screenshot.mockRejectedValue(new Error("boom"));
+    deps.manager.startScreencast.mockRejectedValue(new Error("boom"));
+    deps.manager.stopScreencast.mockRejectedValue(new Error("boom"));
     deps.manager.upload.mockRejectedValue(new Error("boom"));
     deps.manager.dialog.mockRejectedValue(new Error("boom"));
     deps.manager.consolePoll.mockImplementation(() => {
@@ -1858,8 +2050,113 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_clone_component.execute({ sessionId: "s1", ref: "r1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_perf.execute({ sessionId: "s1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_screencast_start.execute({ sessionId: "s1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_screencast_stop.execute({ screencastId: "cast-1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_upload.execute({ sessionId: "s1", ref: "r1", files: ["/tmp/a.txt"] } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_dialog.execute({ sessionId: "s1" } as never)).ok).toBe(false);
+  });
+
+  it("preserves desktop result failures and reports unavailable desktop runtime", async () => {
+    const deps = createDeps();
+    deps.desktopRuntime.captureWindow.mockResolvedValueOnce({
+      ok: false,
+      code: "desktop_window_not_found",
+      message: "missing window",
+      audit: {
+        auditId: "desktop-audit-2",
+        at: "2026-04-10T01:00:00.000Z",
+        recordPath: "/tmp/desktop-audit-2.json",
+        artifactPaths: []
+      }
+    });
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never);
+
+    expect(await runTool(tools, "opendevbrowser_desktop_capture_window", {
+      windowId: "missing",
+      reason: "capture-window"
+    })).toEqual({
+      ok: false,
+      code: "desktop_window_not_found",
+      message: "missing window",
+      audit: {
+        auditId: "desktop-audit-2",
+        at: "2026-04-10T01:00:00.000Z",
+        recordPath: "/tmp/desktop-audit-2.json",
+        artifactPaths: []
+      }
+    });
+
+    const unavailableTools = createTools({ ...deps, desktopRuntime: undefined } as never);
+    expect(parse(await unavailableTools.opendevbrowser_desktop_status.execute({} as never))).toMatchObject({
+      ok: false,
+      error: { code: "desktop_runtime_unavailable" }
+    });
+  });
+
+  it("reports unavailable desktop runtime for non-status desktop tools", async () => {
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...createDeps(), desktopRuntime: undefined } as never) as Record<string, ExecutableTool>;
+
+    await expectToolCases(tools, [
+      ["opendevbrowser_desktop_windows", { reason: "inventory" }, { ok: false, error: { code: "desktop_runtime_unavailable" } }],
+      ["opendevbrowser_desktop_active_window", { reason: "active" }, { ok: false, error: { code: "desktop_runtime_unavailable" } }],
+      ["opendevbrowser_desktop_capture_desktop", { reason: "capture-desktop" }, { ok: false, error: { code: "desktop_runtime_unavailable" } }],
+      ["opendevbrowser_desktop_capture_window", { windowId: "window-1", reason: "capture-window" }, { ok: false, error: { code: "desktop_runtime_unavailable" } }],
+      ["opendevbrowser_desktop_accessibility_snapshot", { reason: "accessibility", windowId: "window-1" }, { ok: false, error: { code: "desktop_runtime_unavailable" } }]
+    ]);
+  });
+
+  it("reports desktop wrapper failures when runtime methods throw", async () => {
+    const deps = createDeps();
+    const { createTools } = await import("../src/tools");
+    const tools = createTools(deps as never) as Record<string, ExecutableTool>;
+    const cases = [
+      {
+        trigger: () => deps.desktopRuntime.status.mockRejectedValueOnce(new Error("status boom")),
+        name: "opendevbrowser_desktop_status",
+        args: {},
+        code: "desktop_status_failed"
+      },
+      {
+        trigger: () => deps.desktopRuntime.listWindows.mockRejectedValueOnce(new Error("windows boom")),
+        name: "opendevbrowser_desktop_windows",
+        args: { reason: "inventory" },
+        code: "desktop_windows_failed"
+      },
+      {
+        trigger: () => deps.desktopRuntime.activeWindow.mockRejectedValueOnce(new Error("active boom")),
+        name: "opendevbrowser_desktop_active_window",
+        args: { reason: "active" },
+        code: "desktop_active_window_failed"
+      },
+      {
+        trigger: () => deps.desktopRuntime.captureDesktop.mockRejectedValueOnce(new Error("capture desktop boom")),
+        name: "opendevbrowser_desktop_capture_desktop",
+        args: { reason: "capture-desktop" },
+        code: "desktop_capture_desktop_failed"
+      },
+      {
+        trigger: () => deps.desktopRuntime.captureWindow.mockRejectedValueOnce(new Error("capture window boom")),
+        name: "opendevbrowser_desktop_capture_window",
+        args: { windowId: "window-1", reason: "capture-window" },
+        code: "desktop_capture_window_failed"
+      },
+      {
+        trigger: () => deps.desktopRuntime.accessibilitySnapshot.mockRejectedValueOnce(new Error("accessibility boom")),
+        name: "opendevbrowser_desktop_accessibility_snapshot",
+        args: { reason: "accessibility", windowId: "window-1" },
+        code: "desktop_accessibility_snapshot_failed"
+      }
+    ] as const;
+
+    for (const testCase of cases) {
+      testCase.trigger();
+      expect(await runTool(tools, testCase.name, testCase.args)).toMatchObject({
+        ok: false,
+        error: { code: testCase.code }
+      });
+    }
   });
 
   it("status tool handles null extensionPath", async () => {

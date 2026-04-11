@@ -85,6 +85,23 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = 100): Promise<T> {
   });
 }
 
+function usePathAwareScreenshot(
+  page: {
+    screenshot: {
+      mockImplementation: (
+        implementation: (options?: { path?: string }) => Promise<Buffer>
+      ) => unknown;
+    };
+  }
+): void {
+  page.screenshot.mockImplementation(async (options?: { path?: string }) => {
+    if (options?.path) {
+      await writeFsFile(options.path, "image");
+    }
+    return Buffer.from("image");
+  });
+}
+
 const createPage = (nodes: LegacyNode[], options?: { blockMouseUp?: boolean }) => {
   let currentUrl = "about:blank";
   const emitter = new EventEmitter();
@@ -1807,6 +1824,39 @@ describe("BrowserManager", () => {
     const created = await manager.newTarget(result.sessionId);
     expect(created.targetId).toBeTruthy();
     expect(gotoSpy).not.toHaveBeenCalled();
+  });
+
+  it("routes managed goto without targetId through the active target queue", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = await manager.launch({ profile: "default" });
+    const managerPrivate = manager as unknown as {
+      runTargetScoped: (
+        sessionId: string,
+        targetId: string | null | undefined,
+        execute: (ctx: { managed: object; targetId: string; page: object }) => Promise<object>,
+        timeoutMs?: number
+      ) => Promise<object>;
+    };
+    const runTargetScopedSpy = vi.spyOn(managerPrivate, "runTargetScoped");
+
+    await manager.goto(result.sessionId, "https://example.com/queued-navigation");
+
+    expect(runTargetScopedSpy).toHaveBeenCalledOnce();
+    expect(runTargetScopedSpy).toHaveBeenCalledWith(
+      result.sessionId,
+      result.activeTargetId,
+      expect.any(Function),
+      30000
+    );
   });
 
   it("waits for extension target readiness before navigation", async () => {
@@ -3970,6 +4020,417 @@ describe("BrowserManager", () => {
     signalMap.delete(result.sessionId);
 
     await expect(manager.disconnect(result.sessionId, false)).resolves.toBeUndefined();
+  });
+
+  it("rejects duplicate active screencasts for the same target", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePathAwareScreenshot(page);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-active-"));
+
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+
+    await expect(manager.startScreencast(launch.sessionId)).rejects.toThrow(
+      `Screencast already active for target ${screencast.targetId}.`
+    );
+    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "stopped"
+    });
+    await expect(manager.stopScreencast(screencast.screencastId)).rejects.toThrow(
+      `[invalid_screencast] Unknown screencastId: ${screencast.screencastId}`
+    );
+  });
+
+  it("replays session-closed screencasts after disconnect", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePathAwareScreenshot(page);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-disconnect-"));
+
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+
+    await manager.disconnect(launch.sessionId, false);
+
+    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      sessionId: launch.sessionId,
+      targetId: screencast.targetId,
+      endedReason: "session_closed",
+      outputDir
+    });
+  });
+
+  it("replays target-closed screencasts after page close", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePathAwareScreenshot(page);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-close-"));
+
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+    const completedScreencasts = (manager as unknown as {
+      completedScreencasts: Map<string, unknown>;
+    }).completedScreencasts;
+
+    (page as unknown as { emit: (event: string) => void }).emit("close");
+
+    await vi.waitFor(() => {
+      expect(completedScreencasts.has(screencast.screencastId)).toBe(true);
+    });
+
+    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      sessionId: launch.sessionId,
+      targetId: screencast.targetId,
+      endedReason: "target_closed",
+      outputDir
+    });
+  });
+
+  it("stores immediately completed screencasts with the available replay metadata", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-immediate-"));
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, unknown>;
+      completedScreencasts: Map<string, unknown>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      screencastIdsByTarget: Map<string, string>;
+      clearTrackedScreencast: (screencastId: string) => void;
+      getTargetPageInfo: (
+        sessionId: string,
+        targetId: string,
+        scope: string
+      ) => Promise<{ url?: string; title?: string }>;
+      screenshot: (
+        sessionId: string,
+        options: { path?: string; targetId?: string }
+      ) => Promise<{ path?: string; warnings?: string[] }>;
+    };
+    vi.spyOn(managerPrivate, "getTargetPageInfo").mockResolvedValue({
+      url: "https://example.com/replay"
+    });
+    vi.spyOn(managerPrivate, "screenshot").mockImplementation(async (_sessionId, options) => {
+      if (options.path) {
+        await writeFsFile(options.path, "image");
+      }
+      return {
+        ...(options.path ? { path: options.path } : {}),
+        warnings: ["manager-warning"]
+      };
+    });
+    page.title.mockResolvedValue("");
+    const originalClearTrackedScreencast = managerPrivate.clearTrackedScreencast.bind(manager);
+    let sawCompletedBeforeActiveClear = false;
+    managerPrivate.clearTrackedScreencast = (screencastId: string) => {
+      if (managerPrivate.activeScreencasts.has(screencastId)) {
+        sawCompletedBeforeActiveClear = true;
+        expect(managerPrivate.completedScreencasts.has(screencastId)).toBe(true);
+      }
+      originalClearTrackedScreencast(screencastId);
+    };
+
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 1
+    });
+
+    expect(sawCompletedBeforeActiveClear).toBe(true);
+    expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+    expect(managerPrivate.activeScreencasts.has(screencast.screencastId)).toBe(false);
+    expect(managerPrivate.screencastIdsByTarget.has(`${launch.sessionId}:${screencast.targetId}`)).toBe(false);
+    expect(managerPrivate.screencastIdsBySession.has(launch.sessionId)).toBe(false);
+    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "max_frames_reached",
+      warnings: ["manager-warning"]
+    });
+  });
+
+  it("stores immediately completed screencasts when only title metadata is available", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-title-only-"));
+    const managerPrivate = manager as unknown as {
+      completedScreencasts: Map<string, unknown>;
+      getTargetPageInfo: (
+        sessionId: string,
+        targetId: string,
+        scope: string
+      ) => Promise<{ url?: string; title?: string }>;
+      screenshot: (
+        sessionId: string,
+        options: { path?: string; targetId?: string }
+      ) => Promise<{ path?: string; warnings?: string[] }>;
+    };
+    vi.spyOn(managerPrivate, "getTargetPageInfo").mockResolvedValue({
+      title: "Replay Title"
+    });
+    vi.spyOn(managerPrivate, "screenshot").mockImplementation(async (_sessionId, options) => {
+      if (options.path) {
+        await writeFsFile(options.path, "image");
+      }
+      return options.path ? { path: options.path } : {};
+    });
+
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 1
+    });
+    await vi.waitFor(() => {
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+    });
+    const result = await manager.stopScreencast(screencast.screencastId);
+
+    expect(result).toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "max_frames_reached"
+    });
+    expect(result).not.toHaveProperty("warnings");
+  });
+
+  it("logs non-Error screencast result failures and clears the tracked recorder", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerPrivate = manager as unknown as {
+      logger: { warn: (event: string, payload: unknown) => void };
+      trackScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
+      activeScreencasts: Map<string, unknown>;
+      screencastIdsByTarget: Map<string, string>;
+      screencastIdsBySession: Map<string, Set<string>>;
+    };
+    const warnSpy = vi.spyOn(managerPrivate.logger, "warn");
+
+    managerPrivate.trackScreencast({
+      screencastId: "cast-rejected",
+      sessionId: "session-rejected",
+      targetId: "target-rejected",
+      resultPromise: Promise.reject("plain-failure")
+    });
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({
+        sessionId: "session-rejected",
+        data: expect.objectContaining({
+          screencastId: "cast-rejected",
+          targetId: "target-rejected",
+          error: "plain-failure"
+        })
+      }));
+    });
+    expect(managerPrivate.activeScreencasts.has("cast-rejected")).toBe(false);
+    expect(managerPrivate.screencastIdsByTarget.has("session-rejected:target-rejected")).toBe(false);
+    expect(managerPrivate.screencastIdsBySession.has("session-rejected")).toBe(false);
+  });
+
+  it("logs Error screencast result failures with the error message", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerPrivate = manager as unknown as {
+      logger: { warn: (event: string, payload: unknown) => void };
+      trackScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
+    };
+    const warnSpy = vi.spyOn(managerPrivate.logger, "warn");
+
+    managerPrivate.trackScreencast({
+      screencastId: "cast-error",
+      sessionId: "session-error",
+      targetId: "target-error",
+      resultPromise: Promise.reject(new Error("rejected-error"))
+    });
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({
+        sessionId: "session-error",
+        data: expect.objectContaining({
+          screencastId: "cast-error",
+          targetId: "target-error",
+          error: "rejected-error"
+        })
+      }));
+    });
+  });
+
+  it("clears tracked screencasts even when the session index is missing", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, { sessionId: string; targetId: string }>;
+      screencastIdsByTarget: Map<string, string>;
+      clearTrackedScreencast: (screencastId: string) => void;
+    };
+
+    managerPrivate.activeScreencasts.set("cast-orphan", {
+      sessionId: "session-orphan",
+      targetId: "target-orphan"
+    });
+    managerPrivate.screencastIdsByTarget.set("session-orphan:target-orphan", "cast-orphan");
+
+    managerPrivate.clearTrackedScreencast("cast-orphan");
+
+    expect(managerPrivate.activeScreencasts.has("cast-orphan")).toBe(false);
+    expect(managerPrivate.screencastIdsByTarget.has("session-orphan:target-orphan")).toBe(false);
+  });
+
+  it("keeps the session screencast index until the last recorder is removed", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, { sessionId: string; targetId: string }>;
+      screencastIdsByTarget: Map<string, string>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      clearTrackedScreencast: (screencastId: string) => void;
+    };
+    const sessionIds = new Set(["cast-a", "cast-b"]);
+    managerPrivate.activeScreencasts.set("cast-a", {
+      sessionId: "session-shared",
+      targetId: "target-a"
+    });
+    managerPrivate.activeScreencasts.set("cast-b", {
+      sessionId: "session-shared",
+      targetId: "target-b"
+    });
+    managerPrivate.screencastIdsByTarget.set("session-shared:target-a", "cast-a");
+    managerPrivate.screencastIdsByTarget.set("session-shared:target-b", "cast-b");
+    managerPrivate.screencastIdsBySession.set("session-shared", sessionIds);
+
+    managerPrivate.clearTrackedScreencast("cast-a");
+
+    expect(managerPrivate.screencastIdsBySession.get("session-shared")).toBe(sessionIds);
+    expect(sessionIds.has("cast-b")).toBe(true);
+  });
+
+  it("handles stale and rejected session screencast finalization paths", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, { stop: (reason: "session_closed") => Promise<never> }>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      finalizeSessionScreencasts: (sessionId: string) => Promise<void>;
+    };
+    managerPrivate.activeScreencasts.set("cast-failing", {
+      stop: vi.fn(async () => {
+        throw new Error("stop failed");
+      })
+    });
+    managerPrivate.screencastIdsBySession.set("session-finalize", new Set(["cast-missing", "cast-failing"]));
+
+    await expect(managerPrivate.finalizeSessionScreencasts("session-finalize")).rejects.toThrow("stop failed");
+  });
+
+  it("removes stale target screencast mappings without a recorder", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerPrivate = manager as unknown as {
+      screencastIdsByTarget: Map<string, string>;
+      finalizeTargetScreencast: (sessionId: string, targetId: string) => Promise<void>;
+    };
+    managerPrivate.screencastIdsByTarget.set("session-target:target-target", "cast-missing");
+
+    await managerPrivate.finalizeTargetScreencast("session-target", "target-target");
+
+    expect(managerPrivate.screencastIdsByTarget.has("session-target:target-target")).toBe(false);
+  });
+
+  it("omits empty urls from target page info while preserving the title", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const page = {
+      isClosed: () => false,
+      title: vi.fn().mockResolvedValue("Title Only"),
+      url: vi.fn().mockReturnValue("")
+    };
+    const managerPrivate = manager as unknown as {
+      getTargetPageInfo: (
+        sessionId: string,
+        targetId: string,
+        scope: string
+      ) => Promise<{ url?: string; title?: string }>;
+      runTargetScoped: <T>(
+        sessionId: string,
+        targetId: string,
+        execute: (ctx: { managed: { extensionLegacy: boolean }; page: typeof page }) => Promise<T>
+      ) => Promise<T>;
+    };
+    vi.spyOn(managerPrivate, "runTargetScoped").mockImplementation(async (_sessionId, _targetId, execute) => {
+      return await execute({
+        managed: { extensionLegacy: false },
+        page
+      });
+    });
+
+    await expect(
+      managerPrivate.getTargetPageInfo("session-page-info", "target-page-info", "BrowserManager.test")
+    ).resolves.toEqual({ title: "Title Only" });
   });
 
   it("rejects unknown refs and snapshots with no target", async () => {

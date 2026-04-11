@@ -118,7 +118,9 @@ const makeCore = (overrides: {
     connect: vi.fn(),
     debugTraceSnapshot: vi.fn(),
     cookieImport: vi.fn(),
-    cookieList: vi.fn()
+    cookieList: vi.fn(),
+    startScreencast: vi.fn(),
+    stopScreencast: vi.fn()
   };
 
   const relay = {
@@ -131,12 +133,83 @@ const makeCore = (overrides: {
     requestAnnotation: vi.fn()
   };
   const agentInbox = new AgentInbox(inboxRoot);
+  const desktopRuntime = {
+    status: vi.fn().mockResolvedValue({
+      platform: "darwin",
+      permissionLevel: "observe",
+      available: true,
+      capabilities: ["observe.windows"],
+      auditArtifactsDir: "/tmp/desktop-audit"
+    }),
+    listWindows: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { windows: [] },
+      audit: {
+        auditId: "desktop-audit-1",
+        at: "2026-04-10T00:00:00.000Z",
+        recordPath: "/tmp/desktop-audit-1.json",
+        artifactPaths: []
+      }
+    }),
+    activeWindow: vi.fn().mockResolvedValue({
+      ok: true,
+      value: null,
+      audit: {
+        auditId: "desktop-audit-2",
+        at: "2026-04-10T00:00:00.000Z",
+        recordPath: "/tmp/desktop-audit-2.json",
+        artifactPaths: []
+      }
+    }),
+    captureDesktop: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { capture: { path: "/tmp/desktop.png", mimeType: "image/png" } },
+      audit: {
+        auditId: "desktop-audit-3",
+        at: "2026-04-10T00:00:00.000Z",
+        recordPath: "/tmp/desktop-audit-3.json",
+        artifactPaths: ["/tmp/desktop.png"]
+      }
+    }),
+    captureWindow: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { capture: { path: "/tmp/window.png", mimeType: "image/png" } },
+      audit: {
+        auditId: "desktop-audit-4",
+        at: "2026-04-10T00:00:00.000Z",
+        recordPath: "/tmp/desktop-audit-4.json",
+        artifactPaths: ["/tmp/window.png"]
+      }
+    }),
+    accessibilitySnapshot: vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        tree: { role: "AXWindow", children: [] },
+        window: {
+          id: "window-1",
+          ownerName: "Codex",
+          ownerPid: 123,
+          bounds: { x: 0, y: 0, width: 1200, height: 800 },
+          layer: 0,
+          alpha: 1,
+          isOnscreen: true
+        }
+      },
+      audit: {
+        auditId: "desktop-audit-5",
+        at: "2026-04-10T00:00:00.000Z",
+        recordPath: "/tmp/desktop-audit-5.json",
+        artifactPaths: []
+      }
+    })
+  };
 
   return {
     manager,
     relay,
     agentInbox,
     annotationManager,
+    desktopRuntime,
     config: makeConfig(overrides.config)
   } as unknown as OpenDevBrowserCore;
 };
@@ -237,6 +310,91 @@ describe("daemon-commands integration", () => {
       name: "annotate",
       params: { sessionId: "session-1", clientId: "client-1" }
     })).rejects.toThrow("RELAY_BINDING_REQUIRED");
+  });
+
+  it("routes desktop observation commands without relay binding", async () => {
+    const core = makeCore();
+
+    await expect(handleDaemonCommand(core, {
+      name: "desktop.status"
+    })).resolves.toEqual({
+      platform: "darwin",
+      permissionLevel: "observe",
+      available: true,
+      capabilities: ["observe.windows"],
+      auditArtifactsDir: "/tmp/desktop-audit"
+    });
+    await handleDaemonCommand(core, {
+      name: "desktop.capture.window",
+      params: {
+        windowId: "window-1",
+        reason: "capture-window"
+      }
+    });
+    await handleDaemonCommand(core, {
+      name: "desktop.accessibility.snapshot",
+      params: {
+        reason: "accessibility",
+        windowId: "window-1"
+      }
+    });
+
+    expect(core.desktopRuntime.captureWindow).toHaveBeenCalledWith("window-1", {
+      reason: "capture-window"
+    });
+    expect(core.desktopRuntime.accessibilitySnapshot).toHaveBeenCalledWith("accessibility", "window-1");
+  });
+
+  it("routes screencast start through session authorization and stop through screencast id", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
+    core.manager.startScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+    core.manager.stopScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "stopped"
+    });
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.start",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        leaseId: "lease-1",
+        targetId: "target-1",
+        outputDir: "/tmp/cast",
+        intervalMs: 750,
+        maxFrames: 5
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: { screencastId: "cast-1" }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "stopped"
+    });
+
+    expect(core.manager.startScreencast).toHaveBeenCalledWith("session-1", {
+      targetId: "target-1",
+      outputDir: "/tmp/cast",
+      intervalMs: 750,
+      maxFrames: 5
+    });
+    expect(core.manager.stopScreencast).toHaveBeenCalledWith("cast-1");
   });
 
   it("routes session.inspect through the daemon with default includeUrls and relay status", async () => {
