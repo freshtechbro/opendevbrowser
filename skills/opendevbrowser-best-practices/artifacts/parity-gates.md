@@ -12,7 +12,8 @@ Define hard pass/fail gates so CLI, tool, and runtime surfaces stay aligned.
 | Navigation + refs loop | managed, extension, cdpConnect | CLI + tools + runtime | `goto/wait/snapshot` parity |
 | Interaction | managed, extension, cdpConnect | CLI + tools + runtime | click/type/select/scroll/press/check/uncheck parity |
 | Targets + pages | managed, extension, cdpConnect | CLI + tools + runtime | target/page command parity |
-| DOM + diagnostics + export | managed, extension, cdpConnect | CLI + tools + runtime | dom/perf/screenshot/console/network/clone parity |
+| DOM + diagnostics + export | managed, extension, cdpConnect | CLI + tools + runtime | dom/perf/screenshot/screencast/browser replay/console/network/clone parity |
+| Desktop observation | local desktop runtime | CLI + tools + daemon | desktop status/window/capture/accessibility parity |
 | Relay channels | extension (default) + extension-legacy | `/ops` + `/cdp` | `/ops` namespace coverage + `/cdp` envelope compatibility |
 
 ## Surface Rules

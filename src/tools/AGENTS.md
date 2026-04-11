@@ -4,7 +4,7 @@ Tool development patterns. Extends `src/AGENTS.md`.
 
 ## Overview
 
-57 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
+65 `opendevbrowser_*` tools. All thin wrappers: validate → delegate → respond.
 Hub mode is enforced via `ensureHub` in `src/tools/index.ts` to rebind remote managers and avoid local relay fallback.
 
 ## Tool Structure
@@ -37,7 +37,9 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 | Targets | targets_list, target_use, target_new, target_close |
 | Pages | page, list, close |
 | DOM | dom_get_html, dom_get_text, get_attr, get_value, is_visible, is_enabled, is_checked |
-| Devtools | session_inspector, console_poll, network_poll, perf, screenshot, dialog |
+| Browser capture | screenshot, screencast_start, screencast_stop |
+| Desktop observation | desktop_status, desktop_windows, desktop_active_window, desktop_capture_desktop, desktop_capture_window, desktop_accessibility_snapshot |
+| Devtools | session_inspector, console_poll, network_poll, perf, dialog |
 | Annotation | annotate |
 | Canvas | canvas |
 | Export | clone_page, clone_component |

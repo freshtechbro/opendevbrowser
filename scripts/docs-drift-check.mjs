@@ -96,6 +96,7 @@ export function runDocsDriftChecks() {
   const cutoverDoc = read("docs/CUTOVER_CHECKLIST.md");
   const bestPracticesSkill = read("skills/opendevbrowser-best-practices/SKILL.md");
   const commandChannelReference = read("skills/opendevbrowser-best-practices/artifacts/command-channel-reference.md");
+  const parityGatesDoc = read("skills/opendevbrowser-best-practices/artifacts/parity-gates.md");
   const surfaceAuditChecklist = JSON.parse(read("skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklist.json"));
   const designSkill = read("skills/opendevbrowser-design-agent/SKILL.md");
   const continuitySkill = read("skills/opendevbrowser-continuity-ledger/SKILL.md");
@@ -195,6 +196,18 @@ export function runDocsDriftChecks() {
 
   const cliCommandsCount = parseDocCount(/- Total commands: `([0-9]+)`\./, cliDoc, "CLI docs command count");
   const cliToolsCount = parseDocCount(/- Total tools: `([0-9]+)`/, cliDoc, "CLI docs tool count");
+  const readmeCommandCount = parseDocCount(/The current public surface includes \[([0-9]+) CLI commands/, publicReadme, "README command count");
+  const readmeToolCount = parseDocCount(/CLI commands and ([0-9]+) `opendevbrowser_\*` tools\]/, publicReadme, "README tool count");
+  checks.push({
+    id: "doc.readme.command_count_matches_source",
+    ok: readmeCommandCount === commandCount,
+    detail: `README.md command count=${readmeCommandCount}, source=${commandCount}`
+  });
+  checks.push({
+    id: "doc.readme.tool_count_matches_source",
+    ok: readmeToolCount === toolCount,
+    detail: `README.md tool count=${readmeToolCount}, source=${toolCount}`
+  });
   checks.push({
     id: "doc.cli.command_count_matches_source",
     ok: cliCommandsCount === commandCount,
@@ -295,6 +308,13 @@ export function runDocsDriftChecks() {
       && publicReadme.includes("not a desktop agent"),
     detail: "README.md must document challengeAutomationMode, enum values, precedence, and the browser-scoped helper boundary."
   });
+  pushRequiredForbiddenTermsCheck(checks, {
+    id: "doc.readme.browser_replay_and_desktop_observation_documented",
+    source: publicReadme,
+    required: ["Browser replay", "desktop observation", "not a desktop agent"],
+    forbidden: ["no public desktop CLI or `/ops` plane yet"],
+    detail: "README.md must document shipped browser replay and the public read-only desktop observation plane without claiming a desktop agent."
+  });
 
   checks.push({
     id: "doc.readme.skill_discovery_fallback_documented",
@@ -329,6 +349,13 @@ export function runDocsDriftChecks() {
       && cliDoc.includes("browser-scoped")
       && cliDoc.includes("not a desktop agent"),
     detail: "docs/CLI.md must document challengeAutomationMode, enum values, precedence, and the browser-scoped helper boundary."
+  });
+  pushRequiredForbiddenTermsCheck(checks, {
+    id: "doc.cli.browser_replay_and_desktop_observation_documented",
+    source: cliDoc,
+    required: ["browser replay", "desktop observation", "screencast-start", "desktop-status", "not a desktop agent"],
+    forbidden: ["adds no public CLI command family"],
+    detail: "docs/CLI.md must document the shipped browser replay and public desktop observation command families without promoting a desktop agent."
   });
 
   checks.push({
@@ -407,6 +434,13 @@ export function runDocsDriftChecks() {
       && architectureDoc.includes("roadmap-only"),
     detail: "docs/ARCHITECTURE.md must document the challenge override contract, browser-only helper boundary, and roadmap-only desktop section."
   });
+  pushRequiredForbiddenTermsCheck(checks, {
+    id: "doc.architecture.desktop_observation_vs_desktop_agent_documented",
+    source: architectureDoc,
+    required: ["public read-only desktop observation plane", "roadmap-only", "desktop agent"],
+    forbidden: ["Until a public desktop plane exists"],
+    detail: "docs/ARCHITECTURE.md must distinguish the shipped public desktop observation plane from roadmap-only desktop-agent claims."
+  });
 
   checks.push({
     id: "doc.architecture.onboarding_owner_documented",
@@ -430,6 +464,13 @@ export function runDocsDriftChecks() {
       && surfaceDoc.includes("browser-scoped")
       && surfaceDoc.includes("standDownReason"),
     detail: "docs/SURFACE_REFERENCE.md must document workflow challenge override flags, precedence, and surfaced stand-down metadata."
+  });
+  pushRequiredForbiddenTermsCheck(checks, {
+    id: "doc.surface.desktop_observation_public_plane_documented",
+    source: surfaceDoc,
+    required: ["public read-only desktop observation CLI and tool plane", "not a desktop agent"],
+    forbidden: ["no public desktop CLI, tool, or `/ops` family is exposed"],
+    detail: "docs/SURFACE_REFERENCE.md must document the shipped public desktop observation plane without claiming a desktop agent or desktop /ops family."
   });
 
   pushRequiredForbiddenTermsCheck(checks, {
@@ -483,6 +524,13 @@ export function runDocsDriftChecks() {
       && privacyDoc.includes("not a desktop agent"),
     detail: "docs/privacy.md must document that challengeAutomationMode stays local and the helper bridge remains browser-scoped only."
   });
+  checks.push({
+    id: "doc.privacy.desktop_observation_boundary_documented",
+    ok: privacyDoc.includes("desktop.permissionLevel=observe")
+      && privacyDoc.includes(".opendevbrowser/desktop-runtime")
+      && privacyDoc.includes("public read-only desktop observation plane"),
+    detail: "docs/privacy.md must document the public read-only desktop observation plane, explicit enablement, and local audit artifact storage."
+  });
 
   checks.push({
     id: "doc.dependencies.challenge_override_config_audit_documented",
@@ -534,12 +582,25 @@ export function runDocsDriftChecks() {
     detail: `command-channel-reference counts cli=${commandChannelCliCount}/${commandCount}, tools=${commandChannelToolCount}/${toolCount}, ops=${commandChannelOpsCount}/${opsCommandCount}, canvas=${commandChannelCanvasCount}/${canvasCommandCount}`
   });
   checks.push({
+    id: "skill.parity_gates.replay_and_desktop_observation_documented",
+    ok: parityGatesDoc.includes("browser replay")
+      && parityGatesDoc.includes("Desktop observation"),
+    detail: "parity-gates must document browser replay and desktop observation parity coverage."
+  });
+  checks.push({
     id: "skill.surface_audit_checklist.counts_match_source",
     ok: surfaceAuditChecklist?.expectedCounts?.cliCommands === commandCount
       && surfaceAuditChecklist?.expectedCounts?.tools === toolCount
       && surfaceAuditChecklist?.expectedCounts?.opsCommands === opsCommandCount
       && surfaceAuditChecklist?.expectedCounts?.canvasCommands === canvasCommandCount,
     detail: `surface-audit-checklist counts cli=${surfaceAuditChecklist?.expectedCounts?.cliCommands ?? "missing"}/${commandCount}, tools=${surfaceAuditChecklist?.expectedCounts?.tools ?? "missing"}/${toolCount}, ops=${surfaceAuditChecklist?.expectedCounts?.opsCommands ?? "missing"}/${opsCommandCount}, canvas=${surfaceAuditChecklist?.expectedCounts?.canvasCommands ?? "missing"}/${canvasCommandCount}`
+  });
+  checks.push({
+    id: "skill.surface_audit_checklist.replay_and_desktop_observation_documented",
+    ok: Array.isArray(surfaceAuditChecklist?.checks)
+      && surfaceAuditChecklist.checks.includes("Browser replay and screencast commands documented")
+      && surfaceAuditChecklist.checks.includes("Desktop observation commands documented"),
+    detail: "surface-audit-checklist must explicitly include browser replay and desktop observation checks."
   });
 
   checks.push({

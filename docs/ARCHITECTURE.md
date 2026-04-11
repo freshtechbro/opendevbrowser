@@ -78,9 +78,9 @@ Legitimacy boundary:
 
 ### Roadmap-only desktop boundary
 
-This section is roadmap-only for any public desktop-agent claim. Shipped builds now include an internal sibling desktop observation runtime plus a top-level automation coordinator, but they remain non-public, observation-only, and permission-off by default.
+This section is roadmap-only for any public desktop-agent claim. Shipped builds now include a public read-only desktop observation plane over the sibling desktop runtime contract plus a top-level automation coordinator, but desktop-agent behavior remains non-public, observation-only, and permission-off by default.
 
-- The shipped internal runtime already uses a separate contract from `ChallengeRuntimeHandle`, `BrowserManagerLike`, and `/ops`; any future public desktop agent must preserve that separation.
+- The shipped sibling runtime already uses a separate contract from `ChallengeRuntimeHandle`, `BrowserManagerLike`, and `/ops`; any future public desktop agent must preserve that separation.
 - Core composition creates `desktopRuntime` beside `BrowserManager` and `OpsBrowserManager`, then exposes a non-public `observeDesktopAndVerify` entrypoint that routes desktop observation back through browser-owned review before surfacing completion.
 - Minimum capability bar before any desktop-agent claim is allowed:
   - OS-level input actuation outside the browser
@@ -90,7 +90,7 @@ This section is roadmap-only for any public desktop-agent claim. Shipped builds 
   - bounded workspace and abort controls
   - audit artifacts and replay-safe execution logs
   - a typed failure taxonomy separate from the current helper bridge
-- Until a public desktop plane exists, public docs and surfaces must not describe the current helper bridge as a desktop agent or imply that `/ops` is a desktop control channel.
+- Public docs and surfaces may describe the shipped read-only desktop observation plane, but they must not describe the current helper bridge as a desktop agent or imply that `/ops` is a desktop control channel.
 
 ---
 

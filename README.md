@@ -12,7 +12,7 @@
 
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
-The current public surface includes [64 CLI commands and 57 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+The current public surface includes [72 CLI commands and 65 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -243,7 +243,7 @@ Use `--output-format json|stream-json` for automation-friendly output.
 - Direct browser, `/ops`, and provider fallback paths now share one bounded challenge orchestration plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded interaction exploration before yielding to a human.
 - Workflow and manager callers can set `challengeAutomationMode` to `off`, `browser`, or `browser_with_helper`. Effective precedence is `run > session > config`, and hard gates still apply after resolution.
 - The optional helper bridge is browser-scoped, not a desktop agent. `browser` forces it to stand down, and `browser_with_helper` only evaluates it after the existing helper hard gates pass.
-- Shipped builds also compose an internal sibling desktop observation runtime under separate `desktop.*` config. It is permission-off by default, does not widen `/ops` or `ChallengeRuntimeHandle`, and its shipped non-public composed path routes desktop observation back through browser-owned review.
+- Shipped builds also expose a public read-only desktop observation plane under separate `desktop.*` config. It is permission-off by default, does not widen `/ops` or `ChallengeRuntimeHandle`, and the internal composed path still routes desktop observation back through browser-owned review when challenge automation needs it.
 - Browser fallback returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. When orchestration runs during fallback, decision evidence is recorded under `details.challengeOrchestration`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Shared runtime and policy own fallback ordering and resume policy; provider modules only contribute extraction logic and `recoveryHints()`.
 - In scope: preserved sessions, normal browser controls, bounded interaction experimentation, human yield packets for secret or human-authority boundaries, and owned-environment fixtures that use vendor test keys only.
@@ -259,7 +259,8 @@ Use `--output-format json|stream-json` for automation-friendly output.
 - **Canvas token authoring and adapter-plugin validation are now first-class**: the extension token panel edits collections, modes, aliases, and bindings, while `scripts/canvas-competitive-validation.mjs` captures grouped evidence for adapters, token round-trip, inbox delivery, surface parity, and optional live Figma smoke.
 - **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
 - **Challenge automation override control is now first-class** across workflows and manager metadata via `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence and a browser-scoped helper boundary.
-- **Desktop observation now ships as an internal sibling runtime** with separate `desktop.*` config, repo-local audit artifacts, a non-public core observation-plus-review path, and no public desktop CLI or `/ops` plane yet.
+- **Browser replay screencasts now ship as a manager-owned capture lane** with `screencast-start`, `screencast-stop`, and replay artifacts rooted in the existing screenshot path (`replay.json`, `replay.html`, `frames/`, `preview.png`).
+- **Desktop observation now ships as a public read-only CLI/tool plane** with separate `desktop.*` config, repo-local audit artifacts, and no public desktop agent or desktop `/ops` control plane.
 - **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
 
 ### v0.0.16
@@ -326,7 +327,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **57 tools** organized by category:
+OpenDevBrowser provides **65 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 Terminal help now mirrors the generated public-surface manifest rooted at `src/public-surface/source.ts` and refreshed by `scripts/generate-public-surface-manifest.mjs`. `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
@@ -398,9 +399,21 @@ Terminal help now mirrors the generated public-surface manifest rooted at `src/p
 | `opendevbrowser_network_poll` | Poll network requests since sequence |
 | `opendevbrowser_debug_trace_snapshot` | Capture a unified page + console + network + exception diagnostic bundle |
 | `opendevbrowser_screenshot` | Capture page screenshot |
+| `opendevbrowser_screencast_start` | Start a browser screencast replay capture |
+| `opendevbrowser_screencast_stop` | Stop a browser screencast replay capture and return artifact metadata |
 | `opendevbrowser_dialog` | Inspect or handle a JavaScript dialog |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
+
+### Desktop Observation
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_desktop_status` | Inspect desktop observation availability and configured capabilities |
+| `opendevbrowser_desktop_windows` | List observable desktop windows |
+| `opendevbrowser_desktop_active_window` | Inspect the active desktop window |
+| `opendevbrowser_desktop_capture_desktop` | Capture the current desktop surface |
+| `opendevbrowser_desktop_capture_window` | Capture a specific desktop window |
+| `opendevbrowser_desktop_accessibility_snapshot` | Capture desktop accessibility state |
 
 ### Macro Workflows
 | Tool | Description |
@@ -669,10 +682,10 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 
 ## CLI Commands
 
-The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, annotate, and canvas).
+The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, browser capture and replay, desktop observation, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 57 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (72 CLI commands, 65 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -684,8 +697,10 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
 | DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
+| Browser capture | `screenshot`, `screencast-start`, `screencast-stop` |
+| Desktop observation | `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` |
 | Design canvas | `canvas` |
-| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc` |
+| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc` |
 
 ### Install/Management
 
@@ -839,7 +854,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 57 opendevbrowser_* tool definitions
+│   ├── tools/        # 65 opendevbrowser_* tool definitions
 │   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
