@@ -1,7 +1,7 @@
 import { writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserConfig } from "../config";
-import { createRequestId } from "../core/logging";
+import { createLogger, createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
 import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
@@ -17,6 +17,9 @@ import type {
   BrowserCanvasOverlaySyncInput,
   BrowserManagerLike,
   BrowserResponseMeta,
+  BrowserScreencastResult,
+  BrowserScreencastSession,
+  BrowserScreencastStartOptions,
   BrowserScreenshotOptions,
   BrowserScreenshotResult,
   BrowserUploadInput,
@@ -39,6 +42,7 @@ import {
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { BrowserManager } from "./browser-manager";
+import { BrowserScreencastRecorder } from "./screencast-recorder";
 import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
@@ -69,6 +73,7 @@ type CookieListRecord = {
 export class OpsBrowserManager implements BrowserManagerLike {
   private readonly base: BrowserManager;
   private readonly config: OpenDevBrowserConfig;
+  private readonly worktree: string;
   private opsClient: OpsClient | null = null;
   private opsEndpoint: string | null = null;
   private opsSessions = new Set<string>();
@@ -83,10 +88,16 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private idleDisconnectPromise: Promise<void> | null = null;
   private challengeOrchestrator?: ChallengeOrchestrator;
   private readonly challengeAutomationSuppression = new Map<string, number>();
+  private readonly logger = createLogger("ops-browser-manager");
+  private readonly activeScreencasts = new Map<string, BrowserScreencastRecorder>();
+  private readonly completedScreencasts = new Map<string, BrowserScreencastResult>();
+  private readonly screencastIdsBySession = new Map<string, Set<string>>();
+  private readonly screencastIdsByTarget = new Map<string, string>();
 
-  constructor(base: BrowserManager, config: OpenDevBrowserConfig) {
+  constructor(base: BrowserManager, config: OpenDevBrowserConfig, worktree = process.cwd()) {
     this.base = base;
     this.config = config;
+    this.worktree = worktree;
   }
 
   setChallengeOrchestrator(orchestrator?: ChallengeOrchestrator): void {
@@ -290,10 +301,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
       }
       return this.base.disconnect(sessionId, closeBrowser);
     }
+    let finalizeError: unknown;
+    try {
+      await this.finalizeSessionScreencasts(sessionId);
+    } catch (error) {
+      finalizeError = error;
+    }
     try {
       await this.requestOps(sessionId, "session.disconnect", { closeBrowser });
     } catch (error) {
       if (!isIgnorableOpsDisconnectError(error)) {
+        if (finalizeError) {
+          throw new AggregateError([error, finalizeError], "Failed to disconnect ops session.");
+        }
         throw error;
       }
     }
@@ -306,6 +326,9 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.opsSessionUrls.delete(sessionId);
     this.closedOpsSessions.delete(sessionId);
     await this.disconnectOpsClientIfIdle();
+    if (finalizeError) {
+      throw finalizeError;
+    }
   }
 
   async status(sessionId: string): ReturnType<BrowserManagerLike["status"]> {
@@ -867,6 +890,61 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return warnings ? { base64: result.base64, warnings } : { base64: result.base64 };
   }
 
+  async startScreencast(
+    sessionId: string,
+    options: BrowserScreencastStartOptions = {}
+  ): Promise<BrowserScreencastSession> {
+    if (!this.opsSessions.has(sessionId)) {
+      return await this.base.startScreencast(sessionId, options);
+    }
+    const status = await this.getRawOpsStatus(sessionId);
+    const targetId = options.targetId ?? status.activeTargetId;
+    if (!targetId) {
+      throw new Error("No active target");
+    }
+    this.assertNoActiveScreencast(sessionId, targetId);
+    const recorder = new BrowserScreencastRecorder({
+      worktree: this.worktree,
+      sessionId,
+      targetId,
+      options,
+      captureFrame: async (path) => {
+        const screenshot = await this.screenshot(sessionId, { path, targetId });
+        const pageInfo = await this.getOpsTargetInfo(sessionId, targetId);
+        return {
+          ...(pageInfo.url ? { url: pageInfo.url } : {}),
+          ...(pageInfo.title ? { title: pageInfo.title } : {}),
+          ...(screenshot.warnings ? { warnings: screenshot.warnings } : {})
+        };
+      }
+    });
+    const screencast = await recorder.start();
+    this.trackScreencast(recorder);
+    if (recorder.isComplete()) {
+      this.storeCompletedScreencast(await recorder.resultPromise);
+    }
+    return screencast;
+  }
+
+  async stopScreencast(screencastId: string): Promise<BrowserScreencastResult> {
+    const active = this.activeScreencasts.get(screencastId);
+    if (active) {
+      const result = await active.stop("stopped");
+      this.storeCompletedScreencast(result);
+      this.completedScreencasts.delete(screencastId);
+      return result;
+    }
+    const completed = this.completedScreencasts.get(screencastId);
+    if (!completed) {
+      if (typeof this.base.stopScreencast === "function") {
+        return await this.base.stopScreencast(screencastId);
+      }
+      throw new Error(`[invalid_screencast] Unknown screencastId: ${screencastId}`);
+    }
+    this.completedScreencasts.delete(screencastId);
+    return completed;
+  }
+
   async upload(sessionId: string, input: BrowserUploadInput): Promise<BrowserUploadResult> {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.upload(sessionId, input);
@@ -1062,6 +1140,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (this.opsSessionReconnectTabs.get(sessionId) === parseTabTargetId(targetId)) {
       this.opsSessionReconnectTabs.delete(sessionId);
     }
+    await this.finalizeTargetScreencast(sessionId, targetId);
   }
 
   async page(sessionId: string, name: string, url?: string): Promise<{ targetId: string; created: boolean; url?: string; title?: string }> {
@@ -1255,6 +1334,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (!event.opsSessionId) return;
     const sessionId = this.publicSessionIdsByProtocolId.get(event.opsSessionId) ?? event.opsSessionId;
     if (event.event === "ops_session_closed" || event.event === "ops_session_expired" || event.event === "ops_tab_closed") {
+      void this.finalizeSessionScreencasts(sessionId).catch((error: unknown) => {
+        const ids = [...(this.screencastIdsBySession.get(sessionId) ?? [])];
+        this.warnScreencastFailure("screencast.ops_session_close.failed", sessionId, {
+          screencastIds: ids,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
       this.opsSessions.delete(sessionId);
       this.opsLeases.delete(sessionId);
       this.releaseProtocolSession(sessionId);
@@ -1318,6 +1404,98 @@ export class OpsBrowserManager implements BrowserManagerLike {
       this.idleDisconnectPromise = pending;
       await pending;
     }
+  }
+
+  private screencastTargetKey(sessionId: string, targetId: string): string {
+    return `${sessionId}:${targetId}`;
+  }
+
+  private assertNoActiveScreencast(sessionId: string, targetId: string): void {
+    if (this.screencastIdsByTarget.has(this.screencastTargetKey(sessionId, targetId))) {
+      throw new Error(`Screencast already active for target ${targetId}.`);
+    }
+  }
+
+  private trackScreencast(recorder: BrowserScreencastRecorder): void {
+    const { screencastId, sessionId, targetId } = recorder;
+    this.activeScreencasts.set(screencastId, recorder);
+    this.screencastIdsByTarget.set(this.screencastTargetKey(sessionId, targetId), screencastId);
+    const sessionScreencasts = this.screencastIdsBySession.get(sessionId) ?? new Set<string>();
+    sessionScreencasts.add(screencastId);
+    this.screencastIdsBySession.set(sessionId, sessionScreencasts);
+    void recorder.resultPromise.then((result) => {
+      this.storeCompletedScreencast(result);
+    }).catch((error: unknown) => {
+      this.warnScreencastFailure("screencast.result.failed", sessionId, {
+        screencastId,
+        targetId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      this.clearTrackedScreencast(screencastId);
+    });
+  }
+
+  private storeCompletedScreencast(result: BrowserScreencastResult): void {
+    this.completedScreencasts.set(result.screencastId, result);
+    this.clearTrackedScreencast(result.screencastId);
+  }
+
+  private clearTrackedScreencast(screencastId: string): void {
+    const recorder = this.activeScreencasts.get(screencastId);
+    if (!recorder) {
+      return;
+    }
+    this.activeScreencasts.delete(screencastId);
+    this.screencastIdsByTarget.delete(this.screencastTargetKey(recorder.sessionId, recorder.targetId));
+    const sessionScreencasts = this.screencastIdsBySession.get(recorder.sessionId);
+    if (!sessionScreencasts) {
+      return;
+    }
+    sessionScreencasts.delete(screencastId);
+    if (sessionScreencasts.size === 0) {
+      this.screencastIdsBySession.delete(recorder.sessionId);
+    }
+  }
+
+  private async finalizeSessionScreencasts(sessionId: string): Promise<void> {
+    const ids = [...(this.screencastIdsBySession.get(sessionId) ?? [])];
+    const results = await Promise.allSettled(ids.map(async (screencastId) => {
+      const recorder = this.activeScreencasts.get(screencastId);
+      if (!recorder) {
+        return;
+      }
+      this.storeCompletedScreencast(await recorder.stop("session_closed"));
+    }));
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") {
+      throw failure.reason;
+    }
+  }
+
+  private async finalizeTargetScreencast(sessionId: string, targetId: string): Promise<void> {
+    const screencastId = this.screencastIdsByTarget.get(this.screencastTargetKey(sessionId, targetId));
+    if (!screencastId) {
+      return;
+    }
+    const recorder = this.activeScreencasts.get(screencastId);
+    if (!recorder) {
+      this.screencastIdsByTarget.delete(this.screencastTargetKey(sessionId, targetId));
+      return;
+    }
+    this.storeCompletedScreencast(await recorder.stop("target_closed"));
+  }
+
+  private warnScreencastFailure(event: string, sessionId: string, data: Record<string, unknown>): void {
+    this.logger.warn(event, { sessionId, data });
+  }
+
+  private async getOpsTargetInfo(sessionId: string, targetId: string): Promise<{ url?: string; title?: string }> {
+    const result = await this.listTargets(sessionId, true);
+    const target = result.targets.find((entry) => entry.targetId === targetId);
+    return {
+      ...(target?.url ? { url: target.url } : {}),
+      ...(target?.title ? { title: target.title } : {})
+    };
   }
 
   private rememberSessionTarget(sessionId: string, targetId: string | null | undefined): void {

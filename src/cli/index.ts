@@ -70,10 +70,18 @@ import { runClonePage } from "./commands/export/clone-page";
 import { runCloneComponent } from "./commands/export/clone-component";
 import { runPerf } from "./commands/devtools/perf";
 import { runScreenshot } from "./commands/devtools/screenshot";
+import { runScreencastStart } from "./commands/devtools/screencast-start";
+import { runScreencastStop } from "./commands/devtools/screencast-stop";
 import { runDialog } from "./commands/devtools/dialog";
 import { runConsolePoll } from "./commands/devtools/console-poll";
 import { runNetworkPoll } from "./commands/devtools/network-poll";
 import { runDebugTraceSnapshot } from "./commands/devtools/debug-trace-snapshot";
+import { runDesktopStatus } from "./commands/desktop/status";
+import { runDesktopWindows } from "./commands/desktop/windows";
+import { runDesktopActiveWindow } from "./commands/desktop/active-window";
+import { runDesktopCaptureDesktop } from "./commands/desktop/capture-desktop";
+import { runDesktopCaptureWindow } from "./commands/desktop/capture-window";
+import { runDesktopAccessibilitySnapshot } from "./commands/desktop/accessibility-snapshot";
 import { runCookieImport } from "./commands/session/cookie-import";
 import { runCookieList } from "./commands/session/cookie-list";
 import { runMacroResolve } from "./commands/macro-resolve";
@@ -728,6 +736,18 @@ async function main(): Promise<void> {
     });
 
     registerCommand({
+      name: "screencast-start",
+      description: "Start a browser screencast replay capture",
+      run: async () => runScreencastStart(args)
+    });
+
+    registerCommand({
+      name: "screencast-stop",
+      description: "Stop a browser screencast replay capture",
+      run: async () => runScreencastStop(args)
+    });
+
+    registerCommand({
       name: "dialog",
       description: "Inspect or handle a JavaScript dialog",
       run: async () => runDialog(args)
@@ -749,6 +769,42 @@ async function main(): Promise<void> {
       name: "debug-trace-snapshot",
       description: "Capture page + console + network + exception diagnostics",
       run: async () => runDebugTraceSnapshot(args)
+    });
+
+    registerCommand({
+      name: "desktop-status",
+      description: "Inspect sibling desktop observation availability",
+      run: async () => runDesktopStatus(args)
+    });
+
+    registerCommand({
+      name: "desktop-windows",
+      description: "List observable desktop windows",
+      run: async () => runDesktopWindows(args)
+    });
+
+    registerCommand({
+      name: "desktop-active-window",
+      description: "Inspect the active desktop window",
+      run: async () => runDesktopActiveWindow(args)
+    });
+
+    registerCommand({
+      name: "desktop-capture-desktop",
+      description: "Capture the current desktop surface",
+      run: async () => runDesktopCaptureDesktop(args)
+    });
+
+    registerCommand({
+      name: "desktop-capture-window",
+      description: "Capture a specific desktop window",
+      run: async () => runDesktopCaptureWindow(args)
+    });
+
+    registerCommand({
+      name: "desktop-accessibility-snapshot",
+      description: "Capture accessibility state for a desktop window",
+      run: async () => runDesktopAccessibilitySnapshot(args)
     });
 
     registerCommand({

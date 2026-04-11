@@ -5,6 +5,7 @@ import { startDaemon } from "./cli/daemon";
 import { DaemonClient } from "./cli/daemon-client";
 import { RemoteManager } from "./cli/remote-manager";
 import { RemoteCanvasManager } from "./cli/remote-canvas-manager";
+import { RemoteDesktopRuntime } from "./cli/remote-desktop-runtime";
 import { RemoteRelay } from "./cli/remote-relay";
 import { fetchDaemonStatusFromMetadata } from "./cli/daemon-status";
 import {
@@ -33,6 +34,7 @@ import { isHubEnabled } from "./utils/hub-enabled";
 import type { RelayLike } from "./relay/relay-types";
 import type { ToolDeps } from "./tools/deps";
 import { createCoreRuntimeAssemblies } from "./core";
+import { createAutomationCoordinator } from "./automation/coordinator";
 
 const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const core = createOpenDevBrowserCore({ directory, worktree });
@@ -85,20 +87,23 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     }
     manager = new RemoteManager(daemonClient);
     canvasManager = new RemoteCanvasManager(daemonClient);
+    desktopRuntime = new RemoteDesktopRuntime(daemonClient);
     relay = new RemoteRelay(daemonClient);
     annotationManager.setRelay(relay);
     annotationManager.setBrowserManager(manager);
     runner = new ScriptRunner(manager);
     ({
       providerRuntime,
-      browserFallbackPort,
-      desktopRuntime,
-      automationCoordinator
+      browserFallbackPort
     } = createCoreRuntimeAssemblies({
       cacheRoot: core.cacheRoot,
       config: configStore.get(),
       manager
     }));
+    automationCoordinator = createAutomationCoordinator({
+      manager,
+      desktopRuntime
+    });
     toolDeps.manager = manager;
     toolDeps.canvasManager = canvasManager;
     toolDeps.relay = relay;

@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-04T14:31:31.240Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-10T21:21:49.954Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-04T14:31:31.240Z",
+  "generatedAt": "2026-04-10T21:21:49.954Z",
   "cli": {
     "groups": [
       {
@@ -151,6 +151,28 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "network-poll",
           "debug-trace-snapshot",
           "annotate"
+        ]
+      },
+      {
+        "id": "browser_replay",
+        "title": "Browser Replay",
+        "summary": "Capture temporal replay artifacts for a browser target.",
+        "commands": [
+          "screencast-start",
+          "screencast-stop"
+        ]
+      },
+      {
+        "id": "desktop_observation",
+        "title": "Desktop Observation",
+        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts.",
+        "commands": [
+          "desktop-status",
+          "desktop-windows",
+          "desktop-active-window",
+          "desktop-capture-desktop",
+          "desktop-capture-window",
+          "desktop-accessibility-snapshot"
         ]
       },
       {
@@ -995,6 +1017,99 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
       },
       {
+        "name": "screencast-start",
+        "usage": "npx opendevbrowser screencast-start --session-id <id> [--target-id <id>] [--output-dir <path>] [--interval-ms <ms>] [--max-frames <n>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--output-dir",
+          "--interval-ms",
+          "--max-frames",
+          "--timeout-ms"
+        ],
+        "groupId": "browser_replay",
+        "groupTitle": "Browser Replay",
+        "groupSummary": "Capture temporal replay artifacts for a browser target."
+      },
+      {
+        "name": "screencast-stop",
+        "usage": "npx opendevbrowser screencast-stop --screencast-id <id> [--timeout-ms <ms>]",
+        "flags": [
+          "--screencast-id",
+          "--timeout-ms"
+        ],
+        "groupId": "browser_replay",
+        "groupTitle": "Browser Replay",
+        "groupSummary": "Capture temporal replay artifacts for a browser target."
+      },
+      {
+        "name": "desktop-status",
+        "usage": "npx opendevbrowser desktop-status [--timeout-ms <ms>]",
+        "flags": [
+          "--timeout-ms"
+        ],
+        "groupId": "desktop_observation",
+        "groupTitle": "Desktop Observation",
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+      },
+      {
+        "name": "desktop-windows",
+        "usage": "npx opendevbrowser desktop-windows [--reason <text>] [--timeout-ms <ms>]",
+        "flags": [
+          "--reason",
+          "--timeout-ms"
+        ],
+        "groupId": "desktop_observation",
+        "groupTitle": "Desktop Observation",
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+      },
+      {
+        "name": "desktop-active-window",
+        "usage": "npx opendevbrowser desktop-active-window [--reason <text>] [--timeout-ms <ms>]",
+        "flags": [
+          "--reason",
+          "--timeout-ms"
+        ],
+        "groupId": "desktop_observation",
+        "groupTitle": "Desktop Observation",
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+      },
+      {
+        "name": "desktop-capture-desktop",
+        "usage": "npx opendevbrowser desktop-capture-desktop --reason <text> [--timeout-ms <ms>]",
+        "flags": [
+          "--reason",
+          "--timeout-ms"
+        ],
+        "groupId": "desktop_observation",
+        "groupTitle": "Desktop Observation",
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+      },
+      {
+        "name": "desktop-capture-window",
+        "usage": "npx opendevbrowser desktop-capture-window --window-id <id> --reason <text> [--timeout-ms <ms>]",
+        "flags": [
+          "--window-id",
+          "--reason",
+          "--timeout-ms"
+        ],
+        "groupId": "desktop_observation",
+        "groupTitle": "Desktop Observation",
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+      },
+      {
+        "name": "desktop-accessibility-snapshot",
+        "usage": "npx opendevbrowser desktop-accessibility-snapshot --reason <text> [--window-id <id>] [--timeout-ms <ms>]",
+        "flags": [
+          "--reason",
+          "--window-id",
+          "--timeout-ms"
+        ],
+        "groupId": "desktop_observation",
+        "groupTitle": "Desktop Observation",
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+      },
+      {
         "name": "rpc",
         "usage": "npx opendevbrowser rpc --unsafe-internal --name <daemon.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]",
         "flags": [
@@ -1231,6 +1346,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "kind": "value"
       },
       {
+        "name": "--window-id",
+        "kind": "value"
+      },
+      {
         "name": "--tab-id",
         "kind": "value"
       },
@@ -1240,6 +1359,14 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "--path",
+        "kind": "value"
+      },
+      {
+        "name": "--screencast-id",
+        "kind": "value"
+      },
+      {
+        "name": "--reason",
         "kind": "value"
       },
       {
@@ -1260,6 +1387,14 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "--max",
+        "kind": "value"
+      },
+      {
+        "name": "--interval-ms",
+        "kind": "value"
+      },
+      {
+        "name": "--max-frames",
         "kind": "value"
       },
       {
@@ -1501,6 +1636,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       "--since-exception-seq",
       "--max",
       "--target-id",
+      "--window-id",
       "--tab-id",
       "--name",
       "--cookies",
@@ -1522,6 +1658,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
       "--mode",
       "--ref",
       "--path",
+      "--screencast-id",
+      "--reason",
+      "--interval-ms",
+      "--max-frames",
       "--max-chars",
       "--cursor",
       "--files",
@@ -1824,9 +1964,49 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "cliEquivalent": "screenshot"
       },
       {
+        "name": "opendevbrowser_screencast_start",
+        "description": "Start a browser screencast replay capture.",
+        "cliEquivalent": "screencast-start"
+      },
+      {
+        "name": "opendevbrowser_screencast_stop",
+        "description": "Stop a browser screencast replay capture.",
+        "cliEquivalent": "screencast-stop"
+      },
+      {
         "name": "opendevbrowser_dialog",
         "description": "Inspect or handle a JavaScript dialog.",
         "cliEquivalent": "dialog"
+      },
+      {
+        "name": "opendevbrowser_desktop_status",
+        "description": "Inspect sibling desktop observation availability.",
+        "cliEquivalent": "desktop-status"
+      },
+      {
+        "name": "opendevbrowser_desktop_windows",
+        "description": "List observable desktop windows.",
+        "cliEquivalent": "desktop-windows"
+      },
+      {
+        "name": "opendevbrowser_desktop_active_window",
+        "description": "Inspect the active desktop window.",
+        "cliEquivalent": "desktop-active-window"
+      },
+      {
+        "name": "opendevbrowser_desktop_capture_desktop",
+        "description": "Capture the current desktop surface.",
+        "cliEquivalent": "desktop-capture-desktop"
+      },
+      {
+        "name": "opendevbrowser_desktop_capture_window",
+        "description": "Capture a specific desktop window.",
+        "cliEquivalent": "desktop-capture-window"
+      },
+      {
+        "name": "opendevbrowser_desktop_accessibility_snapshot",
+        "description": "Capture desktop accessibility state.",
+        "cliEquivalent": "desktop-accessibility-snapshot"
       },
       {
         "name": "opendevbrowser_annotate",
@@ -2052,8 +2232,40 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "toolName": "opendevbrowser_screenshot"
       },
       {
+        "cliCommand": "screencast-start",
+        "toolName": "opendevbrowser_screencast_start"
+      },
+      {
+        "cliCommand": "screencast-stop",
+        "toolName": "opendevbrowser_screencast_stop"
+      },
+      {
         "cliCommand": "dialog",
         "toolName": "opendevbrowser_dialog"
+      },
+      {
+        "cliCommand": "desktop-status",
+        "toolName": "opendevbrowser_desktop_status"
+      },
+      {
+        "cliCommand": "desktop-windows",
+        "toolName": "opendevbrowser_desktop_windows"
+      },
+      {
+        "cliCommand": "desktop-active-window",
+        "toolName": "opendevbrowser_desktop_active_window"
+      },
+      {
+        "cliCommand": "desktop-capture-desktop",
+        "toolName": "opendevbrowser_desktop_capture_desktop"
+      },
+      {
+        "cliCommand": "desktop-capture-window",
+        "toolName": "opendevbrowser_desktop_capture_window"
+      },
+      {
+        "cliCommand": "desktop-accessibility-snapshot",
+        "toolName": "opendevbrowser_desktop_accessibility_snapshot"
       },
       {
         "cliCommand": "annotate",
@@ -2062,9 +2274,9 @@ export const PUBLIC_SURFACE_MANIFEST = {
     ]
   },
   "counts": {
-    "commandCount": 64,
-    "toolCount": 57,
-    "cliToolPairCount": 54
+    "commandCount": 72,
+    "toolCount": 65,
+    "cliToolPairCount": 62
   }
 } satisfies PublicSurfaceManifest;
 

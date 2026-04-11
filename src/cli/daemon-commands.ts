@@ -139,6 +139,26 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         relayStatus: core.relay.status()
       });
     }
+    case "desktop.status":
+      return core.desktopRuntime.status();
+    case "desktop.windows.list":
+      return core.desktopRuntime.listWindows(optionalString(params.reason));
+    case "desktop.window.active":
+      return core.desktopRuntime.activeWindow(optionalString(params.reason));
+    case "desktop.capture.desktop":
+      return core.desktopRuntime.captureDesktop({
+        reason: requireString(params.reason, "reason")
+      });
+    case "desktop.capture.window":
+      return core.desktopRuntime.captureWindow(
+        requireString(params.windowId, "windowId"),
+        { reason: requireString(params.reason, "reason") }
+      );
+    case "desktop.accessibility.snapshot":
+      return core.desktopRuntime.accessibilitySnapshot(
+        requireString(params.reason, "reason"),
+        optionalString(params.windowId)
+      );
     case "annotate": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
       const sessionId = requireString(params.sessionId, "sessionId");
@@ -513,6 +533,19 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           ...(params.fullPage === true ? { fullPage: true } : {})
         }
       );
+    case "page.screencast.start":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.startScreencast(
+        requireString(params.sessionId, "sessionId"),
+        {
+          targetId: optionalString(params.targetId),
+          outputDir: optionalString(params.outputDir),
+          intervalMs: optionalNumber(params.intervalMs, "intervalMs") ?? undefined,
+          maxFrames: optionalNumber(params.maxFrames, "maxFrames") ?? undefined
+        }
+      );
+    case "page.screencast.stop":
+      return core.manager.stopScreencast(requireString(params.screencastId, "screencastId"));
     case "page.dialog":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.dialog(

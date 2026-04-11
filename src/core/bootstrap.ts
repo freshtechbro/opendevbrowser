@@ -19,7 +19,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const configStore = new ConfigStore(config);
   const cacheRoot = options.worktree ?? options.directory;
   const baseManager = new BrowserManager(cacheRoot, config);
-  const manager = new OpsBrowserManager(baseManager, config);
+  const manager = new OpsBrowserManager(baseManager, config, cacheRoot);
   const challengeOrchestrator = config.providers?.challengeOrchestration
     ? new ChallengeOrchestrator(config.providers.challengeOrchestration)
     : undefined;
