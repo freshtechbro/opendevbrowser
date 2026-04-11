@@ -78,7 +78,7 @@ Legitimacy boundary:
 
 ### Roadmap-only desktop boundary
 
-This section is roadmap-only for any public desktop-agent claim. Shipped builds now include a public read-only desktop observation plane over the sibling desktop runtime contract plus a top-level automation coordinator, but desktop-agent behavior remains non-public, observation-only, and permission-off by default.
+This section is roadmap-only for any public desktop-agent claim. Shipped builds now include a public read-only desktop observation plane over the sibling desktop runtime contract plus a top-level automation coordinator, but desktop-agent behavior remains non-public and observation-only while the shipped observation default can still be opted out through `desktop.permissionLevel=off`.
 
 - The shipped sibling runtime already uses a separate contract from `ChallengeRuntimeHandle`, `BrowserManagerLike`, and `/ops`; any future public desktop agent must preserve that separation.
 - Core composition creates `desktopRuntime` beside `BrowserManager` and `OpsBrowserManager`, then exposes a non-public `observeDesktopAndVerify` entrypoint that routes desktop observation back through browser-owned review before surfacing completion.

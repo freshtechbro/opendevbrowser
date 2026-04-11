@@ -461,7 +461,7 @@ const exportSchema = z.object({
 });
 
 const desktopSchema = z.object({
-  permissionLevel: z.enum(["off", "observe"]).default("off"),
+  permissionLevel: z.enum(["off", "observe"]).default("observe"),
   commandTimeoutMs: z.number().int().min(250).max(300000).default(10000),
   auditArtifactsDir: z.string().min(1).default(".opendevbrowser/desktop-runtime"),
   accessibilityMaxDepth: z.number().int().min(1).max(8).default(2),

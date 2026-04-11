@@ -163,7 +163,7 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority used by policy, runtime routing, and workflow summaries. Provider modules only contribute extraction logic and optional `recoveryHints()`.
 - Direct browser, `/ops`, and provider fallback flows share one bounded challenge plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded browser-native interaction experimentation before yielding.
 - The optional helper bridge is browser-scoped, not a desktop agent. `browser` keeps it disabled and `browser_with_helper` only evaluates it after the existing hard gates pass.
-- Separate `desktop.*` config controls the shipped public read-only desktop observation plane. It stays permission-off by default, is never enabled by `challengeAutomationMode`, and does not widen the browser challenge helper into a desktop agent or desktop `/ops` family.
+- Separate `desktop.*` config controls the shipped public read-only desktop observation plane. It is enabled by default, is never enabled by `challengeAutomationMode`, and does not widen the browser challenge helper into a desktop agent or desktop `/ops` family.
 - Provider and workflow auto-resume still happen only after manager-owned verification clears the blocker.
 - In scope: preserved sessions, visual observation loops, low-level pointer controls, bounded interaction experimentation, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
 - Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
@@ -1239,11 +1239,12 @@ Notes:
 ### Screencast stop
 
 ```bash
-npx opendevbrowser screencast-stop --screencast-id <screencast-id>
+npx opendevbrowser screencast-stop --session-id <session-id> --screencast-id <screencast-id>
 ```
 
 Notes:
-- `--screencast-id` is required and must match the id returned by `screencast-start`.
+- `--session-id` and `--screencast-id` are both required.
+- `--screencast-id` must match the id returned by `screencast-start` for that same session.
 - Stop returns the final artifact metadata, including replay paths and the terminal `endedReason`.
 
 ### Dialog
@@ -1514,7 +1515,7 @@ Notes:
 | `--output-dir` | `screencast-start` | Directory where screencast replay artifacts are written |
 | `--interval-ms` | `screencast-start` | Frame capture interval in ms (minimum `250`) |
 | `--max-frames` | `screencast-start` | Maximum frame count before auto-stop |
-| `--screencast-id` | `screencast-stop` | Screencast id returned by `screencast-start` |
+| `--screencast-id` | `screencast-stop` | Screencast id returned by `screencast-start` for the same session |
 | `--action` | `dialog` | Dialog action: `status`, `accept`, or `dismiss` |
 | `--prompt-text` | `dialog` | Prompt text to submit when accepting a prompt dialog |
 | `--timeout-ms` | `screenshot`, `screencast-start`, `screencast-stop` | Explicit client-side daemon call timeout in ms |
@@ -1722,7 +1723,7 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
     }
   },
   "desktop": {
-    "permissionLevel": "off",
+    "permissionLevel": "observe",
     "commandTimeoutMs": 10000,
     "auditArtifactsDir": ".opendevbrowser/desktop-runtime",
     "accessibilityMaxDepth": 2,

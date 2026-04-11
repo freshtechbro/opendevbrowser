@@ -78,6 +78,7 @@ describe("loadGlobalConfig", () => {
     expect(config.canary?.targets.enabled).toBe(false);
     expect(config.export.maxNodes).toBe(1000);
     expect(config.export.inlineStyles).toBe(true);
+    expect(config.desktop.permissionLevel).toBe("observe");
     expect(config.persistProfile).toBe(true);
     expect(config.checkForUpdates).toBe(false);
     expect(config.relayPort).toBe(8787);
@@ -475,6 +476,14 @@ describe("resolveConfig", () => {
     const config = resolveConfig({});
     expect(typeof config.relayToken).toBe("string");
     expect(typeof config.daemonToken).toBe("string");
+  });
+
+  it("preserves explicit desktop opt-out overrides", () => {
+    const config = resolveConfig({
+      desktop: { permissionLevel: "off" }
+    });
+
+    expect(config.desktop.permissionLevel).toBe("off");
   });
 
   it("rejects invalid overrides", () => {

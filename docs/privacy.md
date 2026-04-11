@@ -19,7 +19,7 @@ The extension:
 - Does NOT use analytics or telemetry
 - May access page URLs, titles, and page content locally when you use automation or annotation features
 - May honor a local `challengeAutomationMode` setting (`off`, `browser`, or `browser_with_helper`) so bounded browser challenge handling can stand down or proceed on your machine without sending challenge state to OpenDevBrowser-operated services
-- May, if you explicitly enable `desktop.permissionLevel=observe`, use the public read-only desktop observation plane to capture local desktop or window screenshots plus accessibility snapshots on-device and write repo-local audit artifacts under `.opendevbrowser/desktop-runtime`
+- May, with the shipped default or explicit `desktop.permissionLevel=observe`, use the public read-only desktop observation plane when you invoke desktop commands or tools to capture local desktop or window screenshots plus accessibility snapshots on-device and write repo-local audit artifacts under `.opendevbrowser/desktop-runtime`; OS-level desktop permissions still apply
 - May store relay settings and the last user-triggered annotation payload locally on-device so the popup can reconnect and reopen recent annotation results
 - May store screenshot-free annotation payloads in a repo-local shared inbox when you explicitly use popup/canvas/in-page `Send` actions so the active chat for that worktree can consume them, or so the payload can be retrieved later when safe chat scoping is unavailable
 - May keep extension-hosted canvas stage annotation selections, region metadata, and optional local crop references on-device only when you explicitly capture or send them during a canvas session
