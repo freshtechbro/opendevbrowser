@@ -14,6 +14,68 @@ const makeDesktopConfig = (overrides: Partial<DesktopConfig> = {}): DesktopConfi
   ...overrides
 });
 
+const makePermissionProbe = (
+  overrides: Partial<{
+    screenCaptureGranted: boolean;
+    accessibilityGranted: boolean;
+  }> = {}
+): string => {
+  return JSON.stringify({
+    screenCaptureGranted: true,
+    accessibilityGranted: true,
+    ...overrides
+  });
+};
+
+const readSwiftScript = (args: readonly string[] = []): string => {
+  const script = args[1];
+  if (typeof script !== "string") {
+    throw new Error("missing swift script");
+  }
+  return script;
+};
+
+const nextPayload = (value: string | readonly string[], index: number): string => {
+  return Array.isArray(value) ? value[Math.min(index, value.length - 1)]! : value;
+};
+
+type DesktopExecMockOptions = {
+  probe?: string;
+  inventory?: string | readonly string[];
+  accessibility?: string | readonly string[];
+  capture?: (args: readonly string[]) => Promise<void>;
+};
+
+const createDesktopExecMock = (options: DesktopExecMockOptions = {}) => {
+  let inventoryIndex = 0;
+  let accessibilityIndex = 0;
+  return vi.fn(async (command: string, args: readonly string[] = []) => {
+    if (command === "swift") {
+      const script = readSwiftScript(args);
+      if (script.includes("CGPreflightScreenCaptureAccess()")) {
+        return { stdout: options.probe ?? makePermissionProbe(), stderr: "" };
+      }
+      if (script.includes("CGWindowListCopyWindowInfo")) {
+        return {
+          stdout: nextPayload(options.inventory ?? JSON.stringify({ frontmostPid: 0, windows: [] }), inventoryIndex++),
+          stderr: ""
+        };
+      }
+      if (script.includes("AXUIElementCreateApplication")) {
+        return {
+          stdout: nextPayload(options.accessibility ?? JSON.stringify({ tree: { role: "AXWindow", children: [] } }), accessibilityIndex++),
+          stderr: ""
+        };
+      }
+    }
+    if (command === "screencapture" && options.capture) {
+      await options.capture(args);
+      return { stdout: "", stderr: "" };
+    }
+    throw new Error(`unexpected command ${command}`);
+  });
+};
+
 const cleanupPaths: string[] = [];
 
 afterEach(async () => {
@@ -75,19 +137,15 @@ describe("desktop runtime audit and observation", () => {
       ]
     });
 
-    const execFileImpl = vi.fn(async (command: string, args: readonly string[] = []) => {
-      if (command === "swift") {
-        return { stdout: inventory, stderr: "" };
-      }
-      if (command === "screencapture") {
+    const execFileImpl = createDesktopExecMock({
+      inventory,
+      capture: async (args) => {
         const outputPath = args.at(-1);
         if (!outputPath) {
           throw new Error("missing capture path");
         }
         await writeFile(outputPath, "png-bytes");
-        return { stdout: "", stderr: "" };
       }
-      throw new Error(`unexpected command ${command}`);
     });
 
     const runtime = createDesktopRuntime({
@@ -173,12 +231,9 @@ describe("desktop runtime audit and observation", () => {
         ]
       }
     });
-    const execFileImpl = vi.fn(async (command: string, args: readonly string[] = []) => {
-      if (command === "swift") {
-        const payload = execFileImpl.mock.calls.length === 1 ? inventory : accessibility;
-        return { stdout: payload, stderr: "" };
-      }
-      throw new Error(`unexpected command ${command}`);
+    const execFileImpl = createDesktopExecMock({
+      inventory,
+      accessibility
     });
 
     const runtime = createDesktopRuntime({
@@ -209,9 +264,57 @@ describe("desktop runtime audit and observation", () => {
         }
       }
     });
-    const accessibilityScript = execFileImpl.mock.calls[1]?.[1]?.[1];
+    const accessibilityScript = execFileImpl.mock.calls[2]?.[1]?.[1];
     expect(accessibilityScript).toContain("candidateWindow = focusedRaw as! AXUIElement");
     expect(accessibilityScript).not.toContain("as? AXUIElement");
+  });
+
+  it("fails screen-backed operations before capture when screen permission is missing", async () => {
+    const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-screen-permission-"));
+    cleanupPaths.push(cacheRoot);
+    const execFileImpl = createDesktopExecMock({
+      probe: makePermissionProbe({ screenCaptureGranted: false })
+    });
+
+    const runtime = createDesktopRuntime({
+      cacheRoot,
+      platform: "darwin",
+      config: makeDesktopConfig(),
+      execFileImpl
+    });
+
+    const result = await runtime.captureDesktop({ reason: "screen-permission" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "desktop_permission_denied",
+      message: "Desktop screen capture permission is not granted on this host."
+    });
+    expect(execFileImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails accessibility captures early when accessibility permission is missing", async () => {
+    const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-accessibility-permission-"));
+    cleanupPaths.push(cacheRoot);
+    const execFileImpl = createDesktopExecMock({
+      probe: makePermissionProbe({ accessibilityGranted: false })
+    });
+
+    const runtime = createDesktopRuntime({
+      cacheRoot,
+      platform: "darwin",
+      config: makeDesktopConfig(),
+      execFileImpl
+    });
+
+    const result = await runtime.accessibilitySnapshot("accessibility-permission", "window-2");
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "desktop_permission_denied",
+      message: "Desktop accessibility permission is not granted on this host."
+    });
+    expect(execFileImpl).toHaveBeenCalledTimes(1);
   });
 
   it("selects the frontmost matching window, falls back to the largest window, and returns null when no windows remain", async () => {
@@ -283,9 +386,8 @@ describe("desktop runtime audit and observation", () => {
         windows: []
       })
     ];
-    const execFileImpl = vi.fn(async () => {
-      const index = execFileImpl.mock.calls.length - 1;
-      return { stdout: inventories[index] ?? inventories[inventories.length - 1] ?? "{}", stderr: "" };
+    const execFileImpl = createDesktopExecMock({
+      inventory: inventories
     });
 
     const runtime = createDesktopRuntime({
@@ -317,16 +419,14 @@ describe("desktop runtime audit and observation", () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-full-capture-"));
     const absoluteAuditDir = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-audit-abs-"));
     cleanupPaths.push(cacheRoot, absoluteAuditDir);
-    const execFileImpl = vi.fn(async (command: string, args: readonly string[] = []) => {
-      if (command === "screencapture") {
+    const execFileImpl = createDesktopExecMock({
+      capture: async (args) => {
         const outputPath = args.at(-1);
         if (!outputPath) {
           throw new Error("missing capture path");
         }
         await writeFile(outputPath, "desktop-png");
-        return { stdout: "", stderr: "" };
       }
-      throw new Error(`unexpected command ${command}`);
     });
 
     const runtime = createDesktopRuntime({
@@ -363,16 +463,14 @@ describe("desktop runtime audit and observation", () => {
       cacheRoot: successRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl: vi.fn(async (command: string, args: readonly string[] = []) => {
-        if (command === "screencapture") {
+      execFileImpl: createDesktopExecMock({
+        capture: async (args) => {
           const outputPath = args.at(-1);
           if (!outputPath) {
             throw new Error("missing capture path");
           }
           await writeFile(outputPath, "desktop-png");
-          return { stdout: "", stderr: "" };
         }
-        throw new Error(`unexpected command ${command}`);
       })
     });
 
@@ -423,12 +521,7 @@ describe("desktop runtime audit and observation", () => {
         }
       ]
     });
-    const execFileImpl = vi.fn(async (command: string) => {
-      if (command === "swift") {
-        return { stdout: inventory, stderr: "" };
-      }
-      throw new Error(`unexpected command ${command}`);
-    });
+    const execFileImpl = createDesktopExecMock({ inventory });
 
     const runtime = createDesktopRuntime({
       cacheRoot,
@@ -448,16 +541,14 @@ describe("desktop runtime audit and observation", () => {
   it("fails desktop captures that produce empty artifacts", async () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-empty-capture-"));
     cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async (command: string, args: readonly string[] = []) => {
-      if (command === "screencapture") {
+    const execFileImpl = createDesktopExecMock({
+      capture: async (args) => {
         const outputPath = args.at(-1);
         if (!outputPath) {
           throw new Error("missing capture path");
         }
         await writeFile(outputPath, "");
-        return { stdout: "", stderr: "" };
       }
-      throw new Error(`unexpected command ${command}`);
     });
 
     const runtime = createDesktopRuntime({
@@ -478,10 +569,7 @@ describe("desktop runtime audit and observation", () => {
   it("fails invalid window inventory payloads with a typed query error", async () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-invalid-inventory-"));
     cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async () => ({
-      stdout: "null",
-      stderr: ""
-    }));
+    const execFileImpl = createDesktopExecMock({ inventory: "null" });
 
     const runtime = createDesktopRuntime({
       cacheRoot,
@@ -501,13 +589,12 @@ describe("desktop runtime audit and observation", () => {
   it("treats missing window arrays as an empty desktop inventory", async () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-empty-inventory-array-"));
     cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async () => ({
-      stdout: JSON.stringify({
+    const execFileImpl = createDesktopExecMock({
+      inventory: JSON.stringify({
         frontmostPid: 111,
         windows: null
-      }),
-      stderr: ""
-    }));
+      })
+    });
 
     const runtime = createDesktopRuntime({
       cacheRoot,
@@ -529,8 +616,8 @@ describe("desktop runtime audit and observation", () => {
   it("filters malformed window entries and coerces invalid numeric fields", async () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-malformed-windows-"));
     cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async () => ({
-      stdout: JSON.stringify({
+    const execFileImpl = createDesktopExecMock({
+      inventory: JSON.stringify({
         frontmostPid: "not-a-number",
         windows: [
           null,
@@ -563,9 +650,8 @@ describe("desktop runtime audit and observation", () => {
             isOnscreen: true
           }
         ]
-      }),
-      stderr: ""
-    }));
+      })
+    });
 
     const runtime = createDesktopRuntime({
       cacheRoot,
@@ -600,10 +686,9 @@ describe("desktop runtime audit and observation", () => {
   it("fails accessibility capture when no active window is available", async () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-no-active-window-"));
     cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async () => ({
-      stdout: JSON.stringify({ frontmostPid: 999, windows: [] }),
-      stderr: ""
-    }));
+    const execFileImpl = createDesktopExecMock({
+      inventory: JSON.stringify({ frontmostPid: 999, windows: [] })
+    });
 
     const runtime = createDesktopRuntime({
       cacheRoot,
@@ -641,12 +726,9 @@ describe("desktop runtime audit and observation", () => {
     const invalidAccessibilityPayload = JSON.stringify({
       tree: null
     });
-    const execFileImpl = vi.fn(async (command: string) => {
-      if (command === "swift") {
-        const payload = execFileImpl.mock.calls.length === 1 ? inventory : invalidAccessibilityPayload;
-        return { stdout: payload, stderr: "" };
-      }
-      throw new Error(`unexpected command ${command}`);
+    const execFileImpl = createDesktopExecMock({
+      inventory,
+      accessibility: invalidAccessibilityPayload
     });
 
     const runtime = createDesktopRuntime({
@@ -687,12 +769,9 @@ describe("desktop runtime audit and observation", () => {
         value: "42"
       }
     });
-    const execFileImpl = vi.fn(async (command: string) => {
-      if (command === "swift") {
-        const payload = execFileImpl.mock.calls.length === 1 ? inventory : accessibility;
-        return { stdout: payload, stderr: "" };
-      }
-      throw new Error(`unexpected command ${command}`);
+    const execFileImpl = createDesktopExecMock({
+      inventory,
+      accessibility
     });
 
     const runtime = createDesktopRuntime({
@@ -741,12 +820,9 @@ describe("desktop runtime audit and observation", () => {
         children: [null]
       }
     });
-    const execFileImpl = vi.fn(async (command: string) => {
-      if (command === "swift") {
-        const payload = execFileImpl.mock.calls.length === 1 ? inventory : invalidChildPayload;
-        return { stdout: payload, stderr: "" };
-      }
-      throw new Error(`unexpected command ${command}`);
+    const execFileImpl = createDesktopExecMock({
+      inventory,
+      accessibility: invalidChildPayload
     });
 
     const runtime = createDesktopRuntime({
@@ -767,8 +843,8 @@ describe("desktop runtime audit and observation", () => {
   it("reports missing requested accessibility windows with a window-not-found error", async () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-accessibility-missing-window-"));
     cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async () => ({
-      stdout: JSON.stringify({
+    const execFileImpl = createDesktopExecMock({
+      inventory: JSON.stringify({
         frontmostPid: 111,
         windows: [
           {
@@ -782,9 +858,8 @@ describe("desktop runtime audit and observation", () => {
             isOnscreen: true
           }
         ]
-      }),
-      stderr: ""
-    }));
+      })
+    });
 
     const runtime = createDesktopRuntime({
       cacheRoot,

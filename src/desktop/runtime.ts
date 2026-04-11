@@ -9,6 +9,7 @@ import { DesktopRuntimeError, isDesktopRuntimeError } from "./errors";
 import type {
   DesktopAccessibilityNode,
   DesktopAccessibilityValue,
+  DesktopCapability,
   DesktopCaptureInput,
   DesktopCaptureValue,
   DesktopFailureCode,
@@ -50,9 +51,32 @@ type DesktopProcessInventory = {
   windows: DesktopWindowSummary[];
 };
 
+type DesktopPermissionProbe = {
+  screenCaptureGranted: boolean;
+  accessibilityGranted: boolean;
+};
+
+type DesktopStatusResolution = {
+  status: DesktopRuntimeStatus;
+  failureMessage?: string;
+};
+
 const execFileAsync = promisify(execFile) as ExecFileAsync;
 const SCREENSHOT_MIME_TYPE = "image/png" as const;
 const MAX_PROCESS_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+const buildPermissionProbeSwift = (): string => `
+import Foundation
+import ApplicationServices
+import CoreGraphics
+
+let payload: [String: Any] = [
+  "screenCaptureGranted": CGPreflightScreenCaptureAccess(),
+  "accessibilityGranted": AXIsProcessTrusted()
+]
+let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+FileHandle.standardOutput.write(data)
+`;
 
 const buildWindowInventorySwift = (): string => `
 import Foundation
@@ -264,6 +288,23 @@ const parseAccessibilityTree = (raw: unknown): DesktopAccessibilityNode => {
   };
 };
 
+const parsePermissionProbe = (raw: unknown): DesktopPermissionProbe => {
+  if (
+    !isRecord(raw)
+    || typeof raw.screenCaptureGranted !== "boolean"
+    || typeof raw.accessibilityGranted !== "boolean"
+  ) {
+    throw new DesktopRuntimeError(
+      "desktop_query_failed",
+      "Desktop permission probe returned an invalid payload."
+    );
+  }
+  return {
+    screenCaptureGranted: raw.screenCaptureGranted,
+    accessibilityGranted: raw.accessibilityGranted
+  };
+};
+
 const normalizeFailure = (error: unknown, fallbackCode: DesktopFailureCode): {
   code: DesktopFailureCode;
   message: string;
@@ -296,43 +337,90 @@ const resolveAuditArtifactsDir = (cacheRoot: string, configuredPath: string): st
     : path.join(cacheRoot, configuredPath);
 };
 
-const resolveStatus = (
+const resolveCapabilities = (probe: DesktopPermissionProbe): DesktopCapability[] => {
+  if (!probe.screenCaptureGranted) {
+    return [];
+  }
+  return probe.accessibilityGranted
+    ? ["observe.windows", "observe.screen", "observe.window", "observe.accessibility"]
+    : ["observe.windows", "observe.screen", "observe.window"];
+};
+
+const unavailableStatus = (
   platform: NodeJS.Platform,
   config: DesktopConfig,
-  auditArtifactsDir: string
-): DesktopRuntimeStatus => {
+  auditArtifactsDir: string,
+  reason: DesktopFailureCode
+): DesktopRuntimeStatus => ({
+  platform,
+  permissionLevel: config.permissionLevel,
+  available: false,
+  reason,
+  capabilities: [],
+  auditArtifactsDir
+});
+
+const resolveStatus = async (
+  platform: NodeJS.Platform,
+  config: DesktopConfig,
+  auditArtifactsDir: string,
+  runPermissionProbe: () => Promise<DesktopPermissionProbe>
+): Promise<DesktopStatusResolution> => {
   if (platform !== "darwin") {
     return {
-      platform,
-      permissionLevel: config.permissionLevel,
-      available: false,
-      reason: "desktop_unsupported",
-      capabilities: [],
-      auditArtifactsDir
+      status: unavailableStatus(platform, config, auditArtifactsDir, "desktop_unsupported")
     };
   }
   if (config.permissionLevel === "off") {
     return {
-      platform,
-      permissionLevel: config.permissionLevel,
-      available: false,
-      reason: "desktop_permission_denied",
-      capabilities: [],
-      auditArtifactsDir
+      status: unavailableStatus(platform, config, auditArtifactsDir, "desktop_permission_denied")
     };
   }
-  return {
-    platform,
-    permissionLevel: config.permissionLevel,
-    available: true,
-    capabilities: [
-      "observe.windows",
-      "observe.screen",
-      "observe.window",
-      "observe.accessibility"
-    ],
-    auditArtifactsDir
-  };
+  try {
+    const capabilities = resolveCapabilities(await runPermissionProbe());
+    if (capabilities.length === 0) {
+      return {
+        status: unavailableStatus(platform, config, auditArtifactsDir, "desktop_permission_denied")
+      };
+    }
+    return {
+      status: {
+        platform,
+        permissionLevel: config.permissionLevel,
+        available: true,
+        capabilities,
+        auditArtifactsDir
+      }
+    };
+  } catch (error) {
+    const failure = normalizeFailure(error, "desktop_query_failed");
+    return {
+      status: unavailableStatus(platform, config, auditArtifactsDir, failure.code),
+      failureMessage: failure.message
+    };
+  }
+};
+
+const resolveUnavailableMessage = (
+  config: DesktopConfig,
+  failureCode: DesktopFailureCode,
+  failureMessage?: string
+): string => {
+  if (failureCode === "desktop_permission_denied") {
+    return config.permissionLevel === "off"
+      ? "Desktop observation is disabled by configuration."
+      : "Desktop screen capture permission is not granted on this host.";
+  }
+  if (failureCode === "desktop_unsupported") {
+    return failureMessage ?? "Desktop observation is unavailable on this platform.";
+  }
+  return failureMessage ?? "Desktop observation availability could not be confirmed.";
+};
+
+const resolveCapabilityMessage = (capability: DesktopCapability): string => {
+  return capability === "observe.accessibility"
+    ? "Desktop accessibility permission is not granted on this host."
+    : "Desktop observation permission is not granted on this host.";
 };
 
 const byDescendingArea = (left: DesktopWindowSummary, right: DesktopWindowSummary): number => {
@@ -369,23 +457,6 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
   const auditArtifactsDir = resolveAuditArtifactsDir(args.cacheRoot, args.config.auditArtifactsDir);
   const writeAuditRecord = args.writeAuditRecord ?? writeDesktopAuditRecord;
 
-  const status = async (): Promise<DesktopRuntimeStatus> => {
-    return resolveStatus(platform, args.config, auditArtifactsDir);
-  };
-
-  const ensureUsable = async (): Promise<void> => {
-    const runtimeStatus = await status();
-    if (!runtimeStatus.available) {
-      const failureCode = runtimeStatus.reason!;
-      throw new DesktopRuntimeError(
-        failureCode,
-        failureCode === "desktop_permission_denied"
-          ? "Desktop observation is disabled by configuration."
-          : "Desktop observation is unavailable on this platform."
-      );
-    }
-  };
-
   const runCommand = async (command: string, commandArgs: readonly string[]): Promise<string> => {
     const result = await execImpl(command, commandArgs, {
       encoding: "utf8",
@@ -393,6 +464,37 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       maxBuffer: MAX_PROCESS_OUTPUT_BYTES
     });
     return result.stdout;
+  };
+
+  const runPermissionProbe = async (): Promise<DesktopPermissionProbe> => {
+    const stdout = await runCommand("swift", ["-e", buildPermissionProbeSwift()]);
+    return parsePermissionProbe(JSON.parse(stdout) as unknown);
+  };
+
+  const getStatusResolution = async (): Promise<DesktopStatusResolution> => {
+    return resolveStatus(platform, args.config, auditArtifactsDir, runPermissionProbe);
+  };
+
+  const status = async (): Promise<DesktopRuntimeStatus> => {
+    return (await getStatusResolution()).status;
+  };
+
+  const ensureUsable = async (capability: DesktopCapability): Promise<void> => {
+    const { status: runtimeStatus, failureMessage } = await getStatusResolution();
+    if (!runtimeStatus.available) {
+      const failureCode = runtimeStatus.reason ?? "desktop_query_failed";
+      throw new DesktopRuntimeError(
+        failureCode,
+        resolveUnavailableMessage(args.config, failureCode, failureMessage)
+      );
+    }
+    if (runtimeStatus.capabilities.includes(capability)) {
+      return;
+    }
+    throw new DesktopRuntimeError(
+      "desktop_permission_denied",
+      resolveCapabilityMessage(capability)
+    );
   };
 
   const runWindowInventory = async (): Promise<DesktopProcessInventory> => {
@@ -415,7 +517,7 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     const auditId = randomUUID();
     let envelope: DesktopAuditEnvelope | null = null;
     try {
-      await ensureUsable();
+      await ensureUsable(params.capability);
       envelope = await writeAuditRecord({
         auditDir: auditArtifactsDir,
         operation: params.operation,
