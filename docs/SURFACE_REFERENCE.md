@@ -94,7 +94,7 @@ First-contact note:
 ### Browser capture (3)
 - `screenshot` - Capture a still browser image.
 - `screencast-start` - Start a browser replay capture that samples the existing screenshot lane.
-- `screencast-stop` - Finalize and retrieve a browser replay capture by screencast id.
+- `screencast-stop` - Finalize and retrieve a browser replay capture by session and screencast id.
 
 ### Desktop observation (6)
 - `desktop-status` - Inspect sibling desktop observation availability.

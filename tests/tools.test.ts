@@ -393,6 +393,7 @@ describe("tools", () => {
       maxFrames: 5
     })).toMatchObject({ ok: true, screencastId: "cast-1" });
     expect(await runTool(tools, "opendevbrowser_screencast_stop", {
+      sessionId: "s1",
       screencastId: "cast-1"
     })).toMatchObject({ ok: true, endedReason: "stopped" });
     expect(await runTool(tools, "opendevbrowser_desktop_status", {})).toMatchObject({
@@ -557,9 +558,10 @@ describe("tools", () => {
     });
 
     await runTool(tools, "opendevbrowser_screencast_stop", {
+      sessionId: "s1",
       screencastId: "cast-1"
     });
-    expect(deps.manager.stopScreencast).toHaveBeenLastCalledWith("cast-1");
+    expect(deps.manager.stopScreencast).toHaveBeenLastCalledWith("s1", "cast-1");
 
     await runTool(tools, "opendevbrowser_dialog", { sessionId: "s1", targetId: "tab-9", action: "dismiss" });
     expect(deps.manager.dialog).toHaveBeenLastCalledWith("s1", expect.objectContaining({ targetId: "tab-9", action: "dismiss" }));
@@ -2052,6 +2054,7 @@ describe("tools", () => {
     expect(parse(await tools.opendevbrowser_screenshot.execute({ sessionId: "s1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_screencast_start.execute({ sessionId: "s1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_screencast_stop.execute({ screencastId: "cast-1" } as never)).ok).toBe(false);
+    expect(parse(await tools.opendevbrowser_screencast_stop.execute({ sessionId: "s1", screencastId: "cast-1" } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_upload.execute({ sessionId: "s1", ref: "r1", files: ["/tmp/a.txt"] } as never)).ok).toBe(false);
     expect(parse(await tools.opendevbrowser_dialog.execute({ sessionId: "s1" } as never)).ok).toBe(false);
   });

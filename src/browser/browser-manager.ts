@@ -2077,9 +2077,12 @@ export class BrowserManager {
     });
   }
 
-  async stopScreencast(screencastId: string): Promise<BrowserScreencastResult> {
+  async stopScreencast(sessionId: string, screencastId: string): Promise<BrowserScreencastResult> {
     const active = this.activeScreencasts.get(screencastId);
     if (active) {
+      if (active.sessionId !== sessionId) {
+        throw new Error(`[invalid_screencast] Screencast ${screencastId} does not belong to session ${sessionId}`);
+      }
       const result = await active.stop("stopped");
       this.storeCompletedScreencast(result);
       this.completedScreencasts.delete(screencastId);
@@ -2088,6 +2091,9 @@ export class BrowserManager {
     const completed = this.completedScreencasts.get(screencastId);
     if (!completed) {
       throw new Error(`[invalid_screencast] Unknown screencastId: ${screencastId}`);
+    }
+    if (completed.sessionId !== sessionId) {
+      throw new Error(`[invalid_screencast] Screencast ${screencastId} does not belong to session ${sessionId}`);
     }
     this.completedScreencasts.delete(screencastId);
     return completed;

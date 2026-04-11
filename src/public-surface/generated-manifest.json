@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-10T21:21:49.954Z",
+  "generatedAt": "2026-04-11T14:41:42.855Z",
   "cli": {
     "groups": [
       {
@@ -1016,8 +1016,9 @@
       },
       {
         "name": "screencast-stop",
-        "usage": "npx opendevbrowser screencast-stop --screencast-id <id> [--timeout-ms <ms>]",
+        "usage": "npx opendevbrowser screencast-stop --session-id <id> --screencast-id <id> [--timeout-ms <ms>]",
         "flags": [
+          "--session-id",
           "--screencast-id",
           "--timeout-ms"
         ],

@@ -545,7 +545,11 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         }
       );
     case "page.screencast.stop":
-      return core.manager.stopScreencast(requireString(params.screencastId, "screencastId"));
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return core.manager.stopScreencast(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.screencastId, "screencastId")
+      );
     case "page.dialog":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.dialog(
@@ -1053,7 +1057,7 @@ async function disconnectSession(
 async function authorizeSessionCommand(
   core: OpenDevBrowserCore,
   params: Record<string, unknown>,
-  _commandName: string,
+  commandName: string,
   bindingId?: string
 ): Promise<void> {
   const sessionId = optionalString(params.sessionId);
@@ -1064,7 +1068,15 @@ async function authorizeSessionCommand(
     requireSessionLease(sessionId, clientId, optionalString(params.leaseId));
     return;
   }
-  const status = await core.manager.status(sessionId);
+  let status: Awaited<ReturnType<OpenDevBrowserCore["manager"]["status"]>>;
+  try {
+    status = await core.manager.status(sessionId);
+  } catch (error) {
+    if (canStopCompletedScreencastWithoutLiveSession(commandName, error)) {
+      return;
+    }
+    throw error;
+  }
   if (status.mode !== "extension") {
     return;
   }
@@ -1155,6 +1167,14 @@ function isIgnorableDisconnectStatusError(message: string): boolean {
   return message.includes("[invalid_session]")
     || message.includes("Unknown ops session")
     || message.includes("Ops client not connected");
+}
+
+function canStopCompletedScreencastWithoutLiveSession(commandName: string, error: unknown): boolean {
+  if (commandName !== "page.screencast.stop") {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return isIgnorableDisconnectStatusError(message);
 }
 
 function isStaleExtensionSessionError(message: string): boolean {

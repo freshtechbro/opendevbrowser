@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-10T21:21:49.954Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-11T14:41:42.855Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-10T21:21:49.954Z",
+  "generatedAt": "2026-04-11T14:41:42.855Z",
   "cli": {
     "groups": [
       {
@@ -1033,8 +1033,9 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "screencast-stop",
-        "usage": "npx opendevbrowser screencast-stop --screencast-id <id> [--timeout-ms <ms>]",
+        "usage": "npx opendevbrowser screencast-stop --session-id <id> --screencast-id <id> [--timeout-ms <ms>]",
         "flags": [
+          "--session-id",
           "--screencast-id",
           "--timeout-ms"
         ],

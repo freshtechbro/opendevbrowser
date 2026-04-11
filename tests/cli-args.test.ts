@@ -116,6 +116,7 @@ describe("parseArgs", () => {
       "node",
       "cli",
       "screencast-stop",
+      "--session-id=s1",
       "--screencast-id=cast-1"
     ]);
     expect(screencastStop.command).toBe("screencast-stop");

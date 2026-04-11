@@ -85,11 +85,14 @@ describe("screencast CLI commands", () => {
     callDaemon.mockResolvedValue({ screencastId: "cast-1", endedReason: "stopped" });
 
     const result = await runScreencastStop(makeArgs("screencast-stop", [
+      "--session-id",
+      "s1",
       "--screencast-id",
       "cast-1"
     ]));
 
     expect(callDaemon).toHaveBeenCalledWith("page.screencast.stop", {
+      sessionId: "s1",
       screencastId: "cast-1"
     }, {
       timeoutMs: DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS
@@ -103,7 +106,8 @@ describe("screencast CLI commands", () => {
 
   it("requires identifiers for screencast start and stop", async () => {
     await expect(runScreencastStart(makeArgs("screencast-start", []))).rejects.toThrow("Missing --session-id");
-    await expect(runScreencastStop(makeArgs("screencast-stop", []))).rejects.toThrow("Missing --screencast-id");
+    await expect(runScreencastStop(makeArgs("screencast-stop", []))).rejects.toThrow("Missing --session-id");
+    await expect(runScreencastStop(makeArgs("screencast-stop", ["--session-id", "s1"]))).rejects.toThrow("Missing --screencast-id");
   });
 
   it("rejects invalid screencast intervals", () => {

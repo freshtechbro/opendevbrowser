@@ -1093,14 +1093,17 @@ describe("OpsBrowserManager", () => {
     await expect(manager.startScreencast(connected.sessionId)).rejects.toThrow(
       `Screencast already active for target ${screencast.targetId}.`
     );
-    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+    await expect(manager.stopScreencast("ops-session-other", screencast.screencastId)).rejects.toThrow(
+      `[invalid_screencast] Screencast ${screencast.screencastId} does not belong to session ops-session-other`
+    );
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
       screencastId: screencast.screencastId,
       sessionId: connected.sessionId,
       targetId: screencast.targetId,
       endedReason: "stopped",
       outputDir
     });
-    await expect(manager.stopScreencast(screencast.screencastId)).rejects.toThrow(
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).rejects.toThrow(
       `[invalid_screencast] Unknown screencastId: ${screencast.screencastId}`
     );
   });
@@ -1142,8 +1145,8 @@ describe("OpsBrowserManager", () => {
     };
     const manager = new OpsBrowserManager(base as never, makeConfig());
 
-    await expect(manager.stopScreencast("base-cast")).resolves.toEqual(expected);
-    expect(base.stopScreencast).toHaveBeenCalledWith("base-cast");
+    await expect(manager.stopScreencast("base-session", "base-cast")).resolves.toEqual(expected);
+    expect(base.stopScreencast).toHaveBeenCalledWith("base-session", "base-cast");
   });
 
   it("rejects ops screencast starts when there is no active target", async () => {
@@ -1232,7 +1235,7 @@ describe("OpsBrowserManager", () => {
     expect(managerPrivate.activeScreencasts.has(screencast.screencastId)).toBe(false);
     expect(managerPrivate.screencastIdsByTarget.has(`${connected.sessionId}:${screencast.targetId}`)).toBe(false);
     expect(managerPrivate.screencastIdsBySession.has(connected.sessionId)).toBe(false);
-    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
       screencastId: screencast.screencastId,
       endedReason: "max_frames_reached",
       warnings: ["ops-warning"]
@@ -1261,7 +1264,7 @@ describe("OpsBrowserManager", () => {
       expect(completedScreencasts.has(screencast.screencastId)).toBe(true);
     });
 
-    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
       screencastId: screencast.screencastId,
       sessionId: connected.sessionId,
       targetId: screencast.targetId,
@@ -1296,7 +1299,7 @@ describe("OpsBrowserManager", () => {
       expect(completedScreencasts.opsSessions.has(connected.sessionId)).toBe(false);
     });
 
-    await expect(manager.stopScreencast(screencast.screencastId)).resolves.toMatchObject({
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
       screencastId: screencast.screencastId,
       sessionId: connected.sessionId,
       targetId: screencast.targetId,

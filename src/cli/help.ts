@@ -155,7 +155,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--tab-id", description: "Browser tab id override for extension and annotation commands." },
       { flag: "--include-urls", description: "Include page URLs in list output where supported." },
       { flag: "--path", description: "Filesystem path for command output or artifacts.", example: "opendevbrowser screenshot --session-id s1 --path ./shot.png" },
-      { flag: "--screencast-id", description: "Recorded screencast id returned by screencast-start." },
+      { flag: "--screencast-id", description: "Recorded screencast id returned by screencast-start for the same session." },
       { flag: "--reason", description: "Audit reason for desktop observation commands." },
       { flag: "--full-page", description: "Capture the full scrollable page instead of the current viewport." },
       { flag: "--action", description: "Dialog action: status, accept, or dismiss." },

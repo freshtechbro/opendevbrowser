@@ -191,7 +191,7 @@ describe("RemoteManager browser lanes", () => {
       intervalMs: 750,
       maxFrames: 5
     });
-    await manager.stopScreencast("cast-1");
+    await manager.stopScreencast("session-1", "cast-1");
 
     expect(call).toHaveBeenNthCalledWith(1, "page.screencast.start", {
       sessionId: "session-1",
@@ -201,6 +201,7 @@ describe("RemoteManager browser lanes", () => {
       maxFrames: 5
     });
     expect(call).toHaveBeenNthCalledWith(2, "page.screencast.stop", {
+      sessionId: "session-1",
       screencastId: "cast-1"
     });
   });

@@ -344,8 +344,11 @@ export class RemoteManager implements BrowserManagerLike {
     });
   }
 
-  stopScreencast(screencastId: string): ReturnType<BrowserManagerLike["stopScreencast"]> {
-    return this.client.call<CallResult<"stopScreencast">>("page.screencast.stop", { screencastId });
+  stopScreencast(sessionId: string, screencastId: string): ReturnType<BrowserManagerLike["stopScreencast"]> {
+    return this.client.call<CallResult<"stopScreencast">>("page.screencast.stop", {
+      sessionId,
+      screencastId
+    });
   }
 
   upload(sessionId: string, input: Parameters<BrowserManagerLike["upload"]>[1]): ReturnType<BrowserManagerLike["upload"]> {

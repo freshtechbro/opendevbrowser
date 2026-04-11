@@ -345,7 +345,7 @@ describe("daemon-commands integration", () => {
     expect(core.desktopRuntime.accessibilitySnapshot).toHaveBeenCalledWith("accessibility", "window-1");
   });
 
-  it("routes screencast start through session authorization and stop through screencast id", async () => {
+  it("routes screencast start and stop through session authorization", async () => {
     const core = makeCore();
     core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
     core.manager.startScreencast.mockResolvedValue({
@@ -380,7 +380,12 @@ describe("daemon-commands integration", () => {
 
     await expect(handleDaemonCommand(core, {
       name: "page.screencast.stop",
-      params: { screencastId: "cast-1" }
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        leaseId: "lease-1",
+        screencastId: "cast-1"
+      }
     })).resolves.toEqual({
       screencastId: "cast-1",
       sessionId: "session-1",
@@ -388,13 +393,53 @@ describe("daemon-commands integration", () => {
       endedReason: "stopped"
     });
 
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-2",
+        leaseId: "lease-1",
+        screencastId: "cast-1"
+      }
+    })).rejects.toThrow("RELAY_LEASE_INVALID");
+
     expect(core.manager.startScreencast).toHaveBeenCalledWith("session-1", {
       targetId: "target-1",
       outputDir: "/tmp/cast",
       intervalMs: 750,
       maxFrames: 5
     });
-    expect(core.manager.stopScreencast).toHaveBeenCalledWith("cast-1");
+    expect(core.manager.stopScreencast).toHaveBeenCalledWith("session-1", "cast-1");
+  });
+
+  it.each([
+    "[invalid_session] Unknown sessionId: session-1",
+    "Unknown ops session: session-1"
+  ])("allows completed screencast retrieval after session teardown (%s)", async (statusError) => {
+    const core = makeCore();
+    core.manager.status.mockRejectedValue(new Error(statusError));
+    core.manager.stopScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        screencastId: "cast-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
+
+    expect(core.manager.stopScreencast).toHaveBeenCalledWith("session-1", "cast-1");
   });
 
   it("routes session.inspect through the daemon with default includeUrls and relay status", async () => {

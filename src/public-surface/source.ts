@@ -525,8 +525,8 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       },
       {
         name: "screencast-stop",
-        usage: "npx opendevbrowser screencast-stop --screencast-id <id> [--timeout-ms <ms>]",
-        flags: ["--screencast-id", "--timeout-ms"]
+        usage: "npx opendevbrowser screencast-stop --session-id <id> --screencast-id <id> [--timeout-ms <ms>]",
+        flags: ["--session-id", "--screencast-id", "--timeout-ms"]
       }
     ]
   },
