@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-04-04 | **Commit:** e6ed549 | **Branch:** codex/merge-antibot-workflow-stability
+**Generated:** 2026-04-11 | **Commit:** 5e05b0c | **Branch:** codex/browser-screencast-desktop-surface
 
 ## Overview
 
@@ -26,7 +26,8 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
          ▼                  ▼                  ▼                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Core Runtime (src/core/)                    │
-│  bootstrap.ts → wires managers, injects ToolDeps              │
+│  bootstrap.ts → wires managers, sibling desktop runtime,       │
+│                   automation coordinator, injects ToolDeps     │
 └────────┬────────────────────────────────────────────────────────┘
          │
     ┌────┴────┬─────────────┬──────────────┬──────────┬────────────┬────────────┬────────────┐
@@ -88,18 +89,25 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 ```
 .
 ├── src/              # Plugin implementation
+│   ├── annotate/     # Annotation transports + output shaping
+│   ├── automation/    # Automation helpers and coordinator
 │   ├── browser/      # Browser sessions, target orchestration, canvas preview/code-sync
 │   ├── cache/        # Chrome executable resolution
+│   ├── canvas/       # Design-canvas document store, repo IO, code-sync, export helpers
+│   ├── challenges/   # Bounded challenge orchestration plane, evidence, recovery lanes
 │   ├── cli/          # CLI commands, daemon, installers
 │   ├── core/         # Bootstrap, runtime wiring, ToolDeps
-│   ├── canvas/       # Design-canvas document store, repo IO, code-sync, export helpers
+│   ├── desktop/      # Read-only desktop observation runtime; `desktop.*` config; see `desktop/AGENTS.md`
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
+│   ├── integrations/ # External integration adapters (Figma import, etc.)
+│   ├── macros/       # Macro parsing, resolution, provider-action expansion
+│   ├── providers/    # Provider runtime, policy, workflows, browser fallback
+│   ├── public-surface/ # Generated manifest source, CLI/tool metadata
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 57 opendevbrowser_* tool definitions
-│   ├── annotate/     # Annotation transports + output shaping
+│   ├── tools/        # 65 opendevbrowser_* tool definitions
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
@@ -115,6 +123,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Add/modify tool | `src/tools/` | Keep thin; delegate to managers |
 | Tool registry | `src/tools/index.ts` | Source of truth for tool list/count |
 | Browser lifecycle | `src/browser/browser-manager.ts` | Owns Playwright, targets, cleanup |
+| Browser replay capture | `src/browser/screencast-recorder.ts`, `src/browser/browser-manager.ts` | Manager-owned replay artifacts layered on the screenshot lane |
 | Chrome-family cookie bootstrap | `src/browser/system-chrome-cookies.ts`, `src/cache/chrome-user-data.ts`, `src/browser/browser-manager.ts` | Managed and `cdpConnect` import readable cookies from the discovered Chrome-family profile; extension mode reuses live tabs |
 | Snapshot/refs | `src/snapshot/` | AX-tree, RefStore, outline/actionables |
 | Extension relay | `src/relay/` | Protocol types, WebSocket security |
@@ -126,7 +135,8 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Design canvas + code sync | `src/canvas/`, `src/canvas/kits/catalog.ts`, `src/canvas/starters/catalog.ts`, `src/browser/canvas-manager.ts`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, `scripts/canvas-competitive-validation.mjs` | Current canvas technical docs, built-in kit and starter inventory, framework-adapter code sync, BYO plugin contract, validator evidence, manifest persistence, and runtime preview fallback |
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
-| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 64 CLI + 57 tools + 59 `/ops` + 35 `/canvas` + `/cdp` map |
+| Desktop observation | `src/desktop/` | Read-only surface capture; `desktop.*` config; see `desktop/AGENTS.md` |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 72 CLI + 65 tools + 59 `/ops` + 35 `/canvas` + `/cdp` map |
 
 ## Commands
 
@@ -198,7 +208,7 @@ Entry: src/index.ts
   └── Exports: { tool, chat.message, experimental.chat.system.transform }
 
 Bootstrap: src/core/bootstrap.ts
-  └── Creates: BrowserManager, AnnotationManager, CanvasManager, AgentInbox, ScriptRunner, SkillLoader, providerRuntime, RelayServer
+  └── Creates: BrowserManager, AnnotationManager, CanvasManager, AgentInbox, ScriptRunner, SkillLoader, providerRuntime, RelayServer, desktopRuntime, automationCoordinator
   └── Returns: ToolDeps (injected into all tools)
 
 Config: ~/.config/opencode/opendevbrowser.jsonc
@@ -213,7 +223,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_canvas: createCanvasTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 57 tools
+    // ... 65 tools
   };
 }
 ```
@@ -242,6 +252,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
 - Treat generated CLI help as part of the documentation surface.
+- When first-contact capability wording changes, keep browser replay, desktop observation, and the browser-scoped `challengeAutomationMode` lane explicit across help, docs, and skills, and never describe the helper as a desktop agent.
 - Keep local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` out of commits; `.gitignore` is authoritative.
 - If tool list, command outputs, or help inventory changes, update `src/cli/help.ts`, `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together, then verify both `npx opendevbrowser --help` and `npx opendevbrowser help`.
 

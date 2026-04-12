@@ -4,7 +4,7 @@
 
 ## Overview
 
-Owns Playwright browser instances, session state, target (page/tab) management, and the browser-facing half of canvas session/preview/code-sync orchestration. Central coordination point between CDP, extension relay, managed sessions, `/ops`, and `/canvas`.
+Owns Playwright browser instances, session state, target (page/tab) management, browser replay capture, and the browser-facing half of canvas session/preview/code-sync orchestration. Central coordination point between CDP, extension relay, managed sessions, `/ops`, and `/canvas`.
 
 ## Structure
 
@@ -21,6 +21,7 @@ src/browser/
 ├── ops-browser-manager.ts        # Ops-mode browser management
 ├── ops-client.ts                 # Ops protocol client
 ├── parallelism-governor.ts       # Session parallelism caps + backpressure
+├── screencast-recorder.ts        # Replay artifact writer layered on the screenshot lane
 ├── script-runner.ts              # Multi-step script execution
 ├── session-store.ts              # Session metadata persistence
 └── target-manager.ts             # Page/tab registry, named targets
@@ -34,6 +35,7 @@ src/browser/
 - **Profile management:** Persistent or ephemeral Chrome profiles
 - **Chrome resolution:** System Chrome → Chrome for Testing download
 - **Session cookie bootstrap:** managed and `cdpConnect` sessions import readable cookies from the discovered system Chrome-family profile before navigation; extension mode reuses the attached tab's existing cookies
+- **Replay capture:** start/stop screencast lifecycle writes `replay.json`, `replay.html`, `frames/`, and `preview.png` through manager-owned recorder helpers
 
 ### TargetManager
 - UUID-based target registry
@@ -63,6 +65,10 @@ src/browser/
 - Owns direct-vs-relay annotate routing
 - Resolves `annotate --stored` through the shared repo-local agent inbox first and the extension-local fallback second
 - Keeps relay-only requirements explicit for extension-backed stored fetches
+
+### OpsBrowserManager boundary
+- Extension-backed screencast capture reuses the existing screenshot primitive at the manager layer.
+- There is no separate `/ops` screencast command family; keep replay lifecycle orchestration above the relay-service primitive layer.
 
 ## Session Modes
 

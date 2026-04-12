@@ -1,7 +1,7 @@
 {
   "name": "opendevbrowser",
   "version": "0.0.17",
-  "description": "OpenCode plugin for browser automation via CDP with snapshot-refs-actions workflow",
+  "description": "Browser automation runtime with snapshot-refs-actions, browser replay screencasts, read-only desktop observation, and browser-scoped computer-use orchestration",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,7 +27,14 @@
     "playwright",
     "testing",
     "web-scraping",
-    "chrome"
+    "chrome",
+    "annotation",
+    "design-canvas",
+    "screencast",
+    "desktop-observation",
+    "browser-replay",
+    "computer-use",
+    "challenge-automation"
   ],
   "license": "MIT",
   "repository": {

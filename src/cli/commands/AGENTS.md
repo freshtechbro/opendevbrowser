@@ -4,7 +4,7 @@ CLI command handlers. Extends `src/cli/AGENTS.md`.
 
 ## Overview
 
-Owns the per-command handler layer for the 61-command CLI surface. These files should stay thin: parse command-local args, call the appropriate manager/runtime helper, and return `CommandResult` for shared output formatting.
+Owns the per-command handler layer for the current public CLI surface. These files should stay thin: parse command-local args, call the appropriate manager/runtime helper, and return `CommandResult` for shared output formatting.
 
 ## Structure
 
@@ -16,7 +16,8 @@ src/cli/commands/
 ├── targets/      # list/use/new/close
 ├── pages/        # open/list/close named pages
 ├── dom/          # html/text/attr/value/visible/enabled/checked
-├── devtools/     # perf/screenshot/console-poll/network-poll/debug-trace-snapshot
+├── desktop/      # desktop-status/windows/active-window/capture*/accessibility-snapshot
+├── devtools/     # perf/screenshot/screencast*/console-poll/network-poll/debug-trace-snapshot/dialog
 ├── export/       # clone-page, clone-component
 ├── annotate.ts   # annotation transport wrapper
 ├── canvas.ts     # typed design-canvas command wrapper
@@ -35,6 +36,7 @@ src/cli/commands/
 - Return `CommandResult`; shared output and fatal-error shaping live above this layer.
 - Reuse shared helpers for pointer, session, and output behavior instead of duplicating transport logic.
 - Keep command categories aligned with `src/cli/help.ts`, `src/cli/args.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
+- Keep desktop commands daemon/core-owned; do not route them through extension-only helpers or CDP service layers.
 
 ## Anti-Patterns
 

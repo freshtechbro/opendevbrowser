@@ -5,6 +5,7 @@ Bootstrap template for the private website deployment repository described in `d
 ## Purpose
 
 This repository is the private deployment target for website content while `opendevbrowser` remains the public source for runtime, CLI, extension, docs, and npm release artifacts.
+Public sync also mirrors the generated discovery/help inputs that drive website docs surfaces, including first-contact wording for browser replay, desktop observation, and the browser-scoped computer-use lane: `src/cli/help.ts`, `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, `src/public-surface/generated-manifest.json`, and `src/tools/index.ts`.
 
 Branch model:
 - `main`: integration branch updated by sync workflow.

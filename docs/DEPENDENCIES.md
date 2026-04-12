@@ -1,7 +1,7 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-04-05
+Last updated: 2026-04-11
 
 This document tracks runtime and build dependencies across the repository.
 
@@ -54,10 +54,10 @@ Version synchronization is handled by `npm run extension:sync`, which keeps `ext
 - No package.json, tsconfig.json, eslint.config.js, or vitest.config.ts changes were required for this rollout.
 - No Vite config exists in the public repo, so no Vite update was required.
 
-## Documentation sweep config audit (2026-04-05)
+## Documentation sweep config audit (2026-04-11)
 
-- Reviewed `package.json`, `eslint.config.js`, `tsconfig.json`, and `vitest.config.ts` as part of the repo-wide docs sweep.
-- No manifest or toolchain config changes were required after the source-backed audit.
+- Reviewed `package.json`, `package-lock.json`, `eslint.config.js`, `tsconfig.json`, and `vitest.config.ts` as part of the repo-wide docs sweep.
+- No dependency version, lockfile, or toolchain config changes were required after the source-backed audit; only package metadata text was refreshed separately.
 - The live config filenames in this repo are `eslint.config.js` and `tsconfig.json`; there is no `eslintconfig.js`, `tsconfig.js`, or Vite config in the public repo.
 
 ## Dependency update workflow

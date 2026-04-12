@@ -36,6 +36,12 @@ Reliable defaults:
 ./skills/opendevbrowser-shopping/scripts/run-deal-hunt.sh "wireless earbuds" "shopping/amazon,shopping/walmart"
 ```
 
+## Supporting Surfaces
+
+- Use browser replay (`screencast-start` / `screencast-stop`) when offer churn, price changes, or challenge timing needs temporal evidence.
+- Use desktop observation only for read-only evidence around sibling desktop surfaces; provider collection stays browser-first.
+- Use `--challenge-automation-mode off|browser|browser_with_helper` for bounded browser-scoped computer use on provider challenge branches; it is not desktop automation.
+
 ## Deal-Hunting Model
 
 Use a two-layer check for each offer:

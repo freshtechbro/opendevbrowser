@@ -2,7 +2,7 @@
 
 Status: historical release ledger
 Release date: 2026-03-13
-Last audited against repo: 2026-03-20
+Last audited against repo: 2026-04-11
 
 ## Scope
 
@@ -19,13 +19,33 @@ Tracks the verified release-prep gates for `v0.0.17`, including docs alignment, 
 ## Current repo note
 
 - The release-prep evidence below remains the authoritative `2026-03-13` snapshot for `v0.0.17`.
-- Current repo state was rechecked on `2026-03-20` to prevent stale “current” wording from leaking into this historical ledger.
-- Current branch: `codex/canvas-upgrade`
-- Current HEAD: `12a0dfb7a5a953c5165df6c209416aaf839f017c`
-- Current dirty-path count from `git status --short`: `262`
+- Current repo state was rechecked on `2026-04-11` to prevent stale “current” wording from leaking into this historical ledger.
+- Current branch: `codex/browser-screencast-desktop-surface`
+- Current HEAD: `561beeca6a5322e1a61d68e84296319f46675521`
+- Current dirty-path count from `git status --short`: `48`
 - Current local tag `v0.0.17`: present
+- Current generated help now leads with capability highlights for browser replay, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane.
 - Historical grouped gate names below are preserved exactly as the `2026-03-13` snapshot labels; they are not the active release-proof terminology.
 - Do not reinterpret the release-prep gate results below as current working-tree truth.
+
+## Post-release release-facing follow-up audit (2026-04-11)
+
+- Release-facing wording sweep reran green on the current dirty tree:
+  - Commands:
+    - `node scripts/docs-drift-check.mjs`
+    - `npm run test -- tests/cli-help-parity.test.ts`
+    - `npm run test -- tests/parity-matrix.test.ts`
+    - `node scripts/chrome-store-compliance-check.mjs`
+  - Result:
+    - docs drift passed with the current public surface counts: `72` CLI commands, `65` tools, `59` `/ops` command names, and `35` `/canvas` command names
+    - CLI help parity passed
+    - runtime parity matrix passed
+    - Chrome Web Store compliance passed
+  - Notes:
+    - generated help now renders a first-contact `Capability Highlights` block for browser replay, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane
+    - `CHANGELOG.md`, this ledger, the historical `v0.0.16` ledger context note, and `extension/store-assets/LISTING.md` were refreshed so release-facing wording matches the generated help surface
+    - store-facing copy keeps the boundary explicit: desktop observation remains a separate read-only core runtime lane, and the optional helper remains browser-scoped rather than a desktop agent
+    - no new packaging artifacts were regenerated in this documentation-only follow-up pass
 
 ## Post-release current-turn revalidation (2026-03-20)
 

@@ -13,6 +13,7 @@
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
 The current public surface includes [72 CLI commands and 65 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with browser replay, public read-only desktop observation, and the browser-scoped computer-use lane exposed through `--challenge-automation-mode`.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -237,6 +238,14 @@ npx opendevbrowser run --script ./script.json --output-format json
 
 Use `--output-format json|stream-json` for automation-friendly output.
 
+### Help-Led Discovery
+
+Start every surface check from generated help when you need the current public lanes:
+
+- Browser replay: `screencast-start`, `screencast-stop`
+- Desktop observation: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- Browser-scoped computer use: `--challenge-automation-mode off|browser|browser_with_helper` governs bounded challenge handling for workflow and macro execute lanes; the optional helper remains browser-scoped and is not a desktop agent
+
 ## Challenge Handling Boundary
 
 - `SessionStore` remains the blocker FSM source of truth. Managed and `/ops`-backed responses keep `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` stable and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
@@ -331,6 +340,7 @@ OpenDevBrowser provides **65 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 Terminal help now mirrors the generated public-surface manifest rooted at `src/public-surface/source.ts` and refreshed by `scripts/generate-public-surface-manifest.mjs`. `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
+See [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md) for the brand and generated help/public-surface asset inventory used by packaging and website-sync flows.
 
 ### Session Management
 | Tool | Description |
@@ -626,14 +636,14 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
       "value": "~/.config/opencode/opendevbrowser.provider-cookies.json"
     },
     "challengeOrchestration": {
-      "mode": "browser",
+      "mode": "browser_with_helper",
       "optionalComputerUseBridge": {
-        "enabled": false
+        "enabled": true
       }
     }
   },
 
-  // Internal sibling desktop observation runtime (enabled by default; set "off" to opt out)
+  // Public read-only sibling desktop observation runtime (enabled by default; set "off" to opt out)
   "desktop": {
     "permissionLevel": "observe",
     "commandTimeoutMs": 10000,
@@ -805,7 +815,8 @@ Local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `co
          ▼                  ▼                  ▼                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Core Runtime (src/core/)                    │
-│  bootstrap.ts → wires managers, injects ToolDeps              │
+│  bootstrap.ts → wires managers, sibling desktop runtime,       │
+│                   automation coordinator, injects ToolDeps     │
 └────────┬────────────────────────────────────────────────────────┘
          │
     ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
@@ -821,6 +832,8 @@ Local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `co
 │Manager │                                        │ (WS relay) │
 └────────┘                                        └────────────┘
 ```
+
+The simplified map above omits the dedicated Challenge Coordinator, Desktop Runtime, and Automation Coordinator that now sit beside the browser managers; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component map and ownership boundaries.
 
 ### Data Flow
 
@@ -844,18 +857,25 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 ```
 .
 ├── src/              # Plugin implementation
-│   ├── browser/      # BrowserManager, TargetManager, CDP lifecycle
+│   ├── annotate/     # Annotation transports + output shaping
+│   ├── automation/    # Automation helpers and coordinator
+│   ├── browser/      # Browser sessions, target orchestration, canvas preview/code-sync
 │   ├── cache/        # Chrome executable resolution
+│   ├── canvas/       # Design-canvas document store, repo IO, code-sync, export helpers
+│   ├── challenges/   # Bounded challenge orchestration plane, evidence, recovery lanes
 │   ├── cli/          # CLI commands, daemon, installers
 │   ├── core/         # Bootstrap, runtime wiring, ToolDeps
-│   ├── canvas/       # Design-canvas document store, repo IO, export helpers
+│   ├── desktop/      # Read-only desktop observation runtime
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
+│   ├── integrations/ # External integration adapters (Figma import, etc.)
+│   ├── macros/       # Macro parsing, resolution, provider-action expansion
+│   ├── providers/    # Provider runtime, policy, workflows, browser fallback
+│   ├── public-surface/ # Generated manifest source, CLI/tool metadata
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
 │   ├── tools/        # 65 opendevbrowser_* tool definitions
-│   ├── annotate/     # Annotation transports + output shaping
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)

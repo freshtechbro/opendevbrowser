@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-04-03
+Last updated: 2026-04-11
 
 ---
 
@@ -18,8 +18,8 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `64`
-- Plugin tools: `57`
+- CLI commands: `72`
+- Plugin tools: `65`
 - `/ops` command names: `59`
 - `/canvas` command names: `35`
 
@@ -29,6 +29,7 @@ Human-facing inventory metadata now composes through one generated manifest:
 - `src/public-surface/generated-manifest.ts` and `.json` are the consumed inventory mirrors for runtime help, docs parity, and tests
 - `src/cli/onboarding-metadata.json` owns the canonical first-contact skill, topic, quick-start commands, and onboarding doc pointers
 - `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/index.ts` consume or re-export the generated manifest for human-facing command and tool inventory output
+- `src/cli/help.ts` also owns the first-contact capability-highlights block for browser replay, public desktop observation, and the browser-scoped computer-use lane surfaced through `--challenge-automation-mode`
 - `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
 - `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/tools/index.ts` remains the runtime tool registry authority
@@ -69,6 +70,7 @@ Legitimacy boundary:
 - Public override field: `challengeAutomationMode`
 - Accepted values: `off`, `browser`, `browser_with_helper`
 - Effective precedence: `run > session > config`
+- Generated help and docs surface this as the browser-scoped computer-use lane; it is intentionally not a desktop-agent or desktop-command family.
 - Config baseline: `providers.challengeOrchestration.mode`
 - `BrowserManager` and `OpsBrowserManager` remain the only surfaced challenge metadata writers.
 - `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can expose `mode`, `source`, `standDownReason`, and helper eligibility so stand-down decisions stay explicit.
@@ -172,6 +174,9 @@ flowchart LR
     Devtools[DevTools Trackers]
     Exporter[Export Pipeline]
     Relay[RelayServer]
+    ChallengeCoord[Challenge Coordinator]
+    DesktopRuntime[Desktop Observation Runtime]
+    AutomationCoordinator[Automation Coordinator]
   end
 
   Plugin --> CoreBootstrap
@@ -206,6 +211,11 @@ flowchart LR
   CoreBootstrap --> Devtools
   CoreBootstrap --> Exporter
   CoreBootstrap --> Relay
+  CoreBootstrap --> ChallengeCoord
+  CoreBootstrap --> DesktopRuntime
+  CoreBootstrap --> AutomationCoordinator
+  ChallengeCoord --> BrowserManager
+  DesktopRuntime --> AutomationCoordinator
 ```
 
 ---

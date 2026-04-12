@@ -6,6 +6,7 @@ Ops runtime for extension relay. Extends `extension/AGENTS.md`.
 
 High-level ops protocol implementation for browser automation via extension relay. Handles session lifecycle, navigation, interaction, DOM operations, DevTools integration, and canvas overlay/runtime preview commands.
 The runtime also enforces per-target parallelism/backpressure and session ownership through coordinator/governor helpers.
+Extension-backed browser replay capture reuses the screenshot primitive above this layer; there is no separate `/ops` screencast command family here.
 
 ## Structure
 

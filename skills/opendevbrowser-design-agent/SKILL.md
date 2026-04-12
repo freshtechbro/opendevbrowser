@@ -68,6 +68,12 @@ Use this skill for frontend work that must be visually strong, contract-first, a
   skills/opendevbrowser-design-agent/assets/templates/design-contract.v1.json
 ```
 
+## Supporting Surfaces
+
+- Use browser replay (`screencast-start` / `screencast-stop`) during real-surface validation when motion, sequencing, or transition timing matters.
+- Desktop observation stays read-only and is only for external window or OS-level evidence around the workflow; it is not a design-surface control lane.
+- Browser-scoped computer use remains a challenge posture knob via `--challenge-automation-mode`, not a desktop-agent capability.
+
 ## Core Rules
 
 - Start with a design contract, not ad-hoc implementation.

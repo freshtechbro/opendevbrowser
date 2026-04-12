@@ -78,6 +78,19 @@ npx opendevbrowser help
 ./skills/opendevbrowser-design-agent/scripts/design-workflow.sh contract-first
 ```
 
+## Help-Led Surface Discovery
+
+Start every surface audit with generated help so the capability map reflects the currently shipped runtime:
+
+- Browser replay: `screencast-start`, `screencast-stop`
+- Desktop observation: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- Browser-scoped computer use: `--challenge-automation-mode off|browser|browser_with_helper` plus manager-owned `review`, `session-inspector`, and workflow fallback metadata
+
+Boundary rules:
+- desktop observation is public and read-only
+- the optional helper remains browser-scoped and is not a desktop agent
+- generated help, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md` must stay aligned whenever this wording changes
+
 ## Validated Capability Lanes
 
 Load this section directly with:
@@ -208,6 +221,14 @@ opendevbrowser_snapshot sessionId="<session-id>" format="outline"
 opendevbrowser_console_poll sessionId="<session-id>" max=100
 opendevbrowser_network_poll sessionId="<session-id>" max=100
 opendevbrowser_screenshot sessionId="<session-id>"
+```
+
+Use browser replay when timing matters:
+
+```text
+opendevbrowser_screencast_start sessionId="<session-id>" outputDir="./artifacts/qa-replay"
+# run the suspect flow
+opendevbrowser_screencast_stop sessionId="<session-id>" screencastId="<screencast-id>"
 ```
 
 ### Read-Only Social Validation Workflow

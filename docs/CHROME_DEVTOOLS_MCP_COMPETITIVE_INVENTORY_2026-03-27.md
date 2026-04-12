@@ -1,10 +1,10 @@
 # Chrome DevTools MCP Competitive Inventory
 
 Status: active
-Reviewed: 2026-04-05
+Reviewed: 2026-04-11
 Chrome public surface baseline: official `chrome-devtools-mcp` README, tool reference, CLI docs, blog, and npm listing reviewed on 2026-03-27  
 Historical release-window audit used for provenance: `0.11.0` (2025-12-03) through `0.20.3` (2026-03-20)  
-OpenDevBrowser baseline: `src/public-surface/source.ts` re-audited on 2026-04-05 via `node scripts/docs-drift-check.mjs` with 64 CLI commands, 57 tools, 59 `/ops` commands, and 35 `/canvas` commands
+OpenDevBrowser baseline: `src/public-surface/source.ts` re-audited on 2026-04-11 via `node scripts/docs-drift-check.mjs` with 72 CLI commands, 65 tools, 59 `/ops` commands, and 35 `/canvas` commands
 
 ## Purpose
 
@@ -22,7 +22,7 @@ This is not a replacement plan. It is a selective borrowing plan.
 - Chrome DevTools MCP CLI docs: [github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/cli.md](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/cli.md)
 - Chrome blog on debugging an existing browser session: [developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)
 - npm package listing: [npmjs.com/package/chrome-devtools-mcp](https://www.npmjs.com/package/chrome-devtools-mcp)
-- OpenDevBrowser source-of-truth: [docs/SURFACE_REFERENCE.md](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/SURFACE_REFERENCE.md), [docs/CLI.md](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/docs/CLI.md), [src/public-surface/source.ts](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/public-surface/source.ts), [src/browser/manager-types.ts](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/browser/manager-types.ts)
+- OpenDevBrowser source-of-truth: [SURFACE_REFERENCE.md](SURFACE_REFERENCE.md), [CLI.md](CLI.md), [../src/public-surface/source.ts](../src/public-surface/source.ts), [../src/browser/manager-types.ts](../src/browser/manager-types.ts)
 
 ## Bottom line
 
@@ -54,6 +54,7 @@ These existing seams matter because they determine what should be enriched versu
 | `network-poll` | `opendevbrowser_network_poll`, `network-poll` CLI, `/ops devtools.networkPoll` | network tracker plus manager polling seams | Request and response drill-down should deepen this lane rather than create a parallel export lane. |
 | `debug-trace-snapshot` | `opendevbrowser_debug_trace_snapshot`, `debug-trace-snapshot` CLI | `BrowserManager.debugTraceSnapshot`; `OpsBrowserManager.debugTraceSnapshot` assembles extension-mode output | Combined diagnostics already exist and should stay manager-owned. |
 | `screenshot` | `opendevbrowser_screenshot`, `screenshot` CLI, `/ops page.screenshot` | `BrowserManager.screenshot`, `OpsBrowserManager.screenshot`, `ops-runtime handleScreenshot` | Full-page and element capture should extend this existing lane. |
+| `screencast-start` / `screencast-stop` | `opendevbrowser_screencast_start`, `opendevbrowser_screencast_stop`, matching CLI commands | `BrowserManager.startScreencast`, `BrowserManager.stopScreencast`, `OpsBrowserManager.startScreencast`, `OpsBrowserManager.stopScreencast` | Chrome-derived recording improvements should deepen this shipped browser replay lane rather than create another recording subsystem. |
 
 ## 1. Prioritized additive inventory
 
@@ -73,7 +74,7 @@ This table answers the main product question: what Chrome has that OpenDevBrowse
 | 5 | File upload | First-class file input handling | No first-class public equivalent found | new public lane | Worth adding |
 | 6 | Dialog handling | Explicit modal, alert, confirm, and prompt handling | No first-class public equivalent found | new public lane | Worth adding |
 | 7 | Screenshot ergonomics | Full-page capture, element-only capture, better output controls | Current screenshot surface is narrower | enrich existing lane | Worth adding |
-| 8 | Screencast and replay artifacts | Experimental recording and replay-style artifacts | No public recording or replay lane found | new public lane | Worth adding after the higher-lift debug lanes |
+| 8 | Screencast and replay artifacts | Experimental recording and replay-style artifacts | Shipped browser replay lane via `screencast-start` / `screencast-stop` and `opendevbrowser_screencast_*`, but with less depth than Chrome's broader recording ergonomics | enrich existing lane | Worth deepening after the higher-lift debug lanes |
 | 9 | Bounded script eval and init-script injection | Public eval and init-script style hooks | Only internal helper usage, no public lane | new public lane | Only after the higher-value diagnostic and QA gaps land |
 
 ### Why these nine are the right shortlist
@@ -119,9 +120,9 @@ These are the lowest-risk changes because the public lane already exists in tool
 | A2 | Richer diagnostics | Current trackers and combined diagnostics already exist; deepening them early prevents ownership drift later. |
 | A3 | Screenshot ergonomics | Existing public lane already exists and can absorb richer options without opening a new subsystem. |
 
-### Phase B - add truly new public lanes
+### Phase B - add truly new public lanes and deepen newer shipped lanes
 
-These should come after Phase A sets the public-shape and parity rules.
+These should come after Phase A sets the public-shape and parity rules. Public emulation, memory, upload, and dialog handling are net-new lanes; screencast stays here only as a follow-on depth lane because the shipped baseline already exists.
 
 | Wave | Candidate | Why this order |
 | --- | --- | --- |
@@ -145,7 +146,7 @@ This is the core implementation rule set. It keeps new work aligned with the cur
 | Memory heap snapshots | new public tool and CLI lane in the devtools group | new daemon route only | new manager method in `BrowserManager` | `OpsBrowserManager` plus new `ops-runtime` handler if extension parity is supported | snapshot artifact schema belongs to browser/devtools layer | docs plus artifact and parity tests |
 | File upload | new public interaction lane | new daemon route only | manager-owned interaction implementation | `OpsBrowserManager` plus `/ops` handler if extension parity is supported | upload request and result types belong to browser-layer types | docs plus form-style interaction tests |
 | Dialog handling | new public interaction lane | new daemon route only | manager-owned dialog state and action logic | `OpsBrowserManager` plus `/ops` handler if extension parity is supported | dialog event and response types belong to browser-layer types | docs plus modal/dialog tests |
-| Screencast and replay artifacts | new public devtools or artifact lane | new daemon route only | manager-owned recording lifecycle and artifact return | `OpsBrowserManager` plus `/ops` handler if extension parity is supported | recording manifest and artifact schema belong to browser/devtools layer | docs plus artifact and parity tests |
+| Screencast and replay artifacts | existing screencast tool and CLI lane | existing daemon route only | manager-owned recording lifecycle and artifact return | `OpsBrowserManager` plus existing `/ops` screenshot primitive composition and parity hooks | recording manifest and artifact schema belong to browser/devtools layer | docs plus artifact and parity tests |
 | Bounded eval and init-script | new public power lane with strict limits | new daemon route only | manager-owned bounded implementation | `OpsBrowserManager` plus `/ops` only if parity is deliberate and safe | request shape, allowlist, and result shape belong to browser-layer types | docs plus security and parity tests |
 
 ## 6. Canonical ownership rules
@@ -250,7 +251,7 @@ They can share a broader interaction phase, but they should remain separate publ
 
 ### 8.2 Keep screencast in the priority set
 
-Screencast and replay artifacts are not top-tier compared with tracing, emulation, memory, or richer diagnostics, but they are still worth adding to OpenDevBrowser's additive roadmap.
+Screencast and replay artifacts are not top-tier compared with tracing, emulation, memory, or richer diagnostics, but they are still worth deepening in OpenDevBrowser's additive roadmap now that the baseline lane is shipped.
 
 Good fit:
 

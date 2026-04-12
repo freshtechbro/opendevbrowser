@@ -28,6 +28,12 @@ Use this skill when you need benchmark-style research across public `web|communi
 ./skills/opendevbrowser-research/scripts/render-output.sh "browser automation" compact
 ```
 
+## Supporting Surfaces
+
+- Use browser replay (`screencast-start` / `screencast-stop`) when claim review needs temporal UI evidence or parity proof from browser-backed runs.
+- Use desktop observation only for read-only external-window or native-dialog evidence that materially affects the research artifact chain.
+- Use `--challenge-automation-mode off|browser|browser_with_helper` for bounded browser-scoped computer use in research workflows; it is not a desktop agent.
+
 ## Core Rules
 
 - Define timebox first (`--days` or `--from/--to`).

@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    // Bundler-mode resolution matches tsup and the generated public-surface/help imports shipped with the package.
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
@@ -7,9 +8,11 @@
     "types": ["node"],
     "rootDir": "src",
     "outDir": "dist",
+    // Emit declarations for the shipped runtime surface only; docs/tests consume the checked-in generated manifests separately.
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    // Keep public-surface, help, and docs parity strongly typed.
     "strict": true,
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,

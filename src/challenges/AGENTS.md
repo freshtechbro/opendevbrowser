@@ -44,6 +44,8 @@ src/challenges/
 - Evidence first: `ChallengeOrchestrator.captureEvidence()` gathers status, snapshot, debug trace, and cookie state before planning.
 - Policy before action: resolve `challengeAutomationMode` and helper eligibility before selecting any lane.
 - Browser-scoped execution only: actions flow through `ChallengeRuntimeHandle`; no desktop-agent or global OS automation.
+- Public help and docs should present this plane as browser-scoped computer use controlled by `challengeAutomationMode`, not as a desktop command family.
+- If desktop observation is composed through the automation coordinator, verification still routes back through browser-owned review; this plane never becomes desktop control.
 - Verification after every bounded attempt: outcome must be `resolved`, `deferred`, `yield_required`, `policy_blocked`, or `still_blocked` with explicit reason.
 - Audit trail always: `OutcomeRecorder` keeps durable, replay-safe records of attempts and verification state.
 

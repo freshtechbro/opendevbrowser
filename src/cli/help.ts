@@ -222,6 +222,30 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
 
 export const HELP_TOOL_ENTRIES = TOOL_SURFACE_ENTRIES;
 
+export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
+  {
+    label: "browser_replay",
+    description: "Capture temporal browser evidence with the public replay lane before or after fragile flows.",
+    details: [{ label: "cli:", value: "screencast-start, screencast-stop" }]
+  },
+  {
+    label: "desktop_observation",
+    description: "Use the public read-only desktop observation plane for sibling desktop evidence; it stays core-owned and outside extension relay.",
+    details: [{
+      label: "cli:",
+      value: "desktop-status, desktop-windows, desktop-active-window, desktop-capture-desktop, desktop-capture-window, desktop-accessibility-snapshot"
+    }]
+  },
+  {
+    label: "computer_use",
+    description: "Control the browser-scoped computer-use challenge lane with --challenge-automation-mode; the optional helper is not a desktop agent.",
+    details: [
+      { label: "flag:", value: "--challenge-automation-mode off|browser|browser_with_helper" },
+      { label: "proof:", value: "review, session-inspector, workflow fallback metadata" }
+    ]
+  }
+];
+
 export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   {
     label: "prompting_guide",
@@ -274,7 +298,7 @@ export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "src/public-surface/generated-manifest.ts", description: "Checked-in generated public-surface snapshot consumed by help and parity tests." },
   { label: "src/public-surface/generated-manifest.json", description: "Checked-in generated public-surface snapshot consumed by inventory scripts." },
   { label: "src/cli/args.ts", description: "CLI argument parsing backed by the public-surface source." },
-  { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source." },
+  { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source, including first-contact capability highlights." },
   { label: "src/tools/index.ts", description: "Code-level tool registry." },
   { label: "docs/CLI.md", description: "Detailed CLI guide and release-gate runbooks." },
   { label: onboardingMetadata.referencePaths.onboardingDoc, description: "First-run checklist for help-led onboarding and happy-path proof." },
@@ -428,6 +452,10 @@ function formatOnboardingEntries(): string {
   return formatRows(HELP_ONBOARDING_ENTRIES);
 }
 
+function formatCapabilityEntries(): string {
+  return formatRows(HELP_CAPABILITY_ENTRIES);
+}
+
 function formatReferenceEntries(): string {
   return formatRows(HELP_REFERENCE_ENTRIES.map((entry) => ({
     label: entry.label,
@@ -450,6 +478,9 @@ export function getHelpText(): string {
     `${onboardingMetadata.sectionTitle}:`,
     `  ${onboardingMetadata.sectionSummary}`,
     formatOnboardingEntries(),
+    "",
+    "Capability Highlights:",
+    formatCapabilityEntries(),
     "",
     `Command Inventory (all ${CLI_COMMANDS.length} commands):`,
     formatCommandGroups(commandDescriptions),

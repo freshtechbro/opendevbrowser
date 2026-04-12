@@ -4,7 +4,7 @@ Core bootstrap and dependency injection. Extends `src/AGENTS.md`.
 
 ## Overview
 
-Wires the entire runtime. Creates managers, initializes relay, provisions the repo-local `AgentInbox`, and returns `ToolDeps` for injection into tools.
+Wires the entire runtime. Creates managers, the sibling desktop runtime, the automation coordinator, initializes relay, provisions the repo-local `AgentInbox`, and returns `ToolDeps` for injection into tools.
 
 ## Structure
 
@@ -21,8 +21,9 @@ createOpenDevBrowserCore(options)
   ├── loadGlobalConfig() / use provided config
   ├── Creates: BrowserManager, OpsBrowserManager, ScriptRunner
   ├── Creates: SkillLoader, RelayServer, AgentInbox, AnnotationManager, CanvasManager
+  ├── Creates: DesktopRuntime, AutomationCoordinator
   ├── Creates: ProviderRuntime (with browser fallback port)
-  └── Returns: OpenDevBrowserCore { manager, runner, skills, relay, ... }
+  └── Returns: OpenDevBrowserCore { manager, runner, skills, relay, desktopRuntime, automationCoordinator, observeDesktopAndVerify, ... }
 ```
 
 ## ToolDeps Interface
@@ -38,6 +39,8 @@ Core returns this to all tools:
 | `agentInbox` | AgentInbox | Repo-local chat-scoped annotation delivery + stored retrieval |
 | `annotationManager` | AnnotationManager | Annotation coordination |
 | `canvasManager` | CanvasManagerLike | Design-canvas orchestration |
+| `desktopRuntime` | DesktopRuntimeLike | Public read-only desktop observation runtime |
+| `automationCoordinator` | AutomationCoordinatorLike | Cross-runtime desktop-observation-to-browser-verification composition |
 | `providerRuntime` | object | Search/fetch/crawl/post |
 | `ensureRelay` | function | Start relay on port |
 | `cleanup` | function | Shutdown handler |

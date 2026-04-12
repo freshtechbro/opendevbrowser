@@ -10,7 +10,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
-    // Keep the suite serialized so V8 coverage teardown stays deterministic in this repo.
+    // Keep the suite serialized so V8 coverage teardown and CLI/docs parity aggregation stay deterministic in this repo.
     fileParallelism: false,
     maxWorkers: 1,
     testTimeout: 30_000,
@@ -22,6 +22,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.ts"],
+      // CLI help, docs drift, and smoke lanes validate src/cli separately from V8 include coverage.
       exclude: ["src/relay/protocol.ts", "src/index.ts", "src/tools/deps.ts", "src/extension-extractor.ts", "src/cli/**", "src/skills/types.ts", "src/tools/skill_list.ts", "src/tools/skill_load.ts", "extension/**"],
       thresholds: {
         lines: 97,

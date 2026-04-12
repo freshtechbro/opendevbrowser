@@ -4,17 +4,18 @@
 
 ## Overview
 
-CLI layer implementing script-first UX with 64 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
+CLI layer implementing script-first UX with 72 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, browser capture and replay, desktop observation, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
 
 ## Structure
 
 ```
 src/cli/
-├── commands/               # 64 command implementations
+├── commands/               # Command implementations grouped by category
 │   ├── annotate.ts         # Annotation commands
 │   ├── artifacts.ts        # Artifact generation commands
 │   ├── canvas.ts           # Design-canvas command wrapper
 │   ├── daemon.ts           # Daemon lifecycle
+│   ├── desktop/            # Desktop observation commands
 │   ├── devtools/           # Console/network commands
 │   ├── dom/                # DOM capture/export
 │   ├── export/             # Page export commands
@@ -51,6 +52,7 @@ src/cli/
 ├── daemon-client.ts        # Daemon HTTP client
 ├── daemon-status.ts        # Hub status + metadata recovery
 ├── remote-manager.ts       # Tool call proxy for hub
+├── remote-desktop-runtime.ts # Daemon-backed DesktopRuntimeLike proxy for public desktop commands
 ├── remote-relay.ts         # Relay status cache
 ├── commands/native.ts      # Native messaging command handlers
 ├── output.ts               # JSON/text output formatting
@@ -66,7 +68,8 @@ src/cli/
 | `dom` | dom-html, dom-text, dom-attr, dom-value, dom-visible, dom-enabled, dom-checked | DOM operations |
 | `session` | launch, connect, disconnect, status, cookie-import, cookie-list | Session management |
 | `targets` | targets-list, target-use, target-new, target-close | Target (tab) management |
-| `devtools` | console-poll, network-poll, debug-trace-snapshot, session-inspector, perf, screenshot, dialog | DevTools integration |
+| `devtools` | console-poll, network-poll, debug-trace-snapshot, session-inspector, perf, screenshot, screencast-start, screencast-stop, dialog | DevTools integration |
+| `desktop` | desktop-status, desktop-windows, desktop-active-window, desktop-capture-desktop, desktop-capture-window, desktop-accessibility-snapshot | Daemon-backed read-only desktop observation |
 | `automation` | macro-resolve | Provider macro planning utilities |
 | `canvas` | canvas | Design-canvas session/document/preview orchestration |
 | `providers` | research, shopping, product-video, artifacts | Provider-backed workflow commands |
@@ -88,6 +91,7 @@ src/cli/
 - **Server:** `daemon.ts` - HTTP server for tool execution
 - **Client:** `daemon-client.ts` - HTTP client for CLI → daemon
 - **Proxy:** `remote-manager.ts` - Proxies tool calls through daemon
+- **Remote desktop:** `remote-desktop-runtime.ts` - Proxies the daemon-owned `DesktopRuntimeLike` surface; desktop observation stays outside extension relay
 - **Autostart:** `daemon-autostart.ts` - LaunchAgent/Task Scheduler
 - **Status:** `daemon-status.ts` - Hub status with metadata recovery
 - **Internal inbox hooks:** `daemon-commands.ts` exposes `agent.inbox.*` hub-only helpers that proxy the same core-local `AgentInbox` store used by plugin delivery
@@ -105,6 +109,7 @@ src/cli/
 - **Hub-aware:** Check `isHubEnabled()` before local operations
 - **Thin handlers:** Delegate to managers in `src/browser/`
 - **JSON pipes:** Ensure valid JSON for piping
+- **Help discoverability:** Generated help must keep browser replay, desktop observation, and the browser-scoped `--challenge-automation-mode` lane easy to find without describing a desktop agent.
 - **Parity contract:** Keep CLI runtime commands aligned with tool/runtime parity gate in `tests/parity-matrix.test.ts` (`rpc` remains CLI-only by design)
 
 ## Anti-Patterns
