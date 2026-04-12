@@ -1,8 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { getSurfaceCounts, runDocsDriftChecks } from "../scripts/docs-drift-check.mjs";
+import { describe, expect, it, vi } from "vitest";
+
+async function loadDocsDriftModule() {
+  vi.resetModules();
+  vi.unmock("fs");
+  vi.unmock("node:fs");
+  return import("../scripts/docs-drift-check.mjs");
+}
 
 describe("docs-drift-check", () => {
-  it("loads source surface counts", () => {
+  it("loads source surface counts", async () => {
+    const { getSurfaceCounts } = await loadDocsDriftModule();
     const counts = getSurfaceCounts();
     expect(counts.commandCount).toBe(72);
     expect(counts.toolCount).toBe(65);
@@ -11,7 +18,8 @@ describe("docs-drift-check", () => {
     expect(counts.toolNames).toHaveLength(counts.toolCount);
   });
 
-  it("loads docs drift checks", () => {
+  it("loads docs drift checks", async () => {
+    const { runDocsDriftChecks } = await loadDocsDriftModule();
     const result = runDocsDriftChecks();
     const byId = new Map(result.checks.map((check) => [check.id, check]));
     for (const id of [

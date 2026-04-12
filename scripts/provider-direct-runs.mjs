@@ -26,6 +26,10 @@ import {
   summarizeFailures,
   writeJson
 } from "./live-direct-utils.mjs";
+import {
+  startConfiguredDaemon,
+  stopDaemon
+} from "./skill-runtime-probe-utils.mjs";
 
 const HELP_TEXT = [
   "Usage: node scripts/provider-direct-runs.mjs [options]",
@@ -74,11 +78,49 @@ const DIRECT_WEB_COMMUNITY_CASES = [
   }
 ];
 
-function readDaemonStatus() {
+function readDaemonStatus(env = process.env) {
   return runCli(["status", "--daemon"], {
+    env,
     allowFailure: true,
     timeoutMs: 15_000
   });
+}
+
+function appendDaemonState(step, startedDaemon) {
+  if (!startedDaemon) {
+    return step;
+  }
+
+  return {
+    ...step,
+    data: {
+      ...(step.data ?? {}),
+      harnessStartedDaemon: true
+    }
+  };
+}
+
+export async function ensureProviderDaemon(
+  state,
+  {
+    env = process.env,
+    readDaemonStatusImpl = readDaemonStatus,
+    startConfiguredDaemonImpl = startConfiguredDaemon
+  } = {}
+) {
+  const daemonStatus = readDaemonStatusImpl(env);
+  if (daemonStatus.status === 0) {
+    return {
+      daemonStatus,
+      startedDaemon: false
+    };
+  }
+
+  state.ownedDaemon = await startConfiguredDaemonImpl(env);
+  return {
+    daemonStatus: readDaemonStatusImpl(env),
+    startedDaemon: true
+  };
 }
 
 export function classifyDaemonPreflight(result) {
@@ -1037,6 +1079,7 @@ function evaluateShoppingCase(testCase, result) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   ensureCliBuilt();
+  const daemonState = { ownedDaemon: null };
 
   const report = {
     startedAt: new Date().toISOString(),
@@ -1076,67 +1119,90 @@ async function main() {
     { prefix: "[provider-direct]", logProgress: !options.quiet }
   );
 
-  const daemonStatus = readDaemonStatus();
-  pushStep(report, classifyDaemonPreflight(daemonStatus), {
-    prefix: "[provider-direct]",
-    logProgress: !options.quiet
-  });
-  if (daemonStatus.status !== 0) {
-    finalizeReport(report, { strictGate: options.releaseGate });
-    writeJson(options.out, report);
-    console.log(options.out);
-    console.log(JSON.stringify({
-      ok: report.ok,
-      counts: report.counts,
-      out: options.out,
-      mode: options.mode
-    }, null, 2));
-    process.exitCode = 1;
-    return;
-  }
-
-  for (const testCase of buildProviderCases(options)) {
-    if (testCase.skipped) {
-      pushStep(report, {
-        id: testCase.id,
-        providerId: testCase.providerId,
-        status: "skipped",
-        detail: testCase.detail,
-        data: { skipped: true }
-      }, { prefix: "[provider-direct]", logProgress: !options.quiet });
-      continue;
+  try {
+    const daemonPreflight = await ensureProviderDaemon(daemonState);
+    pushStep(report, appendDaemonState(
+      classifyDaemonPreflight(daemonPreflight.daemonStatus),
+      daemonPreflight.startedDaemon
+    ), {
+      prefix: "[provider-direct]",
+      logProgress: !options.quiet
+    });
+    if (daemonPreflight.daemonStatus.status !== 0) {
+      finalizeReport(report, { strictGate: options.releaseGate });
+      writeJson(options.out, report);
+      console.log(options.out);
+      console.log(JSON.stringify({
+        ok: report.ok,
+        counts: report.counts,
+        out: options.out,
+        mode: options.mode
+      }, null, 2));
+      process.exitCode = 1;
+      return;
     }
 
-    let step;
-    try {
-      if (!options.quiet) {
-        console.error(`[provider-direct] starting ${testCase.id}`);
+    for (const testCase of buildProviderCases(options)) {
+      if (testCase.skipped) {
+        pushStep(report, {
+          id: testCase.id,
+          providerId: testCase.providerId,
+          status: "skipped",
+          detail: testCase.detail,
+          data: { skipped: true }
+        }, { prefix: "[provider-direct]", logProgress: !options.quiet });
+        continue;
       }
-      const timeoutMs = testCase.providerId.startsWith("shopping/")
-        ? 360000
-        : 240000;
-      const result = runCli(testCase.args, { allowFailure: true, timeoutMs });
-      step = testCase.providerId.startsWith("shopping/")
-        ? evaluateShoppingCase(testCase, result)
-        : evaluateMacroCase(testCase, result);
-      if (testCase.providerId.startsWith("shopping/") && shouldRetryShoppingTimeoutCase(testCase, step)) {
-        const retriedResult = runCli(testCase.args, { allowFailure: true, timeoutMs });
-        const retriedStep = evaluateShoppingCase(testCase, retriedResult);
-        step = mergeRetriedShoppingStep(step, retriedStep);
-      } else if (shouldRetryMacroTimeoutCase(testCase, step)) {
-        const retriedResult = runCli(testCase.args, { allowFailure: true, timeoutMs });
-        const retriedStep = evaluateMacroCase(testCase, retriedResult);
-        step = mergeRetriedMacroStep(step, retriedStep);
+
+      let step;
+      try {
+        if (!options.quiet) {
+          console.error(`[provider-direct] starting ${testCase.id}`);
+        }
+        const daemonReady = await ensureProviderDaemon(daemonState);
+        const timeoutMs = testCase.providerId.startsWith("shopping/")
+          ? 360000
+          : 240000;
+        const result = runCli(testCase.args, {
+          env: process.env,
+          allowFailure: true,
+          timeoutMs
+        });
+        step = testCase.providerId.startsWith("shopping/")
+          ? evaluateShoppingCase(testCase, result)
+          : evaluateMacroCase(testCase, result);
+        if (testCase.providerId.startsWith("shopping/") && shouldRetryShoppingTimeoutCase(testCase, step)) {
+          const retriedResult = runCli(testCase.args, {
+            env: process.env,
+            allowFailure: true,
+            timeoutMs
+          });
+          const retriedStep = evaluateShoppingCase(testCase, retriedResult);
+          step = mergeRetriedShoppingStep(step, retriedStep);
+        } else if (shouldRetryMacroTimeoutCase(testCase, step)) {
+          const retriedResult = runCli(testCase.args, {
+            env: process.env,
+            allowFailure: true,
+            timeoutMs
+          });
+          const retriedStep = evaluateMacroCase(testCase, retriedResult);
+          step = mergeRetriedMacroStep(step, retriedStep);
+        }
+        step = appendDaemonState(step, daemonReady.startedDaemon);
+      } catch (error) {
+        step = {
+          id: testCase.id,
+          providerId: testCase.providerId,
+          status: "fail",
+          detail: error instanceof Error ? error.message : String(error)
+        };
       }
-    } catch (error) {
-      step = {
-        id: testCase.id,
-        providerId: testCase.providerId,
-        status: "fail",
-        detail: error instanceof Error ? error.message : String(error)
-      };
+      pushStep(report, step, { prefix: "[provider-direct]", logProgress: !options.quiet });
     }
-    pushStep(report, step, { prefix: "[provider-direct]", logProgress: !options.quiet });
+  } finally {
+    if (daemonState.ownedDaemon) {
+      await stopDaemon(daemonState.ownedDaemon, process.env);
+    }
   }
 
   finalizeReport(report, { strictGate: options.releaseGate });
