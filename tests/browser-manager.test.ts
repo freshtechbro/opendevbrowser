@@ -4446,6 +4446,99 @@ describe("BrowserManager", () => {
     }
   });
 
+  it("notifies completion listeners immediately for retained screencast results", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = {
+      screencastId: "cast-retained",
+      sessionId: "session-retained",
+      targetId: "target-retained",
+      outputDir: "/tmp/cast-retained",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/cast-retained/replay.json",
+      replayHtmlPath: "/tmp/cast-retained/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      completedScreencasts: Map<string, typeof result>;
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+    };
+    const listener = vi.fn();
+
+    managerPrivate.completedScreencasts.set(result.screencastId, result);
+
+    manager.monitorScreencastCompletion(result.screencastId, listener);
+
+    expect(listener).toHaveBeenCalledWith(result);
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
+  it("removes managed screencast listeners when unsubscribe is called before completion", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = {
+      screencastId: "cast-unsubscribed",
+      sessionId: "session-unsubscribed",
+      targetId: "target-unsubscribed",
+      outputDir: "/tmp/cast-unsubscribed",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/cast-unsubscribed/replay.json",
+      replayHtmlPath: "/tmp/cast-unsubscribed/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+      storeCompletedScreencast: (value: typeof result) => void;
+    };
+    const listener = vi.fn();
+    const dispose = manager.monitorScreencastCompletion(result.screencastId, listener);
+
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(true);
+
+    dispose();
+    dispose();
+    managerPrivate.storeCompletedScreencast(result);
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
+  it("keeps remaining managed screencast listeners registered after one unsubscribe", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const result = {
+      screencastId: "cast-partial-unsubscribe",
+      sessionId: "session-partial-unsubscribe",
+      targetId: "target-partial-unsubscribe",
+      outputDir: "/tmp/cast-partial-unsubscribe",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/cast-partial-unsubscribe/replay.json",
+      replayHtmlPath: "/tmp/cast-partial-unsubscribe/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+      storeCompletedScreencast: (value: typeof result) => void;
+    };
+    const firstListener = vi.fn();
+    const secondListener = vi.fn();
+    const disposeFirst = manager.monitorScreencastCompletion(result.screencastId, firstListener);
+    manager.monitorScreencastCompletion(result.screencastId, secondListener);
+
+    disposeFirst();
+    managerPrivate.storeCompletedScreencast(result);
+
+    expect(firstListener).not.toHaveBeenCalled();
+    expect(secondListener).toHaveBeenCalledWith(result);
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
   it("omits screencast frame metadata when url title and warnings are unavailable", async () => {
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));

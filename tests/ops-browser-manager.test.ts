@@ -1433,6 +1433,96 @@ describe("OpsBrowserManager", () => {
     });
   });
 
+  it("notifies ops completion listeners immediately for retained screencast results", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const result = {
+      screencastId: "ops-cast-retained",
+      sessionId: "ops-session-retained",
+      targetId: "ops-target-retained",
+      outputDir: "/tmp/ops-cast-retained",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/ops-cast-retained/replay.json",
+      replayHtmlPath: "/tmp/ops-cast-retained/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      completedScreencasts: Map<string, typeof result>;
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+    };
+    const listener = vi.fn();
+
+    managerPrivate.completedScreencasts.set(result.screencastId, result);
+
+    manager.monitorScreencastCompletion(result.screencastId, listener);
+
+    expect(listener).toHaveBeenCalledWith(result);
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
+  it("removes ops screencast listeners when unsubscribe is called before completion", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const result = {
+      screencastId: "ops-cast-unsubscribed",
+      sessionId: "ops-session-unsubscribed",
+      targetId: "ops-target-unsubscribed",
+      outputDir: "/tmp/ops-cast-unsubscribed",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/ops-cast-unsubscribed/replay.json",
+      replayHtmlPath: "/tmp/ops-cast-unsubscribed/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+      storeCompletedScreencast: (value: typeof result) => void;
+    };
+    const listener = vi.fn();
+    const dispose = manager.monitorScreencastCompletion(result.screencastId, listener);
+
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(true);
+
+    dispose();
+    dispose();
+    managerPrivate.storeCompletedScreencast(result);
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
+  it("keeps remaining ops screencast listeners registered after one unsubscribe", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const result = {
+      screencastId: "ops-cast-partial-unsubscribe",
+      sessionId: "ops-session-partial-unsubscribe",
+      targetId: "ops-target-partial-unsubscribe",
+      outputDir: "/tmp/ops-cast-partial-unsubscribe",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/ops-cast-partial-unsubscribe/replay.json",
+      replayHtmlPath: "/tmp/ops-cast-partial-unsubscribe/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+      storeCompletedScreencast: (value: typeof result) => void;
+    };
+    const firstListener = vi.fn();
+    const secondListener = vi.fn();
+    const disposeFirst = manager.monitorScreencastCompletion(result.screencastId, firstListener);
+    manager.monitorScreencastCompletion(result.screencastId, secondListener);
+
+    disposeFirst();
+    managerPrivate.storeCompletedScreencast(result);
+
+    expect(firstListener).not.toHaveBeenCalled();
+    expect(secondListener).toHaveBeenCalledWith(result);
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
   it("logs Error screencast result failures and clears tracked ops recorders", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const managerAny = manager as unknown as {
