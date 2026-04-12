@@ -1530,103 +1530,120 @@ describe("provider runtime factory", () => {
     }));
   });
 
+  const socialExtensionRetryDelayMs = 500;
+
   it.each([
     ["social/x", "https://x.com/search?q=browser+automation&f=live"],
     ["social/bluesky", "https://bsky.app/search?q=browser+automation+bluesky"]
   ])("retries extension fallback once for %s before downgrading to managed", async (provider, url) => {
-    const manager = {
-      connectRelay: vi
-        .fn()
-        .mockRejectedValueOnce(new Error("extension unavailable"))
-        .mockResolvedValueOnce({ sessionId: "social-extension-retry" }),
-      launch: vi.fn(async () => ({ sessionId: "managed-fallback-session" })),
-      goto: vi.fn(async () => ({ ok: true })),
-      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
-      withPage: vi.fn(async () => {
-        throw new Error("Direct annotate is unavailable via extension ops sessions.");
-      }),
-      clonePageHtmlWithOptions: vi.fn(async () => ({
-        html: "<html><body>social extension retry</body></html>"
-      })),
-      clonePage: vi.fn(async () => ({
-        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>unexpected social legacy clone</body></html>\" }} />); }",
-        css: ""
-      })),
-      status: vi.fn(async () => ({ mode: "extension", url })),
-      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
-      disconnect: vi.fn(async () => undefined)
-    } as unknown as BrowserManagerLike;
+    vi.useFakeTimers();
+    try {
+      const manager = {
+        connectRelay: vi
+          .fn()
+          .mockRejectedValueOnce(new Error("extension unavailable"))
+          .mockResolvedValueOnce({ sessionId: "social-extension-retry" }),
+        launch: vi.fn(async () => ({ sessionId: "managed-fallback-session" })),
+        goto: vi.fn(async () => ({ ok: true })),
+        waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+        withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+          return callback({
+            waitForTimeout: async () => undefined,
+            content: async () => "<html><body>social extension retry</body></html>"
+          });
+        }),
+        status: vi.fn(async () => ({ mode: "extension", url })),
+        cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+        disconnect: vi.fn(async () => undefined)
+      } as unknown as BrowserManagerLike;
 
-    const port = createBrowserFallbackPort(manager, {}, {
-      extensionWsEndpoint: "ws://127.0.0.1:8787"
-    });
-    const response = await port?.resolve({
-      provider,
-      source: "social",
-      operation: "search",
-      reasonCode: "challenge_detected",
-      runtimePolicy: resolveProviderRuntimePolicy({
+      const port = createBrowserFallbackPort(manager, {}, {
+        extensionWsEndpoint: "ws://127.0.0.1:8787"
+      });
+      const pendingResponse = port?.resolve({
+        provider,
         source: "social",
-        preferredFallbackModes: ["extension", "managed_headed"]
-      }),
-      trace: { requestId: `rf-${provider.replace("/", "-")}-extension-retry`, ts: "2026-02-16T00:00:00.000Z" },
-      url
-    });
-
-    expect(response).toMatchObject({
-      ok: true,
-      mode: "extension",
-      output: {
-        html: "<html><body>social extension retry</body></html>",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        runtimePolicy: resolveProviderRuntimePolicy({
+          source: "social",
+          preferredFallbackModes: ["extension", "managed_headed"]
+        }),
+        trace: { requestId: `rf-${provider.replace("/", "-")}-extension-retry`, ts: "2026-02-16T00:00:00.000Z" },
         url
-      }
-    });
-    expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787", { startUrl: url });
-    expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787", { startUrl: url });
-    expect(manager.launch).not.toHaveBeenCalled();
+      });
+
+      await vi.advanceTimersByTimeAsync(socialExtensionRetryDelayMs);
+      const response = await pendingResponse;
+
+      expect(response).toMatchObject({
+        ok: true,
+        mode: "extension",
+        output: {
+          html: "<html><body>social extension retry</body></html>",
+          url
+        }
+      });
+      expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787", { startUrl: url });
+      expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787", { startUrl: url });
+      expect(manager.launch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("downgrades to managed after exhausting the bounded social extension retry", async () => {
-    const url = "https://bsky.app/search?q=browser+automation+bluesky";
-    const manager = {
-      connectRelay: vi.fn(async () => {
-        throw new Error("extension unavailable");
-      }),
-      launch: vi.fn(async () => ({ sessionId: "managed-fallback-session" })),
-      goto: vi.fn(async () => ({ ok: true })),
-      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
-        return callback({ content: async () => "<html><body>managed fallback</body></html>" });
-      }),
-      status: vi.fn(async () => ({ mode: "managed", url })),
-      disconnect: vi.fn(async () => undefined)
-    } as unknown as BrowserManagerLike;
+    vi.useFakeTimers();
+    try {
+      const url = "https://bsky.app/search?q=browser+automation+bluesky";
+      const manager = {
+        connectRelay: vi.fn(async () => {
+          throw new Error("extension unavailable");
+        }),
+        launch: vi.fn(async () => ({ sessionId: "managed-fallback-session" })),
+        goto: vi.fn(async () => ({ ok: true })),
+        withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+          return callback({
+            waitForTimeout: async () => undefined,
+            content: async () => "<html><body>managed fallback</body></html>"
+          });
+        }),
+        status: vi.fn(async () => ({ mode: "managed", url })),
+        disconnect: vi.fn(async () => undefined)
+      } as unknown as BrowserManagerLike;
 
-    const port = createBrowserFallbackPort(manager, {}, {
-      extensionWsEndpoint: "ws://127.0.0.1:8787"
-    });
-    const response = await port?.resolve({
-      provider: "social/bluesky",
-      source: "social",
-      operation: "search",
-      reasonCode: "challenge_detected",
-      runtimePolicy: resolveProviderRuntimePolicy({
+      const port = createBrowserFallbackPort(manager, {}, {
+        extensionWsEndpoint: "ws://127.0.0.1:8787"
+      });
+      const pendingResponse = port?.resolve({
+        provider: "social/bluesky",
         source: "social",
-        preferredFallbackModes: ["extension", "managed_headed"]
-      }),
-      trace: { requestId: "rf-social-extension-retry-exhausted", ts: "2026-02-16T00:00:00.000Z" },
-      url
-    });
-
-    expect(response).toMatchObject({
-      ok: true,
-      mode: "managed_headed",
-      output: {
-        html: "<html><body>managed fallback</body></html>",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        runtimePolicy: resolveProviderRuntimePolicy({
+          source: "social",
+          preferredFallbackModes: ["extension", "managed_headed"]
+        }),
+        trace: { requestId: "rf-social-extension-retry-exhausted", ts: "2026-02-16T00:00:00.000Z" },
         url
-      }
-    });
-    expect(manager.connectRelay).toHaveBeenCalledTimes(3);
-    expect(manager.launch).toHaveBeenCalledTimes(1);
+      });
+
+      await vi.advanceTimersByTimeAsync(socialExtensionRetryDelayMs * 2);
+      const response = await pendingResponse;
+
+      expect(response).toMatchObject({
+        ok: true,
+        mode: "managed_headed",
+        output: {
+          html: "<html><body>managed fallback</body></html>",
+          url
+        }
+      });
+      expect(manager.connectRelay).toHaveBeenCalledTimes(3);
+      expect(manager.launch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns env_limited when extension fallback is preferred but no relay endpoint is configured", async () => {
