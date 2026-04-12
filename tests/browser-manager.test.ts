@@ -4223,6 +4223,52 @@ describe("BrowserManager", () => {
     });
   });
 
+  it("logs target-close screencast teardown failures with retained ownership details", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePathAwareScreenshot(page);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerPrivate = manager as unknown as {
+      logger: { warn: (event: string, payload: unknown) => void };
+      finalizeTargetScreencast: (sessionId: string, targetId: string) => Promise<void>;
+    };
+    const warnSpy = vi.spyOn(managerPrivate.logger, "warn");
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-close-warning-"));
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 60_000,
+      maxFrames: 5
+    });
+    const finalizeSpy = vi.spyOn(managerPrivate, "finalizeTargetScreencast").mockRejectedValue("close failed");
+
+    (page as unknown as { emit: (event: string) => void }).emit("close");
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("screencast.target_close.failed", expect.objectContaining({
+        sessionId: launch.sessionId,
+        data: expect.objectContaining({
+          screencastId: screencast.screencastId,
+          targetId: screencast.targetId,
+          error: "close failed"
+        })
+      }));
+    });
+
+    finalizeSpy.mockRestore();
+    await expect(manager.stopScreencast(launch.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "stopped"
+    });
+  });
+
   it("stores immediately completed screencasts with the available replay metadata", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
