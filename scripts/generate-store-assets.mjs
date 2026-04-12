@@ -1,483 +1,850 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findLocalChromeBinary } from "./chrome-binary.mjs";
+import { localChromeCandidates } from "./chrome-binary.mjs";
+import {
+  STORE_ASSET_SPECS,
+  sortExtensionCaptureCandidates
+} from "./store-assets-shared.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = path.join(ROOT, "extension/store-assets");
+const EXTENSION_DIR = path.join(ROOT, "extension");
 const ICON_PATH = path.join(ROOT, "extension/icons/icon128.png");
-const ICON_DATA_URI = `data:image/png;base64,${fs.readFileSync(ICON_PATH).toString("base64")}`;
+const CAPTURE_VIEWPORT = { width: 1440, height: 1000 };
+const COMPOSITION_DELAY_MS = 1400;
+const EXTENSION_WAIT_MS = 15000;
+const STATUS_SELECTOR = "#status";
+const TOGGLE_SELECTOR = "#toggle";
+const CANVAS_TITLE = "OpenDevBrowser Canvas";
 
-const FONT_SANS = "'Avenir Next', 'SF Pro Display', 'Space Grotesk', 'Segoe UI', sans-serif";
-const FONT_MONO = "'SFMono-Regular', 'JetBrains Mono', 'Menlo', monospace";
-
-const colors = {
-  bgA: "#06101a",
-  bgB: "#0b1825",
-  bgC: "#102536",
-  panel: "#0d1825",
-  panelAlt: "#101f30",
-  panelSoft: "#132335",
-  ink: "#ebf2fa",
-  muted: "#a7b6c8",
-  accent: "#22d4c7",
-  accentBright: "#6ee7ff",
-  accentSoft: "rgba(34, 212, 199, 0.17)",
+const COLORS = {
+  bgDeep: "#060910",
+  bgSurface: "#0b1220",
+  panel: "rgba(12, 20, 33, 0.74)",
+  panelStrong: "rgba(15, 24, 40, 0.86)",
   stroke: "rgba(255, 255, 255, 0.12)",
   strokeStrong: "rgba(255, 255, 255, 0.2)",
+  text: "#e8edf6",
+  muted: "#9aa6bd",
+  accent: "#20d5c6",
+  accentBright: "#6ee7ff",
+  accentSoft: "rgba(32, 213, 198, 0.22)",
   success: "#18c39b",
   warn: "#f2c45d",
   off: "#6c7b90",
-  danger: "#f17158"
+  danger: "#f16b4e"
 };
 
-const writeSvgPng = (filename, width, height, content) => {
-  const svg = buildSvg(width, height, content);
-  const tempSvg = path.join(os.tmpdir(), `odb-store-${process.pid}-${filename}.svg`);
-  fs.writeFileSync(tempSvg, svg);
-  execFileSync("sips", ["-s", "format", "png", tempSvg, "--out", path.join(OUT_DIR, filename)], {
-    stdio: "ignore"
+const FONT_STACK = "\"Space Grotesk\", \"Manrope\", \"Sora\", \"Avenir Next\", \"Segoe UI\", sans-serif";
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;");
+}
+
+function base64DataUri(filePath, mimeType = "image/png") {
+  const data = fs.readFileSync(filePath).toString("base64");
+  return `data:${mimeType};base64,${data}`;
+}
+
+function iconDataUri() {
+  return base64DataUri(ICON_PATH);
+}
+
+function isEntryPoint(metaUrl) {
+  return metaUrl === `file://${process.argv[1]}`;
+}
+
+function captureBinary() {
+  const candidate = sortExtensionCaptureCandidates(localChromeCandidates())
+    .find((entry) => fs.existsSync(entry));
+  if (!candidate) {
+    throw new Error("Chrome for Testing or Chromium is required to regenerate store assets.");
+  }
+  return candidate;
+}
+
+function removeIfPresent(targetPath) {
+  if (targetPath && fs.existsSync(targetPath)) {
+    fs.rmSync(targetPath, { force: true, recursive: true });
+  }
+}
+
+function tempPath(name, extension) {
+  return path.join(os.tmpdir(), `odb-store-${process.pid}-${Date.now()}-${name}.${extension}`);
+}
+
+function writeTempHtml(name, html) {
+  const filePath = tempPath(name, "html");
+  fs.writeFileSync(filePath, html);
+  return filePath;
+}
+
+async function renderHtmlPng(browser, filename, width, height, html) {
+  const tempHtml = writeTempHtml(filename.replaceAll(".", "-"), html);
+  const outputPath = path.join(OUT_DIR, filename);
+  const context = await browser.newContext({
+    viewport: { width, height },
+    deviceScaleFactor: 1
   });
-  fs.unlinkSync(tempSvg);
-};
-
-const chromeBinary = () => {
-  const match = findLocalChromeBinary();
-  if (!match) {
-    throw new Error("Chrome or Chrome for Testing executable not found for popup screenshot generation.");
+  const page = await context.newPage();
+  try {
+    await page.goto(`file://${tempHtml}`, { waitUntil: "domcontentloaded" });
+    await sleep(COMPOSITION_DELAY_MS);
+    await page.screenshot({ path: outputPath, type: "png" });
+  } finally {
+    await context.close();
+    removeIfPresent(tempHtml);
   }
-  return match;
-};
-
-const renderHtmlPng = (filename, html, width = 1280, height = 800) => {
-  const tempHtml = path.join(os.tmpdir(), `odb-store-${process.pid}-${filename}.html`);
-  fs.writeFileSync(tempHtml, html);
-  execFileSync(chromeBinary(), [
-    "--headless=new",
-    "--disable-gpu",
-    "--hide-scrollbars",
-    "--allow-file-access-from-files",
-    "--run-all-compositor-stages-before-draw",
-    "--virtual-time-budget=1500",
-    `--window-size=${width},${height}`,
-    `--screenshot=${path.join(OUT_DIR, filename)}`,
-    `file://${tempHtml}`
-  ], { stdio: "ignore" });
-  fs.unlinkSync(tempHtml);
-};
-
-const renderTempHtmlPng = (html, width, height) => {
-  const base = `odb-store-preview-${process.pid}-${Date.now()}`;
-  const tempHtml = path.join(os.tmpdir(), `${base}.html`);
-  const tempPng = path.join(os.tmpdir(), `${base}.png`);
-  fs.writeFileSync(tempHtml, html);
-  execFileSync(chromeBinary(), [
-    "--headless=new",
-    "--disable-gpu",
-    "--hide-scrollbars",
-    "--allow-file-access-from-files",
-    "--run-all-compositor-stages-before-draw",
-    "--virtual-time-budget=1500",
-    `--window-size=${width},${height}`,
-    `--screenshot=${tempPng}`,
-    `file://${tempHtml}`
-  ], { stdio: "ignore" });
-  fs.unlinkSync(tempHtml);
-  return tempPng;
-};
-
-function buildSvg(width, height, content) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="${width}" y2="${height}" gradientUnits="userSpaceOnUse">
-      <stop stop-color="${colors.bgA}"/>
-      <stop offset="0.5" stop-color="${colors.bgB}"/>
-      <stop offset="1" stop-color="${colors.bgC}"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="${width}" y2="${height}" gradientUnits="userSpaceOnUse">
-      <stop stop-color="${colors.accent}"/>
-      <stop offset="1" stop-color="${colors.accentBright}"/>
-    </linearGradient>
-    <radialGradient id="orbA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(${Math.round(width * 0.12)} ${Math.round(height * 0.18)}) rotate(45) scale(${Math.round(width * 0.32)} ${Math.round(height * 0.32)})">
-      <stop stop-color="${colors.accent}" stop-opacity="0.24"/>
-      <stop offset="1" stop-color="${colors.accent}" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="orbB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(${Math.round(width * 0.82)} ${Math.round(height * 0.08)}) rotate(45) scale(${Math.round(width * 0.28)} ${Math.round(height * 0.28)})">
-      <stop stop-color="${colors.accentBright}" stop-opacity="0.18"/>
-      <stop offset="1" stop-color="${colors.accentBright}" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#030812" flood-opacity="0.5"/>
-    </filter>
-    <filter id="iconGlow" x="-60%" y="-60%" width="220%" height="220%">
-      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="${colors.accent}" flood-opacity="0.38"/>
-    </filter>
-  </defs>
-  <style>
-    text { fill: ${colors.ink}; font-family: ${FONT_SANS}; }
-    .eyebrow { font-size: 14px; letter-spacing: 0.28em; text-transform: uppercase; fill: ${colors.muted}; }
-    .title { font-size: 30px; font-weight: 700; }
-    .title-large { font-size: 48px; font-weight: 700; }
-    .subtitle { font-size: 24px; fill: ${colors.muted}; }
-    .copy { font-size: 18px; fill: ${colors.muted}; }
-    .small { font-size: 15px; fill: ${colors.muted}; }
-    .label { font-size: 13px; fill: ${colors.muted}; }
-    .value { font-size: 18px; font-weight: 600; }
-    .mono { font-size: 18px; font-family: ${FONT_MONO}; font-weight: 600; }
-    .mono-small { font-size: 16px; font-family: ${FONT_MONO}; }
-    .tiny { font-size: 12px; fill: ${colors.muted}; }
-    .chip { font-size: 15px; fill: ${colors.ink}; }
-    .card-title { font-size: 20px; font-weight: 600; }
-    .card-copy { font-size: 15px; fill: ${colors.muted}; }
-  </style>
-  <rect width="${width}" height="${height}" rx="0" fill="url(#bg)"/>
-  <rect width="${width}" height="${height}" fill="url(#orbA)"/>
-  <rect width="${width}" height="${height}" fill="url(#orbB)"/>
-  ${content}
-</svg>`;
 }
 
-const esc = (value) => String(value)
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll("\"", "&quot;");
-
-const lines = (items, x, y, lineHeight, className) => items.map((item, index) => (
-  `<text class="${className}" x="${x}" y="${y + (index * lineHeight)}">${esc(item)}</text>`
-)).join("");
-
-const panel = (x, y, width, height, inner, rx = 26) => (
-  `<g filter="url(#softShadow)">
-    <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${rx}" fill="${colors.panel}" stroke="${colors.strokeStrong}"/>
-    ${inner}
-  </g>`
-);
-
-const pill = (x, y, label, tone) => {
-  const toneMap = {
-    success: { fill: "rgba(24, 195, 155, 0.14)", stroke: "rgba(24, 195, 155, 0.45)", dot: colors.success },
-    warn: { fill: "rgba(242, 196, 93, 0.14)", stroke: "rgba(242, 196, 93, 0.45)", dot: colors.warn },
-    off: { fill: "rgba(108, 123, 144, 0.14)", stroke: colors.strokeStrong, dot: colors.off }
-  };
-  const palette = toneMap[tone];
-  const width = Math.max(120, 34 + (label.length * 9));
-  return `<g>
-    <rect x="${x}" y="${y}" width="${width}" height="34" rx="17" fill="${palette.fill}" stroke="${palette.stroke}"/>
-    <circle cx="${x + 18}" cy="${y + 17}" r="5" fill="${palette.dot}"/>
-    <text x="${x + 31}" y="${y + 22}" class="small" fill="${colors.ink}">${esc(label)}</text>
-  </g>`;
-};
-
-const chip = (x, y, label, width) => (
-  `<g>
-    <rect x="${x}" y="${y}" width="${width}" height="34" rx="17" fill="rgba(255,255,255,0.04)" stroke="${colors.stroke}"/>
-    <text class="chip" x="${x + 16}" y="${y + 22}">${esc(label)}</text>
-  </g>`
-);
-
-const brand = (x, y, markSize, subtitle) => `
-  <g>
-    <image x="${x}" y="${y}" width="${markSize}" height="${markSize}" href="${ICON_DATA_URI}" filter="url(#iconGlow)"/>
-    <text class="eyebrow" x="${x + markSize + 20}" y="${y + 18}">OpenDevBrowser</text>
-    <text class="small" x="${x + markSize + 20}" y="${y + 42}">${esc(subtitle)}</text>
-  </g>
-`;
-
-const toggle = (x, y, enabled) => `
-  <g>
-    <rect x="${x}" y="${y}" width="64" height="34" rx="17" fill="${enabled ? colors.accentSoft : "rgba(255,255,255,0.06)"}" stroke="${enabled ? "rgba(34, 212, 199, 0.48)" : colors.stroke}"/>
-    <circle cx="${enabled ? x + 46 : x + 18}" cy="${y + 17}" r="12" fill="${enabled ? colors.accentBright : colors.off}"/>
-  </g>
-`;
-
-const field = (x, y, width, labelText, valueText, monospace = false) => `
-  <g>
-    <text class="label" x="${x}" y="${y}">${esc(labelText)}</text>
-    <rect x="${x}" y="${y + 10}" width="${width}" height="52" rx="16" fill="${colors.panelAlt}" stroke="${colors.stroke}"/>
-    <text class="${monospace ? "mono-small" : "value"}" x="${x + 16}" y="${y + 42}">${esc(valueText)}</text>
-  </g>
-`;
-
-const row = (x, y, titleText, subtitleText, enabled) => `
-  <g>
-    <text class="value" x="${x}" y="${y + 18}" font-size="17">${esc(titleText)}</text>
-    <text class="tiny" x="${x}" y="${y + 39}">${esc(subtitleText)}</text>
-    ${toggle(x + 286, y + 6, enabled)}
-  </g>
-`;
-
-const healthItem = (x, y, labelText, valueText, tone) => `
-  <g>
-    <rect x="${x}" y="${y}" width="112" height="64" rx="18" fill="${colors.panelAlt}" stroke="${colors.stroke}"/>
-    <text class="tiny" x="${x + 14}" y="${y + 22}">${esc(labelText)}</text>
-    ${pill(x + 12, y + 28, valueText, tone)}
-  </g>
-`;
-
-const ctaButton = (x, y, width, labelText, primary = true) => `
-  <g>
-    <rect x="${x}" y="${y}" width="${width}" height="56" rx="18" fill="${primary ? "url(#accent)" : "rgba(255,255,255,0.04)"}" stroke="${primary ? "rgba(110, 231, 255, 0.25)" : colors.strokeStrong}"/>
-    <text x="${x + (width / 2)}" y="${y + 35}" text-anchor="middle" font-size="18" font-weight="700" fill="${primary ? colors.bgA : colors.ink}" font-family="${FONT_SANS}">${esc(labelText)}</text>
-  </g>
-`;
-
-const noteBlock = (x, y, width, items, accentLabel) => (
-  panel(x, y, width, 184, `
-    <text class="eyebrow" x="${x + 24}" y="${y + 30}">${esc(accentLabel)}</text>
-    ${lines(items, x + 24, y + 70, 30, "title")}
-  `, 24)
-);
-
-function automationScene() {
+function assetCss(width, height) {
   return `
-    ${brand(68, 48, 58, "Local relay automation in a real headed Chrome session")}
-    <text class="title-large" x="68" y="176">Attach to current Chrome tabs.</text>
-    <text class="subtitle" x="68" y="218">Run inspect, act, annotate, and debug loops without launching a separate browser.</text>
+    :root {
+      color-scheme: dark;
+      --bg-deep: ${COLORS.bgDeep};
+      --bg-surface: ${COLORS.bgSurface};
+      --panel: ${COLORS.panel};
+      --panel-strong: ${COLORS.panelStrong};
+      --stroke: ${COLORS.stroke};
+      --stroke-strong: ${COLORS.strokeStrong};
+      --text: ${COLORS.text};
+      --muted: ${COLORS.muted};
+      --accent: ${COLORS.accent};
+      --accent-2: ${COLORS.accentBright};
+      --accent-soft: ${COLORS.accentSoft};
+      --success: ${COLORS.success};
+      --warn: ${COLORS.warn};
+      --off: ${COLORS.off};
+      --danger: ${COLORS.danger};
+      --font-sans: ${FONT_STACK};
+    }
 
-    ${panel(68, 266, 522, 456, `
-      <text class="eyebrow" x="102" y="308">Terminal + runtime</text>
-      <rect x="102" y="330" width="454" height="190" rx="22" fill="#07111c" stroke="${colors.stroke}"/>
-      ${lines([
-        "$ npx opendevbrowser serve",
-        "Relay listening on 127.0.0.1:8787",
-        "",
-        "$ opendevbrowser snapshot --session-id relay-demo --format actionables",
-        "Captured 412 nodes · 0 redactions",
-        "Ready to click ref r12"
-      ], 126, 372, 28, "mono-small")}
-      ${panel(102, 548, 454, 142, `
-        <text class="card-title" x="128" y="590">What the relay gives you</text>
-        ${lines(["Reuse logged-in tabs", "Attach CDP over the local extension bridge", "Keep automation and annotations on-device"], 128, 620, 24, "card-copy")}
-      `, 22)}
-    `)}
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: ${width}px;
+      height: ${height}px;
+      overflow: hidden;
+      background: var(--bg-deep);
+      color: var(--text);
+      font-family: var(--font-sans);
+    }
 
-    ${panel(634, 266, 578, 456, `
-      <text class="eyebrow" x="668" y="308">Browser relay</text>
-      <rect x="668" y="330" width="510" height="360" rx="24" fill="rgba(255,255,255,0.05)" stroke="${colors.stroke}"/>
-      <rect x="702" y="362" width="440" height="42" rx="18" fill="rgba(255,255,255,0.08)"/>
-      <text class="small" x="728" y="389">https://demo.local/dashboard</text>
-      ${pill(702, 424, "Relay connected", "success")}
-      ${panel(702, 468, 440, 96, `
-        <text class="card-title" x="728" y="510">Session Automation</text>
-        <text class="card-copy" x="728" y="540">Logged-in tab, controlled safely via local relay.</text>
-      `, 18)}
-      ${panel(702, 584, 440, 86, `
-        <text class="card-copy" x="728" y="620">Ref r12 → Clicked “Generate Report”</text>
-        <text class="small" x="728" y="646">Snapshot refreshed in 2.1s</text>
-      `, 18)}
-      ${ctaButton(702, 612, 440, "Run next action")}
-    `)}
+    body {
+      position: relative;
+      background:
+        radial-gradient(circle at 14% 16%, rgba(32, 213, 198, 0.16), transparent 28%),
+        radial-gradient(circle at 88% 4%, rgba(110, 231, 255, 0.18), transparent 30%),
+        linear-gradient(160deg, var(--bg-deep) 0%, var(--bg-surface) 100%);
+    }
 
-    ${chip(68, 740, "Local relay", 136)}
-    ${chip(222, 740, "Logged-in sessions", 182)}
-    ${chip(422, 740, "Annotation ready", 176)}
-    ${chip(1050, 740, "opendevbrowser.dev", 190)}
+    body::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(115deg, rgba(255, 255, 255, 0.03) 0%, transparent 36%),
+        linear-gradient(300deg, rgba(32, 213, 198, 0.08) 0%, transparent 40%);
+      pointer-events: none;
+    }
+
+    .asset {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      padding: 40px;
+      overflow: hidden;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand img {
+      width: 38px;
+      height: 38px;
+      display: block;
+      filter: drop-shadow(0 0 14px rgba(32, 213, 198, 0.35));
+    }
+
+    .brand-copy {
+      display: grid;
+      gap: 4px;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      letter-spacing: 0.24em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .brand-subtitle {
+      font-size: 34px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--stroke-strong);
+      background: rgba(255, 255, 255, 0.06);
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .status-badge::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--danger);
+      box-shadow: 0 0 10px rgba(241, 107, 78, 0.4);
+    }
+
+    .status-badge.connected {
+      color: var(--text);
+      border-color: rgba(32, 213, 198, 0.55);
+      background: rgba(32, 213, 198, 0.15);
+    }
+
+    .status-badge.connected::before {
+      background: var(--accent);
+      box-shadow: 0 0 14px rgba(32, 213, 198, 0.55);
+    }
+
+    .eyebrow {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: 0.24em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .hero-title {
+      margin: 0;
+      font-size: 54px;
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+
+    .hero-copy {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.55;
+      color: var(--muted);
+      max-width: 520px;
+    }
+
+    .surface-grid {
+      display: grid;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .surface-grid.two-col {
+      grid-template-columns: minmax(0, 640px) minmax(0, 1fr);
+    }
+
+    .surface-grid.demo-col {
+      grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+    }
+
+    .copy-stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .card {
+      position: relative;
+      border-radius: 30px;
+      border: 1px solid var(--stroke);
+      background: var(--panel);
+      box-shadow: 0 24px 60px rgba(3, 8, 18, 0.42);
+      backdrop-filter: blur(18px) saturate(120%);
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      pointer-events: none;
+    }
+
+    .browser-shell {
+      position: relative;
+      padding: 22px 22px 24px;
+      background: rgba(4, 8, 16, 0.42);
+    }
+
+    .browser-topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .browser-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .browser-address {
+      flex: 1 1 auto;
+      height: 36px;
+      border-radius: 999px;
+      border: 1px solid var(--stroke);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .shot {
+      width: 100%;
+      display: block;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .shot-popup {
+      max-height: 620px;
+      object-fit: contain;
+    }
+
+    .shot-canvas {
+      height: 476px;
+      object-fit: cover;
+      object-position: top center;
+    }
+
+    .panel-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .info-panel {
+      padding: 18px 20px;
+      border-radius: 22px;
+      border: 1px solid var(--stroke);
+      background: rgba(255, 255, 255, 0.04);
+      display: grid;
+      gap: 10px;
+    }
+
+    .info-title {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .info-copy {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .chip {
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--stroke);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .ghost-surface {
+      position: absolute;
+      inset: auto auto 28px -60px;
+      width: 420px;
+      opacity: 0.18;
+      filter: blur(8px);
+      transform: rotate(-6deg);
+      pointer-events: none;
+    }
+
+    .ghost-surface.right {
+      inset: 92px -110px auto auto;
+      width: 500px;
+      transform: rotate(8deg);
+    }
+
+    .floating-popup {
+      position: absolute;
+      right: 34px;
+      bottom: 34px;
+      width: 420px;
+      padding: 16px;
+      border-radius: 26px;
+      border: 1px solid rgba(32, 213, 198, 0.24);
+      background: rgba(4, 12, 22, 0.76);
+      box-shadow: 0 26px 54px rgba(3, 8, 18, 0.5);
+      backdrop-filter: blur(18px);
+    }
+
+    .floating-popup .shot {
+      max-height: 420px;
+      object-fit: contain;
+    }
+
+    .compact {
+      padding: 28px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .compact .brand-title {
+      font-size: 11px;
+    }
+
+    .compact .brand-subtitle {
+      font-size: 25px;
+    }
+
+    .compact .hero-copy {
+      font-size: 14px;
+      max-width: none;
+    }
+
+    .compact-media {
+      position: relative;
+      min-height: 118px;
+      border-radius: 22px;
+      overflow: hidden;
+      border: 1px solid var(--stroke);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .compact-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+      display: block;
+    }
   `;
 }
 
-function promoSmall() {
-  return `
-    ${brand(28, 28, 34, "Local Chrome relay")}
-    <text class="title" x="28" y="118">Automate your</text>
-    <text class="title" x="28" y="152">current Chrome tab</text>
-    <text class="copy" x="28" y="186">Local relay. Secure pairing. Reuse current tabs.</text>
-    ${chip(28, 222, "Local-first", 76)}
-    ${chip(118, 222, "Secure pairing", 118)}
-    ${chip(252, 222, "Lightning setup", 140)}
-  `;
-}
-
-function promoMarquee() {
-  return `
-    ${brand(28, 28, 40, "Chrome extension")}
-    <text class="title-large" x="28" y="254">Control your browser from OpenCode</text>
-    <text class="subtitle" x="28" y="336">Attach to logged-in tabs, keep everything local, and run automation with confidence.</text>
-    ${chip(28, 502, "Auto-connect", 100)}
-    ${chip(138, 502, "Auto-pair tokens", 116)}
-    ${chip(266, 502, "Local-only relay", 110)}
-    ${chip(388, 502, "No telemetry", 94)}
-  `;
-}
-
-function popupShowcaseSvg(connected, popupDataUri) {
-  const eyebrow = connected ? "Connected popup" : "Disconnected popup";
-  const title = connected ? ["Full live popup,", "current connected state."] : ["Current disconnected", "state, no stale shortcuts."];
-  const copy = connected
-    ? ["Settings, diagnostics, annotation controls,", "and the disconnect CTA all remain visible."]
-    : ["Same full layout, default relay settings,", "and the connect path reviewers should see first."];
-  const checklist = connected
-    ? ["Status pill: Connected", "Relay note: 127.0.0.1", "Diagnostics and annotation visible"]
-    : ["Status pill: Disconnected", "Default port: 8787", "Idle diagnostics still visible"];
-
-  return `
-    ${brand(58, 48, 50, "Chrome Web Store capture set")}
-    ${panel(52, 132, 414, 620, `
-      <image x="76" y="156" width="366" height="732" href="${popupDataUri}"/>
-    `, 30)}
-    ${panel(506, 132, 706, 264, `
-      <text class="eyebrow" x="542" y="174">${esc(eyebrow)}</text>
-      ${lines(title, 542, 238, 54, "title-large")}
-      ${lines(copy, 542, 336, 38, "subtitle")}
-    `, 28)}
-    ${panel(506, 424, 214, 220, `
-      <text class="eyebrow" x="538" y="464">Current UI</text>
-      <text class="card-title" x="538" y="512">Settings panel</text>
-      ${lines(["Relay port, auto-connect,", "native fallback, auto-pair,", "and token requirements."], 538, 548, 32, "card-copy")}
-    `, 24)}
-    ${panel(752, 424, 214, 220, `
-      <text class="eyebrow" x="784" y="464">Current UI</text>
-      <text class="card-title" x="784" y="512">Diagnostics</text>
-      ${lines(["Relay, handshake,", "annotate, injected,", "CDP, pairing, native."], 784, 548, 32, "card-copy")}
-    `, 24)}
-    ${panel(998, 424, 214, 220, `
-      <text class="eyebrow" x="1030" y="464">Current UI</text>
-      <text class="card-title" x="1030" y="512">Annotation</text>
-      ${lines(["Request field,", "annotate/copy/send,", "recent payload items."], 1030, 548, 32, "card-copy")}
-    `, 24)}
-    ${panel(506, 670, 706, 82, `
-      <text class="eyebrow" x="542" y="710">Reviewer checklist</text>
-      ${checklist.map((item, index) => (
-        `<circle cx="${548 + (index * 228)}" cy="735" r="5" fill="${colors.accent}"/>
-         <text class="small" x="${562 + (index * 228)}" y="740">${esc(item)}</text>`
-      )).join("")}
-    `, 24)}
-  `;
-}
-
-function popupPreviewDocument(connected) {
-  const popupHtml = fs.readFileSync(path.join(ROOT, "extension/popup.html"), "utf8");
-  const styleMatch = popupHtml.match(/<style>([\s\S]*?)<\/style>/);
-  const bodyMatch = popupHtml.match(/<body>([\s\S]*?)<script type="module" src="dist\/popup\.js"><\/script>\s*<\/body>/);
-  if (!styleMatch || !bodyMatch) {
-    throw new Error("Unable to extract popup template.");
-  }
-
-  const statusScript = connected ? `
-    document.getElementById("status").textContent = "Connected";
-    document.getElementById("toggle").textContent = "Disconnect";
-    document.getElementById("statusIndicator").classList.add("connected");
-    document.getElementById("statusPill").classList.add("connected");
-    document.getElementById("statusNote").textContent = "Connected to 127.0.0.1:8787";
-    document.getElementById("healthRelay").textContent = "Online";
-    document.getElementById("healthRelay").dataset.tone = "ok";
-    document.getElementById("healthHandshake").textContent = "Complete";
-    document.getElementById("healthHandshake").dataset.tone = "ok";
-    document.getElementById("healthAnnotation").textContent = "Idle";
-    document.getElementById("healthAnnotation").dataset.tone = "off";
-    document.getElementById("healthInjected").textContent = "Injected";
-    document.getElementById("healthInjected").dataset.tone = "ok";
-    document.getElementById("healthCdp").textContent = "Active";
-    document.getElementById("healthCdp").dataset.tone = "ok";
-    document.getElementById("healthPairing").textContent = "Required";
-    document.getElementById("healthPairing").dataset.tone = "warn";
-    document.getElementById("healthNative").textContent = "Disabled";
-    document.getElementById("healthNative").dataset.tone = "off";
-    document.getElementById("healthNote").textContent = "Relay health OK.";
-    document.getElementById("annotationContext").value = "Review login handoff flow";
-    document.getElementById("annotationNote").textContent = "Last annotation: 2 items on demo.local.";
-    document.getElementById("annotationCopy").disabled = false;
-    document.getElementById("annotationSend").disabled = false;
-    document.getElementById("annotationItems").innerHTML = [
-      '<div class="annotation-item"><div class="annotation-item-summary">Primary CTA button · 220x54</div><div class="annotation-item-meta">Action target on https://demo.local</div><div class="annotation-item-actions"><button class="secondary">Copy</button><button class="secondary">Send</button></div></div>',
-      '<div class="annotation-item"><div class="annotation-item-summary">Sidebar account switcher · 180x72</div><div class="annotation-item-meta">State preserved in current tab</div><div class="annotation-item-actions"><button class="secondary">Copy</button><button class="secondary">Send</button></div></div>'
-    ].join("");
-  ` : `
-    document.getElementById("status").textContent = "Disconnected";
-    document.getElementById("toggle").textContent = "Connect";
-    document.getElementById("statusIndicator").classList.remove("connected");
-    document.getElementById("statusPill").classList.remove("connected");
-    document.getElementById("statusNote").textContent = "Local relay only. Page data and tokens stay on-device.";
-    document.getElementById("healthRelay").textContent = "Offline";
-    document.getElementById("healthRelay").dataset.tone = "off";
-    document.getElementById("healthHandshake").textContent = "Idle";
-    document.getElementById("healthHandshake").dataset.tone = "off";
-    document.getElementById("healthAnnotation").textContent = "Idle";
-    document.getElementById("healthAnnotation").dataset.tone = "off";
-    document.getElementById("healthInjected").textContent = "Unknown";
-    document.getElementById("healthInjected").dataset.tone = "off";
-    document.getElementById("healthCdp").textContent = "Idle";
-    document.getElementById("healthCdp").dataset.tone = "off";
-    document.getElementById("healthPairing").textContent = "Required";
-    document.getElementById("healthPairing").dataset.tone = "warn";
-    document.getElementById("healthNative").textContent = "Disabled";
-    document.getElementById("healthNative").dataset.tone = "off";
-    document.getElementById("healthNote").textContent = "Relay down. Start the daemon and retry.";
-    document.getElementById("annotationContext").value = "";
-    document.getElementById("annotationNote").textContent = "No annotations captured yet.";
-    document.getElementById("annotationCopy").disabled = true;
-    document.getElementById("annotationSend").disabled = true;
-  `;
-
+function assetDocument(width, height, title, content) {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <style>
-      ${styleMatch[1]}
-      html, body {
-        width: 430px;
-        height: 1400px;
-        overflow: hidden;
-      }
-      body {
-        margin: 0;
-        width: 430px;
-        height: 1400px;
-        overflow: hidden;
-      }
-      .app {
-        transform: scale(0.56);
-        transform-origin: top left;
-        width: 650px;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>${escapeHtml(title)}</title>
+    <style>${assetCss(width, height)}</style>
   </head>
-  <body>
-    ${bodyMatch[1]}
-    <script>
-      document.getElementById("relayPort").value = "8787";
-      document.getElementById("pairingToken").value = "";
-      document.getElementById("autoConnect").checked = true;
-      document.getElementById("autoPair").checked = true;
-      document.getElementById("pairingEnabled").checked = true;
-      document.getElementById("nativeEnabled").checked = false;
-      ${statusScript}
-    </script>
-  </body>
+  <body>${content}</body>
 </html>`;
 }
 
-function createAssets() {
-  fs.mkdirSync(OUT_DIR, { recursive: true });
-  fs.copyFileSync(ICON_PATH, path.join(OUT_DIR, "icon-store-128.png"));
-  const connectedPreviewPath = renderTempHtmlPng(popupPreviewDocument(true), 430, 1400);
-  const disconnectedPreviewPath = renderTempHtmlPng(popupPreviewDocument(false), 430, 1400);
-  const connectedPreview = `data:image/png;base64,${fs.readFileSync(connectedPreviewPath).toString("base64")}`;
-  const disconnectedPreview = `data:image/png;base64,${fs.readFileSync(disconnectedPreviewPath).toString("base64")}`;
-  fs.unlinkSync(connectedPreviewPath);
-  fs.unlinkSync(disconnectedPreviewPath);
-  writeSvgPng("screenshot-popup-connected.png", 1280, 800, popupShowcaseSvg(true, connectedPreview));
-  writeSvgPng("screenshot-popup-disconnected.png", 1280, 800, popupShowcaseSvg(false, disconnectedPreview));
-  writeSvgPng("screenshot-automation-demo.png", 1280, 800, automationScene());
-  writeSvgPng("promo-small-440x280.png", 440, 280, promoSmall());
-  writeSvgPng("promo-marquee-1400x560.png", 1400, 560, promoMarquee());
+function brandHeader(subtitle, connectedLabel) {
+  const badgeClass = connectedLabel === "Connected" ? "status-badge connected" : "status-badge";
+  return `
+    <div class="brand">
+      <img src="${iconDataUri()}" alt="OpenDevBrowser logo" />
+      <div class="brand-copy">
+        <div class="brand-title">Chrome Extension</div>
+        <div class="brand-subtitle">${escapeHtml(subtitle)}</div>
+      </div>
+    </div>
+    <div class="${badgeClass}">${escapeHtml(connectedLabel)}</div>
+  `;
 }
 
-createAssets();
-console.log(JSON.stringify({
-  ok: true,
-  outputDir: "extension/store-assets",
-  files: [
-    "icon-store-128.png",
-    "promo-marquee-1400x560.png",
-    "promo-small-440x280.png",
-    "screenshot-automation-demo.png",
-    "screenshot-popup-connected.png",
-    "screenshot-popup-disconnected.png"
-  ]
-}, null, 2));
+function browserShell(imageSrc, address, shotClass) {
+  return `
+    <div class="card browser-shell">
+      <div class="browser-topbar">
+        <span class="browser-dot"></span>
+        <span class="browser-dot"></span>
+        <span class="browser-dot"></span>
+        <div class="browser-address">${escapeHtml(address)}</div>
+      </div>
+      <img class="shot ${shotClass}" src="${imageSrc}" alt="" />
+    </div>
+  `;
+}
+
+function infoPanel(title, copy) {
+  return `
+    <section class="info-panel">
+      <p class="info-title">${escapeHtml(title)}</p>
+      <p class="info-copy">${escapeHtml(copy)}</p>
+    </section>
+  `;
+}
+
+function popupShowcaseHtml(popupSrc, connected) {
+  const heading = connected ? "Live popup, current connected state." : "Live popup, current disconnected state.";
+  const copy = connected
+    ? "Captured from the built unpacked extension while the relay is active. Settings, diagnostics, annotation controls, and the current action button all stay visible."
+    : "Captured from the same unpacked extension after a real disconnect action. The reconnect path, default settings, diagnostics, and annotation panel remain visible."
+  ;
+  const checklist = connected
+    ? [
+      ["Relay path", "Connected to the local relay on 127.0.0.1."],
+      ["Current controls", "The shipped settings and diagnostics layout is shown as-is."],
+      ["Action state", "The primary CTA reflects the live connected flow."]
+    ]
+    : [
+      ["Reconnect flow", "The popup shows the real disconnected state and connect CTA."],
+      ["Default setup", "Relay port and pairing controls remain visible for review."],
+      ["Current layout", "Diagnostics and annotation surfaces stay visible without stale mock content."]
+    ]
+  ;
+
+  return assetDocument(1280, 800, connected ? "Popup connected" : "Popup disconnected", `
+    <main class="asset">
+      <img class="ghost-surface" src="${popupSrc}" alt="" />
+      <section class="surface-grid two-col">
+        <div class="copy-stack">
+          <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+            ${brandHeader("OpenDevBrowser Relay", connected ? "Connected" : "Disconnected")}
+          </header>
+          <p class="eyebrow">${connected ? "Current popup" : "Current reconnect flow"}</p>
+          <h1 class="hero-title">${escapeHtml(heading)}</h1>
+          <p class="hero-copy">${escapeHtml(copy)}</p>
+          <div class="panel-grid">
+            ${checklist.map(([title, panelCopy]) => infoPanel(title, panelCopy)).join("")}
+          </div>
+        </div>
+        ${browserShell(popupSrc, connected ? "chrome-extension://.../popup.html · relay live" : "chrome-extension://.../popup.html · relay offline", "shot-popup")}
+      </section>
+    </main>
+  `);
+}
+
+function automationShowcaseHtml(canvasSrc, popupSrc) {
+  return assetDocument(1280, 800, "Extension surfaces", `
+    <main class="asset">
+      <img class="ghost-surface right" src="${canvasSrc}" alt="" />
+      <section class="surface-grid demo-col">
+        <div class="copy-stack">
+          <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;">
+            ${brandHeader("OpenDevBrowser Relay", "Connected")}
+          </header>
+          <p class="eyebrow">Live browser proof</p>
+          <h1 class="hero-title">Current popup and extension page, captured in Chrome.</h1>
+          <p class="hero-copy">This store shot uses the real built extension running in Chrome for Testing. The canvas page shows the shipped full-page surface, with the live connected popup layered in to show the relay workflow.</p>
+          <div class="chip-row">
+            <span class="chip">Local relay</span>
+            <span class="chip">Current popup</span>
+            <span class="chip">Current canvas page</span>
+            <span class="chip">No fabricated mock state</span>
+          </div>
+        </div>
+        <section class="card" style="padding:26px;min-height:720px;">
+          ${browserShell(canvasSrc, "chrome-extension://.../canvas.html", "shot-canvas")}
+          <div class="floating-popup">
+            <img class="shot" src="${popupSrc}" alt="" />
+          </div>
+        </section>
+      </section>
+    </main>
+  `);
+}
+
+function canvasShowcaseHtml(canvasSrc) {
+  return assetDocument(1280, 800, "Canvas surface", `
+    <main class="asset">
+      <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:26px;">
+        ${brandHeader("OpenDevBrowser Canvas", "Connected")}
+      </header>
+      <section class="surface-grid two-col" style="grid-template-columns:minmax(0, 1fr) 320px;">
+        ${browserShell(canvasSrc, "chrome-extension://.../canvas.html", "shot-canvas")}
+        <div class="copy-stack">
+          <p class="eyebrow">Full extension page</p>
+          <h1 class="hero-title" style="font-size:42px;">Canvas runs as a real extension page in-browser.</h1>
+          <p class="hero-copy" style="font-size:18px;">This shot shows the shipped canvas surface in a normal Chrome tab so store reviewers and users can see the broader extension workspace beyond the popup.</p>
+          ${infoPanel("Current state", "Session summary, annotations, history, properties, typography, and preview panes are all shown from the live page capture.")}
+          ${infoPanel("Design parity", "The screenshot keeps the same dark gradient, panel surfaces, and accent tokens used by the popup and annotate UI.")}
+        </div>
+      </section>
+    </main>
+  `);
+}
+
+function promoSmallHtml(popupSrc) {
+  return assetDocument(440, 280, "Promo small", `
+    <main class="asset compact">
+      ${brandHeader("OpenDevBrowser Relay", "Connected")}
+      <h1 class="hero-title" style="font-size:34px;">Attach to your current Chrome tabs.</h1>
+      <p class="hero-copy">Real popup capture. Local relay. Current shipped UI.</p>
+      <div class="compact-media">
+        <img src="${popupSrc}" alt="" />
+      </div>
+    </main>
+  `);
+}
+
+function promoMarqueeHtml(canvasSrc, popupSrc) {
+  return assetDocument(1400, 560, "Promo marquee", `
+    <main class="asset" style="padding:32px 40px;">
+      <section class="surface-grid demo-col" style="grid-template-columns:minmax(0, 520px) minmax(0, 1fr);gap:28px;">
+        <div class="copy-stack" style="padding-top:10px;">
+          ${brandHeader("OpenDevBrowser Relay", "Connected")}
+          <p class="eyebrow">Chrome extension screenshots</p>
+          <h1 class="hero-title" style="font-size:60px;">Current popup and canvas surfaces, captured live.</h1>
+          <p class="hero-copy">The extension reuses the local relay, current tabs, and current design tokens. These store assets come from the live built extension instead of staged mock panels.</p>
+          <div class="chip-row">
+            <span class="chip">Live popup</span>
+            <span class="chip">Live canvas page</span>
+            <span class="chip">Current icon set</span>
+          </div>
+        </div>
+        <section class="card" style="padding:24px;min-height:496px;">
+          ${browserShell(canvasSrc, "chrome-extension://.../canvas.html", "shot-canvas")}
+          <div class="floating-popup" style="width:360px;bottom:26px;right:26px;">
+            <img class="shot" src="${popupSrc}" alt="" />
+          </div>
+        </section>
+      </section>
+    </main>
+  `);
+}
+
+function popupState(state) {
+  return state === "Connected" ? "connected" : "disconnected";
+}
+
+function tempPngPath(name) {
+  return tempPath(name, "png");
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function chromiumRuntime() {
+  const runtime = await import("playwright-core");
+  return runtime.chromium;
+}
+
+async function compositionBrowser() {
+  const chromium = await chromiumRuntime();
+  return chromium.launch({
+    executablePath: captureBinary(),
+    headless: true,
+    args: ["--hide-scrollbars", "--force-device-scale-factor=1"]
+  });
+}
+
+async function waitForExtensionId(context) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const serviceWorker = context.serviceWorkers()
+      .find((worker) => worker.url().startsWith("chrome-extension://"));
+    if (serviceWorker) {
+      return serviceWorker.url().split("/")[2];
+    }
+    await sleep(500);
+  }
+  throw new Error("Extension service worker did not start. Rebuild the extension and retry.");
+}
+
+async function waitForStatus(page, expected) {
+  await page.waitForFunction(
+    ([selector, value]) => document.querySelector(selector)?.textContent?.trim() === value,
+    [STATUS_SELECTOR, expected],
+    { timeout: EXTENSION_WAIT_MS }
+  );
+}
+
+async function ensureConnected(page) {
+  await sleep(1600);
+  const status = await page.locator(STATUS_SELECTOR).textContent();
+  if (status?.trim() !== "Connected") {
+    await page.locator(TOGGLE_SELECTOR).click();
+  }
+  try {
+    await waitForStatus(page, "Connected");
+  } catch {
+    throw new Error("Popup never reached Connected. Start `npx opendevbrowser serve` before regenerating store assets.");
+  }
+}
+
+async function capturePopupStates(context, extensionId) {
+  const popupPage = await context.newPage();
+  const popupUrl = `chrome-extension://${extensionId}/popup.html`;
+  await popupPage.goto(popupUrl);
+  await ensureConnected(popupPage);
+  await sleep(1200);
+
+  const connectedPath = tempPngPath("popup-connected");
+  await popupPage.screenshot({ path: connectedPath, fullPage: true, type: "png" });
+
+  await popupPage.locator(TOGGLE_SELECTOR).click();
+  await waitForStatus(popupPage, "Disconnected");
+  await sleep(1000);
+
+  const disconnectedPath = tempPngPath("popup-disconnected");
+  await popupPage.screenshot({ path: disconnectedPath, fullPage: true, type: "png" });
+  await popupPage.close();
+
+  return { connectedPath, disconnectedPath };
+}
+
+async function captureCanvasSurface(context, extensionId) {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/canvas.html`);
+  await page.waitForFunction(
+    (expectedTitle) => document.title === expectedTitle,
+    CANVAS_TITLE,
+    { timeout: EXTENSION_WAIT_MS }
+  );
+  await sleep(2200);
+  const canvasPath = tempPngPath("canvas");
+  await page.screenshot({ path: canvasPath, fullPage: true, type: "png" });
+  await page.close();
+  return canvasPath;
+}
+
+async function captureLiveSources() {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "odb-store-profile-"));
+  const chromium = await chromiumRuntime();
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    executablePath: captureBinary(),
+    headless: true,
+    viewport: CAPTURE_VIEWPORT,
+    deviceScaleFactor: 1,
+    args: [
+      `--disable-extensions-except=${EXTENSION_DIR}`,
+      `--load-extension=${EXTENSION_DIR}`
+    ]
+  });
+
+  try {
+    const extensionId = await waitForExtensionId(context);
+    const popupShots = await capturePopupStates(context, extensionId);
+    const canvasPath = await captureCanvasSurface(context, extensionId);
+    return { ...popupShots, canvasPath };
+  } finally {
+    await context.close();
+    removeIfPresent(userDataDir);
+  }
+}
+
+async function writeAssets(liveShots) {
+  const popupConnected = base64DataUri(liveShots.connectedPath);
+  const popupDisconnected = base64DataUri(liveShots.disconnectedPath);
+  const canvasShot = base64DataUri(liveShots.canvasPath);
+  const browser = await compositionBrowser();
+
+  try {
+    await renderHtmlPng(
+      browser,
+      "screenshot-popup-connected.png",
+      1280,
+      800,
+      popupShowcaseHtml(popupConnected, true)
+    );
+    await renderHtmlPng(
+      browser,
+      "screenshot-popup-disconnected.png",
+      1280,
+      800,
+      popupShowcaseHtml(popupDisconnected, false)
+    );
+    await renderHtmlPng(
+      browser,
+      "screenshot-automation-demo.png",
+      1280,
+      800,
+      automationShowcaseHtml(canvasShot, popupConnected)
+    );
+    await renderHtmlPng(
+      browser,
+      "screenshot-canvas.png",
+      1280,
+      800,
+      canvasShowcaseHtml(canvasShot)
+    );
+    await renderHtmlPng(
+      browser,
+      "promo-small-440x280.png",
+      440,
+      280,
+      promoSmallHtml(popupConnected)
+    );
+    await renderHtmlPng(
+      browser,
+      "promo-marquee-1400x560.png",
+      1400,
+      560,
+      promoMarqueeHtml(canvasShot, popupConnected)
+    );
+    fs.copyFileSync(ICON_PATH, path.join(OUT_DIR, "icon-store-128.png"));
+  } finally {
+    await browser.close();
+  }
+}
+
+function cleanupShots(liveShots) {
+  removeIfPresent(liveShots.connectedPath);
+  removeIfPresent(liveShots.disconnectedPath);
+  removeIfPresent(liveShots.canvasPath);
+}
+
+export async function generateStoreAssets() {
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const liveShots = await captureLiveSources();
+  try {
+    await writeAssets(liveShots);
+  } finally {
+    cleanupShots(liveShots);
+  }
+
+  return {
+    ok: true,
+    outputDir: "extension/store-assets",
+    files: STORE_ASSET_SPECS.map((spec) => spec.filename)
+  };
+}
+
+if (isEntryPoint(import.meta.url)) {
+  generateStoreAssets()
+    .then((result) => {
+      console.log(JSON.stringify(result, null, 2));
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(message);
+      process.exitCode = 1;
+    });
+}

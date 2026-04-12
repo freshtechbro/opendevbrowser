@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { requiredStoreAssetSpecs } from "./store-assets-shared.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -30,6 +31,15 @@ function readPngSize(relativePath) {
     width: buffer.readUInt32BE(16),
     height: buffer.readUInt32BE(20)
   };
+}
+
+function storeAssetDimensions() {
+  return Object.fromEntries(
+    requiredStoreAssetSpecs().map((spec) => [
+      `extension/store-assets/${spec.filename}`,
+      { width: spec.width, height: spec.height }
+    ])
+  );
 }
 
 function checkAssetDimensions(expectedDimensions) {
@@ -118,12 +128,7 @@ export function runChromeStoreComplianceCheck() {
     "extension/icons/icon32.png": { width: 32, height: 32 },
     "extension/icons/icon48.png": { width: 48, height: 48 },
     "extension/icons/icon128.png": { width: 128, height: 128 },
-    "extension/store-assets/icon-store-128.png": { width: 128, height: 128 },
-    "extension/store-assets/promo-small-440x280.png": { width: 440, height: 280 },
-    "extension/store-assets/promo-marquee-1400x560.png": { width: 1400, height: 560 },
-    "extension/store-assets/screenshot-automation-demo.png": { width: 1280, height: 800 },
-    "extension/store-assets/screenshot-popup-connected.png": { width: 1280, height: 800 },
-    "extension/store-assets/screenshot-popup-disconnected.png": { width: 1280, height: 800 }
+    ...storeAssetDimensions()
   }));
 
   const failed = checks.filter((check) => !check.ok);
