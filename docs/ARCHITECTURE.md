@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-04-03
+Last updated: 2026-04-12
 
 ---
 
@@ -18,8 +18,8 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `64`
-- Plugin tools: `57`
+- CLI commands: `72`
+- Plugin tools: `65`
 - `/ops` command names: `59`
 - `/canvas` command names: `35`
 
@@ -29,6 +29,7 @@ Human-facing inventory metadata now composes through one generated manifest:
 - `src/public-surface/generated-manifest.ts` and `.json` are the consumed inventory mirrors for runtime help, docs parity, and tests
 - `src/cli/onboarding-metadata.json` owns the canonical first-contact skill, topic, quick-start commands, and onboarding doc pointers
 - `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/index.ts` consume or re-export the generated manifest for human-facing command and tool inventory output
+- `src/cli/help.ts` also owns the first-contact `Find It Fast` block for `screencast / browser replay`, `desktop observation`, and the browser-scoped computer-use lane surfaced through `--challenge-automation-mode`
 - `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
 - `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/tools/index.ts` remains the runtime tool registry authority
@@ -69,6 +70,7 @@ Legitimacy boundary:
 - Public override field: `challengeAutomationMode`
 - Accepted values: `off`, `browser`, `browser_with_helper`
 - Effective precedence: `run > session > config`
+- Generated help and docs surface this as the browser-scoped computer-use lane; it is intentionally not a desktop-agent or desktop-command family.
 - Config baseline: `providers.challengeOrchestration.mode`
 - `BrowserManager` and `OpsBrowserManager` remain the only surfaced challenge metadata writers.
 - `meta.challengeOrchestration` and fallback `details.challengeOrchestration` can expose `mode`, `source`, `standDownReason`, and helper eligibility so stand-down decisions stay explicit.
@@ -78,9 +80,9 @@ Legitimacy boundary:
 
 ### Roadmap-only desktop boundary
 
-This section is roadmap-only for any public desktop-agent claim. Shipped builds now include an internal sibling desktop observation runtime plus a top-level automation coordinator, but they remain non-public, observation-only, and permission-off by default.
+This section is roadmap-only for any public desktop-agent claim. Shipped builds now include a public read-only desktop observation plane over the sibling desktop runtime contract plus a top-level automation coordinator, but desktop-agent behavior remains non-public and observation-only while the shipped observation default can still be opted out through `desktop.permissionLevel=off`.
 
-- The shipped internal runtime already uses a separate contract from `ChallengeRuntimeHandle`, `BrowserManagerLike`, and `/ops`; any future public desktop agent must preserve that separation.
+- The shipped sibling runtime already uses a separate contract from `ChallengeRuntimeHandle`, `BrowserManagerLike`, and `/ops`; any future public desktop agent must preserve that separation.
 - Core composition creates `desktopRuntime` beside `BrowserManager` and `OpsBrowserManager`, then exposes a non-public `observeDesktopAndVerify` entrypoint that routes desktop observation back through browser-owned review before surfacing completion.
 - Minimum capability bar before any desktop-agent claim is allowed:
   - OS-level input actuation outside the browser
@@ -90,7 +92,7 @@ This section is roadmap-only for any public desktop-agent claim. Shipped builds 
   - bounded workspace and abort controls
   - audit artifacts and replay-safe execution logs
   - a typed failure taxonomy separate from the current helper bridge
-- Until a public desktop plane exists, public docs and surfaces must not describe the current helper bridge as a desktop agent or imply that `/ops` is a desktop control channel.
+- Public docs and surfaces may describe the shipped read-only desktop observation plane, but they must not describe the current helper bridge as a desktop agent or imply that `/ops` is a desktop control channel.
 
 ---
 
@@ -172,6 +174,9 @@ flowchart LR
     Devtools[DevTools Trackers]
     Exporter[Export Pipeline]
     Relay[RelayServer]
+    ChallengeCoord[Challenge Coordinator]
+    DesktopRuntime[Desktop Observation Runtime]
+    AutomationCoordinator[Automation Coordinator]
   end
 
   Plugin --> CoreBootstrap
@@ -206,6 +211,11 @@ flowchart LR
   CoreBootstrap --> Devtools
   CoreBootstrap --> Exporter
   CoreBootstrap --> Relay
+  CoreBootstrap --> ChallengeCoord
+  CoreBootstrap --> DesktopRuntime
+  CoreBootstrap --> AutomationCoordinator
+  ChallengeCoord --> BrowserManager
+  DesktopRuntime --> AutomationCoordinator
 ```
 
 ---

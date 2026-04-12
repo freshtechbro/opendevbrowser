@@ -43,7 +43,10 @@ Reference relay flow and security controls in `docs/ARCHITECTURE.md` when changi
 - **Single-client relay `/cdp`**: the relay accepts one `/cdp` websocket at a time; inside that client, `CDPRouter` still multiplexes flat-session commands/events via `TargetSessionMap`.
 - **Annotation relay**: `/annotation` channel forwards annotation commands/events to `background.ts`, including one-off `store_agent_payload` send requests and `fetch_stored` retrieval.
 - **Ops relay**: `/ops` channel routes high-level ops commands through `OpsRuntime`.
+- **Replay capture boundary**: extension-backed screencast capture reuses the existing screenshot primitive through manager-owned orchestration; there is no separate extension screencast relay family.
 - **Canvas relay**: `/canvas` channel routes design-tab state, overlay sync, and preview/selection updates through `CanvasRuntime`.
+- **Desktop boundary**: desktop observation remains daemon/core-owned, observe-only, and outside extension relay or CDP service layers.
+- **Help/discovery boundary**: generated help may point users to the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`, but extension guidance must keep the public read-only desktop plane external to relay ownership.
 - **Canvas design runtime**: `extension/src/canvas/` owns extension-hosted design-tab state, patch application, overlay sync, viewport fit, and editor-side feedback handling.
 - **Canvas payload shape**: design-tab runtime expects normalized canvas documents plus additive session-summary metadata such as `availableInventoryCount`, `catalogKitIds`, `availableStarterCount`, applied starter fields, framework or plugin capability summaries, and token state required for collection or mode authoring, alias editing, bindings, and usage inspection; keep extension-side parsing compatibility-first when core contract fields expand.
 - **Preview boundary**: projected `canvas_html` remains the default compatibility path; `bound_app_runtime` only succeeds when the binding opts in and the target app exposes the required instrumentation.

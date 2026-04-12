@@ -36,6 +36,12 @@ Use this skill to build complete product-video input packs and assembly instruct
 ./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh /path/to/manifest.json /tmp/product-video-brief
 ```
 
+## Supporting Surfaces
+
+- Use browser replay (`screencast-start` / `screencast-stop`) when a product flow needs temporal UI proof before you decide which screenshots to keep.
+- Use desktop observation only for read-only evidence around external windows or OS-owned dialogs that affected capture.
+- Use `--challenge-automation-mode off|browser|browser_with_helper` for bounded browser-scoped computer use on provider or auth walls; it is not a desktop agent.
+
 ## Final Assets Produced
 
 Expected output pack always includes:
@@ -62,6 +68,7 @@ The `render-video-brief.sh` helper adds:
 2. Run collection workflow and confirm output pack path.
 3. Review generated manifest/copy/features for accuracy and check whether the pack is visual-ready or metadata-first.
 4. Run `render-video-brief.sh` to generate production instructions and visual sourcing notes.
+	Canonical helper path: `scripts/render-video-brief.sh`.
 5. If no visuals were captured, source or capture visuals before handing the brief to the editor/creator pipeline.
 
 ## Parallel Multitab Alignment

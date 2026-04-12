@@ -172,4 +172,26 @@ describe("crawler helper branches", () => {
     expect(result.warnings.some((warning) => warning.includes("worker extraction fallback"))).toBe(true);
     expect(canonicalizeUrl("https://EXAMPLE.com:443/path/?utm_source=test")).toBe("https://example.com/path");
   });
+
+  it("keeps non-default ports and preserves explicit block reasons", async () => {
+    expect(canonicalizeUrl("https://example.com:8443/path/?utm_source=test")).toBe("https://example.com:8443/path");
+
+    vi.doMock("../src/providers/web/policy", () => ({
+      evaluateWebCrawlPolicy: () => ({
+        allowed: false,
+        warnings: [],
+        reason: "custom-block"
+      })
+    }));
+
+    const { crawlWeb } = await import("../src/providers/web/crawler");
+    const result = await crawlWeb({
+      seeds: ["https://blocked.example/root"],
+      fetcher: async () => ({ status: 200, html: "<html></html>" }),
+      workerThreads: 0,
+      queueMax: 1
+    });
+
+    expect(result.warnings).toContain("https://blocked.example/root: custom-block");
+  });
 });

@@ -1,7 +1,7 @@
 # OpenDevBrowser Frontend
 
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-12
 
 ## Overview
 
@@ -10,6 +10,7 @@ The frontend source is no longer maintained in this public repository.
 - Frontend source of truth: private repo `opendevbrowser-website-deploy` (`frontend/`).
 - Production deploy branch: private `website-production`.
 - Public repo role: provide mirrored content inputs and trigger private sync.
+- Mirrored help/public-surface inputs include the exact first-contact discovery labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 
 ## Public/Private contract
 
@@ -19,7 +20,9 @@ Public repo (`opendevbrowser`) supplies:
 - `assets/`
 - `CHANGELOG.md`
 - `src/cli/help.ts`
+- `src/cli/onboarding-metadata.json`
 - `src/public-surface/generated-manifest.ts`
+- `src/public-surface/generated-manifest.json`
 - `src/tools/index.ts`
 
 Private repo (`opendevbrowser-website-deploy`) owns:
@@ -49,5 +52,5 @@ npm run build --prefix frontend
 ## Documentation alignment rules
 
 - Do not hand-edit generated frontend JSON in the private repo.
-- Keep public docs/skills/assets/changelog/help metadata/tool inventory aligned before dispatching sync.
+- Keep public docs/skills/assets/changelog/help/onboarding/public-surface metadata aligned before dispatching sync.
 - Validate private workflow output determinism on repeated sync runs.

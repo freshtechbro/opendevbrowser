@@ -2,12 +2,13 @@
 
 Status: historical snapshot
 Snapshot date: 2026-03-01
-Last audited against repo: 2026-03-12
+Last audited against repo: 2026-04-12
 
 Current audit note:
 - this file preserves the v0.0.16 release snapshot captured on 2026-03-01; it is not the live source of truth for current repo state.
-- current source inventories are `56` CLI commands (`src/cli/args.ts`) and `49` tools (`src/tools/index.ts`), so the `55` / `48` values below should be read as historical release-baseline evidence only.
-- for current operational guidance, use `docs/RELEASE_RUNBOOK.md`, `docs/SURFACE_REFERENCE.md`, and `README.md`.
+- current source inventories are `72` CLI commands (`src/cli/args.ts`) and `65` tools (`src/tools/index.ts`), so the `55` / `48` values below should be read as historical release-baseline evidence only.
+- current generated help now leads with the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; that discovery wording is newer than the historical `v0.0.16` snapshot below.
+- for current operational guidance, use `docs/RELEASE_RUNBOOK.md`, `docs/SURFACE_REFERENCE.md`, `README.md`, `npx opendevbrowser --help`, and `npx opendevbrowser help`.
 
 ## Historical baseline
 

@@ -3,7 +3,7 @@
 Optional Chrome extension that enables relay mode (attach to existing logged-in tabs).
 
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-12
 
 Quick file-level overview: `<public-repo-root>/extension/README.md`
 
@@ -12,6 +12,7 @@ Quick file-level overview: `<public-repo-root>/extension/README.md`
 - Connects to the local relay server (`ws://127.0.0.1:<port>/extension`).
 - Uses the Chrome Debugger API to forward CDP commands across attached tabs/targets (with a primary tab used for handshake/status).
 - Allows OpenDevBrowser to control tabs without launching a new browser.
+- Lets extension-backed sessions participate in manager-owned browser replay capture through the existing screenshot primitive; there is no separate extension screencast relay family.
 - Supports multi-tab CDP routing with flat sessions (Chrome 125+).
 - Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
 - Hosts the dedicated design-canvas runtime used by `/canvas` for design-tab and overlay operations.
@@ -19,6 +20,8 @@ Quick file-level overview: `<public-repo-root>/extension/README.md`
 - Routes popup/canvas/in-page annotation `Send` actions through `/annotation` `store_agent_payload` so the active chat can receive repo-local shared inbox entries when scope is safe.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 - Extension mode is headed-only; extension-intent headless launch/connect is rejected with `unsupported_mode`.
+- Desktop observation is not an extension feature; the shipped desktop commands and tools stay daemon/core-owned, public, and observe-only.
+- Generated help surfaces the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; the extension participates in relay-backed browser work, not the public read-only desktop plane.
 - When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
 ## Installation

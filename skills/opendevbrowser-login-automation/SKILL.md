@@ -35,6 +35,12 @@ Use this skill for deterministic auth testing that handles MFA and anti-bot chec
 ./skills/opendevbrowser-login-automation/scripts/run-login-workflow.sh challenge-checkpoint
 ```
 
+## Supporting Surfaces
+
+- Use browser replay (`screencast-start` / `screencast-stop`) when login timing, MFA transitions, or challenge loops need temporal evidence.
+- Use desktop observation only for read-only evidence around native dialogs or sibling desktop surfaces; it stays core-owned and is not extension relay control.
+- Use `--challenge-automation-mode off|browser|browser_with_helper` when workflow or macro execution needs bounded browser-scoped computer use; the helper is not a desktop agent.
+
 ## Core Rules
 
 - Use snapshot refs, not ad-hoc selectors.

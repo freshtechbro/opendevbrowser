@@ -100,6 +100,41 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("session-inspector");
   });
 
+  it("accepts screencast and desktop commands", () => {
+    const screencastStart = parseArgs([
+      "node",
+      "cli",
+      "screencast-start",
+      "--session-id",
+      "s1",
+      "--interval-ms=750"
+    ]);
+    expect(screencastStart.command).toBe("screencast-start");
+    expect(screencastStart.rawArgs).toEqual(["--session-id", "s1", "--interval-ms=750"]);
+
+    const screencastStop = parseArgs([
+      "node",
+      "cli",
+      "screencast-stop",
+      "--session-id=s1",
+      "--screencast-id=cast-1"
+    ]);
+    expect(screencastStop.command).toBe("screencast-stop");
+
+    const desktopStatus = parseArgs(["node", "cli", "desktop-status"]);
+    expect(desktopStatus.command).toBe("desktop-status");
+
+    const desktopWindow = parseArgs([
+      "node",
+      "cli",
+      "desktop-capture-window",
+      "--window-id",
+      "window-1",
+      "--reason=capture"
+    ]);
+    expect(desktopWindow.command).toBe("desktop-capture-window");
+  });
+
   it("accepts review command", () => {
     const parsed = parseArgs([
       "node",

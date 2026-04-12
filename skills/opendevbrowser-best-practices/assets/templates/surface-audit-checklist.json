@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0",
   "expectedCounts": {
-    "cliCommands": 64,
-    "tools": 57,
+    "cliCommands": 72,
+    "tools": 65,
     "opsCommands": 59,
     "canvasCommands": 35
   },
@@ -19,6 +19,8 @@
     "Tool names documented by category",
     "Ops command namespaces documented",
     "Session-first diagnostics lane documented and validated",
+    "Browser replay and screencast commands documented",
+    "Desktop observation commands documented",
     "Pointer controls documented",
     "Ops pointer and preview namespaces documented",
     "Canvas command names documented",

@@ -1,6 +1,6 @@
 {
   "sectionTitle": "Agent Quick Start",
-  "sectionSummary": "Start with opendevbrowser_prompting_guide or opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\" before low-level browser commands, then load the validated capability lanes when you need the current reliable transcript, research, and shopping workflows.",
+  "sectionSummary": "Start with opendevbrowser_prompting_guide or opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\" before low-level browser commands, then load the validated capability lanes when you need the current reliable transcript plus browser replay, desktop observation, research, shopping, and browser-scoped computer-use workflows.",
   "skillName": "opendevbrowser-best-practices",
   "skillTopic": "quick start",
   "validatedSkillTopic": "validated capability lanes",

@@ -179,7 +179,9 @@ describe("automation coordinator", () => {
       status: desktopStatus
     });
     expect(observation).not.toHaveProperty("windows");
+    expect(observation).not.toHaveProperty("windowsFailure");
     expect(observation).not.toHaveProperty("activeWindow");
+    expect(observation).not.toHaveProperty("activeWindowFailure");
     expect(observation).not.toHaveProperty("capture");
     expect(observation).not.toHaveProperty("captureFailure");
     expect(observation).not.toHaveProperty("accessibility");
@@ -403,6 +405,12 @@ describe("automation coordinator", () => {
     expect(activeWindow).toHaveBeenCalledWith("capture-active-window-failed");
     expect(captureWindow).not.toHaveBeenCalled();
     expect(observation).not.toHaveProperty("activeWindow");
+    expectDesktopFailure(
+      observation.activeWindowFailure,
+      "desktop_query_failed",
+      "active-window-failed",
+      "active window lookup failed"
+    );
     expect(observation).not.toHaveProperty("capture");
     expectDesktopFailure(
       observation.captureFailure,
@@ -528,6 +536,12 @@ describe("automation coordinator", () => {
     expect(listWindows).toHaveBeenCalledWith("hint-query-failed");
     expect(captureWindow).not.toHaveBeenCalled();
     expect(observation).not.toHaveProperty("windows");
+    expectDesktopFailure(
+      observation.windowsFailure,
+      "desktop_query_failed",
+      "window-query-failed",
+      "query failed"
+    );
     expect(observation).not.toHaveProperty("capture");
     expectDesktopFailure(
       observation.captureFailure,
@@ -569,6 +583,12 @@ describe("automation coordinator", () => {
     expect(listWindows).toHaveBeenCalledTimes(1);
     expect(captureWindow).not.toHaveBeenCalled();
     expect(observation).not.toHaveProperty("windows");
+    expectDesktopFailure(
+      observation.windowsFailure,
+      "desktop_query_failed",
+      "preloaded-window-query-failed",
+      "query failed"
+    );
     expect(observation).not.toHaveProperty("capture");
     expectDesktopFailure(
       observation.captureFailure,
@@ -852,10 +872,76 @@ describe("automation coordinator", () => {
     expect(accessibilitySnapshot).not.toHaveBeenCalled();
     expect(observation).not.toHaveProperty("accessibility");
     expectDesktopFailure(
+      observation.windowsFailure,
+      "desktop_query_failed",
+      "hinted-accessibility-query-failed",
+      "query failed"
+    );
+    expectDesktopFailure(
       observation.accessibilityFailure,
       "desktop_query_failed",
       "hinted-accessibility-query-failed",
       "query failed"
+    );
+  });
+
+  it("preserves window-list probe failures when windows are explicitly requested", async () => {
+    const { createAutomationCoordinator } = await import("../src/automation/coordinator");
+    const listWindows = vi.fn(async () =>
+      failResult<{ windows: DesktopWindowSummary[] }>(
+        "desktop_query_failed",
+        "window list failed",
+        "window-list-failed"
+      )
+    );
+    const desktopRuntime = makeDesktopRuntime({ listWindows });
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime
+    });
+
+    const observation = await coordinator.requestDesktopObservation({
+      reason: "window-list-failed",
+      includeWindows: true,
+      capture: "none"
+    });
+
+    expect(observation).not.toHaveProperty("windows");
+    expectDesktopFailure(
+      observation.windowsFailure,
+      "desktop_query_failed",
+      "window-list-failed",
+      "window list failed"
+    );
+  });
+
+  it("preserves active-window probe failures when active-window inspection is explicitly requested", async () => {
+    const { createAutomationCoordinator } = await import("../src/automation/coordinator");
+    const activeWindow = vi.fn(async () =>
+      failResult<DesktopWindowSummary | null>(
+        "desktop_query_failed",
+        "active window failed",
+        "active-window-probe-failed"
+      )
+    );
+    const desktopRuntime = makeDesktopRuntime({ activeWindow });
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime
+    });
+
+    const observation = await coordinator.requestDesktopObservation({
+      reason: "active-window-probe-failed",
+      includeActiveWindow: true,
+      capture: "none"
+    });
+
+    expect(observation).not.toHaveProperty("activeWindow");
+    expectDesktopFailure(
+      observation.activeWindowFailure,
+      "desktop_query_failed",
+      "active-window-probe-failed",
+      "active window failed"
     );
   });
 

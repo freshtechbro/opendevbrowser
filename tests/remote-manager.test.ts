@@ -177,4 +177,32 @@ describe("RemoteManager browser lanes", () => {
       promptText: "hello"
     });
   });
+
+  it("forwards screencast start and stop payloads", async () => {
+    const call = vi.fn()
+      .mockResolvedValueOnce({ screencastId: "cast-1" })
+      .mockResolvedValueOnce({ screencastId: "cast-1", endedReason: "stopped" });
+
+    const manager = new RemoteManager({ call } as never);
+
+    await manager.startScreencast("session-1", {
+      targetId: "tab-11",
+      outputDir: "/tmp/cast",
+      intervalMs: 750,
+      maxFrames: 5
+    });
+    await manager.stopScreencast("session-1", "cast-1");
+
+    expect(call).toHaveBeenNthCalledWith(1, "page.screencast.start", {
+      sessionId: "session-1",
+      targetId: "tab-11",
+      outputDir: "/tmp/cast",
+      intervalMs: 750,
+      maxFrames: 5
+    });
+    expect(call).toHaveBeenNthCalledWith(2, "page.screencast.stop", {
+      sessionId: "session-1",
+      screencastId: "cast-1"
+    });
+  });
 });

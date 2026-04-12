@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { SCREENCAST_RETENTION_MS } from "../browser/manager-types";
 
 const HUB_INSTANCE_ID = randomUUID();
 const BINDING_TTL_MS = 60_000;
@@ -19,6 +20,15 @@ export type SessionLeaseState = {
   leaseId: string;
   clientId: string;
   createdAt: number;
+  lastUsedAt: number;
+};
+
+export type ScreencastOwnerState = {
+  screencastId: string;
+  sessionId: string;
+  clientId: string;
+  createdAt: number;
+  completedAt: number | null;
   lastUsedAt: number;
 };
 
@@ -47,6 +57,8 @@ type RelayQueueEntry = {
 let binding: RelayBindingState | null = null;
 let queue: RelayQueueEntry[] = [];
 const sessionLeases = new Map<string, SessionLeaseState>();
+const screencastOwners = new Map<string, ScreencastOwnerState>();
+const screencastOwnerCleanupTimers = new Map<string, NodeJS.Timeout>();
 
 export const getHubInstanceId = (): string => HUB_INSTANCE_ID;
 
@@ -76,6 +88,47 @@ const serializeQueue = (entry: RelayQueueEntry): RelayQueueResponse => ({
 const cleanupQueue = (): void => {
   const now = nowMs();
   queue = queue.filter((entry) => entry.timeoutAt > now);
+};
+
+const clearScreencastOwnerCleanup = (screencastId: string): void => {
+  const timer = screencastOwnerCleanupTimers.get(screencastId);
+  if (!timer) {
+    return;
+  }
+  clearTimeout(timer);
+  screencastOwnerCleanupTimers.delete(screencastId);
+};
+
+const releaseTrackedScreencastOwner = (screencastId: string): void => {
+  clearScreencastOwnerCleanup(screencastId);
+  screencastOwners.delete(screencastId);
+};
+
+const isExpiredScreencastOwner = (owner: ScreencastOwnerState): boolean => {
+  return owner.completedAt !== null && owner.lastUsedAt + SCREENCAST_RETENTION_MS <= nowMs();
+};
+
+const scheduleScreencastOwnerCleanup = (owner: ScreencastOwnerState): void => {
+  clearScreencastOwnerCleanup(owner.screencastId);
+  if (owner.completedAt === null) {
+    return;
+  }
+  const timer = setTimeout(() => {
+    if (isExpiredScreencastOwner(owner) && screencastOwners.get(owner.screencastId) === owner) {
+      screencastOwners.delete(owner.screencastId);
+    }
+    screencastOwnerCleanupTimers.delete(owner.screencastId);
+  }, SCREENCAST_RETENTION_MS);
+  timer.unref?.();
+  screencastOwnerCleanupTimers.set(owner.screencastId, timer);
+};
+
+const cleanupScreencastOwners = (): void => {
+  for (const [screencastId, owner] of screencastOwners.entries()) {
+    if (isExpiredScreencastOwner(owner)) {
+      releaseTrackedScreencastOwner(screencastId);
+    }
+  }
 };
 
 const getQueueEntry = (clientId: string): RelayQueueEntry | null => {
@@ -197,6 +250,102 @@ export const releaseOwnedSessionLease = (sessionId: string, clientId: string, le
 
 export const clearSessionLeases = (): void => {
   sessionLeases.clear();
+};
+
+export const registerScreencastOwner = (
+  sessionId: string,
+  screencastId: string,
+  clientId: string
+): ScreencastOwnerState => {
+  if (!sessionId || !sessionId.trim()) {
+    throw new Error("RELAY_SESSION_REQUIRED: sessionId is required");
+  }
+  if (!screencastId || !screencastId.trim()) {
+    throw new Error("RELAY_SCREENCAST_REQUIRED: screencastId is required");
+  }
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+  cleanupScreencastOwners();
+  const createdAt = nowMs();
+  const owner: ScreencastOwnerState = {
+    screencastId: screencastId.trim(),
+    sessionId: sessionId.trim(),
+    clientId: clientId.trim(),
+    createdAt,
+    completedAt: null,
+    lastUsedAt: createdAt
+  };
+  releaseTrackedScreencastOwner(owner.screencastId);
+  screencastOwners.set(owner.screencastId, owner);
+  return owner;
+};
+
+export const getScreencastOwner = (screencastId: string): ScreencastOwnerState | null => {
+  if (!screencastId || !screencastId.trim()) return null;
+  cleanupScreencastOwners();
+  return screencastOwners.get(screencastId) ?? null;
+};
+
+export const touchScreencastOwner = (screencastId: string): ScreencastOwnerState | null => {
+  const owner = getScreencastOwner(screencastId);
+  if (!owner) {
+    return null;
+  }
+  owner.lastUsedAt = nowMs();
+  scheduleScreencastOwnerCleanup(owner);
+  return owner;
+};
+
+export const completeScreencastOwner = (screencastId: string): ScreencastOwnerState | null => {
+  const owner = getScreencastOwner(screencastId);
+  if (!owner) {
+    return null;
+  }
+  const completedAt = nowMs();
+  owner.completedAt = completedAt;
+  owner.lastUsedAt = completedAt;
+  scheduleScreencastOwnerCleanup(owner);
+  return owner;
+};
+
+export const releaseScreencastOwner = (screencastId: string): void => {
+  if (!screencastId || !screencastId.trim()) return;
+  releaseTrackedScreencastOwner(screencastId);
+};
+
+export const clearScreencastOwners = (): void => {
+  for (const screencastId of screencastOwners.keys()) {
+    clearScreencastOwnerCleanup(screencastId);
+  }
+  screencastOwners.clear();
+};
+
+export const requireScreencastOwner = (
+  sessionId: string,
+  screencastId: string,
+  clientId: string
+): ScreencastOwnerState => {
+  if (!sessionId || !sessionId.trim()) {
+    throw new Error("RELAY_SESSION_REQUIRED: sessionId is required");
+  }
+  if (!screencastId || !screencastId.trim()) {
+    throw new Error("RELAY_SCREENCAST_REQUIRED: screencastId is required");
+  }
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+  const owner = getScreencastOwner(screencastId);
+  if (!owner) {
+    throw new Error("RELAY_SCREENCAST_OWNER_REQUIRED: No retained owner for completed screencast retrieval.");
+  }
+  const normalizedSessionId = sessionId.trim();
+  const normalizedClientId = clientId.trim();
+  if (owner.sessionId !== normalizedSessionId || owner.clientId !== normalizedClientId) {
+    throw new Error("RELAY_SCREENCAST_OWNER_INVALID: Screencast does not match the current owner.");
+  }
+  touchScreencastOwner(screencastId);
+  return owner;
 };
 
 export const requireSessionLease = (sessionId: string, clientId: string, leaseId: string | undefined): SessionLeaseState => {

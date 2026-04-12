@@ -10,7 +10,7 @@ import {
 } from "./public-surface-manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export const WORKFLOW_INVENTORY_SCHEMA_VERSION = "2026-04-03";
+export const WORKFLOW_INVENTORY_SCHEMA_VERSION = "2026-04-10";
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
@@ -81,8 +81,15 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "diagnostics",
     label: "Diagnostics",
-    commands: ["session-inspector", "perf", "screenshot", "dialog", "console-poll", "network-poll", "debug-trace-snapshot", "artifacts"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/inspector.ts", "src/cli/commands/devtools", "src/cli/commands/artifacts.ts", "src/browser/session-inspector.ts", "scripts/cli-smoke-test.mjs"],
+    commands: ["session-inspector", "perf", "screenshot", "screencast-start", "screencast-stop", "dialog", "console-poll", "network-poll", "debug-trace-snapshot", "artifacts"],
+    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/inspector.ts", "src/cli/commands/devtools", "src/cli/commands/artifacts.ts", "src/browser/session-inspector.ts", "src/browser/screencast-recorder.ts", "scripts/cli-smoke-test.mjs"],
+    scenarioIds: ["feature.cli.smoke"]
+  },
+  {
+    id: "desktop",
+    label: "Desktop observation",
+    commands: ["desktop-status", "desktop-windows", "desktop-active-window", "desktop-capture-desktop", "desktop-capture-window", "desktop-accessibility-snapshot"],
+    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/desktop", "src/cli/remote-desktop-runtime.ts", "src/desktop/runtime.ts"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -177,7 +184,13 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "diagnostics",
     label: "Diagnostics",
-    members: ["opendevbrowser_session_inspector", "opendevbrowser_console_poll", "opendevbrowser_network_poll", "opendevbrowser_debug_trace_snapshot", "opendevbrowser_perf", "opendevbrowser_screenshot", "opendevbrowser_dialog"],
+    members: ["opendevbrowser_session_inspector", "opendevbrowser_console_poll", "opendevbrowser_network_poll", "opendevbrowser_debug_trace_snapshot", "opendevbrowser_perf", "opendevbrowser_screenshot", "opendevbrowser_screencast_start", "opendevbrowser_screencast_stop", "opendevbrowser_dialog"],
+    scenarioIds: ["feature.cli.smoke"]
+  },
+  {
+    id: "desktop",
+    label: "Desktop observation",
+    members: ["opendevbrowser_desktop_status", "opendevbrowser_desktop_windows", "opendevbrowser_desktop_active_window", "opendevbrowser_desktop_capture_desktop", "opendevbrowser_desktop_capture_window", "opendevbrowser_desktop_accessibility_snapshot"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {

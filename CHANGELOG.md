@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Refreshed README, AGENTS guidance, CLI/extension/privacy docs, and nested README surfaces for the shipped browser replay screencast lane and public read-only desktop observation plane.
+- Updated dependency, asset, and generated-help inventory docs to reflect the current 72-command / 65-tool public surface and the generated manifest/onboarding metadata that now drive discovery flows.
+- Tightened release-facing copy in `CHANGELOG.md`, version-scoped evidence ledgers, and Chrome Web Store listing text so browser replay, desktop observation, and the browser-scoped computer-use lane mirror the generated help wording without implying a desktop agent.
+
 ## [0.0.17] - 2026-03-13
 
 ### Added

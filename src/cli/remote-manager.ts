@@ -331,6 +331,26 @@ export class RemoteManager implements BrowserManagerLike {
     });
   }
 
+  startScreencast(
+    sessionId: string,
+    options: Parameters<BrowserManagerLike["startScreencast"]>[1] = {}
+  ): ReturnType<BrowserManagerLike["startScreencast"]> {
+    return this.client.call<CallResult<"startScreencast">>("page.screencast.start", {
+      sessionId,
+      ...(typeof options.targetId === "string" ? { targetId: options.targetId } : {}),
+      ...(typeof options.outputDir === "string" ? { outputDir: options.outputDir } : {}),
+      ...(typeof options.intervalMs === "number" ? { intervalMs: options.intervalMs } : {}),
+      ...(typeof options.maxFrames === "number" ? { maxFrames: options.maxFrames } : {})
+    });
+  }
+
+  stopScreencast(sessionId: string, screencastId: string): ReturnType<BrowserManagerLike["stopScreencast"]> {
+    return this.client.call<CallResult<"stopScreencast">>("page.screencast.stop", {
+      sessionId,
+      screencastId
+    });
+  }
+
   upload(sessionId: string, input: Parameters<BrowserManagerLike["upload"]>[1]): ReturnType<BrowserManagerLike["upload"]> {
     return this.client.call<CallResult<"upload">>("interact.upload", {
       sessionId,

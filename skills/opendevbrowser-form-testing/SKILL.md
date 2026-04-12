@@ -28,6 +28,12 @@ Use this skill for robust form automation across dynamic, multi-step, challenge-
 ./skills/opendevbrowser-form-testing/scripts/run-form-workflow.sh challenge-checkpoint
 ```
 
+## Supporting Surfaces
+
+- Use browser replay (`screencast-start` / `screencast-stop`) when transient validation, step transitions, or challenge timing need temporal evidence.
+- Use desktop observation only for read-only evidence around OS-owned dialogs such as file choosers or sibling desktop prompts.
+- Use `--challenge-automation-mode off|browser|browser_with_helper` for bounded browser-scoped computer use on submit or challenge branches; it is not desktop automation.
+
 ## Core Rules
 
 - Snapshot first, then act.

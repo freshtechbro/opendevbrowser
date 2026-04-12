@@ -1,11 +1,12 @@
 # Annotate
 
 Status: active  
-Last updated: 2026-03-20
+Last updated: 2026-04-11
 
 OpenDevBrowser can capture interactive annotations either directly via CDP/Playwright or through the extension relay, and
 return a markdown summary plus structured data and screenshots. This is exposed through both the `annotate` CLI command
 and the `opendevbrowser_annotate` tool.
+Generated help surfaces browser replay and desktop observation as separate capability families; annotate remains a browser annotation lane and does not widen challenge automation into desktop control.
 
 ## Requirements
 
@@ -143,6 +144,7 @@ Stored payload retrieval notes:
 - `--stored` / `stored: true` checks the shared repo-local agent inbox first, then falls back to the extension-local stored payload if no shared entry exists.
 - Shared inbox items are written under `.opendevbrowser/annotate/agent-inbox.jsonl` and `.opendevbrowser/annotate/agent-scopes.json`.
 - Shared inbox persistence always strips screenshots and forces `screenshotMode: "none"`; screenshot refs stay in extension-local memory/storage only.
+- Browser replay artifacts from `screencast-start` / `screencast-stop` stay in the replay lane and are never written into the shared inbox or stored annotate payloads.
 - `--include-screenshots` / `includeScreenshots: true` only changes the extension-local fallback path; it prefers the in-memory payload when screenshots are still available and otherwise falls back to the sanitized stored payload without screenshots.
 - Shared inbox retention is bounded to `200` entries total, `50` unread entries, `7` days TTL, and duplicate suppression on the same `(payloadHash, source, label)` within `60` seconds.
 

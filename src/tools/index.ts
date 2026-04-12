@@ -49,7 +49,15 @@ import { createClonePageTool } from "./clone_page";
 import { createCloneComponentTool } from "./clone_component";
 import { createPerfTool } from "./perf";
 import { createScreenshotTool } from "./screenshot";
+import { createScreencastStartTool } from "./screencast_start";
+import { createScreencastStopTool } from "./screencast_stop";
 import { createDialogTool } from "./dialog";
+import { createDesktopStatusTool } from "./desktop_status";
+import { createDesktopWindowsTool } from "./desktop_windows";
+import { createDesktopActiveWindowTool } from "./desktop_active_window";
+import { createDesktopCaptureDesktopTool } from "./desktop_capture_desktop";
+import { createDesktopCaptureWindowTool } from "./desktop_capture_window";
+import { createDesktopAccessibilitySnapshotTool } from "./desktop_accessibility_snapshot";
 import { createAnnotateTool } from "./annotate";
 import { createResearchRunTool } from "./research_run";
 import { createShoppingRunTool } from "./shopping_run";
@@ -133,7 +141,18 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_clone_component: wrap("opendevbrowser_clone_component", createCloneComponentTool(deps)),
     opendevbrowser_perf: wrap("opendevbrowser_perf", createPerfTool(deps)),
     opendevbrowser_screenshot: wrap("opendevbrowser_screenshot", createScreenshotTool(deps)),
+    opendevbrowser_screencast_start: wrap("opendevbrowser_screencast_start", createScreencastStartTool(deps)),
+    opendevbrowser_screencast_stop: wrap("opendevbrowser_screencast_stop", createScreencastStopTool(deps)),
     opendevbrowser_dialog: wrap("opendevbrowser_dialog", createDialogTool(deps)),
+    opendevbrowser_desktop_status: wrap("opendevbrowser_desktop_status", createDesktopStatusTool(deps)),
+    opendevbrowser_desktop_windows: wrap("opendevbrowser_desktop_windows", createDesktopWindowsTool(deps)),
+    opendevbrowser_desktop_active_window: wrap("opendevbrowser_desktop_active_window", createDesktopActiveWindowTool(deps)),
+    opendevbrowser_desktop_capture_desktop: wrap("opendevbrowser_desktop_capture_desktop", createDesktopCaptureDesktopTool(deps)),
+    opendevbrowser_desktop_capture_window: wrap("opendevbrowser_desktop_capture_window", createDesktopCaptureWindowTool(deps)),
+    opendevbrowser_desktop_accessibility_snapshot: wrap(
+      "opendevbrowser_desktop_accessibility_snapshot",
+      createDesktopAccessibilitySnapshotTool(deps)
+    ),
     opendevbrowser_annotate: wrap("opendevbrowser_annotate", createAnnotateTool(deps)),
     opendevbrowser_skill_list: wrap("opendevbrowser_skill_list", createSkillListTool(deps)),
     opendevbrowser_skill_load: wrap("opendevbrowser_skill_load", createSkillLoadTool(deps))

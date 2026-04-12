@@ -54,4 +54,19 @@ describe("provider runtime policy", () => {
       policy: "off"
     });
   });
+
+  it("downgrades requested cookies to auto when config policy is off", () => {
+    const cookiesAuto = resolveProviderRuntimePolicy({
+      source: "web",
+      runtimePolicy: {
+        useCookies: true
+      },
+      configCookiePolicy: "off"
+    });
+
+    expect(cookiesAuto.cookies).toEqual({
+      requested: true,
+      policy: "auto"
+    });
+  });
 });

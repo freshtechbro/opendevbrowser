@@ -2,13 +2,15 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-04-06
+Last updated: 2026-04-12
 
-OpenDevBrowser exposes 57 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 65 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
+That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
-Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts`, which is consumed by `src/cli/help.ts`, `src/cli/args.ts`, and re-exported by `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
+Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts` and `src/public-surface/generated-manifest.json`, which are consumed by `src/cli/help.ts`, `src/cli/args.ts`, inventory scripts, and re-export paths in `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
+The generated first-contact inventory mirrored into downstream website and release flows is tracked in `docs/ASSET_INVENTORY.md`.
 
 Dependency inventory: `docs/DEPENDENCIES.md`
 First-run pre-release onboarding: `docs/FIRST_RUN_ONBOARDING.md`
@@ -137,13 +139,13 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `64`.
-- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, design canvas, export plus session-centric diagnostics, macro/annotation, and internal power (`rpc`).
+- Total commands: `72`.
+- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, browser capture and replay, desktop observation, design canvas, export plus session-centric diagnostics, macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `57` (`opendevbrowser_*`).
-- CLI-tool pairs: `54`.
+- Total tools: `65` (`opendevbrowser_*`).
+- CLI-tool pairs: `62`.
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
@@ -163,7 +165,7 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority used by policy, runtime routing, and workflow summaries. Provider modules only contribute extraction logic and optional `recoveryHints()`.
 - Direct browser, `/ops`, and provider fallback flows share one bounded challenge plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded browser-native interaction experimentation before yielding.
 - The optional helper bridge is browser-scoped, not a desktop agent. `browser` keeps it disabled and `browser_with_helper` only evaluates it after the existing hard gates pass.
-- Separate `desktop.*` config controls the shipped internal sibling desktop observation runtime. It stays permission-off by default, adds no public CLI command family, is never enabled by `challengeAutomationMode`, and only the internal core entrypoint composes observation with browser review.
+- Separate `desktop.*` config controls the shipped public read-only desktop observation plane. It is enabled by default, is never enabled by `challengeAutomationMode`, and does not widen the browser challenge helper into a desktop agent or desktop `/ops` family.
 - Provider and workflow auto-resume still happen only after manager-owned verification clears the blocker.
 - In scope: preserved sessions, visual observation loops, low-level pointer controls, bounded interaction experimentation, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
 - Out of scope: hidden bypass paths, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
@@ -253,11 +255,21 @@ npx opendevbrowser -v
 ```
 
 `--help` and `help` print the same generated first-contact inventory:
+- A `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
+- That block maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`.
 - An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
 - A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current reliable transcript, research, and shopping runbook.
 - A direct pointer to `opendevbrowser_skill_list` when an agent needs a different local skill lane.
+- A browser-scoped computer-use description that makes the optional helper boundary explicit and does not imply a desktop agent.
 - The complete generated CLI command, flag, and `opendevbrowser_*` tool inventories.
 - Canonical pointers to `docs/FIRST_RUN_ONBOARDING.md`, `skills/opendevbrowser-best-practices/SKILL.md`, and `docs/SURFACE_REFERENCE.md`.
+
+Quick lookup terms from generated help:
+- `screencast / browser replay`: `screencast-start`, `screencast-stop`
+- `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`
+
+These first-contact assets are also mirrored as release and website inputs through `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, and `src/public-surface/generated-manifest.json`.
 
 Operational help parity check:
 
@@ -1218,6 +1230,35 @@ Notes:
 - `--timeout-ms` sets client-side daemon timeout for screenshot capture.
 - Default visible capture may still report the existing viewport-only fallback warning when extension capture has to degrade, but ref and full-page requests do not silently reuse that fallback.
 
+### Screencast start
+
+```bash
+npx opendevbrowser screencast-start --session-id <session-id>
+npx opendevbrowser screencast-start \
+  --session-id <session-id> \
+  --target-id <target-id> \
+  --output-dir ./artifacts/replay \
+  --interval-ms 1000 \
+  --max-frames 120
+```
+
+Notes:
+- `screencast-start` is a manager-owned browser replay lane layered on the existing screenshot primitive.
+- The recorder writes `replay.json`, `replay.html`, `frames/`, and `preview.png` into the chosen output directory.
+- `--interval-ms` defaults to `1000` and must be at least `250`.
+- `--max-frames` defaults to `300`.
+
+### Screencast stop
+
+```bash
+npx opendevbrowser screencast-stop --session-id <session-id> --screencast-id <screencast-id>
+```
+
+Notes:
+- `--session-id` and `--screencast-id` are both required.
+- `--screencast-id` must match the id returned by `screencast-start` for that same session.
+- Stop returns the final artifact metadata, including replay paths and the terminal `endedReason`.
+
 ### Dialog
 
 ```bash
@@ -1275,6 +1316,59 @@ Notes:
 - Returns session status, relay health, target summary, proof artifact metadata, `healthState`, and a suggested next action in one payload.
 - `--include-urls` keeps target URLs in the target summary. Omit it to use the default runtime behavior.
 - `--since-console-seq`, `--since-network-seq`, `--since-exception-seq`, and `--max` mirror the trace cursors used by `debug-trace-snapshot`.
+
+---
+
+## Desktop observation commands (daemon required)
+
+These commands expose the sibling `DesktopRuntimeLike` observation plane directly. They are read-only, return audit metadata on both success and failure, and are gated by separate `desktop.*` config plus local OS permissions.
+
+### Desktop status
+
+```bash
+npx opendevbrowser desktop-status
+```
+
+### Desktop windows
+
+```bash
+npx opendevbrowser desktop-windows --reason "inspect visible windows before capture"
+```
+
+### Desktop active window
+
+```bash
+npx opendevbrowser desktop-active-window --reason "inspect current foreground window"
+```
+
+### Desktop capture desktop
+
+```bash
+npx opendevbrowser desktop-capture-desktop --reason "capture current desktop surface"
+```
+
+### Desktop capture window
+
+```bash
+npx opendevbrowser desktop-capture-window --window-id <window-id> --reason "capture a specific window"
+```
+
+### Desktop accessibility snapshot
+
+```bash
+npx opendevbrowser desktop-accessibility-snapshot --reason "capture accessibility tree"
+npx opendevbrowser desktop-accessibility-snapshot --window-id <window-id> --reason "capture one window accessibility tree"
+```
+
+Notes:
+- On supported macOS hosts, availability, window inventory, and accessibility probes require the local `swift` command. If `desktop-status` returns `desktop_unsupported` on macOS, install Xcode or a Swift toolchain and retry.
+- Desktop screenshots still use the built-in `screencapture` utility.
+- `desktop-status` reports availability, permissions, capabilities, and the configured audit artifacts directory.
+- `desktop-windows` and `desktop-active-window` accept optional `--reason` values for audit context.
+- `desktop-capture-desktop`, `desktop-capture-window`, and `desktop-accessibility-snapshot` require `--reason`.
+- `desktop-capture-window` requires `--window-id`.
+- `desktop-accessibility-snapshot` accepts an optional `--window-id`.
+- This plane is public and observe-only. It is not a desktop agent and does not create a desktop `/ops` family.
 
 ---
 
@@ -1431,15 +1525,28 @@ Notes:
 | `--path` | `screenshot` | Output file path |
 | `--ref` | `screenshot` | Capture an element screenshot by ref |
 | `--full-page` | `screenshot` | Capture the full scrollable page |
+| `--target-id` | `screencast-start` | Optional target override for screencast capture |
+| `--output-dir` | `screencast-start` | Directory where screencast replay artifacts are written |
+| `--interval-ms` | `screencast-start` | Frame capture interval in ms (minimum `250`) |
+| `--max-frames` | `screencast-start` | Maximum frame count before auto-stop |
+| `--screencast-id` | `screencast-stop` | Screencast id returned by `screencast-start` for the same session |
 | `--action` | `dialog` | Dialog action: `status`, `accept`, or `dismiss` |
 | `--prompt-text` | `dialog` | Prompt text to submit when accepting a prompt dialog |
-| `--timeout-ms` | `screenshot` | Explicit client-side daemon call timeout in ms |
+| `--timeout-ms` | `screenshot`, `screencast-start`, `screencast-stop` | Explicit client-side daemon call timeout in ms |
 | `--timeout-ms` | `dialog` | Client-side daemon call timeout in ms; defaults to 30s |
 | `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
 | `--since-console-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for console channel |
 | `--since-network-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for network channel |
 | `--since-exception-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for exception channel |
 | `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector` | Max events to return per channel |
+
+**Desktop observation**
+
+| Flag | Used by | Description |
+|------|---------|-------------|
+| `--reason` | `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` | Audit reason recorded with desktop observation results |
+| `--window-id` | `desktop-capture-window`, `desktop-accessibility-snapshot` | Window id for direct window capture or accessibility requests |
+| `--timeout-ms` | all `desktop-*` commands | Client-side daemon call timeout in ms |
 
 ---
 
@@ -1630,7 +1737,7 @@ When using `--with-config`, a `opendevbrowser.jsonc` is created with documented 
     }
   },
   "desktop": {
-    "permissionLevel": "off",
+    "permissionLevel": "observe",
     "commandTimeoutMs": 10000,
     "auditArtifactsDir": ".opendevbrowser/desktop-runtime",
     "accessibilityMaxDepth": 2,

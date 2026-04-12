@@ -1,14 +1,14 @@
 # First-Run Onboarding (Pre-Release)
 
 Status: active  
-Last updated: 2026-04-06
+Last updated: 2026-04-12
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user **before npm distribution is live**.
 
 ## What this validates
 
 1. Install command from a local package artifact.
-2. Help-led onboarding path from generated help to best-practices quick-start guidance.
+2. Help-led onboarding path from generated help to the `Find It Fast` lookup terms and best-practices quick-start guidance.
 3. Managed-skill lifecycle proof for first-time install, reinstall, update, and uninstall cleanup.
 4. Daemon start/stop command.
 5. Extension load path + connection checks.
@@ -20,6 +20,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 - Node.js `>=18`
 - Chrome 125+
 - Repository available locally
+- If you plan to validate desktop observation, use macOS with the local `swift` command available via Xcode or another Swift toolchain
 
 ## 1) Build a local install artifact
 
@@ -52,12 +53,23 @@ npx --no-install opendevbrowser help
 
 Expected:
 - both commands print the same generated help output
-- help opens with an `Agent Quick Start` block
+- help opens with a `Find It Fast` block before `Agent Quick Start`
+- the `Find It Fast` block includes the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`
+- the block maps replay to `screencast-start` / `screencast-stop`
+- the block maps desktop observation to the public `desktop-*` family
+- the block maps browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`
+- help then opens the `Agent Quick Start` block
 - the block explicitly points agents to `opendevbrowser_prompting_guide`
 - the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`
 - the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"`
 - the block explicitly points agents to `opendevbrowser_skill_list` for alternate local workflow lanes
 - the block points to `docs/FIRST_RUN_ONBOARDING.md` for proof and `skills/opendevbrowser-best-practices/SKILL.md` as the canonical bundled runbook
+
+Optional terminal proof:
+
+```bash
+npx --no-install opendevbrowser --help | grep -E "screencast / browser replay|desktop observation|computer use / browser-scoped computer use|screencast-start|desktop-status|challenge-automation-mode"
+```
 
 ## 2c) Validate the currently reliable workflow lanes
 

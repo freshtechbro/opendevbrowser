@@ -8,6 +8,7 @@ Extends root `AGENTS.md`. Nearest file takes precedence.
 src/
 ├── index.ts              # Plugin entry, exports OpenDevBrowserPlugin
 ├── config.ts             # Zod schema, loadConfig()
+├── automation/           # Cross-runtime automation coordinator helpers
 ├── canvas/               # Canvas document store, repo IO, code-sync, export helpers
 ├── core/
 │   └── bootstrap.ts      # createOpenDevBrowserCore() → ToolDeps
@@ -19,7 +20,11 @@ src/
 │   └── target-manager.ts    # Tab management, active tracking
 ├── providers/            # Provider runtime, policy, workflows, browser fallback
 ├── challenges/           # Bounded challenge orchestration plane, evidence, recovery lanes
-├── tools/                # 57 tool definitions (see tools/AGENTS.md)
+├── desktop/              # Read-only desktop observation runtime (see desktop/AGENTS.md)
+├── integrations/         # External integration adapters (for example Figma)
+├── macros/               # Macro registry, execution, provider expansion
+├── public-surface/       # Generated CLI/tool inventory metadata
+├── tools/                # 65 tool definitions (see tools/AGENTS.md)
 ├── snapshot/             # AX-tree capture, RefStore
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
@@ -38,6 +43,7 @@ src/
 | Module | Responsibility |
 |--------|----------------|
 | `annotate/` | Direct/relay annotation transport, repo-local shared inbox delivery, and output formatting |
+| `automation/` | Cross-runtime automation coordinator that composes desktop observation back through browser verification |
 | `browser/` | BrowserManager, OpsBrowserManager, CanvasManager, TargetManager, AnnotationManager, preview/code-sync coordination, CDP lifecycle. See `browser/AGENTS.md` |
 | `cache/` | Chrome executable resolution |
 | `canvas/` | Canvas document store, validation, repo persistence, built-in kit and starter catalogs, framework or library adapters, repo-local BYO plugin loading, and code-sync helpers. See `canvas/AGENTS.md` |
@@ -45,15 +51,17 @@ src/
 | `cli/` | CLI commands, installers, daemon autostart + hub tooling. See `cli/AGENTS.md` |
 | `cli/` (hub) | Daemon lifecycle, FIFO lease queue, relay status refresh |
 | `core/` | Bootstrap, runtime wiring |
+| `desktop/` | Read-only desktop observation: surface capture, window listing, accessibility snapshot. See `desktop/AGENTS.md` |
 | `devtools/` | Console/network trackers, redaction |
 | `export/` | DOM capture, React emitter, sanitization |
 | `integrations/` | External integration adapters such as Figma import and normalization |
 | `macros/` | Macro registry, execution, and provider action expansion |
 | `providers/` | Tier routing, blocker policy, browser fallback, workflow orchestration. See `providers/AGENTS.md` |
+| `public-surface/` | Canonical public CLI/tool/help metadata consumed by generated manifests and docs |
 | `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
 | `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
 | `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |
-| `tools/` | 57 tool definitions (thin wrappers). See `tools/AGENTS.md` |
+| `tools/` | 65 tool definitions (thin wrappers). See `tools/AGENTS.md` |
 | `utils/` | Shared utilities |
 
 ## Manager Pattern
@@ -80,12 +88,14 @@ class BrowserManager {
 
 ```
 bootstrap.ts
-  ├── Creates: BrowserManager, AnnotationManager, AgentInbox, CanvasManager, ScriptRunner, SkillLoader, RelayServer, providerRuntime
+  ├── Creates: BrowserManager, AnnotationManager, AgentInbox, CanvasManager, ScriptRunner, SkillLoader, RelayServer, providerRuntime, desktopRuntime, automationCoordinator
   └── Returns: ToolDeps interface
         ├── manager
         ├── canvasManager
         ├── annotationManager
         ├── agentInbox
+        ├── desktopRuntime
+        ├── automationCoordinator
         ├── runner
         ├── skills
         ├── providerRuntime / browserFallbackPort?

@@ -24,6 +24,9 @@ import {
   releaseRelay,
   renewRelay,
   requireBinding,
+  completeScreencastOwner,
+  registerScreencastOwner,
+  requireScreencastOwner,
   registerSessionLease,
   getSessionLease,
   requireSessionLease,
@@ -139,6 +142,26 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         relayStatus: core.relay.status()
       });
     }
+    case "desktop.status":
+      return core.desktopRuntime.status();
+    case "desktop.windows.list":
+      return core.desktopRuntime.listWindows(optionalString(params.reason));
+    case "desktop.window.active":
+      return core.desktopRuntime.activeWindow(optionalString(params.reason));
+    case "desktop.capture.desktop":
+      return core.desktopRuntime.captureDesktop({
+        reason: requireString(params.reason, "reason")
+      });
+    case "desktop.capture.window":
+      return core.desktopRuntime.captureWindow(
+        requireString(params.windowId, "windowId"),
+        { reason: requireString(params.reason, "reason") }
+      );
+    case "desktop.accessibility.snapshot":
+      return core.desktopRuntime.accessibilitySnapshot(
+        requireString(params.reason, "reason"),
+        optionalString(params.windowId)
+      );
     case "annotate": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
       const sessionId = requireString(params.sessionId, "sessionId");
@@ -513,6 +536,31 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           ...(params.fullPage === true ? { fullPage: true } : {})
         }
       );
+    case "page.screencast.start":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const screencastOwnerClientId = requireClientId(params);
+      const screencast = await core.manager.startScreencast(
+        requireString(params.sessionId, "sessionId"),
+        {
+          targetId: optionalString(params.targetId),
+          outputDir: optionalString(params.outputDir),
+          intervalMs: optionalNumber(params.intervalMs, "intervalMs") ?? undefined,
+          maxFrames: optionalNumber(params.maxFrames, "maxFrames") ?? undefined
+        }
+      );
+      registerScreencastOwner(screencast.sessionId, screencast.screencastId, screencastOwnerClientId);
+      core.manager.monitorScreencastCompletion?.(screencast.screencastId, () => {
+        completeScreencastOwner(screencast.screencastId);
+      });
+      return screencast;
+    case "page.screencast.stop":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      const screencastResult = await core.manager.stopScreencast(
+        requireString(params.sessionId, "sessionId"),
+        requireString(params.screencastId, "screencastId")
+      );
+      completeScreencastOwner(screencastResult.screencastId);
+      return screencastResult;
     case "page.dialog":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.dialog(
@@ -1020,7 +1068,7 @@ async function disconnectSession(
 async function authorizeSessionCommand(
   core: OpenDevBrowserCore,
   params: Record<string, unknown>,
-  _commandName: string,
+  commandName: string,
   bindingId?: string
 ): Promise<void> {
   const sessionId = optionalString(params.sessionId);
@@ -1031,7 +1079,20 @@ async function authorizeSessionCommand(
     requireSessionLease(sessionId, clientId, optionalString(params.leaseId));
     return;
   }
-  const status = await core.manager.status(sessionId);
+  let status: Awaited<ReturnType<OpenDevBrowserCore["manager"]["status"]>>;
+  try {
+    status = await core.manager.status(sessionId);
+  } catch (error) {
+    if (canStopCompletedScreencastWithoutLiveSession(commandName, error)) {
+      requireScreencastOwner(
+        sessionId,
+        requireString(params.screencastId, "screencastId"),
+        clientId
+      );
+      return;
+    }
+    throw error;
+  }
   if (status.mode !== "extension") {
     return;
   }
@@ -1122,6 +1183,14 @@ function isIgnorableDisconnectStatusError(message: string): boolean {
   return message.includes("[invalid_session]")
     || message.includes("Unknown ops session")
     || message.includes("Ops client not connected");
+}
+
+function canStopCompletedScreencastWithoutLiveSession(commandName: string, error: unknown): boolean {
+  if (commandName !== "page.screencast.stop") {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return isIgnorableDisconnectStatusError(message);
 }
 
 function isStaleExtensionSessionError(message: string): boolean {

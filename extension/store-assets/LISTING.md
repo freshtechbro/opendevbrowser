@@ -27,18 +27,23 @@
 
 ### Detailed Description
 
-OpenDevBrowser Relay connects OpenDevBrowser to the Chrome tabs you already have open. It lets the runtime attach to a real headed browser session, reuse logged-in state, inspect the page, drive actions, and capture annotations without launching a separate browser.
+OpenDevBrowser Relay connects OpenDevBrowser to the Chrome tabs you already have open. It lets the runtime attach to a real headed browser session, reuse logged-in state, inspect the page, drive actions, capture annotations, and participate in local browser replay capture without launching a separate browser.
+Generated help in the public package also surfaces adjacent runtime lanes for browser replay, public read-only desktop observation, and browser-scoped challenge handling. This extension participates in the relay-backed browser lane only; it is not a desktop agent.
 
 What it delivers today:
 - Reuses existing Chrome tabs through a local relay on `127.0.0.1`
 - Attaches Chrome DevTools Protocol with `debugger` for inspect and action loops
 - Injects page-side helpers with `scripting` for annotation, DOM capture, and in-tab automation
+- Participates in user-triggered local browser replay capture through the existing screenshot lane
 - Stores relay settings plus the last local annotation payload metadata so the popup can reconnect and reopen recent results
 - Shows relay, handshake, annotate, injected, `CDP`, pairing, and native fallback health directly in the popup
 
 Important behavior notes:
 - The relay and optional native host stay on-device
 - OpenDevBrowser does not send browsing data, page content, or annotation payloads to the developer or third-party analytics services
+- Browser replay manifests, preview images, and sampled frames stay on-device in the chosen output directory
+- Public desktop observation is a separate read-only core runtime lane and is not provided by this extension
+- Bounded challenge automation remains browser-scoped and does not turn the extension into a desktop-control surface
 - The extension can act on user-opened sites because it needs `<all_urls>` for automation, annotation, DOM capture, and screenshot fallback
 - Restricted pages such as `chrome://`, `chrome-extension://`, and Chrome Web Store pages are not supported targets
 
@@ -103,6 +108,8 @@ Use these answers as the starting point for the current Chrome Web Store dashboa
 ### Data Handling Summary
 
 - The extension may access page URLs, titles, page content, and screenshots locally when the user runs automation or annotation flows.
+- The extension may participate in user-triggered browser replay capture locally; replay manifests, preview images, and sampled frames stay on-device in the chosen output directory.
+- The extension does not capture desktop data; any separate desktop observation flow is read-only and handled by the local core runtime rather than the extension.
 - The extension stores relay settings, pairing state, relay identity metadata, and the last local annotation payload metadata on-device.
 - The extension does not sell browsing data.
 - The extension does not send browsing data, page content, or annotation payloads to the developer or third-party analytics services.
@@ -121,6 +128,7 @@ Use these answers as the starting point for the current Chrome Web Store dashboa
 - Website content
 - Page URLs and titles
 - User-triggered screenshots / visible-tab captures
+- Local replay artifacts
 - Extension settings and pairing state
 - Local annotation payload metadata
 
@@ -160,26 +168,32 @@ Use these answers as the starting point for the current Chrome Web Store dashboa
 
 - The extension cannot attach to `chrome://`, `chrome-extension://`, or Chrome Web Store pages.
 - The extension’s relay/native-host paths are local-only.
+- Desktop observation is a separate read-only runtime lane and should not be interpreted as an extension-owned desktop-control feature.
 - `<all_urls>` is needed because the feature works on whichever user-opened site is the current automation target.
 
 ## Asset Checklist
 
 ### Screenshots
 
+All store screenshots should come from the live built extension capture flow in `node scripts/generate-store-assets.mjs`. Do not replace them with staged popup DOM mocks or invented diagnostics.
+
 1. `screenshot-popup-connected.png`
-   - Full current popup
-   - `Connected` status pill
-   - Settings, diagnostics, annotation panel, and `Disconnect` CTA visible
+   - Live built popup capture in the connected state
+   - Real `Connected` status pill from the unpacked extension
+   - Current settings, diagnostics, annotation panel, and `Disconnect` CTA visible
 
 2. `screenshot-popup-disconnected.png`
-   - Full current popup
-   - `Disconnected` status pill
-   - Default relay settings visible
-   - Diagnostics and annotation panel still visible
+   - Live built popup capture after a real disconnect action
+   - Real `Disconnected` status pill from the unpacked extension
+   - Default relay settings, diagnostics, and annotation panel still visible
 
 3. `screenshot-automation-demo.png`
-   - OpenDevBrowser driving a real Chrome tab through the local relay
-   - OpenCode / terminal action on one side and the browser outcome on the other
+   - Full extension page shown in-browser with the live connected popup layered in
+   - Uses the shipped `canvas.html` surface plus the current popup to show the broader extension workspace
+
+4. `screenshot-canvas.png` (optional extra store screenshot)
+   - Full `canvas.html` extension page in a normal Chrome tab
+   - Shows the current canvas workspace, annotation tools, and side panels from the live page capture
 
 ### Promo Images
 

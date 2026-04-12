@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-04-03
+Last updated: 2026-04-12
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/public-surface/source.ts`
@@ -22,11 +22,12 @@ Operational mirror:
 
 First-contact note:
 - Start with generated help and `docs/FIRST_RUN_ONBOARDING.md`; this page stays inventory-only.
+- Generated help now leads with a `Find It Fast` block for `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; this page stays inventory-only.
 - Installer lifecycle owns refresh and cleanup of the 9 canonical bundled skill packs; this page stays inventory-only.
 
 ---
 
-## CLI Command Inventory (64)
+## CLI Command Inventory (72)
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
@@ -91,14 +92,29 @@ First-contact note:
 - `dom-enabled` - Check enabled state for a ref.
 - `dom-checked` - Check checked state for a ref.
 
+### Browser capture (3)
+- `screenshot` - Capture a still browser image.
+- `screencast-start` - Start a browser replay capture that samples the existing screenshot lane.
+- `screencast-stop` - Finalize and retrieve a browser replay capture by session and screencast id.
+
+### Desktop observation (6)
+- `desktop-status` - Inspect sibling desktop observation availability.
+- `desktop-windows` - List observable desktop windows.
+- `desktop-active-window` - Inspect the active desktop window.
+- `desktop-capture-desktop` - Capture the current desktop surface.
+- `desktop-capture-window` - Capture a specific desktop window.
+- `desktop-accessibility-snapshot` - Capture desktop accessibility state.
+
+Operational note:
+- On macOS, this plane requires the local `swift` command for availability, window, and accessibility probes; missing `swift` surfaces `desktop_unsupported`.
+
 ### Design canvas (1)
 - `canvas` - Execute a design-canvas command.
 
-### Export, diagnostics, macro, annotation, power (12)
+### Export, diagnostics, macro, annotation, power (11)
 - `clone-page` - Clone the active page to React.
 - `clone-component` - Clone a component by ref.
 - `perf` - Capture performance metrics.
-- `screenshot` - Capture a screenshot.
 - `dialog` - Inspect or handle a JavaScript dialog.
 - `console-poll` - Poll console events.
 - `network-poll` - Poll network events.
@@ -110,7 +126,7 @@ First-contact note:
 
 ---
 
-## Tool Inventory (57)
+## Tool Inventory (65)
 
 ### Session and cookies (6)
 - `opendevbrowser_launch` - Launch a managed browser session.
@@ -159,13 +175,25 @@ First-contact note:
 - `opendevbrowser_is_enabled` - Check ref enabled state.
 - `opendevbrowser_is_checked` - Check ref checked state.
 
-### Diagnostics and export (10)
+### Browser capture (3)
+- `opendevbrowser_screenshot` - Capture a page screenshot.
+- `opendevbrowser_screencast_start` - Start a browser replay screencast capture.
+- `opendevbrowser_screencast_stop` - Stop a browser replay screencast capture and return artifact metadata.
+
+### Desktop observation (6)
+- `opendevbrowser_desktop_status` - Inspect public read-only desktop observation availability.
+- `opendevbrowser_desktop_windows` - List windows exposed by the public read-only desktop observation plane.
+- `opendevbrowser_desktop_active_window` - Inspect the active window through the public read-only desktop observation plane.
+- `opendevbrowser_desktop_capture_desktop` - Capture the current desktop surface through the public read-only desktop observation plane.
+- `opendevbrowser_desktop_capture_window` - Capture a specific window through the public read-only desktop observation plane.
+- `opendevbrowser_desktop_accessibility_snapshot` - Capture desktop accessibility state through the public read-only desktop observation plane.
+
+### Diagnostics and export (9)
 - `opendevbrowser_console_poll` - Poll redacted console events.
 - `opendevbrowser_network_poll` - Poll redacted network events.
 - `opendevbrowser_debug_trace_snapshot` - Capture page, console, and network diagnostics.
 - `opendevbrowser_session_inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
 - `opendevbrowser_perf` - Collect browser performance metrics.
-- `opendevbrowser_screenshot` - Capture a page screenshot.
 - `opendevbrowser_dialog` - Inspect or handle a JavaScript dialog.
 - `opendevbrowser_clone_page` - Export the active page into React code.
 - `opendevbrowser_clone_component` - Export a component by ref into React code.
@@ -294,7 +322,7 @@ Envelope contract:
 - Effective precedence is `run > session > config`.
 - Shipped config defaults resolve to helper-capable posture: `mode=browser_with_helper` and `optionalComputerUseBridge.enabled=true`.
 - The optional helper bridge stays browser-scoped and is not a desktop agent.
-- Separate `desktop.*` config gates the shipped internal sibling desktop observation runtime, but no public desktop CLI, tool, or `/ops` family is exposed and browser review remains the surfaced truth.
+- Separate `desktop.*` config gates the shipped public read-only desktop observation CLI and tool plane, while browser review remains the surfaced truth for challenge automation. No public desktop agent or desktop `/ops` family exists.
 - Provider browser fallback uses explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, and `failed`, and may include `details.challengeOrchestration` when the shared challenge plane ran during fallback.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Workflow outputs keep their existing keys while reading registry-backed pressure instead of provider-local durable state.
 

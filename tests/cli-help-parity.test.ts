@@ -41,6 +41,56 @@ describe("cli help parity", () => {
     ]));
   });
 
+  it("includes screencast and desktop public-surface entries", () => {
+    const commandNames = HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands]);
+    const toolNames = HELP_TOOL_ENTRIES.map((entry) => entry.name);
+
+    expect(commandNames).toEqual(expect.arrayContaining([
+      "screencast-start",
+      "screencast-stop",
+      "desktop-status",
+      "desktop-windows",
+      "desktop-active-window",
+      "desktop-capture-desktop",
+      "desktop-capture-window",
+      "desktop-accessibility-snapshot"
+    ]));
+    expect(HELP_COMMAND_GROUPS.find((group) => group.title === "Browser Replay")?.commands).toEqual([
+      "screencast-start",
+      "screencast-stop"
+    ]);
+    expect(HELP_COMMAND_GROUPS.find((group) => group.title === "Desktop Observation")?.commands).toEqual([
+      "desktop-status",
+      "desktop-windows",
+      "desktop-active-window",
+      "desktop-capture-desktop",
+      "desktop-capture-window",
+      "desktop-accessibility-snapshot"
+    ]);
+    expect(HELP_COMMAND_GROUPS.find((group) => group.title === "Desktop Observation")?.summary).toContain("swift command");
+    expect(HELP_COMMAND_GROUPS.find((group) => group.title === "Desktop Observation")?.summary).toContain("screencapture");
+    expect(toolNames).toEqual(expect.arrayContaining([
+      "opendevbrowser_screencast_start",
+      "opendevbrowser_screencast_stop",
+      "opendevbrowser_desktop_status",
+      "opendevbrowser_desktop_windows",
+      "opendevbrowser_desktop_active_window",
+      "opendevbrowser_desktop_capture_desktop",
+      "opendevbrowser_desktop_capture_window",
+      "opendevbrowser_desktop_accessibility_snapshot"
+    ]));
+    expect(COMMAND_HELP_DETAILS["screencast-start"].flags).toEqual(expect.arrayContaining([
+      "--output-dir",
+      "--interval-ms",
+      "--max-frames"
+    ]));
+    expect(COMMAND_HELP_DETAILS["desktop-capture-window"].flags).toEqual(expect.arrayContaining([
+      "--window-id",
+      "--reason",
+      "--timeout-ms"
+    ]));
+  });
+
   it("keeps runtime command registration aligned with the declared CLI inventory", () => {
     const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
     const registeredNames = [...source.matchAll(/registerCommand\(\{\s*name:\s*"([^"]+)"/gs)].map((match) => match[1]);

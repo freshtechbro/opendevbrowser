@@ -35,6 +35,9 @@ import type {
   BrowserDialogResult,
   BrowserDialogState,
   BrowserResponseMeta,
+  BrowserScreencastResult,
+  BrowserScreencastSession,
+  BrowserScreencastStartOptions,
   BrowserScreenshotOptions,
   BrowserScreenshotResult,
   BrowserUploadInput,
@@ -42,6 +45,7 @@ import type {
   ChallengeRuntimeHandle,
   SessionInspectorHandle
 } from "./manager-types";
+import { SCREENCAST_RETENTION_MS } from "./manager-types";
 import {
   evaluateTier1Coherence,
   formatTier1Warnings,
@@ -75,6 +79,7 @@ import {
 import { loadChromium } from "./playwright-runtime";
 import { loadSystemChromeCookies } from "./system-chrome-cookies";
 import { GlobalChallengeCoordinator } from "./global-challenge-coordinator";
+import { BrowserScreencastRecorder } from "./screencast-recorder";
 
 export type LaunchOptions = {
   profile?: string;
@@ -441,6 +446,12 @@ export class BrowserManager {
   private readonly challengeCoordinator = new GlobalChallengeCoordinator();
   private challengeOrchestrator?: ChallengeOrchestrator;
   private readonly challengeAutomationSuppression = new Map<string, number>();
+  private readonly activeScreencasts = new Map<string, BrowserScreencastRecorder>();
+  private readonly completedScreencasts = new Map<string, BrowserScreencastResult>();
+  private readonly completedScreencastCleanupTimers = new Map<string, NodeJS.Timeout>();
+  private readonly screencastCompletionListeners = new Map<string, Set<(result: BrowserScreencastResult) => void>>();
+  private readonly screencastIdsBySession = new Map<string, Set<string>>();
+  private readonly screencastIdsByTarget = new Map<string, string>();
 
   constructor(worktree: string, config: OpenDevBrowserConfig) {
     this.worktree = worktree;
@@ -792,6 +803,11 @@ export class BrowserManager {
     const cleanupErrors: unknown[] = [];
 
     try {
+      try {
+        await this.finalizeSessionScreencasts(sessionId);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
       for (const entry of managed.targets.listPageEntries()) {
         const cleanup = this.pageListeners.get(entry.page);
         if (cleanup) {
@@ -2020,6 +2036,121 @@ export class BrowserManager {
         }
         return fallback;
       }
+    });
+  }
+
+  async startScreencast(
+    sessionId: string,
+    options: BrowserScreencastStartOptions = {}
+  ): Promise<BrowserScreencastSession> {
+    return await this.runStructural(sessionId, async () => {
+      const managed = this.getManaged(sessionId);
+      const { targetId } = this.resolveTargetContext(managed, options.targetId);
+      this.assertNoActiveScreencast(sessionId, targetId);
+      const recorder = new BrowserScreencastRecorder({
+        worktree: this.worktree,
+        sessionId,
+        targetId,
+        options,
+        captureFrame: async (path) => await this.captureScreencastFrame(sessionId, targetId, path)
+      });
+      this.trackScreencast(recorder);
+      try {
+        const screencast = await recorder.start();
+        if (recorder.isComplete()) {
+          this.storeCompletedScreencast(await recorder.resultPromise);
+        } else {
+          this.observeTrackedScreencast(recorder);
+        }
+        return screencast;
+      } catch (error) {
+        this.clearTrackedScreencast(recorder.screencastId);
+        throw error;
+      }
+    });
+  }
+
+  async stopScreencast(sessionId: string, screencastId: string): Promise<BrowserScreencastResult> {
+    const active = this.activeScreencasts.get(screencastId);
+    if (active) {
+      if (active.sessionId !== sessionId) {
+        throw new Error(`[invalid_screencast] Screencast ${screencastId} does not belong to session ${sessionId}`);
+      }
+      const result = await active.stop("stopped");
+      this.storeCompletedScreencast(result);
+      return result;
+    }
+    const completed = this.completedScreencasts.get(screencastId);
+    if (!completed) {
+      throw new Error(`[invalid_screencast] Unknown screencastId: ${screencastId}`);
+    }
+    if (completed.sessionId !== sessionId) {
+      throw new Error(`[invalid_screencast] Screencast ${screencastId} does not belong to session ${sessionId}`);
+    }
+    return completed;
+  }
+
+  monitorScreencastCompletion(
+    screencastId: string,
+    listener: (result: BrowserScreencastResult) => void
+  ): () => void {
+    const completed = this.completedScreencasts.get(screencastId);
+    if (completed) {
+      listener(completed);
+      return () => {};
+    }
+    const listeners = this.screencastCompletionListeners.get(screencastId) ?? new Set();
+    listeners.add(listener);
+    this.screencastCompletionListeners.set(screencastId, listeners);
+    return () => {
+      const registered = this.screencastCompletionListeners.get(screencastId);
+      if (!registered) {
+        return;
+      }
+      registered.delete(listener);
+      if (registered.size === 0) {
+        this.screencastCompletionListeners.delete(screencastId);
+      }
+    };
+  }
+
+  private async captureScreencastFrame(
+    sessionId: string,
+    targetId: string,
+    path: string
+  ): Promise<{ url?: string; title?: string; warnings?: string[] }> {
+    return await this.runTargetScoped(sessionId, targetId, async ({ managed, targetId: resolvedTargetId, page }) => {
+      let activePage = page;
+      try {
+        managed.targets.syncPages(managed.context.pages());
+        activePage = managed.targets.getPage(resolvedTargetId);
+      } catch {
+        activePage = page;
+      }
+
+      let warnings: string[] | undefined;
+      try {
+        await this.withLegacyExtensionOperationTimeout(
+          managed,
+          activePage.screenshot({ type: "png", path }),
+          `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
+        );
+      } catch (error) {
+        const fallback = await this.captureScreenshotViaCdp(managed, activePage, error, { path });
+        if (!fallback) {
+          throw error;
+        }
+        await writeFile(path, Buffer.from(fallback.base64, "base64"));
+        warnings = fallback.warnings;
+      }
+
+      const url = this.safePageUrl(activePage, "BrowserManager.captureScreencastFrame");
+      const title = await this.safeManagedPageTitle(managed, activePage, "BrowserManager.captureScreencastFrame");
+      return {
+        ...(url ? { url } : {}),
+        ...(title ? { title } : {}),
+        ...(warnings ? { warnings } : {})
+      };
     });
   }
 
@@ -3388,14 +3519,142 @@ export class BrowserManager {
     }
   }
 
-  private resolveTargetContext(
+  private screencastTargetKey(sessionId: string, targetId: string): string {
+    return `${sessionId}:${targetId}`;
+  }
+
+  private assertNoActiveScreencast(sessionId: string, targetId: string): void {
+    if (this.screencastIdsByTarget.has(this.screencastTargetKey(sessionId, targetId))) {
+      throw new Error(`Screencast already active for target ${targetId}.`);
+    }
+  }
+
+  private trackScreencast(recorder: BrowserScreencastRecorder): void {
+    const { screencastId, sessionId, targetId } = recorder;
+    this.activeScreencasts.set(screencastId, recorder);
+    this.screencastIdsByTarget.set(this.screencastTargetKey(sessionId, targetId), screencastId);
+    const sessionScreencasts = this.screencastIdsBySession.get(sessionId) ?? new Set<string>();
+    sessionScreencasts.add(screencastId);
+    this.screencastIdsBySession.set(sessionId, sessionScreencasts);
+  }
+
+  private observeTrackedScreencast(recorder: BrowserScreencastRecorder): void {
+    const { screencastId, sessionId, targetId } = recorder;
+    void recorder.resultPromise.then((result) => {
+      this.storeCompletedScreencast(result);
+    }).catch((error: unknown) => {
+      this.logger.warn("screencast.result.failed", {
+        sessionId,
+        data: {
+          screencastId,
+          targetId,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      });
+      this.clearTrackedScreencast(screencastId);
+    });
+  }
+
+  private storeCompletedScreencast(result: BrowserScreencastResult): void {
+    this.completedScreencasts.set(result.screencastId, result);
+    this.scheduleCompletedScreencastCleanup(result);
+    const listeners = this.screencastCompletionListeners.get(result.screencastId);
+    if (listeners) {
+      for (const listener of listeners) {
+        listener(result);
+      }
+      this.screencastCompletionListeners.delete(result.screencastId);
+    }
+    this.clearTrackedScreencast(result.screencastId);
+  }
+
+  private scheduleCompletedScreencastCleanup(result: BrowserScreencastResult): void {
+    this.clearCompletedScreencastCleanup(result.screencastId);
+    const timer = setTimeout(() => {
+      if (this.completedScreencasts.get(result.screencastId) === result) {
+        this.completedScreencasts.delete(result.screencastId);
+      }
+      this.completedScreencastCleanupTimers.delete(result.screencastId);
+    }, SCREENCAST_RETENTION_MS);
+    timer.unref?.();
+    this.completedScreencastCleanupTimers.set(result.screencastId, timer);
+  }
+
+  private clearCompletedScreencastCleanup(screencastId: string): void {
+    const timer = this.completedScreencastCleanupTimers.get(screencastId);
+    if (!timer) {
+      return;
+    }
+    clearTimeout(timer);
+    this.completedScreencastCleanupTimers.delete(screencastId);
+  }
+
+  private evictCompletedScreencast(screencastId: string): void {
+    this.clearCompletedScreencastCleanup(screencastId);
+    this.completedScreencasts.delete(screencastId);
+  }
+
+  private clearTrackedScreencast(screencastId: string): void {
+    const recorder = this.activeScreencasts.get(screencastId);
+    if (!recorder) {
+      return;
+    }
+    this.activeScreencasts.delete(screencastId);
+    this.screencastIdsByTarget.delete(this.screencastTargetKey(recorder.sessionId, recorder.targetId));
+    const sessionScreencasts = this.screencastIdsBySession.get(recorder.sessionId);
+    if (!sessionScreencasts) {
+      return;
+    }
+    sessionScreencasts.delete(screencastId);
+    if (sessionScreencasts.size === 0) {
+      this.screencastIdsBySession.delete(recorder.sessionId);
+    }
+  }
+
+  private async finalizeSessionScreencasts(sessionId: string): Promise<void> {
+    const ids = [...(this.screencastIdsBySession.get(sessionId) ?? [])];
+    const results = await Promise.allSettled(ids.map(async (screencastId) => {
+      const recorder = this.activeScreencasts.get(screencastId);
+      if (!recorder) {
+        return;
+      }
+      this.storeCompletedScreencast(await recorder.stop("session_closed"));
+    }));
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") {
+      throw failure.reason;
+    }
+  }
+
+  private async finalizeTargetScreencast(sessionId: string, targetId: string): Promise<void> {
+    const screencastId = this.screencastIdsByTarget.get(this.screencastTargetKey(sessionId, targetId));
+    if (!screencastId) {
+      return;
+    }
+    const recorder = this.activeScreencasts.get(screencastId);
+    if (!recorder) {
+      this.screencastIdsByTarget.delete(this.screencastTargetKey(sessionId, targetId));
+      return;
+    }
+    this.storeCompletedScreencast(await recorder.stop("target_closed"));
+  }
+
+  private resolveTargetId(
     managed: ManagedSession,
     targetId: string | null | undefined
-  ): { targetId: string; page: Page } {
+  ): string {
     const resolvedTargetId = targetId ?? managed.targets.getActiveTargetId();
     if (!resolvedTargetId) {
       throw new Error("No active target");
     }
+    return resolvedTargetId;
+  }
+
+  private resolveTargetContext(
+    managed: ManagedSession,
+    targetId: string | null | undefined
+  ): { targetId: string; page: Page } {
+    const resolvedTargetId = this.resolveTargetId(managed, targetId);
     return {
       targetId: resolvedTargetId,
       page: managed.targets.getPage(resolvedTargetId)
@@ -3553,8 +3812,8 @@ export class BrowserManager {
     timeoutMs = this.config.parallelism.backpressureTimeoutMs
   ): Promise<T> {
     const managed = this.getManaged(sessionId);
-    const resolved = this.resolveTargetContext(managed, targetId);
-    const queueKey = this.targetQueueKey(sessionId, resolved.targetId);
+    const resolvedTargetId = this.resolveTargetId(managed, targetId);
+    const queueKey = this.targetQueueKey(sessionId, resolvedTargetId);
     const previous = this.targetQueues.get(queueKey) ?? Promise.resolve();
     let releaseQueue: () => void = () => {};
     const gate = new Promise<void>((resolve) => {
@@ -3566,8 +3825,9 @@ export class BrowserManager {
 
     let slotAcquired = false;
     try {
-      await this.acquireParallelSlot(sessionId, resolved.targetId, timeoutMs);
+      await this.acquireParallelSlot(sessionId, resolvedTargetId, timeoutMs);
       slotAcquired = true;
+      const resolved = this.resolveTargetContext(managed, resolvedTargetId);
       return await execute({
         managed,
         targetId: resolved.targetId,
@@ -4543,6 +4803,16 @@ export class BrowserManager {
     const onClose = () => {
       clearTargetRefs();
       clearTargetDialog();
+      void this.finalizeTargetScreencast(managed.sessionId, targetId).catch((error: unknown) => {
+        this.logger.warn("screencast.target_close.failed", {
+          sessionId: managed.sessionId,
+          data: {
+            screencastId: this.screencastIdsByTarget.get(this.screencastTargetKey(managed.sessionId, targetId)),
+            targetId,
+            error: error instanceof Error ? error.message : String(error)
+          }
+        });
+      });
     };
 
     const onFrameDetached = (frame?: { parentFrame?: () => unknown }) => {

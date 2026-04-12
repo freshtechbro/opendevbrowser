@@ -76,6 +76,48 @@ export type BrowserScreenshotResult = {
   warnings?: string[];
 };
 
+export type BrowserScreencastStartOptions = {
+  targetId?: string | null;
+  outputDir?: string;
+  intervalMs?: number;
+  maxFrames?: number;
+};
+
+export type BrowserScreencastSession = {
+  screencastId: string;
+  sessionId: string;
+  targetId: string;
+  outputDir: string;
+  startedAt: string;
+  intervalMs: number;
+  maxFrames: number;
+  warnings?: string[];
+};
+
+export type BrowserScreencastEndedReason =
+  | "stopped"
+  | "max_frames_reached"
+  | "session_closed"
+  | "target_closed"
+  | "capture_failed";
+
+export type BrowserScreencastResult = {
+  screencastId: string;
+  sessionId: string;
+  targetId: string;
+  outputDir: string;
+  startedAt: string;
+  endedAt: string;
+  endedReason: BrowserScreencastEndedReason;
+  frameCount: number;
+  manifestPath: string;
+  replayHtmlPath: string;
+  previewPath?: string;
+  warnings?: string[];
+};
+
+export const SCREENCAST_RETENTION_MS = 10 * 60_000;
+
 export type BrowserUploadInput = {
   targetId?: string | null;
   ref: string;
@@ -172,6 +214,8 @@ export type BrowserManagerLike = Pick<BrowserManager,
   | "cloneComponent"
   | "perfMetrics"
   | "screenshot"
+  | "startScreencast"
+  | "stopScreencast"
   | "upload"
   | "dialog"
   | "consolePoll"
@@ -244,6 +288,10 @@ export type BrowserManagerLike = Pick<BrowserManager,
     targetId?: string | null,
     options?: BrowserClonePageOptions
   ) => ReturnType<BrowserManager["clonePage"]>;
+  monitorScreencastCompletion?: (
+    screencastId: string,
+    listener: (result: BrowserScreencastResult) => void
+  ) => () => void;
 };
 
 export type SessionInspectorHandle = Pick<BrowserManagerLike,

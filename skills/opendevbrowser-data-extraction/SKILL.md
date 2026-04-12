@@ -28,6 +28,12 @@ Use this skill to extract structured, auditable datasets from dynamic pages with
 ./skills/opendevbrowser-data-extraction/scripts/run-extraction-workflow.sh infinite-scroll
 ```
 
+## Supporting Surfaces
+
+- Use browser replay (`screencast-start` / `screencast-stop`) when lazy loading, infinite scroll, or pagination drift needs time-based proof.
+- Use desktop observation only for read-only evidence around sibling desktop surfaces; most extraction flows should stay browser-only.
+- Use `--challenge-automation-mode off|browser|browser_with_helper` only for bounded browser-scoped computer use when provider challenges appear; stop before any desktop-control interpretation.
+
 ## Core Rules
 
 - Define schema before extraction.

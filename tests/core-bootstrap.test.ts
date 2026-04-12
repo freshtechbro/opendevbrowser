@@ -365,6 +365,61 @@ describe("createOpenDevBrowserCore", () => {
     }
   });
 
+  it("omits verification cursor when observeDesktopAndVerify is called without one", async () => {
+    vi.resetModules();
+    const observation = { observationId: "obs-no-cursor" };
+    const verification = { review: "verified" };
+    const requestDesktopObservation = vi.fn(async () => observation);
+    const verifyAfterDesktopObservation = vi.fn(async () => verification);
+
+    vi.doMock("../src/core/runtime-assemblies", () => ({
+      createCoreRuntimeAssemblies: () => ({
+        providerRuntime: {
+          search: vi.fn(),
+          fetch: vi.fn(),
+          crawl: vi.fn(),
+          post: vi.fn()
+        },
+        desktopRuntime: {
+          status: vi.fn(),
+          listWindows: vi.fn(),
+          activeWindow: vi.fn(),
+          captureDesktop: vi.fn(),
+          captureWindow: vi.fn(),
+          accessibilitySnapshot: vi.fn()
+        },
+        automationCoordinator: {
+          desktopAvailable: vi.fn(),
+          requestDesktopObservation,
+          verifyAfterDesktopObservation
+        }
+      })
+    }));
+
+    try {
+      const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");
+      const core = createOpenDevBrowserCore({ directory: "/tmp/root", config: makeConfig() });
+
+      await core.observeDesktopAndVerify({
+        reason: "no cursor",
+        browserSessionId: "browser-session",
+        includeWindows: false,
+        capture: "none",
+        accessibility: "none"
+      });
+
+      expect(verifyAfterDesktopObservation).toHaveBeenCalledWith({
+        browserSessionId: "browser-session",
+        targetId: undefined,
+        observationId: "obs-no-cursor",
+        maxChars: undefined
+      });
+    } finally {
+      vi.doUnmock("../src/core/runtime-assemblies");
+      vi.resetModules();
+    }
+  });
+
   it("stops relay when disabled or invalid port", async () => {
     const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");
     const config = makeConfig({ relayToken: false });

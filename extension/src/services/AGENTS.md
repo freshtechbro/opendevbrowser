@@ -4,13 +4,13 @@ CDP routing and tab management for extension relay. Extends `extension/AGENTS.md
 
 ## Overview
 
-Flat-session CDP routing for Chrome 125+. Handles debugger attach/detach, target lifecycle, auto-attach, and multi-client CDP multiplexing.
+Flat-session CDP routing for Chrome 125+. Handles debugger attach/detach, target lifecycle, auto-attach, and multi-client CDP multiplexing. This layer remains browser-only; desktop observation never routes through relay services.
 
 ## Structure
 
 ```
 extension/src/services/
-├── CDPRouter.ts           # Main orchestrator (658 lines) - flat-session routing
+├── CDPRouter.ts           # Main orchestrator for flat-session routing
 ├── TargetSessionMap.ts    # Root/child session mapping
 ├── TabManager.ts          # Tab discovery, active tracking
 ├── ConnectionManager.ts   # Relay lifecycle, primary tab tracking

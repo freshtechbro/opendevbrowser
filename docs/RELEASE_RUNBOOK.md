@@ -1,6 +1,6 @@
 # Public Release Runbook
 
-Last updated: 2026-03-20
+Last updated: 2026-04-12
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
 
@@ -23,7 +23,10 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 ## Required CI configuration
 
 - Workflow: `.github/workflows/release-public.yml`
-- Optional workflow dispatch inputs:
+- Trigger modes:
+  - Tag push: pushing `vX.Y.Z` runs the publish-enabled release path with `publish_npm=true`, `publish_github_release=true`, `draft_release=false`, and `run_release_live_gates=false`.
+  - `workflow_dispatch`: manual dry runs or controlled publishes use the inputs below.
+- Workflow dispatch inputs:
   - `release_ref`
   - `release_tag`
   - `publish_npm`
@@ -33,9 +36,11 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 
 ## Preflight checklist
 
+- ### Local preflight policy
+
 - [ ] `package.json` version is updated to target semver.
 - [ ] Extension version metadata is synced (`npm run extension:sync` updates `extension/manifest.json` and `extension/package.json`).
-- [ ] Local quality gates pass:
+- [ ] Local policy gates pass:
   - `npm run version:check`
   - `npm run test:release-gate` (grouped contract coverage only; rerun only failed group with `npm run test:release-gate:g<N>`)
   - `node scripts/audit-zombie-files.mjs`
@@ -44,6 +49,7 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
   - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
   - `npx opendevbrowser --help`
   - `npx opendevbrowser help`
+  - Treat the two help commands above as release-facing wording proof for `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
   - `npm run lint`
   - `npm run typecheck`
   - `npm run test`
@@ -51,11 +57,32 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
   - `npm run extension:build`
   - `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json`
   - `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json`
-  - Treat the two direct-run commands above as the live release-proof lane. Keep them distinct from grouped contract checks such as `npm run test:release-gate`.
+  - Treat the two direct-run commands above as the optional strict live release-proof lane. Keep them distinct from grouped contract checks such as `npm run test:release-gate`.
   - `npm run extension:pack`
   - `npm pack`
 - [ ] First-time global install dry run passes (`docs/FIRST_RUN_ONBOARDING.md`) with daemon + extension + mode validation evidence captured.
 - [ ] Release branch is merged to `main`.
+
+### CI workflow gates executed by `.github/workflows/release-public.yml`
+
+- [ ] `npm ci`
+- [ ] `npm run version:check`
+- [ ] `node scripts/audit-zombie-files.mjs`
+- [ ] `node scripts/docs-drift-check.mjs`
+- [ ] `node scripts/chrome-store-compliance-check.mjs`
+- [ ] `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+- [ ] `npm run lint`
+- [ ] `npm run typecheck`
+- [ ] `npm run test`
+- [ ] `npm run build`
+- [ ] `npx opendevbrowser --help`
+- [ ] `npx opendevbrowser help`
+- [ ] `npm run extension:build`
+- [ ] Optional strict live gates run only when `run_release_live_gates=true`:
+  - `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json`
+  - `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json`
+- [ ] `npm run extension:pack`
+- [ ] GitHub release artifact packaging computes `opendevbrowser-extension.zip.sha256` before publish.
 
 ## Release execution
 
@@ -72,15 +99,25 @@ git push origin vX.Y.Z
 
 2. GitHub Actions automatically runs `Public Release` with publish enabled.
 3. Workflow gates:
-- validates `release_tag` format (`vX.Y.Z`)
+- resolves publish defaults from the trigger mode and validates `release_tag` format (`vX.Y.Z`)
 - validates `package.json` version matches the tag
-- runs release quality gates
+- runs `npm run version:check`
+- runs `node scripts/audit-zombie-files.mjs`
+- runs `node scripts/docs-drift-check.mjs`
+- runs `node scripts/chrome-store-compliance-check.mjs`
+- runs `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+- runs `npm run lint`
+- runs `npm run typecheck`
+- runs `npm run test`
+- runs `npm run build`
+- runs `npx opendevbrowser --help` and `npx opendevbrowser help` as release-facing wording proof for `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`
+- runs `npm run extension:build`
 - optionally runs strict live gates when `run_release_live_gates=true`
-  - this input executes `node scripts/provider-direct-runs.mjs --release-gate ...` and `node scripts/live-regression-direct.mjs --release-gate ...`, not matrix wrappers
-- builds and packs extension zip
+  - this input executes only `node scripts/provider-direct-runs.mjs --release-gate ...` and `node scripts/live-regression-direct.mjs --release-gate ...`, not grouped wrappers or matrix scripts
+- runs `npm run extension:pack`
 - computes checksum (`opendevbrowser-extension.zip.sha256`)
-- publishes npm package
-- publishes GitHub release and uploads extension artifacts
+- publishes npm package when enabled
+- publishes GitHub release and uploads extension artifacts when enabled
 
 ### Manual dry-run release
 
@@ -146,7 +183,8 @@ npm deprecate opendevbrowser@X.Y.Z "deprecated: use <fixed-version>"
 ## Evidence to retain
 
 - Release workflow run URL
-- npm published version output
+- npm published version output (or explicit publish deferral for manual dry runs)
 - GitHub release URL
 - checksum artifact
+- If `run_release_live_gates=true`, retain `artifacts/release/vX.Y.Z/provider-direct-runs.json` and `artifacts/release/vX.Y.Z/live-regression-direct.json`; otherwise record explicit deferral in the active version-scoped release evidence ledger.
 - rollback/deprecation record (if incident occurred)

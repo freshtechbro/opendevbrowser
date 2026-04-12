@@ -12,7 +12,8 @@
 
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
-The current public surface includes [64 CLI commands and 57 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+The current public surface includes [72 CLI commands and 65 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -237,13 +238,21 @@ npx opendevbrowser run --script ./script.json --output-format json
 
 Use `--output-format json|stream-json` for automation-friendly output.
 
+### Help-Led Discovery
+
+Start every surface check from generated help when you need the current public lanes. The terminal help now uses these exact phrases so agents can search by intent instead of guessing command names:
+
+- `screencast / browser replay`: `screencast-start`, `screencast-stop`
+- `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`; `review` and `session-inspector` remain the quickest proof surfaces, and the optional helper stays browser-scoped rather than becoming a desktop agent
+
 ## Challenge Handling Boundary
 
 - `SessionStore` remains the blocker FSM source of truth. Managed and `/ops`-backed responses keep `meta.blocker`, `meta.blockerState`, and `meta.blockerResolution` stable and may append additive `meta.challenge` plus `meta.challengeOrchestration`.
 - Direct browser, `/ops`, and provider fallback paths now share one bounded challenge orchestration plane. It can try auth navigation, legitimate session or cookie reuse, non-secret field fill, and bounded interaction exploration before yielding to a human.
 - Workflow and manager callers can set `challengeAutomationMode` to `off`, `browser`, or `browser_with_helper`. Effective precedence is `run > session > config`, and hard gates still apply after resolution.
 - The optional helper bridge is browser-scoped, not a desktop agent. `browser` forces it to stand down, and `browser_with_helper` only evaluates it after the existing helper hard gates pass.
-- Shipped builds also compose an internal sibling desktop observation runtime under separate `desktop.*` config. It is permission-off by default, does not widen `/ops` or `ChallengeRuntimeHandle`, and its shipped non-public composed path routes desktop observation back through browser-owned review.
+- Shipped builds also expose a public read-only desktop observation plane under separate `desktop.*` config. It is enabled by default, does not widen `/ops` or `ChallengeRuntimeHandle`, and the internal composed path still routes desktop observation back through browser-owned review when challenge automation needs it.
 - Browser fallback returns explicit transport `disposition` values: `completed`, `challenge_preserved`, `deferred`, or `failed`. When orchestration runs during fallback, decision evidence is recorded under `details.challengeOrchestration`.
 - `ProviderRegistry` is the only durable anti-bot pressure authority. Shared runtime and policy own fallback ordering and resume policy; provider modules only contribute extraction logic and `recoveryHints()`.
 - In scope: preserved sessions, normal browser controls, bounded interaction experimentation, human yield packets for secret or human-authority boundaries, and owned-environment fixtures that use vendor test keys only.
@@ -259,7 +268,8 @@ Use `--output-format json|stream-json` for automation-friendly output.
 - **Canvas token authoring and adapter-plugin validation are now first-class**: the extension token panel edits collections, modes, aliases, and bindings, while `scripts/canvas-competitive-validation.mjs` captures grouped evidence for adapters, token round-trip, inbox delivery, surface parity, and optional live Figma smoke.
 - **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
 - **Challenge automation override control is now first-class** across workflows and manager metadata via `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence and a browser-scoped helper boundary.
-- **Desktop observation now ships as an internal sibling runtime** with separate `desktop.*` config, repo-local audit artifacts, a non-public core observation-plus-review path, and no public desktop CLI or `/ops` plane yet.
+- **Browser replay screencasts now ship as a manager-owned capture lane** with session-scoped `screencast-start`, `screencast-stop`, and replay artifacts rooted in the existing screenshot path (`replay.json`, `replay.html`, `frames/`, `preview.png`).
+- **Desktop observation now ships as a public read-only CLI/tool plane** with separate `desktop.*` config, repo-local audit artifacts, and no public desktop agent or desktop `/ops` control plane.
 - **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
 
 ### v0.0.16
@@ -326,10 +336,11 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **57 tools** organized by category:
+OpenDevBrowser provides **65 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 Terminal help now mirrors the generated public-surface manifest rooted at `src/public-surface/source.ts` and refreshed by `scripts/generate-public-surface-manifest.mjs`. `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
+See [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md) for the brand and generated help/public-surface asset inventory used by packaging and website-sync flows.
 
 ### Session Management
 | Tool | Description |
@@ -398,9 +409,23 @@ Terminal help now mirrors the generated public-surface manifest rooted at `src/p
 | `opendevbrowser_network_poll` | Poll network requests since sequence |
 | `opendevbrowser_debug_trace_snapshot` | Capture a unified page + console + network + exception diagnostic bundle |
 | `opendevbrowser_screenshot` | Capture page screenshot |
+| `opendevbrowser_screencast_start` | Start a browser replay screencast capture |
+| `opendevbrowser_screencast_stop` | Stop a browser replay screencast capture and return artifact metadata |
 | `opendevbrowser_dialog` | Inspect or handle a JavaScript dialog |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
+
+### Desktop Observation
+| Tool | Description |
+|------|-------------|
+| `opendevbrowser_desktop_status` | Inspect public read-only desktop observation availability |
+| `opendevbrowser_desktop_windows` | List windows exposed by the public read-only desktop observation plane |
+| `opendevbrowser_desktop_active_window` | Inspect the active window through the public read-only desktop observation plane |
+| `opendevbrowser_desktop_capture_desktop` | Capture the current desktop surface through the public read-only desktop observation plane |
+| `opendevbrowser_desktop_capture_window` | Capture a specific window through the public read-only desktop observation plane |
+| `opendevbrowser_desktop_accessibility_snapshot` | Capture desktop accessibility state through the public read-only desktop observation plane |
+
+Desktop observation currently ships as a public read-only macOS surface. Availability, window inventory, and accessibility snapshots rely on the local `swift` command, while screenshot capture uses the built-in `screencapture` utility. If `desktop-status` reports `desktop_unsupported` on macOS, install Xcode or a Swift toolchain and retry.
 
 ### Macro Workflows
 | Tool | Description |
@@ -613,16 +638,17 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
       "value": "~/.config/opencode/opendevbrowser.provider-cookies.json"
     },
     "challengeOrchestration": {
-      "mode": "browser",
+      "mode": "browser_with_helper",
       "optionalComputerUseBridge": {
-        "enabled": false
+        "enabled": true
       }
     }
   },
 
-  // Internal sibling desktop observation runtime (permission-off by default)
+  // Public read-only sibling desktop observation runtime (enabled by default; set "off" to opt out)
+  // On macOS, availability, window, and accessibility probes require the local swift command.
   "desktop": {
-    "permissionLevel": "off",
+    "permissionLevel": "observe",
     "commandTimeoutMs": 10000,
     "auditArtifactsDir": ".opendevbrowser/desktop-runtime",
     "accessibilityMaxDepth": 2,
@@ -669,10 +695,10 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 
 ## CLI Commands
 
-The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, targets, pages, export, devtools, annotate, and canvas).
+The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, browser capture and replay, desktop observation, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (CLI commands, 57 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (72 CLI commands, 65 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -684,8 +710,10 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
 | DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
+| Browser capture | `screenshot`, `screencast-start`, `screencast-stop` |
+| Desktop observation | `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` |
 | Design canvas | `canvas` |
-| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `screenshot`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc` |
+| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc` |
 
 ### Install/Management
 
@@ -790,7 +818,8 @@ Local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `co
          ▼                  ▼                  ▼                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Core Runtime (src/core/)                    │
-│  bootstrap.ts → wires managers, injects ToolDeps              │
+│  bootstrap.ts → wires managers, sibling desktop runtime,       │
+│                   automation coordinator, injects ToolDeps     │
 └────────┬────────────────────────────────────────────────────────┘
          │
     ┌────┴────┬─────────────┬──────────────┬──────────────┬──────────────┐
@@ -806,6 +835,8 @@ Local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `co
 │Manager │                                        │ (WS relay) │
 └────────┘                                        └────────────┘
 ```
+
+The simplified map above omits the dedicated Challenge Coordinator, Desktop Runtime, and Automation Coordinator that now sit beside the browser managers; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component map and ownership boundaries.
 
 ### Data Flow
 
@@ -829,18 +860,25 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 ```
 .
 ├── src/              # Plugin implementation
-│   ├── browser/      # BrowserManager, TargetManager, CDP lifecycle
+│   ├── annotate/     # Annotation transports + output shaping
+│   ├── automation/    # Automation helpers and coordinator
+│   ├── browser/      # Browser sessions, target orchestration, canvas preview/code-sync
 │   ├── cache/        # Chrome executable resolution
+│   ├── canvas/       # Design-canvas document store, repo IO, code-sync, export helpers
+│   ├── challenges/   # Bounded challenge orchestration plane, evidence, recovery lanes
 │   ├── cli/          # CLI commands, daemon, installers
 │   ├── core/         # Bootstrap, runtime wiring, ToolDeps
-│   ├── canvas/       # Design-canvas document store, repo IO, export helpers
+│   ├── desktop/      # Read-only desktop observation runtime
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
+│   ├── integrations/ # External integration adapters (Figma import, etc.)
+│   ├── macros/       # Macro parsing, resolution, provider-action expansion
+│   ├── providers/    # Provider runtime, policy, workflows, browser fallback
+│   ├── public-surface/ # Generated manifest source, CLI/tool metadata
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 57 opendevbrowser_* tool definitions
-│   ├── annotate/     # Annotation transports + output shaping
+│   ├── tools/        # 65 opendevbrowser_* tool definitions
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)

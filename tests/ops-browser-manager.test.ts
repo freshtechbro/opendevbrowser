@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { mkdtemp } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { OpenDevBrowserConfig } from "../src/config";
 import { OpsBrowserManager } from "../src/browser/ops-browser-manager";
+import { SCREENCAST_RETENTION_MS } from "../src/browser/manager-types";
 import { OpsRequestTimeoutError } from "../src/browser/ops-client";
 
 const runtimePreviewBridgeMock = vi.hoisted(() => vi.fn().mockResolvedValue({
@@ -14,9 +18,10 @@ const runtimePreviewBridgeMock = vi.hoisted(() => vi.fn().mockResolvedValue({
   }
 }));
 
-vi.mock("fs/promises", () => ({
-  writeFile: vi.fn().mockResolvedValue(undefined)
-}));
+vi.mock("fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
+  return actual;
+});
 
 vi.mock("../src/browser/canvas-runtime-preview-bridge", () => ({
   applyRuntimePreviewBridge: runtimePreviewBridgeMock
@@ -104,6 +109,43 @@ const makeConfig = (): OpenDevBrowserConfig => ({
   persistProfile: true,
   skillPaths: []
 });
+
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void } {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+function stubOpsScreencastSession(sessionId: string, targetId = "tab-1"): void {
+  const url = `https://example.com/${sessionId}`;
+  requestMock.mockImplementation(async (...args: unknown[]) => {
+    const command = args[0] as string;
+    switch (command) {
+      case "session.connect":
+        return { opsSessionId: sessionId, activeTargetId: targetId, leaseId: `lease-${sessionId}`, url };
+      case "session.status":
+        return { mode: "extension", activeTargetId: targetId, url, title: "Ops Screencast" };
+      case "page.screenshot":
+        return { base64: Buffer.from(`image-${sessionId}`).toString("base64") };
+      case "targets.list":
+        return {
+          activeTargetId: targetId,
+          targets: [{ targetId, type: "page", title: "Ops Screencast", url }]
+        };
+      case "targets.close":
+        return { ok: true };
+      default:
+        return { ok: true };
+    }
+  });
+
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+  }));
+}
 
 describe("OpsBrowserManager", () => {
   afterEach(() => {
@@ -946,6 +988,62 @@ describe("OpsBrowserManager", () => {
     expect(closedOpsSessions.has("ops-expired")).toBe(true);
   });
 
+  it("logs ops session-close screencast failures with tracked ids", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      logger: { warn: (event: string, payload: unknown) => void };
+      finalizeSessionScreencasts: (sessionId: string) => Promise<void>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void;
+      opsSessions: Set<string>;
+      opsLeases: Map<string, string>;
+    };
+    const warnSpy = vi.spyOn(managerAny.logger, "warn");
+    vi.spyOn(managerAny, "finalizeSessionScreencasts").mockRejectedValue(new Error("ops-finalize-failed"));
+    managerAny.opsSessions.add("ops-failing");
+    managerAny.opsLeases.set("ops-failing", "lease-failing");
+    managerAny.screencastIdsBySession.set("ops-failing", new Set(["cast-a", "cast-b"]));
+
+    managerAny.handleOpsEvent({ opsSessionId: "ops-failing", event: "ops_session_closed" });
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("screencast.ops_session_close.failed", expect.objectContaining({
+        sessionId: "ops-failing",
+        data: expect.objectContaining({
+          screencastIds: ["cast-a", "cast-b"],
+          error: "ops-finalize-failed"
+        })
+      }));
+    });
+  });
+
+  it("logs ops session-close screencast failures without tracked ids for non-Error values", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      logger: { warn: (event: string, payload: unknown) => void };
+      finalizeSessionScreencasts: (sessionId: string) => Promise<void>;
+      handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void;
+      opsSessions: Set<string>;
+      opsLeases: Map<string, string>;
+    };
+    const warnSpy = vi.spyOn(managerAny.logger, "warn");
+    vi.spyOn(managerAny, "finalizeSessionScreencasts").mockRejectedValue("plain-ops-failure");
+    managerAny.opsSessions.add("ops-plain-failing");
+    managerAny.opsLeases.set("ops-plain-failing", "lease-plain-failing");
+
+    managerAny.handleOpsEvent({ opsSessionId: "ops-plain-failing", event: "ops_session_closed" });
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("screencast.ops_session_close.failed", expect.objectContaining({
+        sessionId: "ops-plain-failing",
+        data: expect.objectContaining({
+          screencastIds: [],
+          error: "plain-ops-failure"
+        })
+      }));
+    });
+  });
+
   it("ignores ops events without session ids", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const opsSessions = (manager as { opsSessions: Set<string> }).opsSessions;
@@ -986,6 +1084,740 @@ describe("OpsBrowserManager", () => {
     await manager.disconnect("ops-closed", false);
     await expect(manager.status("ops-closed")).rejects.toThrow("Session already closed");
     expect(base.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("manages ops screencast lifecycle and duplicate target guards", async () => {
+    stubOpsScreencastSession("ops-cast");
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-"));
+
+    const screencast = await manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+
+    await expect(manager.startScreencast(connected.sessionId)).rejects.toThrow(
+      `Screencast already active for target ${screencast.targetId}.`
+    );
+    await expect(manager.stopScreencast("ops-session-other", screencast.screencastId)).rejects.toThrow(
+      `[invalid_screencast] Screencast ${screencast.screencastId} does not belong to session ops-session-other`
+    );
+    const firstStop = await manager.stopScreencast(connected.sessionId, screencast.screencastId);
+
+    expect(firstStop).toMatchObject({
+      screencastId: screencast.screencastId,
+      sessionId: connected.sessionId,
+      targetId: screencast.targetId,
+      endedReason: "stopped",
+      outputDir
+    });
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      sessionId: connected.sessionId,
+      targetId: screencast.targetId,
+      endedReason: "stopped",
+      outputDir
+    });
+  });
+
+  it("delegates screencast start to the base manager for non-ops sessions", async () => {
+    const expected = {
+      screencastId: "base-cast",
+      sessionId: "base-session",
+      targetId: "base-target",
+      outputDir: "/tmp/base-cast",
+      startedAt: "2026-04-10T00:00:00.000Z",
+      intervalMs: 250,
+      maxFrames: 1
+    };
+    const base = {
+      startScreencast: vi.fn().mockResolvedValue(expected)
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.startScreencast("base-session", { intervalMs: 250, maxFrames: 1 })).resolves.toEqual(expected);
+    expect(base.startScreencast).toHaveBeenCalledWith("base-session", { intervalMs: 250, maxFrames: 1 });
+  });
+
+  it("delegates screencast stop to the base manager when no ops recorder is tracked", async () => {
+    const expected = {
+      screencastId: "base-cast",
+      sessionId: "base-session",
+      targetId: "base-target",
+      outputDir: "/tmp/base-cast",
+      startedAt: "2026-04-10T00:00:00.000Z",
+      endedAt: "2026-04-10T00:00:01.000Z",
+      endedReason: "max_frames_reached",
+      frameCount: 1,
+      manifestPath: "/tmp/base-cast/replay.json",
+      replayHtmlPath: "/tmp/base-cast/replay.html"
+    } as const;
+    const base = {
+      stopScreencast: vi.fn().mockResolvedValue(expected)
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.stopScreencast("base-session", "base-cast")).resolves.toEqual(expected);
+    expect(base.stopScreencast).toHaveBeenCalledWith("base-session", "base-cast");
+  });
+
+  it("rejects ops screencast starts when there is no active target", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-no-target", activeTargetId: null, leaseId: "lease-no-target", url: "https://example.com/no-target" };
+      }
+      if (command === "session.status") {
+        return { mode: "extension", activeTargetId: null };
+      }
+      return { ok: true };
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    await expect(manager.startScreencast(connected.sessionId)).rejects.toThrow("No active target");
+  });
+
+  it("stores immediately completed ops screencasts with warning-only metadata", async () => {
+    const targetId = "tab-warning";
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      switch (command) {
+        case "session.connect":
+          return {
+            opsSessionId: "ops-immediate",
+            activeTargetId: targetId,
+            leaseId: "lease-immediate",
+            url: "https://example.com/immediate"
+          };
+        case "session.status":
+          return { mode: "extension", activeTargetId: targetId };
+        case "page.screenshot":
+          return {
+            base64: Buffer.from("image-ops-immediate").toString("base64"),
+            warning: "ops-warning"
+          };
+        case "targets.list":
+          return {
+            activeTargetId: targetId,
+            targets: [{ targetId, type: "page" }]
+          };
+        default:
+          return { ok: true };
+      }
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-immediate-"));
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, unknown>;
+      completedScreencasts: Map<string, unknown>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      screencastIdsByTarget: Map<string, string>;
+      clearTrackedScreencast: (screencastId: string) => void;
+    };
+    const originalClearTrackedScreencast = managerPrivate.clearTrackedScreencast.bind(manager);
+    let sawCompletedBeforeActiveClear = false;
+    managerPrivate.clearTrackedScreencast = (screencastId: string) => {
+      if (managerPrivate.activeScreencasts.has(screencastId)) {
+        sawCompletedBeforeActiveClear = true;
+        expect(managerPrivate.completedScreencasts.has(screencastId)).toBe(true);
+      }
+      originalClearTrackedScreencast(screencastId);
+    };
+
+    const screencast = await manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 1
+    });
+
+    expect(sawCompletedBeforeActiveClear).toBe(true);
+    expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+    expect(managerPrivate.activeScreencasts.has(screencast.screencastId)).toBe(false);
+    expect(managerPrivate.screencastIdsByTarget.has(`${connected.sessionId}:${screencast.targetId}`)).toBe(false);
+    expect(managerPrivate.screencastIdsBySession.has(connected.sessionId)).toBe(false);
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "max_frames_reached",
+      warnings: ["ops-warning"]
+    });
+  });
+
+  it("replays target-closed ops screencasts after closeTarget", async () => {
+    stubOpsScreencastSession("ops-close");
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-close-"));
+
+    const screencast = await manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+    const completedScreencasts = (manager as unknown as {
+      completedScreencasts: Map<string, unknown>;
+    }).completedScreencasts;
+
+    await manager.closeTarget(connected.sessionId, screencast.targetId);
+
+    await vi.waitFor(() => {
+      expect(completedScreencasts.has(screencast.screencastId)).toBe(true);
+    });
+
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      sessionId: connected.sessionId,
+      targetId: screencast.targetId,
+      endedReason: "target_closed",
+      outputDir
+    });
+  });
+
+  it("tracks first-frame ops screencasts before target close teardown runs", async () => {
+    const targetId = "tab-first-frame-close";
+    const screenshotDeferred = createDeferred<{ base64: string }>();
+    let screenshotStarted = false;
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      switch (command) {
+        case "session.connect":
+          return {
+            opsSessionId: "ops-first-frame-close",
+            activeTargetId: targetId,
+            leaseId: "lease-first-frame-close",
+            url: "https://example.com/ops-first-frame-close"
+          };
+        case "session.status":
+          return { mode: "extension", activeTargetId: targetId };
+        case "page.screenshot":
+          screenshotStarted = true;
+          return await screenshotDeferred.promise;
+        case "targets.list":
+          return {
+            activeTargetId: targetId,
+            targets: [{ targetId, type: "page", title: "Ops First Frame", url: "https://example.com/ops-first-frame-close" }]
+          };
+        case "targets.close":
+          return { ok: true };
+        default:
+          return { ok: true };
+      }
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-first-frame-close-"));
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, unknown>;
+      completedScreencasts: Map<string, unknown>;
+    };
+
+    const startPromise = manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+
+    await vi.waitFor(() => {
+      expect(managerPrivate.activeScreencasts.size).toBe(1);
+      expect(screenshotStarted).toBe(true);
+    });
+
+    const closePromise = manager.closeTarget(connected.sessionId, targetId);
+    screenshotDeferred.resolve({ base64: Buffer.from("image-first-frame-close").toString("base64") });
+
+    const screencast = await startPromise;
+    await closePromise;
+
+    await vi.waitFor(() => {
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+    });
+
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "target_closed"
+    });
+  });
+
+  it("replays session-closed ops screencasts after ops_tab_closed", async () => {
+    stubOpsScreencastSession("ops-tab-close");
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-tab-close-"));
+
+    const screencast = await manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+    const completedScreencasts = (manager as unknown as {
+      completedScreencasts: Map<string, unknown>;
+      opsSessions: Set<string>;
+    });
+
+    (manager as unknown as {
+      handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void;
+    }).handleOpsEvent({ opsSessionId: connected.sessionId, event: "ops_tab_closed" });
+
+    await vi.waitFor(() => {
+      expect(completedScreencasts.completedScreencasts.has(screencast.screencastId)).toBe(true);
+      expect(completedScreencasts.opsSessions.has(connected.sessionId)).toBe(false);
+    });
+
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      sessionId: connected.sessionId,
+      targetId: screencast.targetId,
+      endedReason: "session_closed",
+      outputDir
+    });
+  });
+
+  it("expires completed ops screencasts after the retention window when stop is never called", async () => {
+    vi.useFakeTimers();
+    try {
+      const targetId = "tab-expiry";
+      requestMock.mockImplementation(async (...args: unknown[]) => {
+        const command = args[0] as string;
+        switch (command) {
+          case "session.connect":
+            return {
+              opsSessionId: "ops-expiry",
+              activeTargetId: targetId,
+              leaseId: "lease-expiry",
+              url: "https://example.com/expiry"
+            };
+          case "session.status":
+            return { mode: "extension", activeTargetId: targetId };
+          case "page.screenshot":
+            return { base64: Buffer.from("image-ops-expiry").toString("base64") };
+          case "targets.list":
+            return {
+              activeTargetId: targetId,
+              targets: [{ targetId, type: "page", title: "Ops Expiry", url: "https://example.com/expiry" }]
+            };
+          default:
+            return { ok: true };
+        }
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      }));
+
+      const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+      const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+      const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-expiry-"));
+      const managerPrivate = manager as unknown as {
+        completedScreencasts: Map<string, unknown>;
+      };
+
+      const screencast = await manager.startScreencast(connected.sessionId, {
+        outputDir,
+        intervalMs: 250,
+        maxFrames: 1
+      });
+
+      await vi.waitFor(() => {
+        expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+      });
+
+      await vi.advanceTimersByTimeAsync(SCREENCAST_RETENTION_MS);
+
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(false);
+      await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).rejects.toThrow(
+        `[invalid_screencast] Unknown screencastId: ${screencast.screencastId}`
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a replaced completed ops screencast when an older cleanup timer fires", async () => {
+    vi.useFakeTimers();
+    try {
+      stubOpsScreencastSession("ops-replaced", "tab-replaced");
+
+      const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+      const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+      const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-replaced-"));
+      const managerPrivate = manager as unknown as {
+        completedScreencasts: Map<string, Record<string, unknown>>;
+      };
+
+      const screencast = await manager.startScreencast(connected.sessionId, {
+        outputDir,
+        intervalMs: 250,
+        maxFrames: 1
+      });
+
+      await vi.waitFor(() => {
+        expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+      });
+
+      const replacement = {
+        ...managerPrivate.completedScreencasts.get(screencast.screencastId)
+      };
+      managerPrivate.completedScreencasts.set(screencast.screencastId, replacement);
+
+      await vi.advanceTimersByTimeAsync(SCREENCAST_RETENTION_MS);
+
+      expect(managerPrivate.completedScreencasts.get(screencast.screencastId)).toBe(replacement);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects retained completed ops screencasts for a different session", async () => {
+    stubOpsScreencastSession("ops-completed-mismatch", "tab-completed-mismatch");
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-completed-mismatch-"));
+    const managerPrivate = manager as unknown as {
+      completedScreencasts: Map<string, unknown>;
+    };
+
+    const screencast = await manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 1
+    });
+
+    await vi.waitFor(() => {
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+    });
+
+    await expect(manager.stopScreencast("ops-session-other", screencast.screencastId)).rejects.toThrow(
+      `[invalid_screencast] Screencast ${screencast.screencastId} does not belong to session ops-session-other`
+    );
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "max_frames_reached"
+    });
+  });
+
+  it("notifies screencast completion listeners when an ops screencast ends after session teardown", async () => {
+    stubOpsScreencastSession("ops-listener");
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-listener-"));
+
+    const screencast = await manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+    const completionListener = vi.fn();
+    manager.monitorScreencastCompletion(screencast.screencastId, completionListener);
+
+    (manager as unknown as {
+      handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void;
+    }).handleOpsEvent({ opsSessionId: connected.sessionId, event: "ops_tab_closed" });
+
+    await vi.waitFor(() => {
+      expect(completionListener).toHaveBeenCalledWith(expect.objectContaining({
+        screencastId: screencast.screencastId,
+        sessionId: connected.sessionId,
+        targetId: screencast.targetId,
+        endedReason: "session_closed"
+      }));
+    });
+  });
+
+  it("notifies ops completion listeners immediately for retained screencast results", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const result = {
+      screencastId: "ops-cast-retained",
+      sessionId: "ops-session-retained",
+      targetId: "ops-target-retained",
+      outputDir: "/tmp/ops-cast-retained",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/ops-cast-retained/replay.json",
+      replayHtmlPath: "/tmp/ops-cast-retained/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      completedScreencasts: Map<string, typeof result>;
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+    };
+    const listener = vi.fn();
+
+    managerPrivate.completedScreencasts.set(result.screencastId, result);
+
+    manager.monitorScreencastCompletion(result.screencastId, listener);
+
+    expect(listener).toHaveBeenCalledWith(result);
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
+  it("removes ops screencast listeners when unsubscribe is called before completion", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const result = {
+      screencastId: "ops-cast-unsubscribed",
+      sessionId: "ops-session-unsubscribed",
+      targetId: "ops-target-unsubscribed",
+      outputDir: "/tmp/ops-cast-unsubscribed",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/ops-cast-unsubscribed/replay.json",
+      replayHtmlPath: "/tmp/ops-cast-unsubscribed/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+      storeCompletedScreencast: (value: typeof result) => void;
+    };
+    const listener = vi.fn();
+    const dispose = manager.monitorScreencastCompletion(result.screencastId, listener);
+
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(true);
+
+    dispose();
+    dispose();
+    managerPrivate.storeCompletedScreencast(result);
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
+  it("keeps remaining ops screencast listeners registered after one unsubscribe", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const result = {
+      screencastId: "ops-cast-partial-unsubscribe",
+      sessionId: "ops-session-partial-unsubscribe",
+      targetId: "ops-target-partial-unsubscribe",
+      outputDir: "/tmp/ops-cast-partial-unsubscribe",
+      startedAt: "2026-04-12T00:00:00.000Z",
+      endedAt: "2026-04-12T00:00:01.000Z",
+      endedReason: "stopped" as const,
+      frameCount: 1,
+      manifestPath: "/tmp/ops-cast-partial-unsubscribe/replay.json",
+      replayHtmlPath: "/tmp/ops-cast-partial-unsubscribe/replay.html"
+    };
+    const managerPrivate = manager as unknown as {
+      screencastCompletionListeners: Map<string, Set<(value: typeof result) => void>>;
+      storeCompletedScreencast: (value: typeof result) => void;
+    };
+    const firstListener = vi.fn();
+    const secondListener = vi.fn();
+    const disposeFirst = manager.monitorScreencastCompletion(result.screencastId, firstListener);
+    manager.monitorScreencastCompletion(result.screencastId, secondListener);
+
+    disposeFirst();
+    managerPrivate.storeCompletedScreencast(result);
+
+    expect(firstListener).not.toHaveBeenCalled();
+    expect(secondListener).toHaveBeenCalledWith(result);
+    expect(managerPrivate.screencastCompletionListeners.has(result.screencastId)).toBe(false);
+  });
+
+  it("logs Error screencast result failures and clears tracked ops recorders", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      logger: { warn: (event: string, payload: unknown) => void };
+      trackScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
+      observeTrackedScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
+      activeScreencasts: Map<string, unknown>;
+      screencastIdsByTarget: Map<string, string>;
+      screencastIdsBySession: Map<string, Set<string>>;
+    };
+    const warnSpy = vi.spyOn(managerAny.logger, "warn");
+
+    const recorder = {
+      screencastId: "ops-cast-error",
+      sessionId: "ops-session-error",
+      targetId: "ops-target-error",
+      resultPromise: Promise.reject(new Error("ops-rejected-error"))
+    };
+
+    managerAny.trackScreencast(recorder);
+    managerAny.observeTrackedScreencast(recorder);
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({
+        sessionId: "ops-session-error",
+        data: expect.objectContaining({
+          screencastId: "ops-cast-error",
+          targetId: "ops-target-error",
+          error: "ops-rejected-error"
+        })
+      }));
+    });
+    expect(managerAny.activeScreencasts.has("ops-cast-error")).toBe(false);
+    expect(managerAny.screencastIdsByTarget.has("ops-session-error:ops-target-error")).toBe(false);
+    expect(managerAny.screencastIdsBySession.has("ops-session-error")).toBe(false);
+  });
+
+  it("logs non-Error screencast result failures and clears tracked ops recorders", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      logger: { warn: (event: string, payload: unknown) => void };
+      trackScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
+      observeTrackedScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
+      activeScreencasts: Map<string, unknown>;
+      screencastIdsByTarget: Map<string, string>;
+      screencastIdsBySession: Map<string, Set<string>>;
+    };
+    const warnSpy = vi.spyOn(managerAny.logger, "warn");
+
+    const recorder = {
+      screencastId: "ops-cast-rejected",
+      sessionId: "ops-session-rejected",
+      targetId: "ops-target-rejected",
+      resultPromise: Promise.reject("ops-plain-failure")
+    };
+
+    managerAny.trackScreencast(recorder);
+    managerAny.observeTrackedScreencast(recorder);
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({
+        sessionId: "ops-session-rejected",
+        data: expect.objectContaining({
+          screencastId: "ops-cast-rejected",
+          targetId: "ops-target-rejected",
+          error: "ops-plain-failure"
+        })
+      }));
+    });
+    expect(managerAny.activeScreencasts.has("ops-cast-rejected")).toBe(false);
+    expect(managerAny.screencastIdsByTarget.has("ops-session-rejected:ops-target-rejected")).toBe(false);
+    expect(managerAny.screencastIdsBySession.has("ops-session-rejected")).toBe(false);
+  });
+
+  it("clears tracked ops screencasts when the session index is missing or emptied", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      activeScreencasts: Map<string, { sessionId: string; targetId: string }>;
+      screencastIdsByTarget: Map<string, string>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      clearTrackedScreencast: (screencastId: string) => void;
+    };
+
+    managerAny.activeScreencasts.set("ops-cast-orphan", {
+      sessionId: "ops-session-orphan",
+      targetId: "ops-target-orphan"
+    });
+    managerAny.screencastIdsByTarget.set("ops-session-orphan:ops-target-orphan", "ops-cast-orphan");
+    managerAny.clearTrackedScreencast("ops-cast-orphan");
+    expect(managerAny.screencastIdsByTarget.has("ops-session-orphan:ops-target-orphan")).toBe(false);
+
+    const sessionIds = new Set(["ops-cast-last"]);
+    managerAny.activeScreencasts.set("ops-cast-last", {
+      sessionId: "ops-session-last",
+      targetId: "ops-target-last"
+    });
+    managerAny.screencastIdsByTarget.set("ops-session-last:ops-target-last", "ops-cast-last");
+    managerAny.screencastIdsBySession.set("ops-session-last", sessionIds);
+    managerAny.clearTrackedScreencast("ops-cast-last");
+
+    expect(managerAny.screencastIdsBySession.has("ops-session-last")).toBe(false);
+  });
+
+  it("keeps the ops session screencast index until the last recorder is removed", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      activeScreencasts: Map<string, { sessionId: string; targetId: string }>;
+      screencastIdsByTarget: Map<string, string>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      clearTrackedScreencast: (screencastId: string) => void;
+    };
+    const sessionIds = new Set(["ops-cast-a", "ops-cast-b"]);
+
+    managerAny.activeScreencasts.set("ops-cast-a", {
+      sessionId: "ops-session-shared",
+      targetId: "ops-target-a"
+    });
+    managerAny.activeScreencasts.set("ops-cast-b", {
+      sessionId: "ops-session-shared",
+      targetId: "ops-target-b"
+    });
+    managerAny.screencastIdsByTarget.set("ops-session-shared:ops-target-a", "ops-cast-a");
+    managerAny.screencastIdsByTarget.set("ops-session-shared:ops-target-b", "ops-cast-b");
+    managerAny.screencastIdsBySession.set("ops-session-shared", sessionIds);
+
+    managerAny.clearTrackedScreencast("ops-cast-a");
+
+    expect(managerAny.activeScreencasts.has("ops-cast-a")).toBe(false);
+    expect(managerAny.screencastIdsByTarget.has("ops-session-shared:ops-target-a")).toBe(false);
+    expect(managerAny.screencastIdsByTarget.get("ops-session-shared:ops-target-b")).toBe("ops-cast-b");
+    expect(managerAny.screencastIdsBySession.get("ops-session-shared")).toBe(sessionIds);
+    expect(sessionIds.has("ops-cast-b")).toBe(true);
+  });
+
+  it("handles stale and rejected ops session screencast finalization paths", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      activeScreencasts: Map<string, { stop: (reason: "session_closed") => Promise<never> }>;
+      screencastIdsBySession: Map<string, Set<string>>;
+      finalizeSessionScreencasts: (sessionId: string) => Promise<void>;
+    };
+    managerAny.activeScreencasts.set("ops-cast-failing", {
+      stop: vi.fn(async () => {
+        throw new Error("ops-stop-failed");
+      })
+    });
+    managerAny.screencastIdsBySession.set("ops-session-finalize", new Set(["ops-cast-missing", "ops-cast-failing"]));
+
+    await expect(managerAny.finalizeSessionScreencasts("ops-session-finalize")).rejects.toThrow("ops-stop-failed");
+  });
+
+  it("removes stale ops target screencast mappings without a recorder", async () => {
+    const manager = new OpsBrowserManager({} as never, makeConfig());
+    const managerAny = manager as unknown as {
+      screencastIdsByTarget: Map<string, string>;
+      finalizeTargetScreencast: (sessionId: string, targetId: string) => Promise<void>;
+    };
+    managerAny.screencastIdsByTarget.set("ops-session-target:ops-target-target", "ops-cast-missing");
+
+    await managerAny.finalizeTargetScreencast("ops-session-target", "ops-target-target");
+
+    expect(managerAny.screencastIdsByTarget.has("ops-session-target:ops-target-target")).toBe(false);
   });
 
   it("treats ops disconnect timeout as idempotent success and clears local session state", async () => {

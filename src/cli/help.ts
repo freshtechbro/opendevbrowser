@@ -151,14 +151,19 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--click-count", description: "Associated click count for pointer down or up." },
       { flag: "--name", description: "Named page identifier for page commands." },
       { flag: "--target-id", description: "Browser target id for target commands.", example: "opendevbrowser target-use --session-id s1 --target-id page-2" },
+      { flag: "--window-id", description: "Desktop window id for direct window capture commands." },
       { flag: "--tab-id", description: "Browser tab id override for extension and annotation commands." },
       { flag: "--include-urls", description: "Include page URLs in list output where supported." },
       { flag: "--path", description: "Filesystem path for command output or artifacts.", example: "opendevbrowser screenshot --session-id s1 --path ./shot.png" },
+      { flag: "--screencast-id", description: "Recorded screencast id returned by screencast-start for the same session." },
+      { flag: "--reason", description: "Audit reason for desktop observation commands." },
       { flag: "--full-page", description: "Capture the full scrollable page instead of the current viewport." },
       { flag: "--action", description: "Dialog action: status, accept, or dismiss." },
       { flag: "--prompt-text", description: "Prompt text to submit when accepting a prompt dialog." },
       { flag: "--since-seq", description: "Poll from a sequence id across diagnostics streams." },
       { flag: "--max", description: "Maximum number of records or items to return." },
+      { flag: "--interval-ms", description: "Frame capture interval for screencast recording." },
+      { flag: "--max-frames", description: "Maximum screencast frame count before auto-stop." },
       { flag: "--since-console-seq", description: "Console sequence cursor for debug-trace snapshots." },
       { flag: "--since-network-seq", description: "Network sequence cursor for debug-trace snapshots." },
       { flag: "--since-exception-seq", description: "Exception sequence cursor for debug-trace snapshots." },
@@ -208,7 +213,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--challenge-automation-mode", description: "Per-run challenge automation mode for workflow runs and macro-resolve execute: off, browser, or browser_with_helper. Precedence is run > session > config, and the helper remains browser-scoped only.", example: "opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --challenge-automation-mode browser_with_helper" },
       { flag: "--cookie-policy-override", description: "Per-run workflow cookie policy override: off, auto, or required.", example: "opendevbrowser research run --topic 'agent workflows' --cookie-policy-override required" },
       { flag: "--cookie-policy", description: "Alias of --cookie-policy-override." },
-      { flag: "--output-dir", description: "Directory where generated artifacts are written." },
+      { flag: "--output-dir", description: "Directory where generated artifacts are written, including screencast replay output." },
       { flag: "--ttl-hours", description: "Artifact cache time-to-live in hours." },
       { flag: "--expired-only", description: "List only expired artifacts in artifacts commands." }
     ]
@@ -216,6 +221,37 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
 ];
 
 export const HELP_TOOL_ENTRIES = TOOL_SURFACE_ENTRIES;
+
+export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
+  {
+    label: "screencast / browser replay",
+    description: "Use the public browser replay lane when you need temporal browser evidence before or after a fragile flow.",
+    details: [
+      { label: "cli:", value: "screencast-start, screencast-stop" },
+      { label: "example:", value: "npx opendevbrowser screencast-start --session-id <id> --output-dir ./artifacts/replay" }
+    ]
+  },
+  {
+    label: "desktop observation",
+    description: "Use the public read-only desktop observation plane for sibling desktop evidence on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay.",
+    details: [
+      {
+        label: "cli:",
+        value: "desktop-status, desktop-windows, desktop-active-window, desktop-capture-desktop, desktop-capture-window, desktop-accessibility-snapshot"
+      },
+      { label: "example:", value: "npx opendevbrowser desktop-status --output-format json" }
+    ]
+  },
+  {
+    label: "computer use / browser-scoped computer use",
+    description: "Control the bounded browser-scoped computer-use challenge lane with --challenge-automation-mode; the optional helper is not a desktop agent.",
+    details: [
+      { label: "flag:", value: "--challenge-automation-mode off|browser|browser_with_helper" },
+      { label: "works:", value: "research run, shopping run, product-video run, macro-resolve --execute" },
+      { label: "proof:", value: "review, session-inspector, workflow fallback metadata" }
+    ]
+  }
+];
 
 export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   {
@@ -269,7 +305,7 @@ export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "src/public-surface/generated-manifest.ts", description: "Checked-in generated public-surface snapshot consumed by help and parity tests." },
   { label: "src/public-surface/generated-manifest.json", description: "Checked-in generated public-surface snapshot consumed by inventory scripts." },
   { label: "src/cli/args.ts", description: "CLI argument parsing backed by the public-surface source." },
-  { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source." },
+  { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source, including the first-contact Find It Fast lookup block." },
   { label: "src/tools/index.ts", description: "Code-level tool registry." },
   { label: "docs/CLI.md", description: "Detailed CLI guide and release-gate runbooks." },
   { label: onboardingMetadata.referencePaths.onboardingDoc, description: "First-run checklist for help-led onboarding and happy-path proof." },
@@ -423,6 +459,10 @@ function formatOnboardingEntries(): string {
   return formatRows(HELP_ONBOARDING_ENTRIES);
 }
 
+function formatCapabilityEntries(): string {
+  return formatRows(HELP_CAPABILITY_ENTRIES);
+}
+
 function formatReferenceEntries(): string {
   return formatRows(HELP_REFERENCE_ENTRIES.map((entry) => ({
     label: entry.label,
@@ -441,6 +481,10 @@ export function getHelpText(): string {
     "",
     "Usage:",
     "  npx opendevbrowser <command> [options]",
+    "",
+    "Find It Fast:",
+    "  Use these exact lookup terms when you need replay, desktop evidence, or browser-scoped computer use.",
+    formatCapabilityEntries(),
     "",
     `${onboardingMetadata.sectionTitle}:`,
     `  ${onboardingMetadata.sectionSummary}`,

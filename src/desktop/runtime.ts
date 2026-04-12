@@ -9,6 +9,7 @@ import { DesktopRuntimeError, isDesktopRuntimeError } from "./errors";
 import type {
   DesktopAccessibilityNode,
   DesktopAccessibilityValue,
+  DesktopCapability,
   DesktopCaptureInput,
   DesktopCaptureValue,
   DesktopFailureCode,
@@ -50,9 +51,35 @@ type DesktopProcessInventory = {
   windows: DesktopWindowSummary[];
 };
 
+type DesktopPermissionProbe = {
+  screenCaptureGranted: boolean;
+  accessibilityGranted: boolean;
+};
+
+type DesktopStatusResolution = {
+  status: DesktopRuntimeStatus;
+  failureMessage?: string;
+};
+
 const execFileAsync = promisify(execFile) as ExecFileAsync;
 const SCREENSHOT_MIME_TYPE = "image/png" as const;
 const MAX_PROCESS_OUTPUT_BYTES = 10 * 1024 * 1024;
+const MACOS_SCREENCAPTURE_PATH = "/usr/sbin/screencapture";
+const SCREEN_CAPTURE_PERMISSION_MESSAGE = "Desktop screen capture permission is not granted on this host.";
+const ACCESSIBILITY_PERMISSION_MESSAGE = "Desktop accessibility permission is not granted on this host.";
+
+const buildPermissionProbeSwift = (): string => `
+import Foundation
+import ApplicationServices
+import CoreGraphics
+
+let payload: [String: Any] = [
+  "screenCaptureGranted": CGPreflightScreenCaptureAccess(),
+  "accessibilityGranted": AXIsProcessTrusted()
+]
+let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+FileHandle.standardOutput.write(data)
+`;
 
 const buildWindowInventorySwift = (): string => `
 import Foundation
@@ -264,6 +291,23 @@ const parseAccessibilityTree = (raw: unknown): DesktopAccessibilityNode => {
   };
 };
 
+const parsePermissionProbe = (raw: unknown): DesktopPermissionProbe => {
+  if (
+    !isRecord(raw)
+    || typeof raw.screenCaptureGranted !== "boolean"
+    || typeof raw.accessibilityGranted !== "boolean"
+  ) {
+    throw new DesktopRuntimeError(
+      "desktop_query_failed",
+      "Desktop permission probe returned an invalid payload."
+    );
+  }
+  return {
+    screenCaptureGranted: raw.screenCaptureGranted,
+    accessibilityGranted: raw.accessibilityGranted
+  };
+};
+
 const normalizeFailure = (error: unknown, fallbackCode: DesktopFailureCode): {
   code: DesktopFailureCode;
   message: string;
@@ -273,6 +317,12 @@ const normalizeFailure = (error: unknown, fallbackCode: DesktopFailureCode): {
   }
   const message = error instanceof Error ? error.message : String(error);
   if (/ENOENT|not found|No such file/i.test(message)) {
+    if (/\bswift\b/i.test(message)) {
+      return {
+        code: "desktop_unsupported",
+        message: "Desktop observation requires the macOS swift command for availability, window, and accessibility probes. Install Xcode or a Swift toolchain and retry."
+      };
+    }
     return {
       code: "desktop_unsupported",
       message: "Required desktop observation tooling is unavailable on this host."
@@ -296,43 +346,68 @@ const resolveAuditArtifactsDir = (cacheRoot: string, configuredPath: string): st
     : path.join(cacheRoot, configuredPath);
 };
 
-const resolveStatus = (
+const resolveCapabilities = (probe: DesktopPermissionProbe): DesktopCapability[] => {
+  if (!probe.screenCaptureGranted) {
+    return [];
+  }
+  return probe.accessibilityGranted
+    ? ["observe.windows", "observe.screen", "observe.window", "observe.accessibility"]
+    : ["observe.windows", "observe.screen", "observe.window"];
+};
+
+const unavailableStatus = (
   platform: NodeJS.Platform,
   config: DesktopConfig,
-  auditArtifactsDir: string
-): DesktopRuntimeStatus => {
+  auditArtifactsDir: string,
+  reason: DesktopFailureCode
+): DesktopRuntimeStatus => ({
+  platform,
+  permissionLevel: config.permissionLevel,
+  available: false,
+  reason,
+  capabilities: [],
+  auditArtifactsDir
+});
+
+const resolveStatus = async (
+  platform: NodeJS.Platform,
+  config: DesktopConfig,
+  auditArtifactsDir: string,
+  runPermissionProbe: () => Promise<DesktopPermissionProbe>
+): Promise<DesktopStatusResolution> => {
   if (platform !== "darwin") {
     return {
-      platform,
-      permissionLevel: config.permissionLevel,
-      available: false,
-      reason: "desktop_unsupported",
-      capabilities: [],
-      auditArtifactsDir
+      status: unavailableStatus(platform, config, auditArtifactsDir, "desktop_unsupported")
     };
   }
   if (config.permissionLevel === "off") {
     return {
-      platform,
-      permissionLevel: config.permissionLevel,
-      available: false,
-      reason: "desktop_permission_denied",
-      capabilities: [],
-      auditArtifactsDir
+      status: unavailableStatus(platform, config, auditArtifactsDir, "desktop_permission_denied")
     };
   }
-  return {
-    platform,
-    permissionLevel: config.permissionLevel,
-    available: true,
-    capabilities: [
-      "observe.windows",
-      "observe.screen",
-      "observe.window",
-      "observe.accessibility"
-    ],
-    auditArtifactsDir
-  };
+  try {
+    const capabilities = resolveCapabilities(await runPermissionProbe());
+    if (capabilities.length === 0) {
+      return {
+        status: unavailableStatus(platform, config, auditArtifactsDir, "desktop_permission_denied")
+      };
+    }
+    return {
+      status: {
+        platform,
+        permissionLevel: config.permissionLevel,
+        available: true,
+        capabilities,
+        auditArtifactsDir
+      }
+    };
+  } catch (error) {
+    const failure = normalizeFailure(error, "desktop_query_failed");
+    return {
+      status: unavailableStatus(platform, config, auditArtifactsDir, failure.code),
+      failureMessage: failure.message
+    };
+  }
 };
 
 const byDescendingArea = (left: DesktopWindowSummary, right: DesktopWindowSummary): number => {
@@ -369,23 +444,6 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
   const auditArtifactsDir = resolveAuditArtifactsDir(args.cacheRoot, args.config.auditArtifactsDir);
   const writeAuditRecord = args.writeAuditRecord ?? writeDesktopAuditRecord;
 
-  const status = async (): Promise<DesktopRuntimeStatus> => {
-    return resolveStatus(platform, args.config, auditArtifactsDir);
-  };
-
-  const ensureUsable = async (): Promise<void> => {
-    const runtimeStatus = await status();
-    if (!runtimeStatus.available) {
-      const failureCode = runtimeStatus.reason!;
-      throw new DesktopRuntimeError(
-        failureCode,
-        failureCode === "desktop_permission_denied"
-          ? "Desktop observation is disabled by configuration."
-          : "Desktop observation is unavailable on this platform."
-      );
-    }
-  };
-
   const runCommand = async (command: string, commandArgs: readonly string[]): Promise<string> => {
     const result = await execImpl(command, commandArgs, {
       encoding: "utf8",
@@ -395,15 +453,102 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     return result.stdout;
   };
 
+  const runPermissionProbe = async (): Promise<DesktopPermissionProbe> => {
+    const stdout = await runCommand("swift", ["-e", buildPermissionProbeSwift()]);
+    return parsePermissionProbe(JSON.parse(stdout) as unknown);
+  };
+
+  const getStatusResolution = async (): Promise<DesktopStatusResolution> => {
+    return resolveStatus(platform, args.config, auditArtifactsDir, runPermissionProbe);
+  };
+
+  const status = async (): Promise<DesktopRuntimeStatus> => {
+    return (await getStatusResolution()).status;
+  };
+
+  const ensureDesktopRuntimeEnabled = (): void => {
+    if (platform !== "darwin") {
+      throw new DesktopRuntimeError("desktop_unsupported", "Desktop observation is unavailable on this platform.");
+    }
+    if (args.config.permissionLevel === "off") {
+      throw new DesktopRuntimeError("desktop_permission_denied", "Desktop observation is disabled by configuration.");
+    }
+  };
+
+  const ensureUsable = async (capability: DesktopCapability): Promise<void> => {
+    ensureDesktopRuntimeEnabled();
+    const { status: runtimeStatus, failureMessage } = await getStatusResolution();
+    if (!runtimeStatus.available) {
+      const failureCode = runtimeStatus.reason as DesktopFailureCode;
+      if (failureCode === "desktop_permission_denied") {
+        throw new DesktopRuntimeError(failureCode, SCREEN_CAPTURE_PERMISSION_MESSAGE);
+      }
+      throw new DesktopRuntimeError(
+        failureCode,
+        failureMessage!
+      );
+    }
+    if (runtimeStatus.capabilities.includes(capability)) {
+      return;
+    }
+    throw new DesktopRuntimeError(
+      "desktop_permission_denied",
+      ACCESSIBILITY_PERMISSION_MESSAGE
+    );
+  };
+
+  const ensureCaptureToolAvailable = async (): Promise<void> => {
+    ensureDesktopRuntimeEnabled();
+    const { status: runtimeStatus, failureMessage } = await getStatusResolution();
+    if (runtimeStatus.available) {
+      return;
+    }
+    if (runtimeStatus.reason !== "desktop_unsupported") {
+      const failureCode = runtimeStatus.reason as DesktopFailureCode;
+      if (failureCode === "desktop_permission_denied") {
+        throw new DesktopRuntimeError(failureCode, SCREEN_CAPTURE_PERMISSION_MESSAGE);
+      }
+      throw new DesktopRuntimeError(
+        failureCode,
+        failureMessage!
+      );
+    }
+    try {
+      await statImpl(MACOS_SCREENCAPTURE_PATH);
+    } catch (error) {
+      const failure = normalizeFailure(error, "desktop_capture_failed");
+      throw new DesktopRuntimeError(
+        failure.code,
+        failure.message
+      );
+    }
+  };
+
   const runWindowInventory = async (): Promise<DesktopProcessInventory> => {
     const stdout = await runCommand("swift", ["-e", buildWindowInventorySwift()]);
     return parseWindowInventory(JSON.parse(stdout) as unknown);
+  };
+
+  const resolveWindowForCapture = async (
+    windowId: string
+  ): Promise<DesktopWindowSummary | null | undefined> => {
+    try {
+      const inventory = await runWindowInventory();
+      return inventory.windows.find((entry) => entry.id === windowId) ?? null;
+    } catch (error) {
+      const failure = normalizeFailure(error, "desktop_query_failed");
+      if (failure.code === "desktop_unsupported") {
+        return undefined;
+      }
+      throw error;
+    }
   };
 
   const withAudit = async <T>(params: {
     operation: "windows.list" | "window.active" | "capture.desktop" | "capture.window" | "accessibility.snapshot";
     capability: "observe.windows" | "observe.screen" | "observe.window" | "observe.accessibility";
     reason?: string;
+    ensureReady?: () => Promise<void>;
     run: (auditId: string) => Promise<{
       value: T;
       artifactPaths?: string[];
@@ -415,7 +560,7 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     const auditId = randomUUID();
     let envelope: DesktopAuditEnvelope | null = null;
     try {
-      await ensureUsable();
+      await (params.ensureReady?.() ?? ensureUsable(params.capability));
       envelope = await writeAuditRecord({
         auditDir: auditArtifactsDir,
         operation: params.operation,
@@ -512,6 +657,7 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       operation: "capture.desktop",
       capability: "observe.screen",
       reason: input.reason,
+      ensureReady: ensureCaptureToolAvailable,
       failureCode: "desktop_capture_failed",
       run: async (auditId) => {
         const artifactPath = path.join(auditArtifactsDir, `${auditId}.png`);
@@ -538,11 +684,11 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       operation: "capture.window",
       capability: "observe.window",
       reason: input.reason,
+      ensureReady: ensureCaptureToolAvailable,
       failureCode: "desktop_capture_failed",
       run: async (auditId) => {
-        const inventory = await runWindowInventory();
-        const window = inventory.windows.find((entry) => entry.id === windowId);
-        if (!window) {
+        const window = await resolveWindowForCapture(windowId);
+        if (window === null) {
           throw new DesktopRuntimeError(
             "desktop_window_not_found",
             `Desktop window ${windowId} is not available for capture.`
@@ -557,12 +703,12 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
               path: artifactPath,
               mimeType: SCREENSHOT_MIME_TYPE
             },
-            window
+            ...(window ? { window } : {})
           },
           artifactPaths: [artifactPath],
           details: {
             windowId,
-            ownerName: window.ownerName
+            ...(window?.ownerName ? { ownerName: window.ownerName } : {})
           }
         };
       }
