@@ -177,16 +177,16 @@ Operational note:
 
 ### Browser capture (3)
 - `opendevbrowser_screenshot` - Capture a page screenshot.
-- `opendevbrowser_screencast_start` - Start a browser screencast replay capture.
-- `opendevbrowser_screencast_stop` - Stop a browser screencast replay capture and return artifact metadata.
+- `opendevbrowser_screencast_start` - Start a browser replay screencast capture.
+- `opendevbrowser_screencast_stop` - Stop a browser replay screencast capture and return artifact metadata.
 
 ### Desktop observation (6)
-- `opendevbrowser_desktop_status` - Inspect sibling desktop observation availability.
-- `opendevbrowser_desktop_windows` - List observable desktop windows.
-- `opendevbrowser_desktop_active_window` - Inspect the active desktop window.
-- `opendevbrowser_desktop_capture_desktop` - Capture the current desktop surface.
-- `opendevbrowser_desktop_capture_window` - Capture a specific desktop window.
-- `opendevbrowser_desktop_accessibility_snapshot` - Capture desktop accessibility state.
+- `opendevbrowser_desktop_status` - Inspect public read-only desktop observation availability.
+- `opendevbrowser_desktop_windows` - List windows exposed by the public read-only desktop observation plane.
+- `opendevbrowser_desktop_active_window` - Inspect the active window through the public read-only desktop observation plane.
+- `opendevbrowser_desktop_capture_desktop` - Capture the current desktop surface through the public read-only desktop observation plane.
+- `opendevbrowser_desktop_capture_window` - Capture a specific window through the public read-only desktop observation plane.
+- `opendevbrowser_desktop_accessibility_snapshot` - Capture desktop accessibility state through the public read-only desktop observation plane.
 
 ### Diagnostics and export (9)
 - `opendevbrowser_console_poll` - Poll redacted console events.

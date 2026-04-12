@@ -15,8 +15,8 @@ Connects Chrome tabs to the local OpenDevBrowser relay so sessions can run again
 - Supports browser replay capture for extension-backed sessions through the existing screenshot lane used by OpenDevBrowser screencasts.
 - Uses canonical toolbar/store icons from `assets/extension-icons` synced into `extension/icons` at build time.
 - Shows a small badge dot for status (`green` connected, `red` disconnected).
-- Desktop observation remains daemon/core-owned and does not use the extension relay.
-- Generated help points users to browser replay, desktop observation, and browser-scoped computer use as separate lanes; the extension participates in replay-backed browser sessions, not the desktop plane.
+- Desktop observation remains the public read-only daemon/core-owned plane and does not use the extension relay.
+- Generated help points users to the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; the extension participates in replay-backed browser sessions, not the public read-only desktop plane.
 
 ## Build
 

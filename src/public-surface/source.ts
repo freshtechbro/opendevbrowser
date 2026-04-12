@@ -516,7 +516,7 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
   {
     id: "browser_replay",
     title: "Browser Replay",
-    summary: "Capture temporal replay artifacts for a browser target.",
+    summary: "Capture temporal replay artifacts through the public browser replay lane for a browser target.",
     commands: [
       {
         name: "screencast-start",
@@ -533,7 +533,7 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
   {
     id: "desktop_observation",
     title: "Desktop Observation",
-    summary: "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture.",
+    summary: "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay.",
     commands: [
       {
         name: "desktop-status",
@@ -664,15 +664,15 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_clone_component", description: "Export a component by ref into React code.", cliEquivalent: "clone-component" },
   { name: "opendevbrowser_perf", description: "Collect browser performance metrics.", cliEquivalent: "perf" },
   { name: "opendevbrowser_screenshot", description: "Capture a page screenshot.", cliEquivalent: "screenshot" },
-  { name: "opendevbrowser_screencast_start", description: "Start a browser screencast replay capture.", cliEquivalent: "screencast-start" },
-  { name: "opendevbrowser_screencast_stop", description: "Stop a browser screencast replay capture.", cliEquivalent: "screencast-stop" },
+  { name: "opendevbrowser_screencast_start", description: "Start a browser replay screencast capture.", cliEquivalent: "screencast-start" },
+  { name: "opendevbrowser_screencast_stop", description: "Stop a browser replay screencast capture.", cliEquivalent: "screencast-stop" },
   { name: "opendevbrowser_dialog", description: "Inspect or handle a JavaScript dialog.", cliEquivalent: "dialog" },
-  { name: "opendevbrowser_desktop_status", description: "Inspect sibling desktop observation availability.", cliEquivalent: "desktop-status" },
-  { name: "opendevbrowser_desktop_windows", description: "List observable desktop windows.", cliEquivalent: "desktop-windows" },
-  { name: "opendevbrowser_desktop_active_window", description: "Inspect the active desktop window.", cliEquivalent: "desktop-active-window" },
-  { name: "opendevbrowser_desktop_capture_desktop", description: "Capture the current desktop surface.", cliEquivalent: "desktop-capture-desktop" },
-  { name: "opendevbrowser_desktop_capture_window", description: "Capture a specific desktop window.", cliEquivalent: "desktop-capture-window" },
-  { name: "opendevbrowser_desktop_accessibility_snapshot", description: "Capture desktop accessibility state.", cliEquivalent: "desktop-accessibility-snapshot" },
+  { name: "opendevbrowser_desktop_status", description: "Inspect public read-only desktop observation availability.", cliEquivalent: "desktop-status" },
+  { name: "opendevbrowser_desktop_windows", description: "List windows exposed by the public read-only desktop observation plane.", cliEquivalent: "desktop-windows" },
+  { name: "opendevbrowser_desktop_active_window", description: "Inspect the active window through the public read-only desktop observation plane.", cliEquivalent: "desktop-active-window" },
+  { name: "opendevbrowser_desktop_capture_desktop", description: "Capture the current desktop surface through the public read-only desktop observation plane.", cliEquivalent: "desktop-capture-desktop" },
+  { name: "opendevbrowser_desktop_capture_window", description: "Capture a specific window through the public read-only desktop observation plane.", cliEquivalent: "desktop-capture-window" },
+  { name: "opendevbrowser_desktop_accessibility_snapshot", description: "Capture desktop accessibility state through the public read-only desktop observation plane.", cliEquivalent: "desktop-accessibility-snapshot" },
   { name: "opendevbrowser_annotate", description: "Capture interactive annotations.", cliEquivalent: "annotate" },
   { name: "opendevbrowser_skill_list", description: "List bundled and discovered skill packs before choosing a local onboarding or workflow lane." },
   { name: "opendevbrowser_skill_load", description: "Load a specific skill pack locally, especially the bundled best-practices quick start." }

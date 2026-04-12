@@ -109,7 +109,7 @@ src/cli/
 - **Hub-aware:** Check `isHubEnabled()` before local operations
 - **Thin handlers:** Delegate to managers in `src/browser/`
 - **JSON pipes:** Ensure valid JSON for piping
-- **Help discoverability:** Generated help must keep browser replay, desktop observation, and the browser-scoped `--challenge-automation-mode` lane easy to find without describing a desktop agent.
+- **Help discoverability:** Generated help must keep the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` easy to find without describing a desktop agent.
 - **Parity contract:** Keep CLI runtime commands aligned with tool/runtime parity gate in `tests/parity-matrix.test.ts` (`rpc` remains CLI-only by design)
 
 ## Anti-Patterns

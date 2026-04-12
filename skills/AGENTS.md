@@ -54,7 +54,7 @@ Content organized by topic for filtering.
 - Keep canonical guidance in `opendevbrowser-*` packs; do not reintroduce legacy alias directories.
 - Match the snapshot → refs → actions flow in `docs/ARCHITECTURE.md` and tool list in `docs/CLI.md`.
 - Keep first-contact quick-start wording aligned with `src/cli/onboarding-metadata.json`, generated help, and `docs/FIRST_RUN_ONBOARDING.md`.
-- When a pack touches runtime lanes, keep browser replay, desktop observation, and the browser-scoped computer-use lane aligned with generated help, and never describe the helper as a desktop agent.
+- When a pack touches runtime lanes, keep the exact generated-help labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` aligned across packs, and never describe the helper as a desktop agent.
 - Note that extension relay requires Chrome 125+ and uses hub-only relay ownership when enabled.
 - Refer to root `AGENTS.md` for connection flag/status semantics (extensionConnected, handshake, cdpConnected, pairingRequired).
 - Keep skill operational guidance aligned with release-gate scripts in `docs/CLI.md` (`provider-direct-runs --release-gate`, `live-regression-direct --release-gate`).

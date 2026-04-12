@@ -409,8 +409,8 @@ See [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md) for the brand and generat
 | `opendevbrowser_network_poll` | Poll network requests since sequence |
 | `opendevbrowser_debug_trace_snapshot` | Capture a unified page + console + network + exception diagnostic bundle |
 | `opendevbrowser_screenshot` | Capture page screenshot |
-| `opendevbrowser_screencast_start` | Start a browser screencast replay capture |
-| `opendevbrowser_screencast_stop` | Stop a browser screencast replay capture and return artifact metadata |
+| `opendevbrowser_screencast_start` | Start a browser replay screencast capture |
+| `opendevbrowser_screencast_stop` | Stop a browser replay screencast capture and return artifact metadata |
 | `opendevbrowser_dialog` | Inspect or handle a JavaScript dialog |
 | `opendevbrowser_perf` | Get page performance metrics |
 | `opendevbrowser_prompting_guide` | Get best-practice prompting guidance |
@@ -418,12 +418,12 @@ See [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md) for the brand and generat
 ### Desktop Observation
 | Tool | Description |
 |------|-------------|
-| `opendevbrowser_desktop_status` | Inspect desktop observation availability and configured capabilities |
-| `opendevbrowser_desktop_windows` | List observable desktop windows |
-| `opendevbrowser_desktop_active_window` | Inspect the active desktop window |
-| `opendevbrowser_desktop_capture_desktop` | Capture the current desktop surface |
-| `opendevbrowser_desktop_capture_window` | Capture a specific desktop window |
-| `opendevbrowser_desktop_accessibility_snapshot` | Capture desktop accessibility state |
+| `opendevbrowser_desktop_status` | Inspect public read-only desktop observation availability |
+| `opendevbrowser_desktop_windows` | List windows exposed by the public read-only desktop observation plane |
+| `opendevbrowser_desktop_active_window` | Inspect the active window through the public read-only desktop observation plane |
+| `opendevbrowser_desktop_capture_desktop` | Capture the current desktop surface through the public read-only desktop observation plane |
+| `opendevbrowser_desktop_capture_window` | Capture a specific window through the public read-only desktop observation plane |
+| `opendevbrowser_desktop_accessibility_snapshot` | Capture desktop accessibility state through the public read-only desktop observation plane |
 
 Desktop observation currently ships as a public read-only macOS surface. Availability, window inventory, and accessibility snapshots rely on the local `swift` command, while screenshot capture uses the built-in `screencapture` utility. If `desktop-status` reports `desktop_unsupported` on macOS, install Xcode or a Swift toolchain and retry.
 

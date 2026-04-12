@@ -2,7 +2,7 @@
 
 Canonical documentation map for OpenDevBrowser runtime, extension, and distribution surfaces.
 
-Generated help is the canonical first-contact discovery surface and must keep browser replay, desktop observation, and the browser-scoped computer-use lane easy to find.
+Generated help is the canonical first-contact discovery surface and must keep the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` easy to find.
 
 ## Active operational docs
 

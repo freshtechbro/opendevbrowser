@@ -3,7 +3,7 @@
 Optional Chrome extension that enables relay mode (attach to existing logged-in tabs).
 
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-04-12
 
 Quick file-level overview: `<public-repo-root>/extension/README.md`
 
@@ -20,8 +20,8 @@ Quick file-level overview: `<public-repo-root>/extension/README.md`
 - Routes popup/canvas/in-page annotation `Send` actions through `/annotation` `store_agent_payload` so the active chat can receive repo-local shared inbox entries when scope is safe.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 - Extension mode is headed-only; extension-intent headless launch/connect is rejected with `unsupported_mode`.
-- Desktop observation is not an extension feature; the shipped desktop commands and tools stay daemon/core-owned and observe-only.
-- Generated help surfaces browser replay, desktop observation, and browser-scoped computer use as separate lanes; the extension participates in relay-backed browser work, not the desktop plane.
+- Desktop observation is not an extension feature; the shipped desktop commands and tools stay daemon/core-owned, public, and observe-only.
+- Generated help surfaces the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; the extension participates in relay-backed browser work, not the public read-only desktop plane.
 - When hub mode is enabled, the hub daemon is the sole relay owner and enforces FIFO leases (no local relay fallback).
 
 ## Installation

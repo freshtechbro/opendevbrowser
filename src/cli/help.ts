@@ -225,7 +225,7 @@ export const HELP_TOOL_ENTRIES = TOOL_SURFACE_ENTRIES;
 export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
   {
     label: "screencast / browser replay",
-    description: "Use the public replay lane when you need temporal browser evidence before or after a fragile flow.",
+    description: "Use the public browser replay lane when you need temporal browser evidence before or after a fragile flow.",
     details: [
       { label: "cli:", value: "screencast-start, screencast-stop" },
       { label: "example:", value: "npx opendevbrowser screencast-start --session-id <id> --output-dir ./artifacts/replay" }

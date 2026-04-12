@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-12T15:03:22.377Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-12T18:43:44.761Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-12T15:03:22.377Z",
+  "generatedAt": "2026-04-12T18:43:44.761Z",
   "cli": {
     "groups": [
       {
@@ -156,7 +156,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "id": "browser_replay",
         "title": "Browser Replay",
-        "summary": "Capture temporal replay artifacts for a browser target.",
+        "summary": "Capture temporal replay artifacts through the public browser replay lane for a browser target.",
         "commands": [
           "screencast-start",
           "screencast-stop"
@@ -165,7 +165,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "id": "desktop_observation",
         "title": "Desktop Observation",
-        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture.",
+        "summary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay.",
         "commands": [
           "desktop-status",
           "desktop-windows",
@@ -1029,7 +1029,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "browser_replay",
         "groupTitle": "Browser Replay",
-        "groupSummary": "Capture temporal replay artifacts for a browser target."
+        "groupSummary": "Capture temporal replay artifacts through the public browser replay lane for a browser target."
       },
       {
         "name": "screencast-stop",
@@ -1041,7 +1041,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "browser_replay",
         "groupTitle": "Browser Replay",
-        "groupSummary": "Capture temporal replay artifacts for a browser target."
+        "groupSummary": "Capture temporal replay artifacts through the public browser replay lane for a browser target."
       },
       {
         "name": "desktop-status",
@@ -1051,7 +1051,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
       },
       {
         "name": "desktop-windows",
@@ -1062,7 +1062,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
       },
       {
         "name": "desktop-active-window",
@@ -1073,7 +1073,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
       },
       {
         "name": "desktop-capture-desktop",
@@ -1084,7 +1084,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
       },
       {
         "name": "desktop-capture-window",
@@ -1096,7 +1096,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
       },
       {
         "name": "desktop-accessibility-snapshot",
@@ -1108,7 +1108,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
       },
       {
         "name": "rpc",
@@ -1966,12 +1966,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "opendevbrowser_screencast_start",
-        "description": "Start a browser screencast replay capture.",
+        "description": "Start a browser replay screencast capture.",
         "cliEquivalent": "screencast-start"
       },
       {
         "name": "opendevbrowser_screencast_stop",
-        "description": "Stop a browser screencast replay capture.",
+        "description": "Stop a browser replay screencast capture.",
         "cliEquivalent": "screencast-stop"
       },
       {
@@ -1981,32 +1981,32 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "opendevbrowser_desktop_status",
-        "description": "Inspect sibling desktop observation availability.",
+        "description": "Inspect public read-only desktop observation availability.",
         "cliEquivalent": "desktop-status"
       },
       {
         "name": "opendevbrowser_desktop_windows",
-        "description": "List observable desktop windows.",
+        "description": "List windows exposed by the public read-only desktop observation plane.",
         "cliEquivalent": "desktop-windows"
       },
       {
         "name": "opendevbrowser_desktop_active_window",
-        "description": "Inspect the active desktop window.",
+        "description": "Inspect the active window through the public read-only desktop observation plane.",
         "cliEquivalent": "desktop-active-window"
       },
       {
         "name": "opendevbrowser_desktop_capture_desktop",
-        "description": "Capture the current desktop surface.",
+        "description": "Capture the current desktop surface through the public read-only desktop observation plane.",
         "cliEquivalent": "desktop-capture-desktop"
       },
       {
         "name": "opendevbrowser_desktop_capture_window",
-        "description": "Capture a specific desktop window.",
+        "description": "Capture a specific window through the public read-only desktop observation plane.",
         "cliEquivalent": "desktop-capture-window"
       },
       {
         "name": "opendevbrowser_desktop_accessibility_snapshot",
-        "description": "Capture desktop accessibility state.",
+        "description": "Capture desktop accessibility state through the public read-only desktop observation plane.",
         "cliEquivalent": "desktop-accessibility-snapshot"
       },
       {

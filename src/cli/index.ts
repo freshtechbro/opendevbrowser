@@ -737,13 +737,13 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "screencast-start",
-      description: "Start a browser screencast replay capture",
+      description: "Start a browser replay screencast capture",
       run: async () => runScreencastStart(args)
     });
 
     registerCommand({
       name: "screencast-stop",
-      description: "Stop a browser screencast replay capture",
+      description: "Stop a browser replay screencast capture",
       run: async () => runScreencastStop(args)
     });
 
@@ -773,37 +773,37 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "desktop-status",
-      description: "Inspect sibling desktop observation availability",
+      description: "Inspect public read-only desktop observation availability",
       run: async () => runDesktopStatus(args)
     });
 
     registerCommand({
       name: "desktop-windows",
-      description: "List observable desktop windows",
+      description: "List windows exposed by the public read-only desktop observation plane",
       run: async () => runDesktopWindows(args)
     });
 
     registerCommand({
       name: "desktop-active-window",
-      description: "Inspect the active desktop window",
+      description: "Inspect the active window through the public read-only desktop observation plane",
       run: async () => runDesktopActiveWindow(args)
     });
 
     registerCommand({
       name: "desktop-capture-desktop",
-      description: "Capture the current desktop surface",
+      description: "Capture the current desktop surface through the public read-only desktop observation plane",
       run: async () => runDesktopCaptureDesktop(args)
     });
 
     registerCommand({
       name: "desktop-capture-window",
-      description: "Capture a specific desktop window",
+      description: "Capture a specific window through the public read-only desktop observation plane",
       run: async () => runDesktopCaptureWindow(args)
     });
 
     registerCommand({
       name: "desktop-accessibility-snapshot",
-      description: "Capture accessibility state for a desktop window",
+      description: "Capture desktop accessibility state through the public read-only desktop observation plane",
       run: async () => runDesktopAccessibilitySnapshot(args)
     });
 

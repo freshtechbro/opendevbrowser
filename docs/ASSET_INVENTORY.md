@@ -18,7 +18,7 @@ These files live outside `assets/`, but they are treated as release-facing inven
 
 | File | Role | Notes |
 |---|---|---|
-| `src/cli/help.ts` | Generated help renderer | First-contact CLI/help inventory surface, including the `Find It Fast` lookup block for `screencast / browser replay`, `desktop observation`, and browser-scoped computer use |
+| `src/cli/help.ts` | Generated help renderer | First-contact CLI/help inventory surface, including the `Find It Fast` lookup block for `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` |
 | `src/cli/onboarding-metadata.json` | Onboarding metadata | Shared by help, prompting guide, skill nudges, and proof lanes |
 | `src/public-surface/generated-manifest.ts` | Checked-in TypeScript public-surface snapshot | Consumed by runtime help, docs parity, and tests |
 | `src/public-surface/generated-manifest.json` | Checked-in JSON public-surface snapshot | Consumed by scripts and private website sync inputs |

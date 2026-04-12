@@ -1,7 +1,7 @@
 # OpenDevBrowser Frontend
 
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-04-12
 
 ## Overview
 
@@ -10,7 +10,7 @@ The frontend source is no longer maintained in this public repository.
 - Frontend source of truth: private repo `opendevbrowser-website-deploy` (`frontend/`).
 - Production deploy branch: private `website-production`.
 - Public repo role: provide mirrored content inputs and trigger private sync.
-- Mirrored help/public-surface inputs include first-contact discovery wording for browser replay, desktop observation, and the browser-scoped computer-use lane.
+- Mirrored help/public-surface inputs include the exact first-contact discovery labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 
 ## Public/Private contract
 
