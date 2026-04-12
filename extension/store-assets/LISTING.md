@@ -175,20 +175,25 @@ Use these answers as the starting point for the current Chrome Web Store dashboa
 
 ### Screenshots
 
+All store screenshots should come from the live built extension capture flow in `node scripts/generate-store-assets.mjs`. Do not replace them with staged popup DOM mocks or invented diagnostics.
+
 1. `screenshot-popup-connected.png`
-   - Full current popup
-   - `Connected` status pill
-   - Settings, diagnostics, annotation panel, and `Disconnect` CTA visible
+   - Live built popup capture in the connected state
+   - Real `Connected` status pill from the unpacked extension
+   - Current settings, diagnostics, annotation panel, and `Disconnect` CTA visible
 
 2. `screenshot-popup-disconnected.png`
-   - Full current popup
-   - `Disconnected` status pill
-   - Default relay settings visible
-   - Diagnostics and annotation panel still visible
+   - Live built popup capture after a real disconnect action
+   - Real `Disconnected` status pill from the unpacked extension
+   - Default relay settings, diagnostics, and annotation panel still visible
 
 3. `screenshot-automation-demo.png`
-   - OpenDevBrowser driving a real Chrome tab through the local relay
-   - OpenCode / terminal action on one side and the browser outcome on the other
+   - Full extension page shown in-browser with the live connected popup layered in
+   - Uses the shipped `canvas.html` surface plus the current popup to show the broader extension workspace
+
+4. `screenshot-canvas.png` (optional extra store screenshot)
+   - Full `canvas.html` extension page in a normal Chrome tab
+   - Shows the current canvas workspace, annotation tools, and side panels from the live page capture
 
 ### Promo Images
 
