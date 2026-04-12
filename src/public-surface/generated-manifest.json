@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-12T02:33:53.843Z",
+  "generatedAt": "2026-04-12T15:03:22.377Z",
   "cli": {
     "groups": [
       {
@@ -148,7 +148,7 @@
       {
         "id": "desktop_observation",
         "title": "Desktop Observation",
-        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available.",
+        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture.",
         "commands": [
           "desktop-status",
           "desktop-windows",
@@ -1034,7 +1034,7 @@
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-windows",
@@ -1045,7 +1045,7 @@
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-active-window",
@@ -1056,7 +1056,7 @@
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-capture-desktop",
@@ -1067,7 +1067,7 @@
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-capture-window",
@@ -1079,7 +1079,7 @@
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-accessibility-snapshot",
@@ -1091,7 +1091,7 @@
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "rpc",

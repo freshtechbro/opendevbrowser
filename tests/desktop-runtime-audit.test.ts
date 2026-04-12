@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -152,7 +153,8 @@ describe("desktop runtime audit and observation", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl
+      execFileImpl,
+      statImpl: vi.fn(async () => ({ size: 1 } as Stats))
     });
 
     const windowsResult = await runtime.listWindows("list-for-capture");
@@ -267,6 +269,81 @@ describe("desktop runtime audit and observation", () => {
     const accessibilityScript = execFileImpl.mock.calls[2]?.[1]?.[1];
     expect(accessibilityScript).toContain("candidateWindow = focusedRaw as! AXUIElement");
     expect(accessibilityScript).not.toContain("as? AXUIElement");
+  });
+
+  it("captures a desktop window with screencapture when swift inventory is unavailable", async () => {
+    const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-window-capture-no-swift-"));
+    cleanupPaths.push(cacheRoot);
+    const execFileImpl = vi.fn(async (command: string, args: readonly string[] = []) => {
+      if (command === "swift") {
+        throw new Error("spawn swift ENOENT");
+      }
+      if (command !== "screencapture") {
+        throw new Error(`unexpected command ${command}`);
+      }
+      const outputPath = args.at(-1);
+      if (!outputPath) {
+        throw new Error("missing capture path");
+      }
+      await writeFile(outputPath, "png-bytes");
+      return { stdout: "", stderr: "" };
+    });
+
+    const runtime = createDesktopRuntime({
+      cacheRoot,
+      platform: "darwin",
+      config: makeDesktopConfig(),
+      execFileImpl
+    });
+
+    const result = await runtime.captureWindow("window-1", { reason: "capture-window-no-swift" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        capture: {
+          mimeType: "image/png"
+        }
+      }
+    });
+    if (!result.ok) {
+      throw new Error("expected window capture success");
+    }
+    expect(result.value).not.toHaveProperty("window");
+    const audit = JSON.parse(await readFile(result.audit.recordPath, "utf8")) as {
+      details?: { windowId?: string; ownerName?: string };
+    };
+    expect(audit.details).toMatchObject({
+      windowId: "window-1"
+    });
+    expect(audit.details).not.toHaveProperty("ownerName");
+  });
+
+  it("fails window capture when inventory parsing fails after capture readiness succeeds", async () => {
+    const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-window-capture-invalid-inventory-"));
+    cleanupPaths.push(cacheRoot);
+    const execFileImpl = createDesktopExecMock({
+      inventory: "null",
+      capture: async () => {
+        throw new Error("screencapture should not run when inventory parsing fails");
+      }
+    });
+
+    const runtime = createDesktopRuntime({
+      cacheRoot,
+      platform: "darwin",
+      config: makeDesktopConfig(),
+      execFileImpl
+    });
+
+    const result = await runtime.captureWindow("window-1", { reason: "capture-window-invalid-inventory" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "desktop_query_failed",
+      message: "Desktop window inventory returned an invalid payload."
+    });
+    expect(execFileImpl.mock.calls.at(-1)?.[0]).toBe("swift");
   });
 
   it("fails screen-backed operations before capture when screen permission is missing", async () => {

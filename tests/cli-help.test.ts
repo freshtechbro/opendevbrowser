@@ -104,6 +104,7 @@ describe("CLI help surface", () => {
     expect(HELP_CAPABILITY_ENTRIES[1]?.details?.[0]?.value).toContain("desktop-status");
     expect(HELP_CAPABILITY_ENTRIES[1]?.details?.[1]?.value).toBe("npx opendevbrowser desktop-status --output-format json");
     expect(HELP_CAPABILITY_ENTRIES[1]?.description).toContain("swift command");
+    expect(HELP_CAPABILITY_ENTRIES[1]?.description).toContain("screencapture");
     expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[0]?.value).toBe("--challenge-automation-mode off|browser|browser_with_helper");
     expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[1]?.value).toContain("macro-resolve --execute");
     expect(HELP_CAPABILITY_ENTRIES[2]?.description).toContain("not a desktop agent");
@@ -132,6 +133,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("screencast-start, screencast-stop");
     expect(output).toContain("desktop-status, desktop-windows");
     expect(output).toContain("swift command");
+    expect(output).toContain("screencapture");
     expect(output).toContain("--challenge-automation-mode off|browser|browser_with_helper");
     expect(output).toContain("research run, shopping run, product-video run, macro-resolve --execute");
     expect(output).toContain("not a desktop agent");

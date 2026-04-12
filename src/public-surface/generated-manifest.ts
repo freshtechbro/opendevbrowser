@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-12T02:33:53.843Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-12T15:03:22.377Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-12T02:33:53.843Z",
+  "generatedAt": "2026-04-12T15:03:22.377Z",
   "cli": {
     "groups": [
       {
@@ -165,7 +165,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "id": "desktop_observation",
         "title": "Desktop Observation",
-        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available.",
+        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture.",
         "commands": [
           "desktop-status",
           "desktop-windows",
@@ -1051,7 +1051,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-windows",
@@ -1062,7 +1062,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-active-window",
@@ -1073,7 +1073,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-capture-desktop",
@@ -1084,7 +1084,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-capture-window",
@@ -1096,7 +1096,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "desktop-accessibility-snapshot",
@@ -1108,7 +1108,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture."
       },
       {
         "name": "rpc",

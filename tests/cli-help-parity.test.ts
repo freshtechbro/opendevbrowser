@@ -68,6 +68,7 @@ describe("cli help parity", () => {
       "desktop-accessibility-snapshot"
     ]);
     expect(HELP_COMMAND_GROUPS.find((group) => group.title === "Desktop Observation")?.summary).toContain("swift command");
+    expect(HELP_COMMAND_GROUPS.find((group) => group.title === "Desktop Observation")?.summary).toContain("screencapture");
     expect(toolNames).toEqual(expect.arrayContaining([
       "opendevbrowser_screencast_start",
       "opendevbrowser_screencast_stop",

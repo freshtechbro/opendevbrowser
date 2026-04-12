@@ -233,7 +233,7 @@ export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "desktop observation",
-    description: "Use the public read-only desktop observation plane for sibling desktop evidence on macOS hosts with the local swift command available; it stays core-owned and outside extension relay.",
+    description: "Use the public read-only desktop observation plane for sibling desktop evidence on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay.",
     details: [
       {
         label: "cli:",

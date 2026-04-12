@@ -64,6 +64,9 @@ type DesktopStatusResolution = {
 const execFileAsync = promisify(execFile) as ExecFileAsync;
 const SCREENSHOT_MIME_TYPE = "image/png" as const;
 const MAX_PROCESS_OUTPUT_BYTES = 10 * 1024 * 1024;
+const MACOS_SCREENCAPTURE_PATH = "/usr/sbin/screencapture";
+const SCREEN_CAPTURE_PERMISSION_MESSAGE = "Desktop screen capture permission is not granted on this host.";
+const ACCESSIBILITY_PERMISSION_MESSAGE = "Desktop accessibility permission is not granted on this host.";
 
 const buildPermissionProbeSwift = (): string => `
 import Foundation
@@ -407,28 +410,6 @@ const resolveStatus = async (
   }
 };
 
-const resolveUnavailableMessage = (
-  config: DesktopConfig,
-  failureCode: DesktopFailureCode,
-  failureMessage?: string
-): string => {
-  if (failureCode === "desktop_permission_denied") {
-    return config.permissionLevel === "off"
-      ? "Desktop observation is disabled by configuration."
-      : "Desktop screen capture permission is not granted on this host.";
-  }
-  if (failureCode === "desktop_unsupported") {
-    return failureMessage ?? "Desktop observation is unavailable on this platform.";
-  }
-  return failureMessage ?? "Desktop observation availability could not be confirmed.";
-};
-
-const resolveCapabilityMessage = (capability: DesktopCapability): string => {
-  return capability === "observe.accessibility"
-    ? "Desktop accessibility permission is not granted on this host."
-    : "Desktop observation permission is not granted on this host.";
-};
-
 const byDescendingArea = (left: DesktopWindowSummary, right: DesktopWindowSummary): number => {
   const leftArea = left.bounds.width * left.bounds.height;
   const rightArea = right.bounds.width * right.bounds.height;
@@ -485,13 +466,26 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     return (await getStatusResolution()).status;
   };
 
+  const ensureDesktopRuntimeEnabled = (): void => {
+    if (platform !== "darwin") {
+      throw new DesktopRuntimeError("desktop_unsupported", "Desktop observation is unavailable on this platform.");
+    }
+    if (args.config.permissionLevel === "off") {
+      throw new DesktopRuntimeError("desktop_permission_denied", "Desktop observation is disabled by configuration.");
+    }
+  };
+
   const ensureUsable = async (capability: DesktopCapability): Promise<void> => {
+    ensureDesktopRuntimeEnabled();
     const { status: runtimeStatus, failureMessage } = await getStatusResolution();
     if (!runtimeStatus.available) {
-      const failureCode = runtimeStatus.reason ?? "desktop_query_failed";
+      const failureCode = runtimeStatus.reason as DesktopFailureCode;
+      if (failureCode === "desktop_permission_denied") {
+        throw new DesktopRuntimeError(failureCode, SCREEN_CAPTURE_PERMISSION_MESSAGE);
+      }
       throw new DesktopRuntimeError(
         failureCode,
-        resolveUnavailableMessage(args.config, failureCode, failureMessage)
+        failureMessage!
       );
     }
     if (runtimeStatus.capabilities.includes(capability)) {
@@ -499,8 +493,35 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     }
     throw new DesktopRuntimeError(
       "desktop_permission_denied",
-      resolveCapabilityMessage(capability)
+      ACCESSIBILITY_PERMISSION_MESSAGE
     );
+  };
+
+  const ensureCaptureToolAvailable = async (): Promise<void> => {
+    ensureDesktopRuntimeEnabled();
+    const { status: runtimeStatus, failureMessage } = await getStatusResolution();
+    if (runtimeStatus.available) {
+      return;
+    }
+    if (runtimeStatus.reason !== "desktop_unsupported") {
+      const failureCode = runtimeStatus.reason as DesktopFailureCode;
+      if (failureCode === "desktop_permission_denied") {
+        throw new DesktopRuntimeError(failureCode, SCREEN_CAPTURE_PERMISSION_MESSAGE);
+      }
+      throw new DesktopRuntimeError(
+        failureCode,
+        failureMessage!
+      );
+    }
+    try {
+      await statImpl(MACOS_SCREENCAPTURE_PATH);
+    } catch (error) {
+      const failure = normalizeFailure(error, "desktop_capture_failed");
+      throw new DesktopRuntimeError(
+        failure.code,
+        failure.message
+      );
+    }
   };
 
   const runWindowInventory = async (): Promise<DesktopProcessInventory> => {
@@ -508,10 +529,26 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     return parseWindowInventory(JSON.parse(stdout) as unknown);
   };
 
+  const resolveWindowForCapture = async (
+    windowId: string
+  ): Promise<DesktopWindowSummary | null | undefined> => {
+    try {
+      const inventory = await runWindowInventory();
+      return inventory.windows.find((entry) => entry.id === windowId) ?? null;
+    } catch (error) {
+      const failure = normalizeFailure(error, "desktop_query_failed");
+      if (failure.code === "desktop_unsupported") {
+        return undefined;
+      }
+      throw error;
+    }
+  };
+
   const withAudit = async <T>(params: {
     operation: "windows.list" | "window.active" | "capture.desktop" | "capture.window" | "accessibility.snapshot";
     capability: "observe.windows" | "observe.screen" | "observe.window" | "observe.accessibility";
     reason?: string;
+    ensureReady?: () => Promise<void>;
     run: (auditId: string) => Promise<{
       value: T;
       artifactPaths?: string[];
@@ -523,7 +560,7 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     const auditId = randomUUID();
     let envelope: DesktopAuditEnvelope | null = null;
     try {
-      await ensureUsable(params.capability);
+      await (params.ensureReady?.() ?? ensureUsable(params.capability));
       envelope = await writeAuditRecord({
         auditDir: auditArtifactsDir,
         operation: params.operation,
@@ -620,6 +657,7 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       operation: "capture.desktop",
       capability: "observe.screen",
       reason: input.reason,
+      ensureReady: ensureCaptureToolAvailable,
       failureCode: "desktop_capture_failed",
       run: async (auditId) => {
         const artifactPath = path.join(auditArtifactsDir, `${auditId}.png`);
@@ -646,11 +684,11 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       operation: "capture.window",
       capability: "observe.window",
       reason: input.reason,
+      ensureReady: ensureCaptureToolAvailable,
       failureCode: "desktop_capture_failed",
       run: async (auditId) => {
-        const inventory = await runWindowInventory();
-        const window = inventory.windows.find((entry) => entry.id === windowId);
-        if (!window) {
+        const window = await resolveWindowForCapture(windowId);
+        if (window === null) {
           throw new DesktopRuntimeError(
             "desktop_window_not_found",
             `Desktop window ${windowId} is not available for capture.`
@@ -665,12 +703,12 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
               path: artifactPath,
               mimeType: SCREENSHOT_MIME_TYPE
             },
-            window
+            ...(window ? { window } : {})
           },
           artifactPaths: [artifactPath],
           details: {
             windowId,
-            ownerName: window.ownerName
+            ...(window?.ownerName ? { ownerName: window.ownerName } : {})
           }
         };
       }

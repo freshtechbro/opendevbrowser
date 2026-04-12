@@ -533,7 +533,7 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
   {
     id: "desktop_observation",
     title: "Desktop Observation",
-    summary: "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available.",
+    summary: "Inspect sibling desktop availability and capture desktop observation artifacts on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture.",
     commands: [
       {
         name: "desktop-status",
