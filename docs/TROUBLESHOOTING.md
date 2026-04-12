@@ -33,6 +33,17 @@ If `opsConnected` stays `false` after extension-mode `launch`/`connect`, restart
 If `canvasConnected` stays `false` during `opendevbrowser canvas` preview/overlay work, confirm the extension is connected and retry the canvas command after `status --daemon`.
 `cdpConnected` remaining `false` is normal for default `/ops` sessions.
 
+## Desktop observation returns `desktop_unsupported` on macOS
+
+If `desktop-status` or another `desktop-*` command reports `reason=desktop_unsupported` on macOS:
+
+1. Confirm the same shell that starts `npx opendevbrowser serve` can resolve `swift`:
+   `swift --version`
+2. If `swift` is missing, install Xcode or a Swift toolchain, then restart the daemon.
+3. Retry `npx opendevbrowser desktop-status --output-format json`.
+
+The shipped desktop runtime uses `swift -e` for availability, window, and accessibility probes, and the built-in `screencapture` utility for image capture.
+
 ### Canvas inventory vs starter commands
 
 Built-in design kits still ship through the inventory surface, and starter commands now compose those same inventory and token paths instead of using a second store.

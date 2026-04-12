@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-11T14:41:42.855Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-12T02:33:53.843Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-11T14:41:42.855Z",
+  "generatedAt": "2026-04-12T02:33:53.843Z",
   "cli": {
     "groups": [
       {
@@ -165,7 +165,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "id": "desktop_observation",
         "title": "Desktop Observation",
-        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts.",
+        "summary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available.",
         "commands": [
           "desktop-status",
           "desktop-windows",
@@ -1051,7 +1051,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
       },
       {
         "name": "desktop-windows",
@@ -1062,7 +1062,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
       },
       {
         "name": "desktop-active-window",
@@ -1073,7 +1073,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
       },
       {
         "name": "desktop-capture-desktop",
@@ -1084,7 +1084,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
       },
       {
         "name": "desktop-capture-window",
@@ -1096,7 +1096,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
       },
       {
         "name": "desktop-accessibility-snapshot",
@@ -1108,7 +1108,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts."
+        "groupSummary": "Inspect sibling desktop availability and capture desktop observation artifacts on macOS hosts with the local swift command available."
       },
       {
         "name": "rpc",

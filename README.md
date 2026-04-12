@@ -425,6 +425,8 @@ See [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md) for the brand and generat
 | `opendevbrowser_desktop_capture_window` | Capture a specific desktop window |
 | `opendevbrowser_desktop_accessibility_snapshot` | Capture desktop accessibility state |
 
+Desktop observation currently ships as a public read-only macOS surface. Availability, window inventory, and accessibility snapshots rely on the local `swift` command, while screenshot capture uses the built-in `screencapture` utility. If `desktop-status` reports `desktop_unsupported` on macOS, install Xcode or a Swift toolchain and retry.
+
 ### Macro Workflows
 | Tool | Description |
 |------|-------------|
@@ -644,6 +646,7 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
   },
 
   // Public read-only sibling desktop observation runtime (enabled by default; set "off" to opt out)
+  // On macOS, availability, window, and accessibility probes require the local swift command.
   "desktop": {
     "permissionLevel": "observe",
     "commandTimeoutMs": 10000,

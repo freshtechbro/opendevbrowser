@@ -101,6 +101,7 @@ describe("CLI help surface", () => {
     ]);
     expect(HELP_CAPABILITY_ENTRIES[0]?.details?.[0]?.value).toBe("screencast-start, screencast-stop");
     expect(HELP_CAPABILITY_ENTRIES[1]?.details?.[0]?.value).toContain("desktop-status");
+    expect(HELP_CAPABILITY_ENTRIES[1]?.description).toContain("swift command");
     expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[0]?.value).toBe("--challenge-automation-mode off|browser|browser_with_helper");
     expect(HELP_CAPABILITY_ENTRIES[2]?.description).toContain("not a desktop agent");
   });
@@ -123,6 +124,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("Capability Highlights:");
     expect(output).toContain("screencast-start, screencast-stop");
     expect(output).toContain("desktop-status, desktop-windows");
+    expect(output).toContain("swift command");
     expect(output).toContain("--challenge-automation-mode off|browser|browser_with_helper");
     expect(output).toContain("not a desktop agent");
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);

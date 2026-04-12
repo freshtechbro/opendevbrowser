@@ -105,6 +105,9 @@ First-contact note:
 - `desktop-capture-window` - Capture a specific desktop window.
 - `desktop-accessibility-snapshot` - Capture desktop accessibility state.
 
+Operational note:
+- On macOS, this plane requires the local `swift` command for availability, window, and accessibility probes; missing `swift` surfaces `desktop_unsupported`.
+
 ### Design canvas (1)
 - `canvas` - Execute a design-canvas command.
 

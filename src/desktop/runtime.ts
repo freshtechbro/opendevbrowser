@@ -314,6 +314,12 @@ const normalizeFailure = (error: unknown, fallbackCode: DesktopFailureCode): {
   }
   const message = error instanceof Error ? error.message : String(error);
   if (/ENOENT|not found|No such file/i.test(message)) {
+    if (/\bswift\b/i.test(message)) {
+      return {
+        code: "desktop_unsupported",
+        message: "Desktop observation requires the macOS swift command for availability, window, and accessibility probes. Install Xcode or a Swift toolchain and retry."
+      };
+    }
     return {
       code: "desktop_unsupported",
       message: "Required desktop observation tooling is unavailable on this host."

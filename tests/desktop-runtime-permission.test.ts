@@ -236,7 +236,7 @@ describe("desktop runtime permission and availability", () => {
     expect(windowsResult).toMatchObject({
       ok: false,
       code: "desktop_unsupported",
-      message: "Required desktop observation tooling is unavailable on this host."
+      message: "Desktop observation requires the macOS swift command for availability, window, and accessibility probes. Install Xcode or a Swift toolchain and retry."
     });
   });
 

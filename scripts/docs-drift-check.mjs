@@ -315,6 +315,13 @@ export function runDocsDriftChecks() {
     forbidden: ["no public desktop CLI or `/ops` plane yet"],
     detail: "README.md must document shipped browser replay and the public read-only desktop observation plane without claiming a desktop agent."
   });
+  checks.push({
+    id: "doc.readme.desktop_observation_swift_prerequisite_documented",
+    ok: publicReadme.includes("swift command")
+      && publicReadme.includes("desktop_unsupported")
+      && publicReadme.includes("Swift toolchain"),
+    detail: "README.md must document the desktop observation swift prerequisite and the macOS unsupported fallback."
+  });
 
   checks.push({
     id: "doc.readme.skill_discovery_fallback_documented",
@@ -356,6 +363,13 @@ export function runDocsDriftChecks() {
     required: ["browser replay", "desktop observation", "screencast-start", "desktop-status", "not a desktop agent"],
     forbidden: ["adds no public CLI command family"],
     detail: "docs/CLI.md must document the shipped browser replay and public desktop observation command families without promoting a desktop agent."
+  });
+  checks.push({
+    id: "doc.cli.desktop_observation_swift_prerequisite_documented",
+    ok: cliDoc.includes("swift")
+      && cliDoc.includes("desktop_unsupported")
+      && cliDoc.includes("Swift toolchain"),
+    detail: "docs/CLI.md must document the desktop observation swift prerequisite and unsupported fallback guidance."
   });
 
   checks.push({
@@ -515,6 +529,13 @@ export function runDocsDriftChecks() {
     required: ["meta.primaryConstraintSummary", "meta.metrics.reasonCodeDistribution", "meta.reasonCodeDistribution"],
     forbidden: ["primary_constraint_summary", "reason_code_distribution"],
     detail: "docs/TROUBLESHOOTING.md must document camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
+  });
+  checks.push({
+    id: "doc.troubleshooting.desktop_observation_swift_prerequisite_documented",
+    ok: troubleshootingDoc.includes("desktop_unsupported")
+      && troubleshootingDoc.includes("swift")
+      && troubleshootingDoc.includes("screencapture"),
+    detail: "docs/TROUBLESHOOTING.md must explain the desktop observation swift prerequisite and the macOS tooling path."
   });
 
   checks.push({

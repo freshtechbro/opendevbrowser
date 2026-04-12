@@ -20,6 +20,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 - Node.js `>=18`
 - Chrome 125+
 - Repository available locally
+- If you plan to validate desktop observation, use macOS with the local `swift` command available via Xcode or another Swift toolchain
 
 ## 1) Build a local install artifact
 
