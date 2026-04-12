@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { OpenDevBrowserConfig } from "../src/config";
 import { OpsBrowserManager } from "../src/browser/ops-browser-manager";
+import { SCREENCAST_RETENTION_MS } from "../src/browser/manager-types";
 import { OpsRequestTimeoutError } from "../src/browser/ops-client";
 
 const runtimePreviewBridgeMock = vi.hoisted(() => vi.fn().mockResolvedValue({
@@ -1306,6 +1307,101 @@ describe("OpsBrowserManager", () => {
       endedReason: "session_closed",
       outputDir
     });
+  });
+
+  it("expires completed ops screencasts after the retention window when stop is never called", async () => {
+    vi.useFakeTimers();
+    try {
+      const targetId = "tab-expiry";
+      requestMock.mockImplementation(async (...args: unknown[]) => {
+        const command = args[0] as string;
+        switch (command) {
+          case "session.connect":
+            return {
+              opsSessionId: "ops-expiry",
+              activeTargetId: targetId,
+              leaseId: "lease-expiry",
+              url: "https://example.com/expiry"
+            };
+          case "session.status":
+            return { mode: "extension", activeTargetId: targetId };
+          case "page.screenshot":
+            return { base64: Buffer.from("image-ops-expiry").toString("base64") };
+          case "targets.list":
+            return {
+              activeTargetId: targetId,
+              targets: [{ targetId, type: "page", title: "Ops Expiry", url: "https://example.com/expiry" }]
+            };
+          default:
+            return { ok: true };
+        }
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+      }));
+
+      const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+      const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+      const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-expiry-"));
+      const managerPrivate = manager as unknown as {
+        completedScreencasts: Map<string, unknown>;
+      };
+
+      const screencast = await manager.startScreencast(connected.sessionId, {
+        outputDir,
+        intervalMs: 250,
+        maxFrames: 1
+      });
+
+      await vi.waitFor(() => {
+        expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+      });
+
+      await vi.advanceTimersByTimeAsync(SCREENCAST_RETENTION_MS);
+
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(false);
+      await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).rejects.toThrow(
+        `[invalid_screencast] Unknown screencastId: ${screencast.screencastId}`
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a replaced completed ops screencast when an older cleanup timer fires", async () => {
+    vi.useFakeTimers();
+    try {
+      stubOpsScreencastSession("ops-replaced", "tab-replaced");
+
+      const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+      const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+      const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-replaced-"));
+      const managerPrivate = manager as unknown as {
+        completedScreencasts: Map<string, Record<string, unknown>>;
+      };
+
+      const screencast = await manager.startScreencast(connected.sessionId, {
+        outputDir,
+        intervalMs: 250,
+        maxFrames: 1
+      });
+
+      await vi.waitFor(() => {
+        expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+      });
+
+      const replacement = {
+        ...managerPrivate.completedScreencasts.get(screencast.screencastId)
+      };
+      managerPrivate.completedScreencasts.set(screencast.screencastId, replacement);
+
+      await vi.advanceTimersByTimeAsync(SCREENCAST_RETENTION_MS);
+
+      expect(managerPrivate.completedScreencasts.get(screencast.screencastId)).toBe(replacement);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("notifies screencast completion listeners when an ops screencast ends after session teardown", async () => {

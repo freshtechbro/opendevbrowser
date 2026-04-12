@@ -9,6 +9,7 @@ import { handleDaemonCommand } from "../src/cli/daemon-commands";
 import {
   bindRelay,
   clearBinding,
+  completeScreencastOwner,
   clearScreencastOwners,
   clearSessionLeases,
   getBindingState,
@@ -20,6 +21,7 @@ import {
   releaseRelay,
   waitForBinding
 } from "../src/cli/daemon-state";
+import { SCREENCAST_RETENTION_MS } from "../src/browser/manager-types";
 import * as macroExecuteModule from "../src/macros/execute";
 import * as providerRuntimeFactoryModule from "../src/providers/runtime-factory";
 import * as workflowModule from "../src/providers/workflows";
@@ -617,6 +619,20 @@ describe("daemon-commands integration", () => {
       targetId: "target-1",
       endedReason: "session_closed"
     });
+  });
+
+  it("schedules and expires completed screencast owners after the retention window", async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    registerScreencastOwner("session-1", "cast-1", "client-1");
+    completeScreencastOwner("cast-1");
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), SCREENCAST_RETENTION_MS);
+
+    await vi.advanceTimersByTimeAsync(SCREENCAST_RETENTION_MS);
+
+    expect(getScreencastOwner("cast-1")).toBeNull();
   });
 
   it("routes session.inspect through the daemon with default includeUrls and relay status", async () => {

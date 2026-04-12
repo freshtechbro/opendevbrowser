@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { SCREENCAST_RETENTION_MS } from "../browser/manager-types";
 
 const HUB_INSTANCE_ID = randomUUID();
 const BINDING_TTL_MS = 60_000;
@@ -6,7 +7,6 @@ const RENEW_INTERVAL_MS = 20_000;
 const RENEW_GRACE_MS = RENEW_INTERVAL_MS * 2;
 const RENEW_JITTER_MS = 2000;
 const WAIT_MAX_MS = 30_000;
-const SCREENCAST_OWNER_TTL_MS = 10 * 60_000;
 
 export type RelayBindingState = {
   bindingId: string;
@@ -58,6 +58,7 @@ let binding: RelayBindingState | null = null;
 let queue: RelayQueueEntry[] = [];
 const sessionLeases = new Map<string, SessionLeaseState>();
 const screencastOwners = new Map<string, ScreencastOwnerState>();
+const screencastOwnerCleanupTimers = new Map<string, NodeJS.Timeout>();
 
 export const getHubInstanceId = (): string => HUB_INSTANCE_ID;
 
@@ -89,11 +90,43 @@ const cleanupQueue = (): void => {
   queue = queue.filter((entry) => entry.timeoutAt > now);
 };
 
+const clearScreencastOwnerCleanup = (screencastId: string): void => {
+  const timer = screencastOwnerCleanupTimers.get(screencastId);
+  if (!timer) {
+    return;
+  }
+  clearTimeout(timer);
+  screencastOwnerCleanupTimers.delete(screencastId);
+};
+
+const releaseTrackedScreencastOwner = (screencastId: string): void => {
+  clearScreencastOwnerCleanup(screencastId);
+  screencastOwners.delete(screencastId);
+};
+
+const isExpiredScreencastOwner = (owner: ScreencastOwnerState): boolean => {
+  return owner.completedAt !== null && owner.lastUsedAt + SCREENCAST_RETENTION_MS <= nowMs();
+};
+
+const scheduleScreencastOwnerCleanup = (owner: ScreencastOwnerState): void => {
+  clearScreencastOwnerCleanup(owner.screencastId);
+  if (owner.completedAt === null) {
+    return;
+  }
+  const timer = setTimeout(() => {
+    if (isExpiredScreencastOwner(owner) && screencastOwners.get(owner.screencastId) === owner) {
+      screencastOwners.delete(owner.screencastId);
+    }
+    screencastOwnerCleanupTimers.delete(owner.screencastId);
+  }, SCREENCAST_RETENTION_MS);
+  timer.unref?.();
+  screencastOwnerCleanupTimers.set(owner.screencastId, timer);
+};
+
 const cleanupScreencastOwners = (): void => {
-  const now = nowMs();
   for (const [screencastId, owner] of screencastOwners.entries()) {
-    if (owner.completedAt !== null && owner.lastUsedAt + SCREENCAST_OWNER_TTL_MS <= now) {
-      screencastOwners.delete(screencastId);
+    if (isExpiredScreencastOwner(owner)) {
+      releaseTrackedScreencastOwner(screencastId);
     }
   }
 };
@@ -243,6 +276,7 @@ export const registerScreencastOwner = (
     completedAt: null,
     lastUsedAt: createdAt
   };
+  releaseTrackedScreencastOwner(owner.screencastId);
   screencastOwners.set(owner.screencastId, owner);
   return owner;
 };
@@ -259,6 +293,7 @@ export const touchScreencastOwner = (screencastId: string): ScreencastOwnerState
     return null;
   }
   owner.lastUsedAt = nowMs();
+  scheduleScreencastOwnerCleanup(owner);
   return owner;
 };
 
@@ -270,15 +305,19 @@ export const completeScreencastOwner = (screencastId: string): ScreencastOwnerSt
   const completedAt = nowMs();
   owner.completedAt = completedAt;
   owner.lastUsedAt = completedAt;
+  scheduleScreencastOwnerCleanup(owner);
   return owner;
 };
 
 export const releaseScreencastOwner = (screencastId: string): void => {
   if (!screencastId || !screencastId.trim()) return;
-  screencastOwners.delete(screencastId);
+  releaseTrackedScreencastOwner(screencastId);
 };
 
 export const clearScreencastOwners = (): void => {
+  for (const screencastId of screencastOwners.keys()) {
+    clearScreencastOwnerCleanup(screencastId);
+  }
   screencastOwners.clear();
 };
 

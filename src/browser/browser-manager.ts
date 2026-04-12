@@ -45,6 +45,7 @@ import type {
   ChallengeRuntimeHandle,
   SessionInspectorHandle
 } from "./manager-types";
+import { SCREENCAST_RETENTION_MS } from "./manager-types";
 import {
   evaluateTier1Coherence,
   formatTier1Warnings,
@@ -447,6 +448,7 @@ export class BrowserManager {
   private readonly challengeAutomationSuppression = new Map<string, number>();
   private readonly activeScreencasts = new Map<string, BrowserScreencastRecorder>();
   private readonly completedScreencasts = new Map<string, BrowserScreencastResult>();
+  private readonly completedScreencastCleanupTimers = new Map<string, NodeJS.Timeout>();
   private readonly screencastCompletionListeners = new Map<string, Set<(result: BrowserScreencastResult) => void>>();
   private readonly screencastIdsBySession = new Map<string, Set<string>>();
   private readonly screencastIdsByTarget = new Map<string, string>();
@@ -2078,7 +2080,7 @@ export class BrowserManager {
       }
       const result = await active.stop("stopped");
       this.storeCompletedScreencast(result);
-      this.completedScreencasts.delete(screencastId);
+      this.evictCompletedScreencast(screencastId);
       return result;
     }
     const completed = this.completedScreencasts.get(screencastId);
@@ -2088,7 +2090,7 @@ export class BrowserManager {
     if (completed.sessionId !== sessionId) {
       throw new Error(`[invalid_screencast] Screencast ${screencastId} does not belong to session ${sessionId}`);
     }
-    this.completedScreencasts.delete(screencastId);
+    this.evictCompletedScreencast(screencastId);
     return completed;
   }
 
@@ -3555,6 +3557,7 @@ export class BrowserManager {
 
   private storeCompletedScreencast(result: BrowserScreencastResult): void {
     this.completedScreencasts.set(result.screencastId, result);
+    this.scheduleCompletedScreencastCleanup(result);
     const listeners = this.screencastCompletionListeners.get(result.screencastId);
     if (listeners) {
       for (const listener of listeners) {
@@ -3563,6 +3566,32 @@ export class BrowserManager {
       this.screencastCompletionListeners.delete(result.screencastId);
     }
     this.clearTrackedScreencast(result.screencastId);
+  }
+
+  private scheduleCompletedScreencastCleanup(result: BrowserScreencastResult): void {
+    this.clearCompletedScreencastCleanup(result.screencastId);
+    const timer = setTimeout(() => {
+      if (this.completedScreencasts.get(result.screencastId) === result) {
+        this.completedScreencasts.delete(result.screencastId);
+      }
+      this.completedScreencastCleanupTimers.delete(result.screencastId);
+    }, SCREENCAST_RETENTION_MS);
+    timer.unref?.();
+    this.completedScreencastCleanupTimers.set(result.screencastId, timer);
+  }
+
+  private clearCompletedScreencastCleanup(screencastId: string): void {
+    const timer = this.completedScreencastCleanupTimers.get(screencastId);
+    if (!timer) {
+      return;
+    }
+    clearTimeout(timer);
+    this.completedScreencastCleanupTimers.delete(screencastId);
+  }
+
+  private evictCompletedScreencast(screencastId: string): void {
+    this.clearCompletedScreencastCleanup(screencastId);
+    this.completedScreencasts.delete(screencastId);
   }
 
   private clearTrackedScreencast(screencastId: string): void {

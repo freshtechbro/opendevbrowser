@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Window } from "happy-dom";
 import { resolveConfig as parseConfig } from "../src/config";
+import { SCREENCAST_RETENTION_MS } from "../src/browser/manager-types";
 
 const resolveCachePaths = vi.fn();
 const findChromeExecutable = vi.fn();
@@ -4359,6 +4360,90 @@ describe("BrowserManager", () => {
     await expect(manager.stopScreencast("session-other", screencast.screencastId)).rejects.toThrow(
       `[invalid_screencast] Screencast ${screencast.screencastId} does not belong to session session-other`
     );
+  });
+
+  it("expires completed screencasts after the retention window when stop is never called", async () => {
+    vi.useFakeTimers();
+    try {
+      const nodes = [
+        { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+      ];
+      const { context, page } = createBrowserBundle(nodes);
+
+      findChromeExecutable.mockResolvedValue("/bin/chrome");
+      launchPersistentContext.mockResolvedValue(context);
+      usePathAwareScreenshot(page);
+
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const launch = await manager.launch({ profile: "default" });
+      const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-expiry-"));
+      const managerPrivate = manager as unknown as {
+        completedScreencasts: Map<string, unknown>;
+      };
+
+      const screencast = await manager.startScreencast(launch.sessionId, {
+        outputDir,
+        intervalMs: 250,
+        maxFrames: 1
+      });
+
+      await vi.waitFor(() => {
+        expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+      });
+
+      await vi.advanceTimersByTimeAsync(SCREENCAST_RETENTION_MS);
+
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(false);
+      await expect(manager.stopScreencast(launch.sessionId, screencast.screencastId)).rejects.toThrow(
+        `[invalid_screencast] Unknown screencastId: ${screencast.screencastId}`
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a replaced completed screencast when an older cleanup timer fires", async () => {
+    vi.useFakeTimers();
+    try {
+      const nodes = [
+        { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+      ];
+      const { context, page } = createBrowserBundle(nodes);
+
+      findChromeExecutable.mockResolvedValue("/bin/chrome");
+      launchPersistentContext.mockResolvedValue(context);
+      usePathAwareScreenshot(page);
+
+      const { BrowserManager } = await import("../src/browser/browser-manager");
+      const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+      const launch = await manager.launch({ profile: "default" });
+      const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-replaced-"));
+      const managerPrivate = manager as unknown as {
+        completedScreencasts: Map<string, Record<string, unknown>>;
+      };
+
+      const screencast = await manager.startScreencast(launch.sessionId, {
+        outputDir,
+        intervalMs: 250,
+        maxFrames: 1
+      });
+
+      await vi.waitFor(() => {
+        expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+      });
+
+      const replacement = {
+        ...managerPrivate.completedScreencasts.get(screencast.screencastId)
+      };
+      managerPrivate.completedScreencasts.set(screencast.screencastId, replacement);
+
+      await vi.advanceTimersByTimeAsync(SCREENCAST_RETENTION_MS);
+
+      expect(managerPrivate.completedScreencasts.get(screencast.screencastId)).toBe(replacement);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("omits screencast frame metadata when url title and warnings are unavailable", async () => {

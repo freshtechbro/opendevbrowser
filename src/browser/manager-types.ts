@@ -116,6 +116,8 @@ export type BrowserScreencastResult = {
   warnings?: string[];
 };
 
+export const SCREENCAST_RETENTION_MS = 10 * 60_000;
+
 export type BrowserUploadInput = {
   targetId?: string | null;
   ref: string;
