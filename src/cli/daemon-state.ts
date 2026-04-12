@@ -6,6 +6,7 @@ const RENEW_INTERVAL_MS = 20_000;
 const RENEW_GRACE_MS = RENEW_INTERVAL_MS * 2;
 const RENEW_JITTER_MS = 2000;
 const WAIT_MAX_MS = 30_000;
+const SCREENCAST_OWNER_TTL_MS = 10 * 60_000;
 
 export type RelayBindingState = {
   bindingId: string;
@@ -17,6 +18,14 @@ export type RelayBindingState = {
 export type SessionLeaseState = {
   sessionId: string;
   leaseId: string;
+  clientId: string;
+  createdAt: number;
+  lastUsedAt: number;
+};
+
+export type ScreencastOwnerState = {
+  screencastId: string;
+  sessionId: string;
   clientId: string;
   createdAt: number;
   lastUsedAt: number;
@@ -47,6 +56,7 @@ type RelayQueueEntry = {
 let binding: RelayBindingState | null = null;
 let queue: RelayQueueEntry[] = [];
 const sessionLeases = new Map<string, SessionLeaseState>();
+const screencastOwners = new Map<string, ScreencastOwnerState>();
 
 export const getHubInstanceId = (): string => HUB_INSTANCE_ID;
 
@@ -76,6 +86,15 @@ const serializeQueue = (entry: RelayQueueEntry): RelayQueueResponse => ({
 const cleanupQueue = (): void => {
   const now = nowMs();
   queue = queue.filter((entry) => entry.timeoutAt > now);
+};
+
+const cleanupScreencastOwners = (): void => {
+  const now = nowMs();
+  for (const [screencastId, owner] of screencastOwners.entries()) {
+    if (owner.lastUsedAt + SCREENCAST_OWNER_TTL_MS <= now) {
+      screencastOwners.delete(screencastId);
+    }
+  }
 };
 
 const getQueueEntry = (clientId: string): RelayQueueEntry | null => {
@@ -197,6 +216,74 @@ export const releaseOwnedSessionLease = (sessionId: string, clientId: string, le
 
 export const clearSessionLeases = (): void => {
   sessionLeases.clear();
+};
+
+export const registerScreencastOwner = (
+  sessionId: string,
+  screencastId: string,
+  clientId: string
+): ScreencastOwnerState => {
+  if (!sessionId || !sessionId.trim()) {
+    throw new Error("RELAY_SESSION_REQUIRED: sessionId is required");
+  }
+  if (!screencastId || !screencastId.trim()) {
+    throw new Error("RELAY_SCREENCAST_REQUIRED: screencastId is required");
+  }
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+  cleanupScreencastOwners();
+  const owner: ScreencastOwnerState = {
+    screencastId: screencastId.trim(),
+    sessionId: sessionId.trim(),
+    clientId: clientId.trim(),
+    createdAt: nowMs(),
+    lastUsedAt: nowMs()
+  };
+  screencastOwners.set(owner.screencastId, owner);
+  return owner;
+};
+
+export const getScreencastOwner = (screencastId: string): ScreencastOwnerState | null => {
+  if (!screencastId || !screencastId.trim()) return null;
+  cleanupScreencastOwners();
+  return screencastOwners.get(screencastId) ?? null;
+};
+
+export const releaseScreencastOwner = (screencastId: string): void => {
+  if (!screencastId || !screencastId.trim()) return;
+  screencastOwners.delete(screencastId);
+};
+
+export const clearScreencastOwners = (): void => {
+  screencastOwners.clear();
+};
+
+export const requireScreencastOwner = (
+  sessionId: string,
+  screencastId: string,
+  clientId: string
+): ScreencastOwnerState => {
+  if (!sessionId || !sessionId.trim()) {
+    throw new Error("RELAY_SESSION_REQUIRED: sessionId is required");
+  }
+  if (!screencastId || !screencastId.trim()) {
+    throw new Error("RELAY_SCREENCAST_REQUIRED: screencastId is required");
+  }
+  if (!clientId || !clientId.trim()) {
+    throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
+  }
+  const owner = getScreencastOwner(screencastId);
+  if (!owner) {
+    throw new Error("RELAY_SCREENCAST_OWNER_REQUIRED: No retained owner for completed screencast retrieval.");
+  }
+  const normalizedSessionId = sessionId.trim();
+  const normalizedClientId = clientId.trim();
+  if (owner.sessionId !== normalizedSessionId || owner.clientId !== normalizedClientId) {
+    throw new Error("RELAY_SCREENCAST_OWNER_INVALID: Screencast does not match the current owner.");
+  }
+  owner.lastUsedAt = nowMs();
+  return owner;
 };
 
 export const requireSessionLease = (sessionId: string, clientId: string, leaseId: string | undefined): SessionLeaseState => {

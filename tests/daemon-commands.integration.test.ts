@@ -9,9 +9,11 @@ import { handleDaemonCommand } from "../src/cli/daemon-commands";
 import {
   bindRelay,
   clearBinding,
+  clearScreencastOwners,
   clearSessionLeases,
   getBindingState,
   getSessionLease,
+  registerScreencastOwner,
   registerSessionLease,
   releaseRelay,
   waitForBinding
@@ -228,12 +230,14 @@ describe("daemon-commands integration", () => {
       };
     }) as unknown as typeof fetch);
     clearBinding();
+    clearScreencastOwners();
     clearSessionLeases();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     clearBinding();
+    clearScreencastOwners();
     clearSessionLeases();
     vi.restoreAllMocks();
     while (tempRoots.length > 0) {
@@ -415,7 +419,7 @@ describe("daemon-commands integration", () => {
   it.each([
     "[invalid_session] Unknown sessionId: session-1",
     "Unknown ops session: session-1"
-  ])("allows completed screencast retrieval after session teardown (%s)", async (statusError) => {
+  ])("allows completed screencast retrieval after session teardown for the owning client (%s)", async (statusError) => {
     const core = makeCore();
     core.manager.status.mockRejectedValue(new Error(statusError));
     core.manager.stopScreencast.mockResolvedValue({
@@ -424,6 +428,7 @@ describe("daemon-commands integration", () => {
       targetId: "target-1",
       endedReason: "session_closed"
     });
+    registerScreencastOwner("session-1", "cast-1", "client-1");
 
     await expect(handleDaemonCommand(core, {
       name: "page.screencast.stop",
@@ -440,6 +445,26 @@ describe("daemon-commands integration", () => {
     });
 
     expect(core.manager.stopScreencast).toHaveBeenCalledWith("session-1", "cast-1");
+  });
+
+  it.each([
+    "[invalid_session] Unknown sessionId: session-1",
+    "Unknown ops session: session-1"
+  ])("rejects completed screencast retrieval after session teardown for a different client (%s)", async (statusError) => {
+    const core = makeCore();
+    core.manager.status.mockRejectedValue(new Error(statusError));
+    registerScreencastOwner("session-1", "cast-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-2",
+        screencastId: "cast-1"
+      }
+    })).rejects.toThrow("RELAY_SCREENCAST_OWNER_INVALID");
+
+    expect(core.manager.stopScreencast).not.toHaveBeenCalled();
   });
 
   it("routes session.inspect through the daemon with default includeUrls and relay status", async () => {

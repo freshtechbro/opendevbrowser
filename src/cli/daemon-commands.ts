@@ -24,6 +24,9 @@ import {
   releaseRelay,
   renewRelay,
   requireBinding,
+  registerScreencastOwner,
+  requireScreencastOwner,
+  releaseScreencastOwner,
   registerSessionLease,
   getSessionLease,
   requireSessionLease,
@@ -535,7 +538,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       );
     case "page.screencast.start":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.startScreencast(
+      const screencast = await core.manager.startScreencast(
         requireString(params.sessionId, "sessionId"),
         {
           targetId: optionalString(params.targetId),
@@ -544,12 +547,16 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           maxFrames: optionalNumber(params.maxFrames, "maxFrames") ?? undefined
         }
       );
+      registerScreencastOwner(screencast.sessionId, screencast.screencastId, requireClientId(params));
+      return screencast;
     case "page.screencast.stop":
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      return core.manager.stopScreencast(
+      const screencastResult = await core.manager.stopScreencast(
         requireString(params.sessionId, "sessionId"),
         requireString(params.screencastId, "screencastId")
       );
+      releaseScreencastOwner(screencastResult.screencastId);
+      return screencastResult;
     case "page.dialog":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.dialog(
@@ -1073,6 +1080,11 @@ async function authorizeSessionCommand(
     status = await core.manager.status(sessionId);
   } catch (error) {
     if (canStopCompletedScreencastWithoutLiveSession(commandName, error)) {
+      requireScreencastOwner(
+        sessionId,
+        requireString(params.screencastId, "screencastId"),
+        clientId
+      );
       return;
     }
     throw error;
