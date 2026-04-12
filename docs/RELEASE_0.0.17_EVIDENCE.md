@@ -1,12 +1,12 @@
 # v0.0.17 Release Evidence
 
-Status: historical release ledger
+Status: historical release ledger with later follow-up audits
 Release date: 2026-03-13
-Last audited against repo: 2026-04-11
+Last audited against repo: 2026-04-12
 
 ## Scope
 
-Tracks the verified release-prep gates for `v0.0.17`, including docs alignment, package/version sync, packaging outputs, and release/distribution handoff evidence for GitHub release, npm, and Chrome extension distribution.
+Tracks the verified `2026-03-13` release-prep gates for `v0.0.17`, plus later follow-up audits that recheck current release-facing wording, parity surfaces, and distribution boundaries without rewriting the historical snapshot.
 
 ## Release summary
 
@@ -19,14 +19,15 @@ Tracks the verified release-prep gates for `v0.0.17`, including docs alignment, 
 ## Current repo note
 
 - The release-prep evidence below remains the authoritative `2026-03-13` snapshot for `v0.0.17`.
-- Current repo state was rechecked on `2026-04-11` to prevent stale “current” wording from leaking into this historical ledger.
+- Current repo state was rechecked on `2026-04-12` to prevent stale “current” wording from leaking into this historical ledger.
 - Current branch: `codex/browser-screencast-desktop-surface`
-- Current HEAD: `561beeca6a5322e1a61d68e84296319f46675521`
-- Current dirty-path count from `git status --short`: `48`
+- Current HEAD: `e7904eb1f47cf7b0e6cb6b4da20d7d37b7fc289b`
+- Current dirty-path count from `git status --short`: `20`
 - Current local tag `v0.0.17`: present
-- Current generated help now leads with a `Find It Fast` block for `screencast / browser replay`, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane.
+- Current first-contact wording truth lives in `src/cli/help.ts` and `src/public-surface/source.ts`; generated help now leads with the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 - Historical grouped gate names below are preserved exactly as the `2026-03-13` snapshot labels; they are not the active release-proof terminology.
-- Do not reinterpret the release-prep gate results below as current working-tree truth.
+- Governance wording in this ledger was normalized on `2026-04-12` to match the current release runbook and first-contact labels without altering the historical release-prep results below.
+- Do not read the current public-surface counts, first-contact labels, or browser replay / desktop observation / browser-scoped computer-use boundary wording back into the historical `2026-03-13` snapshot below.
 
 ## Post-release release-facing follow-up audit (2026-04-11)
 
@@ -37,14 +38,14 @@ Tracks the verified release-prep gates for `v0.0.17`, including docs alignment, 
     - `npm run test -- tests/parity-matrix.test.ts`
     - `node scripts/chrome-store-compliance-check.mjs`
   - Result:
-    - docs drift passed with the current public surface counts: `72` CLI commands, `65` tools, `59` `/ops` command names, and `35` `/canvas` command names
+    - docs drift passed against current public-surface truth with counts of `72` CLI commands, `65` tools, `59` `/ops` command names, and `35` `/canvas` command names
     - CLI help parity passed
     - runtime parity matrix passed
     - Chrome Web Store compliance passed
   - Notes:
-    - generated help now renders a first-contact `Find It Fast` block for `screencast / browser replay`, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane
-    - `CHANGELOG.md`, this ledger, the historical `v0.0.16` ledger context note, and `extension/store-assets/LISTING.md` were refreshed so release-facing wording matches the generated help surface
-    - store-facing copy keeps the boundary explicit: desktop observation remains a separate read-only core runtime lane, and the optional helper remains browser-scoped rather than a desktop agent
+    - current release-facing help and docs use the exact first-contact labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`
+    - `CHANGELOG.md`, this ledger, the historical `v0.0.16` ledger context note, and `extension/store-assets/LISTING.md` were refreshed so release-facing wording matches the current help and public-surface owners
+    - store-facing copy keeps the boundary explicit: the extension remains in the relay-backed browser lane, public read-only desktop observation remains a separate core runtime lane, and the optional helper remains browser-scoped rather than a desktop agent
     - no new packaging artifacts were regenerated in this documentation-only follow-up pass
 
 ## Post-release current-turn revalidation (2026-03-20)
@@ -193,7 +194,9 @@ The grouped labels in this section are retained as the original `2026-03-13` sna
   - Size: `981K`
   - SHA-1 (`npm pack` / `shasum`): `aa875df4f1d675a8b43832bb3d4af346a6e5afc0`
 
-## Optional release-environment gates
+## Optional strict live release gates
+
+These are the optional strict live gates referenced by the current release runbook and `release-public.yml`; they map only to the two direct-run scripts below, and deferred status remains valid when `run_release_live_gates` is not exercised.
 
 - [ ] `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/v0.0.17/provider-direct-runs.json`
   - Status: deferred in this pass

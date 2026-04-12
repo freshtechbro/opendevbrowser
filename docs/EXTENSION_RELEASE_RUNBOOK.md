@@ -1,6 +1,6 @@
 # Extension Release Runbook
 
-Last updated: 2026-03-13
+Last updated: 2026-04-12
 
 Operational runbook for publishing extension artifacts from the public repo.
 
@@ -36,7 +36,7 @@ Configure in public GitHub repo secrets:
 - [ ] `npm run extension:sync` keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version.
 - [ ] `npm run extension:build` passes.
 - [ ] `node scripts/generate-store-assets.mjs` refreshes `extension/store-assets/` from the current icon set and popup surfaces.
-- [ ] Verify the generated store assets and listing copy still reflect the shipped popup plus `canvas.html` surfaces, including token authoring, lease-aware history, and annotation flows when those screens are part of the release capture set.
+- [ ] Verify the generated store assets and listing copy still reflect the shipped popup plus `canvas.html` surfaces, including token authoring, lease-aware history, and annotation flows when those screens are part of the release capture set, while keeping the extension in the relay-backed browser lane: local browser replay participation is allowed, public read-only desktop observation remains separate core runtime behavior, and neither the extension nor the optional helper is described as a desktop agent.
 - [ ] Review `extension/store-assets/LISTING.md` for current homepage, privacy URL, upload copy, and permission/privacy answers.
 - [ ] `node scripts/chrome-store-compliance-check.mjs` passes.
 - [ ] `npm run extension:pack` creates `opendevbrowser-extension.zip`.
@@ -111,6 +111,7 @@ If a bad extension release is published:
 ## Evidence to retain
 
 - workflow run URL(s)
+- listing-copy snapshot or generated-asset review note confirming the release-facing browser replay, desktop observation, and browser-scoped computer-use boundary wording used for the release
 - upload/publish JSON output summary
 - store listing URL and visible version
 - checksum artifact from GitHub release

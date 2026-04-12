@@ -252,13 +252,14 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Additional design/plan docs: `docs/` (feature-specific; verify file paths exist before referencing)
 - Keep docs in sync with implementation
 - Treat generated CLI help as part of the documentation surface.
-- When first-contact capability wording changes, keep browser replay, desktop observation, and the browser-scoped `challengeAutomationMode` lane explicit across help, docs, and skills, and never describe the helper as a desktop agent.
+- When first-contact capability wording changes, keep browser replay screencasts, public read-only desktop observation, and browser-scoped computer use explicit across help, docs, release docs, and skills; use the exact generated-help lookup labels where those surfaces are enumerated, and never describe the extension or helper as a desktop agent.
+- When release-facing wording or release-gate policy changes, update `docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, and the active version-scoped release evidence ledger in the same pass.
 - Keep local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` out of commits; `.gitignore` is authoritative.
 - If tool list, command outputs, or help inventory changes, update `src/cli/help.ts`, `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together, then verify both `npx opendevbrowser --help` and `npx opendevbrowser help`.
 
 ## AGENTS.md Governance
 
-- Root `AGENTS.md` changes require maintainer approval (MCAF governance).
+- Root `AGENTS.md` changes require explicit task-scoped maintainer approval when governance rules themselves are being edited.
 
 ## Layered AGENTS.md
 
