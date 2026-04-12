@@ -110,6 +110,14 @@ const makeConfig = (): OpenDevBrowserConfig => ({
   skillPaths: []
 });
 
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void } {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 function stubOpsScreencastSession(sessionId: string, targetId = "tab-1"): void {
   const url = `https://example.com/${sessionId}`;
   requestMock.mockImplementation(async (...args: unknown[]) => {
@@ -1097,6 +1105,15 @@ describe("OpsBrowserManager", () => {
     await expect(manager.stopScreencast("ops-session-other", screencast.screencastId)).rejects.toThrow(
       `[invalid_screencast] Screencast ${screencast.screencastId} does not belong to session ops-session-other`
     );
+    const firstStop = await manager.stopScreencast(connected.sessionId, screencast.screencastId);
+
+    expect(firstStop).toMatchObject({
+      screencastId: screencast.screencastId,
+      sessionId: connected.sessionId,
+      targetId: screencast.targetId,
+      endedReason: "stopped",
+      outputDir
+    });
     await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
       screencastId: screencast.screencastId,
       sessionId: connected.sessionId,
@@ -1104,9 +1121,6 @@ describe("OpsBrowserManager", () => {
       endedReason: "stopped",
       outputDir
     });
-    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).rejects.toThrow(
-      `[invalid_screencast] Unknown screencastId: ${screencast.screencastId}`
-    );
   });
 
   it("delegates screencast start to the base manager for non-ops sessions", async () => {
@@ -1271,6 +1285,76 @@ describe("OpsBrowserManager", () => {
       targetId: screencast.targetId,
       endedReason: "target_closed",
       outputDir
+    });
+  });
+
+  it("tracks first-frame ops screencasts before target close teardown runs", async () => {
+    const targetId = "tab-first-frame-close";
+    const screenshotDeferred = createDeferred<{ base64: string }>();
+    let screenshotStarted = false;
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      switch (command) {
+        case "session.connect":
+          return {
+            opsSessionId: "ops-first-frame-close",
+            activeTargetId: targetId,
+            leaseId: "lease-first-frame-close",
+            url: "https://example.com/ops-first-frame-close"
+          };
+        case "session.status":
+          return { mode: "extension", activeTargetId: targetId };
+        case "page.screenshot":
+          screenshotStarted = true;
+          return await screenshotDeferred.promise;
+        case "targets.list":
+          return {
+            activeTargetId: targetId,
+            targets: [{ targetId, type: "page", title: "Ops First Frame", url: "https://example.com/ops-first-frame-close" }]
+          };
+        case "targets.close":
+          return { ok: true };
+        default:
+          return { ok: true };
+      }
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-first-frame-close-"));
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, unknown>;
+      completedScreencasts: Map<string, unknown>;
+    };
+
+    const startPromise = manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+
+    await vi.waitFor(() => {
+      expect(managerPrivate.activeScreencasts.size).toBe(1);
+      expect(screenshotStarted).toBe(true);
+    });
+
+    const closePromise = manager.closeTarget(connected.sessionId, targetId);
+    screenshotDeferred.resolve({ base64: Buffer.from("image-first-frame-close").toString("base64") });
+
+    const screencast = await startPromise;
+    await closePromise;
+
+    await vi.waitFor(() => {
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+    });
+
+    await expect(manager.stopScreencast(connected.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "target_closed"
     });
   });
 
@@ -1562,18 +1646,27 @@ describe("OpsBrowserManager", () => {
         targetId: string;
         resultPromise: Promise<never>;
       }) => void;
+      observeTrackedScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
       activeScreencasts: Map<string, unknown>;
       screencastIdsByTarget: Map<string, string>;
       screencastIdsBySession: Map<string, Set<string>>;
     };
     const warnSpy = vi.spyOn(managerAny.logger, "warn");
 
-    managerAny.trackScreencast({
+    const recorder = {
       screencastId: "ops-cast-error",
       sessionId: "ops-session-error",
       targetId: "ops-target-error",
       resultPromise: Promise.reject(new Error("ops-rejected-error"))
-    });
+    };
+
+    managerAny.trackScreencast(recorder);
+    managerAny.observeTrackedScreencast(recorder);
 
     await vi.waitFor(() => {
       expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({
@@ -1600,18 +1693,27 @@ describe("OpsBrowserManager", () => {
         targetId: string;
         resultPromise: Promise<never>;
       }) => void;
+      observeTrackedScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
       activeScreencasts: Map<string, unknown>;
       screencastIdsByTarget: Map<string, string>;
       screencastIdsBySession: Map<string, Set<string>>;
     };
     const warnSpy = vi.spyOn(managerAny.logger, "warn");
 
-    managerAny.trackScreencast({
+    const recorder = {
       screencastId: "ops-cast-rejected",
       sessionId: "ops-session-rejected",
       targetId: "ops-target-rejected",
       resultPromise: Promise.reject("ops-plain-failure")
-    });
+    };
+
+    managerAny.trackScreencast(recorder);
+    managerAny.observeTrackedScreencast(recorder);
 
     await vi.waitFor(() => {
       expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({

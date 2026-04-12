@@ -1829,39 +1829,6 @@ describe("BrowserManager", () => {
     expect(gotoSpy).not.toHaveBeenCalled();
   });
 
-  it("routes managed goto without targetId through the active target queue", async () => {
-    const nodes = [
-      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
-    ];
-    const { context } = createBrowserBundle(nodes);
-
-    findChromeExecutable.mockResolvedValue("/bin/chrome");
-    launchPersistentContext.mockResolvedValue(context);
-
-    const { BrowserManager } = await import("../src/browser/browser-manager");
-    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    const result = await manager.launch({ profile: "default" });
-    const managerPrivate = manager as unknown as {
-      runTargetScoped: (
-        sessionId: string,
-        targetId: string | null | undefined,
-        execute: (ctx: { managed: object; targetId: string; page: object }) => Promise<object>,
-        timeoutMs?: number
-      ) => Promise<object>;
-    };
-    const runTargetScopedSpy = vi.spyOn(managerPrivate, "runTargetScoped");
-
-    await manager.goto(result.sessionId, "https://example.com/queued-navigation");
-
-    expect(runTargetScopedSpy).toHaveBeenCalledOnce();
-    expect(runTargetScopedSpy).toHaveBeenCalledWith(
-      result.sessionId,
-      result.activeTargetId,
-      expect.any(Function),
-      30000
-    );
-  });
-
   it("waits for extension target readiness before navigation", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -4052,13 +4019,16 @@ describe("BrowserManager", () => {
     await expect(manager.stopScreencast("session-other", screencast.screencastId)).rejects.toThrow(
       `[invalid_screencast] Screencast ${screencast.screencastId} does not belong to session session-other`
     );
+    const firstStop = await manager.stopScreencast(launch.sessionId, screencast.screencastId);
+
+    expect(firstStop).toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "stopped"
+    });
     await expect(manager.stopScreencast(launch.sessionId, screencast.screencastId)).resolves.toMatchObject({
       screencastId: screencast.screencastId,
       endedReason: "stopped"
     });
-    await expect(manager.stopScreencast(launch.sessionId, screencast.screencastId)).rejects.toThrow(
-      `[invalid_screencast] Unknown screencastId: ${screencast.screencastId}`
-    );
   });
 
   it("captures later screencast frames after same-target navigation", async () => {
@@ -4220,6 +4190,60 @@ describe("BrowserManager", () => {
       targetId: screencast.targetId,
       endedReason: "target_closed",
       outputDir
+    });
+  });
+
+  it("tracks first-frame managed screencasts before page close teardown runs", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-first-frame-close-"));
+    const captureDeferred = createDeferred<void>();
+    const managerPrivate = manager as unknown as {
+      activeScreencasts: Map<string, unknown>;
+      completedScreencasts: Map<string, unknown>;
+      captureScreencastFrame: (
+        sessionId: string,
+        targetId: string,
+        path: string
+      ) => Promise<{ url?: string; title?: string; warnings?: string[] }>;
+    };
+    vi.spyOn(managerPrivate, "captureScreencastFrame").mockImplementation(async (_sessionId, _targetId, framePath) => {
+      await captureDeferred.promise;
+      await writeFsFile(framePath, "https://example.com/first-frame-close");
+      return { url: "https://example.com/first-frame-close" };
+    });
+
+    const startPromise = manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+
+    await vi.waitFor(() => {
+      expect(managerPrivate.activeScreencasts.size).toBe(1);
+    });
+
+    (page as unknown as { emit: (event: string) => void }).emit("close");
+    captureDeferred.resolve();
+
+    const screencast = await startPromise;
+
+    await vi.waitFor(() => {
+      expect(managerPrivate.completedScreencasts.has(screencast.screencastId)).toBe(true);
+    });
+
+    await expect(manager.stopScreencast(launch.sessionId, screencast.screencastId)).resolves.toMatchObject({
+      screencastId: screencast.screencastId,
+      endedReason: "target_closed"
     });
   });
 
@@ -4799,18 +4823,27 @@ describe("BrowserManager", () => {
         targetId: string;
         resultPromise: Promise<never>;
       }) => void;
+      observeTrackedScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
       activeScreencasts: Map<string, unknown>;
       screencastIdsByTarget: Map<string, string>;
       screencastIdsBySession: Map<string, Set<string>>;
     };
     const warnSpy = vi.spyOn(managerPrivate.logger, "warn");
 
-    managerPrivate.trackScreencast({
+    const recorder = {
       screencastId: "cast-rejected",
       sessionId: "session-rejected",
       targetId: "target-rejected",
       resultPromise: Promise.reject("plain-failure")
-    });
+    };
+
+    managerPrivate.trackScreencast(recorder);
+    managerPrivate.observeTrackedScreencast(recorder);
 
     await vi.waitFor(() => {
       expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({
@@ -4838,15 +4871,24 @@ describe("BrowserManager", () => {
         targetId: string;
         resultPromise: Promise<never>;
       }) => void;
+      observeTrackedScreencast: (recorder: {
+        screencastId: string;
+        sessionId: string;
+        targetId: string;
+        resultPromise: Promise<never>;
+      }) => void;
     };
     const warnSpy = vi.spyOn(managerPrivate.logger, "warn");
 
-    managerPrivate.trackScreencast({
+    const recorder = {
       screencastId: "cast-error",
       sessionId: "session-error",
       targetId: "target-error",
       resultPromise: Promise.reject(new Error("rejected-error"))
-    });
+    };
+
+    managerPrivate.trackScreencast(recorder);
+    managerPrivate.observeTrackedScreencast(recorder);
 
     await vi.waitFor(() => {
       expect(warnSpy).toHaveBeenCalledWith("screencast.result.failed", expect.objectContaining({
@@ -4939,38 +4981,6 @@ describe("BrowserManager", () => {
     await managerPrivate.finalizeTargetScreencast("session-target", "target-target");
 
     expect(managerPrivate.screencastIdsByTarget.has("session-target:target-target")).toBe(false);
-  });
-
-  it("omits empty urls from target page info while preserving the title", async () => {
-    const { BrowserManager } = await import("../src/browser/browser-manager");
-    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    const page = {
-      isClosed: () => false,
-      title: vi.fn().mockResolvedValue("Title Only"),
-      url: vi.fn().mockReturnValue("")
-    };
-    const managerPrivate = manager as unknown as {
-      getTargetPageInfo: (
-        sessionId: string,
-        targetId: string,
-        scope: string
-      ) => Promise<{ url?: string; title?: string }>;
-      runTargetScoped: <T>(
-        sessionId: string,
-        targetId: string,
-        execute: (ctx: { managed: { extensionLegacy: boolean }; page: typeof page }) => Promise<T>
-      ) => Promise<T>;
-    };
-    vi.spyOn(managerPrivate, "runTargetScoped").mockImplementation(async (_sessionId, _targetId, execute) => {
-      return await execute({
-        managed: { extensionLegacy: false },
-        page
-      });
-    });
-
-    await expect(
-      managerPrivate.getTargetPageInfo("session-page-info", "target-page-info", "BrowserManager.test")
-    ).resolves.toEqual({ title: "Title Only" });
   });
 
   it("rejects unknown refs and snapshots with no target", async () => {

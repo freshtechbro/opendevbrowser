@@ -921,12 +921,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
         };
       }
     });
-    const screencast = await recorder.start();
     this.trackScreencast(recorder);
-    if (recorder.isComplete()) {
-      this.storeCompletedScreencast(await recorder.resultPromise);
+    try {
+      const screencast = await recorder.start();
+      if (recorder.isComplete()) {
+        this.storeCompletedScreencast(await recorder.resultPromise);
+      } else {
+        this.observeTrackedScreencast(recorder);
+      }
+      return screencast;
+    } catch (error) {
+      this.clearTrackedScreencast(recorder.screencastId);
+      throw error;
     }
-    return screencast;
   }
 
   async stopScreencast(sessionId: string, screencastId: string): Promise<BrowserScreencastResult> {
@@ -937,7 +944,6 @@ export class OpsBrowserManager implements BrowserManagerLike {
       }
       const result = await active.stop("stopped");
       this.storeCompletedScreencast(result);
-      this.evictCompletedScreencast(screencastId);
       return result;
     }
     const completed = this.completedScreencasts.get(screencastId);
@@ -950,7 +956,6 @@ export class OpsBrowserManager implements BrowserManagerLike {
     if (completed.sessionId !== sessionId) {
       throw new Error(`[invalid_screencast] Screencast ${screencastId} does not belong to session ${sessionId}`);
     }
-    this.evictCompletedScreencast(screencastId);
     return completed;
   }
 
@@ -1456,6 +1461,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const sessionScreencasts = this.screencastIdsBySession.get(sessionId) ?? new Set<string>();
     sessionScreencasts.add(screencastId);
     this.screencastIdsBySession.set(sessionId, sessionScreencasts);
+  }
+
+  private observeTrackedScreencast(recorder: BrowserScreencastRecorder): void {
+    const { screencastId, sessionId, targetId } = recorder;
     void recorder.resultPromise.then((result) => {
       this.storeCompletedScreencast(result);
     }).catch((error: unknown) => {

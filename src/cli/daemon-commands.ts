@@ -27,7 +27,6 @@ import {
   completeScreencastOwner,
   registerScreencastOwner,
   requireScreencastOwner,
-  releaseScreencastOwner,
   registerSessionLease,
   getSessionLease,
   requireSessionLease,
@@ -560,7 +559,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         requireString(params.screencastId, "screencastId")
       );
-      releaseScreencastOwner(screencastResult.screencastId);
+      completeScreencastOwner(screencastResult.screencastId);
       return screencastResult;
     case "page.dialog":
       await authorizeSessionCommand(core, params, request.name, bindingId);

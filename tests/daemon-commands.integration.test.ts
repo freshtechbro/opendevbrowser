@@ -424,6 +424,74 @@ describe("daemon-commands integration", () => {
   it.each([
     "[invalid_session] Unknown sessionId: session-1",
     "Unknown ops session: session-1"
+  ])("retains completed screencast ownership after a successful stop so retries still work after teardown (%s)", async (statusError) => {
+    const core = makeCore();
+    core.manager.startScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+    core.manager.stopScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "stopped"
+    });
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.start",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        leaseId: "lease-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        leaseId: "lease-1",
+        screencastId: "cast-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "stopped"
+    });
+
+    expect(getScreencastOwner("cast-1")).not.toBeNull();
+
+    releaseSessionLease("session-1");
+    core.manager.status.mockRejectedValueOnce(new Error(statusError));
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        screencastId: "cast-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "stopped"
+    });
+
+    expect(core.manager.stopScreencast).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "[invalid_session] Unknown sessionId: session-1",
+    "Unknown ops session: session-1"
   ])("allows completed screencast retrieval after session teardown for the owning client (%s)", async (statusError) => {
     const core = makeCore();
     core.manager.status.mockRejectedValue(new Error(statusError));
