@@ -301,6 +301,79 @@ describe("BrowserScreencastRecorder", () => {
     expect(manifest.finalPage).toEqual({ url: "https://example.com/frame-2" });
   });
 
+  it("preserves the requested teardown reason when an in-flight capture rejects", async () => {
+    const worktree = await makeWorktree("odb-screencast-stop-race-");
+    const releaseSecondFrame = createDeferred<void>();
+    let captureCount = 0;
+    const recorder = new BrowserScreencastRecorder({
+      worktree,
+      sessionId: "session-stop-race",
+      targetId: "target-stop-race",
+      options: {
+        intervalMs: 250,
+        maxFrames: 3
+      },
+      captureFrame: async (capturePath: string) => {
+        captureCount += 1;
+        if (captureCount === 1) {
+          await writeFile(capturePath, "frame-1");
+          return { title: "Frame One" };
+        }
+        await releaseSecondFrame.promise;
+        throw new Error("capture exploded");
+      }
+    });
+
+    await recorder.start();
+    await vi.advanceTimersByTimeAsync(250);
+
+    const stopPromise = recorder.stop("session_closed");
+    releaseSecondFrame.resolve();
+
+    const result = await stopPromise;
+    expect(result.endedReason).toBe("session_closed");
+    expect(result.frameCount).toBe(1);
+  });
+
+  it("stops during the post-capture delay without scheduling another frame", async () => {
+    const worktree = await makeWorktree("odb-screencast-post-capture-stop-");
+    let captureCount = 0;
+    const secondCaptureSeen = createDeferred<void>();
+    let stopPromise: Promise<Awaited<ReturnType<BrowserScreencastRecorder["stop"]>>> | null = null;
+    const recorder = new BrowserScreencastRecorder({
+      worktree,
+      sessionId: "session-post-delay",
+      targetId: "target-post-delay",
+      options: {
+        intervalMs: 250,
+        maxFrames: 3
+      },
+      captureFrame: async (capturePath: string) => {
+        captureCount += 1;
+        await writeFile(capturePath, `frame-${captureCount}`);
+        if (captureCount === 2) {
+          setTimeout(() => {
+            stopPromise = recorder.stop("target_closed");
+          }, 0);
+          secondCaptureSeen.resolve();
+        }
+        return { title: `Frame ${captureCount}` };
+      }
+    });
+
+    await recorder.start();
+    await vi.advanceTimersByTimeAsync(250);
+    await secondCaptureSeen.promise;
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(stopPromise).not.toBeNull();
+
+    const result = await stopPromise;
+    expect(result.endedReason).toBe("target_closed");
+    expect(result.frameCount).toBe(2);
+    expect(captureCount).toBe(2);
+  });
+
   it("returns an existing completion when finalize waits on a pending capture promise", async () => {
     const worktree = await makeWorktree("odb-screencast-pending-completion-");
     const recorder = new BrowserScreencastRecorder({

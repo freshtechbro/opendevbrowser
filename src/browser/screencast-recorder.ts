@@ -230,6 +230,7 @@ export class BrowserScreencastRecorder {
   private timer: NodeJS.Timeout | null = null;
   private capturePromise: Promise<void> | null = null;
   private completion: BrowserScreencastResult | null = null;
+  private requestedStopReason: Extract<BrowserScreencastEndedReason, "stopped" | "session_closed" | "target_closed"> | null = null;
   private initialPage: ScreencastPageInfo | undefined;
   private finalPage: ScreencastPageInfo | undefined;
   private readonly frames: ScreencastManifestFrame[] = [];
@@ -274,7 +275,10 @@ export class BrowserScreencastRecorder {
   }
 
   async stop(reason: Extract<BrowserScreencastEndedReason, "stopped" | "session_closed" | "target_closed">): Promise<BrowserScreencastResult> {
-    return await this.finalize(reason, true);
+    if (!this.completion && !this.requestedStopReason) {
+      this.requestedStopReason = reason;
+    }
+    return await this.finalize(this.requestedStopReason ?? reason, true);
   }
 
   private buildSession(): BrowserScreencastSession {
@@ -303,10 +307,15 @@ export class BrowserScreencastRecorder {
 
   private async captureScheduledFrame(): Promise<void> {
     const captured = await this.captureFrame().catch(async () => {
-      await this.finalize("capture_failed", false);
+      if (!this.requestedStopReason) {
+        await this.finalize("capture_failed", false);
+      }
       return false;
     });
     if (!captured || this.isComplete()) {
+      return;
+    }
+    if (this.requestedStopReason) {
       return;
     }
     if (this.frames.length >= this.maxFrames) {
@@ -314,6 +323,9 @@ export class BrowserScreencastRecorder {
       return;
     }
     await delay(0);
+    if (this.requestedStopReason || this.isComplete()) {
+      return;
+    }
     this.scheduleNextFrame();
   }
 
