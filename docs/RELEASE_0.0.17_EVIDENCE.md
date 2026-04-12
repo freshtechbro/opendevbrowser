@@ -24,7 +24,7 @@ Tracks the verified release-prep gates for `v0.0.17`, including docs alignment, 
 - Current HEAD: `561beeca6a5322e1a61d68e84296319f46675521`
 - Current dirty-path count from `git status --short`: `48`
 - Current local tag `v0.0.17`: present
-- Current generated help now leads with capability highlights for browser replay, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane.
+- Current generated help now leads with a `Find It Fast` block for `screencast / browser replay`, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane.
 - Historical grouped gate names below are preserved exactly as the `2026-03-13` snapshot labels; they are not the active release-proof terminology.
 - Do not reinterpret the release-prep gate results below as current working-tree truth.
 
@@ -42,7 +42,7 @@ Tracks the verified release-prep gates for `v0.0.17`, including docs alignment, 
     - runtime parity matrix passed
     - Chrome Web Store compliance passed
   - Notes:
-    - generated help now renders a first-contact `Capability Highlights` block for browser replay, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane
+    - generated help now renders a first-contact `Find It Fast` block for `screencast / browser replay`, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane
     - `CHANGELOG.md`, this ledger, the historical `v0.0.16` ledger context note, and `extension/store-assets/LISTING.md` were refreshed so release-facing wording matches the generated help surface
     - store-facing copy keeps the boundary explicit: desktop observation remains a separate read-only core runtime lane, and the optional helper remains browser-scoped rather than a desktop agent
     - no new packaging artifacts were regenerated in this documentation-only follow-up pass

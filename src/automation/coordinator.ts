@@ -32,7 +32,9 @@ export type DesktopObservationEnvelope = {
   browserSessionId?: string;
   status: DesktopRuntimeStatus;
   windows?: DesktopWindowSummary[];
+  windowsFailure?: DesktopObservationFailure;
   activeWindow?: DesktopWindowSummary | null;
+  activeWindowFailure?: DesktopObservationFailure;
   capture?: DesktopCaptureValue;
   captureFailure?: DesktopObservationFailure;
   accessibility?: DesktopAccessibilityValue;
@@ -134,11 +136,15 @@ export function createAutomationCoordinator(
         ? await args.desktopRuntime.listWindows(request.reason)
         : null;
       const windows = windowsResult?.ok ? windowsResult.value.windows : undefined;
+      const windowsFailure = windowsResult && !windowsResult.ok ? windowsResult : undefined;
 
       const activeWindowResult = includeActiveWindow
         ? await args.desktopRuntime.activeWindow(request.reason)
         : null;
       const activeWindow = activeWindowResult?.ok ? activeWindowResult.value : undefined;
+      const activeWindowFailure = activeWindowResult && !activeWindowResult.ok
+        ? activeWindowResult
+        : undefined;
 
       const resolveScopedWindow = async (
         mode: WindowScopedObservationMode
@@ -221,7 +227,9 @@ export function createAutomationCoordinator(
         ...(request.browserSessionId ? { browserSessionId: request.browserSessionId } : {}),
         status,
         ...(windows ? { windows } : {}),
+        ...(windowsFailure ? { windowsFailure } : {}),
         ...(typeof activeWindow !== "undefined" ? { activeWindow } : {}),
+        ...(activeWindowFailure ? { activeWindowFailure } : {}),
         ...(capture ? { capture } : {}),
         ...(captureFailure ? { captureFailure } : {}),
         ...(accessibility ? { accessibility } : {}),

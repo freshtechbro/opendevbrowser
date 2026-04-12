@@ -286,6 +286,10 @@ export type BrowserManagerLike = Pick<BrowserManager,
     targetId?: string | null,
     options?: BrowserClonePageOptions
   ) => ReturnType<BrowserManager["clonePage"]>;
+  monitorScreencastCompletion?: (
+    screencastId: string,
+    listener: (result: BrowserScreencastResult) => void
+  ) => () => void;
 };
 
 export type SessionInspectorHandle = Pick<BrowserManagerLike,

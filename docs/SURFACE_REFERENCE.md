@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-04-12
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/public-surface/source.ts`
@@ -22,7 +22,7 @@ Operational mirror:
 
 First-contact note:
 - Start with generated help and `docs/FIRST_RUN_ONBOARDING.md`; this page stays inventory-only.
-- Generated help now leads with capability highlights for browser replay, public read-only desktop observation, and the browser-scoped `--challenge-automation-mode` lane; this page stays inventory-only.
+- Generated help now leads with a `Find It Fast` block for `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; this page stays inventory-only.
 - Installer lifecycle owns refresh and cleanup of the 9 canonical bundled skill packs; this page stays inventory-only.
 
 ---

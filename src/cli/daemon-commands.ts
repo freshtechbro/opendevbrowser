@@ -24,6 +24,7 @@ import {
   releaseRelay,
   renewRelay,
   requireBinding,
+  completeScreencastOwner,
   registerScreencastOwner,
   requireScreencastOwner,
   releaseScreencastOwner,
@@ -538,6 +539,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       );
     case "page.screencast.start":
       await authorizeSessionCommand(core, params, request.name, bindingId);
+      const screencastOwnerClientId = requireClientId(params);
       const screencast = await core.manager.startScreencast(
         requireString(params.sessionId, "sessionId"),
         {
@@ -547,7 +549,10 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           maxFrames: optionalNumber(params.maxFrames, "maxFrames") ?? undefined
         }
       );
-      registerScreencastOwner(screencast.sessionId, screencast.screencastId, requireClientId(params));
+      registerScreencastOwner(screencast.sessionId, screencast.screencastId, screencastOwnerClientId);
+      core.manager.monitorScreencastCompletion?.(screencast.screencastId, () => {
+        completeScreencastOwner(screencast.screencastId);
+      });
       return screencast;
     case "page.screencast.stop":
       await authorizeSessionCommand(core, params, request.name, bindingId);

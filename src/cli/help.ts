@@ -224,23 +224,30 @@ export const HELP_TOOL_ENTRIES = TOOL_SURFACE_ENTRIES;
 
 export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
   {
-    label: "browser_replay",
-    description: "Capture temporal browser evidence with the public replay lane before or after fragile flows.",
-    details: [{ label: "cli:", value: "screencast-start, screencast-stop" }]
+    label: "screencast / browser replay",
+    description: "Use the public replay lane when you need temporal browser evidence before or after a fragile flow.",
+    details: [
+      { label: "cli:", value: "screencast-start, screencast-stop" },
+      { label: "example:", value: "npx opendevbrowser screencast-start --session-id <id> --output-dir ./artifacts/replay" }
+    ]
   },
   {
-    label: "desktop_observation",
+    label: "desktop observation",
     description: "Use the public read-only desktop observation plane for sibling desktop evidence on macOS hosts with the local swift command available; it stays core-owned and outside extension relay.",
-    details: [{
-      label: "cli:",
-      value: "desktop-status, desktop-windows, desktop-active-window, desktop-capture-desktop, desktop-capture-window, desktop-accessibility-snapshot"
-    }]
+    details: [
+      {
+        label: "cli:",
+        value: "desktop-status, desktop-windows, desktop-active-window, desktop-capture-desktop, desktop-capture-window, desktop-accessibility-snapshot"
+      },
+      { label: "example:", value: "npx opendevbrowser desktop-status --output-format json" }
+    ]
   },
   {
-    label: "computer_use",
-    description: "Control the browser-scoped computer-use challenge lane with --challenge-automation-mode; the optional helper is not a desktop agent.",
+    label: "computer use / browser-scoped computer use",
+    description: "Control the bounded browser-scoped computer-use challenge lane with --challenge-automation-mode; the optional helper is not a desktop agent.",
     details: [
       { label: "flag:", value: "--challenge-automation-mode off|browser|browser_with_helper" },
+      { label: "works:", value: "research run, shopping run, product-video run, macro-resolve --execute" },
       { label: "proof:", value: "review, session-inspector, workflow fallback metadata" }
     ]
   }
@@ -298,7 +305,7 @@ export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "src/public-surface/generated-manifest.ts", description: "Checked-in generated public-surface snapshot consumed by help and parity tests." },
   { label: "src/public-surface/generated-manifest.json", description: "Checked-in generated public-surface snapshot consumed by inventory scripts." },
   { label: "src/cli/args.ts", description: "CLI argument parsing backed by the public-surface source." },
-  { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source, including first-contact capability highlights." },
+  { label: "src/cli/help.ts", description: "Human-facing CLI formatting layered on the public-surface source, including the first-contact Find It Fast lookup block." },
   { label: "src/tools/index.ts", description: "Code-level tool registry." },
   { label: "docs/CLI.md", description: "Detailed CLI guide and release-gate runbooks." },
   { label: onboardingMetadata.referencePaths.onboardingDoc, description: "First-run checklist for help-led onboarding and happy-path proof." },
@@ -475,12 +482,13 @@ export function getHelpText(): string {
     "Usage:",
     "  npx opendevbrowser <command> [options]",
     "",
+    "Find It Fast:",
+    "  Use these exact lookup terms when you need replay, desktop evidence, or browser-scoped computer use.",
+    formatCapabilityEntries(),
+    "",
     `${onboardingMetadata.sectionTitle}:`,
     `  ${onboardingMetadata.sectionSummary}`,
     formatOnboardingEntries(),
-    "",
-    "Capability Highlights:",
-    formatCapabilityEntries(),
     "",
     `Command Inventory (all ${CLI_COMMANDS.length} commands):`,
     formatCommandGroups(commandDescriptions),

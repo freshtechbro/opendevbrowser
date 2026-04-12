@@ -91,6 +91,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private readonly logger = createLogger("ops-browser-manager");
   private readonly activeScreencasts = new Map<string, BrowserScreencastRecorder>();
   private readonly completedScreencasts = new Map<string, BrowserScreencastResult>();
+  private readonly screencastCompletionListeners = new Map<string, Set<(result: BrowserScreencastResult) => void>>();
   private readonly screencastIdsBySession = new Map<string, Set<string>>();
   private readonly screencastIdsByTarget = new Map<string, string>();
 
@@ -951,6 +952,30 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return completed;
   }
 
+  monitorScreencastCompletion(
+    screencastId: string,
+    listener: (result: BrowserScreencastResult) => void
+  ): () => void {
+    const completed = this.completedScreencasts.get(screencastId);
+    if (completed) {
+      listener(completed);
+      return () => {};
+    }
+    const listeners = this.screencastCompletionListeners.get(screencastId) ?? new Set();
+    listeners.add(listener);
+    this.screencastCompletionListeners.set(screencastId, listeners);
+    return () => {
+      const registered = this.screencastCompletionListeners.get(screencastId);
+      if (!registered) {
+        return;
+      }
+      registered.delete(listener);
+      if (registered.size === 0) {
+        this.screencastCompletionListeners.delete(screencastId);
+      }
+    };
+  }
+
   async upload(sessionId: string, input: BrowserUploadInput): Promise<BrowserUploadResult> {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.upload(sessionId, input);
@@ -1443,6 +1468,13 @@ export class OpsBrowserManager implements BrowserManagerLike {
 
   private storeCompletedScreencast(result: BrowserScreencastResult): void {
     this.completedScreencasts.set(result.screencastId, result);
+    const listeners = this.screencastCompletionListeners.get(result.screencastId);
+    if (listeners) {
+      for (const listener of listeners) {
+        listener(result);
+      }
+      this.screencastCompletionListeners.delete(result.screencastId);
+    }
     this.clearTrackedScreencast(result.screencastId);
   }
 

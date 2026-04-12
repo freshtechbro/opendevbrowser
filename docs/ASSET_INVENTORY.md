@@ -1,7 +1,7 @@
 # OpenDevBrowser Asset Inventory
 
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-04-12
 
 This inventory reflects the current `assets/` tree used by README, extension packaging, and private website branding flows, plus the generated first-contact discovery assets mirrored into release and website sync flows.
 
@@ -18,7 +18,7 @@ These files live outside `assets/`, but they are treated as release-facing inven
 
 | File | Role | Notes |
 |---|---|---|
-| `src/cli/help.ts` | Generated help renderer | First-contact CLI/help inventory surface, including capability highlights for browser replay, desktop observation, and browser-scoped computer use |
+| `src/cli/help.ts` | Generated help renderer | First-contact CLI/help inventory surface, including the `Find It Fast` lookup block for `screencast / browser replay`, `desktop observation`, and browser-scoped computer use |
 | `src/cli/onboarding-metadata.json` | Onboarding metadata | Shared by help, prompting guide, skill nudges, and proof lanes |
 | `src/public-surface/generated-manifest.ts` | Checked-in TypeScript public-surface snapshot | Consumed by runtime help, docs parity, and tests |
 | `src/public-surface/generated-manifest.json` | Checked-in JSON public-surface snapshot | Consumed by scripts and private website sync inputs |

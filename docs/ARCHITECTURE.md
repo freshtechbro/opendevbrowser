@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-04-12
 
 ---
 
@@ -29,7 +29,7 @@ Human-facing inventory metadata now composes through one generated manifest:
 - `src/public-surface/generated-manifest.ts` and `.json` are the consumed inventory mirrors for runtime help, docs parity, and tests
 - `src/cli/onboarding-metadata.json` owns the canonical first-contact skill, topic, quick-start commands, and onboarding doc pointers
 - `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/index.ts` consume or re-export the generated manifest for human-facing command and tool inventory output
-- `src/cli/help.ts` also owns the first-contact capability-highlights block for browser replay, public desktop observation, and the browser-scoped computer-use lane surfaced through `--challenge-automation-mode`
+- `src/cli/help.ts` also owns the first-contact `Find It Fast` block for `screencast / browser replay`, `desktop observation`, and the browser-scoped computer-use lane surfaced through `--challenge-automation-mode`
 - `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
 - `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/tools/index.ts` remains the runtime tool registry authority

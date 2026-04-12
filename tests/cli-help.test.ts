@@ -91,18 +91,21 @@ describe("CLI help surface", () => {
     expect(HELP_ONBOARDING_ENTRIES[7]?.details).toHaveLength(1);
   });
 
-  it("defines explicit capability highlights for replay, desktop observation, and browser-scoped computer use", () => {
+  it("defines explicit find-it-fast lookup entries for replay, desktop observation, and browser-scoped computer use", () => {
     const labels = HELP_CAPABILITY_ENTRIES.map((entry) => entry.label);
 
     expect(labels).toEqual([
-      "browser_replay",
-      "desktop_observation",
-      "computer_use"
+      "screencast / browser replay",
+      "desktop observation",
+      "computer use / browser-scoped computer use"
     ]);
     expect(HELP_CAPABILITY_ENTRIES[0]?.details?.[0]?.value).toBe("screencast-start, screencast-stop");
+    expect(HELP_CAPABILITY_ENTRIES[0]?.details?.[1]?.value).toContain("screencast-start --session-id <id>");
     expect(HELP_CAPABILITY_ENTRIES[1]?.details?.[0]?.value).toContain("desktop-status");
+    expect(HELP_CAPABILITY_ENTRIES[1]?.details?.[1]?.value).toBe("npx opendevbrowser desktop-status --output-format json");
     expect(HELP_CAPABILITY_ENTRIES[1]?.description).toContain("swift command");
     expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[0]?.value).toBe("--challenge-automation-mode off|browser|browser_with_helper");
+    expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[1]?.value).toContain("macro-resolve --execute");
     expect(HELP_CAPABILITY_ENTRIES[2]?.description).toContain("not a desktop agent");
   });
 
@@ -121,11 +124,16 @@ describe("CLI help surface", () => {
     expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
     expect(output).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(output).toContain(onboardingMetadata.referencePaths.skillDoc);
-    expect(output).toContain("Capability Highlights:");
+    expect(output).toContain("Find It Fast:");
+    expect(output).toContain("Use these exact lookup terms when you need replay, desktop evidence, or browser-scoped computer use.");
+    expect(output).toContain("screencast / browser replay");
+    expect(output).toContain("desktop observation");
+    expect(output).toContain("computer use / browser-scoped computer use");
     expect(output).toContain("screencast-start, screencast-stop");
     expect(output).toContain("desktop-status, desktop-windows");
     expect(output).toContain("swift command");
     expect(output).toContain("--challenge-automation-mode off|browser|browser_with_helper");
+    expect(output).toContain("research run, shopping run, product-video run, macro-resolve --execute");
     expect(output).toContain("not a desktop agent");
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);
     expect(output).toContain("Flag Inventory (all supported flags):");

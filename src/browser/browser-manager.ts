@@ -447,6 +447,7 @@ export class BrowserManager {
   private readonly challengeAutomationSuppression = new Map<string, number>();
   private readonly activeScreencasts = new Map<string, BrowserScreencastRecorder>();
   private readonly completedScreencasts = new Map<string, BrowserScreencastResult>();
+  private readonly screencastCompletionListeners = new Map<string, Set<(result: BrowserScreencastResult) => void>>();
   private readonly screencastIdsBySession = new Map<string, Set<string>>();
   private readonly screencastIdsByTarget = new Map<string, string>();
 
@@ -2091,6 +2092,30 @@ export class BrowserManager {
     return completed;
   }
 
+  monitorScreencastCompletion(
+    screencastId: string,
+    listener: (result: BrowserScreencastResult) => void
+  ): () => void {
+    const completed = this.completedScreencasts.get(screencastId);
+    if (completed) {
+      listener(completed);
+      return () => {};
+    }
+    const listeners = this.screencastCompletionListeners.get(screencastId) ?? new Set();
+    listeners.add(listener);
+    this.screencastCompletionListeners.set(screencastId, listeners);
+    return () => {
+      const registered = this.screencastCompletionListeners.get(screencastId);
+      if (!registered) {
+        return;
+      }
+      registered.delete(listener);
+      if (registered.size === 0) {
+        this.screencastCompletionListeners.delete(screencastId);
+      }
+    };
+  }
+
   private async captureScreencastFrame(
     sessionId: string,
     targetId: string,
@@ -3530,6 +3555,13 @@ export class BrowserManager {
 
   private storeCompletedScreencast(result: BrowserScreencastResult): void {
     this.completedScreencasts.set(result.screencastId, result);
+    const listeners = this.screencastCompletionListeners.get(result.screencastId);
+    if (listeners) {
+      for (const listener of listeners) {
+        listener(result);
+      }
+      this.screencastCompletionListeners.delete(result.screencastId);
+    }
     this.clearTrackedScreencast(result.screencastId);
   }
 

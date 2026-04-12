@@ -28,6 +28,7 @@ export type ScreencastOwnerState = {
   sessionId: string;
   clientId: string;
   createdAt: number;
+  completedAt: number | null;
   lastUsedAt: number;
 };
 
@@ -91,7 +92,7 @@ const cleanupQueue = (): void => {
 const cleanupScreencastOwners = (): void => {
   const now = nowMs();
   for (const [screencastId, owner] of screencastOwners.entries()) {
-    if (owner.lastUsedAt + SCREENCAST_OWNER_TTL_MS <= now) {
+    if (owner.completedAt !== null && owner.lastUsedAt + SCREENCAST_OWNER_TTL_MS <= now) {
       screencastOwners.delete(screencastId);
     }
   }
@@ -233,12 +234,14 @@ export const registerScreencastOwner = (
     throw new Error("RELAY_CLIENT_ID_REQUIRED: clientId is required");
   }
   cleanupScreencastOwners();
+  const createdAt = nowMs();
   const owner: ScreencastOwnerState = {
     screencastId: screencastId.trim(),
     sessionId: sessionId.trim(),
     clientId: clientId.trim(),
-    createdAt: nowMs(),
-    lastUsedAt: nowMs()
+    createdAt,
+    completedAt: null,
+    lastUsedAt: createdAt
   };
   screencastOwners.set(owner.screencastId, owner);
   return owner;
@@ -248,6 +251,26 @@ export const getScreencastOwner = (screencastId: string): ScreencastOwnerState |
   if (!screencastId || !screencastId.trim()) return null;
   cleanupScreencastOwners();
   return screencastOwners.get(screencastId) ?? null;
+};
+
+export const touchScreencastOwner = (screencastId: string): ScreencastOwnerState | null => {
+  const owner = getScreencastOwner(screencastId);
+  if (!owner) {
+    return null;
+  }
+  owner.lastUsedAt = nowMs();
+  return owner;
+};
+
+export const completeScreencastOwner = (screencastId: string): ScreencastOwnerState | null => {
+  const owner = getScreencastOwner(screencastId);
+  if (!owner) {
+    return null;
+  }
+  const completedAt = nowMs();
+  owner.completedAt = completedAt;
+  owner.lastUsedAt = completedAt;
+  return owner;
 };
 
 export const releaseScreencastOwner = (screencastId: string): void => {
@@ -282,7 +305,7 @@ export const requireScreencastOwner = (
   if (owner.sessionId !== normalizedSessionId || owner.clientId !== normalizedClientId) {
     throw new Error("RELAY_SCREENCAST_OWNER_INVALID: Screencast does not match the current owner.");
   }
-  owner.lastUsedAt = nowMs();
+  touchScreencastOwner(screencastId);
   return owner;
 };
 

@@ -2,11 +2,11 @@
 
 Command-line interface for installing and managing the OpenDevBrowser plugin, plus automation commands for agents.
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-04-12
 
 OpenDevBrowser exposes 65 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
-That generated help surface now leads with capability highlights for browser replay (`screencast-start` / `screencast-stop`), public read-only desktop observation (`desktop-*`), and the browser-scoped computer-use lane controlled by `--challenge-automation-mode`.
+That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
 Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts` and `src/public-surface/generated-manifest.json`, which are consumed by `src/cli/help.ts`, `src/cli/args.ts`, inventory scripts, and re-export paths in `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
@@ -255,12 +255,19 @@ npx opendevbrowser -v
 ```
 
 `--help` and `help` print the same generated first-contact inventory:
+- A `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
+- That block maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`.
 - An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
 - A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current reliable transcript, research, and shopping runbook.
 - A direct pointer to `opendevbrowser_skill_list` when an agent needs a different local skill lane.
-- A capability-highlights block that surfaces browser replay, public desktop observation, and the browser-scoped `--challenge-automation-mode` lane without implying a desktop agent.
+- A browser-scoped computer-use description that makes the optional helper boundary explicit and does not imply a desktop agent.
 - The complete generated CLI command, flag, and `opendevbrowser_*` tool inventories.
 - Canonical pointers to `docs/FIRST_RUN_ONBOARDING.md`, `skills/opendevbrowser-best-practices/SKILL.md`, and `docs/SURFACE_REFERENCE.md`.
+
+Quick lookup terms from generated help:
+- `screencast / browser replay`: `screencast-start`, `screencast-stop`
+- `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`
 
 These first-contact assets are also mirrored as release and website inputs through `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, and `src/public-surface/generated-manifest.json`.
 

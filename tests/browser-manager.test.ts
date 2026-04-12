@@ -4148,6 +4148,41 @@ describe("BrowserManager", () => {
     });
   });
 
+  it("notifies screencast completion listeners when a managed screencast ends after session teardown", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePathAwareScreenshot(page);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-screencast-listener-disconnect-"));
+
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+    const completionListener = vi.fn();
+    manager.monitorScreencastCompletion(screencast.screencastId, completionListener);
+
+    await manager.disconnect(launch.sessionId, false);
+
+    await vi.waitFor(() => {
+      expect(completionListener).toHaveBeenCalledWith(expect.objectContaining({
+        screencastId: screencast.screencastId,
+        sessionId: launch.sessionId,
+        targetId: screencast.targetId,
+        endedReason: "session_closed"
+      }));
+    });
+  });
+
   it("replays target-closed screencasts after page close", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }

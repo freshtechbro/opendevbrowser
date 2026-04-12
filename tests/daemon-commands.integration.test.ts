@@ -12,9 +12,11 @@ import {
   clearScreencastOwners,
   clearSessionLeases,
   getBindingState,
+  getScreencastOwner,
   getSessionLease,
   registerScreencastOwner,
   registerSessionLease,
+  releaseSessionLease,
   releaseRelay,
   waitForBinding
 } from "../src/cli/daemon-state";
@@ -235,6 +237,7 @@ describe("daemon-commands integration", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     clearBinding();
     clearScreencastOwners();
@@ -465,6 +468,155 @@ describe("daemon-commands integration", () => {
     })).rejects.toThrow("RELAY_SCREENCAST_OWNER_INVALID");
 
     expect(core.manager.stopScreencast).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "[invalid_session] Unknown sessionId: session-1",
+    "Unknown ops session: session-1"
+  ])("refreshes retained screencast ownership at completion so long-running post-teardown retrieval still succeeds (%s)", async (statusError) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T00:00:00.000Z"));
+
+    let completionListener: ((result: {
+      screencastId: string;
+      sessionId: string;
+      targetId: string;
+      endedReason: string;
+    }) => void) | undefined;
+
+    const core = makeCore();
+    core.manager.status.mockResolvedValueOnce({ mode: "managed", activeTargetId: "target-1" });
+    core.manager.startScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+    core.manager.monitorScreencastCompletion = vi.fn((_screencastId, listener) => {
+      completionListener = listener as typeof completionListener;
+      return () => {};
+    });
+    core.manager.status.mockRejectedValueOnce(new Error(statusError));
+    core.manager.stopScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.start",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        leaseId: "lease-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+
+    vi.setSystemTime(new Date("2026-04-10T00:09:30.000Z"));
+    completionListener?.({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
+    expect(getScreencastOwner("cast-1")).not.toBeNull();
+
+    releaseSessionLease("session-1");
+    vi.setSystemTime(new Date("2026-04-10T00:11:00.000Z"));
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        screencastId: "cast-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
+  });
+
+  it.each([
+    "[invalid_session] Unknown sessionId: session-1",
+    "Unknown ops session: session-1"
+  ])("keeps active screencast ownership through cleanup before completion so post-teardown retrieval still succeeds (%s)", async (statusError) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T00:00:00.000Z"));
+
+    let completionListener: ((result: {
+      screencastId: string;
+      sessionId: string;
+      targetId: string;
+      endedReason: string;
+    }) => void) | undefined;
+
+    const core = makeCore();
+    core.manager.status.mockResolvedValueOnce({ mode: "managed", activeTargetId: "target-1" });
+    core.manager.startScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+    core.manager.monitorScreencastCompletion = vi.fn((_screencastId, listener) => {
+      completionListener = listener as typeof completionListener;
+      return () => {};
+    });
+    core.manager.status.mockRejectedValueOnce(new Error(statusError));
+    core.manager.stopScreencast.mockResolvedValue({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
+    registerSessionLease("session-1", "lease-1", "client-1");
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.start",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        leaseId: "lease-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1"
+    });
+
+    vi.setSystemTime(new Date("2026-04-10T00:11:00.000Z"));
+    registerScreencastOwner("session-2", "cast-2", "client-2");
+    expect(getScreencastOwner("cast-1")).not.toBeNull();
+
+    completionListener?.({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
+    releaseSessionLease("session-1");
+    vi.setSystemTime(new Date("2026-04-10T00:11:30.000Z"));
+
+    await expect(handleDaemonCommand(core, {
+      name: "page.screencast.stop",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        screencastId: "cast-1"
+      }
+    })).resolves.toEqual({
+      screencastId: "cast-1",
+      sessionId: "session-1",
+      targetId: "target-1",
+      endedReason: "session_closed"
+    });
   });
 
   it("routes session.inspect through the daemon with default includeUrls and relay status", async () => {

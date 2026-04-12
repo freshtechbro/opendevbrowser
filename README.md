@@ -13,7 +13,7 @@
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
 The current public surface includes [72 CLI commands and 65 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
-Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with browser replay, public read-only desktop observation, and the browser-scoped computer-use lane exposed through `--challenge-automation-mode`.
+Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -240,11 +240,11 @@ Use `--output-format json|stream-json` for automation-friendly output.
 
 ### Help-Led Discovery
 
-Start every surface check from generated help when you need the current public lanes:
+Start every surface check from generated help when you need the current public lanes. The terminal help now uses these exact phrases so agents can search by intent instead of guessing command names:
 
-- Browser replay: `screencast-start`, `screencast-stop`
-- Desktop observation: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- Browser-scoped computer use: `--challenge-automation-mode off|browser|browser_with_helper` governs bounded challenge handling for workflow and macro execute lanes; the optional helper remains browser-scoped and is not a desktop agent
+- `screencast / browser replay`: `screencast-start`, `screencast-stop`
+- `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`; `review` and `session-inspector` remain the quickest proof surfaces, and the optional helper stays browser-scoped rather than becoming a desktop agent
 
 ## Challenge Handling Boundary
 

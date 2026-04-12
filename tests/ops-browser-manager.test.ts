@@ -1308,6 +1308,35 @@ describe("OpsBrowserManager", () => {
     });
   });
 
+  it("notifies screencast completion listeners when an ops screencast ends after session teardown", async () => {
+    stubOpsScreencastSession("ops-listener");
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const connected = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-ops-screencast-listener-"));
+
+    const screencast = await manager.startScreencast(connected.sessionId, {
+      outputDir,
+      intervalMs: 250,
+      maxFrames: 5
+    });
+    const completionListener = vi.fn();
+    manager.monitorScreencastCompletion(screencast.screencastId, completionListener);
+
+    (manager as unknown as {
+      handleOpsEvent: (event: { event?: string; opsSessionId?: string }) => void;
+    }).handleOpsEvent({ opsSessionId: connected.sessionId, event: "ops_tab_closed" });
+
+    await vi.waitFor(() => {
+      expect(completionListener).toHaveBeenCalledWith(expect.objectContaining({
+        screencastId: screencast.screencastId,
+        sessionId: connected.sessionId,
+        targetId: screencast.targetId,
+        endedReason: "session_closed"
+      }));
+    });
+  });
+
   it("logs Error screencast result failures and clears tracked ops recorders", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
     const managerAny = manager as unknown as {
