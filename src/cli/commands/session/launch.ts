@@ -18,6 +18,7 @@ type LaunchArgs = {
 };
 
 const MIN_LAUNCH_CALL_TIMEOUT_MS = 30_000;
+const MANAGED_HEADED_LAUNCH_CALL_TIMEOUT_MS = 60_000;
 const LAUNCH_CALL_TIMEOUT_BUFFER_MS = 5_000;
 
 function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
@@ -127,7 +128,10 @@ function deriveLaunchCallTimeoutMs(launchArgs: LaunchArgs): number {
   const waitHintMs = typeof launchArgs.waitTimeoutMs === "number"
     ? launchArgs.waitTimeoutMs + LAUNCH_CALL_TIMEOUT_BUFFER_MS
     : 0;
-  return Math.max(MIN_LAUNCH_CALL_TIMEOUT_MS, waitHintMs);
+  const managedHeadedHintMs = launchArgs.noExtension && launchArgs.headless !== true
+    ? MANAGED_HEADED_LAUNCH_CALL_TIMEOUT_MS
+    : 0;
+  return Math.max(MIN_LAUNCH_CALL_TIMEOUT_MS, waitHintMs, managedHeadedHintMs);
 }
 
 export const __test__ = { parseLaunchArgs, deriveLaunchCallTimeoutMs };

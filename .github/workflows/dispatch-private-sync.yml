@@ -10,7 +10,9 @@ on:
       - assets/**
       - CHANGELOG.md
       - src/cli/help.ts
-      - src/tools/surface.ts
+      - src/cli/onboarding-metadata.json
+      - src/public-surface/generated-manifest.ts
+      - src/public-surface/generated-manifest.json
       - src/tools/index.ts
   workflow_dispatch:
     inputs:

@@ -100,7 +100,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.17.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.18.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -262,15 +262,14 @@ Start every surface check from generated help when you need the current public l
 
 ## Recent Features
 
-### v0.0.17 (Latest)
+### v0.0.18 (Latest)
 
-- **Design canvas runtime is now shipped end-to-end** across core, CLI, tool, relay, and extension surfaces, including `canvas.html`, overlay control, preview feedback, starter or inventory flows, Figma import, and repo-backed framework-adapter code sync.
-- **Canvas token authoring and adapter-plugin validation are now first-class**: the extension token panel edits collections, modes, aliases, and bindings, while `scripts/canvas-competitive-validation.mjs` captures grouped evidence for adapters, token round-trip, inbox delivery, surface parity, and optional live Figma smoke.
-- **Canvas surface governance and skill-pack coverage** now include current `/canvas` inventories, handshake/blocker templates, and feedback-evaluation artifacts.
-- **Challenge automation override control is now first-class** across workflows and manager metadata via `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence and a browser-scoped helper boundary.
-- **Browser replay screencasts now ship as a manager-owned capture lane** with session-scoped `screencast-start`, `screencast-stop`, and replay artifacts rooted in the existing screenshot path (`replay.json`, `replay.html`, `frames/`, `preview.png`).
-- **Desktop observation now ships as a public read-only CLI/tool plane** with separate `desktop.*` config, repo-local audit artifacts, and no public desktop agent or desktop `/ops` control plane.
-- **Release packaging/docs were refreshed for v0.0.17**, including current tarball examples, extension version sync, release evidence, and public/private cutover guidance.
+- **Canvas and workflow surfaces are materially stronger after `v0.0.17`**: adapter-plugin validation, starter or inventory lanes, framework-adapter code sync, review/session-inspector flows, and direct-run release probes all landed on `main`.
+- **Generated public-surface manifests and onboarding metadata now drive help, docs parity, release evidence, and mirrored website inputs** instead of leaving those surfaces hand-maintained.
+- **Challenge automation and browser-scoped computer-use controls are tighter** with explicit `challengeAutomationMode` precedence and a clearer browser-only helper boundary.
+- **Browser replay screencasts and public desktop observation now ship on the active public surface** with manager-owned replay artifacts, dedicated desktop permission or audit coverage, and no desktop agent claim.
+- **Public read-only desktop observation now ships as a sibling runtime** with dedicated permission and audit coverage while staying outside the public relay or `/ops` plane.
+- **Release and distribution operations were refreshed for `v0.0.18`** across GitHub release assets, npm packaging, Chrome Web Store prep, regenerated live store assets, and private website sync inputs.
 
 ### v0.0.16
 

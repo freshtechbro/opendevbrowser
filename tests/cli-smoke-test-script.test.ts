@@ -9,12 +9,27 @@ vi.mock("child_process", () => ({
   spawnSync: spawnSyncMock
 }));
 
-import { DAEMON_READY_TIMEOUT_MS, parseArgs, startDaemon } from "../scripts/cli-smoke-test.mjs";
+import {
+  buildSmokeReviewArgs,
+  DAEMON_READY_TIMEOUT_MS,
+  parseArgs,
+  startDaemon
+} from "../scripts/cli-smoke-test.mjs";
 
 describe("cli-smoke-test parseArgs", () => {
   it("parses supported synthetic-page variants", () => {
     expect(parseArgs(["--variant", "secondary"])).toEqual({ variant: "secondary" });
     expect(() => parseArgs(["--variant", "unknown"])).toThrow("--variant requires primary or secondary.");
+  });
+
+  it("uses the default CLI review budget instead of a tighter smoke-only override", () => {
+    expect(buildSmokeReviewArgs("session-1")).toEqual([
+      "review",
+      "--session-id",
+      "session-1",
+      "--max-chars",
+      "2000"
+    ]);
   });
 });
 

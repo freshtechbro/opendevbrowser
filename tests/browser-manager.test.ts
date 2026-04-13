@@ -1893,6 +1893,37 @@ describe("BrowserManager", () => {
     expect(navigation).not.toHaveProperty("status");
   });
 
+  it("falls back to setContent when html data-url navigation times out on a target-scoped legacy relay page", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, page } = createBrowserBundle(nodes);
+    page.url.mockReturnValue("https://example.com/");
+    page.goto.mockRejectedValueOnce(new Error("page.goto: Timeout 30000ms exceeded."));
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false })
+    }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+    const dataUrl = "data:text/html;charset=utf-8,%3Cmain%3EPreview%3C%2Fmain%3E";
+    const navigation = await manager.goto(result.sessionId, dataUrl, "load", 30000, undefined, result.activeTargetId);
+
+    expect(page.setContent).toHaveBeenCalledWith("<main>Preview</main>", {
+      waitUntil: "domcontentloaded",
+      timeout: 5000
+    });
+    expect(page.waitForLoadState).toHaveBeenCalledWith("load", { timeout: 5000 });
+    expect(navigation.finalUrl).toBe(dataUrl);
+    expect(navigation).not.toHaveProperty("status");
+  });
+
   it("recovers target-scoped legacy navigation when the relay session id goes stale", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }

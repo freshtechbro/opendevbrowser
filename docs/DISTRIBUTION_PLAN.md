@@ -1,6 +1,6 @@
 # OpenDevBrowser Distribution Plan
 
-Last updated: 2026-03-20
+Last updated: 2026-04-12
 
 This document is the active distribution plan for the split model:
 - public repo for runtime + release artifacts
@@ -104,7 +104,9 @@ git push origin vX.Y.Z
 - `assets/`
 - `CHANGELOG.md`
 - `src/cli/help.ts`
+- `src/cli/onboarding-metadata.json`
 - `src/public-surface/generated-manifest.ts`
+- `src/public-surface/generated-manifest.json`
 - `src/tools/index.ts`
 
 2. Private workflow regenerates frontend content and validates:

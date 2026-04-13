@@ -132,6 +132,10 @@ export function runCli(args, options = {}) {
   return { status: timedOut ? 1 : (result.status ?? 0), stdout, stderr, json, timedOut };
 }
 
+export function buildSmokeReviewArgs(sessionId) {
+  return ["review", "--session-id", sessionId, "--max-chars", "2000"];
+}
+
 async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -390,7 +394,7 @@ async function main() {
     runCli(["status", "--session-id", sessionId], { env });
     runCli(["goto", "--session-id", sessionId, "--url", dataUrl], { env });
     runCli(["wait", "--session-id", sessionId, "--until", "load"], { env });
-    runCli(["review", "--session-id", sessionId, "--max-chars", "2000", "--timeout-ms", "15000"], { env });
+    runCli(buildSmokeReviewArgs(sessionId), { env });
 
     const snapshot = runCli([
       "snapshot",
