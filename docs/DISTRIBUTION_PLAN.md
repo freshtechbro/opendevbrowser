@@ -1,6 +1,6 @@
 # OpenDevBrowser Distribution Plan
 
-Last updated: 2026-04-12
+Last updated: 2026-04-13
 
 This document is the active distribution plan for the split model:
 - public repo for runtime + release artifacts
@@ -94,6 +94,20 @@ git push origin vX.Y.Z
   - `opendevbrowser-extension.zip`
   - `opendevbrowser-extension.zip.sha256`
 
+If npm is already live or `NPM_TOKEN` is temporarily unavailable, rerun the same workflow through `workflow_dispatch` with:
+
+```bash
+gh workflow run release-public.yml \
+  -f release_ref=main \
+  -f release_tag=vX.Y.Z \
+  -f publish_npm=false \
+  -f publish_github_release=true \
+  -f draft_release=false \
+  -f run_release_live_gates=false
+```
+
+That path preserves the shipped tag while finishing the GitHub release lane.
+
 6. `dispatch-private-sync.yml` triggers private website sync for mirrored public content.
 
 ## Website deployment sequence (private)
@@ -146,7 +160,7 @@ npm run build --prefix frontend
 - [x] Private sync + promotion workflows are live.
 - [x] Public repo frontend source was extracted after private validation baseline.
 - [ ] Hosting production branch is enforced to `website-production`.
-- [ ] Public first tagged release completed through new workflow path.
+- [x] Public first tagged release completed through new workflow path.
 
 ## Operational references
 
