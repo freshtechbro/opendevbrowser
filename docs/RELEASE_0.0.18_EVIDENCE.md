@@ -81,6 +81,8 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - direct-execution guard prevents `main()` from running on import during tests.
 - `src/providers/workflows.ts`
   - refreshed generic retailer titles such as `Amazon.com` are now treated as marketplace chrome instead of overwriting a valid product title.
+- `tests/desktop-runtime-audit.test.ts`, `tests/desktop-runtime-permission.test.ts`
+  - follow-up success-path capture tests now stub `statImpl` for `/usr/sbin/screencapture`, so Linux CI exercises the mocked capture path instead of the host filesystem.
 - Supporting regression coverage was added in:
   - `tests/cli-onboarding-smoke-script.test.ts`
   - `tests/providers-product-video-workflow.test.ts`
@@ -136,6 +138,11 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - Workflow: `Public Release`
   - Head: `v0.0.18` -> `f001dac9cd7fdcc60ce3a6384f76985d3e7c039e`
   - Result: failed during the pre-publish `npm run test` gate; the CI-only owner failures patched on `codex/release-0-0-18-fix` came from this run
+- [x] Release workflow rerun failure evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24322765905`
+  - Workflow: `Public Release`
+  - Head: `main` -> `6a51954dfbe883797b270735c7a73e5ac1a375fb`
+  - Result: failed during `Run release quality gates` after the first fix merged; both `tests/desktop-runtime-permission.test.ts:302` and `tests/desktop-runtime-audit.test.ts:306` still expected a successful capture result without stubbing the screencapture path check on Linux CI
 - [ ] GitHub release URL
   - Current state: `gh release view v0.0.18` returned `release not found`
 - [ ] npm publish verification
