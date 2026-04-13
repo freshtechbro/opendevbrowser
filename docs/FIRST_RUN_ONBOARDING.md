@@ -1,9 +1,9 @@
-# First-Run Onboarding (Pre-Release)
+# First-Run Onboarding (Local Artifact Validation)
 
 Status: active  
-Last updated: 2026-04-12
+Last updated: 2026-04-13
 
-This guide is the shipping checklist for validating OpenDevBrowser as a new user **before npm distribution is live**.
+This guide is the shipping checklist for validating OpenDevBrowser as a new user from a local package artifact. Use `docs/RELEASE_RUNBOOK.md` for the separate published npm registry-consumer proof lane.
 
 ## What this validates
 
@@ -27,7 +27,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ```bash
 cd <public-repo-root>
 npm pack
-# -> opendevbrowser-0.0.18.tgz
+# -> opendevbrowser-0.0.19.tgz
 ```
 
 ## 2) Simulate a brand-new user workspace
@@ -36,7 +36,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.18.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.19.tgz
 npx --no-install opendevbrowser version --output-format json
 ```
 
@@ -58,6 +58,7 @@ Expected:
 - the block maps replay to `screencast-start` / `screencast-stop`
 - the block maps desktop observation to the public `desktop-*` family
 - the block maps browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`
+- the block includes a concrete browser-scoped entry command such as `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
 - help then opens the `Agent Quick Start` block
 - the block explicitly points agents to `opendevbrowser_prompting_guide`
 - the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`

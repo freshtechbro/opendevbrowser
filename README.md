@@ -89,9 +89,9 @@ npm install -g opendevbrowser
 opendevbrowser --version
 ```
 
-### Pre-release Local Package (No npm publish required)
+### Local Package Validation
 
-Use this flow to validate first-run local package onboarding before npm publish.
+Use this flow to validate first-run onboarding from a source tarball without relying on the published registry package.
 
 ```bash
 cd <public-repo-root>
@@ -100,10 +100,12 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.18.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.19.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
+
+Published npm consumer proof is tracked separately in [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md) through `scripts/registry-consumer-smoke.mjs`.
 
 See [docs/FIRST_RUN_ONBOARDING.md](docs/FIRST_RUN_ONBOARDING.md) for the full onboarding checklist, [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for runtime inventory, and [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the live CLI and tool surface.
 
@@ -244,7 +246,7 @@ Start every surface check from generated help when you need the current public l
 
 - `screencast / browser replay`: `screencast-start`, `screencast-stop`
 - `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`; `review` and `session-inspector` remain the quickest proof surfaces, and the optional helper stays browser-scoped rather than becoming a desktop agent
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`; start with `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json` when you need the first entry point, and use `review` plus `session-inspector` as the quickest proof surfaces while the optional helper stays browser-scoped rather than becoming a desktop agent
 
 ## Challenge Handling Boundary
 
@@ -262,14 +264,13 @@ Start every surface check from generated help when you need the current public l
 
 ## Recent Features
 
-### v0.0.18 (Latest)
+### v0.0.19 (Current release prep)
 
-- **Canvas and workflow surfaces are materially stronger after `v0.0.17`**: adapter-plugin validation, starter or inventory lanes, framework-adapter code sync, review/session-inspector flows, and direct-run release probes all landed on `main`.
-- **Generated public-surface manifests and onboarding metadata now drive help, docs parity, release evidence, and mirrored website inputs** instead of leaving those surfaces hand-maintained.
-- **Challenge automation and browser-scoped computer-use controls are tighter** with explicit `challengeAutomationMode` precedence and a clearer browser-only helper boundary.
-- **Browser replay screencasts and public desktop observation now ship on the active public surface** with manager-owned replay artifacts, dedicated desktop permission or audit coverage, and no desktop agent claim.
-- **Public read-only desktop observation now ships as a sibling runtime** with dedicated permission and audit coverage while staying outside the public relay or `/ops` plane.
-- **Release and distribution operations were refreshed for `v0.0.18`** across GitHub release assets, npm packaging, Chrome Web Store prep, regenerated live store assets, and private website sync inputs.
+- npm latest remains `0.0.18` until the next tag is pushed and published.
+- **Registry-consumer release proof is now first-class** with a post-publish smoke lane that installs the published package in a fresh temp workspace, verifies help/version, and captures the resolved consumer dependency graph.
+- **Browser-scoped computer use is easier to discover** because help, onboarding, and release-facing docs now expose a concrete workflow entry command instead of relying only on `--challenge-automation-mode` as a hidden modifier.
+- **Browser replay screencast shutdown is safer under load** because stop requests during the first in-flight capture no longer allow a later scheduled frame to sneak through.
+- **The `0.0.18` npm parity investigation is now explicit about chronology**: the published package matched the release-aligned source, while later local worktree drift and semver-based consumer dependency drift explain the mismatch reports.
 
 ### v0.0.16
 

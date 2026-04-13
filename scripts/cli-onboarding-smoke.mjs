@@ -26,6 +26,7 @@ export function assertOnboardingHelp(helpText, metadata = ONBOARDING_METADATA) {
     metadata.quickStartCommands.promptingGuide,
     metadata.quickStartCommands.skillLoad,
     metadata.quickStartCommands.skillList,
+    metadata.quickStartCommands.computerUseEntry,
     metadata.quickStartCommands.happyPath,
     metadata.referencePaths.onboardingDoc,
     metadata.referencePaths.skillDoc

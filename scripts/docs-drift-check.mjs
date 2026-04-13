@@ -85,6 +85,8 @@ export function runDocsDriftChecks() {
   const publicReadme = read("README.md");
   const docsReadme = read("docs/README.md");
   const onboardingDoc = read("docs/FIRST_RUN_ONBOARDING.md");
+  const releaseRunbook = read("docs/RELEASE_RUNBOOK.md");
+  const distributionPlan = read("docs/DISTRIBUTION_PLAN.md");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
   const architectureDoc = read("docs/ARCHITECTURE.md");
   const onboardingMetadata = JSON.parse(read("src/cli/onboarding-metadata.json"));
@@ -234,6 +236,18 @@ export function runDocsDriftChecks() {
       && cliDoc.includes("node scripts/cli-onboarding-smoke.mjs"),
     detail: "docs/CLI.md must point first-contact agents to generated help, the canonical quick-start path, and the onboarding smoke lane."
   });
+  checks.push({
+    id: "doc.release_runbook.registry_consumer_smoke_documented",
+    ok: releaseRunbook.includes("scripts/registry-consumer-smoke.mjs")
+      && releaseRunbook.includes("registry-consumer-smoke.json"),
+    detail: "docs/RELEASE_RUNBOOK.md must document the post-publish registry consumer smoke lane and captured JSON evidence."
+  });
+  checks.push({
+    id: "doc.distribution.registry_consumer_smoke_documented",
+    ok: distributionPlan.includes("scripts/registry-consumer-smoke.mjs")
+      && distributionPlan.includes("registry-consumer-smoke.json"),
+    detail: "docs/DISTRIBUTION_PLAN.md must document the registry consumer smoke lane in the public release sequence."
+  });
 
   const cliOpsCount = parseDocCount(/- `\/ops` \(default extension channel\): .* all `([0-9]+)` command names\./, cliDoc, "CLI docs /ops count");
   checks.push({
@@ -277,8 +291,10 @@ export function runDocsDriftChecks() {
     ok: onboardingDoc.includes("Validate the help-led quick-start path")
       && onboardingDoc.includes(onboardingMetadata.quickStartCommands.promptingGuide)
       && onboardingDoc.includes(onboardingMetadata.quickStartCommands.skillLoad)
-      && onboardingDoc.includes(onboardingMetadata.referencePaths.skillDoc),
-    detail: "docs/FIRST_RUN_ONBOARDING.md must document the generated-help quick-start path and canonical skill runbook."
+      && onboardingDoc.includes(onboardingMetadata.quickStartCommands.computerUseEntry)
+      && onboardingDoc.includes(onboardingMetadata.referencePaths.skillDoc)
+      && onboardingDoc.includes("docs/RELEASE_RUNBOOK.md"),
+    detail: "docs/FIRST_RUN_ONBOARDING.md must document the generated-help quick-start path, computer-use entry command, canonical skill runbook, and the separate release runbook for published npm proof."
   });
 
   checks.push({
@@ -307,6 +323,11 @@ export function runDocsDriftChecks() {
       && publicReadme.includes("browser-scoped")
       && publicReadme.includes("not a desktop agent"),
     detail: "README.md must document challengeAutomationMode, enum values, precedence, and the browser-scoped helper boundary."
+  });
+  checks.push({
+    id: "doc.readme.computer_use_entry_documented",
+    ok: publicReadme.includes(onboardingMetadata.quickStartCommands.computerUseEntry),
+    detail: "README.md must include the concrete browser-scoped computer-use entry command."
   });
   pushRequiredForbiddenTermsCheck(checks, {
     id: "doc.readme.browser_replay_and_desktop_observation_documented",
@@ -356,6 +377,11 @@ export function runDocsDriftChecks() {
       && cliDoc.includes("browser-scoped")
       && cliDoc.includes("not a desktop agent"),
     detail: "docs/CLI.md must document challengeAutomationMode, enum values, precedence, and the browser-scoped helper boundary."
+  });
+  checks.push({
+    id: "doc.cli.computer_use_entry_documented",
+    ok: cliDoc.includes(onboardingMetadata.quickStartCommands.computerUseEntry),
+    detail: "docs/CLI.md must include the concrete browser-scoped computer-use entry command."
   });
   pushRequiredForbiddenTermsCheck(checks, {
     id: "doc.cli.browser_replay_and_desktop_observation_documented",

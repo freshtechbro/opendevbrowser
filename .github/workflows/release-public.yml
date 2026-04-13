@@ -166,6 +166,15 @@ jobs:
           fi
           npm publish --access public
 
+      - name: Registry consumer smoke
+        if: steps.meta.outputs.publish_npm == 'true'
+        run: |
+          mkdir -p "artifacts/release/v${{ steps.meta.outputs.release_version }}"
+          node scripts/registry-consumer-smoke.mjs \
+            --version "${{ steps.meta.outputs.release_version }}" \
+            --output "artifacts/release/v${{ steps.meta.outputs.release_version }}/registry-consumer-smoke.json"
+          cat "artifacts/release/v${{ steps.meta.outputs.release_version }}/registry-consumer-smoke.json"
+
       - name: Publish GitHub release
         if: steps.meta.outputs.publish_release == 'true'
         uses: softprops/action-gh-release@v2

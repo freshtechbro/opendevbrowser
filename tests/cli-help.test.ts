@@ -78,6 +78,7 @@ describe("CLI help surface", () => {
       "skill_list",
       "research_reliable",
       "shopping_reliable",
+      "computer_use_entry",
       "happy_path",
       "docs"
     ]);
@@ -88,7 +89,8 @@ describe("CLI help surface", () => {
     expect(HELP_ONBOARDING_ENTRIES[3]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillList);
     expect(HELP_ONBOARDING_ENTRIES[4]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedResearch);
     expect(HELP_ONBOARDING_ENTRIES[5]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedShopping);
-    expect(HELP_ONBOARDING_ENTRIES[7]?.details).toHaveLength(1);
+    expect(HELP_ONBOARDING_ENTRIES[6]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.computerUseEntry);
+    expect(HELP_ONBOARDING_ENTRIES[8]?.details).toHaveLength(1);
   });
 
   it("defines explicit find-it-fast lookup entries for replay, desktop observation, and browser-scoped computer use", () => {
@@ -107,6 +109,7 @@ describe("CLI help surface", () => {
     expect(HELP_CAPABILITY_ENTRIES[1]?.description).toContain("screencapture");
     expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[0]?.value).toBe("--challenge-automation-mode off|browser|browser_with_helper");
     expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[1]?.value).toContain("macro-resolve --execute");
+    expect(HELP_CAPABILITY_ENTRIES[2]?.details?.[2]?.value).toBe(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(HELP_CAPABILITY_ENTRIES[2]?.description).toContain("not a desktop agent");
   });
 
@@ -122,6 +125,7 @@ describe("CLI help surface", () => {
     expect(output).toContain(onboardingMetadata.quickStartCommands.skillList);
     expect(output).toContain(onboardingMetadata.quickStartCommands.validatedResearch);
     expect(output).toContain(onboardingMetadata.quickStartCommands.validatedShopping);
+    expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
     expect(output).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(output).toContain(onboardingMetadata.referencePaths.skillDoc);
@@ -136,6 +140,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("screencapture");
     expect(output).toContain("--challenge-automation-mode off|browser|browser_with_helper");
     expect(output).toContain("research run, shopping run, product-video run, macro-resolve --execute");
+    expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain("not a desktop agent");
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);
     expect(output).toContain("Flag Inventory (all supported flags):");
