@@ -1,12 +1,12 @@
 # v0.0.19 Release Evidence
 
-Status: active release ledger  
+Status: historical completed release ledger
 Target release date: 2026-04-13  
 Last updated: 2026-04-13
 
 ## Scope
 
-Tracks the `0.0.19` release-prep cycle after the published `v0.0.18` release, including npm registry-consumer smoke hardening, browser-scoped computer-use discoverability updates, the screencast stop-race fix, version alignment, packaging, and release handoff readiness.
+Tracks the completed `0.0.19` release cycle after the published `v0.0.18` release, including npm registry-consumer smoke hardening, browser-scoped computer-use discoverability updates, the screencast stop-race fix, version alignment, packaging, and release closeout evidence.
 
 ## Baseline comparison
 
@@ -17,7 +17,7 @@ Tracks the `0.0.19` release-prep cycle after the published `v0.0.18` release, in
   - GitHub assets:
     - `opendevbrowser-extension.zip`
     - `opendevbrowser-extension.zip.sha256`
-- Current `0.0.19` delta is based on the post-`v0.0.18` hardening work in `codex/generalfixes`.
+- Current `0.0.19` delta is based on the post-`v0.0.18` hardening work that merged from `codex/generalfixes` via PR `#22`.
 
 ## Release summary
 
@@ -28,9 +28,10 @@ Tracks the `0.0.19` release-prep cycle after the published `v0.0.18` release, in
 
 ## Current repo note
 
-- Active release-prep branch: `codex/generalfixes`
-- Release tag not pushed yet: `v0.0.19`
-- npm `latest` still points to `0.0.18`
+- Release-prep branch `codex/generalfixes` merged into `main` via PR `#22`
+- Release tag pushed: `v0.0.19`
+- npm `latest` points to `0.0.19`
+- GitHub release published: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.19`
 - Local version authority is `package.json` at `0.0.19`; extension version owners stay synced via `npm run extension:sync`
 - `docs/RELEASE_0.0.18_EVIDENCE.md` and `docs/NPM_0_0_18_PARITY_INVESTIGATION.md` remain historical release records
 
@@ -69,13 +70,12 @@ Tracks the `0.0.19` release-prep cycle after the published `v0.0.18` release, in
 - [x] `npm pack`
   - produced `opendevbrowser-0.0.19.tgz`
   - tarball details: `package size=1.7 MB`, `unpacked size=9.1 MB`, `total files=919`
-- [ ] After npm publish, `node scripts/registry-consumer-smoke.mjs --version 0.0.19 --output artifacts/release/v0.0.19/registry-consumer-smoke.json`
-  - cannot be completed locally before publish because `0.0.19` is not on npm yet
-  - dry-run proof of the new lane succeeded against current npm `latest` (`0.0.18`):
-    - `success=true`
-    - `installAttempts=1`
-    - `helpLineCount=591`
-    - consumer graph: `@opencode-ai/plugin@1.4.3`, `ws@8.20.0`, `zod@3.25.76`, nested plugin `zod@4.1.8`
+- [x] After npm publish, `node scripts/registry-consumer-smoke.mjs --version 0.0.19 --output artifacts/release/v0.0.19/registry-consumer-smoke.json`
+  - completed against npm `latest` after publish
+  - `success=true`
+  - `installAttempts=4`
+  - `helpLineCount=594`
+  - consumer graph: `@opencode-ai/plugin@1.4.3`, `ws@8.20.0`, `zod@3.25.76`, nested plugin `zod@4.1.8`
 
 ## Repo sanity checks
 
@@ -101,9 +101,18 @@ Tracks the `0.0.19` release-prep cycle after the published `v0.0.18` release, in
 
 ## External release workflow evidence
 
-- [ ] Release workflow run URL
-- [ ] GitHub release URL
-- [ ] npm publish verification
+- [x] Initial tag-triggered public release run failed because npm publish was enabled without `NPM_TOKEN`
+  - workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24362526855`
+  - conclusion: `failure`
+  - head SHA: `0002d7ddeca8c170cec56cf1d1f97de9604955df`
+- [x] GitHub release-only rerun completed successfully
+  - workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24362731433`
+  - conclusion: `success`
+  - head SHA: `0002d7ddeca8c170cec56cf1d1f97de9604955df`
+- [x] GitHub release URL
+  - `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.19`
+- [x] npm publish verification
+  - `npm view opendevbrowser version` returned `0.0.19`
 
 ## Review note
 
@@ -111,6 +120,6 @@ Tracks the `0.0.19` release-prep cycle after the published `v0.0.18` release, in
 
 ## Notes
 
-- This ledger is commit-ready release-prep evidence, not publish proof.
-- The only mandatory gate still pending is the publish-time registry-consumer smoke for `0.0.19`, which becomes actionable only after tag push and npm publish.
+- This ledger now captures completed `0.0.19` release evidence, not only release-prep proof.
+- The mandatory publish-time registry-consumer smoke is closed with a successful post-publish run against npm `latest`.
 - Keep `docs/RELEASE_0.0.18_EVIDENCE.md` and `docs/NPM_0_0_18_PARITY_INVESTIGATION.md` historical; do not rewrite them as active `0.0.19` guidance.
