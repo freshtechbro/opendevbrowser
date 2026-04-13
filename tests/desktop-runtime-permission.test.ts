@@ -172,12 +172,7 @@ describe("desktop runtime permission and availability", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl,
-      statImpl: vi.fn(async (target: string) => (
-        target === "/usr/sbin/screencapture"
-          ? ({ size: 1 } as Stats)
-          : stat(target)
-      ))
+      execFileImpl
     });
 
     const status = await runtime.status();
@@ -304,7 +299,12 @@ describe("desktop runtime permission and availability", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl
+      execFileImpl,
+      statImpl: vi.fn(async (target: string) => (
+        target === "/usr/sbin/screencapture"
+          ? ({ size: 1 } as Stats)
+          : stat(target)
+      ))
     });
 
     const result = await runtime.captureDesktop({ reason: "capture-without-swift" });
