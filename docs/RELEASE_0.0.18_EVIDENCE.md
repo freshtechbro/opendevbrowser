@@ -65,7 +65,7 @@ Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-publi
 - [x] `npm run test:release-gate`
   - Result: all `5` release-gate groups passed
 - [x] `npm run test`
-  - Result: `235` test files passed, `1` skipped; `3404` tests passed, `1` skipped; coverage `98.11%` statements, `97.01%` branches, `97.74%` functions, `98.17%` lines
+  - Result: passed on the rebased `origin/main` + `0.0.18` candidate; coverage remained above the required `97%` branch threshold
 
 ## Packaging gates
 
@@ -89,22 +89,21 @@ Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-publi
 - [x] `opendevbrowser-extension.zip.sha256`
   - Contents: `9b3569bef1888b5e9b18a7e48cf44629856b130b73d669c99350f348f2801c76  opendevbrowser-extension.zip`
 - [x] `opendevbrowser-0.0.18.tgz`
-  - Size: `1676953` bytes
-  - SHA-1 (`npm pack` / `shasum`): `602f4002742f5a30b0187ece7c9655b158560057`
-  - Integrity (`npm pack --json`): `sha512-YXrp5cqLjEAdHW0917teux7AvTIKOoaJAXtwvwUn2TKQzyc2M1cg37LAyI6Ak03W90tNgMhvBMv5TWsl5Mv7gw==`
+  - Size: `1724897` bytes
+  - SHA-1 (`npm pack` / `shasum`): `4a56110d586d974f8c3420493d856470de8b286d`
+  - Integrity (`npm pack --json`): `sha512-n0QByy9noOaHxQpePG2Yhdud9CQErVfTlCaiyv35OznOmK6Jk3E+2vswzbkQ62WpTSv3H2+01ZXqZ3dZVqrceg==`
 
 ## Optional release-environment gates
 
 - [x] `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/v0.0.18/provider-direct-runs.json`
-  - Result: strict gate exited non-zero because non-pass lanes remain, but the artifact recorded `19` pass, `11` env_limited, `0` fail, `0` skipped
+  - Result: rerun on the rebased final candidate; strict gate exited non-zero because non-pass lanes remain, but the artifact recorded `19` pass, `11` env_limited, `0` fail, `0` skipped
   - Environment-limited lanes: community challenge shells, JS-required/social verification shells, policy-blocked posting probes, Costco env limits, Temu timeout, and generic `others` shopping fallback
 - [x] `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/v0.0.18/live-regression-direct.json`
-  - Result: strict gate exited non-zero because extension/manual-boundary lanes remain, but the artifact recorded `4` pass, `3` env_limited, `0` fail, `1` skipped
-  - Pass lanes: `feature.canvas.managed_headless`, `feature.canvas.managed_headed`, `feature.cli.smoke`, and daemon preflight
-  - Environment-limited lanes: `feature.canvas.extension`, `feature.canvas.cdp`, and `feature.annotate.relay` because the relay had no connected extension (`extensionHandshakeComplete=false`)
-  - Skipped lane: `feature.annotate.direct` (`manual_probe_boundary_observed:direct_annotation_timeout`)
+  - Result: rerun on the rebased final candidate with the extension connected; artifact recorded `6` pass, `0` env_limited, `0` fail, `2` skipped and returned overall `ok=true`
+  - Pass lanes: daemon preflight, `feature.canvas.managed_headless`, `feature.canvas.managed_headed`, `feature.canvas.extension`, `feature.canvas.cdp`, and `feature.cli.smoke`
+  - Skipped lanes: `feature.annotate.relay` and `feature.annotate.direct` (`manual_probe_boundary_observed:*_annotation_timeout`)
 - [x] First-run onboarding dry run from `docs/FIRST_RUN_ONBOARDING.md`
-  - Result: isolated temp-home install from the packed `0.0.18` tarball succeeded, `--help` and `help` matched, `--global --full --no-prompt` succeeded, extension assets extracted under the isolated home, daemon start/status passed, and the managed launch/goto/snapshot/disconnect happy path completed
+  - Result: isolated temp-home install from the packed `0.0.18` tarball succeeded, `--help` and `help` matched, `opendevbrowser version` reported `opendevbrowser v0.0.18`, `--global --full --no-prompt` succeeded, extension assets extracted under the isolated home, daemon start/status passed, and the managed launch/goto/snapshot/disconnect happy path completed
   - Expected note observed: transient temp-workspace install warned that daemon autostart repair was skipped because the CLI path was transient
 
 ## Deferred artifacts
@@ -129,3 +128,6 @@ Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-publi
   - `feature.canvas.managed_headed` cleared after increasing managed-headed daemon launch budget to `60000ms`.
   - `feature.cli.smoke` cleared after removing the harness-only `review` timeout override of `15000ms`.
 - Both strict live-gate scripts currently return non-zero when `env_limited` or `skipped` lanes remain, even with `0` true `fail` results. Release readiness should therefore be read from the recorded counts and scenario details, not the raw process exit code alone.
+- Final rebased candidate status:
+  - provider direct proof still contains honest `env_limited` lanes but no true failures
+  - live regression proof is fully green apart from the two explicit manual annotation boundaries
