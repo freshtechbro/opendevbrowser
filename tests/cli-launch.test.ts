@@ -50,6 +50,13 @@ describe("launch CLI command", () => {
     expect(__test__.deriveLaunchCallTimeoutMs({ flags: [], waitTimeoutMs: 60000 })).toBe(65000);
   });
 
+  it("uses a larger launch timeout budget for managed headed sessions", () => {
+    expect(__test__.deriveLaunchCallTimeoutMs({
+      flags: [],
+      noExtension: true
+    })).toBe(60000);
+  });
+
   it("forwards persistProfile=false to daemon launch", async () => {
     callDaemon.mockResolvedValue({ sessionId: "session-temp" });
 
@@ -101,5 +108,27 @@ describe("launch CLI command", () => {
       message: "Session launched: session-extension",
       data: { sessionId: "session-extension" }
     });
+  });
+
+  it("forwards the larger timeout budget for managed headed launch", async () => {
+    callDaemon.mockResolvedValue({ sessionId: "session-headed" });
+
+    await runSessionLaunch(makeArgs([
+      "--no-extension",
+      "--persist-profile",
+      "false",
+      "--start-url",
+      "https://example.com"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "session.launch",
+      expect.objectContaining({
+        noExtension: true,
+        persistProfile: false,
+        startUrl: "https://example.com"
+      }),
+      { timeoutMs: 60000 }
+    );
   });
 });

@@ -46,7 +46,7 @@ Covers `src/**/*.ts` with explicit exclusions from `vitest.config.ts` (including
 ## Documentation Sync
 
 Update `docs/CLI.md` when CLI output or exit codes change.
-Update release docs/runbooks when release-gate script behavior changes (`docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, and the current version-scoped release evidence doc such as `docs/RELEASE_0.0.17_EVIDENCE.md`).
+Update release docs/runbooks when release-gate script behavior changes (`docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, and the current version-scoped release evidence doc such as `docs/RELEASE_0.0.18_EVIDENCE.md`).
 
 ## CLI Smoke Tests
 

@@ -4475,7 +4475,7 @@ export class BrowserManager {
       return { response: await page.goto(url, { waitUntil, timeout: timeoutMs }) };
     } catch (error) {
       const html = this.decodeHtmlDataUrl(url);
-      if (!html || !this.isNavigationAbortError(error)) {
+      if (!html || !(this.isNavigationAbortError(error) || this.isNavigationTimeoutError(error))) {
         throw error;
       }
       // Some Chrome relay targets abort `data:text/html` navigations even though the HTML is valid.
@@ -4583,6 +4583,11 @@ export class BrowserManager {
   private isNavigationAbortError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes("ERR_ABORTED");
+  }
+
+  private isNavigationTimeoutError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("page.goto: Timeout");
   }
 
   private isExecutionContextDestroyedError(error: unknown): boolean {

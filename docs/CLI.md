@@ -9,7 +9,7 @@ Generated help is the primary first-contact inventory and onboarding surface. Ag
 That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
-Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts` and `src/public-surface/generated-manifest.json`, which are consumed by `src/cli/help.ts`, `src/cli/args.ts`, inventory scripts, and re-export paths in `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
+Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts` and `src/public-surface/generated-manifest.json`, which are consumed by `src/cli/help.ts`, `src/cli/args.ts`, inventory scripts, mirrored website inputs, and re-export paths in `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
 The generated first-contact inventory mirrored into downstream website and release flows is tracked in `docs/ASSET_INVENTORY.md`.
 
 Dependency inventory: `docs/DEPENDENCIES.md`
@@ -54,7 +54,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.17.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.18.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -1645,7 +1645,7 @@ npm run test -- tests/providers-performance-gate.test.ts
 
 These commands are release guards, not the live release-proof lane. Use the direct-run harness commands above for release evidence.
 
-Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.17_EVIDENCE.md`.
+Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.18_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
 ---

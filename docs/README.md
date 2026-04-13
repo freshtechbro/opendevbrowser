@@ -35,7 +35,8 @@ Generated help is the canonical first-contact discovery surface and must keep th
 
 ## Version-scoped evidence
 
-- `<public-repo-root>/docs/RELEASE_0.0.17_EVIDENCE.md` - current release evidence ledger for the active ship cycle
+- `<public-repo-root>/docs/RELEASE_0.0.18_EVIDENCE.md` - current release evidence ledger for the active ship cycle
+- `<public-repo-root>/docs/RELEASE_0.0.17_EVIDENCE.md` - historical v0.0.17 release evidence ledger
 - `<public-repo-root>/docs/RELEASE_0.0.16_EVIDENCE.md` - historical v0.0.16 release evidence; keep as archival context, not evergreen guidance
 
 ## Planning/spec docs (historical or in-flight)

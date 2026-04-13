@@ -7,10 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Documentation
-- Refreshed README, AGENTS guidance, CLI/extension/privacy docs, and nested README surfaces for the shipped browser replay screencast lane and public read-only desktop observation plane.
-- Updated dependency, asset, and generated-help inventory docs to reflect the current 72-command / 65-tool public surface and the generated manifest/onboarding metadata that now drive discovery flows.
-- Tightened release-facing copy in `CHANGELOG.md`, version-scoped evidence ledgers, and Chrome Web Store listing text so browser replay, desktop observation, and the browser-scoped computer-use lane mirror the generated help wording without implying a desktop agent.
+## [0.0.18] - 2026-04-12
+
+### Added
+- Public-surface manifest generation, onboarding metadata, workflow inventory reporting, and direct-run release probes now drive generated help, docs parity, release evidence, and mirrored website inputs.
+- Review, session-inspector, upload, and pointer interaction surfaces landed across the CLI and tool registry, alongside stronger first-run onboarding smoke and skill-runtime audit coverage.
+- Public read-only desktop observation now ships as a sibling runtime with dedicated audit and permission checks, while challenge automation keeps its browser-scoped helper boundary explicit.
+
+### Changed
+- Hardened the design-canvas runtime after the `v0.0.17` release with stronger extension editor flows, adapter-plugin validation, starter or inventory lanes, framework-adapter code sync, and release-facing docs.
+- Refreshed GitHub/npm/Chrome release operations with tighter runbooks, deterministic store asset generation, clearer website-sync inputs, and release-proof scripts that track the current public surface.
+- Tightened generated help, onboarding, and privacy wording so browser replay, desktop observation, and browser-scoped computer-use guidance stay aligned across docs and store-facing copy.
+- Regenerated live Chrome Web Store screenshots and refreshed store asset specs, listing guidance, and release-facing documentation for the current extension UI.
+
+### Fixed
+- Private website dispatch no longer fails public pushes when the sync token cannot access the configured private repo.
+- Provider fallback recovery, shopping outputs, extension attach recovery, and release validation lanes are more stable on the post-`v0.0.17` mainline.
 
 ## [0.0.17] - 2026-03-13
 
@@ -161,7 +173,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.17...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.18...HEAD
+[0.0.18]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.17...v0.0.18
 [0.0.17]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.16...v0.0.17
 [0.0.16]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.15...v0.0.16
 [0.0.15]: https://github.com/freshtechbro/opendevbrowser/compare/ebb109e...eaced1e

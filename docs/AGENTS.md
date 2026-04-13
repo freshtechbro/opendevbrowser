@@ -64,7 +64,8 @@ When release-gate automation changes:
 - `docs/RELEASE_RUNBOOK.md`
 - `docs/EXTENSION_RELEASE_RUNBOOK.md`
 - `docs/DISTRIBUTION_PLAN.md`
-- the current version-scoped release evidence doc (for this release: `docs/RELEASE_0.0.17_EVIDENCE.md`); older ledgers stay historical-only and should receive explicit status clarifications only
+- the current version-scoped release evidence doc (for this release: `docs/RELEASE_0.0.18_EVIDENCE.md`)
+- older ledgers stay historical-only and should receive explicit status clarifications only
 - automation scripts:
   - `scripts/audit-zombie-files.mjs`
   - `scripts/docs-drift-check.mjs`
