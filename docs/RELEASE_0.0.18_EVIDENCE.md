@@ -148,6 +148,11 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - Workflow: `Public Release`
   - Head: `main` -> `ad2262513c0a75a42e4b7969903a185d6f94dfac`
   - Result: failed during `Run release quality gates`; `tests/desktop-runtime-audit.test.ts` was fixed, but `tests/desktop-runtime-permission.test.ts:307` still used the unstubbed success path and returned `{ ok: false }` on Linux CI before the mocked `screencapture` call
+- [x] Release workflow third rerun failure evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24323350212`
+  - Workflow: `Public Release`
+  - Head: `main` -> `283c4387fc0dadff240c9528df3ff54d19503117`
+  - Result: failed during `Run release quality gates`; the prior follow-up patched the unsupported-status case, but the actual screencapture success-path block in `tests/desktop-runtime-permission.test.ts:312` still lacked the Linux-safe `statImpl` stub
 - [ ] GitHub release URL
   - Current state: `gh release view v0.0.18` returned `release not found`
 - [ ] npm publish verification
@@ -186,7 +191,7 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - login-fixture probe no longer exits the process when imported in tests
   - product-video title refresh now resists generic marketplace chrome
 - Remaining CI blocker before the next public rerun:
-  - `tests/desktop-runtime-permission.test.ts` success-path capture still needs the Linux-safe `statImpl` stub on `origin/main`; `codex/release-0-0-18-fix-3` carries that last test-only patch
+  - `tests/desktop-runtime-permission.test.ts` success-path capture still needs the Linux-safe `statImpl` stub on `origin/main`; `codex/release-0-0-18-fix-4` carries the corrected test-only patch
 - Both strict live-gate scripts currently return non-zero when `env_limited` or `skipped` lanes remain, even with `0` true `fail` results. Release readiness should therefore be read from the recorded counts and scenario details, not the raw process exit code alone.
 - Final rebased candidate status:
   - provider direct proof still contains honest `env_limited` lanes but no true failures
