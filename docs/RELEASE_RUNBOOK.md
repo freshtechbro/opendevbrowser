@@ -159,6 +159,7 @@ Confirm all of the following:
   - verify `NPM_TOKEN`
   - verify package version is not already published
   - rerun using workflow dispatch once corrected
+  - if npm is already live and only the GitHub release is missing, rerun the same tag with `publish_npm=false`, `publish_github_release=true`, and `draft_release=false`
 
 ### GitHub release artifact failure
 

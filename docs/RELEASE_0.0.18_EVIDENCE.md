@@ -29,9 +29,10 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
 
 ## Current repo note
 
-- Active CI-repair branch: `codex/release-0-0-18-fix`
-- Source branch for release rerun: merged `main`
-- Fix branch base: `origin/main` at `f001dac9cd7fdcc60ce3a6384f76985d3e7c039e`
+- Historical CI-repair branches: `codex/release-0-0-18-fix` through `codex/release-0-0-18-fix-4`
+- Final release source branch: merged `main`
+- Final release source commit: `e6f2aac7e860e8fa2799df19f4243028385c2f2b`
+- Final GitHub release workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24323858422`
 - Release tag already pushed: `v0.0.18`
 - Local version authority is `package.json` at `0.0.18`; extension version owners stay synced via `npm run extension:sync`.
 - Release-version sweep confirmed `0.0.18` across active version owners and current-cycle docs. `tsconfig.json` and `eslint.config.js` contain no release-version strings, so they were reviewed and left unchanged.
@@ -103,11 +104,16 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
 
 ## Artifacts
 
-- [x] `opendevbrowser-extension.zip`
+- [x] Local pre-release `opendevbrowser-extension.zip`
   - Size: `173853` bytes
   - SHA-256: `9b3569bef1888b5e9b18a7e48cf44629856b130b73d669c99350f348f2801c76`
-- [x] `opendevbrowser-extension.zip.sha256`
-  - Contents: `9b3569bef1888b5e9b18a7e48cf44629856b130b73d669c99350f348f2801c76  opendevbrowser-extension.zip`
+- [x] Published GitHub release asset `opendevbrowser-extension.zip`
+  - URL: `https://github.com/freshtechbro/opendevbrowser/releases/download/v0.0.18/opendevbrowser-extension.zip`
+  - Size: `173853` bytes
+  - SHA-256: `8ee50198ec2043ac5b02bec7338a640e7daf3567ecce47279f9f76ae6432c3b8`
+- [x] Published GitHub release checksum `opendevbrowser-extension.zip.sha256`
+  - URL: `https://github.com/freshtechbro/opendevbrowser/releases/download/v0.0.18/opendevbrowser-extension.zip.sha256`
+  - Contents: `8ee50198ec2043ac5b02bec7338a640e7daf3567ecce47279f9f76ae6432c3b8  opendevbrowser-extension.zip`
 - [x] `opendevbrowser-0.0.18.tgz`
   - Size: `1724897` bytes
   - SHA-1 (`npm pack` / `shasum`): `4a56110d586d974f8c3420493d856470de8b286d`
@@ -153,9 +159,26 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - Workflow: `Public Release`
   - Head: `main` -> `283c4387fc0dadff240c9528df3ff54d19503117`
   - Result: failed during `Run release quality gates`; the prior follow-up patched the unsupported-status case, but the actual screencapture success-path block in `tests/desktop-runtime-permission.test.ts:312` still lacked the Linux-safe `statImpl` stub
-- [ ] GitHub release URL
-  - Current state: `gh release view v0.0.18` returned `release not found`
-- [ ] npm publish verification
+- [x] Release workflow fourth rerun failure evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24323653032`
+  - Workflow: `Public Release`
+  - Head: `main` -> `e6f2aac7e860e8fa2799df19f4243028385c2f2b`
+  - Result: `Run release quality gates`, `Pack extension artifact`, and `Compute extension checksums` all passed, but `Publish npm package` failed because `NODE_AUTH_TOKEN` was empty and the step exited with `NPM_TOKEN is required when publish_npm=true`; `Publish GitHub release` was skipped in that run
+- [x] Release workflow final GitHub-release-only success evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24323858422`
+  - Workflow: `Public Release`
+  - Head: `main` -> `e6f2aac7e860e8fa2799df19f4243028385c2f2b`
+  - Inputs: `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, `run_release_live_gates=false`
+  - Result: `Run release quality gates`, `Pack extension artifact`, `Compute extension checksums`, and `Publish GitHub release` all succeeded; `Publish npm package` was intentionally skipped
+- [x] GitHub release URL
+  - URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.18`
+  - Verified via `gh release view v0.0.18 --json url,isDraft,tagName,targetCommitish,publishedAt,name`
+  - Published: `2026-04-13T03:14:55Z`
+  - Target: `main`
+- [x] npm publish verification
+  - `npm view opendevbrowser version` now returns `0.0.18`
+  - Local npm auth is available for manual publish operations: `npm whoami` -> `bishopdotun`
+  - Workflow-based npm publish remains blocked until the public repo gets `NPM_TOKEN`
 - [x] Chrome Web Store publish blocker evidence
   - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24322237855`
   - Workflow: `Chrome Store Publish`
@@ -190,8 +213,12 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - system Chrome cookie tests no longer assert Darwin-only behavior from Linux
   - login-fixture probe no longer exits the process when imported in tests
   - product-video title refresh now resists generic marketplace chrome
-- Remaining CI blocker before the next public rerun:
-  - `tests/desktop-runtime-permission.test.ts` success-path capture still needs the Linux-safe `statImpl` stub on `origin/main`; `codex/release-0-0-18-fix-4` carries the corrected test-only patch
+- Final external release closure for this cycle:
+  - npm package is publicly visible at `0.0.18`
+  - GitHub release `v0.0.18` is published with extension zip and checksum assets
+  - Chrome Web Store remains the only unshipped distribution lane because the required `CWS_*` repository secrets are still absent
+- Release artifact note:
+  - the published GitHub release zip checksum differs from the earlier local pre-release zip checksum because the public release workflow rebuilt the extension artifact in CI before upload
 - Both strict live-gate scripts currently return non-zero when `env_limited` or `skipped` lanes remain, even with `0` true `fail` results. Release readiness should therefore be read from the recorded counts and scenario details, not the raw process exit code alone.
 - Final rebased candidate status:
   - provider direct proof still contains honest `env_limited` lanes but no true failures
