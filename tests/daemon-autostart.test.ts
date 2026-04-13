@@ -23,7 +23,7 @@ const createCliFixture = (options: { transient?: boolean } = {}) => {
 };
 
 const createNpxCacheCliFixture = () => {
-  const root = mkdtempSync(join(resolve(tmpdir(), ".."), "odb-cli-stable-"));
+  const root = mkdtempSync(join(tmpdir(), "odb-cli-stable-"));
   const cacheRoot = join(root, "_npx", "runner");
   mkdirSync(cacheRoot, { recursive: true });
   const cliPath = join(cacheRoot, "index.js");

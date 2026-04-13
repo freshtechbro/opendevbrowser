@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -172,7 +172,12 @@ describe("desktop runtime permission and availability", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl
+      execFileImpl,
+      statImpl: vi.fn(async (target: string) => (
+        target === "/usr/sbin/screencapture"
+          ? ({ size: 1 } as Stats)
+          : stat(target)
+      ))
     });
 
     const status = await runtime.status();

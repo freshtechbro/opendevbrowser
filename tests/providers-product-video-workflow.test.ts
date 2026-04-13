@@ -478,6 +478,11 @@ describe("product-video substrate adoption", () => {
   });
 
   it("keeps usable product detail records even when fetch reports a non-ok aggregate", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "https://www.amazon.com/dp/B0PHASE5004",
+      text: async () => "<html><head><title>Amazon.com</title></head><body></body></html>"
+    })) as unknown as typeof fetch);
     const fetch = vi.fn(async () => makeAggregate({
       ok: false,
       error: {
@@ -628,6 +633,11 @@ describe("product-video substrate adoption", () => {
   });
 
   it("reuses checkpointed resolution and fetch state without replaying completed adaptive steps", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      url: "https://www.amazon.com/dp/B0PHASE5003",
+      text: async () => "<html><head><title>Amazon.com</title></head><body></body></html>"
+    })) as unknown as typeof fetch);
     const search = vi.fn(async () => {
       throw new Error("checkpointed resolution should not replay");
     });

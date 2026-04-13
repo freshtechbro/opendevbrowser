@@ -41,6 +41,7 @@ describe("cli-onboarding-smoke script", () => {
 
   it("loads the bundled quick-start guide inside isolated compatibility homes", async () => {
     const isolatedRoot = await mkdtemp(join(os.tmpdir(), "odb-isolated-skill-home-"));
+    const { SkillLoader } = await import("../src/skills/skill-loader");
     const guide = await loadQuickStartGuide(process.cwd(), onboardingMetadata, {
       CODEX_HOME: isolatedRoot,
       OPENCODE_CONFIG_DIR: join(isolatedRoot, "config"),
@@ -49,7 +50,7 @@ describe("cli-onboarding-smoke script", () => {
       AMPCLI_HOME: join(isolatedRoot, ".amp"),
       AMP_CLI_HOME: join(isolatedRoot, ".amp"),
       AMP_HOME: join(isolatedRoot, ".amp")
-    });
+    }, SkillLoader);
     expect(guide).toContain("## Quick Start");
     expect(guide).not.toContain("## Fast Start");
   });

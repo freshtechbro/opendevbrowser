@@ -1206,6 +1206,17 @@ const isMarketplaceTitleChrome = (title: string, productUrl: string): boolean =>
   const cleaned = normalizePlainText(title);
   if (!cleaned) return true;
   try {
+    const canonicalHostBrand = normalizePlainText(inferBrandFromUrl(productUrl))
+      .replace(/\.com\b/gi, "")
+      .trim()
+      .toLowerCase();
+    const canonicalTitle = cleaned
+      .replace(/\.com\b/gi, "")
+      .trim()
+      .toLowerCase();
+    if (canonicalHostBrand && canonicalTitle === canonicalHostBrand) {
+      return true;
+    }
     const host = new URL(productUrl).hostname.toLowerCase();
     if (host.includes("walmart.")) {
       return WALMART_TITLE_CHROME_RE.test(cleaned);

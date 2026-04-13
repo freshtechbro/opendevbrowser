@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import http from "node:http";
-import { URLSearchParams } from "node:url";
+import { URLSearchParams, pathToFileURL } from "node:url";
 import {
   defaultArtifactPath,
   finalizeReport,
@@ -670,7 +670,14 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const isDirectExecution = () => {
+  const entrypoint = process.argv[1];
+  return typeof entrypoint === "string" && import.meta.url === pathToFileURL(entrypoint).href;
+};
+
+if (isDirectExecution()) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

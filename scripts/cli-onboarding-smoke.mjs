@@ -120,15 +120,17 @@ function buildIsolatedSkillEnv(tempRoot, configDir) {
 export async function loadQuickStartGuide(
   rootDir = ROOT,
   metadata = ONBOARDING_METADATA,
-  envOverrides = {}
+  envOverrides = {},
+  SkillLoaderCtor
 ) {
-  const moduleUrl = pathToFileURL(path.join(ROOT, "dist", "skills", "skill-loader.js")).href;
-  const { SkillLoader } = await import(moduleUrl);
+  const LoaderClass = SkillLoaderCtor ?? (
+    await import(pathToFileURL(path.join(rootDir, "dist", "skills", "skill-loader.js")).href)
+  ).SkillLoader;
   const overrides = Object.fromEntries(
     ISOLATED_SKILL_ENV_KEYS.map((key) => [key, envOverrides[key]])
   );
   return withTemporaryEnv(overrides, async () => {
-    const loader = new SkillLoader(rootDir);
+    const loader = new LoaderClass(rootDir);
     return loader.loadSkill(metadata.skillName, metadata.skillTopic);
   });
 }
