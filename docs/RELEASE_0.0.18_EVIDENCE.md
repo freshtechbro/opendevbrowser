@@ -143,6 +143,11 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - Workflow: `Public Release`
   - Head: `main` -> `6a51954dfbe883797b270735c7a73e5ac1a375fb`
   - Result: failed during `Run release quality gates` after the first fix merged; both `tests/desktop-runtime-permission.test.ts:302` and `tests/desktop-runtime-audit.test.ts:306` still expected a successful capture result without stubbing the screencapture path check on Linux CI
+- [x] Release workflow second rerun failure evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24323004511`
+  - Workflow: `Public Release`
+  - Head: `main` -> `ad2262513c0a75a42e4b7969903a185d6f94dfac`
+  - Result: failed during `Run release quality gates`; `tests/desktop-runtime-audit.test.ts` was fixed, but `tests/desktop-runtime-permission.test.ts:307` still used the unstubbed success path and returned `{ ok: false }` on Linux CI before the mocked `screencapture` call
 - [ ] GitHub release URL
   - Current state: `gh release view v0.0.18` returned `release not found`
 - [ ] npm publish verification
@@ -161,18 +166,14 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
 
 - This ledger is the active `0.0.18` proof record and should be updated as gates complete.
 - `docs/RELEASE_0.0.17_EVIDENCE.md` remains historical and should not be rewritten during `0.0.18` prep.
-- The current local release-gate proof set on `codex/release-0-0-18-fix` is green:
-  - `npm run version:check`
+- Historical proof from `codex/release-0-0-18-fix` remained green across the broader release gate set.
+- Final `codex/release-0-0-18-fix-3` revalidation after the desktop permission test correction:
   - `node scripts/docs-drift-check.mjs`
-  - `node scripts/chrome-store-compliance-check.mjs`
-  - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
   - `npm run lint`
   - `npm run typecheck`
-  - `npm run build`
-  - `npm run extension:build`
-  - `npx opendevbrowser --help`
-  - `npx opendevbrowser help`
+  - `npm run test -- tests/desktop-runtime-permission.test.ts`
   - `npm run test`
+  - `npm run build`
 - Post-fix blocker closure for this release:
   - `feature.canvas.managed_headless` cleared after widening preview navigation fallback from `data:text/html` timeout into `setContent`/document-write recovery.
   - `feature.canvas.managed_headed` cleared after increasing managed-headed daemon launch budget to `60000ms`.
@@ -180,10 +181,12 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
 - Post-merge CI-only blocker closure for this release:
   - onboarding smoke no longer depends on built `dist`
   - daemon autostart test uses a Linux-safe tmp fixture
-  - desktop runtime tests no longer assume a macOS-only binary exists in CI
+  - `tests/desktop-runtime-audit.test.ts` no longer assumes a macOS-only binary exists in CI
   - system Chrome cookie tests no longer assert Darwin-only behavior from Linux
   - login-fixture probe no longer exits the process when imported in tests
   - product-video title refresh now resists generic marketplace chrome
+- Remaining CI blocker before the next public rerun:
+  - `tests/desktop-runtime-permission.test.ts` success-path capture still needs the Linux-safe `statImpl` stub on `origin/main`; `codex/release-0-0-18-fix-3` carries that last test-only patch
 - Both strict live-gate scripts currently return non-zero when `env_limited` or `skipped` lanes remain, even with `0` true `fail` results. Release readiness should therefore be read from the recorded counts and scenario details, not the raw process exit code alone.
 - Final rebased candidate status:
   - provider direct proof still contains honest `env_limited` lanes but no true failures
