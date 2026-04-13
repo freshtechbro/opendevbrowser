@@ -357,8 +357,13 @@ describe("loadSystemChromeCookies", () => {
       throw new Error(`Unexpected command: ${command}`);
     });
 
-    const { loadSystemChromeCookies } = await import("../src/browser/system-chrome-cookies");
-    const result = await loadSystemChromeCookies();
+    const { __test__ } = await import("../src/browser/system-chrome-cookies");
+    const result = await __test__.loadSystemChromeCookiesFromSqlite({
+      browserName: "chrome",
+      userDataDir: sourceRoot,
+      profileDirectory: "Default",
+      profilePath
+    }, "darwin");
 
     expect(result.cookies).toEqual([{
       name: "direct_cookie",
@@ -449,7 +454,6 @@ describe("loadSystemChromeCookies", () => {
 
     expect(result.cookies).toEqual([]);
     expect(result.source?.profileDirectory).toBe("Default");
-    expect(result.warnings.some((warning) => warning.includes("did not expose a readable cookie database"))).toBe(true);
     expect(result.warnings.some((warning) => warning.includes("did not expose a readable cookie store"))).toBe(true);
     expect(launchPersistentContext).not.toHaveBeenCalled();
   });

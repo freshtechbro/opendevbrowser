@@ -6,7 +6,7 @@ Last updated: 2026-04-13
 
 ## Scope
 
-Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-published `v0.0.17` release, including version alignment, changelog/docs refresh, packaging outputs, website-sync readiness, and release/distribution handoff evidence for GitHub release, npm, and Chrome extension distribution.
+Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo state after the GitHub-published `v0.0.17` release, including version alignment, changelog/docs refresh, packaging outputs, website-sync readiness, and release/distribution handoff evidence for GitHub release, npm, and Chrome extension distribution.
 
 ## Baseline comparison
 
@@ -29,11 +29,11 @@ Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-publi
 
 ## Current repo note
 
-- Active prep branch: `codex/release-0-0-18`
-- Source branch for eventual tag/publish: merged `main`
-- Prep branch base: `origin/main`
-- `origin/main` at start of prep: `4a80e25269dfe92ccaf300aa8026a3234189aac5`
-- Local version authority is now `package.json` at `0.0.18`; extension version owners must stay synced via `npm run extension:sync`.
+- Active CI-repair branch: `codex/release-0-0-18-fix`
+- Source branch for release rerun: merged `main`
+- Fix branch base: `origin/main` at `f001dac9cd7fdcc60ce3a6384f76985d3e7c039e`
+- Release tag already pushed: `v0.0.18`
+- Local version authority is `package.json` at `0.0.18`; extension version owners stay synced via `npm run extension:sync`.
 - Release-version sweep confirmed `0.0.18` across active version owners and current-cycle docs. `tsconfig.json` and `eslint.config.js` contain no release-version strings, so they were reviewed and left unchanged.
 
 ## Mandatory release gates
@@ -45,15 +45,15 @@ Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-publi
 - [x] `node scripts/audit-zombie-files.mjs`
   - Result: `{"ok":true,"scanned":915,"flagged":[]}`
 - [x] `node scripts/docs-drift-check.mjs`
-  - Result: passed; current generated source counts confirmed as `64` CLI commands, `57` tools, `59` `/ops`, and `35` `/canvas`
+  - Result: passed; current generated source counts confirmed as `72` CLI commands, `65` tools, `59` `/ops`, and `35` `/canvas`
 - [x] `node scripts/chrome-store-compliance-check.mjs`
   - Result: passed
 - [x] `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
   - Result: passed
 - [x] `npx opendevbrowser --help`
-  - Result: generated successfully; output length `528` lines
+  - Result: generated successfully; output length `590` lines
 - [x] `npx opendevbrowser help`
-  - Result: generated successfully; output length `528` lines and matched `--help` via `cmp`
+  - Result: generated successfully; output length `590` lines and matched `--help` via `cmp`
 - [x] `npm run lint`
   - Result: passed
 - [x] `npm run typecheck`
@@ -65,7 +65,25 @@ Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-publi
 - [x] `npm run test:release-gate`
   - Result: all `5` release-gate groups passed
 - [x] `npm run test`
-  - Result: passed on the rebased `origin/main` + `0.0.18` candidate; coverage remained above the required `97%` branch threshold
+  - Result: passed on the post-merge CI-repair branch from `origin/main`; coverage remained above the required `97%` branch threshold
+
+## Post-merge CI repair summary
+
+- `scripts/cli-onboarding-smoke.mjs`
+  - `loadQuickStartGuide` now accepts an injected `SkillLoaderCtor`, so tests no longer require a prebuilt `dist/skills/skill-loader.js`.
+- `tests/daemon-autostart.test.ts`
+  - Linux temp-dir fixture now lives under `tmpdir()` instead of `resolve(tmpdir(), "..")`.
+- `tests/desktop-runtime-audit.test.ts`, `tests/desktop-runtime-permission.test.ts`
+  - macOS-only `/usr/sbin/screencapture` assumptions are now injected through `statImpl`.
+- `tests/system-chrome-cookies.test.ts`
+  - direct SQLite assertion now uses the explicit Darwin path in the test helper, and the Linux-fragile wrapper warning expectation was removed.
+- `scripts/login-fixture-live-probe.mjs`
+  - direct-execution guard prevents `main()` from running on import during tests.
+- `src/providers/workflows.ts`
+  - refreshed generic retailer titles such as `Amazon.com` are now treated as marketplace chrome instead of overwriting a valid product title.
+- Supporting regression coverage was added in:
+  - `tests/cli-onboarding-smoke-script.test.ts`
+  - `tests/providers-product-video-workflow.test.ts`
 
 ## Packaging gates
 
@@ -113,20 +131,52 @@ Tracks the `0.0.18` release-prep gates for the repo state after the GitHub-publi
 
 ## External release workflow evidence
 
-- [ ] Release workflow run URL
+- [x] Release workflow failure evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24322225760`
+  - Workflow: `Public Release`
+  - Head: `v0.0.18` -> `f001dac9cd7fdcc60ce3a6384f76985d3e7c039e`
+  - Result: failed during the pre-publish `npm run test` gate; the CI-only owner failures patched on `codex/release-0-0-18-fix` came from this run
 - [ ] GitHub release URL
+  - Current state: `gh release view v0.0.18` returned `release not found`
 - [ ] npm publish verification
-- [ ] Chrome Web Store publish status
-- [ ] Private website sync dispatch evidence
+- [x] Chrome Web Store publish blocker evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24322237855`
+  - Workflow: `Chrome Store Publish`
+  - Result: failed before upload because repository secrets `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, and `CWS_EXTENSION_ID` are absent
+  - Secret inventory check: `gh secret list` currently returns only `PRIVATE_REPO_DISPATCH_TOKEN`
+- [x] Private website sync dispatch evidence
+  - Run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24322215822`
+  - Workflow: `Dispatch Private Website Sync`
+  - Head: `main` -> `f001dac9cd7fdcc60ce3a6384f76985d3e7c039e`
+  - Result: completed successfully
 
 ## Notes
 
 - This ledger is the active `0.0.18` proof record and should be updated as gates complete.
 - `docs/RELEASE_0.0.17_EVIDENCE.md` remains historical and should not be rewritten during `0.0.18` prep.
+- The current local release-gate proof set on `codex/release-0-0-18-fix` is green:
+  - `npm run version:check`
+  - `node scripts/docs-drift-check.mjs`
+  - `node scripts/chrome-store-compliance-check.mjs`
+  - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+  - `npm run lint`
+  - `npm run typecheck`
+  - `npm run build`
+  - `npm run extension:build`
+  - `npx opendevbrowser --help`
+  - `npx opendevbrowser help`
+  - `npm run test`
 - Post-fix blocker closure for this release:
   - `feature.canvas.managed_headless` cleared after widening preview navigation fallback from `data:text/html` timeout into `setContent`/document-write recovery.
   - `feature.canvas.managed_headed` cleared after increasing managed-headed daemon launch budget to `60000ms`.
   - `feature.cli.smoke` cleared after removing the harness-only `review` timeout override of `15000ms`.
+- Post-merge CI-only blocker closure for this release:
+  - onboarding smoke no longer depends on built `dist`
+  - daemon autostart test uses a Linux-safe tmp fixture
+  - desktop runtime tests no longer assume a macOS-only binary exists in CI
+  - system Chrome cookie tests no longer assert Darwin-only behavior from Linux
+  - login-fixture probe no longer exits the process when imported in tests
+  - product-video title refresh now resists generic marketplace chrome
 - Both strict live-gate scripts currently return non-zero when `env_limited` or `skipped` lanes remain, even with `0` true `fail` results. Release readiness should therefore be read from the recorded counts and scenario details, not the raw process exit code alone.
 - Final rebased candidate status:
   - provider direct proof still contains honest `env_limited` lanes but no true failures
