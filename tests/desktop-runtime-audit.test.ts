@@ -298,7 +298,12 @@ describe("desktop runtime audit and observation", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl
+      execFileImpl,
+      statImpl: vi.fn(async (target: string) => (
+        target === "/usr/sbin/screencapture"
+          ? ({ size: 1 } as Stats)
+          : stat(target)
+      ))
     });
 
     const result = await runtime.captureWindow("window-1", { reason: "capture-window-no-swift" });
