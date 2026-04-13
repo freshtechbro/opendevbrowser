@@ -266,7 +266,9 @@ export class BrowserScreencastRecorder {
     await ensureEmptyDirectory(this.outputDir);
     await mkdir(this.framesDir, { recursive: true });
     await this.captureFrame();
-    if (this.frames.length >= this.maxFrames) {
+    if (this.requestedStopReason) {
+      await this.finalize(this.requestedStopReason, false);
+    } else if (this.frames.length >= this.maxFrames) {
       await this.finalize("max_frames_reached", false);
     } else {
       this.scheduleNextFrame();
@@ -296,7 +298,7 @@ export class BrowserScreencastRecorder {
   }
 
   private scheduleNextFrame(): void {
-    if (this.isComplete()) {
+    if (this.isComplete() || this.requestedStopReason) {
       return;
     }
     this.timer = setTimeout(() => {
@@ -306,6 +308,9 @@ export class BrowserScreencastRecorder {
   }
 
   private async captureScheduledFrame(): Promise<void> {
+    if (this.requestedStopReason || this.isComplete()) {
+      return;
+    }
     const captured = await this.captureFrame().catch(async () => {
       if (!this.requestedStopReason) {
         await this.finalize("capture_failed", false);

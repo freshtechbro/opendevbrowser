@@ -248,6 +248,7 @@ export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
     details: [
       { label: "flag:", value: "--challenge-automation-mode off|browser|browser_with_helper" },
       { label: "works:", value: "research run, shopping run, product-video run, macro-resolve --execute" },
+      { label: "entry:", value: onboardingMetadata.quickStartCommands.computerUseEntry },
       { label: "proof:", value: "review, session-inspector, workflow fallback metadata" }
     ]
   }
@@ -283,6 +284,11 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
     label: "shopping_reliable",
     description: "Start deal hunting with explicit providers in managed mode and only trust regional comparisons when the result reports `region_authoritative=true`.",
     details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.validatedShopping }]
+  },
+  {
+    label: "computer_use_entry",
+    description: "Enter browser-scoped computer use from a workflow run, not from a separate desktop command family.",
+    details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.computerUseEntry }]
   },
   {
     label: "happy_path",

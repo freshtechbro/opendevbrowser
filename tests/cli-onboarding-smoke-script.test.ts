@@ -19,6 +19,7 @@ describe("cli-onboarding-smoke script", () => {
       `  prompting_guide ${onboardingMetadata.quickStartCommands.promptingGuide}`,
       `  skill_load ${onboardingMetadata.quickStartCommands.skillLoad}`,
       `  skill_list ${onboardingMetadata.quickStartCommands.skillList}`,
+      `  computer_use_entry ${onboardingMetadata.quickStartCommands.computerUseEntry}`,
       `  happy_path ${onboardingMetadata.quickStartCommands.happyPath}`,
       `  docs ${onboardingMetadata.referencePaths.onboardingDoc}`,
       `  skill ${onboardingMetadata.referencePaths.skillDoc}`

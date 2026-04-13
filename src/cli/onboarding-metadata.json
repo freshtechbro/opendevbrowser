@@ -17,6 +17,7 @@
     "validatedLanes": "opendevbrowser_skill_load opendevbrowser-best-practices \"validated capability lanes\"",
     "validatedResearch": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json",
     "validatedShopping": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json",
+    "computerUseEntry": "npx opendevbrowser research run --topic \"account recovery flow\" --source-selection auto --challenge-automation-mode browser --mode json --output-format json",
     "happyPath": "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
   },
   "referencePaths": {

@@ -1,6 +1,6 @@
 # Extension Release Runbook
 
-Last updated: 2026-04-12
+Last updated: 2026-04-13
 
 Operational runbook for publishing extension artifacts from the public repo.
 
@@ -47,8 +47,9 @@ Configure in public GitHub repo secrets:
 ## Lane A execution
 
 1. Run tag-driven public release flow (`docs/RELEASE_RUNBOOK.md`).
-2. Confirm GitHub release includes extension zip + checksum.
-3. Verify checksum locally if required:
+2. Confirm the release workflow completed the registry-consumer smoke lane for the published npm package before treating the extension artifact as fully released.
+3. Confirm GitHub release includes extension zip + checksum.
+4. Verify checksum locally if required:
 
 ```bash
 shasum -a 256 opendevbrowser-extension.zip
@@ -115,6 +116,7 @@ If a bad extension release is published:
 ## Evidence to retain
 
 - workflow run URL(s)
+- registry-consumer smoke JSON or run-log excerpt proving the published npm package passed fresh install validation for the same release
 - listing-copy snapshot or generated-asset review note confirming the release-facing browser replay, desktop observation, and browser-scoped computer-use boundary wording used for the release
 - upload/publish JSON output summary
 - store listing URL and visible version

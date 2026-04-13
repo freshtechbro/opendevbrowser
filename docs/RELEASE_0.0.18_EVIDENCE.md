@@ -1,8 +1,8 @@
 # v0.0.18 Release Evidence
 
-Status: active release ledger
-Target release date: 2026-04-12
-Last updated: 2026-04-13
+Status: historical release ledger with post-release parity audit
+Release date: 2026-04-12
+Last audited against repo: 2026-04-13
 
 ## Scope
 
@@ -192,8 +192,9 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
 
 ## Notes
 
-- This ledger is the active `0.0.18` proof record and should be updated as gates complete.
-- `docs/RELEASE_0.0.17_EVIDENCE.md` remains historical and should not be rewritten during `0.0.18` prep.
+- This ledger is the historical `0.0.18` proof record with the appended parity audit.
+- `docs/RELEASE_0.0.19_EVIDENCE.md` is now the active release-prep ledger.
+- `docs/RELEASE_0.0.17_EVIDENCE.md` remains historical and should not be rewritten during later release prep.
 - Historical proof from `codex/release-0-0-18-fix` remained green across the broader release gate set.
 - Final `codex/release-0-0-18-fix-3` revalidation after the desktop permission test correction:
   - `node scripts/docs-drift-check.mjs`
@@ -217,6 +218,7 @@ Tracks the `0.0.18` release-prep and post-merge CI-repair gates for the repo sta
   - npm package is publicly visible at `0.0.18`
   - GitHub release `v0.0.18` is published with extension zip and checksum assets
   - Chrome Web Store remains the only unshipped distribution lane because the required `CWS_*` repository secrets are still absent
+- Post-release parity investigation on `2026-04-13` confirmed the published npm tarball matched the release-aligned local packed tarball used during that audit, a fresh registry install succeeded, an isolated serial `npx --package` run succeeded, and the remaining alignment risk is semver-based consumer dependency drift rather than stale published source
 - Release artifact note:
   - the published GitHub release zip checksum differs from the earlier local pre-release zip checksum because the public release workflow rebuilt the extension artifact in CI before upload
 - Both strict live-gate scripts currently return non-zero when `env_limited` or `skipped` lanes remain, even with `0` true `fail` results. Release readiness should therefore be read from the recorded counts and scenario details, not the raw process exit code alone.

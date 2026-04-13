@@ -335,6 +335,45 @@ describe("BrowserScreencastRecorder", () => {
     expect(result.frameCount).toBe(1);
   });
 
+  it("does not schedule another frame when stop is requested during the first capture", async () => {
+    const worktree = await makeWorktree("odb-screencast-first-capture-stop-");
+    let captureCount = 0;
+    let stopPromise: Promise<Awaited<ReturnType<BrowserScreencastRecorder["stop"]>>> | null = null;
+    const recorder = new BrowserScreencastRecorder({
+      worktree,
+      sessionId: "session-first-capture-stop",
+      targetId: "target-first-capture-stop",
+      options: {
+        intervalMs: 250,
+        maxFrames: 3
+      },
+      captureFrame: async (capturePath: string) => {
+        captureCount += 1;
+        if (captureCount === 1) {
+          stopPromise = recorder.stop("target_closed");
+        }
+        await writeFile(capturePath, `frame-${captureCount}`);
+        return { title: `Frame ${captureCount}` };
+      }
+    });
+
+    const startResult = await recorder.start();
+    expect(startResult.targetId).toBe("target-first-capture-stop");
+    expect(stopPromise).not.toBeNull();
+
+    const privateRecorder = recorder as unknown as {
+      timer: NodeJS.Timeout | null;
+    };
+    expect(privateRecorder.timer).toBeNull();
+
+    const result = await stopPromise;
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(result.endedReason).toBe("target_closed");
+    expect(result.frameCount).toBe(1);
+    expect(captureCount).toBe(1);
+  });
+
   it("stops during the post-capture delay without scheduling another frame", async () => {
     const worktree = await makeWorktree("odb-screencast-post-capture-stop-");
     let captureCount = 0;

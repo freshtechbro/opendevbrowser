@@ -1,6 +1,6 @@
 # Public Release Runbook
 
-Last updated: 2026-04-12
+Last updated: 2026-04-13
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
 
@@ -60,6 +60,7 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
   - Treat the two direct-run commands above as the optional strict live release-proof lane. Keep them distinct from grouped contract checks such as `npm run test:release-gate`.
   - `npm run extension:pack`
   - `npm pack`
+- [ ] After npm publish, `node scripts/registry-consumer-smoke.mjs --version X.Y.Z --output artifacts/release/vX.Y.Z/registry-consumer-smoke.json` succeeds from a fresh temp workspace install and captures the resolved consumer dependency graph.
 - [ ] First-time global install dry run passes (`docs/FIRST_RUN_ONBOARDING.md`) with daemon + extension + mode validation evidence captured.
 - [ ] Release branch is merged to `main`.
 
@@ -78,6 +79,7 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 - [ ] `npx opendevbrowser --help`
 - [ ] `npx opendevbrowser help`
 - [ ] `npm run extension:build`
+- [ ] When `publish_npm=true`, run `node scripts/registry-consumer-smoke.mjs --version X.Y.Z --output artifacts/release/vX.Y.Z/registry-consumer-smoke.json` after `npm publish`
 - [ ] Optional strict live gates run only when `run_release_live_gates=true`:
   - `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json`
   - `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json`
@@ -117,6 +119,7 @@ git push origin vX.Y.Z
 - runs `npm run extension:pack`
 - computes checksum (`opendevbrowser-extension.zip.sha256`)
 - publishes npm package when enabled
+- runs `node scripts/registry-consumer-smoke.mjs --version X.Y.Z --output artifacts/release/vX.Y.Z/registry-consumer-smoke.json` after npm publish when enabled
 - publishes GitHub release and uploads extension artifacts when enabled
 
 ### Manual dry-run release
@@ -135,10 +138,12 @@ Run and record:
 
 ```bash
 npm view opendevbrowser version
+node scripts/registry-consumer-smoke.mjs --version X.Y.Z --output artifacts/release/vX.Y.Z/registry-consumer-smoke.json
 ```
 
 Confirm all of the following:
 - npm version equals tag version (`X.Y.Z`)
+- registry-consumer smoke confirms `--help`, `help`, `version`, packaged assets, and captures the resolved dependency graph from a fresh npm install
 - GitHub release `vX.Y.Z` exists
 - release assets include:
   - `opendevbrowser-extension.zip`
@@ -185,6 +190,7 @@ npm deprecate opendevbrowser@X.Y.Z "deprecated: use <fixed-version>"
 
 - Release workflow run URL
 - npm published version output (or explicit publish deferral for manual dry runs)
+- `artifacts/release/vX.Y.Z/registry-consumer-smoke.json`
 - GitHub release URL
 - checksum artifact
 - If `run_release_live_gates=true`, retain `artifacts/release/vX.Y.Z/provider-direct-runs.json` and `artifacts/release/vX.Y.Z/live-regression-direct.json`; otherwise record explicit deferral in the active version-scoped release evidence ledger.

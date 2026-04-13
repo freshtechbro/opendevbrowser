@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-04-13
+
+### Added
+- Post-publish registry-consumer smoke validation via `scripts/registry-consumer-smoke.mjs`, including fresh-install help/version checks and captured consumer dependency-graph evidence.
+- A concrete browser-scoped computer-use entry command in generated help, onboarding metadata, and release-facing docs.
+
+### Changed
+- Clarified the boundary between local source-tarball validation and published npm proof across README, CLI docs, onboarding, release runbooks, and distribution docs.
+- Clarified the `0.0.18` npm parity investigation chronology so it distinguishes the release-aligned parity snapshot from later local worktree drift.
+
+### Fixed
+- Browser screencast recording no longer schedules a later frame when stop is requested during the first in-flight capture.
+
 ## [0.0.18] - 2026-04-12
 
 ### Added
@@ -173,7 +186,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.18...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.19...HEAD
+[0.0.19]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.18...v0.0.19
 [0.0.18]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.17...v0.0.18
 [0.0.17]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.16...v0.0.17
 [0.0.16]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.15...v0.0.16

@@ -90,6 +90,7 @@ git push origin vX.Y.Z
 
 5. `release-public.yml` publishes:
 - npm package (`npm publish --access public`)
+- registry-consumer smoke (`node scripts/registry-consumer-smoke.mjs --version X.Y.Z --output artifacts/release/vX.Y.Z/registry-consumer-smoke.json`)
 - GitHub release with:
   - `opendevbrowser-extension.zip`
   - `opendevbrowser-extension.zip.sha256`
