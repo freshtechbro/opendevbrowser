@@ -16,9 +16,16 @@ export interface ProviderIssueHint {
   constraint?: ProviderConstraint;
 }
 
+export interface ProviderNextStepGuidance {
+  [key: string]: JsonValue;
+  reason: string;
+  recommendedNextCommands: string[];
+}
+
 export interface ProviderIssueSummary extends ProviderIssueHint {
   provider?: string;
   summary: string;
+  guidance?: ProviderNextStepGuidance;
 }
 
 const BLOCKER_TYPES = new Set<BlockerType>([
@@ -234,6 +241,12 @@ export const applyProviderIssueHint = (
   if (hint.constraint && !isProviderConstraint(next.constraint)) {
     next.constraint = hint.constraint;
   }
+  if (typeof next.guidance === "undefined") {
+    const guidance = buildProviderIssueGuidance({ hint, details: next });
+    if (guidance) {
+      next.guidance = guidance;
+    }
+  }
   return next;
 };
 
@@ -243,6 +256,105 @@ const providerLabel = (provider: string | undefined): string => {
   const separator = normalized.lastIndexOf("/");
   const tail = separator >= 0 ? normalized.slice(separator + 1) : normalized;
   return tail.charAt(0).toUpperCase() + tail.slice(1);
+};
+
+const hasPreservedBrowserState = (details: Record<string, JsonValue> | undefined): boolean => {
+  return typeof details?.preservedSessionId === "string" || typeof details?.preservedTargetId === "string";
+};
+
+const buildGuidance = (
+  reason: string,
+  recommendedNextCommands: string[]
+): ProviderNextStepGuidance => ({
+  reason,
+  recommendedNextCommands
+});
+
+const buildAuthGuidance = (
+  subject: string,
+  preservedBrowserState: boolean
+): ProviderNextStepGuidance => {
+  return preservedBrowserState
+    ? buildGuidance(
+      `${subject} preserved browser state that can finish authentication.`,
+      [
+        "Complete the login or account checkpoint in the preserved browser session.",
+        "Rerun the same provider or workflow after the session is fully authenticated."
+      ]
+    )
+    : buildGuidance(
+      `${subject} needs an authenticated session before retrying.`,
+      [
+        "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow.",
+        "Rerun the same provider or workflow once the session is active."
+      ]
+    );
+};
+
+const buildChallengeGuidance = (
+  subject: string,
+  preservedBrowserState: boolean
+): ProviderNextStepGuidance => {
+  return preservedBrowserState
+    ? buildGuidance(
+      `${subject} preserved browser state that can complete the current challenge.`,
+      [
+        "Finish the login or anti-bot challenge in the preserved browser session.",
+        "Rerun the same provider or workflow after the page unlocks."
+      ]
+    )
+    : buildGuidance(
+      `${subject} hit a challenge that still needs browser-assisted follow-up.`,
+      [
+        "Retry with browser assistance so the challenge can be completed interactively.",
+        "Only ask for manual credentials if browser-assisted recovery still cannot unlock the page."
+      ]
+    );
+};
+
+const buildRenderGuidance = (
+  subject: string,
+  preservedBrowserState: boolean
+): ProviderNextStepGuidance => {
+  return preservedBrowserState
+    ? buildGuidance(
+      `${subject} still needs a live browser-rendered page, but browser state is already preserved.`,
+      [
+        "Inspect the preserved browser session until usable content is visible.",
+        "Rerun the same provider or workflow after the rendered page is ready."
+      ]
+    )
+    : buildGuidance(
+      `${subject} needs a live browser-rendered page before retrying.`,
+      [
+        "Retry with browser assistance or a headed browser session.",
+        "Rerun the same provider or workflow after the rendered page is ready."
+      ]
+    );
+};
+
+export const buildProviderIssueGuidance = (args: {
+  provider?: string;
+  hint: ProviderIssueHint;
+  details?: Record<string, JsonValue>;
+}): ProviderNextStepGuidance | undefined => {
+  const subject = providerLabel(args.provider);
+  const preservedBrowserState = hasPreservedBrowserState(args.details);
+  const disposition = toNonEmptyString(args.details?.disposition);
+  if (disposition === "completed") return undefined;
+  if (disposition === "challenge_preserved") {
+    return buildChallengeGuidance(subject, true);
+  }
+  if (args.hint.reasonCode === "token_required" || args.hint.reasonCode === "auth_required") {
+    return buildAuthGuidance(subject, preservedBrowserState);
+  }
+  if (args.hint.reasonCode === "challenge_detected") {
+    return buildChallengeGuidance(subject, preservedBrowserState);
+  }
+  if (args.hint.constraint?.kind === "render_required" || args.hint.reasonCode === "env_limited") {
+    return buildRenderGuidance(subject, preservedBrowserState);
+  }
+  return undefined;
 };
 
 const summaryPriority = (hint: ProviderIssueHint): number => {
@@ -285,10 +397,16 @@ export const summarizePrimaryProviderIssue = (
     });
     if (!hint) continue;
     const summary = summarizeProviderIssue({ provider: failure.provider, hint });
+    const guidance = buildProviderIssueGuidance({
+      provider: failure.provider,
+      hint,
+      details: failure.error?.details as Record<string, JsonValue> | undefined
+    });
     const candidate: ProviderIssueSummary = {
       provider: failure.provider,
       summary,
-      ...hint
+      ...hint,
+      ...(guidance ? { guidance } : {})
     };
     if (!best || summaryPriority(candidate) > summaryPriority(best)) {
       best = candidate;

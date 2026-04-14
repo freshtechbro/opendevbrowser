@@ -278,6 +278,55 @@ function collectShoppingBrowserFallback(execution) {
   };
 }
 
+function readGuidance(value) {
+  if (!isJsonRecord(value)) {
+    return null;
+  }
+  const commands = Array.isArray(value.recommendedNextCommands)
+    ? value.recommendedNextCommands
+    : [];
+  const recommendedNextCommand = commands.find(
+    (entry) => typeof entry === "string" && entry.trim().length > 0
+  ) ?? null;
+  const guidanceReason = readStringField(value, "reason");
+  return guidanceReason || recommendedNextCommand
+    ? { guidanceReason, recommendedNextCommand }
+    : null;
+}
+
+function collectMetaGuidance(meta) {
+  if (!isJsonRecord(meta)) {
+    return null;
+  }
+  const primaryConstraint = firstJsonRecord([
+    meta.primaryConstraint,
+    meta.primary_constraint
+  ]);
+  return readGuidance(primaryConstraint?.guidance);
+}
+
+function collectFailureGuidance(failures) {
+  for (const failure of failures) {
+    const guidance = readGuidance(failure?.error?.details?.guidance);
+    if (guidance) {
+      return guidance;
+    }
+  }
+  return null;
+}
+
+function collectMacroGuidance(execution) {
+  return collectFailureGuidance(execution.failures)
+    ?? collectMetaGuidance(execution.execution?.meta)
+    ?? { guidanceReason: null, recommendedNextCommand: null };
+}
+
+function collectShoppingGuidance(execution) {
+  return collectFailureGuidance(execution.failures)
+    ?? collectMetaGuidance(execution.data?.meta)
+    ?? { guidanceReason: null, recommendedNextCommand: null };
+}
+
 function hasLinkedInAuthWall(records) {
   if (!Array.isArray(records) || records.length === 0) {
     return false;
@@ -897,6 +946,7 @@ function evaluateMacroCase(testCase, result) {
   const execution = collectMacroExecution(result);
   const challengeOrchestration = collectMacroChallengeOrchestration(execution);
   const browserFallback = collectMacroBrowserFallback(execution);
+  const guidance = collectMacroGuidance(execution);
   const macroMetadata = collectRequestedChallengeMetadata(testCase.args);
   if (result.status === 0 && !execution.hasExecutionPayload) {
     return {
@@ -965,6 +1015,8 @@ function evaluateMacroCase(testCase, result) {
       challengeOrchestration,
       browserFallbackMode: browserFallback.browserFallbackMode,
       browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+      guidanceReason: guidance.guidanceReason,
+      recommendedNextCommand: guidance.recommendedNextCommand,
       ...macroMetadata
     }
   };
@@ -1034,6 +1086,7 @@ function evaluateShoppingCase(testCase, result) {
   const execution = collectShoppingExecution(result);
   const challengeOrchestration = collectShoppingChallengeOrchestration(execution);
   const browserFallback = collectShoppingBrowserFallback(execution);
+  const guidance = collectShoppingGuidance(execution);
   const reasonCodes = normalizedCodesFromFailures(execution.failures);
   const classified = classifyRecords(execution.offers.length, execution.failures);
   const { verdict } = resolveDirectHarnessVerdict({
@@ -1071,6 +1124,8 @@ function evaluateShoppingCase(testCase, result) {
       challengeOrchestration,
       browserFallbackMode: browserFallback.browserFallbackMode,
       browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,
+      guidanceReason: guidance.guidanceReason,
+      recommendedNextCommand: guidance.recommendedNextCommand,
       ...shoppingMetadata
     }
   };

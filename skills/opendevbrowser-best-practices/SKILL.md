@@ -134,7 +134,9 @@ npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/
 Rules:
 - use explicit providers plus `--browser-mode managed` for the most reproducible reruns
 - treat `--region` as advisory unless `meta.selection.region_authoritative=true`
-- inspect `meta.primaryConstraintSummary` and `meta.offerFilterDiagnostics` before calling a no-offer run a provider outage
+- inspect `meta.primaryConstraintSummary` first on no-offer runs
+- if `meta.primaryConstraint.guidance` is present, follow `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]`
+- if guidance is absent, inspect `meta.offerFilterDiagnostics` before calling a no-offer run a provider outage
 
 ## Agent Sync Targets
 

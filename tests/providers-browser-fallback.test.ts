@@ -103,7 +103,14 @@ describe("provider browser fallback helpers", () => {
         keep: true
       },
       entries: [1, { okay: "yes" }],
-      reasonCode: "rate_limited"
+      reasonCode: "rate_limited",
+      guidance: {
+        reason: "Amazon preserved browser state that can complete the current challenge.",
+        recommendedNextCommands: [
+          "Finish the login or anti-bot challenge in the preserved browser session.",
+          "Rerun the same provider or workflow after the page unlocks."
+        ]
+      }
     });
   });
 
@@ -126,7 +133,14 @@ describe("provider browser fallback helpers", () => {
     expect(error.details).toMatchObject({
       disposition: "failed",
       browserFallbackMode: "managed_headed",
-      url: "https://example.com/video"
+      url: "https://example.com/video",
+      guidance: {
+        reason: "Youtube needs an authenticated session before retrying.",
+        recommendedNextCommands: [
+          "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow.",
+          "Rerun the same provider or workflow once the session is active."
+        ]
+      }
     });
   });
 
@@ -147,6 +161,13 @@ describe("provider browser fallback helpers", () => {
     expect(error.details).toEqual({
       challenge: {},
       disposition: "failed",
+      guidance: {
+        reason: "Youtube hit a challenge that still needs browser-assisted follow-up.",
+        recommendedNextCommands: [
+          "Retry with browser assistance so the challenge can be completed interactively.",
+          "Only ask for manual credentials if browser-assisted recovery still cannot unlock the page."
+        ]
+      },
       reasonCode: "challenge_detected",
       url: "https://example.com/array-shape"
     });

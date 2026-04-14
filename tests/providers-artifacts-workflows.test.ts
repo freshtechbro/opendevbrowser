@@ -837,6 +837,12 @@ describe("artifact and workflow runtime", () => {
 
     expect((output.meta as {
       failures: Array<{ provider: string; error: { reasonCode?: string; details?: { blockerType?: string; title?: string } } }>;
+      primaryConstraint: {
+        guidance: {
+          reason: string;
+          recommendedNextCommands: string[];
+        };
+      };
       metrics: {
         reasonCodeDistribution: Record<string, number>;
       };
@@ -851,6 +857,15 @@ describe("artifact and workflow runtime", () => {
           }
         }
       }],
+      primaryConstraint: {
+        guidance: {
+          reason: "Temu needs an authenticated session before retrying.",
+          recommendedNextCommands: [
+            "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow.",
+            "Rerun the same provider or workflow once the session is active."
+          ]
+        }
+      },
       metrics: {
         reasonCodeDistribution: {
           token_required: 1
@@ -858,6 +873,75 @@ describe("artifact and workflow runtime", () => {
       }
     });
     expect((output.meta as { metrics: Record<string, unknown> }).metrics).not.toHaveProperty("reason_code_distribution");
+  });
+
+  it("clears stale provider guidance when shopping offer filtering overrides the primary summary", async () => {
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate({
+        ok: false,
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [{
+          id: "offer-over-budget",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://example.com/offer-over-budget",
+          title: "Expensive monitor",
+          content: "$99.00",
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.9,
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "offer-over-budget",
+              title: "Expensive monitor",
+              url: "https://example.com/offer-over-budget",
+              price: {
+                amount: 99,
+                currency: "USD",
+                retrieved_at: "2026-02-16T00:00:00.000Z"
+              }
+            }
+          }
+        }],
+        failures: [{
+          provider: "shopping/amazon",
+          source: "shopping",
+          error: {
+            code: "unavailable",
+            message: "provider follow-up required",
+            retryable: false,
+            reasonCode: "env_limited",
+            provider: "shopping/amazon",
+            source: "shopping",
+            details: {
+              reasonCode: "env_limited"
+            }
+          }
+        }]
+      })),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runShoppingWorkflow(runtime, {
+      query: "portable monitor",
+      providers: ["shopping/amazon"],
+      budget: 10,
+      mode: "json"
+    });
+
+    expect((output.meta as {
+      primaryConstraintSummary: string;
+      primaryConstraint: Record<string, unknown>;
+    })).toMatchObject({
+      primaryConstraintSummary: "All candidate offers exceeded the requested budget of 10.00.",
+      primaryConstraint: {
+        summary: "All candidate offers exceeded the requested budget of 10.00."
+      }
+    });
+    expect((output.meta as {
+      primaryConstraint: Record<string, unknown>;
+    }).primaryConstraint).not.toHaveProperty("guidance");
   });
 
   it("filters search-index and asset rows out of shopping offers", async () => {

@@ -210,7 +210,10 @@ Provider workflows support cookie controls with defaults from `providers.cookieP
 
 Where to inspect:
 
-- Workflow outputs: `meta.primaryConstraintSummary`, `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `meta.metrics.transcript_strategy_failures`/`meta.metrics.transcriptStrategyFailures`.
+- Workflow outputs: inspect `meta.primaryConstraintSummary` first.
+- If research or shopping also returns `meta.primaryConstraint.guidance`, read `meta.primaryConstraint.guidance.reason` and then `meta.primaryConstraint.guidance.recommendedNextCommands[]`.
+- If the summary is present without guidance, treat it as a summary-only constraint until `meta.offerFilterDiagnostics` or the failure list proves otherwise.
+- Failure tallies live in `meta.metrics.reasonCodeDistribution` for research/shopping and `meta.reasonCodeDistribution` for product-video, alongside `meta.metrics.transcript_strategy_failures`/`meta.metrics.transcriptStrategyFailures`.
 - Strategy-detail workflow diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
 - Workflow health dimensions: `meta.metrics.transcriptDurability` (or `meta.metrics.transcript_durability`) and `meta.metrics.antiBotPressure` (or `meta.metrics.anti_bot_pressure`).
 - Provider failure entries: `error.reasonCode`.
@@ -256,6 +259,7 @@ Strategy-specific quick checks:
 1. Treat `--region` as advisory unless `meta.selection.region_authoritative=true`.
 2. Inspect `meta.selection.region_support` and `meta.alerts` for `reasonCode=region_unenforced`.
 3. If `meta.primaryConstraintSummary` says the requested region was not enforced or that offers were filtered by the currency heuristic, do not present the run as a trustworthy regional comparison.
+4. These region or budget summaries intentionally clear stale provider guidance, so prefer `meta.offerFilterDiagnostics` over `meta.primaryConstraint.guidance` for the follow-up call.
 
 Reliability promotion and rollback criteria:
 

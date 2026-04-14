@@ -244,7 +244,7 @@ describe("workflow CLI commands", () => {
     ]));
 
     expect(result.message).toBe(
-      "Shopping workflow completed with provider follow-up required: Costco requires login or an existing session."
+      "Shopping workflow completed with provider follow-up required: Costco requires login or an existing session. Next step: Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
     );
   });
 
@@ -276,6 +276,34 @@ describe("workflow CLI commands", () => {
 
     expect(result.message).toBe(
       "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue."
+    );
+  });
+
+  it("appends the first explicit workflow guidance step when primary constraint guidance is present", async () => {
+    callDaemon.mockResolvedValue({
+      meta: {
+        primaryConstraintSummary: "Manual browser follow-up is required before provider resolution can continue.",
+        primaryConstraint: {
+          summary: "Manual browser follow-up is required before provider resolution can continue.",
+          guidance: {
+            reason: "The provider still needs a rendered browser page.",
+            recommendedNextCommands: [
+              "Retry with browser assistance or a headed browser session.",
+              "Rerun the same provider or workflow after the rendered page is ready."
+            ]
+          }
+        }
+      }
+    });
+
+    const result = await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse",
+      "--providers=shopping/costco"
+    ]));
+
+    expect(result.message).toBe(
+      "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue. Next step: Retry with browser assistance or a headed browser session."
     );
   });
 

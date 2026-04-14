@@ -171,7 +171,14 @@ describe("provider-direct-runs", () => {
                       evidenceCode: "target_shell_page"
                     },
                     providerShell: "target_shell_page",
-                    blockerReason: "render_required"
+                    blockerReason: "render_required",
+                    guidance: {
+                      reason: "Target needs a live browser-rendered page before retrying.",
+                      recommendedNextCommands: [
+                        "Retry with browser assistance or a headed browser session.",
+                        "Rerun the same provider or workflow after the rendered page is ready."
+                      ]
+                    }
                   }
                 }
               }
@@ -184,6 +191,56 @@ describe("provider-direct-runs", () => {
     expect(step.data.providerShell).toBe("target_shell_page");
     expect(step.data.constraintKind).toBe("render_required");
     expect(step.data.blockerReason).toBe("render_required");
+    expect(step.data.guidanceReason).toBe("Target needs a live browser-rendered page before retrying.");
+    expect(step.data.recommendedNextCommand).toBe("Retry with browser assistance or a headed browser session.");
+  });
+
+  it("surfaces macro guidance from failure details before workflow meta", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.linkedin.search",
+      providerId: "social/linkedin",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      json: {
+        data: {
+          execution: {
+            records: [],
+            failures: [
+              {
+                provider: "social/linkedin",
+                error: {
+                  code: "auth",
+                  reasonCode: "token_required",
+                  details: {
+                    guidance: {
+                      reason: "Linkedin needs an authenticated session before retrying.",
+                      recommendedNextCommands: [
+                        "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            meta: {
+              providerOrder: ["social/linkedin"],
+              primaryConstraint: {
+                guidance: {
+                  reason: "stale meta guidance",
+                  recommendedNextCommands: ["should not be used"]
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.data.guidanceReason).toBe("Linkedin needs an authenticated session before retrying.");
+    expect(step.data.recommendedNextCommand).toBe(
+      "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+    );
   });
 
   it("treats timeout-only provider failures as fail instead of env-limited", () => {

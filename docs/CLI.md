@@ -471,7 +471,9 @@ Flags:
 Notes:
 - Use explicit providers plus `--browser-mode managed` for the most reproducible live reruns.
 - Treat `--region` as advisory unless `meta.selection.region_authoritative=true`.
-- When a run returns no final offers, inspect `meta.primaryConstraintSummary` and `meta.offerFilterDiagnostics` before classifying the provider path as broken.
+- When a run returns no final offers, inspect `meta.primaryConstraintSummary` first.
+- If `meta.primaryConstraint.guidance` is present, follow `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]` before classifying the provider path as broken.
+- If `meta.primaryConstraint.guidance` is absent, inspect `meta.offerFilterDiagnostics`; summary-only outcomes are usually offer-filter constraints such as budget or region heuristics, not provider outage proof.
 
 #### Product presentation asset (`product-video run`)
 
@@ -1634,6 +1636,11 @@ What it covers:
 - Shopping provider runs for every registered shopping provider in `src/providers/shopping/index.ts`.
 - Optional social post probes for explicitly requested write-path validation.
 
+Key report fields:
+- `data.guidanceReason` and `data.recommendedNextCommand` summarize the first actionable provider follow-up emitted by the workflow or failure envelope.
+- Shopping and research workflow payloads keep the canonical structured source at `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]`.
+- Product-video remains summary-first today: inspect `meta.primaryConstraintSummary` plus failure reason-code distributions when no structured guidance is present.
+
 Key options:
 - `--include-auth-gated` includes auth-dependent provider scenarios.
 - `--include-high-friction` includes high-friction shopping providers.
@@ -1770,6 +1777,7 @@ Provider runtime anti-bot/transcript controls default to a public-first YouTube 
 
 Provider workflow and execution outputs now include normalized transcript/anti-bot telemetry:
 - Primary provider follow-up summary: `meta.primaryConstraintSummary`.
+- Research and shopping workflow follow-up guidance: `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.
 - Failure reason codes: `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `reasonCode` on provider failures.
 - Transcript fallback diagnostics: `meta.metrics.transcript_strategy_failures` (legacy) and `meta.metrics.transcriptStrategyFailures` (camelCase alias).
 - Strategy-detail diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
