@@ -104,6 +104,68 @@ import { mapFigmaVariablesToTokenStore } from "../integrations/figma/variables";
 
 type CanvasCommandParams = Record<string, unknown>;
 
+type CanvasStepGuidance = {
+  recommendedNextCommands: string[];
+  reason: string;
+};
+
+type CanvasGuidanceCommand =
+  | "canvas.session.open"
+  | "canvas.capabilities.get"
+  | "canvas.plan.set"
+  | "canvas.plan.get"
+  | "canvas.document.load"
+  | "canvas.document.patch"
+  | "canvas.preview.render"
+  | "canvas.preview.refresh"
+  | "canvas.feedback.poll"
+  | "canvas.document.save"
+  | "canvas.document.export";
+
+const PREPLAN_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.plan.set"],
+  reason: "Handshake is complete. Submit a complete generationPlan before mutation."
+};
+
+const PLAN_ACCEPTED_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.document.patch", "canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"],
+  reason: "generationPlan is accepted. Patch the document, render the preview, inspect feedback, and save when the iteration is stable."
+};
+
+const PATCH_APPLIED_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"],
+  reason: "The patch is applied. Render the preview, review feedback, and save when the surface is ready."
+};
+
+const PREVIEW_READY_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.feedback.poll", "canvas.document.patch", "canvas.document.save"],
+  reason: "Preview output is available. Poll feedback, patch again if needed, and save when the runtime matches the contract."
+};
+
+const FEEDBACK_LOOP_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.document.patch", "canvas.preview.render", "canvas.document.save"],
+  reason: "Feedback is available. Patch the document to address issues, rerender, and save when blockers are cleared."
+};
+
+const PERSISTED_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.document.export", "canvas.session.status", "canvas.document.patch"],
+  reason: "The document is persisted. Export deliverables, inspect session state, or keep iterating with another patch."
+};
+
+const EXPORTED_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.session.status", "canvas.document.patch"],
+  reason: "Artifacts are exported. Inspect session state or continue patching if another iteration is required."
+};
+
+const CANVAS_GUIDANCE_BY_COMMAND: Partial<Record<CanvasGuidanceCommand, CanvasStepGuidance>> = {
+  "canvas.document.patch": PATCH_APPLIED_CANVAS_GUIDANCE,
+  "canvas.preview.render": PREVIEW_READY_CANVAS_GUIDANCE,
+  "canvas.preview.refresh": PREVIEW_READY_CANVAS_GUIDANCE,
+  "canvas.feedback.poll": FEEDBACK_LOOP_CANVAS_GUIDANCE,
+  "canvas.document.save": PERSISTED_CANVAS_GUIDANCE,
+  "canvas.document.export": EXPORTED_CANVAS_GUIDANCE
+};
+
 export const PUBLIC_CANVAS_COMMANDS = [
   "canvas.session.open",
   "canvas.session.attach",
@@ -406,7 +468,7 @@ export class CanvasManager implements CanvasManagerLike {
     this.sessions.set(sessionId, session);
     this.sessionSyncManager.initializeSession(sessionId, leaseId, optionalString(params.clientId));
     await this.registerDocumentCodeSyncBindings(session);
-    return this.buildHandshake(session);
+    return this.buildHandshake(session, "canvas.session.open");
   }
 
   private attachSession(params: CanvasCommandParams): unknown {
@@ -480,7 +542,7 @@ export class CanvasManager implements CanvasManagerLike {
 
   private getCapabilities(params: CanvasCommandParams): unknown {
     const session = this.requireSession(params);
-    return this.buildHandshake(session);
+    return this.buildHandshake(session, "canvas.capabilities.get");
   }
 
   private setPlan(params: CanvasCommandParams): unknown {
@@ -491,7 +553,7 @@ export class CanvasManager implements CanvasManagerLike {
     session.preflightState = "plan_submitted";
     const validation = validateGenerationPlan(plan);
     if (!validation.ok) {
-      throw new Error(`Generation plan missing fields: ${validation.missing.join(", ")}`);
+      throw this.invalidGenerationPlan(session, validation.missing);
     }
     const result = session.store.setGenerationPlan(plan);
     session.planStatus = result.planStatus;
@@ -502,7 +564,8 @@ export class CanvasManager implements CanvasManagerLike {
       planStatus: result.planStatus,
       documentRevision: result.documentRevision,
       preflightState: session.preflightState,
-      warnings: result.warnings
+      warnings: result.warnings,
+      guidance: this.buildCanvasGuidance(session, "canvas.plan.set")
     };
   }
 
@@ -513,7 +576,8 @@ export class CanvasManager implements CanvasManagerLike {
       generationPlan: session.store.getDocument().designGovernance.generationPlan,
       planStatus: session.planStatus,
       documentRevision: session.store.getRevision(),
-      preflightState: session.preflightState
+      preflightState: session.preflightState,
+      guidance: this.buildCanvasGuidance(session, "canvas.plan.get")
     };
   }
 
@@ -531,7 +595,7 @@ export class CanvasManager implements CanvasManagerLike {
         documentId: session.store.getDocumentId(),
         documentRevision: session.store.getRevision(),
         document: session.store.getDocument(),
-        handshake: this.buildHandshake(session)
+        handshake: this.buildHandshake(session, "canvas.document.load")
       };
     }
     const sessionRepoPath = !repoPath && documentId === session.store.getDocumentId()
@@ -560,7 +624,7 @@ export class CanvasManager implements CanvasManagerLike {
       documentId: session.store.getDocumentId(),
       documentRevision: session.store.getRevision(),
       document: session.store.getDocument(),
-      handshake: this.buildHandshake(session)
+      handshake: this.buildHandshake(session, "canvas.document.load")
     };
   }
 
@@ -740,9 +804,13 @@ export class CanvasManager implements CanvasManagerLike {
     const baseRevision = requireNumber(params.baseRevision, "baseRevision");
     const patches = requirePatches(params.patches);
     try {
-      return await this.applyDocumentPatches(session, baseRevision, patches, "agent", {
+      const result = await this.applyDocumentPatches(session, baseRevision, patches, "agent", {
         recordHistory: true
       });
+      return {
+        ...result,
+        guidance: this.buildCanvasGuidance(session, "canvas.document.patch")
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.startsWith("Revision conflict")) {
@@ -1135,7 +1203,8 @@ export class CanvasManager implements CanvasManagerLike {
       documentRevision: session.store.getRevision(),
       schemaVersion: document.schemaVersion,
       migrationWarnings: [],
-      warnings: validation.warnings
+      warnings: validation.warnings,
+      guidance: this.buildCanvasGuidance(session, "canvas.document.save")
     };
   }
 
@@ -1162,7 +1231,8 @@ export class CanvasManager implements CanvasManagerLike {
         resolvedSavePath: repoPath,
         schemaVersion: document.schemaVersion,
         migrationWarnings: [],
-        warnings: validation.warnings
+        warnings: validation.warnings,
+        guidance: this.buildCanvasGuidance(session, "canvas.document.export")
       };
     }
     if (exportTarget === "react_component") {
@@ -1174,7 +1244,8 @@ export class CanvasManager implements CanvasManagerLike {
         documentRevision: session.store.getRevision(),
         artifactRefs: [repoPath],
         exportMetadata: { format: "tsx", documentId: document.documentId },
-        warnings
+        warnings,
+        guidance: this.buildCanvasGuidance(session, "canvas.document.export")
       };
     }
     if (exportTarget === "html_bundle") {
@@ -1186,7 +1257,8 @@ export class CanvasManager implements CanvasManagerLike {
         documentRevision: session.store.getRevision(),
         artifactRefs: [repoPath],
         exportMetadata: { format: "html", documentId: document.documentId },
-        warnings
+        warnings,
+        guidance: this.buildCanvasGuidance(session, "canvas.document.export")
       };
     }
     throw new Error(`Unsupported exportTarget: ${exportTarget}`);
@@ -1744,7 +1816,11 @@ export class CanvasManager implements CanvasManagerLike {
     if (session.planStatus !== "accepted") {
       throw this.planRequired("canvas.preview.render", session);
     }
-    return await this.renderPreviewTarget(session, targetId, prototypeId, { cause: "manual", syncAfter: true });
+    const result = await this.renderPreviewTarget(session, targetId, prototypeId, { cause: "manual", syncAfter: true });
+    return {
+      ...result,
+      guidance: this.buildCanvasGuidance(session, "canvas.preview.render")
+    };
   }
 
   private async refreshPreview(params: CanvasCommandParams): Promise<unknown> {
@@ -1760,7 +1836,11 @@ export class CanvasManager implements CanvasManagerLike {
       if (typeof existing.prototypeId !== "string" || existing.prototypeId.length === 0) {
         throw this.unsupportedTarget("canvas.preview.refresh", session, targetId);
       }
-      return await this.renderPreviewTarget(session, targetId, existing.prototypeId, { cause: "manual", syncAfter: true });
+      const result = await this.renderPreviewTarget(session, targetId, existing.prototypeId, { cause: "manual", syncAfter: true });
+      return {
+        ...result,
+        guidance: this.buildCanvasGuidance(session, "canvas.preview.refresh")
+      };
     }
     const screenshot = await this.browserManager.screenshot(
       requireString(session.browserSessionId, "browserSessionId"),
@@ -1782,7 +1862,8 @@ export class CanvasManager implements CanvasManagerLike {
       previewState: existing.previewState,
       renderStatus: existing.renderStatus,
       documentRevision: session.store.getRevision(),
-      degradeReason: existing.degradeReason
+      degradeReason: existing.degradeReason,
+      guidance: this.buildCanvasGuidance(session, "canvas.preview.refresh")
     };
   }
 
@@ -2024,7 +2105,8 @@ export class CanvasManager implements CanvasManagerLike {
           ? Object.fromEntries(Object.entries(retentionByTarget).filter(([key]) => key === "session" || targetIds.includes(key)))
           : retentionByTarget,
         activeTargetIds
-      }
+      },
+      guidance: this.buildCanvasGuidance(session, "canvas.feedback.poll")
     };
   }
 
@@ -2242,7 +2324,7 @@ export class CanvasManager implements CanvasManagerLike {
     }
   }
 
-  private buildHandshake(session: CanvasSession): Record<string, unknown> {
+  private buildHandshake(session: CanvasSession, command: CanvasGuidanceCommand): Record<string, unknown> {
     const document = session.store.getDocument();
     const governanceBlockStates = buildGovernanceBlockStates(document);
     const runtimeBudgets = getRuntimeBudgets(document);
@@ -2263,6 +2345,7 @@ export class CanvasManager implements CanvasManagerLike {
       policyVersion: "2026-03-09",
       documentId: session.store.getDocumentId(),
       preflightState: session.preflightState,
+      planStatus: session.planStatus,
       governanceRequirements: {
         requiredBeforeMutation: [
           "intent",
@@ -2341,11 +2424,20 @@ export class CanvasManager implements CanvasManagerLike {
           "canvas.session.status"
         ]
       },
+      guidance: this.buildCanvasGuidance(session, command),
       documentContext: buildDocumentContext(document),
       attachedClients,
       leaseHolderClientId,
       codeSyncStatus
     };
+  }
+
+  private buildCanvasGuidance(session: CanvasSession, command: CanvasGuidanceCommand): CanvasStepGuidance {
+    if (session.planStatus !== "accepted") {
+      return cloneCanvasGuidance(PREPLAN_CANVAS_GUIDANCE);
+    }
+    const guidance = CANVAS_GUIDANCE_BY_COMMAND[command] ?? PLAN_ACCEPTED_CANVAS_GUIDANCE;
+    return cloneCanvasGuidance(guidance);
   }
 
   private buildSessionSummary(session: CanvasSession): CanvasSessionSummary {
@@ -2594,6 +2686,24 @@ export class CanvasManager implements CanvasManagerLike {
       message: "generationPlan must be accepted before mutation."
     };
     return attachDetails(new Error(blocker.message), { code: blocker.code, blocker, details: { auditId: "CANVAS-01" } });
+  }
+
+  private invalidGenerationPlan(session: CanvasSession, missingFields: string[]): Error {
+    const blocker: CanvasBlocker = {
+      code: "generation_plan_invalid",
+      blockingCommand: "canvas.plan.set",
+      requiredNextCommands: ["canvas.plan.set"],
+      latestRevision: session.store.getRevision(),
+      message: `Generation plan missing fields: ${missingFields.join(", ")}`
+    };
+    return attachDetails(new Error(blocker.message), {
+      code: blocker.code,
+      blocker,
+      details: {
+        auditId: "CANVAS-03",
+        missingFields
+      }
+    });
   }
 
   private revisionConflict(command: string, session: CanvasSession): Error {
@@ -4782,4 +4892,11 @@ function isAlreadyClosedCanvasTargetError(error: unknown): boolean {
 function attachDetails(error: Error, details: Record<string, unknown>): Error {
   Object.assign(error, details);
   return error;
+}
+
+function cloneCanvasGuidance(guidance: CanvasStepGuidance): CanvasStepGuidance {
+  return {
+    recommendedNextCommands: [...guidance.recommendedNextCommands],
+    reason: guidance.reason
+  };
 }

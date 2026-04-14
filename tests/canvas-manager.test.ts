@@ -247,6 +247,17 @@ describe("CanvasManager", () => {
     const leaseId = opened.leaseId as string;
     const documentId = opened.documentId as string;
     expect(opened.allowedLibraries).toEqual(CANVAS_PROJECT_DEFAULTS.libraryPolicy);
+    expect(opened).toMatchObject({
+      preflightState: "handshake_read",
+      planStatus: "missing",
+      mutationPolicy: {
+        allowedBeforePlan: ["canvas.capabilities.get", "canvas.plan.get", "canvas.plan.set", "canvas.document.load", "canvas.session.attach", "canvas.session.status"]
+      },
+      guidance: {
+        recommendedNextCommands: ["canvas.plan.set"],
+        reason: "Handshake is complete. Submit a complete generationPlan before mutation."
+      }
+    });
 
     await expect(manager.execute("canvas.document.patch", {
       canvasSessionId,
@@ -259,9 +270,20 @@ describe("CanvasManager", () => {
       canvasSessionId,
       leaseId,
       documentId
-    }) as { document: { pages: Array<{ rootNodeId: string | null }> } };
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+      handshake: Record<string, unknown>;
+    };
     const rootNodeId = loaded.document.pages[0]?.rootNodeId;
     expect(rootNodeId).toBeTruthy();
+    expect(loaded.handshake).toMatchObject({
+      preflightState: "handshake_read",
+      planStatus: "missing",
+      guidance: {
+        recommendedNextCommands: ["canvas.plan.set"],
+        reason: "Handshake is complete. Submit a complete generationPlan before mutation."
+      }
+    });
 
     const planResult = await manager.execute("canvas.plan.set", {
       canvasSessionId,
@@ -278,7 +300,14 @@ describe("CanvasManager", () => {
         validationTargets: { blockOn: ["contrast-failure"] }
       }
     }) as Record<string, unknown>;
-    expect(planResult.planStatus).toBe("accepted");
+    expect(planResult).toMatchObject({
+      planStatus: "accepted",
+      preflightState: "plan_accepted",
+      guidance: {
+        recommendedNextCommands: ["canvas.document.patch", "canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"],
+        reason: "generationPlan is accepted. Patch the document, render the preview, inspect feedback, and save when the iteration is stable."
+      }
+    });
 
     const patchResult = await manager.execute("canvas.document.patch", {
       canvasSessionId,
@@ -308,6 +337,12 @@ describe("CanvasManager", () => {
       ]
     }) as Record<string, unknown>;
     expect(patchResult.appliedRevision).toBe(Number(planResult.documentRevision) + 1);
+    expect(patchResult).toMatchObject({
+      guidance: {
+        recommendedNextCommands: ["canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"],
+        reason: "The patch is applied. Render the preview, review feedback, and save when the surface is ready."
+      }
+    });
 
     const saveResult = await manager.execute("canvas.document.save", {
       canvasSessionId,
@@ -315,20 +350,34 @@ describe("CanvasManager", () => {
       repoPath: ".opendevbrowser/canvas/documents/test-managed.json"
     }) as Record<string, unknown>;
     expect(String(saveResult.repoPath)).toContain("test-managed.json");
+    expect(saveResult).toMatchObject({
+      guidance: {
+        recommendedNextCommands: ["canvas.document.export", "canvas.session.status", "canvas.document.patch"],
+        reason: "The document is persisted. Export deliverables, inspect session state, or keep iterating with another patch."
+      }
+    });
 
     const htmlExport = await manager.execute("canvas.document.export", {
       canvasSessionId,
       leaseId,
       exportTarget: "html_bundle"
-    }) as { artifactRefs: string[] };
+    }) as { artifactRefs: string[]; guidance: Record<string, unknown> };
     expect(htmlExport.artifactRefs[0]).toContain(".html");
+    expect(htmlExport.guidance).toMatchObject({
+      recommendedNextCommands: ["canvas.session.status", "canvas.document.patch"],
+      reason: "Artifacts are exported. Inspect session state or continue patching if another iteration is required."
+    });
 
     const componentExport = await manager.execute("canvas.document.export", {
       canvasSessionId,
       leaseId,
       exportTarget: "react_component"
-    }) as { artifactRefs: string[] };
+    }) as { artifactRefs: string[]; guidance: Record<string, unknown> };
     expect(componentExport.artifactRefs[0]).toContain(".tsx");
+    expect(componentExport.guidance).toMatchObject({
+      recommendedNextCommands: ["canvas.session.status", "canvas.document.patch"],
+      reason: "Artifacts are exported. Inspect session state or continue patching if another iteration is required."
+    });
 
     const designTab = await manager.execute("canvas.tab.open", {
       canvasSessionId,
@@ -365,13 +414,27 @@ describe("CanvasManager", () => {
     }) as Record<string, unknown>;
     expect(preview.renderStatus).toBe("rendered");
     expect(browserManager.screenshot).toHaveBeenCalledWith("browser-managed", { targetId: "tab-preview" });
+    expect(preview).toMatchObject({
+      guidance: {
+        recommendedNextCommands: ["canvas.feedback.poll", "canvas.document.patch", "canvas.document.save"],
+        reason: "Preview output is available. Poll feedback, patch again if needed, and save when the runtime matches the contract."
+      }
+    });
 
     const feedback = await manager.execute("canvas.feedback.poll", {
       canvasSessionId,
       afterCursor: null
-    }) as { items: Array<{ category: string }>; nextCursor: string | null };
+    }) as {
+      items: Array<{ category: string }>;
+      nextCursor: string | null;
+      guidance: Record<string, unknown>;
+    };
     expect(feedback.items.map((item) => item.category)).toEqual(expect.arrayContaining(["console", "network", "performance", "render"]));
     expect(feedback.nextCursor).toBeTruthy();
+    expect(feedback.guidance).toMatchObject({
+      recommendedNextCommands: ["canvas.document.patch", "canvas.preview.render", "canvas.document.save"],
+      reason: "Feedback is available. Patch the document to address issues, rerender, and save when blockers are cleared."
+    });
 
     const refreshed = await manager.execute("canvas.preview.refresh", {
       canvasSessionId,
@@ -380,6 +443,12 @@ describe("CanvasManager", () => {
       refreshMode: "thumbnail"
     }) as Record<string, unknown>;
     expect(refreshed.targetId).toBe("tab-preview");
+    expect(refreshed).toMatchObject({
+      guidance: {
+        recommendedNextCommands: ["canvas.feedback.poll", "canvas.document.patch", "canvas.document.save"],
+        reason: "Preview output is available. Poll feedback, patch again if needed, and save when the runtime matches the contract."
+      }
+    });
 
     const subscribed = await manager.execute("canvas.feedback.subscribe", {
       canvasSessionId
@@ -2921,7 +2990,26 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       canvasSessionId,
       leaseId,
       generationPlan: { targetOutcome: { mode: "draft" } }
-    })).rejects.toThrow("Generation plan missing fields");
+    })).rejects.toMatchObject({
+      code: "generation_plan_invalid",
+      blocker: expect.objectContaining({
+        code: "generation_plan_invalid",
+        requiredNextCommands: ["canvas.plan.set"]
+      }),
+      details: expect.objectContaining({
+        auditId: "CANVAS-03",
+        missingFields: expect.arrayContaining([
+          "visualDirection",
+          "layoutStrategy",
+          "contentStrategy",
+          "componentStrategy",
+          "motionPosture",
+          "responsivePosture",
+          "accessibilityPosture",
+          "validationTargets"
+        ])
+      })
+    });
     expect(await manager.execute("canvas.document.load", {
       canvasSessionId,
       leaseId,
