@@ -332,7 +332,7 @@ function expectedGlobalTargets(env) {
     { id: "opencode-global", dir: path.join(env.OPENCODE_CONFIG_DIR, "skill") },
     { id: "codex-global", dir: path.join(env.CODEX_HOME, "skills") },
     { id: "claudecode-global", dir: path.join(env.CLAUDECODE_HOME, "skills") },
-    { id: "ampcli-global", dir: path.join(env.AMPCLI_HOME, "skills") }
+    { id: "ampcli-global", dir: path.join(env.AMP_CLI_HOME, "skills") }
   ];
 }
 
@@ -383,10 +383,7 @@ async function loadBuiltSkillDiscoveryReport(workspaceDir, env) {
     OPENCODE_CACHE_DIR: env.OPENCODE_CACHE_DIR,
     CODEX_HOME: env.CODEX_HOME,
     CLAUDECODE_HOME: env.CLAUDECODE_HOME,
-    CLAUDE_HOME: undefined,
-    AMPCLI_HOME: env.AMPCLI_HOME,
     AMP_CLI_HOME: env.AMP_CLI_HOME,
-    AMP_HOME: undefined
   }, async () => {
     const { SkillLoader } = await import(loaderModuleUrl);
     const loader = new SkillLoader(workspaceDir);
@@ -434,7 +431,6 @@ async function runSkillDiscoveryLane(options, reportOut) {
     OPENCODE_CACHE_DIR: path.join(tempRoot, "opencode-cache"),
     CODEX_HOME: path.join(tempRoot, "codex-home"),
     CLAUDECODE_HOME: path.join(tempRoot, "claudecode-home"),
-    AMPCLI_HOME: path.join(tempRoot, "ampcli-home"),
     AMP_CLI_HOME: path.join(tempRoot, "amp-home"),
     [INSTALL_AUTOSTART_SKIP_ENV_VAR]: "1"
   };
@@ -443,7 +439,6 @@ async function runSkillDiscoveryLane(options, reportOut) {
   fs.mkdirSync(env.OPENCODE_CACHE_DIR, { recursive: true });
   fs.mkdirSync(env.CODEX_HOME, { recursive: true });
   fs.mkdirSync(env.CLAUDECODE_HOME, { recursive: true });
-  fs.mkdirSync(env.AMPCLI_HOME, { recursive: true });
   fs.mkdirSync(env.AMP_CLI_HOME, { recursive: true });
 
   const matrix = loadSkillRuntimeMatrix();

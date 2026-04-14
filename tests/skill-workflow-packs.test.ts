@@ -127,18 +127,12 @@ describe("workflow skill packs", () => {
     const originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
     const originalCodexHome = process.env.CODEX_HOME;
     const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
-    const originalClaudeHome = process.env.CLAUDE_HOME;
-    const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
     const originalAmpCliHome = process.env.AMP_CLI_HOME;
-    const originalAmpHome = process.env.AMP_HOME;
 
     process.env.OPENCODE_CONFIG_DIR = join(tempEnvRoot, "config");
     process.env.CODEX_HOME = join(tempEnvRoot, "codex-home");
     process.env.CLAUDECODE_HOME = join(tempEnvRoot, "claudecode-home");
-    delete process.env.CLAUDE_HOME;
-    delete process.env.AMPCLI_HOME;
     process.env.AMP_CLI_HOME = join(tempEnvRoot, "amp-home");
-    delete process.env.AMP_HOME;
 
     try {
       const loader = new SkillLoader(join(repoRoot, "non-existent-root"));
@@ -167,25 +161,10 @@ describe("workflow skill packs", () => {
       } else {
         process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
       }
-      if (originalClaudeHome === undefined) {
-        delete process.env.CLAUDE_HOME;
-      } else {
-        process.env.CLAUDE_HOME = originalClaudeHome;
-      }
-      if (originalAmpCliAliasHome === undefined) {
-        delete process.env.AMPCLI_HOME;
-      } else {
-        process.env.AMPCLI_HOME = originalAmpCliAliasHome;
-      }
       if (originalAmpCliHome === undefined) {
         delete process.env.AMP_CLI_HOME;
       } else {
         process.env.AMP_CLI_HOME = originalAmpCliHome;
-      }
-      if (originalAmpHome === undefined) {
-        delete process.env.AMP_HOME;
-      } else {
-        process.env.AMP_HOME = originalAmpHome;
       }
       await rm(tempEnvRoot, { recursive: true, force: true });
     }

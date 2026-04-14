@@ -492,9 +492,9 @@ Template assets for parity and channel checks live under
 - `scripts/design-workflow.sh`
 - `scripts/extract-canvas-plan.sh`
 
-Skill install/discovery sync covers `opencode`, `codex`, `claudecode`, and `ampcli`
-ecosystems (with legacy `claude`/`amp` aliases preserved), and path discovery is documented
-in `README.md` and `docs/CLI.md`.
+Skill install/discovery sync covers the canonical `opencode`, `codex`, `claudecode`,
+and `ampcli` ecosystems, and path discovery is documented in `README.md` and
+`docs/CLI.md`.
 
 Validation script:
 

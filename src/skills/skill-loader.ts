@@ -37,11 +37,11 @@ export class SkillLoader {
   }
 
   private getClaudeCodeHome(): string {
-    return process.env.CLAUDECODE_HOME || process.env.CLAUDE_HOME || join(os.homedir(), ".claude");
+    return process.env.CLAUDECODE_HOME || join(os.homedir(), ".claude");
   }
 
   private getAmpHome(): string {
-    return process.env.AMPCLI_HOME || process.env.AMP_CLI_HOME || process.env.AMP_HOME || join(os.homedir(), ".amp");
+    return process.env.AMP_CLI_HOME || join(os.homedir(), ".amp");
   }
 
   async loadBestPractices(topic?: string): Promise<string> {

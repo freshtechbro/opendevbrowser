@@ -6,7 +6,7 @@ export { getBundledSkillsDir } from "../../utils/package-assets";
 const SKILL_DIR_NAME = "skill";
 const SKILLS_DIR_NAME = "skills";
 
-export type SkillTargetAgent = "opencode" | "codex" | "claudecode" | "ampcli" | "claude" | "amp";
+export type SkillTargetAgent = "opencode" | "codex" | "claudecode" | "ampcli";
 
 export interface SkillTarget {
   agents: SkillTargetAgent[];
@@ -30,14 +30,11 @@ function getCodexHomeDir(): string {
 
 function getClaudeCodeHomeDir(): string {
   return process.env.CLAUDECODE_HOME
-    || process.env.CLAUDE_HOME
     || path.join(os.homedir(), ".claude");
 }
 
 function getAmpHomeDir(): string {
-  return process.env.AMPCLI_HOME
-    || process.env.AMP_CLI_HOME
-    || process.env.AMP_HOME
+  return process.env.AMP_CLI_HOME
     || path.join(os.homedir(), ".amp");
 }
 
@@ -67,9 +64,7 @@ export function getGlobalSkillTargets(): SkillTarget[] {
     { agent: "opencode", dir: getGlobalSkillDir() },
     { agent: "codex", dir: path.join(getCodexHomeDir(), SKILLS_DIR_NAME) },
     { agent: "claudecode", dir: claudeSkillsDir },
-    { agent: "claude", dir: claudeSkillsDir },
-    { agent: "ampcli", dir: ampSkillsDir },
-    { agent: "amp", dir: ampSkillsDir }
+    { agent: "ampcli", dir: ampSkillsDir }
   ]);
 }
 
@@ -81,8 +76,6 @@ export function getLocalSkillTargets(): SkillTarget[] {
     { agent: "opencode", dir: getLocalSkillDir() },
     { agent: "codex", dir: path.join(process.cwd(), ".codex", SKILLS_DIR_NAME) },
     { agent: "claudecode", dir: localClaudeSkillsDir },
-    { agent: "claude", dir: localClaudeSkillsDir },
-    { agent: "ampcli", dir: localAmpSkillsDir },
-    { agent: "amp", dir: localAmpSkillsDir }
+    { agent: "ampcli", dir: localAmpSkillsDir }
   ]);
 }

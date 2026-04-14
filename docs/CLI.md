@@ -69,7 +69,7 @@ export OPENCODE_CONFIG_DIR=/tmp/opendevbrowser-first-run-isolated/config
 export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 ```
 
-By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
 - `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
@@ -93,9 +93,9 @@ The skill loader discovers skills in this order (first match wins):
 3. Compatibility (project): `./.codex/skills`
 4. Compatibility (global): `$CODEX_HOME/skills` (fallback `~/.codex/skills`)
 5. Compatibility (project): `./.claude/skills`
-6. Compatibility (global): `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`)
+6. Compatibility (global): `$CLAUDECODE_HOME/skills` (fallback `~/.claude/skills`)
 7. Compatibility (project): `./.amp/skills`
-8. Compatibility (global): `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
+8. Compatibility (global): `$AMP_CLI_HOME/skills` (fallback `~/.amp/skills`)
 9. Extra paths from `skillPaths` (advanced)
 10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
 
@@ -1398,8 +1398,8 @@ Notes:
 | `--output-format` | | `text`, `json`, or `stream-json` |
 | `--transport` | | Transport selector for transport-aware commands (`status`: `relay|native`; `annotate`: `auto|direct|relay`) |
 | `--daemon` | | Daemon status selector for `status` |
-| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
-| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
+| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories |
+| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories |
 | `--no-skills` | | Skip installing bundled skills |
 | `--help` | `-h` | Show usage information |
 | `--version` | `-v` | Show version number |
