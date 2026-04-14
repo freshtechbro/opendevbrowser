@@ -143,10 +143,8 @@ Rules:
 Skill-pack installation and discovery are synchronized for:
 - `opencode` (`~/.config/opencode/skill`, project `./.opencode/skill`)
 - `codex` (`$CODEX_HOME/skills` fallback `~/.codex/skills`, project `./.codex/skills`)
-- `claudecode` (`$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` fallback `~/.claude/skills`, project `./.claude/skills`)
-- `ampcli` (`$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` fallback `~/.amp/skills`, project `./.amp/skills`)
-
-Legacy compatibility aliases `claude` and `amp` are preserved in installer target metadata.
+- `claudecode` (`$CLAUDECODE_HOME/skills` fallback `~/.claude/skills`, project `./.claude/skills`)
+- `ampcli` (`$AMP_CLI_HOME/skills` fallback `~/.amp/skills`, project `./.amp/skills`)
 
 Install and update refresh managed copies of these canonical packs; uninstall removes managed canonical packs and only prunes empty legacy `research` or `shopping` leftovers.
 
@@ -318,18 +316,22 @@ Realignment rule:
 Use the design-canvas surface when the workflow needs persisted design documents, explicit governance state, preview tabs, or overlay selection.
 
 Recommended command order:
-1. `opendevbrowser_canvas` or `opendevbrowser canvas --command canvas.session.open` to get `canvasSessionId`, `leaseId`, `preflightState`, governance block states, and generation-plan requirements.
+1. `opendevbrowser_canvas` or `opendevbrowser canvas --command canvas.session.open` to get `canvasSessionId`, `leaseId`, `preflightState`, `planStatus`, governance block states, generation-plan requirements, and `guidance.recommendedNextCommands`.
 2. Read the handshake before mutating. The handshake is the source of truth for:
+   - `planStatus`
    - `governanceRequirements.requiredBeforeMutation`
    - `governanceRequirements.requiredBeforeSave`
    - `generationPlanRequirements.requiredBeforeMutation`
    - `allowedLibraries`
    - `mutationPolicy.allowedBeforePlan`
+   - `guidance.recommendedNextCommands`
+   - `guidance.reason`
    - treat `allowedLibraries.components`, `allowedLibraries.icons`, and `allowedLibraries.styling` as separate policy lanes:
      `components` are reusable UI adapters such as `shadcn`,
      `icons` are approved icon families,
      `styling` is for utility/theme adapters such as `tailwindcss`
-3. Submit `canvas.plan.set` with all required non-empty objects:
+3. Require `preflightState="handshake_read"` before moving on. If the response already carries `guidance.recommendedNextCommands`, follow that list instead of guessing.
+4. Submit `canvas.plan.set` with all required non-empty objects:
    - `targetOutcome`
    - `visualDirection`
    - `layoutStrategy`
@@ -339,10 +341,12 @@ Recommended command order:
    - `responsivePosture`
    - `accessibilityPosture`
    - `validationTargets`
-4. Only after the plan is accepted, call `canvas.document.patch`.
-5. Use `canvas.preview.render`, `canvas.tab.open`, `canvas.overlay.mount`, and `canvas.overlay.select` when a browser-backed live view is required.
-6. Use `canvas.feedback.poll` for snapshot audits between mutation rounds, and use `canvas.feedback.subscribe` -> `canvas.feedback.next` -> `canvas.feedback.unsubscribe` when a live pull-stream is needed.
-7. Use `canvas.document.save` or `canvas.document.export` to persist artifacts.
+5. Immediately inspect the `canvas.plan.set` response. Require `planStatus="accepted"` or `preflightState="plan_accepted"`, then follow the returned `guidance.recommendedNextCommands`.
+6. Only after the plan is accepted, call `canvas.document.patch`.
+7. After every successful `canvas.document.patch`, `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.document.save`, or `canvas.document.export`, read `guidance.recommendedNextCommands` and `guidance.reason` before deciding the next command.
+8. Use `canvas.preview.render`, `canvas.tab.open`, `canvas.overlay.mount`, and `canvas.overlay.select` when a browser-backed live view is required.
+9. Use `canvas.feedback.poll` for snapshot audits between mutation rounds, and use `canvas.feedback.subscribe` -> `canvas.feedback.next` -> `canvas.feedback.unsubscribe` when a live pull-stream is needed.
+10. Use `canvas.document.save` or `canvas.document.export` to persist artifacts.
 
 Code-sync surface:
 - `canvas.session.attach` joins an existing canvas session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
@@ -364,6 +368,7 @@ Tailwind usage rule:
 
 Failure handling:
 - `plan_required`: immediately call `canvas.plan.set`.
+- `generation_plan_invalid`: resubmit `canvas.plan.set` with every required non-empty generation-plan block present.
 - `revision_conflict`: reload with `canvas.document.load` and replay the patch batch against the latest revision.
 - `unsupported_target` or `restricted_url`: move the preview to a normal http(s) tab or fall back to managed mode.
 - If a freshly rebuilt unpacked extension still shows old `/canvas` or popup behavior, reload the extension in Chrome before trusting the live result; stale MV3 runtime state can preserve old service-worker logic after `npm run extension:build`.
