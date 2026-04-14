@@ -1,4 +1,5 @@
 import {
+  isProviderRuntimeError,
   ProviderRuntimeError,
   normalizeProviderReasonCode,
   providerErrorCodeFromReasonCode,
@@ -2142,26 +2143,39 @@ export class ProviderRuntime {
     task: (signal: AbortSignal) => Promise<T>
   ): Promise<T> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort("timeout");
-    }, timeoutMs);
+    const createTimeoutError = (cause?: unknown): ProviderRuntimeError => {
+      return new ProviderRuntimeError("timeout", `Provider request timed out after ${timeoutMs}ms`, {
+        retryable: true,
+        ...(cause !== undefined ? { cause } : {})
+      });
+    };
+    const taskPromise = Promise.resolve().then(() => task(controller.signal));
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const timeoutId = setTimeout(() => {
+        controller.abort("timeout");
+        reject(createTimeoutError());
+      }, timeoutMs);
+      controller.signal.addEventListener("abort", () => clearTimeout(timeoutId), { once: true });
+    });
 
     try {
-      const result = await task(controller.signal);
-      if (controller.signal.aborted) {
-        throw new ProviderRuntimeError("timeout", `Provider request timed out after ${timeoutMs}ms`);
-      }
-      return result;
+      return await Promise.race([
+        taskPromise.catch((error) => {
+          if (controller.signal.aborted) {
+            throw createTimeoutError(error);
+          }
+          throw error;
+        }),
+        timeoutPromise
+      ]);
     } catch (error) {
+      if (isProviderRuntimeError(error) && error.code === "timeout") {
+        throw error;
+      }
       if (controller.signal.aborted) {
-        throw new ProviderRuntimeError("timeout", `Provider request timed out after ${timeoutMs}ms`, {
-          retryable: true,
-          cause: error
-        });
+        throw createTimeoutError(error);
       }
       throw error;
-    } finally {
-      clearTimeout(timeoutId);
     }
   }
 }

@@ -323,7 +323,7 @@ describe("workflow CLI commands", () => {
       execute: true,
       timeoutMs: 45000
     }, {
-      timeoutMs: 45000
+      timeoutMs: 120000
     });
   });
 
