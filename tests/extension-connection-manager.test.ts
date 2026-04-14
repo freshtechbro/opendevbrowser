@@ -706,6 +706,69 @@ describe("ConnectionManager", () => {
     expect(relayInstances.length).toBeGreaterThan(1);
   });
 
+  it("does not reconnect when a newer extension client has already taken over the relay", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.triggerClose({ code: 1000, reason: "Replaced by a new extension client" });
+
+    expect(manager.getStatus()).toBe("disconnected");
+    expect(manager.isReconnectSuppressed()).toBe(true);
+    expect(manager.getRelayNotice()).toContain("Another extension client took over the relay connection");
+
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(relayInstances).toHaveLength(1);
+  });
+
+  it("ignores a second stale close event while reconnect is already pending", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.triggerClose();
+
+    expect(manager.getStatus()).toBe("disconnected");
+
+    first.triggerClose({ code: 1000, reason: "Replaced by a new extension client" });
+
+    expect(manager.isReconnectSuppressed()).toBe(false);
+    expect(manager.getRelayNotice()).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(relayInstances).toHaveLength(2);
+  });
+
+  it("resumes normal reconnect behavior after an explicit reconnect clears suppression", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.triggerClose({ code: 1000, reason: "Replaced by a new extension client" });
+
+    expect(manager.isReconnectSuppressed()).toBe(true);
+
+    await manager.connect();
+
+    expect(manager.getStatus()).toBe("connected");
+    expect(manager.isReconnectSuppressed()).toBe(false);
+
+    const second = relayInstances[1];
+    second.triggerClose();
+
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(relayInstances.length).toBeGreaterThan(2);
+  });
+
   it("skips a timed reconnect when another path already restored the relay", async () => {
     vi.useFakeTimers();
     const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
@@ -721,6 +784,31 @@ describe("ConnectionManager", () => {
     await vi.advanceTimersByTimeAsync(13_000);
 
     expect(relayInstances).toHaveLength(1);
+  });
+
+  it("ignores stale close events from an older relay after reconnect restores the session", async () => {
+    vi.useFakeTimers();
+    const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
+    const manager = new ConnectionManager();
+
+    await manager.connect();
+    const first = relayInstances[0];
+    first.triggerClose();
+
+    await vi.advanceTimersByTimeAsync(13_000);
+
+    expect(relayInstances).toHaveLength(2);
+    expect(manager.getStatus()).toBe("connected");
+
+    first.triggerClose({ code: 1000, reason: "late stale close" });
+
+    expect(manager.getStatus()).toBe("connected");
+    expect(relayInstances).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(manager.getStatus()).toBe("connected");
+    expect(relayInstances).toHaveLength(2);
   });
 
   it("reconnects after heartbeat timeout", async () => {

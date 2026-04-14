@@ -911,7 +911,6 @@ export class CanvasManager implements CanvasManagerLike {
       });
       return { ...result, summary: this.buildSessionSummary(session) };
     }
-    await this.syncLiveViews(session, { refreshPreviewTargets: true, source: "agent" });
     this.pushFeedback(session, {
       category: "code-sync",
       class: "code-sync-applied",

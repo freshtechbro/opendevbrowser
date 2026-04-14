@@ -478,7 +478,9 @@ describe("CanvasManager", () => {
       })
     });
 
-    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
     const canvasSessionId = String(opened.canvasSessionId);
     const leaseId = String(opened.leaseId);
 
@@ -578,7 +580,9 @@ describe("CanvasManager", () => {
       })
     });
 
-    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
     const canvasSessionId = String(opened.canvasSessionId);
     const leaseId = String(opened.leaseId);
     const planned = await manager.execute("canvas.plan.set", {
@@ -639,7 +643,9 @@ describe("CanvasManager", () => {
       })
     });
 
-    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
     const canvasSessionId = String(opened.canvasSessionId);
     const leaseId = String(opened.leaseId);
     await manager.execute("canvas.plan.set", {
@@ -3666,6 +3672,97 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       targetId: "tab-preview"
     });
     expect(session?.store.getDocument().pages[0]?.nodes.find((node) => node.id === rootNodeId)?.metadata.editor).toBe("live");
+  });
+
+  it("refreshes preview targets only once after canvas.code.pull applies patches", async () => {
+    const sourcePath = join(worktree, "src", "HeroPullPreview.tsx");
+    await mkdir(join(worktree, "src"), { recursive: true });
+    await writeFile(sourcePath, [
+      "export function Hero() {",
+      "  return <section className=\"hero-shell\"><span>Hello world</span></section>;",
+      "}",
+      ""
+    ].join("\n"));
+
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "managed",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      }),
+      goto: vi.fn().mockResolvedValue({ finalUrl: "data:text/html", status: 200, timingMs: 5 }),
+      screenshot: vi.fn().mockResolvedValue({ path: join(worktree, "preview-live.png") }),
+      perfMetrics: vi.fn().mockResolvedValue({ metrics: [{ name: "LayoutDuration", value: 4 }] }),
+      consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
+      closeTarget: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
+    const canvasSessionId = String(opened.canvasSessionId);
+    const leaseId = String(opened.leaseId);
+    const documentId = String(opened.documentId);
+    const loaded = await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId
+    }) as {
+      document: { pages: Array<{ rootNodeId: string | null }> };
+    };
+    const rootNodeId = loaded.document.pages[0]?.rootNodeId;
+    expect(rootNodeId).toBeTruthy();
+
+    await manager.execute("canvas.plan.set", {
+      canvasSessionId,
+      leaseId,
+      generationPlan: structuredClone(validGenerationPlan)
+    });
+    await manager.execute("canvas.code.bind", {
+      canvasSessionId,
+      leaseId,
+      nodeId: rootNodeId,
+      bindingId: "binding_preview_pull",
+      repoPath: sourcePath,
+      exportName: "Hero",
+      syncMode: "manual"
+    });
+    await manager.execute("canvas.preview.render", {
+      canvasSessionId,
+      leaseId,
+      targetId: "tab-preview",
+      prototypeId: "proto_home_default"
+    });
+
+    browserManager.goto.mockClear();
+    browserManager.screenshot.mockClear();
+    browserManager.perfMetrics.mockClear();
+    browserManager.consolePoll.mockClear();
+    browserManager.networkPoll.mockClear();
+
+    const pulled = await manager.execute("canvas.code.pull", {
+      canvasSessionId,
+      leaseId,
+      bindingId: "binding_preview_pull"
+    }) as {
+      ok: boolean;
+      patchesApplied: number;
+      summary: { codeSyncState: string };
+    };
+
+    expect(pulled.ok).toBe(true);
+    expect(pulled.patchesApplied).toBeGreaterThan(0);
+    expect(pulled.summary.codeSyncState).toBe("in_sync");
+    expect(browserManager.goto).toHaveBeenCalledTimes(1);
+    expect(browserManager.screenshot).toHaveBeenCalledTimes(1);
   });
 
   it("covers feedback heartbeat timers and stream wakeups without payload events", async () => {

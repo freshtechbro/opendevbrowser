@@ -275,6 +275,9 @@ export class CanvasRuntime {
       return;
     }
     for (const session of this.sessions.listOwnedBy(clientId)) {
+      if (this.shouldPreserveSessionOnDisconnect(session)) {
+        continue;
+      }
       void this.closeRuntimeSession(session, "client_disconnected");
     }
     for (const [sessionId, session] of this.overlaySessions.entries()) {
@@ -627,6 +630,11 @@ export class CanvasRuntime {
     };
   }
 
+  private shouldPreserveSessionOnDisconnect(session: CanvasSessionRecord): boolean {
+    return typeof session.designTabTargetId === "string"
+      && session.targets.has(session.designTabTargetId);
+  }
+
   private createOrReplaceSession(
     message: CanvasRequest,
     tabId: number,
@@ -746,7 +754,13 @@ export class CanvasRuntime {
     const session = resolveSessionForMessage(this.sessions, message, payload);
     const clientId = requireString(message.clientId, "clientId");
     const leaseId = optionalString(message.leaseId);
-    if (session.ownerClientId !== clientId || (leaseId && session.leaseId !== leaseId)) {
+    if (session.ownerClientId !== clientId) {
+      if (!leaseId || session.leaseId !== leaseId) {
+        throw new Error("Canvas session ownership mismatch.");
+      }
+      session.ownerClientId = clientId;
+    }
+    if (leaseId && session.leaseId !== leaseId) {
       throw new Error("Canvas session ownership mismatch.");
     }
     return session;

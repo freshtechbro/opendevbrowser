@@ -5465,6 +5465,174 @@ describe("OpsRuntime target teardown", () => {
     ]);
   });
 
+  it("recovers explicit overlay tab targets that fell out of session bookkeeping", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
+    const cdp = {
+      attach: vi.fn(async () => undefined),
+      detachTab: vi.fn(async () => undefined)
+    };
+
+    const executeScriptMock = globalThis.chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>;
+    executeScriptMock.mockImplementation(async (details: unknown) => {
+      const name = (details as { func?: { name?: string } }).func?.name ?? "";
+      const resultByName: Record<string, unknown> = {
+        mountCanvasOverlayScript: { overlayState: "mounted" },
+        selectCanvasOverlayScript: {
+          matched: true,
+          selector: "[data-node-id=\"node_card\"]",
+          nodeId: "node_card",
+          tagName: "div",
+          text: "Card",
+          id: null,
+          className: "preview-card opendevbrowser-canvas-highlight"
+        },
+        syncCanvasOverlayScript: { overlayState: "mounted" },
+        unmountCanvasOverlayScript: true
+      };
+      return [{ result: resultByName[name] ?? null }];
+    });
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://preview.example", title: "Preview" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-overlay-recover-mount",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "canvas.overlay.mount",
+      payload: {
+        targetId: "tab-101",
+        mountId: "mount-preview-recovery",
+        title: "Preview Overlay Canvas",
+        prototypeId: "proto_preview_default",
+        selection: {
+          pageId: "page_home",
+          nodeId: null,
+          targetId: "tab-101"
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    sessions.removeTarget(session.id, "tab-101");
+    expect(session.targets.has("tab-101")).toBe(false);
+    expect(sessions.getTargetIdByTabId(session.id, 101)).toBeNull();
+    expect(session.activeTargetId).toBeNull();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-overlay-recover-select",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "canvas.overlay.select",
+      payload: {
+        targetId: "tab-101",
+        mountId: "mount-preview-recovery",
+        nodeId: "node_card"
+      }
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-overlay-recover-sync",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "canvas.overlay.sync",
+      payload: {
+        targetId: "tab-101",
+        mountId: "mount-preview-recovery",
+        title: "Preview Overlay Canvas",
+        selection: {
+          pageId: "page_home",
+          nodeId: "node_card",
+          targetId: "tab-101"
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-overlay-recover-unmount",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: "lease-1",
+      command: "canvas.overlay.unmount",
+      payload: {
+        targetId: "tab-101",
+        mountId: "mount-preview-recovery"
+      }
+    });
+    await flushMicrotasks();
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === "ops_response")).toHaveLength(4);
+    });
+
+    expect(sent).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_error",
+          requestId: "req-overlay-recover-select",
+          error: expect.objectContaining({ code: "invalid_request" })
+        })
+      ])
+    );
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-overlay-recover-select",
+          payload: expect.objectContaining({
+            mountId: "mount-preview-recovery",
+            targetId: "tab-101",
+            selection: expect.objectContaining({
+              matched: true,
+              nodeId: "node_card"
+            })
+          })
+        }),
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-overlay-recover-sync",
+          payload: expect.objectContaining({
+            ok: true,
+            mountId: "mount-preview-recovery",
+            targetId: "tab-101",
+            overlayState: "mounted"
+          })
+        }),
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-overlay-recover-unmount",
+          payload: expect.objectContaining({
+            ok: true,
+            mountId: "mount-preview-recovery",
+            targetId: "tab-101",
+            overlayState: "idle"
+          })
+        })
+      ])
+    );
+    expect(session.activeTargetId).toBe("tab-101");
+    expect(sessions.getTargetIdByTabId(session.id, 101)).toBe("tab-101");
+    expect(executeScriptMock.mock.calls.map(([details]) => (details as { func?: { name?: string } }).func?.name)).toEqual([
+      "mountCanvasOverlayScript",
+      "selectCanvasOverlayScript",
+      "syncCanvasOverlayScript",
+      "unmountCanvasOverlayScript"
+    ]);
+  });
+
   it("registers canvas design tabs into ops sessions and allows clone-page capture", async () => {
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string } }> = [];
     const cdp = {
