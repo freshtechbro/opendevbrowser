@@ -42,7 +42,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - Shared robustness matrix: `../opendevbrowser-best-practices/artifacts/browser-agent-known-issues-matrix.md`
 - Shared canvas workflow baseline: `../opendevbrowser-best-practices/SKILL.md`
 
-## Fast Start
+## Quick Start
 
 1. Validate pack integrity.
 
