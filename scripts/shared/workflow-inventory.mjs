@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expectedProviderIdsFromSource } from "../provider-live-scenarios.mjs";
+import { CANVAS_LIVE_TIMEOUTS_MS } from "../live-direct-utils.mjs";
 import {
   getPublicSurfaceCounts,
   getPublicSurfaceToolEntries
@@ -417,7 +418,7 @@ export const VALIDATION_SCENARIOS = [
     runner: "node",
     primaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "managed-headless"],
     secondaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "managed-headless"],
-    timeoutMs: 300_000,
+    timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.managedHeadless,
     allowedStatuses: ["pass"],
     executionPolicy: "automated",
     entryPath: "node scripts/canvas-live-workflow.mjs --surface managed-headless",
@@ -431,7 +432,7 @@ export const VALIDATION_SCENARIOS = [
     runner: "node",
     primaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "managed-headed"],
     secondaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "managed-headed"],
-    timeoutMs: 300_000,
+    timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.managedHeaded,
     allowedStatuses: ["pass"],
     executionPolicy: "automated",
     entryPath: "node scripts/canvas-live-workflow.mjs --surface managed-headed",
@@ -445,7 +446,7 @@ export const VALIDATION_SCENARIOS = [
     runner: "node",
     primaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "extension"],
     secondaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "extension"],
-    timeoutMs: 240_000,
+    timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.extension,
     requiresExtension: true,
     allowedStatuses: ["pass", "env_limited"],
     executionPolicy: "automated",
@@ -460,7 +461,7 @@ export const VALIDATION_SCENARIOS = [
     runner: "node",
     primaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "cdp"],
     secondaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "cdp"],
-    timeoutMs: 300_000,
+    timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.cdp,
     requiresExtension: true,
     allowedStatuses: ["pass", "env_limited"],
     executionPolicy: "automated",

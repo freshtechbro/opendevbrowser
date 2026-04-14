@@ -213,7 +213,7 @@ describe("RelayServer", () => {
   it("rejects non-loopback http requests and rate limits", () => {
     server = new RelayServer();
     const internal = server as unknown as {
-      authorizeHttpRequest: (origin: string | undefined, req: IncomingMessage, res: ServerResponse) => boolean;
+      authorizeHttpRequest: (pathname: string, origin: string | undefined, req: IncomingMessage, res: ServerResponse) => boolean;
       httpAttempts: Map<string, { count: number; resetAt: number }>;
     };
     const response = {
@@ -226,7 +226,7 @@ describe("RelayServer", () => {
       socket: { remoteAddress: "10.0.0.1" }
     } as unknown as IncomingMessage;
 
-    expect(internal.authorizeHttpRequest(undefined, request, response)).toBe(false);
+    expect(internal.authorizeHttpRequest("/status", undefined, request, response)).toBe(false);
     expect(response.writeHead).toHaveBeenCalledWith(403, { "Content-Type": "application/json" });
 
     const limitedResponse = {
@@ -242,14 +242,38 @@ describe("RelayServer", () => {
       headers: {},
       socket: { remoteAddress: "127.0.0.1" }
     } as unknown as IncomingMessage;
-    expect(internal.authorizeHttpRequest(undefined, limitedRequest, limitedResponse)).toBe(false);
+    expect(internal.authorizeHttpRequest("/status", undefined, limitedRequest, limitedResponse)).toBe(false);
     expect(limitedResponse.writeHead).toHaveBeenCalledWith(429, { "Content-Type": "application/json" });
+  });
+
+  it("bypasses generic http throttling for loopback /config requests without an origin", () => {
+    server = new RelayServer();
+    const internal = server as unknown as {
+      authorizeHttpRequest: (pathname: string, origin: string | undefined, req: IncomingMessage, res: ServerResponse) => boolean;
+      httpAttempts: Map<string, { count: number; resetAt: number }>;
+    };
+    const response = {
+      setHeader: vi.fn(),
+      writeHead: vi.fn(),
+      end: vi.fn()
+    } as unknown as ServerResponse;
+
+    internal.httpAttempts.set("127.0.0.1", {
+      count: (RelayServer as unknown as { MAX_HTTP_ATTEMPTS: number }).MAX_HTTP_ATTEMPTS,
+      resetAt: Date.now() + 60_000
+    });
+
+    expect(internal.authorizeHttpRequest("/config", undefined, {
+      headers: {},
+      socket: { remoteAddress: "127.0.0.1" }
+    } as IncomingMessage, response)).toBe(true);
+    expect(response.writeHead).not.toHaveBeenCalled();
   });
 
   it("authorizes extension-origin and loopback http requests", () => {
     server = new RelayServer();
     const internal = server as unknown as {
-      authorizeHttpRequest: (origin: string | undefined, req: IncomingMessage, res: ServerResponse) => boolean;
+      authorizeHttpRequest: (pathname: string, origin: string | undefined, req: IncomingMessage, res: ServerResponse) => boolean;
     };
 
     const extensionResponse = {
@@ -261,7 +285,7 @@ describe("RelayServer", () => {
       headers: {},
       socket: { remoteAddress: "10.0.0.1" }
     } as unknown as IncomingMessage;
-    expect(internal.authorizeHttpRequest(EXTENSION_ORIGIN, extensionRequest, extensionResponse)).toBe(true);
+    expect(internal.authorizeHttpRequest("/status", EXTENSION_ORIGIN, extensionRequest, extensionResponse)).toBe(true);
     expect(extensionResponse.writeHead).not.toHaveBeenCalled();
 
     const loopbackResponse = {
@@ -273,7 +297,7 @@ describe("RelayServer", () => {
       headers: {},
       socket: { remoteAddress: "127.0.0.1" }
     } as unknown as IncomingMessage;
-    expect(internal.authorizeHttpRequest(undefined, loopbackRequest, loopbackResponse)).toBe(true);
+    expect(internal.authorizeHttpRequest("/status", undefined, loopbackRequest, loopbackResponse)).toBe(true);
     expect(loopbackResponse.writeHead).not.toHaveBeenCalled();
   });
 
@@ -1807,7 +1831,7 @@ describe("RelayServer", () => {
     } as unknown as ServerResponse;
     const internal = server as unknown as {
       httpAttempts: Map<string, { count: number; resetAt: number }>;
-      authorizeHttpRequest: (origin: string | undefined, request: IncomingMessage, response: ServerResponse) => boolean;
+      authorizeHttpRequest: (pathname: string, origin: string | undefined, request: IncomingMessage, response: ServerResponse) => boolean;
       canvasClients: Map<string, { send: (payload: string) => void }>;
       extensionSocket: { send: (payload: string) => void } | null;
       handleCanvasExtensionMessage: (message: Record<string, unknown>) => void;
@@ -1827,7 +1851,7 @@ describe("RelayServer", () => {
       count: maxHttpAttempts,
       resetAt: Date.now() + 60_000
     });
-    expect(internal.authorizeHttpRequest(undefined, {
+    expect(internal.authorizeHttpRequest("/status", undefined, {
       socket: { remoteAddress: "127.0.0.1" }
     } as IncomingMessage, response)).toBe(false);
     expect(response.writeHead).toHaveBeenCalledWith(429, { "Content-Type": "application/json" });
@@ -1835,19 +1859,19 @@ describe("RelayServer", () => {
     vi.mocked(response.writeHead).mockClear();
     vi.mocked(response.end).mockClear();
     internal.httpAttempts.clear();
-    expect(internal.authorizeHttpRequest("https://evil.example", {
+    expect(internal.authorizeHttpRequest("/status", "https://evil.example", {
       socket: { remoteAddress: "127.0.0.1" }
     } as IncomingMessage, response)).toBe(false);
     expect(response.writeHead).toHaveBeenCalledWith(403, { "Content-Type": "application/json" });
 
     vi.mocked(response.writeHead).mockClear();
     vi.mocked(response.end).mockClear();
-    expect(internal.authorizeHttpRequest(undefined, {
+    expect(internal.authorizeHttpRequest("/status", undefined, {
       socket: { remoteAddress: "10.0.0.10" }
     } as IncomingMessage, response)).toBe(false);
     expect(response.writeHead).toHaveBeenCalledWith(403, { "Content-Type": "application/json" });
 
-    expect(internal.authorizeHttpRequest(EXTENSION_ORIGIN, {
+    expect(internal.authorizeHttpRequest("/status", EXTENSION_ORIGIN, {
       socket: { remoteAddress: "10.0.0.10" }
     } as IncomingMessage, response)).toBe(true);
 
@@ -3291,6 +3315,34 @@ describe("RelayServer", () => {
       expect(typeof data.relayPort).toBe("number");
     });
 
+    it("serves main and discovery /config under exhausted loopback http throttle", async () => {
+      server = new RelayServer({ discoveryPort: 0 });
+      server.setToken("secret");
+      const started = await server.start(0);
+      const discoveryPort = server.getDiscoveryPort();
+      expect(discoveryPort).toBeTruthy();
+
+      const internal = server as unknown as {
+        httpAttempts: Map<string, { count: number; resetAt: number }>;
+      };
+      internal.httpAttempts.set("127.0.0.1", {
+        count: (RelayServer as unknown as { MAX_HTTP_ATTEMPTS: number }).MAX_HTTP_ATTEMPTS,
+        resetAt: Date.now() + 60_000
+      });
+
+      const mainResponse = await fetch(`http://127.0.0.1:${started.port}/config`);
+      expect(mainResponse.status).toBe(200);
+      const mainData = await mainResponse.json();
+      expect(mainData.relayPort).toBe(started.port);
+      expect(mainData.discoveryPort).toBe(discoveryPort);
+
+      const discoveryResponse = await fetch(`http://127.0.0.1:${discoveryPort}/config`);
+      expect(discoveryResponse.status).toBe(200);
+      const discoveryData = await discoveryResponse.json();
+      expect(discoveryData.relayPort).toBe(started.port);
+      expect(discoveryData.discoveryPort).toBe(discoveryPort);
+    });
+
     it("handles CORS preflight on the discovery server", async () => {
       server = new RelayServer({ discoveryPort: 0 });
       await server.start(0);
@@ -4129,7 +4181,7 @@ describe("RelayServer", () => {
         end: vi.fn()
       } as unknown as ServerResponse;
       const internal = server as unknown as {
-        authorizeHttpRequest: (origin: string | undefined, request: IncomingMessage, response: ServerResponse) => boolean;
+        authorizeHttpRequest: (pathname: string, origin: string | undefined, request: IncomingMessage, response: ServerResponse) => boolean;
         handleConfigRequest: (request: IncomingMessage, origin: string | undefined, response: ServerResponse) => void;
         handleStatusRequest: (request: IncomingMessage, origin: string | undefined, response: ServerResponse) => void;
       };
@@ -4138,7 +4190,7 @@ describe("RelayServer", () => {
         socket: { remoteAddress: "127.0.0.1" }
       } as unknown as IncomingMessage;
 
-      expect(internal.authorizeHttpRequest(undefined, {
+      expect(internal.authorizeHttpRequest("/status", undefined, {
         headers: {},
         socket: {}
       } as IncomingMessage, response)).toBe(false);

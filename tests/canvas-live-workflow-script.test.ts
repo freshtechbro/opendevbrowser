@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  CDP_CODE_SYNC_STEP_TIMEOUT_MS,
+  CDP_LONG_STEP_TIMEOUT_MS,
+  CDP_PARENT_WATCHDOG_MS,
+  CDP_TEARDOWN_RESERVE_MS,
   classifyWorkflowFailure,
   DISCONNECT_TIMEOUT_MS,
   DISCONNECT_WRAPPER_TIMEOUT_MS,
   getSurfaceConfig,
-  parseArgs
+  parseArgs,
+  resolveWorkflowTimeout
 } from "../scripts/canvas-live-workflow.mjs";
 
 describe("canvas-live-workflow script", () => {
@@ -62,12 +67,63 @@ describe("canvas-live-workflow script", () => {
     });
   });
 
-  it("uses tighter bounded retries for the direct cdp canvas surface", () => {
+  it("uses startUrl-based connect setup for the direct cdp canvas surface", () => {
     const cdp = getSurfaceConfig("cdp");
 
+    expect(cdp?.connectArgs).toContain("--start-url");
+    expect(cdp?.connectArgs).toContain("https://example.com/?canvas-cdp-preview=1");
     expect(cdp?.connectAttempts).toBe(2);
     expect(cdp?.connectTimeoutMs).toBe(45_000);
-    expect(cdp?.gotoTimeoutMs).toBe(30_000);
     expect(cdp?.statusTimeoutMs).toBe(15_000);
+  });
+
+  it("keeps cdp long-running steps inside the parent watchdog budget", () => {
+    expect(resolveWorkflowTimeout({
+      surface: "extension",
+      startedAtMs: 0,
+      requestedTimeoutMs: 300_000,
+      stepName: "preview.render",
+      currentTimeMs: 0
+    })).toBe(300_000);
+
+    expect(resolveWorkflowTimeout({
+      surface: "cdp",
+      startedAtMs: 0,
+      requestedTimeoutMs: 300_000,
+      stepName: "preview.render",
+      currentTimeMs: 0
+    })).toBe(CDP_LONG_STEP_TIMEOUT_MS);
+
+    expect(resolveWorkflowTimeout({
+      surface: "cdp",
+      startedAtMs: 0,
+      requestedTimeoutMs: 300_000,
+      stepName: "code.push",
+      currentTimeMs: 0
+    })).toBe(CDP_CODE_SYNC_STEP_TIMEOUT_MS);
+
+    expect(resolveWorkflowTimeout({
+      surface: "cdp",
+      startedAtMs: 0,
+      requestedTimeoutMs: 300_000,
+      stepName: "document.patch.code",
+      currentTimeMs: 0
+    })).toBe(CDP_CODE_SYNC_STEP_TIMEOUT_MS);
+
+    expect(resolveWorkflowTimeout({
+      surface: "cdp",
+      startedAtMs: 0,
+      requestedTimeoutMs: 300_000,
+      stepName: "code.push",
+      currentTimeMs: CDP_PARENT_WATCHDOG_MS - CDP_TEARDOWN_RESERVE_MS - 12_000
+    })).toBe(12_000);
+
+    expect(() => resolveWorkflowTimeout({
+      surface: "cdp",
+      startedAtMs: 0,
+      requestedTimeoutMs: 300_000,
+      stepName: "disconnect",
+      currentTimeMs: CDP_PARENT_WATCHDOG_MS - CDP_TEARDOWN_RESERVE_MS - 4_000
+    })).toThrow("CDP workflow budget exhausted before disconnect.");
   });
 });
