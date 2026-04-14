@@ -21,10 +21,8 @@ Help-led highlights: browser replay (`screencast-start`, `screencast-stop`), pub
 Skill-pack installation and discovery are synchronized for:
 - `opencode`: `~/.config/opencode/skill` and `./.opencode/skill`
 - `codex`: `$CODEX_HOME/skills` (fallback `~/.codex/skills`) and `./.codex/skills`
-- `claudecode`: `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`) and `./.claude/skills`
-- `ampcli`: `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`) and `./.amp/skills`
-
-Legacy aliases `claude` and `amp` remain present in installer target metadata for compatibility.
+- `claudecode`: `$CLAUDECODE_HOME/skills` (fallback `~/.claude/skills`) and `./.claude/skills`
+- `ampcli`: `$AMP_CLI_HOME/skills` (fallback `~/.amp/skills`) and `./.amp/skills`
 
 ## CLI surface categories
 
@@ -103,6 +101,7 @@ Minimum handshake payload shape:
   "documentId": "dc_01",
   "leaseId": "lease_01",
   "preflightState": "handshake_read",
+  "planStatus": "missing",
   "attachModes": ["observer", "lease_reclaim"],
   "governanceRequirements": {
     "requiredBeforeMutation": ["intent", "generationPlan", "designLanguage"],
@@ -126,6 +125,10 @@ Minimum handshake payload shape:
       "canvas.session.attach",
       "canvas.session.status"
     ]
+  },
+  "guidance": {
+    "recommendedNextCommands": ["canvas.plan.set"],
+    "reason": "Handshake is complete. Submit a complete generationPlan before mutation."
   }
 }
 ```
@@ -136,7 +139,7 @@ Preflight state machine:
 - `plan_accepted`
 - `patching_enabled`
 
-The first mutation path must stay blocked until `canvas.plan.set` has been accepted. The canonical blocker is `plan_required` and should carry `details.auditId: "CANVAS-01"`.
+The first mutation path must stay blocked until `canvas.plan.set` has been accepted. The canonical blocker is `plan_required` and should carry `details.auditId: "CANVAS-01"`. Invalid governance payloads should fail with `generation_plan_invalid` and `details.auditId: "CANVAS-03"`. Successful handshake, plan, patch, preview, feedback, and persistence responses should also carry `guidance.recommendedNextCommands` plus `guidance.reason` so agents know the next valid step without inferring it from raw state alone.
 
 Recommended blocker envelope:
 
@@ -169,6 +172,7 @@ Current operational constraints:
 
 Operational rule:
 - Read `canvas.session.open` or `canvas.capabilities.get` before mutation.
+- After every successful handshake, plan, patch, preview, feedback, save, or export response, inspect `guidance.recommendedNextCommands` before choosing the next command.
 - Use `canvas.feedback.poll` after each patch/render loop.
 - Do not save if `governanceRequirements.requiredBeforeSave` still reports missing governance blocks.
 

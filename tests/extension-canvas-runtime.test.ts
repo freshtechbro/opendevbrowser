@@ -414,6 +414,215 @@ describe("CanvasRuntime", () => {
     }));
   });
 
+  it("reclaims a live design-tab session after canvas relay reconnect when the lease matches", async () => {
+    let nextTabId = 1;
+    const tabsById = new Map<number, chrome.tabs.Tab>();
+    globalThis.chrome = {
+      runtime: {
+        lastError: null,
+        getURL: vi.fn((path: string) => `chrome-extension://test/${path}`)
+      },
+      tabs: {
+        create: vi.fn((createProperties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
+          const tab: chrome.tabs.Tab = { id: nextTabId, url: createProperties.url, title: "Canvas", status: "complete" };
+          tabsById.set(nextTabId, tab);
+          nextTabId += 1;
+          callback?.(tab);
+          return tab;
+        }),
+        get: vi.fn(async (tabId: number) => tabsById.get(tabId) ?? null),
+        remove: vi.fn((tabId: number, callback?: () => void) => {
+          tabsById.delete(tabId);
+          callback?.();
+        })
+      },
+      scripting: {
+        insertCSS: vi.fn(),
+        executeScript: vi.fn()
+      }
+    } as unknown as typeof chrome;
+
+    const sent: CanvasEnvelope[] = [];
+    const runtime = new CanvasRuntime({
+      send: (message) => sent.push(message)
+    });
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-open-reclaim",
+      clientId: "client-1",
+      canvasSessionId: "canvas_reclaim",
+      leaseId: "lease-reclaim",
+      command: "canvas.tab.open",
+      payload: {
+        previewMode: "focused",
+        html: OPEN_HTML,
+        document: {
+          documentId: "dc_reclaim",
+          title: "Reconnect Canvas",
+          pages: [{
+            id: "page_home",
+            rootNodeId: "node_root",
+            nodes: [
+              { id: "node_root", kind: "frame", name: "Root", rect: { x: 0, y: 0, width: 640, height: 480 }, childIds: ["node_card"] },
+              { id: "node_card", kind: "frame", name: "Card", pageId: "page_home", parentId: "node_root", rect: { x: 96, y: 88, width: 320, height: 220 }, childIds: [] }
+            ]
+          }]
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    const port = createPort(1);
+    runtime.attachPort(port as unknown as chrome.runtime.Port);
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-mount-reclaim",
+      clientId: "client-1",
+      canvasSessionId: "canvas_reclaim",
+      leaseId: "lease-reclaim",
+      command: "canvas.overlay.mount",
+      payload: {
+        targetId: "tab-1",
+        prototypeId: "proto_home_default"
+      }
+    });
+    await flushMicrotasks();
+
+    const mountResponse = sent.find((message) =>
+      message.type === "canvas_response" && message.requestId === "req-mount-reclaim"
+    );
+    const mountId = (mountResponse as Extract<CanvasEnvelope, { type: "canvas_response" }>).payload?.mountId as string;
+
+    runtime.handleMessage({
+      type: "canvas_event",
+      clientId: "client-1",
+      canvasSessionId: "canvas_reclaim",
+      event: "canvas_client_disconnected",
+      payload: { at: Date.now() }
+    });
+    await flushMicrotasks();
+
+    const internal = runtime as unknown as {
+      sessions: { get: (sessionId: string) => unknown };
+    };
+    expect(internal.sessions.get("canvas_reclaim")).toBeTruthy();
+    expect(globalThis.chrome.tabs.remove).not.toHaveBeenCalled();
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-select-reclaim",
+      clientId: "client-2",
+      canvasSessionId: "canvas_reclaim",
+      leaseId: "lease-reclaim",
+      command: "canvas.overlay.select",
+      payload: {
+        targetId: "tab-1",
+        mountId,
+        nodeId: "node_card"
+      }
+    });
+    await flushMicrotasks();
+
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: "canvas_response",
+      requestId: "req-select-reclaim",
+      payload: expect.objectContaining({
+        targetId: "tab-1",
+        selection: expect.objectContaining({
+          matched: true,
+          nodeId: "node_card",
+          selector: "[data-node-id=\"node_card\"]"
+        })
+      })
+    }));
+    expect(sent).not.toContainEqual(expect.objectContaining({
+      type: "canvas_error",
+      requestId: "req-select-reclaim"
+    }));
+  });
+
+  it("expires orphaned design-tab sessions on client disconnect after the design tab closes", async () => {
+    let nextTabId = 1;
+    const tabsById = new Map<number, chrome.tabs.Tab>();
+    globalThis.chrome = {
+      runtime: {
+        lastError: null,
+        getURL: vi.fn((path: string) => `chrome-extension://test/${path}`)
+      },
+      tabs: {
+        create: vi.fn((createProperties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
+          const tab: chrome.tabs.Tab = { id: nextTabId, url: createProperties.url, title: "Canvas", status: "complete" };
+          tabsById.set(nextTabId, tab);
+          nextTabId += 1;
+          callback?.(tab);
+          return tab;
+        }),
+        get: vi.fn(async (tabId: number) => tabsById.get(tabId) ?? null),
+        remove: vi.fn((tabId: number, callback?: () => void) => {
+          tabsById.delete(tabId);
+          callback?.();
+        })
+      }
+    } as unknown as typeof chrome;
+
+    const sent: CanvasEnvelope[] = [];
+    const runtime = new CanvasRuntime({
+      send: (message) => sent.push(message)
+    });
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-open-expire",
+      clientId: "client-1",
+      canvasSessionId: "canvas_expire",
+      leaseId: "lease-expire",
+      command: "canvas.tab.open",
+      payload: {
+        previewMode: "focused",
+        html: OPEN_HTML,
+        document: {
+          documentId: "dc_expire",
+          title: "Expire Canvas",
+          pages: [{ id: "page_home", rootNodeId: null, nodes: [] }]
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-close-expire",
+      clientId: "client-1",
+      canvasSessionId: "canvas_expire",
+      leaseId: "lease-expire",
+      command: "canvas.tab.close",
+      payload: { targetId: "tab-1" }
+    });
+    await flushMicrotasks();
+
+    runtime.handleMessage({
+      type: "canvas_event",
+      clientId: "client-1",
+      canvasSessionId: "canvas_expire",
+      event: "canvas_client_disconnected",
+      payload: { at: Date.now() }
+    });
+    await flushMicrotasks();
+
+    const internal = runtime as unknown as {
+      sessions: { get: (sessionId: string) => unknown };
+    };
+    expect(internal.sessions.get("canvas_expire")).toBeNull();
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: "canvas_event",
+      canvasSessionId: "canvas_expire",
+      event: "canvas_session_expired",
+      payload: expect.objectContaining({ reason: "client_disconnected" })
+    }));
+  });
+
   it("registers extension-hosted design tabs with ops when the canvas summary carries a browser session id", async () => {
     let nextTabId = 1;
     const tabsById = new Map<number, chrome.tabs.Tab>();

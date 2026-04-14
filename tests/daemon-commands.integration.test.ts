@@ -1284,6 +1284,40 @@ describe("daemon-commands integration", () => {
     })).rejects.toThrow("Legacy extension relay (/cdp) requires --extension-legacy.");
   });
 
+  it("preserves explicit /cdp relay endpoints and startUrl when extensionLegacy is enabled", async () => {
+    const core = makeCore();
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-cdp-start",
+      mode: "extension",
+      activeTargetId: "target-cdp-1",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/cdp"
+    });
+    const binding = bindRelay("client-cdp-start");
+    if ("queued" in binding && binding.queued) {
+      throw new Error("Expected immediate binding for test setup.");
+    }
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-cdp-start",
+        bindingId: binding.bindingId,
+        wsEndpoint: "ws://127.0.0.1:8787/cdp",
+        extensionLegacy: true,
+        startUrl: "http://127.0.0.1:41731/"
+      }
+    });
+
+    expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp", {
+      startUrl: "http://127.0.0.1:41731/"
+    });
+    expect(response).toEqual(expect.objectContaining({
+      sessionId: "session-cdp-start",
+      mode: "extension"
+    }));
+  });
+
   it("rejects non-legacy extension connect results that do not return a lease", async () => {
     const core = makeCore();
     const relay = core.relay as unknown as {

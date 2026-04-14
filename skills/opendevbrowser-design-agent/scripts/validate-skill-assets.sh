@@ -88,6 +88,14 @@ const skillDocMarkers = [
   "assets/templates/reference-pattern-board.v1.json",
   "assets/templates/design-release-gate.v1.json",
   "scripts/extract-canvas-plan.sh",
+  "canvas.session.open",
+  "canvas.plan.get",
+  "canvas.document.patch",
+  "canvas.preview.render",
+  "canvas.document.save",
+  "handshake_read",
+  "plan_accepted",
+  "recommendedNextCommands",
   "canvas.plan.set",
   "canvas.history.undo",
   "canvas.history.redo",
@@ -104,6 +112,34 @@ const skillDocMarkers = [
   "v0.dev/docs/prompting/text",
   "docs.lovable.dev/prompting/prompting-best-practices"
 ];
+
+const designWorkflowMarkers = [
+  "canvas.session.open",
+  "canvas.plan.set",
+  "canvas.plan.get",
+  "canvas.document.patch",
+  "canvas.preview.render",
+  "canvas.feedback.poll",
+  "canvas.document.save",
+  "handshake_read",
+  "plan_accepted",
+  "recommendedNextCommands"
+];
+
+const workflowOutputMarkers = {
+  "canvas-contract": [
+    "canvas.session.open",
+    "canvas.plan.set",
+    "canvas.plan.get",
+    "canvas.document.patch",
+    "canvas.preview.render",
+    "canvas.feedback.poll",
+    "canvas.document.save",
+    "handshake_read",
+    "plan_accepted",
+    "recommendedNextCommands"
+  ]
+};
 
 const patternMarkers = [
   "Anthropic",
@@ -151,6 +187,13 @@ const patternDoc = fs.readFileSync(fullPath("artifacts/external-pattern-synthesi
 for (const marker of patternMarkers) {
   if (!patternDoc.includes(marker)) {
     failures.push(`external-pattern-synthesis missing marker: ${marker}`);
+  }
+}
+
+const designWorkflowDoc = fs.readFileSync(fullPath("artifacts/design-workflows.md"), "utf8");
+for (const marker of designWorkflowMarkers) {
+  if (!designWorkflowDoc.includes(marker)) {
+    failures.push(`design-workflows missing marker: ${marker}`);
   }
 }
 
@@ -209,6 +252,14 @@ for (const workflow of [
   }
   if ((result.stdout ?? "").trim().length === 0) {
     failures.push(`design-workflow.sh produced empty output for mode ${workflow}`);
+  }
+  const requiredOutputMarkers = workflowOutputMarkers[workflow];
+  if (requiredOutputMarkers) {
+    for (const marker of requiredOutputMarkers) {
+      if (!(result.stdout ?? "").includes(marker)) {
+        failures.push(`design-workflow.sh output for ${workflow} missing marker: ${marker}`);
+      }
+    }
   }
 }
 

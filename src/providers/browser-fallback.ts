@@ -1,3 +1,4 @@
+import { buildProviderIssueGuidance, readProviderIssueHint } from "./constraint";
 import { ProviderRuntimeError, providerErrorCodeFromReasonCode } from "./errors";
 import {
   resolveProviderFallbackModes,
@@ -106,6 +107,22 @@ export const toProviderFallbackError = (args: {
 }): ProviderRuntimeError => {
   const { fallback } = args;
   const reasonCode = fallback.reasonCode;
+  const details: Record<string, JsonValue> = {
+    url: args.url,
+    disposition: fallback.disposition,
+    ...(fallback.mode ? { browserFallbackMode: fallback.mode } : {}),
+    ...(fallback.challenge ? { challenge: toJsonRecord(fallback.challenge) } : {}),
+    ...(fallback.preservedSessionId ? { preservedSessionId: fallback.preservedSessionId } : {}),
+    ...(fallback.preservedTargetId ? { preservedTargetId: fallback.preservedTargetId } : {}),
+    ...toJsonRecord(fallback.details ?? {})
+  };
+  const hint = readProviderIssueHint({
+    reasonCode,
+    details: details as Record<string, unknown>
+  });
+  const guidance = hint
+    ? buildProviderIssueGuidance({ provider: args.provider, hint, details })
+    : undefined;
   return new ProviderRuntimeError(
     providerErrorCodeFromReasonCode(reasonCode),
     fallbackDispositionMessage(fallback, args.url),
@@ -114,15 +131,9 @@ export const toProviderFallbackError = (args: {
       source: args.source,
       retryable: reasonCode === "rate_limited",
       reasonCode,
-      details: {
-        url: args.url,
-        disposition: fallback.disposition,
-        ...(fallback.mode ? { browserFallbackMode: fallback.mode } : {}),
-        ...(fallback.challenge ? { challenge: toJsonRecord(fallback.challenge) } : {}),
-        ...(fallback.preservedSessionId ? { preservedSessionId: fallback.preservedSessionId } : {}),
-        ...(fallback.preservedTargetId ? { preservedTargetId: fallback.preservedTargetId } : {}),
-        ...toJsonRecord(fallback.details ?? {})
-      }
+      details: guidance
+        ? { ...details, guidance }
+        : details
     }
   );
 };

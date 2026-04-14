@@ -310,7 +310,7 @@ export class RelayServer {
       }
       
       if (pathname === PAIR_PATH && request.method === "GET") {
-        if (!this.authorizeHttpRequest(origin, request, response)) {
+        if (!this.authorizeHttpRequest(PAIR_PATH, origin, request, response)) {
           return;
         }
 
@@ -738,11 +738,15 @@ export class RelayServer {
     return record.count > RelayServer.MAX_HTTP_ATTEMPTS;
   }
 
-  private authorizeHttpRequest(origin: string | undefined, request: IncomingMessage, response: ServerResponse): boolean {
+  private shouldBypassHttpRateLimit(pathname: string, origin: string | undefined, ip: string): boolean {
+    return pathname === CONFIG_PATH && origin === undefined && this.isLoopbackAddress(ip);
+  }
+
+  private authorizeHttpRequest(pathname: string, origin: string | undefined, request: IncomingMessage, response: ServerResponse): boolean {
     const normalizedOrigin = this.normalizeOrigin(origin);
     const ip = request.socket.remoteAddress ?? "unknown";
 
-    if (this.isHttpRateLimited(ip)) {
+    if (!this.shouldBypassHttpRateLimit(pathname, origin, ip) && this.isHttpRateLimited(ip)) {
       this.logSecurityEvent("http_rate_limited", { ip });
       response.writeHead(429, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: "Too Many Requests" }));
@@ -792,7 +796,7 @@ export class RelayServer {
   }
 
   private handleConfigRequest(request: IncomingMessage, origin: string | undefined, response: ServerResponse): void {
-    if (!this.authorizeHttpRequest(origin, request, response)) {
+    if (!this.authorizeHttpRequest(CONFIG_PATH, origin, request, response)) {
       return;
     }
 
@@ -819,7 +823,7 @@ export class RelayServer {
   }
 
   private handleStatusRequest(request: IncomingMessage, origin: string | undefined, response: ServerResponse): void {
-    if (!this.authorizeHttpRequest(origin, request, response)) {
+    if (!this.authorizeHttpRequest(STATUS_PATH, origin, request, response)) {
       return;
     }
 

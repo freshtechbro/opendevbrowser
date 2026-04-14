@@ -47,10 +47,7 @@ describe("cli-onboarding-smoke script", () => {
       CODEX_HOME: isolatedRoot,
       OPENCODE_CONFIG_DIR: join(isolatedRoot, "config"),
       CLAUDECODE_HOME: join(isolatedRoot, ".claude"),
-      CLAUDE_HOME: join(isolatedRoot, ".claude"),
-      AMPCLI_HOME: join(isolatedRoot, ".amp"),
-      AMP_CLI_HOME: join(isolatedRoot, ".amp"),
-      AMP_HOME: join(isolatedRoot, ".amp")
+      AMP_CLI_HOME: join(isolatedRoot, ".amp")
     }, SkillLoader);
     expect(guide).toContain("## Quick Start");
     expect(guide).not.toContain("## Fast Start");

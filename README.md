@@ -483,9 +483,9 @@ Skills are discovered from (priority order):
 3. `.codex/skills/` (project compatibility)
 4. `$CODEX_HOME/skills` (global compatibility; fallback `~/.codex/skills`)
 5. `.claude/skills/` (ClaudeCode project compatibility)
-6. `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (ClaudeCode global compatibility; fallback `~/.claude/skills`)
+6. `$CLAUDECODE_HOME/skills` (ClaudeCode global compatibility; fallback `~/.claude/skills`)
 7. `.amp/skills/` (AmpCLI project compatibility)
-8. `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
+8. `$AMP_CLI_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
 9. Custom paths via `skillPaths` config
 10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
 

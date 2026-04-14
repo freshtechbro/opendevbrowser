@@ -154,6 +154,35 @@ describe("provider runtime internals", () => {
     expect(result.metrics.failed).toBe(2);
   });
 
+  it("returns a structured timeout when a provider never settles and ignores abort", async () => {
+    const runtime = new ProviderRuntime({
+      budgets: {
+        retries: { read: 0, write: 0 },
+        circuitBreaker: { failureThreshold: 99, cooldownMs: 1000 },
+        timeoutMs: { search: 25, fetch: 25, crawl: 25, post: 25 }
+      }
+    });
+
+    const hangingProvider = makeProvider("community/hang", "community", {
+      search: async () => await new Promise<never>(() => undefined)
+    });
+
+    runtime.register(hangingProvider);
+
+    const result = await runtime.search(
+      { query: "hang" },
+      { source: "community", providerIds: ["community/hang"] }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.partial).toBe(false);
+    expect(result.records).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.provider).toBe("community/hang");
+    expect(result.failures[0]?.error.code).toBe("timeout");
+    expect(result.failures[0]?.error.message).toContain("25ms");
+  });
+
   it("computes challenge pressure from registry anti-bot state and scope keys", () => {
     const runtime = new ProviderRuntime();
     const web = makeProvider("web/a", "web", {

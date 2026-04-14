@@ -103,7 +103,7 @@ describe("macro-resolve CLI command", () => {
     expect(executionMeta).not.toHaveProperty("blocker");
   });
 
-  it("passes timeout-ms through daemon call options", async () => {
+  it("buffers transport timeout above the workflow payload timeout", async () => {
     callDaemon.mockResolvedValue({
       runtime: "macros",
       resolution: { action: { source: "web", operation: "search", input: { query: "openai" } } },
@@ -136,7 +136,44 @@ describe("macro-resolve CLI command", () => {
         execute: true,
         timeoutMs: 120000
       },
-      { timeoutMs: 120000 }
+      { timeoutMs: 180000 }
+    );
+  });
+
+  it("preserves long workflow timeouts while extending daemon transport headroom", async () => {
+    callDaemon.mockResolvedValue({
+      runtime: "macros",
+      resolution: { action: { source: "social", operation: "search", input: { query: "browser automation x" } } },
+      execution: {
+        records: [],
+        failures: [],
+        metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+        meta: {
+          ok: true,
+          partial: false,
+          sourceSelection: "social",
+          providerOrder: ["social/x"],
+          trace: { requestId: "req-long-timeout" }
+        }
+      }
+    });
+
+    await runMacroResolve(makeArgs([
+      "--expression=@media.search(\"browser automation x\", \"x\", 5)",
+      "--execute",
+      "--timeout-ms=180000"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "macro.resolve",
+      {
+        expression: "@media.search(\"browser automation x\", \"x\", 5)",
+        defaultProvider: undefined,
+        includeCatalog: false,
+        execute: true,
+        timeoutMs: 180000
+      },
+      { timeoutMs: 240000 }
     );
   });
 

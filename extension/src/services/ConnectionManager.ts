@@ -107,6 +107,7 @@ export class ConnectionManager {
   private relayEpoch: number | null = null;
   private relayConfirmedPort: number | null = null;
   private relayNotice: string | null = null;
+  private reconnectSuppressed = false;
   private readonly maxReconnectDelayMs = RECONNECT_MAX_DELAY_MS;
   private connectPromise: Promise<void> | null = null;
   private annotationHandler: ((command: RelayAnnotationCommand) => void) | null = null;
@@ -141,6 +142,10 @@ export class ConnectionManager {
 
   getRelayNotice(): string | null {
     return this.relayNotice;
+  }
+
+  isReconnectSuppressed(): boolean {
+    return this.reconnectSuppressed;
   }
 
   getLastError(): ConnectionErrorInfo | null {
@@ -303,6 +308,7 @@ export class ConnectionManager {
 
       try {
         this.clearLastError();
+        this.reconnectSuppressed = false;
         this.relayNotice = null;
         this.shouldReconnect = true;
         this.reconnectAttempts = 0;
@@ -332,6 +338,7 @@ export class ConnectionManager {
   async disconnect(): Promise<void> {
     if (this.disconnecting) return;
     this.disconnecting = true;
+    this.reconnectSuppressed = false;
     this.shouldReconnect = false;
     this.clearReconnectTimer();
     this.stopHeartbeat();
@@ -592,7 +599,7 @@ export class ConnectionManager {
         this.canvasHandler?.(message);
       },
       onClose: (detail) => {
-        this.handleRelayClose(detail);
+        this.handleRelayClose(relay, detail);
       }
     });
 
@@ -645,10 +652,25 @@ export class ConnectionManager {
     }
   }
 
-  private handleRelayClose(detail?: { code?: number; reason?: string }): void {
+  private handleRelayClose(closedRelay: RelayClient, detail?: { code?: number; reason?: string }): void {
+    if (this.relay !== closedRelay) {
+      return;
+    }
     this.stopHeartbeat();
     this.relay = null;
     this.cdp.markClientClosed();
+    if (this.isRelayReplacedByNewClient(detail)) {
+      this.reconnectSuppressed = true;
+      this.shouldReconnect = false;
+      this.clearReconnectTimer();
+      this.setStatus("disconnected");
+      this.relayInstanceId = null;
+      this.relayConfirmedPort = null;
+      this.relayEpoch = null;
+      this.relayNotice = "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly.";
+      return;
+    }
+    this.reconnectSuppressed = false;
     if (detail && (detail.code === 1008 || detail.reason?.includes("Invalid pairing token"))) {
       this.clearStoredPairingToken();
     }
@@ -1116,11 +1138,16 @@ export class ConnectionManager {
     }
   }
 
+  private isRelayReplacedByNewClient(detail?: { code?: number; reason?: string }): boolean {
+    return detail?.reason === "Replaced by a new extension client";
+  }
+
   private async verifyHandshakeHealth(relay: RelayClient, source: "connect" | "refresh"): Promise<boolean> {
     try {
       const health = await relay.sendPing(this.heartbeatTimeoutMs);
       if (health.extensionConnected && health.extensionHandshakeComplete) {
         if (this.relay === relay) {
+          this.reconnectSuppressed = false;
           this.relayNotice = null;
         }
         return true;

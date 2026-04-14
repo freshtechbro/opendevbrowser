@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import {
+  CANVAS_LIVE_TIMEOUTS_MS,
   defaultArtifactPath,
   ensureCliBuilt,
   finalizeReport,
@@ -102,15 +103,15 @@ export function parseCliOptions(argv) {
 
 export function buildScenarioCases() {
   return [
-    { id: "feature.canvas.managed_headless", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headless"], timeoutMs: 300_000 },
-    { id: "feature.canvas.managed_headed", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headed"], timeoutMs: 300_000 },
-    { id: "feature.canvas.extension", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "extension"], requiresExtension: true, timeoutMs: 240_000 },
+    { id: "feature.canvas.managed_headless", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headless"], timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.managedHeadless },
+    { id: "feature.canvas.managed_headed", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headed"], timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.managedHeaded },
+    { id: "feature.canvas.extension", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "extension"], requiresExtension: true, timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.extension },
     {
       id: "feature.canvas.cdp",
       script: "scripts/canvas-live-workflow.mjs",
       args: ["--surface", "cdp"],
       requiresExtension: true,
-      timeoutMs: 300_000
+      timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.cdp
     },
     {
       id: "feature.annotate.relay",

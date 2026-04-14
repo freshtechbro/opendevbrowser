@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CANVAS_LIVE_TIMEOUTS_MS } from "../scripts/live-direct-utils.mjs";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import {
   buildWorkflowInventory,
@@ -100,7 +101,9 @@ describe("workflow inventory", () => {
     expect(webFetch?.secondaryArgs.join(" ")).toContain("https://playwright.dev/docs/api/class-locator");
     expect(relayAnnotate?.requiresExtension).toBe(true);
     expect(extensionCanvas?.requiresExtension).toBe(true);
+    expect(extensionCanvas?.timeoutMs).toBe(CANVAS_LIVE_TIMEOUTS_MS.extension);
     expect(cdpCanvas?.requiresExtension).toBe(true);
+    expect(cdpCanvas?.timeoutMs).toBe(CANVAS_LIVE_TIMEOUTS_MS.cdp);
   });
 
   it("keeps automated shopping validation scenarios off non-authoritative region comparisons", () => {

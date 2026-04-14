@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CANVAS_LIVE_TIMEOUTS_MS, parseJsonFromStdout } from "../scripts/live-direct-utils.mjs";
 import {
   buildChildArgs,
   buildScenarioCases,
@@ -6,7 +7,6 @@ import {
   parseCliOptions,
   waitForExtensionReconnect
 } from "../scripts/live-regression-direct.mjs";
-import { parseJsonFromStdout } from "../scripts/live-direct-utils.mjs";
 
 describe("live-regression-direct", () => {
   it("parses --release-gate", () => {
@@ -29,7 +29,7 @@ describe("live-regression-direct", () => {
       "feature.cli.smoke"
     ]);
     expect(cdp?.requiresOpsDisconnect).toBeUndefined();
-    expect(cdp?.timeoutMs).toBe(300_000);
+    expect(cdp?.timeoutMs).toBe(CANVAS_LIVE_TIMEOUTS_MS.cdp);
   });
 
   it("only forwards --release-gate to child scripts that support it", () => {

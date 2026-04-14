@@ -126,6 +126,12 @@
         background: var(--accent-soft);
       }
 
+      .status-pill.warning {
+        color: var(--text);
+        border-color: rgba(245, 158, 11, 0.55);
+        background: rgba(245, 158, 11, 0.18);
+      }
+
       .status-indicator {
         width: 8px;
         height: 8px;
@@ -138,6 +144,11 @@
       .status-indicator.connected {
         background: var(--accent);
         box-shadow: 0 0 12px rgba(32, 213, 198, 0.55);
+      }
+
+      .status-indicator.warning {
+        background: #f59e0b;
+        box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);
       }
 
       .panel {

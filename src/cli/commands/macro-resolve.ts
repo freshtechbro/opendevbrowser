@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../args";
 import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
 import { parseNumberFlag } from "../utils/parse";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 
@@ -11,6 +12,15 @@ type MacroResolveArgs = {
   execute?: boolean;
   timeoutMs?: number;
   challengeAutomationMode?: ChallengeAutomationMode;
+};
+
+const MACRO_TRANSPORT_TIMEOUT_BUFFER_MS = 60_000;
+
+const deriveMacroTransportTimeoutMs = (timeoutMs: number): number => {
+  return Math.max(
+    DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
+    timeoutMs + MACRO_TRANSPORT_TIMEOUT_BUFFER_MS
+  );
 };
 
 const requireValue = (value: string | undefined, flag: string): string => {
@@ -104,7 +114,9 @@ export async function runMacroResolve(args: ParsedArgs) {
     ...(parsed.challengeAutomationMode ? { challengeAutomationMode: parsed.challengeAutomationMode } : {})
   };
   const result = typeof parsed.timeoutMs === "number"
-    ? await callDaemon("macro.resolve", params, { timeoutMs: parsed.timeoutMs })
+    ? await callDaemon("macro.resolve", params, {
+      timeoutMs: deriveMacroTransportTimeoutMs(parsed.timeoutMs)
+    })
     : await callDaemon("macro.resolve", params);
 
   return {

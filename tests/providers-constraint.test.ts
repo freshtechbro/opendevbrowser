@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyProviderIssueHint,
+  buildProviderIssueGuidance,
   classifyProviderIssue,
   readProviderIssueHint,
   summarizePrimaryProviderIssue,
@@ -174,7 +175,14 @@ describe("provider constraint helpers", () => {
         evidenceCode: "existing_auth"
       },
       other: "value",
-      reasonCode: "env_limited"
+      reasonCode: "env_limited",
+      guidance: {
+        reason: "Provider needs a live browser-rendered page before retrying.",
+        recommendedNextCommands: [
+          "Retry with browser assistance or a headed browser session.",
+          "Rerun the same provider or workflow after the rendered page is ready."
+        ]
+      }
     });
   });
 
@@ -287,6 +295,13 @@ describe("provider constraint helpers", () => {
       constraint: {
         kind: "render_required",
         evidenceCode: "browser_required"
+      },
+      guidance: {
+        reason: "Provider needs a live browser-rendered page before retrying.",
+        recommendedNextCommands: [
+          "Retry with browser assistance or a headed browser session.",
+          "Rerun the same provider or workflow after the rendered page is ready."
+        ]
       }
     });
 
@@ -320,7 +335,14 @@ describe("provider constraint helpers", () => {
     ])).toMatchObject({
       provider: "shopping/costco",
       reasonCode: "env_limited",
-      summary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required."
+      summary: "Costco requires manual browser follow-up; this run did not determine whether login or page rendering is required.",
+      guidance: {
+        reason: "Costco needs a live browser-rendered page before retrying.",
+        recommendedNextCommands: [
+          "Retry with browser assistance or a headed browser session.",
+          "Rerun the same provider or workflow after the rendered page is ready."
+        ]
+      }
     });
 
     expect(readProviderIssueHint({
@@ -339,6 +361,55 @@ describe("provider constraint helpers", () => {
         message: "A live browser is still required for this result page."
       }
     });
+  });
+
+  it("builds auth, challenge, and preserved-session guidance from issue details", () => {
+    expect(buildProviderIssueGuidance({
+      provider: "social/linkedin",
+      hint: {
+        reasonCode: "token_required",
+        constraint: {
+          kind: "session_required",
+          evidenceCode: "auth_required"
+        }
+      }
+    })).toEqual({
+      reason: "Linkedin needs an authenticated session before retrying.",
+      recommendedNextCommands: [
+        "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow.",
+        "Rerun the same provider or workflow once the session is active."
+      ]
+    });
+
+    expect(buildProviderIssueGuidance({
+      provider: "shopping/costco",
+      hint: {
+        reasonCode: "challenge_detected"
+      },
+      details: {
+        preservedSessionId: "session-1"
+      }
+    })).toEqual({
+      reason: "Costco preserved browser state that can complete the current challenge.",
+      recommendedNextCommands: [
+        "Finish the login or anti-bot challenge in the preserved browser session.",
+        "Rerun the same provider or workflow after the page unlocks."
+      ]
+    });
+
+    expect(buildProviderIssueGuidance({
+      provider: "social/x",
+      hint: {
+        reasonCode: "env_limited",
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "social_js_required_shell"
+        }
+      },
+      details: {
+        disposition: "completed"
+      }
+    })).toBeUndefined();
   });
 
   it("reads fallback detail reason codes and supports browser-required constraints without messages", () => {

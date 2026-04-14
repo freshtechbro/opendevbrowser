@@ -4084,7 +4084,14 @@ export class OpsRuntime {
       this.sendError(message, buildError("invalid_request", "No active target", false));
       return null;
     }
-    const target = this.resolveRequestedTargetContext(session, targetId, explicitTargetId !== null);
+    let target = this.resolveRequestedTargetContext(session, targetId, explicitTargetId !== null);
+    if (
+      !target
+      && explicitTargetId !== null
+      && this.shouldRecoverExplicitCanvasOverlayTarget(message.command, targetId)
+    ) {
+      target = this.recoverExplicitCanvasOverlayTarget(session, targetId);
+    }
     if (!target) {
       this.sendError(message, buildError("invalid_request", "Active target missing", false));
       return null;
@@ -4105,6 +4112,20 @@ export class OpsRuntime {
       return null;
     }
     return target;
+  }
+
+  private shouldRecoverExplicitCanvasOverlayTarget(command: string, targetId: string): boolean {
+    return command.startsWith("canvas.overlay.") && parseTabTargetId(targetId) !== null;
+  }
+
+  private recoverExplicitCanvasOverlayTarget(session: OpsSession, targetId: string): ResolvedOpsTarget | null {
+    const tabId = parseTabTargetId(targetId);
+    if (tabId === null) {
+      return null;
+    }
+    const recoveredTarget = session.targets.get(targetId) ?? this.sessions.addTarget(session.id, tabId);
+    session.activeTargetId = recoveredTarget.targetId;
+    return this.resolveRequestedTargetContext(session, recoveredTarget.targetId, true);
   }
 
   private isAllowedCanvasRestrictionTarget(

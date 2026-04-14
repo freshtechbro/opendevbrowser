@@ -69,7 +69,7 @@ export OPENCODE_CONFIG_DIR=/tmp/opendevbrowser-first-run-isolated/config
 export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 ```
 
-By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations (legacy `claude`/`amp` labels are still synchronized for compatibility). Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip skill installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
 - `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
@@ -93,9 +93,9 @@ The skill loader discovers skills in this order (first match wins):
 3. Compatibility (project): `./.codex/skills`
 4. Compatibility (global): `$CODEX_HOME/skills` (fallback `~/.codex/skills`)
 5. Compatibility (project): `./.claude/skills`
-6. Compatibility (global): `$CLAUDECODE_HOME/skills` or `$CLAUDE_HOME/skills` (fallback `~/.claude/skills`)
+6. Compatibility (global): `$CLAUDECODE_HOME/skills` (fallback `~/.claude/skills`)
 7. Compatibility (project): `./.amp/skills`
-8. Compatibility (global): `$AMPCLI_HOME/skills` or `$AMP_CLI_HOME/skills` or `$AMP_HOME/skills` (fallback `~/.amp/skills`)
+8. Compatibility (global): `$AMP_CLI_HOME/skills` (fallback `~/.amp/skills`)
 9. Extra paths from `skillPaths` (advanced)
 10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
 
@@ -471,7 +471,9 @@ Flags:
 Notes:
 - Use explicit providers plus `--browser-mode managed` for the most reproducible live reruns.
 - Treat `--region` as advisory unless `meta.selection.region_authoritative=true`.
-- When a run returns no final offers, inspect `meta.primaryConstraintSummary` and `meta.offerFilterDiagnostics` before classifying the provider path as broken.
+- When a run returns no final offers, inspect `meta.primaryConstraintSummary` first.
+- If `meta.primaryConstraint.guidance` is present, follow `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]` before classifying the provider path as broken.
+- If `meta.primaryConstraint.guidance` is absent, inspect `meta.offerFilterDiagnostics`; summary-only outcomes are usually offer-filter constraints such as budget or region heuristics, not provider outage proof.
 
 #### Product presentation asset (`product-video run`)
 
@@ -1396,8 +1398,8 @@ Notes:
 | `--output-format` | | `text`, `json`, or `stream-json` |
 | `--transport` | | Transport selector for transport-aware commands (`status`: `relay|native`; `annotate`: `auto|direct|relay`) |
 | `--daemon` | | Daemon status selector for `status` |
-| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
-| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories (legacy `claude`/`amp` aliases also synced) |
+| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories |
+| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories |
 | `--no-skills` | | Skip installing bundled skills |
 | `--help` | `-h` | Show usage information |
 | `--version` | `-v` | Show version number |
@@ -1634,6 +1636,11 @@ What it covers:
 - Shopping provider runs for every registered shopping provider in `src/providers/shopping/index.ts`.
 - Optional social post probes for explicitly requested write-path validation.
 
+Key report fields:
+- `data.guidanceReason` and `data.recommendedNextCommand` summarize the first actionable provider follow-up emitted by the workflow or failure envelope.
+- Shopping and research workflow payloads keep the canonical structured source at `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]`.
+- Product-video remains summary-first today: inspect `meta.primaryConstraintSummary` plus failure reason-code distributions when no structured guidance is present.
+
 Key options:
 - `--include-auth-gated` includes auth-dependent provider scenarios.
 - `--include-high-friction` includes high-friction shopping providers.
@@ -1770,6 +1777,7 @@ Provider runtime anti-bot/transcript controls default to a public-first YouTube 
 
 Provider workflow and execution outputs now include normalized transcript/anti-bot telemetry:
 - Primary provider follow-up summary: `meta.primaryConstraintSummary`.
+- Research and shopping workflow follow-up guidance: `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.
 - Failure reason codes: `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `reasonCode` on provider failures.
 - Transcript fallback diagnostics: `meta.metrics.transcript_strategy_failures` (legacy) and `meta.metrics.transcriptStrategyFailures` (camelCase alias).
 - Strategy-detail diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.

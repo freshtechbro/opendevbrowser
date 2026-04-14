@@ -62,6 +62,8 @@ Expected output:
 
 Expected output:
 - `readResult` + `authBlockerDiagnostics`
+- `meta.primaryConstraintSummary` for the canonical follow-up summary
+- `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]` when the workflow knows the next provider recovery step
 
 ## Workflow E: Parallel Multipage (Reliable As-Is)
 
@@ -87,9 +89,11 @@ Expected output:
 - Use `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json` for provider live release proof.
 - Use `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json` for cross-surface live release proof.
 - Treat parity matrix tests as contract coverage, not live release proof.
+- Read `data.guidanceReason` and `data.recommendedNextCommand` in the provider-direct report before escalating a provider failure to manual follow-up.
 
 ## Failure Policy
 
 - stale refs: re-snapshot and retry once
 - repeated 403/429: stop and cooldown
 - inconsistent mode behavior: flag parity failure
+- workflow/provider follow-up: inspect `meta.primaryConstraintSummary` first, then `meta.primaryConstraint.guidance.reason`, then `meta.primaryConstraint.guidance.recommendedNextCommands[]`

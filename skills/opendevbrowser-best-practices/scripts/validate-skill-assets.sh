@@ -100,8 +100,17 @@ const canvasPlaybookMarkers = [
   "canvas.session.open",
   "canvas.plan.set",
   "canvas.feedback.poll",
+  "guidance.recommendedNextCommands",
+  "generation_plan_invalid",
   "CANVAS-01",
   "CANVAS-07"
+];
+
+const canvasHandshakeMarkers = [
+  "\"planStatus\": \"missing\"",
+  "\"mutationPolicy\"",
+  "\"recommendedNextCommands\"",
+  "\"reason\": \"Handshake is complete. Submit a complete generationPlan before mutation.\""
 ];
 
 const canvasTemplateMarkers = [
@@ -140,6 +149,9 @@ const hasMarker = (content, marker) => content.includes(marker);
     "artifacts/skill-runtime-surface-matrix.md",
     "assets/templates/skill-runtime-pack-matrix.json",
     "mutationPolicy.allowedBeforePlan",
+    "planStatus",
+    "guidance.recommendedNextCommands",
+    "generation_plan_invalid",
     "canvas.code.bind",
     "canvas.code.resolve",
     "bound_app_runtime",
@@ -170,6 +182,9 @@ const hasMarker = (content, marker) => content.includes(marker);
     "governanceRequirements",
     "generationPlanRequirements",
     "mutationPolicy",
+    "planStatus",
+    "recommendedNextCommands",
+    "generation_plan_invalid",
     "code-sync",
     "parity",
     "plan_required",
@@ -335,6 +350,16 @@ const hasMarker = (content, marker) => content.includes(marker);
     for (const marker of canvasPlaybookMarkers) {
       if (!hasMarker(canvasPlaybook, marker)) {
         failures.push(`Canvas playbook missing marker: ${marker}`);
+      }
+    }
+  }
+
+  const canvasHandshakePath = "assets/templates/canvas-handshake-example.json";
+  if (fs.existsSync(path.join(skillRoot, canvasHandshakePath))) {
+    const canvasHandshake = readUtf8(canvasHandshakePath);
+    for (const marker of canvasHandshakeMarkers) {
+      if (!hasMarker(canvasHandshake, marker)) {
+        failures.push(`Canvas handshake example missing marker: ${marker}`);
       }
     }
   }

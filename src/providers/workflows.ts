@@ -1,6 +1,9 @@
 import { createHash } from "crypto";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
-import { summarizePrimaryProviderIssue } from "./constraint";
+import {
+  summarizePrimaryProviderIssue,
+  type ProviderNextStepGuidance
+} from "./constraint";
 import { enrichResearchRecords, type ResearchRecord } from "./enrichment";
 import { renderResearch, renderShopping, type RenderMode, type ShoppingOffer } from "./renderer";
 import {
@@ -491,19 +494,30 @@ const withPrimaryConstraintMeta = (
 
 const withPrimaryConstraintSummaryOverride = (
   meta: Record<string, unknown>,
-  summary: string
+  summary: string,
+  guidance?: ProviderNextStepGuidance
 ): Record<string, unknown> => {
   const currentPrimaryConstraint = meta.primaryConstraint;
-  const nextPrimaryConstraint = (
+  const baseConstraint = (
     currentPrimaryConstraint
     && typeof currentPrimaryConstraint === "object"
     && !Array.isArray(currentPrimaryConstraint)
   )
-    ? {
-      ...(currentPrimaryConstraint as Record<string, unknown>),
-      summary
-    }
-    : { summary, reasonCode: "env_limited" };
+    ? currentPrimaryConstraint as Record<string, unknown>
+    : { reasonCode: "env_limited" };
+  const { guidance: _existingGuidance, ...nextPrimaryConstraintBase } = baseConstraint;
+  const nextPrimaryConstraint = (
+    guidance
+      ? {
+        ...nextPrimaryConstraintBase,
+        summary,
+        guidance
+      }
+      : {
+        ...nextPrimaryConstraintBase,
+        summary
+      }
+  );
 
   return {
     ...meta,

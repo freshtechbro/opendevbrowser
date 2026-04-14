@@ -124,6 +124,7 @@ export type CanvasProjectionFallbackReason =
 
 export type CanvasBlockerCode =
   | "plan_required"
+  | "generation_plan_invalid"
   | "revision_conflict"
   | "unsupported_target"
   | "lease_reclaim_required"

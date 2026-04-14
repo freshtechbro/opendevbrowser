@@ -72,10 +72,7 @@ const ISOLATED_SKILL_ENV_KEYS = [
   "OPENCODE_CONFIG_DIR",
   "CODEX_HOME",
   "CLAUDECODE_HOME",
-  "CLAUDE_HOME",
-  "AMPCLI_HOME",
-  "AMP_CLI_HOME",
-  "AMP_HOME"
+  "AMP_CLI_HOME"
 ];
 
 async function withTemporaryEnv(overrides, fn) {
@@ -111,10 +108,7 @@ function buildIsolatedSkillEnv(tempRoot, configDir) {
     OPENCODE_CONFIG_DIR: configDir,
     CODEX_HOME: codexHome,
     CLAUDECODE_HOME: claudeHome,
-    CLAUDE_HOME: claudeHome,
-    AMPCLI_HOME: ampHome,
-    AMP_CLI_HOME: ampHome,
-    AMP_HOME: ampHome
+    AMP_CLI_HOME: ampHome
   };
 }
 

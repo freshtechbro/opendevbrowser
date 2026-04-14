@@ -22,8 +22,6 @@ let originalHome: string | undefined;
 let originalConfigDir: string | undefined;
 let originalCodexHome: string | undefined;
 let originalClaudeCodeHome: string | undefined;
-let originalClaudeHome: string | undefined;
-let originalAmpCliAliasHome: string | undefined;
 let originalAmpCliHome: string | undefined;
 
 beforeEach(async () => {
@@ -38,17 +36,13 @@ beforeEach(async () => {
   originalConfigDir = process.env.OPENCODE_CONFIG_DIR;
   originalCodexHome = process.env.CODEX_HOME;
   originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
-  originalClaudeHome = process.env.CLAUDE_HOME;
-  originalAmpCliAliasHome = process.env.AMPCLI_HOME;
   originalAmpCliHome = process.env.AMP_CLI_HOME;
 
   process.env.HOME = path.join(tempRoot, "home");
   process.env.OPENCODE_CONFIG_DIR = path.join(tempRoot, "opencode-config");
   process.env.CODEX_HOME = path.join(tempRoot, "codex-home");
   process.env.CLAUDECODE_HOME = path.join(tempRoot, "claudecode-home");
-  delete process.env.CLAUDE_HOME;
-  process.env.AMPCLI_HOME = path.join(tempRoot, "ampcli-home");
-  process.env.AMP_CLI_HOME = path.join(tempRoot, "amp-home");
+  process.env.AMP_CLI_HOME = path.join(tempRoot, "ampcli-home");
 });
 
 afterEach(async () => {
@@ -76,18 +70,6 @@ afterEach(async () => {
     delete process.env.CLAUDECODE_HOME;
   } else {
     process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
-  }
-
-  if (originalClaudeHome === undefined) {
-    delete process.env.CLAUDE_HOME;
-  } else {
-    process.env.CLAUDE_HOME = originalClaudeHome;
-  }
-
-  if (originalAmpCliAliasHome === undefined) {
-    delete process.env.AMPCLI_HOME;
-  } else {
-    process.env.AMPCLI_HOME = originalAmpCliAliasHome;
   }
 
   if (originalAmpCliHome === undefined) {
@@ -227,15 +209,15 @@ describe("bundled skill lifecycle sync", () => {
   it("publishes canonical shared targets for ClaudeCode and AmpCLI homes", () => {
     const globalTargets = getGlobalSkillTargets();
     const claudeDir = path.join(process.env.CLAUDECODE_HOME!, "skills");
-    const ampDir = path.join(process.env.AMPCLI_HOME!, "skills");
+    const ampDir = path.join(process.env.AMP_CLI_HOME!, "skills");
 
     const claudeTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(claudeDir));
     expect(claudeTarget).toBeDefined();
-    expect(claudeTarget?.agents).toEqual(expect.arrayContaining(["claudecode", "claude"]));
+    expect(claudeTarget?.agents).toEqual(["claudecode"]);
 
     const ampTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(ampDir));
     expect(ampTarget).toBeDefined();
-    expect(ampTarget?.agents).toEqual(expect.arrayContaining(["ampcli", "amp"]));
+    expect(ampTarget?.agents).toEqual(["ampcli"]);
   });
 
   it("removes managed canonical packs and safe legacy alias leftovers during uninstall cleanup", () => {

@@ -771,29 +771,81 @@ description: ClaudeCode compatibility skill
     }
   });
 
-  it("falls back to CLAUDE_HOME/skills when CLAUDECODE_HOME is unset", async () => {
+  it("falls back to ~/.claude/skills when CLAUDECODE_HOME is unset", async () => {
     const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
-    const originalClaudeHome = process.env.CLAUDE_HOME;
-    const claudeHome = await mkdtemp(join(os.tmpdir(), "odb-skill-claude-home-"));
+    const originalHome = process.env.HOME;
+    const fallbackHome = await mkdtemp(join(os.tmpdir(), "odb-skill-claude-default-home-"));
 
     delete process.env.CLAUDECODE_HOME;
-    process.env.CLAUDE_HOME = claudeHome;
+    delete process.env.CLAUDE_HOME;
+    process.env.HOME = fallbackHome;
 
-    await mkdir(join(claudeHome, "skills", "claude-home-fallback"), { recursive: true });
+    await mkdir(join(fallbackHome, ".claude", "skills", "claude-default-fallback"), { recursive: true });
     await writeFile(
-      join(claudeHome, "skills", "claude-home-fallback", "SKILL.md"),
+      join(fallbackHome, ".claude", "skills", "claude-default-fallback", "SKILL.md"),
       `---
-name: claude-home-fallback
-description: CLAUDE_HOME fallback path
+name: claude-default-fallback
+description: ClaudeCode default home fallback path
 ---
-# Claude fallback
+# Claude default fallback
 `
     );
 
     try {
       const loader = new SkillLoader(tempRoot);
       const skills = await loader.listSkills();
-      expect(skills.some((skill) => skill.name === "claude-home-fallback")).toBe(true);
+      expect(skills.some((skill) => skill.name === "claude-default-fallback")).toBe(true);
+    } finally {
+      if (originalClaudeCodeHome === undefined) {
+        delete process.env.CLAUDECODE_HOME;
+      } else {
+        process.env.CLAUDECODE_HOME = originalClaudeCodeHome;
+      }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+    }
+  });
+
+  it("ignores CLAUDE_HOME when CLAUDECODE_HOME is unset", async () => {
+    const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const originalHome = process.env.HOME;
+    const claudeAliasHome = await mkdtemp(join(os.tmpdir(), "odb-skill-claude-alias-home-"));
+    const fallbackHome = await mkdtemp(join(os.tmpdir(), "odb-skill-claude-ignore-home-"));
+
+    delete process.env.CLAUDECODE_HOME;
+    process.env.CLAUDE_HOME = claudeAliasHome;
+    process.env.HOME = fallbackHome;
+
+    await mkdir(join(claudeAliasHome, "skills", "claude-home-ignored"), { recursive: true });
+    await writeFile(
+      join(claudeAliasHome, "skills", "claude-home-ignored", "SKILL.md"),
+      `---
+name: claude-home-ignored
+description: CLAUDE_HOME should be ignored
+---
+# Claude alias
+`
+    );
+    await mkdir(join(fallbackHome, ".claude", "skills", "claude-default-fallback"), { recursive: true });
+    await writeFile(
+      join(fallbackHome, ".claude", "skills", "claude-default-fallback", "SKILL.md"),
+      `---
+name: claude-default-fallback
+description: ClaudeCode default home fallback path
+---
+# Claude default fallback
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const skills = await loader.listSkills();
+      expect(skills.some((skill) => skill.name === "claude-home-ignored")).toBe(false);
+      expect(skills.some((skill) => skill.name === "claude-default-fallback")).toBe(true);
     } finally {
       if (originalClaudeCodeHome === undefined) {
         delete process.env.CLAUDECODE_HOME;
@@ -805,17 +857,22 @@ description: CLAUDE_HOME fallback path
       } else {
         process.env.CLAUDE_HOME = originalClaudeHome;
       }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
     }
   });
 
-  it("prefers AMPCLI_HOME/skills when AMPCLI_HOME is set", async () => {
+  it("discovers skills from AMP_CLI_HOME/skills when set", async () => {
     const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
     const originalAmpCliHome = process.env.AMP_CLI_HOME;
     const originalAmpHome = process.env.AMP_HOME;
     const ampCliHome = await mkdtemp(join(os.tmpdir(), "odb-skill-ampcli-home-"));
 
-    process.env.AMPCLI_HOME = ampCliHome;
-    delete process.env.AMP_CLI_HOME;
+    delete process.env.AMPCLI_HOME;
+    process.env.AMP_CLI_HOME = ampCliHome;
     delete process.env.AMP_HOME;
 
     await mkdir(join(ampCliHome, "skills", "ampcli-compat"), { recursive: true });
@@ -889,30 +946,63 @@ description: Codex fallback path
     }
   });
 
-  it("falls back to AMP_HOME/skills when AMP_CLI_HOME is unset", async () => {
+  it("ignores AMPCLI_HOME and AMP_HOME when AMP_CLI_HOME is unset", async () => {
+    const originalAmpCliAliasHome = process.env.AMPCLI_HOME;
     const originalAmpCliHome = process.env.AMP_CLI_HOME;
     const originalAmpHome = process.env.AMP_HOME;
-    const ampHome = await mkdtemp(join(os.tmpdir(), "odb-skill-amp-home-"));
+    const originalHome = process.env.HOME;
+    const ampCliAliasHome = await mkdtemp(join(os.tmpdir(), "odb-skill-ampcli-alias-home-"));
+    const ampAliasHome = await mkdtemp(join(os.tmpdir(), "odb-skill-amp-alias-home-"));
+    const fallbackHome = await mkdtemp(join(os.tmpdir(), "odb-skill-amp-ignore-home-"));
 
+    process.env.AMPCLI_HOME = ampCliAliasHome;
     delete process.env.AMP_CLI_HOME;
-    process.env.AMP_HOME = ampHome;
+    process.env.AMP_HOME = ampAliasHome;
+    process.env.HOME = fallbackHome;
 
-    await mkdir(join(ampHome, "skills", "amp-home-fallback"), { recursive: true });
+    await mkdir(join(ampCliAliasHome, "skills", "ampcli-home-ignored"), { recursive: true });
     await writeFile(
-      join(ampHome, "skills", "amp-home-fallback", "SKILL.md"),
+      join(ampCliAliasHome, "skills", "ampcli-home-ignored", "SKILL.md"),
       `---
-name: amp-home-fallback
-description: AMP_HOME fallback path
+name: ampcli-home-ignored
+description: AMPCLI_HOME should be ignored
 ---
-# Amp fallback
+# AmpCLI alias
+`
+    );
+    await mkdir(join(ampAliasHome, "skills", "amp-home-ignored"), { recursive: true });
+    await writeFile(
+      join(ampAliasHome, "skills", "amp-home-ignored", "SKILL.md"),
+      `---
+name: amp-home-ignored
+description: AMP_HOME should be ignored
+---
+# Amp alias
+`
+    );
+    await mkdir(join(fallbackHome, ".amp", "skills", "amp-default-fallback"), { recursive: true });
+    await writeFile(
+      join(fallbackHome, ".amp", "skills", "amp-default-fallback", "SKILL.md"),
+      `---
+name: amp-default-fallback
+description: AMP default home fallback path
+---
+# Amp default fallback
 `
     );
 
     try {
       const loader = new SkillLoader(tempRoot);
       const skills = await loader.listSkills();
-      expect(skills.some((skill) => skill.name === "amp-home-fallback")).toBe(true);
+      expect(skills.some((skill) => skill.name === "ampcli-home-ignored")).toBe(false);
+      expect(skills.some((skill) => skill.name === "amp-home-ignored")).toBe(false);
+      expect(skills.some((skill) => skill.name === "amp-default-fallback")).toBe(true);
     } finally {
+      if (originalAmpCliAliasHome === undefined) {
+        delete process.env.AMPCLI_HOME;
+      } else {
+        process.env.AMPCLI_HOME = originalAmpCliAliasHome;
+      }
       if (originalAmpCliHome === undefined) {
         delete process.env.AMP_CLI_HOME;
       } else {
@@ -923,10 +1013,15 @@ description: AMP_HOME fallback path
       } else {
         process.env.AMP_HOME = originalAmpHome;
       }
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
     }
   });
 
-  it("falls back to ~/.amp/skills when AMP_CLI_HOME and AMP_HOME are unset", async () => {
+  it("falls back to ~/.amp/skills when AMP_CLI_HOME is unset", async () => {
     const originalAmpCliHome = process.env.AMP_CLI_HOME;
     const originalAmpHome = process.env.AMP_HOME;
     const originalHome = process.env.HOME;

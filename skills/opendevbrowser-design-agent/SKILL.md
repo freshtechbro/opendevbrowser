@@ -42,7 +42,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - Shared robustness matrix: `../opendevbrowser-best-practices/artifacts/browser-agent-known-issues-matrix.md`
 - Shared canvas workflow baseline: `../opendevbrowser-best-practices/SKILL.md`
 
-## Fast Start
+## Quick Start
 
 1. Validate pack integrity.
 
@@ -176,13 +176,16 @@ Use when starting from screenshots, mocks, or an existing page.
 Use when the task should run through the design canvas.
 
 - Start with `canvas.session.open` or `canvas.capabilities.get`.
-- Read the handshake and confirm mutation is allowed.
+- Read the handshake and confirm `preflightState="handshake_read"`, `planStatus`, and `guidance.recommendedNextCommands` before choosing the next command.
 - Fill the full design contract and extract the `generationPlan`.
-- Submit `canvas.plan.set`, then mutate with `canvas.document.patch`.
+- Submit `canvas.plan.set`.
+- Re-check `canvas.plan.get` or `canvas.capabilities.get` until the runtime reports `planStatus="accepted"` or `preflightState="plan_accepted"`.
+- Follow `guidance.recommendedNextCommands` after `canvas.plan.set`, then mutate with `canvas.document.patch`.
+- After every successful `canvas.document.patch`, `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.document.save`, or `canvas.document.export`, read `guidance.recommendedNextCommands` and `guidance.reason` before choosing the next step.
 - Validate extension-stage history controls against public `canvas.history.undo` and `canvas.history.redo`; design-tab clicks emit the internal `canvas_history_requested` event, but acceptance is still on the public command outcomes.
 - When token work is in scope, validate collection or mode authoring, token value or alias edits, selected-node binding, and token usage inspection in the extension stage.
 - If annotation send is part of the workflow, record whether the design tab returned `Delivered to agent` or `Stored only; fetch with annotate --stored`.
-- Use `canvas.feedback.poll`, `canvas.preview.render`, `canvas.preview.refresh`, and `canvas.document.save` as the validation loop.
+- Use `canvas.preview.render`, `canvas.feedback.poll`, `canvas.preview.refresh`, and `canvas.document.save` as the validation loop in that order.
 
 ### `real-surface-validation`
 

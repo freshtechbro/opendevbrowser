@@ -2,6 +2,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  CANVAS_CDP_CODE_SYNC_STEP_TIMEOUT_MS,
+  CANVAS_CDP_LONG_STEP_TIMEOUT_MS,
+  CANVAS_CDP_PARENT_WATCHDOG_MS,
+  CANVAS_CDP_TEARDOWN_RESERVE_MS,
   defaultArtifactPath,
   ensureCliBuilt,
   ROOT,
@@ -67,6 +71,7 @@ const SURFACE_CONFIG = {
   },
   extension: {
     launchArgs: ["launch", "--extension-only", "--wait-for-extension", "--start-url", "https://example.com/?canvas-extension-hero=1"],
+    workflowTargetUrl: "https://example.com/?canvas-extension-hero=1",
     closeBrowser: false,
     includeInventoryHistory: false,
     includeFeedback: false,
@@ -80,11 +85,10 @@ const SURFACE_CONFIG = {
   },
   cdp: {
     connect: true,
-    connectArgs: ["connect", "--ws-endpoint", "ws://127.0.0.1:8787/cdp", "--extension-legacy"],
-    gotoUrl: "https://example.com/?canvas-cdp-preview=1",
+    connectArgs: ["connect", "--ws-endpoint", "ws://127.0.0.1:8787/cdp", "--extension-legacy", "--start-url", "https://example.com/?canvas-cdp-preview=1"],
+    workflowTargetUrl: "https://example.com/?canvas-cdp-preview=1",
     connectAttempts: 2,
     connectTimeoutMs: 45_000,
-    gotoTimeoutMs: 30_000,
     statusTimeoutMs: 15_000,
     closeBrowser: false,
     includeInventoryHistory: false,
@@ -99,11 +103,51 @@ const SURFACE_CONFIG = {
   }
 };
 
+export const CDP_PARENT_WATCHDOG_MS = CANVAS_CDP_PARENT_WATCHDOG_MS;
+export const CDP_LONG_STEP_TIMEOUT_MS = CANVAS_CDP_LONG_STEP_TIMEOUT_MS;
+export const CDP_CODE_SYNC_STEP_TIMEOUT_MS = CANVAS_CDP_CODE_SYNC_STEP_TIMEOUT_MS;
+export const CDP_TEARDOWN_RESERVE_MS = CANVAS_CDP_TEARDOWN_RESERVE_MS;
 export const DISCONNECT_TIMEOUT_MS = 120_000;
 export const DISCONNECT_WRAPPER_TIMEOUT_MS = DISCONNECT_TIMEOUT_MS + 15_000;
 
 export function getSurfaceConfig(surface) {
   return SURFACE_CONFIG[surface] ?? null;
+}
+
+export function resolveCanvasWorkflowTargetId({
+  surface,
+  capturedTargetId,
+  activeTargetId,
+  targets,
+  preferCaptured = false
+}) {
+  if (surface !== "extension" && surface !== "cdp") {
+    return capturedTargetId ?? null;
+  }
+
+  const targetIds = Array.isArray(targets)
+    ? targets
+      .map((target) => typeof target?.targetId === "string" ? target.targetId : null)
+      .filter((targetId) => typeof targetId === "string" && targetId.length > 0)
+    : [];
+
+  if (preferCaptured && typeof capturedTargetId === "string" && targetIds.includes(capturedTargetId)) {
+    return capturedTargetId;
+  }
+  if (typeof activeTargetId === "string" && targetIds.includes(activeTargetId)) {
+    return activeTargetId;
+  }
+  if (typeof capturedTargetId === "string" && targetIds.includes(capturedTargetId)) {
+    return capturedTargetId;
+  }
+  return targetIds[0] ?? null;
+}
+
+export function shouldCreateCanvasWorkflowTarget({ surface, targetId, createUrl }) {
+  return surface === "cdp"
+    && !targetId
+    && typeof createUrl === "string"
+    && createUrl.length > 0;
 }
 
 function parseArgs(argv) {
@@ -169,6 +213,66 @@ function canvas(command, params, timeoutMs = 60_000) {
   return payload.data.result;
 }
 
+function updateArtifactCheckpoint(outPath, artifact, currentStep) {
+  if (currentStep) {
+    artifact.currentStep = currentStep;
+  } else {
+    delete artifact.currentStep;
+  }
+  writeJson(outPath, artifact);
+}
+
+export function resolveWorkflowTimeout({
+  surface,
+  startedAtMs,
+  requestedTimeoutMs,
+  stepName,
+  currentTimeMs = Date.now()
+}) {
+  if (surface !== "cdp") {
+    return requestedTimeoutMs;
+  }
+  const remaining = CDP_PARENT_WATCHDOG_MS - CDP_TEARDOWN_RESERVE_MS - (currentTimeMs - startedAtMs);
+  if (remaining < 5_000) {
+    throw new Error(`CDP workflow budget exhausted before ${stepName}.`);
+  }
+  const stepBudget = (stepName.startsWith("code.") || stepName === "document.patch.code")
+    ? CDP_CODE_SYNC_STEP_TIMEOUT_MS
+    : CDP_LONG_STEP_TIMEOUT_MS;
+  return Math.min(requestedTimeoutMs, stepBudget, remaining);
+}
+
+function resolveDisconnectTimeout(surface, startedAtMs, currentTimeMs = Date.now()) {
+  if (surface !== "cdp") {
+    return DISCONNECT_WRAPPER_TIMEOUT_MS;
+  }
+  const remaining = CDP_PARENT_WATCHDOG_MS - (currentTimeMs - startedAtMs) - 5_000;
+  return remaining > 0
+    ? Math.min(15_000, remaining)
+    : 5_000;
+}
+
+function runCanvasStep({
+  artifact,
+  command,
+  options,
+  params,
+  requestedTimeoutMs = 60_000,
+  startedAtMs,
+  stepName
+}) {
+  const timeoutMs = resolveWorkflowTimeout({
+    surface: options.surface,
+    startedAtMs,
+    requestedTimeoutMs,
+    stepName
+  });
+  updateArtifactCheckpoint(options.out, artifact, { step: stepName, command, timeoutMs });
+  const result = canvas(command, params, timeoutMs);
+  updateArtifactCheckpoint(options.out, artifact, null);
+  return result;
+}
+
 function classifyWorkflowFailure(surface, detail) {
   const normalized = String(detail ?? "").toLowerCase();
   if (normalized.includes("[restricted_url]") || normalized.includes("restricted url scheme")) {
@@ -195,10 +299,10 @@ function classifyWorkflowFailure(surface, detail) {
   return { status: "fail", detail };
 }
 
-function disconnectSession(sessionId, closeBrowser) {
+function disconnectSession(sessionId, closeBrowser, timeoutMs = DISCONNECT_WRAPPER_TIMEOUT_MS) {
   runCli(
     ["disconnect", "--session-id", sessionId, ...(closeBrowser ? ["--close-browser"] : [])],
-    { allowFailure: true, timeoutMs: DISCONNECT_WRAPPER_TIMEOUT_MS }
+    { allowFailure: true, timeoutMs }
   );
 }
 
@@ -216,21 +320,17 @@ async function establishSession(config) {
   let lastError = null;
   const attempts = config.connectAttempts ?? 3;
   const connectTimeoutMs = config.connectTimeoutMs ?? 300_000;
-  const gotoTimeoutMs = config.gotoTimeoutMs ?? 120_000;
   const statusTimeoutMs = config.statusTimeoutMs ?? 120_000;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let sessionId = null;
     try {
       const connected = runCli(config.connectArgs, { timeoutMs: connectTimeoutMs }).json;
       sessionId = connected.data.sessionId;
-      runCli(
-        ["goto", "--session-id", sessionId, "--url", config.gotoUrl, "--wait-until", "load", "--timeout-ms", "30000"],
-        { timeoutMs: gotoTimeoutMs }
-      );
-      const refreshed = runCli(["status", "--session-id", sessionId], { timeoutMs: statusTimeoutMs }).json;
+      const activeTargetId = connected.data.activeTargetId
+        ?? runCli(["status", "--session-id", sessionId], { timeoutMs: statusTimeoutMs }).json.data.activeTargetId;
       return {
         sessionId,
-        activeTargetId: refreshed.data.activeTargetId,
+        activeTargetId,
         warnings: connected.data.warnings ?? [],
         mode: connected.data.mode ?? null
       };
@@ -247,24 +347,158 @@ async function establishSession(config) {
   throw lastError ?? new Error("Unable to establish CDP session.");
 }
 
+function refreshCanvasWorkflowTargetId({
+  sessionId,
+  surface,
+  capturedTargetId,
+  createUrl = null,
+  preferCaptured = false
+}) {
+  if (surface !== "extension" && surface !== "cdp") {
+    return {
+      targetId: capturedTargetId ?? null,
+      activeTargetId: capturedTargetId ?? null,
+      targetCount: 0
+    };
+  }
+
+  const listedTargets = runCli(["targets-list", "--session-id", sessionId], { allowFailure: true });
+  if (listedTargets.status !== 0) {
+    throw new Error(`Canvas workflow target reseed failed: ${listedTargets.detail}`);
+  }
+
+  const targetPayload = listedTargets.json?.data;
+  const targets = Array.isArray(targetPayload?.targets) ? targetPayload.targets : [];
+  const activeTargetId = typeof targetPayload?.activeTargetId === "string"
+    ? targetPayload.activeTargetId
+    : null;
+  const targetId = resolveCanvasWorkflowTargetId({
+    surface,
+    capturedTargetId,
+    activeTargetId,
+    targets,
+    preferCaptured
+  });
+
+  if (shouldCreateCanvasWorkflowTarget({ surface, targetId, createUrl })) {
+    const createdTarget = runCli(
+      ["target-new", "--session-id", sessionId, "--url", createUrl],
+      { allowFailure: true }
+    );
+    if (createdTarget.status !== 0) {
+      throw new Error(`Canvas workflow target reseed failed: ${createdTarget.detail}`);
+    }
+    const createdTargetId = typeof createdTarget.json?.data?.targetId === "string"
+      ? createdTarget.json.data.targetId
+      : null;
+    if (!createdTargetId) {
+      throw new Error("Canvas workflow target reseed failed: target-new returned no targetId.");
+    }
+    const focusedTarget = runCli(
+      ["target-use", "--session-id", sessionId, "--target-id", createdTargetId],
+      { allowFailure: true }
+    );
+    if (focusedTarget.status !== 0) {
+      throw new Error(`Canvas workflow target reseed failed: ${focusedTarget.detail}`);
+    }
+    return {
+      targetId: createdTargetId,
+      activeTargetId,
+      targetCount: targets.length,
+      createdTargetId
+    };
+  }
+
+  if (!targetId) {
+    throw new Error("Canvas workflow target reseed failed: no active target remained after starter.apply.");
+  }
+
+  if (targetId !== activeTargetId) {
+    const focusedTarget = runCli(
+      ["target-use", "--session-id", sessionId, "--target-id", targetId],
+      { allowFailure: true }
+    );
+    if (focusedTarget.status !== 0) {
+      throw new Error(`Canvas workflow target reseed failed: ${focusedTarget.detail}`);
+    }
+  }
+
+  return {
+    targetId,
+    activeTargetId,
+    targetCount: targets.length
+  };
+}
+
+function runCanvasTargetStep({
+  artifact,
+  command,
+  createUrl = null,
+  options,
+  params,
+  capturedTargetId,
+  preferCaptured = false,
+  requestedTimeoutMs = 60_000,
+  sessionId,
+  startedAtMs,
+  stepName
+}) {
+  const refreshedTarget = refreshCanvasWorkflowTargetId({
+    sessionId,
+    surface: options.surface,
+    capturedTargetId,
+    createUrl,
+    preferCaptured
+  });
+  artifact.steps.push({
+    step: `${stepName}.target`,
+    previousTargetId: capturedTargetId,
+    activeTargetId: refreshedTarget.activeTargetId,
+    targetId: refreshedTarget.targetId,
+    targetCount: refreshedTarget.targetCount,
+    createdTargetId: refreshedTarget.createdTargetId ?? null
+  });
+  const result = runCanvasStep({
+    artifact,
+    command,
+    options,
+    params: {
+      ...params,
+      targetId: refreshedTarget.targetId
+    },
+    requestedTimeoutMs,
+    startedAtMs,
+    stepName
+  });
+  return {
+    result,
+    targetId: refreshedTarget.targetId
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const config = SURFACE_CONFIG[options.surface];
+  const startedAtMs = Date.now();
   ensureCliBuilt();
 
   const artifact = {
     surface: options.surface,
     artifactPath: options.out,
+    startedAt: new Date(startedAtMs).toISOString(),
     steps: []
   };
+  writeJson(options.out, artifact);
 
   let sessionId = null;
   let disconnected = false;
 
   try {
+    updateArtifactCheckpoint(options.out, artifact, { step: config.connect ? "connect" : "launch" });
     const connection = await establishSession(config);
+    updateArtifactCheckpoint(options.out, artifact, null);
     sessionId = connection.sessionId;
-    const activeTargetId = connection.activeTargetId;
+    let activeTargetId = connection.activeTargetId;
     artifact.steps.push({
       step: config.connect ? "connect" : "launch",
       sessionId,
@@ -273,21 +507,49 @@ async function main() {
       warnings: connection.warnings
     });
 
-    const opened = canvas("canvas.session.open", { browserSessionId: sessionId });
+    const opened = runCanvasStep({
+      artifact,
+      command: "canvas.session.open",
+      options,
+      params: { browserSessionId: sessionId },
+      startedAtMs,
+      stepName: "session.open"
+    });
     const { canvasSessionId, leaseId, documentId } = opened;
     artifact.steps.push({ step: "session.open", canvasSessionId, leaseId, documentId });
 
-    const loaded = canvas("canvas.document.load", { canvasSessionId, leaseId, documentId });
+    const loaded = runCanvasStep({
+      artifact,
+      command: "canvas.document.load",
+      options,
+      params: { canvasSessionId, leaseId, documentId },
+      startedAtMs,
+      stepName: "document.load.initial"
+    });
     const page = loaded.document.pages[0];
     const pageId = page.id;
     const rootNodeId = page.rootNodeId;
 
-    const planned = canvas("canvas.plan.set", { canvasSessionId, leaseId, generationPlan: GENERATION_PLAN });
-    const governed = canvas("canvas.document.patch", {
-      canvasSessionId,
-      leaseId,
-      baseRevision: planned.documentRevision,
-      patches: GOVERNANCE
+    const planned = runCanvasStep({
+      artifact,
+      command: "canvas.plan.set",
+      options,
+      params: { canvasSessionId, leaseId, generationPlan: GENERATION_PLAN },
+      startedAtMs,
+      stepName: "plan.set"
+    });
+    const governed = runCanvasStep({
+      artifact,
+      command: "canvas.document.patch",
+      options,
+      params: {
+        canvasSessionId,
+        leaseId,
+        baseRevision: planned.documentRevision,
+        patches: GOVERNANCE
+      },
+      startedAtMs,
+      stepName: "document.patch.governance"
     });
     artifact.steps.push({
       step: "plan-and-governance",
@@ -296,11 +558,18 @@ async function main() {
       rootNodeId
     });
 
-    const starter = canvas("canvas.starter.apply", {
-      canvasSessionId,
-      leaseId,
-      starterId: "hero.saas-product",
-      frameworkId: "Next.js"
+    const starter = runCanvasStep({
+      artifact,
+      command: "canvas.starter.apply",
+      options,
+      params: {
+        canvasSessionId,
+        leaseId,
+        starterId: "hero.saas-product",
+        frameworkId: "Next.js"
+      },
+      startedAtMs,
+      stepName: "starter.apply"
     });
     artifact.steps.push({
       step: "starter.apply",
@@ -311,21 +580,56 @@ async function main() {
     });
 
     if (config.includeInventoryHistory) {
-      const inventory = canvas("canvas.inventory.list", { canvasSessionId });
-      const metricCard = inventory.items.find((item) => item.id === "kit.dashboard.analytics-core.metric-card") ?? inventory.items[0];
-      const afterStarter = canvas("canvas.document.load", { canvasSessionId, leaseId, documentId });
-      const inserted = canvas("canvas.inventory.insert", {
-        canvasSessionId,
-        leaseId,
-        baseRevision: afterStarter.documentRevision,
-        itemId: metricCard.id,
-        pageId,
-        parentId: rootNodeId,
-        x: 640,
-        y: 180
+      const inventory = runCanvasStep({
+        artifact,
+        command: "canvas.inventory.list",
+        options,
+        params: { canvasSessionId },
+        startedAtMs,
+        stepName: "inventory.list"
       });
-      const undone = canvas("canvas.history.undo", { canvasSessionId, leaseId });
-      const redone = canvas("canvas.history.redo", { canvasSessionId, leaseId });
+      const metricCard = inventory.items.find((item) => item.id === "kit.dashboard.analytics-core.metric-card") ?? inventory.items[0];
+      const afterStarter = runCanvasStep({
+        artifact,
+        command: "canvas.document.load",
+        options,
+        params: { canvasSessionId, leaseId, documentId },
+        startedAtMs,
+        stepName: "document.load.after-starter"
+      });
+      const inserted = runCanvasStep({
+        artifact,
+        command: "canvas.inventory.insert",
+        options,
+        params: {
+          canvasSessionId,
+          leaseId,
+          baseRevision: afterStarter.documentRevision,
+          itemId: metricCard.id,
+          pageId,
+          parentId: rootNodeId,
+          x: 640,
+          y: 180
+        },
+        startedAtMs,
+        stepName: "inventory.insert"
+      });
+      const undone = runCanvasStep({
+        artifact,
+        command: "canvas.history.undo",
+        options,
+        params: { canvasSessionId, leaseId },
+        startedAtMs,
+        stepName: "history.undo"
+      });
+      const redone = runCanvasStep({
+        artifact,
+        command: "canvas.history.redo",
+        options,
+        params: { canvasSessionId, leaseId },
+        startedAtMs,
+        stepName: "history.redo"
+      });
       artifact.steps.push({
         step: "inventory-history",
         inventoryItemId: metricCard.id,
@@ -336,19 +640,48 @@ async function main() {
     }
 
     if (config.includeFeedback) {
-      const subscription = canvas("canvas.feedback.subscribe", { canvasSessionId, categories: ["render", "code-sync"] });
-      const rendered = canvas(
-        "canvas.preview.render",
-        { canvasSessionId, leaseId, targetId: activeTargetId, prototypeId: "proto_home_default" },
-        300_000
-      );
-      const nextEvent = canvas(
-        "canvas.feedback.next",
-        { canvasSessionId, subscriptionId: subscription.subscriptionId, categories: ["render", "code-sync"], timeoutMs: 5_000 },
-        15_000
-      );
-      const polled = canvas("canvas.feedback.poll", { canvasSessionId, categories: ["render", "code-sync"] });
-      canvas("canvas.feedback.unsubscribe", { canvasSessionId, subscriptionId: subscription.subscriptionId, categories: ["render", "code-sync"] });
+      const subscription = runCanvasStep({
+        artifact,
+        command: "canvas.feedback.subscribe",
+        options,
+        params: { canvasSessionId, categories: ["render", "code-sync"] },
+        startedAtMs,
+        stepName: "feedback.subscribe"
+      });
+      const rendered = runCanvasStep({
+        artifact,
+        command: "canvas.preview.render",
+        options,
+        params: { canvasSessionId, leaseId, targetId: activeTargetId, prototypeId: "proto_home_default" },
+        requestedTimeoutMs: 300_000,
+        startedAtMs,
+        stepName: "preview.render.feedback"
+      });
+      const nextEvent = runCanvasStep({
+        artifact,
+        command: "canvas.feedback.next",
+        options,
+        params: { canvasSessionId, subscriptionId: subscription.subscriptionId, categories: ["render", "code-sync"], timeoutMs: 5_000 },
+        requestedTimeoutMs: 15_000,
+        startedAtMs,
+        stepName: "feedback.next"
+      });
+      const polled = runCanvasStep({
+        artifact,
+        command: "canvas.feedback.poll",
+        options,
+        params: { canvasSessionId, categories: ["render", "code-sync"] },
+        startedAtMs,
+        stepName: "feedback.poll"
+      });
+      runCanvasStep({
+        artifact,
+        command: "canvas.feedback.unsubscribe",
+        options,
+        params: { canvasSessionId, subscriptionId: subscription.subscriptionId, categories: ["render", "code-sync"] },
+        startedAtMs,
+        stepName: "feedback.unsubscribe"
+      });
       artifact.steps.push({
         step: "preview-feedback",
         renderStatus: rendered.renderStatus,
@@ -356,79 +689,161 @@ async function main() {
         polledItems: polled.items.length
       });
     } else if (config.includePreviewOverlay) {
-      const rendered = canvas(
-        "canvas.preview.render",
-        { canvasSessionId, leaseId, targetId: activeTargetId, prototypeId: "proto_home_default" },
-        300_000
-      );
-      const mount = canvas("canvas.overlay.mount", {
-        canvasSessionId,
-        leaseId,
-        targetId: activeTargetId,
-        prototypeId: "proto_home_default"
+      const preview = runCanvasTargetStep({
+        artifact,
+        command: "canvas.preview.render",
+        createUrl: config.workflowTargetUrl ?? null,
+        options,
+        params: { canvasSessionId, leaseId, prototypeId: "proto_home_default" },
+        capturedTargetId: activeTargetId,
+        requestedTimeoutMs: 300_000,
+        sessionId,
+        startedAtMs,
+        stepName: "preview.render.overlay"
       });
-      const selection = canvas("canvas.overlay.select", {
-        canvasSessionId,
-        leaseId,
-        mountId: mount.mountId,
-        targetId: activeTargetId,
-        nodeId: rootNodeId
+      const mount = runCanvasTargetStep({
+        artifact,
+        command: "canvas.overlay.mount",
+        options,
+        params: {
+          canvasSessionId,
+          leaseId,
+          prototypeId: "proto_home_default"
+        },
+        capturedTargetId: preview.targetId,
+        preferCaptured: true,
+        sessionId,
+        startedAtMs,
+        stepName: "overlay.mount"
       });
-      const unmount = canvas("canvas.overlay.unmount", {
-        canvasSessionId,
-        leaseId,
-        mountId: mount.mountId,
-        targetId: activeTargetId
+      const selection = runCanvasTargetStep({
+        artifact,
+        command: "canvas.overlay.select",
+        options,
+        params: {
+          canvasSessionId,
+          leaseId,
+          mountId: mount.result.mountId,
+          nodeId: rootNodeId
+        },
+        capturedTargetId: mount.targetId,
+        preferCaptured: true,
+        sessionId,
+        startedAtMs,
+        stepName: "overlay.select"
+      });
+      const unmount = runCanvasTargetStep({
+        artifact,
+        command: "canvas.overlay.unmount",
+        options,
+        params: {
+          canvasSessionId,
+          leaseId,
+          mountId: mount.result.mountId
+        },
+        capturedTargetId: selection.targetId,
+        preferCaptured: true,
+        sessionId,
+        startedAtMs,
+        stepName: "overlay.unmount"
       });
       artifact.steps.push({
         step: "preview-overlay",
-        renderStatus: rendered.renderStatus,
-        mountId: mount.mountId,
-        selectedNodeId: selection.selection?.nodeId ?? rootNodeId,
-        unmounted: unmount.ok ?? false
+        renderStatus: preview.result.renderStatus,
+        mountId: mount.result.mountId,
+        selectedNodeId: selection.result.selection?.nodeId ?? rootNodeId,
+        unmounted: unmount.result.ok ?? false
       });
     }
 
     if (config.designTabMode !== "none") {
-      const openedTab = canvas("canvas.tab.open", {
-        canvasSessionId,
-        leaseId,
-        prototypeId: "proto_home_default",
-        previewMode: "focused"
+      const openedTab = runCanvasStep({
+        artifact,
+        command: "canvas.tab.open",
+        options,
+        params: {
+          canvasSessionId,
+          leaseId,
+          prototypeId: "proto_home_default",
+          previewMode: "focused"
+        },
+        startedAtMs,
+        stepName: "tab.open"
       });
       const designTargetId = openedTab.targetId;
       if (config.designTabMode === "overlay") {
-        const mount = canvas("canvas.overlay.mount", {
-          canvasSessionId,
-          leaseId,
-          targetId: designTargetId,
-          prototypeId: "proto_home_default"
+        const mount = runCanvasTargetStep({
+          artifact,
+          command: "canvas.overlay.mount",
+          options,
+          params: {
+            canvasSessionId,
+            leaseId,
+            prototypeId: "proto_home_default"
+          },
+          capturedTargetId: designTargetId,
+          preferCaptured: true,
+          sessionId,
+          startedAtMs,
+          stepName: "design.overlay.mount"
         });
-        const selection = canvas("canvas.overlay.select", {
-          canvasSessionId,
-          leaseId,
-          mountId: mount.mountId,
-          targetId: designTargetId,
-          nodeId: rootNodeId
+        const selection = runCanvasTargetStep({
+          artifact,
+          command: "canvas.overlay.select",
+          options,
+          params: {
+            canvasSessionId,
+            leaseId,
+            mountId: mount.result.mountId,
+            nodeId: rootNodeId
+          },
+          capturedTargetId: mount.targetId,
+          preferCaptured: true,
+          sessionId,
+          startedAtMs,
+          stepName: "design.overlay.select"
         });
-        const unmount = canvas("canvas.overlay.unmount", {
-          canvasSessionId,
-          leaseId,
-          mountId: mount.mountId,
-          targetId: designTargetId
+        const unmount = runCanvasTargetStep({
+          artifact,
+          command: "canvas.overlay.unmount",
+          options,
+          params: {
+            canvasSessionId,
+            leaseId,
+            mountId: mount.result.mountId
+          },
+          capturedTargetId: selection.targetId,
+          preferCaptured: true,
+          sessionId,
+          startedAtMs,
+          stepName: "design.overlay.unmount"
         });
-        const closed = canvas("canvas.tab.close", { canvasSessionId, leaseId, targetId: designTargetId });
+        const closed = runCanvasStep({
+          artifact,
+          command: "canvas.tab.close",
+          options,
+          params: { canvasSessionId, leaseId, targetId: designTargetId },
+          startedAtMs,
+          stepName: "design.tab.close"
+        });
         artifact.steps.push({
           step: "design-tab-overlay",
           designTargetId,
           previewState: openedTab.previewState ?? null,
-          mountId: mount.mountId,
-          selectedNodeId: selection.selection?.nodeId ?? rootNodeId,
-          unmounted: unmount.ok ?? false,
+          mountId: mount.result.mountId,
+          selectedNodeId: selection.result.selection?.nodeId ?? rootNodeId,
+          unmounted: unmount.result.ok ?? false,
           closed: closed.ok ?? false
         });
       } else {
-        const closed = canvas("canvas.tab.close", { canvasSessionId, leaseId, targetId: designTargetId });
+        const closed = runCanvasStep({
+          artifact,
+          command: "canvas.tab.close",
+          options,
+          params: { canvasSessionId, leaseId, targetId: designTargetId },
+          startedAtMs,
+          stepName: "design.tab.close"
+        });
         artifact.steps.push({
           step: "design-tab",
           designTargetId,
@@ -451,31 +866,76 @@ async function main() {
       ].join("\n")
     );
 
-    const bound = canvas("canvas.code.bind", {
-      canvasSessionId,
-      leaseId,
-      nodeId: rootNodeId,
-      bindingId: config.bindingId,
-      repoPath: path.relative(ROOT, codePath),
-      exportName: "Hero",
-      syncMode: "manual"
-    }, 300_000);
-    const pulled = canvas("canvas.code.pull", { canvasSessionId, leaseId, bindingId: config.bindingId }, 300_000);
-    const afterPull = canvas("canvas.document.load", { canvasSessionId, leaseId, documentId });
+    const bound = runCanvasStep({
+      artifact,
+      command: "canvas.code.bind",
+      options,
+      params: {
+        canvasSessionId,
+        leaseId,
+        nodeId: rootNodeId,
+        bindingId: config.bindingId,
+        repoPath: path.relative(ROOT, codePath),
+        exportName: "Hero",
+        syncMode: "manual"
+      },
+      requestedTimeoutMs: 300_000,
+      startedAtMs,
+      stepName: "code.bind"
+    });
+    const pulled = runCanvasStep({
+      artifact,
+      command: "canvas.code.pull",
+      options,
+      params: { canvasSessionId, leaseId, bindingId: config.bindingId },
+      requestedTimeoutMs: 300_000,
+      startedAtMs,
+      stepName: "code.pull"
+    });
+    const afterPull = runCanvasStep({
+      artifact,
+      command: "canvas.document.load",
+      options,
+      params: { canvasSessionId, leaseId, documentId },
+      startedAtMs,
+      stepName: "document.load.after-pull"
+    });
     const importedTextNode = afterPull.document.pages
       .flatMap((entry) => entry.nodes ?? [])
       .find((node) => typeof node?.props?.text === "string" && node.props.text.includes(config.importedText));
     if (!importedTextNode?.id) {
       throw new Error(`No imported text node found after canvas.code.pull for surface ${options.surface}`);
     }
-    const patched = canvas("canvas.document.patch", {
-      canvasSessionId,
-      leaseId,
-      baseRevision: afterPull.documentRevision,
-      patches: [{ op: "node.update", nodeId: importedTextNode.id, changes: { "props.text": config.updatedText } }]
+    const patched = runCanvasStep({
+      artifact,
+      command: "canvas.document.patch",
+      options,
+      params: {
+        canvasSessionId,
+        leaseId,
+        baseRevision: afterPull.documentRevision,
+        patches: [{ op: "node.update", nodeId: importedTextNode.id, changes: { "props.text": config.updatedText } }]
+      },
+      startedAtMs,
+      stepName: "document.patch.code"
     });
-    const pushed = canvas("canvas.code.push", { canvasSessionId, leaseId, bindingId: config.bindingId }, 300_000);
-    const codeStatus = canvas("canvas.code.status", { canvasSessionId, bindingId: config.bindingId });
+    const pushed = runCanvasStep({
+      artifact,
+      command: "canvas.code.push",
+      options,
+      params: { canvasSessionId, leaseId, bindingId: config.bindingId },
+      requestedTimeoutMs: 300_000,
+      startedAtMs,
+      stepName: "code.push"
+    });
+    const codeStatus = runCanvasStep({
+      artifact,
+      command: "canvas.code.status",
+      options,
+      params: { canvasSessionId, bindingId: config.bindingId },
+      startedAtMs,
+      stepName: "code.status"
+    });
     const updatedSource = fs.readFileSync(codePath, "utf8");
     artifact.steps.push({
       step: "code-sync",
@@ -487,12 +947,45 @@ async function main() {
       sourceHasUpdatedText: updatedSource.includes(config.updatedText)
     });
 
-    const exported = canvas("canvas.document.export", { canvasSessionId, leaseId, exportTarget: "html_bundle" }, 300_000);
-    const saved = canvas("canvas.document.save", { canvasSessionId, leaseId, repoPath: config.saveRepoPath }, 300_000);
-    const unbound = canvas("canvas.code.unbind", { canvasSessionId, leaseId, bindingId: config.bindingId });
-    const closed = canvas("canvas.session.close", { canvasSessionId, leaseId });
+    const exported = runCanvasStep({
+      artifact,
+      command: "canvas.document.export",
+      options,
+      params: { canvasSessionId, leaseId, exportTarget: "html_bundle" },
+      requestedTimeoutMs: 300_000,
+      startedAtMs,
+      stepName: "document.export"
+    });
+    const saved = runCanvasStep({
+      artifact,
+      command: "canvas.document.save",
+      options,
+      params: { canvasSessionId, leaseId, repoPath: config.saveRepoPath },
+      requestedTimeoutMs: 300_000,
+      startedAtMs,
+      stepName: "document.save"
+    });
+    const unbound = runCanvasStep({
+      artifact,
+      command: "canvas.code.unbind",
+      options,
+      params: { canvasSessionId, leaseId, bindingId: config.bindingId },
+      startedAtMs,
+      stepName: "code.unbind"
+    });
+    const closed = runCanvasStep({
+      artifact,
+      command: "canvas.session.close",
+      options,
+      params: { canvasSessionId, leaseId },
+      startedAtMs,
+      stepName: "session.close"
+    });
     const disconnectArgs = ["disconnect", "--session-id", sessionId, ...(config.closeBrowser ? ["--close-browser"] : [])];
-    const disconnectedRun = runCli(disconnectArgs, { timeoutMs: DISCONNECT_WRAPPER_TIMEOUT_MS });
+    const disconnectTimeoutMs = resolveDisconnectTimeout(options.surface, startedAtMs);
+    updateArtifactCheckpoint(options.out, artifact, { step: "disconnect", timeoutMs: disconnectTimeoutMs });
+    const disconnectedRun = runCli(disconnectArgs, { timeoutMs: disconnectTimeoutMs });
+    updateArtifactCheckpoint(options.out, artifact, null);
     disconnected = true;
     artifact.steps.push({
       step: "export-save-close",
@@ -517,7 +1010,10 @@ async function main() {
     }
   } finally {
     if (sessionId && !disconnected) {
-      disconnectSession(sessionId, config.closeBrowser === true);
+      const disconnectTimeoutMs = resolveDisconnectTimeout(options.surface, startedAtMs);
+      updateArtifactCheckpoint(options.out, artifact, { step: "disconnect", timeoutMs: disconnectTimeoutMs });
+      disconnectSession(sessionId, config.closeBrowser === true, disconnectTimeoutMs);
+      updateArtifactCheckpoint(options.out, artifact, null);
     }
     writeJson(options.out, artifact);
     console.log(JSON.stringify({

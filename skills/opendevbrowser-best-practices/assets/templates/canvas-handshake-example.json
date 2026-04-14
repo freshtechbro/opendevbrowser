@@ -4,6 +4,7 @@
   "documentId": "dc_01",
   "leaseId": "lease_01",
   "preflightState": "handshake_read",
+  "planStatus": "missing",
   "attachModes": [
     "observer",
     "lease_reclaim"
@@ -82,14 +83,23 @@
     "CANVAS-06",
     "CANVAS-07"
   ],
-  "allowedBeforePlan": [
-    "canvas.capabilities.get",
-    "canvas.plan.get",
-    "canvas.plan.set",
-    "canvas.document.load",
-    "canvas.session.attach",
-    "canvas.session.status"
-  ],
+  "mutationPolicy": {
+    "planRequiredBeforePatch": true,
+    "allowedBeforePlan": [
+      "canvas.capabilities.get",
+      "canvas.plan.get",
+      "canvas.plan.set",
+      "canvas.document.load",
+      "canvas.session.attach",
+      "canvas.session.status"
+    ]
+  },
+  "guidance": {
+    "recommendedNextCommands": [
+      "canvas.plan.set"
+    ],
+    "reason": "Handshake is complete. Submit a complete generationPlan before mutation."
+  },
   "projectionModes": [
     "canvas_html",
     "bound_app_runtime"
