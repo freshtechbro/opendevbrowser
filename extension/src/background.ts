@@ -60,6 +60,7 @@ const nativePort = new NativePortManager({
   },
   onDisconnect: () => {
     updateBadge(getEffectiveStatus());
+    void refreshBadgeFromBackgroundStatus();
   }
 });
 let autoConnectInFlight = false;
@@ -83,6 +84,7 @@ const LAST_AGENT_ANNOTATION_PAYLOAD_KEY = "annotationAgentPayloadSansScreenshots
 const LAST_ANNOTATABLE_TAB_ID_KEY = "annotationLastTabId";
 const POPUP_ANNOTATION_TARGET_TTL_MS = 10_000;
 const BADGE_CONNECTED_DOT_COLOR = "#16a34a";
+const BADGE_WARNING_DOT_COLOR = "#f59e0b";
 const BADGE_DISCONNECTED_DOT_COLOR = "#dc2626";
 
 type AnnotationTransport = "relay" | "native" | "popup";
@@ -156,9 +158,14 @@ type ContentScriptMessage =
     error: { code: AnnotationErrorCode; message: string };
   };
 
-const updateBadge = (status: ConnectionStatus): void => {
-  const isConnected = status === "connected";
-  const dotColor = isConnected ? BADGE_CONNECTED_DOT_COLOR : BADGE_DISCONNECTED_DOT_COLOR;
+type BadgeTone = ConnectionStatus | "warning";
+
+const updateBadge = (tone: BadgeTone): void => {
+  const dotColor = tone === "connected"
+    ? BADGE_CONNECTED_DOT_COLOR
+    : tone === "warning"
+      ? BADGE_WARNING_DOT_COLOR
+      : BADGE_DISCONNECTED_DOT_COLOR;
 
   chrome.action.setBadgeText({ text: "●" });
 
@@ -181,10 +188,42 @@ const getEffectiveStatus = (): ConnectionStatus => {
   return "disconnected";
 };
 
+const hasReadyRelayHandshake = (health: RelayHealthStatus | null): boolean => {
+  return health?.extensionConnected === true && health.extensionHandshakeComplete === true;
+};
+
+const deriveBackgroundStatus = (
+  relayStatus: ConnectionStatus,
+  nativeHealth: NativeTransportHealth | null,
+  relayHealth: RelayHealthStatus | null,
+  reconnectSuppressed: boolean
+): ConnectionStatus => {
+  if (relayStatus === "connected") {
+    return "connected";
+  }
+  if (nativeHealth?.status === "connected") {
+    return "connected";
+  }
+  if (reconnectSuppressed) {
+    return "disconnected";
+  }
+  return hasReadyRelayHandshake(relayHealth) ? "connected" : "disconnected";
+};
+
+const deriveBadgeTone = (
+  status: ConnectionStatus,
+  relayHealth: RelayHealthStatus | null
+): BadgeTone => {
+  if (status === "connected") {
+    return "connected";
+  }
+  return hasReadyRelayHandshake(relayHealth) ? "warning" : "disconnected";
+};
+
 const buildStatusMessage = async (): Promise<BackgroundMessage> => {
   const error = connection.getLastError();
   const relayStatus = connection.getStatus();
-  const status = getEffectiveStatus();
+  const reconnectSuppressed = connection.isReconnectSuppressed();
   let note = error?.message;
   let relayHealth: RelayHealthStatus | null = null;
   const isNativeEnabled = nativeEnabled;
@@ -216,12 +255,18 @@ const buildStatusMessage = async (): Promise<BackgroundMessage> => {
       });
       const port = parsePort(stored.relayPort) ?? DEFAULT_RELAY_PORT;
       relayHealth = await fetchRelayHealth(port);
-      note = statusNoteOverride ?? buildRelayHealthNote(relayHealth);
-      if (!statusNoteOverride && isNativeEnabled && nativeHealth?.status === "error") {
+      if (hasReadyRelayHandshake(relayHealth)) {
+        note = `Connected to 127.0.0.1:${port}`;
+      } else {
+        note = statusNoteOverride ?? buildRelayHealthNote(relayHealth);
+      }
+      if (!hasReadyRelayHandshake(relayHealth) && !statusNoteOverride && isNativeEnabled && nativeHealth?.status === "error") {
         note = buildNativeHealthNote(nativeHealth);
       }
     }
   }
+
+  const status = deriveBackgroundStatus(relayStatus, nativeHealth, relayHealth, reconnectSuppressed);
 
   if (!error) {
     const relayNotice = connection.getRelayNotice();
@@ -238,6 +283,22 @@ const buildStatusMessage = async (): Promise<BackgroundMessage> => {
     nativeHealth,
     nativeEnabled: isNativeEnabled
   };
+};
+
+let badgeRefreshVersion = 0;
+
+const refreshBadgeFromBackgroundStatus = async (): Promise<void> => {
+  const refreshVersion = ++badgeRefreshVersion;
+  let tone: BadgeTone = getEffectiveStatus();
+  try {
+    const statusMessage = await buildStatusMessage();
+    tone = deriveBadgeTone(statusMessage.status, statusMessage.relayHealth ?? null);
+  } catch {
+    // Keep the synchronous local status when relay/native health cannot be fetched.
+  }
+  if (refreshVersion === badgeRefreshVersion) {
+    updateBadge(tone);
+  }
 };
 
 const setStorage = (items: Record<string, unknown>): Promise<void> => {
@@ -353,6 +414,7 @@ const attemptNativeConnect = async (): Promise<boolean> => {
     logError("native_port.ping", error, { code: "native_ping_failed" });
   }
   updateBadge(getEffectiveStatus());
+  await refreshBadgeFromBackgroundStatus();
   return nativePort.isConnected();
 };
 
@@ -1469,7 +1531,7 @@ const attemptAutoConnect = async (): Promise<void> => {
 
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
   autoConnectEnabled = autoConnect;
-  if (!autoConnect || connection.getStatus() === "connected") {
+  if (!autoConnect || connection.getStatus() === "connected" || connection.isReconnectSuppressed()) {
     clearRetry();
     return;
   }
@@ -1588,6 +1650,7 @@ connection.onStatus((status) => {
   const effectiveStatus =
     status === "connected" ? "connected" : (nativeEnabled && nativePort.isConnected()) ? "connected" : "disconnected";
   updateBadge(effectiveStatus);
+  void refreshBadgeFromBackgroundStatus();
   if (status === "connected") {
     nativePort.disconnect();
     setStatusNoteOverride(null);
@@ -1598,6 +1661,10 @@ connection.onStatus((status) => {
       clearTimeout(session.timeoutId);
     }
     annotationSessions.clear();
+    if (connection.isReconnectSuppressed()) {
+      clearRetry();
+      return;
+    }
     if (autoConnectEnabled) {
       scheduleRetry();
     }
@@ -1687,6 +1754,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
       nativePort.disconnect();
     }
     updateBadge(getEffectiveStatus());
+    void refreshBadgeFromBackgroundStatus();
   }
   if (changes.autoConnect) {
     autoConnectEnabled =
@@ -1711,12 +1779,14 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
     sendResponse(status);
   };
 
-  if (message.type === "status") {
-    (async () => {
-      respond(await buildStatusMessage());
-    })().catch((error) => {
-      logError("popup.status", error, { code: "status_failed" });
-      respond({
+    if (message.type === "status") {
+      (async () => {
+        const statusMessage = await buildStatusMessage();
+        updateBadge(deriveBadgeTone(statusMessage.status, statusMessage.relayHealth ?? null));
+        respond(statusMessage);
+      })().catch((error) => {
+        logError("popup.status", error, { code: "status_failed" });
+        respond({
         type: "status",
         status: connection.getStatus(),
         note: "Background unavailable"
@@ -1725,16 +1795,18 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
     return true;
   }
 
-  if (message.type === "connect") {
-    (async () => {
-      await connection.connect();
-      if (connection.getStatus() !== "connected") {
-        await attemptNativeConnect();
-      }
-      respond(await buildStatusMessage());
-    })().catch((error) => {
-      logError("popup.connect", error, { code: "connect_failed" });
-      connection.disconnect();
+    if (message.type === "connect") {
+      (async () => {
+        await connection.connect();
+        if (connection.getStatus() !== "connected") {
+          await attemptNativeConnect();
+        }
+        const statusMessage = await buildStatusMessage();
+        updateBadge(deriveBadgeTone(statusMessage.status, statusMessage.relayHealth ?? null));
+        respond(statusMessage);
+      })().catch((error) => {
+        logError("popup.connect", error, { code: "connect_failed" });
+        connection.disconnect();
       nativePort.disconnect();
       respond({
         type: "status",
@@ -1745,15 +1817,17 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
     return true;
   }
 
-  if (message.type === "disconnect") {
-    (async () => {
-      await connection.disconnect();
-      nativePort.disconnect();
-      connection.clearLastError();
-      respond(await buildStatusMessage());
-    })().catch((error) => {
-      logError("popup.disconnect", error, { code: "disconnect_failed" });
-      connection.disconnect();
+    if (message.type === "disconnect") {
+      (async () => {
+        await connection.disconnect();
+        nativePort.disconnect();
+        connection.clearLastError();
+        const statusMessage = await buildStatusMessage();
+        updateBadge(deriveBadgeTone(statusMessage.status, statusMessage.relayHealth ?? null));
+        respond(statusMessage);
+      })().catch((error) => {
+        logError("popup.disconnect", error, { code: "disconnect_failed" });
+        connection.disconnect();
       nativePort.disconnect();
       connection.clearLastError();
       respond({

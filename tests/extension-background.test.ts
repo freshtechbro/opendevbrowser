@@ -11,6 +11,7 @@ let lastConnectionManager: {
   getLastError: ReturnType<typeof vi.fn>;
   getRelayIdentity: ReturnType<typeof vi.fn>;
   getRelayNotice: ReturnType<typeof vi.fn>;
+  isReconnectSuppressed: ReturnType<typeof vi.fn>;
   clearLastError: ReturnType<typeof vi.fn>;
   onAnnotationCommand: (handler: (command: unknown) => void) => void;
   onOpsMessage: (handler: (message: unknown) => void) => void;
@@ -51,6 +52,7 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
     getLastError = vi.fn(() => null);
     getRelayIdentity = vi.fn(() => ({ instanceId: null, relayPort: null }));
     getRelayNotice = vi.fn(() => null);
+    isReconnectSuppressed = vi.fn(() => false);
     clearLastError = vi.fn();
     onAnnotationCommand = (handler: (command: unknown) => void) => {
       this.annotationHandler = handler;
@@ -108,6 +110,7 @@ describe("extension background auto-connect", () => {
   beforeEach(() => {
     lastConnectionManager = null;
     vi.resetModules();
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -191,6 +194,69 @@ describe("extension background auto-connect", () => {
     });
 
     expect(String(response.note ?? "")).toContain("instance mismatch");
+  });
+
+  it("reports connected status when daemon relay health already shows a completed extension handshake", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { status?: string; note?: string });
+      });
+    });
+
+    expect(response.status).toBe("connected");
+    expect(response.note).toBe("Connected to 127.0.0.1:8787");
+  });
+
+  it("keeps popup status disconnected when reconnect is suppressed even if daemon relay health is green", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+    lastConnectionManager?.getRelayNotice.mockReturnValue(
+      "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly."
+    );
+
+    const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { status?: string; note?: string });
+      });
+    });
+
+    expect(response.status).toBe("disconnected");
+    expect(response.note).toContain("Another extension client took over the relay connection");
   });
 
   it("clears stored relay state when discovery config is unreachable", async () => {
@@ -306,6 +372,65 @@ describe("extension background auto-connect", () => {
     expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: [0, 0, 0, 0] });
   });
 
+  it("reconciles the badge to connected when relay health is green but local relay state is stale", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+    await new Promise<void>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, () => resolve());
+    });
+
+    expect(mock.chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: "●" });
+    expect(mock.chrome.action.setBadgeTextColor).toHaveBeenLastCalledWith({ color: "#16a34a" });
+    expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: [0, 0, 0, 0] });
+  });
+
+  it("shows a warning badge when relay health is green but reconnect is suppressed", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+    lastConnectionManager?.getRelayNotice.mockReturnValue(
+      "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly."
+    );
+    await new Promise<void>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, () => resolve());
+    });
+
+    expect(mock.chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: "●" });
+    expect(mock.chrome.action.setBadgeTextColor).toHaveBeenLastCalledWith({ color: "#f59e0b" });
+    expect(mock.chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: [0, 0, 0, 0] });
+  });
+
   it("schedules an alarm retry after relay disconnect and clears it after reconnect", async () => {
     const mock = createChromeMock({ autoConnect: true, autoPair: false });
     globalThis.chrome = mock.chrome;
@@ -331,6 +456,74 @@ describe("extension background auto-connect", () => {
     expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
     expect(mock.chrome.alarms.clear).toHaveBeenCalledWith("opendevbrowser-auto-connect");
   });
+
+  it("does not schedule an alarm retry when reconnect is suppressed after relay takeover", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    mock.chrome.alarms.create.mockClear();
+    mock.chrome.alarms.clear.mockClear();
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+    lastConnectionManager?.getRelayNotice.mockReturnValue(
+      "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly."
+    );
+
+    lastConnectionManager?.emitStatus("disconnected");
+
+    expect(mock.chrome.alarms.create).not.toHaveBeenCalled();
+    expect(mock.chrome.alarms.clear).toHaveBeenCalledWith("opendevbrowser-auto-connect");
+  });
+
+  it("does not reconnect when the retry alarm fires while reconnect is suppressed", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.connect.mockClear();
+    mock.chrome.alarms.create.mockClear();
+    mock.chrome.alarms.clear.mockClear();
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+
+    lastConnectionManager?.emitStatus("disconnected");
+    mock.emitAlarm("opendevbrowser-auto-connect");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
+    expect(mock.chrome.alarms.create).not.toHaveBeenCalled();
+    expect(mock.chrome.alarms.clear).toHaveBeenCalledWith("opendevbrowser-auto-connect");
+  });
+
+  it("resumes alarm retries after reconnect clears suppression", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    mock.chrome.alarms.create.mockClear();
+    mock.chrome.alarms.clear.mockClear();
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+
+    lastConnectionManager?.emitStatus("disconnected");
+    expect(mock.chrome.alarms.create).not.toHaveBeenCalled();
+
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(false);
+    mock.chrome.alarms.create.mockClear();
+    mock.chrome.alarms.clear.mockClear();
+
+    lastConnectionManager?.emitStatus("connected");
+    lastConnectionManager?.emitStatus("disconnected");
+
+    expect(mock.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
+  });
 });
 
 describe("extension background annotation routing", () => {
@@ -348,6 +541,7 @@ describe("extension background annotation routing", () => {
   beforeEach(() => {
     lastConnectionManager = null;
     vi.resetModules();
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
   });
 
   afterEach(() => {

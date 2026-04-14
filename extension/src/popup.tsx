@@ -119,18 +119,35 @@ const setHealthNote = (message?: string) => {
   healthNote.textContent = next;
 };
 
-const setStatus = (status: BackgroundMessage["status"]) => {
-  const isConnected = status === "connected";
-  statusEl.textContent = isConnected ? "Connected" : "Disconnected";
+type StatusTone = "connected" | "disconnected" | "warning";
+
+const hasRelayHealthyMismatch = (response: Pick<BackgroundMessage, "status" | "relayHealth">): boolean => {
+  return response.status === "disconnected"
+    && response.relayHealth?.extensionConnected === true
+    && response.relayHealth.extensionHandshakeComplete === true;
+};
+
+const applyStatusTone = (label: string, tone: StatusTone) => {
+  const isConnected = tone === "connected";
+  const isWarning = tone === "warning";
+  statusEl.textContent = label;
   toggleButton.textContent = isConnected ? "Disconnect" : "Connect";
-  
-  if (isConnected) {
-    statusIndicator.classList.add("connected");
-    statusPill.classList.add("connected");
-  } else {
-    statusIndicator.classList.remove("connected");
-    statusPill.classList.remove("connected");
+  statusIndicator.classList.toggle("connected", isConnected);
+  statusPill.classList.toggle("connected", isConnected);
+  statusIndicator.classList.toggle("warning", isWarning);
+  statusPill.classList.toggle("warning", isWarning);
+};
+
+const setStatus = (response: Pick<BackgroundMessage, "status" | "relayHealth">) => {
+  if (response.status === "connected") {
+    applyStatusTone("Connected", "connected");
+    return;
   }
+  if (hasRelayHealthyMismatch(response)) {
+    applyStatusTone("Relay active", "warning");
+    return;
+  }
+  applyStatusTone("Disconnected", "disconnected");
 };
 
 const setHealthValue = (element: HTMLElement, value: string, tone: "ok" | "warn" | "off") => {
@@ -228,7 +245,7 @@ const setNativeHealth = (health: NativeTransportHealth | null, enabled: boolean)
 };
 
 const applyStatus = (response: BackgroundMessage) => {
-  setStatus(response.status);
+  setStatus(response);
   setNote(response.note);
   setHealth(response.relayHealth ?? null);
   setNativeHealth(response.nativeHealth ?? null, response.nativeEnabled === true);
@@ -289,7 +306,7 @@ const refreshStatus = async () => {
     void refreshInjectionStatus();
   } catch (error) {
     logError("popup.status_refresh", error, { code: "status_refresh_failed" });
-    setStatus("disconnected");
+    setStatus({ status: "disconnected", relayHealth: null });
     const message = error instanceof Error ? error.message : "Background unavailable";
     setNote(message);
     setHealth(null);
@@ -654,7 +671,7 @@ const toggle = async () => {
           relayEpoch: config?.epoch ?? fetchedToken.epoch ?? null
         });
       } else {
-        setStatus("disconnected");
+        setStatus({ status: "disconnected", relayHealth: null });
         setNote("Auto-pair failed. Start the daemon and retry.");
         setTimeout(() => refreshStatus(), 2000);
         return;
@@ -670,7 +687,7 @@ const toggle = async () => {
     void refreshInjectionStatus();
   } catch (error) {
     logError("popup.toggle", error, { code: "toggle_failed" });
-    setStatus("disconnected");
+    setStatus({ status: "disconnected", relayHealth: null });
     const message = error instanceof Error ? error.message : "Background unavailable";
     setNote(message);
     setHealth(null);
@@ -680,7 +697,7 @@ const toggle = async () => {
 toggleButton.addEventListener("click", () => {
   toggle().catch((error) => {
     logError("popup.toggle", error, { code: "toggle_failed" });
-    setStatus("disconnected");
+    setStatus({ status: "disconnected", relayHealth: null });
   });
 });
 
@@ -761,7 +778,7 @@ autoConnectInput.addEventListener("change", () => {
   if (enabled && statusEl.textContent !== "Connected") {
     toggle().catch((error) => {
       logError("popup.auto_connect", error, { code: "auto_connect_failed" });
-      setStatus("disconnected");
+      setStatus({ status: "disconnected", relayHealth: null });
       setNote();
     });
   }
@@ -805,7 +822,7 @@ relayPortInput.addEventListener("input", () => {
 
 refreshStatus().catch((error) => {
   logError("popup.refresh_status", error, { code: "status_refresh_failed" });
-  setStatus("disconnected");
+  setStatus({ status: "disconnected", relayHealth: null });
   setNote();
 });
 

@@ -32,7 +32,7 @@ describe("extension popup annotation errors", () => {
         return;
       }
       if (type === "status") {
-        callback?.({ type: "status", status: "connected", health: null });
+        callback?.({ type: "status", status: "connected", relayHealth: null, nativeEnabled: false, nativeHealth: null });
         return;
       }
       if (type === "annotation:probe") {
@@ -64,6 +64,66 @@ describe("extension popup annotation errors", () => {
     await flushMicrotasks();
 
     expect(annotationNote.textContent).toBe("Extension background is unavailable. Reload the extension and retry.");
+  });
+
+  it("shows a warning state when relay health is green but this popup client is disconnected", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    mock.chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response: unknown) => void) => {
+      const type = (message as { type?: string } | null)?.type;
+      if (type === "status") {
+        callback?.({
+          type: "status",
+          status: "disconnected",
+          note: "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly.",
+          relayHealth: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            annotationConnected: false,
+            cdpConnected: false,
+            pairingRequired: false
+          },
+          nativeEnabled: false,
+          nativeHealth: null
+        });
+        return;
+      }
+      if (type === "annotation:probe") {
+        callback?.({ type: "annotation:probeResult", injected: false, detail: "Not injected." });
+        return;
+      }
+      if (type === "annotation:lastMeta") {
+        callback?.({ type: "annotation:lastMetaResult", meta: null });
+        return;
+      }
+      if (type === "annotation:getPayload") {
+        callback?.({ type: "annotation:payloadResult", payload: null, meta: null, source: "storage" });
+        return;
+      }
+      callback?.({ ok: true });
+    });
+
+    globalThis.chrome = mock.chrome;
+    await import("../extension/src/popup");
+    await flushMicrotasks();
+
+    const status = document.getElementById("status");
+    const statusIndicator = document.getElementById("statusIndicator");
+    const statusPill = document.getElementById("statusPill");
+    const healthRelay = document.getElementById("healthRelay");
+    const healthHandshake = document.getElementById("healthHandshake");
+    if (!status || !statusIndicator || !statusPill || !healthRelay || !healthHandshake) {
+      throw new Error("Popup DOM missing status controls");
+    }
+
+    expect(status.textContent).toBe("Relay active");
+    expect(statusIndicator.classList.contains("warning")).toBe(true);
+    expect(statusPill.classList.contains("warning")).toBe(true);
+    expect(statusIndicator.classList.contains("connected")).toBe(false);
+    expect(statusPill.classList.contains("connected")).toBe(false);
+    expect(healthRelay.textContent).toBe("Online");
+    expect(healthHandshake.textContent).toBe("Complete");
   });
 
   it("clears a stale annotation injection warning after a successful start", async () => {
