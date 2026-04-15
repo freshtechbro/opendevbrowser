@@ -1,10 +1,10 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-04-11 | **Commit:** 5e05b0c | **Branch:** codex/browser-screencast-desktop-surface
+**Generated:** 2026-04-14 | **Commit:** d7d579f | **Branch:** codex/provider-guidance-live
 
 ## Overview
 
-OpenCode plugin providing AI agents with browser automation via Chrome DevTools Protocol. Script-first UX: snapshot → refs → actions.
+Agent-agnostic browser automation runtime for CLI workflows, OpenCode tool calls, and Chrome extension relay sessions. Script-first UX: snapshot → refs → actions.
 
 ### Install Quick Reference
 
@@ -18,7 +18,7 @@ OpenCode plugin providing AI agents with browser automation via Chrome DevTools 
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Distribution Layer                         │
 ├──────────────────┬──────────────────┬──────────────────┬──────────────────────────┤
-│  OpenCode Plugin │       CLI        │    Hub Daemon    │    Chrome Extension       │
+│ OpenCode Tools   │       CLI        │    Hub Daemon    │    Chrome Extension       │
 │  (src/index.ts)  │ (src/cli/index)  │ (opendevbrowser  │   (extension/src/)        │
 │                  │                  │      serve)     │                           │
 └────────┬─────────┴────────┬─────────┴─────────┬────────┴──────────────┬────────────┘
@@ -88,7 +88,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 
 ```
 .
-├── src/              # Plugin implementation
+├── src/              # Runtime implementation
 │   ├── annotate/     # Annotation transports + output shaping
 │   ├── automation/    # Automation helpers and coordinator
 │   ├── browser/      # Browser sessions, target orchestration, canvas preview/code-sync
@@ -201,11 +201,11 @@ npm run version:check     # Verify version alignment
 - Config files: mode 0600
 - Atomic writes: prevent corruption
 
-## Plugin Architecture
+## Runtime Entry Architecture
 
 ```
 Entry: src/index.ts
-  └── Exports: { tool, chat.message, experimental.chat.system.transform }
+  └── OpenCode tool-call entrypoint exporting { tool, chat.message, experimental.chat.system.transform }
 
 Bootstrap: src/core/bootstrap.ts
   └── Creates: BrowserManager, AnnotationManager, CanvasManager, AgentInbox, ScriptRunner, SkillLoader, providerRuntime, RelayServer, desktopRuntime, automationCoordinator
