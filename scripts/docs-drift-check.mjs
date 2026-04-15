@@ -89,6 +89,7 @@ export function runDocsDriftChecks() {
   const distributionPlan = read("docs/DISTRIBUTION_PLAN.md");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
   const architectureDoc = read("docs/ARCHITECTURE.md");
+  const designCanvasSpec = read("docs/DESIGN_CANVAS_TECHNICAL_SPEC.md");
   const onboardingMetadata = JSON.parse(read("src/cli/onboarding-metadata.json"));
   const annotateDoc = read("docs/ANNOTATE.md");
   const extensionDoc = read("docs/EXTENSION.md");
@@ -447,6 +448,13 @@ export function runDocsDriftChecks() {
     forbidden: ["primary_constraint_summary", "reason_code_distribution"],
     detail: "docs/CLI.md must document camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
   });
+  checks.push({
+    id: "doc.cli.canvas_plan_guidance_documented",
+    ok: cliDoc.includes("generationPlanIssues")
+      && cliDoc.includes("plan_invalid")
+      && cliDoc.includes("generation_plan_invalid"),
+    detail: "docs/CLI.md must document generationPlanIssues, plan_invalid, and generation_plan_invalid for the /canvas flow."
+  });
 
   checks.push({
     id: "doc.architecture.canvas_history_event_documented",
@@ -454,6 +462,21 @@ export function runDocsDriftChecks() {
       && architectureDoc.includes("canvas.history.undo")
       && architectureDoc.includes("canvas.history.redo"),
     detail: "docs/ARCHITECTURE.md must document the canvas history event boundary and public undo/redo commands."
+  });
+  checks.push({
+    id: "doc.architecture.canvas_plan_guidance_documented",
+    ok: architectureDoc.includes("generationPlanIssues")
+      && architectureDoc.includes("allowedValues")
+      && architectureDoc.includes("missing-vs-invalid generation-plan classification"),
+    detail: "docs/ARCHITECTURE.md must document generationPlanIssues, allowedValues, and missing-vs-invalid plan ownership."
+  });
+  checks.push({
+    id: "doc.design_canvas_spec.plan_guidance_documented",
+    ok: designCanvasSpec.includes("generationPlanIssues")
+      && designCanvasSpec.includes("plan_invalid")
+      && designCanvasSpec.includes("canvas.plan.get")
+      && designCanvasSpec.includes("not required after a successful `canvas.plan.set`"),
+    detail: "docs/DESIGN_CANVAS_TECHNICAL_SPEC.md must document generationPlanIssues, plan_invalid, and the optional diagnostic role of canvas.plan.get."
   });
 
   checks.push({
@@ -519,6 +542,13 @@ export function runDocsDriftChecks() {
     required: ["meta.primaryConstraintSummary", "meta.metrics.reasonCodeDistribution", "meta.reasonCodeDistribution"],
     forbidden: ["primary_constraint_summary", "reason_code_distribution"],
     detail: "docs/SURFACE_REFERENCE.md must document the camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
+  });
+  checks.push({
+    id: "doc.surface.canvas_plan_guidance_documented",
+    ok: surfaceDoc.includes("generationPlanIssues")
+      && surfaceDoc.includes("generation_plan_invalid")
+      && surfaceDoc.includes("preflight-blocker"),
+    detail: "docs/SURFACE_REFERENCE.md must document generationPlanIssues, generation_plan_invalid, and preflight-blocker guidance for /canvas."
   });
 
   checks.push({
@@ -604,6 +634,13 @@ export function runDocsDriftChecks() {
     detail: "skills/opendevbrowser-best-practices/SKILL.md must own direct-run release evidence policy."
   });
   checks.push({
+    id: "skill.best_practices.canvas_plan_guidance_documented",
+    ok: bestPracticesSkill.includes("generationPlanIssues")
+      && bestPracticesSkill.includes("plan_invalid")
+      && bestPracticesSkill.includes("generation_plan_invalid"),
+    detail: "skills/opendevbrowser-best-practices/SKILL.md must document generationPlanIssues, plan_invalid, and generation_plan_invalid."
+  });
+  checks.push({
     id: "skill.best_practices.surface_counts_match_source",
     ok: bestPracticesSkill.includes(`${commandCount} CLI commands, ${toolCount} tools, ${opsCommandCount} \`/ops\` commands, ${canvasCommandCount} \`/canvas\` commands`),
     detail: `skills/opendevbrowser-best-practices/SKILL.md must mirror source counts ${commandCount}/${toolCount}/${opsCommandCount}/${canvasCommandCount}.`
@@ -655,9 +692,11 @@ export function runDocsDriftChecks() {
     ok: designSkill.includes("canvas.history.undo")
       && designSkill.includes("canvas.history.redo")
       && designSkill.includes("canvas_history_requested")
+      && designSkill.includes("generationPlanIssues")
+      && designSkill.includes("plan_invalid")
       && designSkill.includes("Delivered to agent")
       && designSkill.includes("Stored only; fetch with annotate --stored"),
-    detail: "design-agent skill must document history control validation and annotation send receipts."
+    detail: "design-agent skill must document history control validation, invalid-plan guidance, and annotation send receipts."
   });
 
   checks.push({

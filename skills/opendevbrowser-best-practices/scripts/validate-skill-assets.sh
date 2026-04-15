@@ -101,6 +101,8 @@ const canvasPlaybookMarkers = [
   "canvas.plan.set",
   "canvas.feedback.poll",
   "guidance.recommendedNextCommands",
+  "generationPlanIssues",
+  "plan_invalid",
   "generation_plan_invalid",
   "CANVAS-01",
   "CANVAS-07"
@@ -108,6 +110,9 @@ const canvasPlaybookMarkers = [
 
 const canvasHandshakeMarkers = [
   "\"planStatus\": \"missing\"",
+  "\"allowedValues\"",
+  "\"warningClasses\"",
+  "\"generationPlanIssues\"",
   "\"mutationPolicy\"",
   "\"recommendedNextCommands\"",
   "\"reason\": \"Handshake is complete. Submit a complete generationPlan before mutation.\""
@@ -150,6 +155,8 @@ const hasMarker = (content, marker) => content.includes(marker);
     "assets/templates/skill-runtime-pack-matrix.json",
     "mutationPolicy.allowedBeforePlan",
     "planStatus",
+    "plan_invalid",
+    "generationPlanIssues",
     "guidance.recommendedNextCommands",
     "generation_plan_invalid",
     "canvas.code.bind",
@@ -181,8 +188,12 @@ const hasMarker = (content, marker) => content.includes(marker);
     "feedback.heartbeat",
     "governanceRequirements",
     "generationPlanRequirements",
+    "allowedValues",
     "mutationPolicy",
     "planStatus",
+    "plan_invalid",
+    "generationPlanIssues",
+    "warningClasses",
     "recommendedNextCommands",
     "generation_plan_invalid",
     "code-sync",

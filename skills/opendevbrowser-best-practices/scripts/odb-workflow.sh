@@ -115,11 +115,13 @@ EOF
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
 $CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
-# Read handshake before any mutation. Require preflightState=handshake_read.
+# Read handshake before any mutation. Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, and guidance.recommendedNextCommands.
 $CLI_PREFIX canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
 # Replace placeholders in the plan file with canvasSessionId, leaseId, and documentId from the open response.
-$CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
-# Require planStatus=accepted or preflightState=plan_accepted before canvas.document.patch.
+# If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
+# Optional diagnostics after generation_plan_invalid:
+# $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
 EOF
     ;;
   canvas-feedback-eval)
@@ -128,7 +130,7 @@ cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-feedback-eval.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-blocker-checklist.json
 $CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
-# Verify every feedback item is target-attributed and uses approved categories.
+# Verify every feedback item is target-attributed and uses approved categories. If feedback returns preflight-blocker, return to canvas.plan.set first.
 $CLI_PREFIX canvas --command canvas.preview.refresh --params '{"requestId":"req_refresh_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","refreshMode":"full"}'
 $CLI_PREFIX canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
 # Save should fail or warn when requiredBeforeSave governance blocks remain unresolved.

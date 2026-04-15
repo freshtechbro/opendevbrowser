@@ -101,10 +101,13 @@ cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 ./skills/opendevbrowser-design-agent/scripts/extract-canvas-plan.sh ./tmp/design-contract.json > ./tmp/canvas-plan.json
 $CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
-# Require preflightState=handshake_read and inspect guidance.recommendedNextCommands before continuing.
+# Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, and guidance.recommendedNextCommands before continuing.
+# Treat preflightState=handshake_read as the normal first-step checkpoint before canvas.plan.set.
 $CLI_PREFIX canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json
-$CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
-# Require planStatus=accepted or preflightState=plan_accepted before patching.
+# If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
+# Optional diagnostics after generation_plan_invalid:
+# $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
 $CLI_PREFIX canvas --command canvas.document.patch --params-file ./tmp/canvas-patch.json
 $CLI_PREFIX canvas --command canvas.preview.render --params '{"requestId":"req_preview_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","prototypeId":"<prototype-id>"}'
 $CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'

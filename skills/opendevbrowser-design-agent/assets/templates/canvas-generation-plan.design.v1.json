@@ -9,29 +9,28 @@
       "summary": "Clarify hierarchy, trust, and action flow"
     },
     "visualDirection": {
-      "profile": "product-led-clarity",
-      "styleAxes": {
-        "contrast": "high",
-        "density": "airy"
-      }
+      "profile": "product-story",
+      "themeStrategy": "single-theme"
     },
     "layoutStrategy": {
-      "approach": "hero-led-grid"
+      "approach": "hero-led-grid",
+      "navigationModel": "global-header"
     },
     "contentStrategy": {
       "source": "real-content-first"
     },
     "componentStrategy": {
       "mode": "reuse-first",
-      "approvedLibraries": [
-        "shadcn"
+      "interactionStates": [
+        "default",
+        "hover",
+        "focus",
+        "disabled"
       ]
     },
     "motionPosture": {
       "level": "subtle",
-      "allow3D": false,
-      "allowParallax": false,
-      "allowCustomSmoothScroll": false
+      "reducedMotion": "respect-user-preference"
     },
     "responsivePosture": {
       "primaryViewport": "desktop",
@@ -43,16 +42,18 @@
     },
     "accessibilityPosture": {
       "target": "WCAG_2_2_AA",
-      "reducedMotion": "required",
-      "keyboardParity": true
+      "keyboardNavigation": "full"
     },
     "validationTargets": {
       "blockOn": [
-        "contrast-failure"
-      ],
-      "warnOn": [
+        "contrast-failure",
         "responsive-mismatch"
-      ]
+      ],
+      "requiredThemes": [
+        "light"
+      ],
+      "browserValidation": "required",
+      "maxInteractionLatencyMs": 160
     }
   }
 }

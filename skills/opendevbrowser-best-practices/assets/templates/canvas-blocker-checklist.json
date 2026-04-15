@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "canvasSessionId": "<canvas-session-id>",
   "documentId": "<document-id>",
   "blockers": [
@@ -14,10 +14,11 @@
     },
     {
       "auditId": "CANVAS-02",
-      "code": "governance_required",
+      "code": "policy_violation",
       "blockingCommand": "canvas.document.save",
       "requiredNextCommands": [
-        "canvas.capabilities.get"
+        "canvas.plan.get",
+        "canvas.document.load"
       ],
       "status": "pending"
     },
@@ -26,16 +27,8 @@
       "code": "generation_plan_invalid",
       "blockingCommand": "canvas.plan.set",
       "requiredNextCommands": [
-        "canvas.plan.set"
-      ],
-      "status": "pending"
-    },
-    {
-      "auditId": "CANVAS-04",
-      "code": "policy_violation",
-      "blockingCommand": "canvas.document.patch",
-      "requiredNextCommands": [
-        "canvas.capabilities.get"
+        "canvas.plan.set",
+        "canvas.plan.get"
       ],
       "status": "pending"
     },
@@ -47,24 +40,37 @@
         "canvas.tab.open"
       ],
       "status": "pending"
+    }
+  ],
+  "reviewChecks": [
+    {
+      "auditId": "CANVAS-04",
+      "classes": [
+        "library-policy-violation",
+        "icon-policy-violation"
+      ],
+      "reviewCommand": "canvas.feedback.poll",
+      "status": "pending"
     },
     {
       "auditId": "CANVAS-06",
-      "code": "budget_exceeded",
-      "blockingCommand": "canvas.preview.render",
-      "requiredNextCommands": [
-        "canvas.preview.refresh"
+      "classes": [
+        "runtime-budget-exceeded",
+        "overflow"
       ],
+      "reviewCommand": "canvas.preview.refresh",
       "status": "pending"
     },
     {
       "auditId": "CANVAS-07",
-      "code": "feedback_metadata_missing",
-      "blockingCommand": "canvas.feedback.poll",
-      "requiredNextCommands": [
-        "canvas.feedback.poll"
+      "classes": [
+        "preflight-blocker"
       ],
-      "status": "pending"
+      "reviewCommand": "canvas.feedback.poll",
+      "status": "pending",
+      "notes": [
+        "feedback.item responses should preserve targetId, pageId, class, and evidenceRefs once the live loop is active"
+      ]
     }
   ]
 }

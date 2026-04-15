@@ -77,23 +77,25 @@ Use when the work should flow through the OpenDevBrowser design canvas.
 
 1. Open a canvas session.
 2. Read the handshake and document context.
-3. Confirm `preflightState: "handshake_read"`, `planStatus`, and `guidance.recommendedNextCommands` before moving on.
-4. Fill the full design contract.
-5. Extract the `generationPlan`.
-6. Send `canvas.plan.set`.
-7. Re-check `canvas.plan.get` or `canvas.capabilities.get` until the runtime reports `plan_accepted`.
-8. Read `guidance.recommendedNextCommands` again after the plan response.
-9. Mutate with `canvas.document.patch`.
+3. Inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, and `guidance.recommendedNextCommands` before moving on.
+4. Treat `preflightState="handshake_read"` as the normal first-step checkpoint; if the handshake is already reporting `plan_invalid`, repair the plan instead of mutating.
+5. Fill the full design contract.
+6. Extract the `generationPlan`.
+7. Send `canvas.plan.set`.
+8. If the response is accepted, read `guidance.recommendedNextCommands` again and mutate with `canvas.document.patch`.
+9. If the response fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, and `generationPlanIssues`, then optionally re-read with `canvas.plan.get` or `canvas.capabilities.get`.
 10. Render preview, poll feedback, and save or export until the contract and runtime match.
 
 Canonical command order:
 
 ```bash
 npx opendevbrowser canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
-# Require preflightState=handshake_read and inspect guidance.recommendedNextCommands before continuing.
+# Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, and guidance.recommendedNextCommands before continuing.
 npx opendevbrowser canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json
-npx opendevbrowser canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
-# Require planStatus=accepted or preflightState=plan_accepted before patching.
+# If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
+# Optional diagnostics after generation_plan_invalid:
+# npx opendevbrowser canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
 npx opendevbrowser canvas --command canvas.document.patch --params-file ./tmp/canvas-patch.json
 npx opendevbrowser canvas --command canvas.preview.render --params '{"requestId":"req_preview_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","projection":"canvas_html"}'
 npx opendevbrowser canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'

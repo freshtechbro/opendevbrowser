@@ -47,6 +47,45 @@ Canonical inventory lives in `docs/SURFACE_REFERENCE.md`. High-level families:
 - `canvas.feedback.*` — poll, subscribe, consume feedback
 - `canvas.code.*` — bind, unbind, pull, push, status, resolve
 
+## Operator loop
+
+Use this runtime-backed sequence when an agent needs next-step guidance instead of inferring it from raw state:
+
+1. `canvas.session.open`
+2. Inspect the handshake:
+   - `planStatus`
+   - `preflightState`
+   - `generationPlanRequirements.requiredBeforeMutation`
+   - `generationPlanRequirements.allowedValues`
+   - `generationPlanIssues`
+   - `mutationPolicy.allowedBeforePlan`
+   - `guidance.recommendedNextCommands`
+   - `guidance.reason`
+3. `canvas.plan.set`
+4. If the plan is accepted, follow the returned guidance into `canvas.document.patch`
+5. `canvas.preview.render`
+6. `canvas.feedback.poll`
+7. `canvas.document.save` or `canvas.document.export`
+
+`canvas.plan.get` and `canvas.capabilities.get` remain useful when an invalid plan response needs to be re-read after failure or attach, but they are not required after a successful `canvas.plan.set`.
+
+## Plan-state semantics
+
+- Missing plan:
+  - `planStatus: "missing"`
+  - `preflightState: "handshake_read"`
+  - next step is `canvas.plan.set`
+- Invalid plan:
+  - `planStatus: "invalid"`
+  - `preflightState: "plan_invalid"`
+  - handshake and capabilities calls expose `generationPlanIssues`
+  - `canvas.plan.set` fails with `generation_plan_invalid` and returns `details.missingFields` plus `details.issues`
+  - `canvas.feedback.poll` synthesizes the same preflight blocker until the plan is fixed
+- Accepted plan:
+  - `planStatus: "accepted"`
+  - `preflightState: "plan_accepted"`
+  - mutation guidance moves to patch -> preview -> feedback -> save/export
+
 ## Projection boundary
 
 - `canvas_html` is the default preview/export contract and compatibility fallback.

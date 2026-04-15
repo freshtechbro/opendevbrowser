@@ -104,17 +104,60 @@ Minimum handshake payload shape:
   "planStatus": "missing",
   "attachModes": ["observer", "lease_reclaim"],
   "governanceRequirements": {
-    "requiredBeforeMutation": ["intent", "generationPlan", "designLanguage"],
-    "requiredBeforeSave": ["intent", "generationPlan", "runtimeBudgets"]
+    "requiredBeforeMutation": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy"
+    ],
+    "requiredBeforeSave": [
+      "intent",
+      "generationPlan",
+      "designLanguage",
+      "contentModel",
+      "layoutSystem",
+      "typographySystem",
+      "colorSystem",
+      "surfaceSystem",
+      "iconSystem",
+      "motionSystem",
+      "responsiveSystem",
+      "accessibilityPolicy",
+      "libraryPolicy",
+      "runtimeBudgets"
+    ]
   },
   "generationPlanRequirements": {
-    "requiredBeforeMutation": ["targetOutcome", "visualDirection", "layoutStrategy"]
+    "requiredBeforeMutation": [
+      "targetOutcome",
+      "visualDirection",
+      "layoutStrategy",
+      "contentStrategy",
+      "componentStrategy",
+      "motionPosture",
+      "responsivePosture",
+      "accessibilityPosture",
+      "validationTargets"
+    ],
+    "allowedValues": {
+      "targetOutcomeModes": ["low-fi-wireframe", "high-fi-live-edit", "dual-track", "document-only"],
+      "themeStrategies": ["single-theme", "light-dark-parity", "multi-theme-system"],
+      "navigationModels": ["global-header", "sidebar", "tabbed", "contextual", "immersive"],
+      "browserValidationModes": ["required", "optional"]
+    }
   },
   "allowedLibraries": {
     "components": ["shadcn"],
-    "icons": ["lucide"],
+    "icons": ["3dicons", "tabler", "microsoft-fluent-ui-system-icons", "@lobehub/fluent-emoji-3d"],
     "styling": ["tailwindcss"]
   },
+  "warningClasses": ["missing-generation-plan", "invalid-generation-plan", "missing-governance-block"],
+  "generationPlanIssues": [],
   "mutationPolicy": {
     "planRequiredBeforePatch": true,
     "allowedBeforePlan": [
@@ -136,10 +179,11 @@ Minimum handshake payload shape:
 Preflight state machine:
 - `handshake_read`
 - `plan_submitted`
+- `plan_invalid`
 - `plan_accepted`
 - `patching_enabled`
 
-The first mutation path must stay blocked until `canvas.plan.set` has been accepted. The canonical blocker is `plan_required` and should carry `details.auditId: "CANVAS-01"`. Invalid governance payloads should fail with `generation_plan_invalid` and `details.auditId: "CANVAS-03"`. Successful handshake, plan, patch, preview, feedback, and persistence responses should also carry `guidance.recommendedNextCommands` plus `guidance.reason` so agents know the next valid step without inferring it from raw state alone.
+The first mutation path must stay blocked until `canvas.plan.set` has been accepted. The canonical blocker is `plan_required` and should carry `details.auditId: "CANVAS-01"`. Invalid governance payloads should fail with `generation_plan_invalid`, `details.auditId: "CANVAS-03"`, plus `details.missingFields` and `details.issues`. Successful handshake, plan, patch, preview, feedback, and persistence responses should also carry `guidance.recommendedNextCommands` plus `guidance.reason` so agents know the next valid step without inferring it from raw state alone. `canvas.plan.get` is a diagnostics path after invalid-plan responses or attach, not a required checkpoint after a successful `canvas.plan.set`.
 
 Recommended blocker envelope:
 
@@ -172,6 +216,7 @@ Current operational constraints:
 
 Operational rule:
 - Read `canvas.session.open` or `canvas.capabilities.get` before mutation.
+- Inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, and `guidance.recommendedNextCommands` before choosing the next command.
 - After every successful handshake, plan, patch, preview, feedback, save, or export response, inspect `guidance.recommendedNextCommands` before choosing the next command.
 - Use `canvas.feedback.poll` after each patch/render loop.
 - Do not save if `governanceRequirements.requiredBeforeSave` still reports missing governance blocks.

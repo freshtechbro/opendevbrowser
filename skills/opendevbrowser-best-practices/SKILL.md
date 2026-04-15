@@ -319,9 +319,12 @@ Recommended command order:
 1. `opendevbrowser_canvas` or `opendevbrowser canvas --command canvas.session.open` to get `canvasSessionId`, `leaseId`, `preflightState`, `planStatus`, governance block states, generation-plan requirements, and `guidance.recommendedNextCommands`.
 2. Read the handshake before mutating. The handshake is the source of truth for:
    - `planStatus`
+   - `preflightState`
    - `governanceRequirements.requiredBeforeMutation`
    - `governanceRequirements.requiredBeforeSave`
    - `generationPlanRequirements.requiredBeforeMutation`
+   - `generationPlanRequirements.allowedValues`
+   - `generationPlanIssues`
    - `allowedLibraries`
    - `mutationPolicy.allowedBeforePlan`
    - `guidance.recommendedNextCommands`
@@ -330,7 +333,7 @@ Recommended command order:
      `components` are reusable UI adapters such as `shadcn`,
      `icons` are approved icon families,
      `styling` is for utility/theme adapters such as `tailwindcss`
-3. Require `preflightState="handshake_read"` before moving on. If the response already carries `guidance.recommendedNextCommands`, follow that list instead of guessing.
+3. Require `preflightState="handshake_read"` or inspect the returned invalid-plan state before moving on. If the response already carries `guidance.recommendedNextCommands`, follow that list instead of guessing.
 4. Submit `canvas.plan.set` with all required non-empty objects:
    - `targetOutcome`
    - `visualDirection`
@@ -341,11 +344,23 @@ Recommended command order:
    - `responsivePosture`
    - `accessibilityPosture`
    - `validationTargets`
-5. Immediately inspect the `canvas.plan.set` response. Require `planStatus="accepted"` or `preflightState="plan_accepted"`, then follow the returned `guidance.recommendedNextCommands`.
+   Minimum nested fields that commonly cause `generation_plan_invalid` if omitted:
+   - `visualDirection.themeStrategy`
+   - `layoutStrategy.navigationModel`
+   - `componentStrategy.interactionStates`
+   - `motionPosture.reducedMotion`
+   - `responsivePosture.requiredViewports`
+   - `accessibilityPosture.keyboardNavigation`
+   - `validationTargets.requiredThemes`
+   - `validationTargets.browserValidation`
+   - `validationTargets.maxInteractionLatencyMs`
+5. Immediately inspect the `canvas.plan.set` response.
+   - If `planStatus="accepted"` or `preflightState="plan_accepted"`, follow the returned `guidance.recommendedNextCommands`.
+   - If the command fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, and the handshake `generationPlanIssues`, then optionally re-read with `canvas.plan.get` or `canvas.capabilities.get` before resubmitting.
 6. Only after the plan is accepted, call `canvas.document.patch`.
 7. After every successful `canvas.document.patch`, `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.document.save`, or `canvas.document.export`, read `guidance.recommendedNextCommands` and `guidance.reason` before deciding the next command.
 8. Use `canvas.preview.render`, `canvas.tab.open`, `canvas.overlay.mount`, and `canvas.overlay.select` when a browser-backed live view is required.
-9. Use `canvas.feedback.poll` for snapshot audits between mutation rounds, and use `canvas.feedback.subscribe` -> `canvas.feedback.next` -> `canvas.feedback.unsubscribe` when a live pull-stream is needed.
+9. Use `canvas.feedback.poll` for snapshot audits between mutation rounds. When the plan is still missing or invalid, expect a synthetic `preflight-blocker` item instead of normal stage feedback. Use `canvas.feedback.subscribe` -> `canvas.feedback.next` -> `canvas.feedback.unsubscribe` when a live pull-stream is needed.
 10. Use `canvas.document.save` or `canvas.document.export` to persist artifacts.
 
 Code-sync surface:
@@ -363,12 +378,12 @@ Current `/canvas` parity notes:
 
 Tailwind usage rule:
 - When `allowedLibraries.styling` includes `tailwindcss`, use it for layout, spacing, responsive, and state styling over canonical tokens/theme variables.
-- Do not treat Tailwind as a component inventory source or mix it into `componentStrategy.approvedLibraries`.
+- Do not treat Tailwind as a component inventory source or invent generation-plan allowlists for it; keep styling policy in `allowedLibraries` / `libraryPolicy`.
 - Preview/export should materialize a deterministic utility-class layer and stay self-contained; do not depend on a remote Tailwind CDN for canvas preview correctness.
 
 Failure handling:
 - `plan_required`: immediately call `canvas.plan.set`.
-- `generation_plan_invalid`: resubmit `canvas.plan.set` with every required non-empty generation-plan block present.
+- `generation_plan_invalid`: resubmit `canvas.plan.set` with every required non-empty generation-plan block present, using `generationPlanIssues` plus `details.missingFields` and `details.issues` as the repair checklist.
 - `revision_conflict`: reload with `canvas.document.load` and replay the patch batch against the latest revision.
 - `unsupported_target` or `restricted_url`: move the preview to a normal http(s) tab or fall back to managed mode.
 - If a freshly rebuilt unpacked extension still shows old `/canvas` or popup behavior, reload the extension in Chrome before trusting the live result; stale MV3 runtime state can preserve old service-worker logic after `npm run extension:build`.
