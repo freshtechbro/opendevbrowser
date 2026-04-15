@@ -536,4 +536,36 @@ describe("BrowserScreencastRecorder", () => {
 
     expect(privateRecorder.timer).toBeNull();
   });
+
+  it("returns the existing completion from stop and ignores captureScheduledFrame after completion", async () => {
+    const worktree = await makeWorktree("odb-screencast-stop-after-complete-");
+    let captureCount = 0;
+    const recorder = new BrowserScreencastRecorder({
+      worktree,
+      sessionId: "session-stop-after-complete",
+      targetId: "target-stop-after-complete",
+      options: {
+        intervalMs: 250,
+        maxFrames: 1
+      },
+      captureFrame: async (capturePath: string) => {
+        captureCount += 1;
+        await writeFile(capturePath, `frame-${captureCount}`);
+        return {};
+      }
+    });
+
+    await recorder.start();
+    const completed = await recorder.resultPromise;
+    const stopped = await recorder.stop("stopped");
+
+    const privateRecorder = recorder as unknown as {
+      captureScheduledFrame: () => Promise<void>;
+    };
+    await privateRecorder.captureScheduledFrame();
+
+    expect(stopped).toEqual(completed);
+    expect(stopped.endedReason).toBe("max_frames_reached");
+    expect(captureCount).toBe(1);
+  });
 });
