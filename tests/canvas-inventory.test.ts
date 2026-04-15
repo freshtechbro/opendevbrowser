@@ -9,14 +9,19 @@ import { DEFAULT_CODE_SYNC_OWNERSHIP } from "../src/canvas/code-sync/types";
 
 const validGenerationPlan = {
   targetOutcome: { mode: "high-fi-live-edit", summary: "Promote inventory items." },
-  visualDirection: { profile: "clean-room" },
-  layoutStrategy: { approach: "component-first" },
+  visualDirection: { profile: "clean-room", themeStrategy: "single-theme" },
+  layoutStrategy: { approach: "component-first", navigationModel: "global-header" },
   contentStrategy: { source: "document-context" },
-  componentStrategy: { mode: "reuse-first" },
-  motionPosture: { level: "subtle" },
-  responsivePosture: { primaryViewport: "desktop" },
-  accessibilityPosture: { target: "WCAG_2_2_AA" },
-  validationTargets: { blockOn: ["contrast-failure"] }
+  componentStrategy: { mode: "reuse-first", interactionStates: ["default", "hover", "focus", "disabled"] },
+  motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+  responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+  accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+  validationTargets: {
+    blockOn: ["contrast-failure"],
+    requiredThemes: ["light"],
+    browserValidation: "required",
+    maxInteractionLatencyMs: 150
+  }
 };
 
 describe("canvas inventory runtime", () => {

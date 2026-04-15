@@ -50,14 +50,19 @@ import { CanvasManager } from "../src/browser/canvas-manager";
 const config = resolveConfig({});
 const validGenerationPlan = {
   targetOutcome: { mode: "high-fi-live-edit", summary: "Refine the canvas." },
-  visualDirection: { profile: "clean-room" },
-  layoutStrategy: { approach: "hero-led-grid" },
+  visualDirection: { profile: "clean-room", themeStrategy: "single-theme" },
+  layoutStrategy: { approach: "hero-led-grid", navigationModel: "global-header" },
   contentStrategy: { source: "document-context" },
-  componentStrategy: { mode: "reuse-first" },
-  motionPosture: { level: "subtle" },
-  responsivePosture: { primaryViewport: "desktop" },
-  accessibilityPosture: { target: "WCAG_2_2_AA" },
-  validationTargets: { blockOn: ["contrast-failure"] }
+  componentStrategy: { mode: "reuse-first", interactionStates: ["default", "hover", "focus", "disabled"] },
+  motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+  responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+  accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+  validationTargets: {
+    blockOn: ["contrast-failure"],
+    requiredThemes: ["light"],
+    browserValidation: "required",
+    maxInteractionLatencyMs: 150
+  }
 };
 
 const governanceBootstrapPatches = [
@@ -250,6 +255,14 @@ describe("CanvasManager", () => {
     expect(opened).toMatchObject({
       preflightState: "handshake_read",
       planStatus: "missing",
+      generationPlanRequirements: {
+        allowedValues: {
+          visualDirectionProfiles: expect.arrayContaining(["clean-room", "cinematic-minimal"]),
+          navigationModels: expect.arrayContaining(["global-header", "sidebar", "immersive"]),
+          interactionStates: expect.arrayContaining(["default", "hover", "focus", "disabled"]),
+          browserValidationModes: ["required", "optional"]
+        }
+      },
       mutationPolicy: {
         allowedBeforePlan: ["canvas.capabilities.get", "canvas.plan.get", "canvas.plan.set", "canvas.document.load", "canvas.session.attach", "canvas.session.status"]
       },
@@ -290,14 +303,19 @@ describe("CanvasManager", () => {
       leaseId,
       generationPlan: {
         targetOutcome: { mode: "high-fi-live-edit", summary: "Refine hero." },
-        visualDirection: { profile: "clean-room" },
-        layoutStrategy: { approach: "hero-led-grid" },
+        visualDirection: { profile: "clean-room", themeStrategy: "single-theme" },
+        layoutStrategy: { approach: "hero-led-grid", navigationModel: "global-header" },
         contentStrategy: { source: "document-context" },
-        componentStrategy: { mode: "reuse-first" },
-        motionPosture: { level: "subtle" },
-        responsivePosture: { primaryViewport: "desktop" },
-        accessibilityPosture: { target: "WCAG_2_2_AA" },
-        validationTargets: { blockOn: ["contrast-failure"] }
+        componentStrategy: { mode: "reuse-first", interactionStates: ["default", "hover", "focus", "disabled"] },
+        motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+        responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+        accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+        validationTargets: {
+          blockOn: ["contrast-failure"],
+          requiredThemes: ["light"],
+          browserValidation: "required",
+          maxInteractionLatencyMs: 150
+        }
       }
     }) as Record<string, unknown>;
     expect(planResult).toMatchObject({
@@ -1768,14 +1786,19 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       leaseId,
       generationPlan: {
         targetOutcome: { mode: "high-fi-live-edit", summary: "Refine CTA." },
-        visualDirection: { profile: "clean-room" },
-        layoutStrategy: { approach: "hero-led-grid" },
+        visualDirection: { profile: "clean-room", themeStrategy: "single-theme" },
+        layoutStrategy: { approach: "hero-led-grid", navigationModel: "global-header" },
         contentStrategy: { source: "document-context" },
-        componentStrategy: { mode: "reuse-first" },
-        motionPosture: { level: "subtle" },
-        responsivePosture: { primaryViewport: "desktop" },
-        accessibilityPosture: { target: "WCAG_2_2_AA" },
-        validationTargets: { blockOn: ["contrast-failure"] }
+        componentStrategy: { mode: "reuse-first", interactionStates: ["default", "hover", "focus", "disabled"] },
+        motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+        responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+        accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+        validationTargets: {
+          blockOn: ["contrast-failure"],
+          requiredThemes: ["light"],
+          browserValidation: "required",
+          maxInteractionLatencyMs: 150
+        }
       }
     });
 
@@ -2994,7 +3017,7 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       code: "generation_plan_invalid",
       blocker: expect.objectContaining({
         code: "generation_plan_invalid",
-        requiredNextCommands: ["canvas.plan.set"]
+        requiredNextCommands: ["canvas.plan.set", "canvas.plan.get"]
       }),
       details: expect.objectContaining({
         auditId: "CANVAS-03",
@@ -3007,6 +3030,12 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
           "responsivePosture",
           "accessibilityPosture",
           "validationTargets"
+        ]),
+        issues: expect.arrayContaining([
+          expect.objectContaining({
+            path: "targetOutcome.mode",
+            code: "invalid_value"
+          })
         ])
       })
     });
@@ -3259,6 +3288,83 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       planStatus: "accepted",
       documentRevision: 2,
       generationPlan: structuredClone(validGenerationPlan)
+    });
+  });
+
+  it("keeps malformed persisted generation plans invalid on load and blocks mutation commands", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {
+        status: vi.fn(),
+        closeTarget: vi.fn()
+      },
+      config
+    });
+
+    const invalidDocument = createDefaultCanvasDocument("dc_invalid_plan_runtime");
+    invalidDocument.designGovernance.generationPlan = {
+      targetOutcome: { mode: "draft", summary: "Invalid runtime plan" }
+    } as unknown as typeof invalidDocument.designGovernance.generationPlan;
+    invalidDocument.title = "Invalid Runtime Plan";
+    await saveCanvasDocument(worktree, invalidDocument);
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-managed"
+    }) as Record<string, unknown>;
+    const canvasSessionId = opened.canvasSessionId as string;
+    const leaseId = opened.leaseId as string;
+
+    expect(await manager.execute("canvas.document.load", {
+      canvasSessionId,
+      leaseId,
+      documentId: "dc_invalid_plan_runtime"
+    })).toMatchObject({
+      documentId: "dc_invalid_plan_runtime",
+      planIssues: expect.arrayContaining([
+        expect.objectContaining({ path: "targetOutcome.mode", code: "invalid_value" })
+      ]),
+      handshake: {
+        preflightState: "plan_invalid",
+        planStatus: "invalid",
+        generationPlanIssues: expect.arrayContaining([
+          expect.objectContaining({ path: "targetOutcome.mode", code: "invalid_value" })
+        ]),
+        governanceBlockStates: {
+          generationPlan: {
+            status: "invalid"
+          }
+        }
+      }
+    });
+
+    expect(await manager.execute("canvas.plan.get", {
+      canvasSessionId,
+      leaseId
+    })).toMatchObject({
+      planStatus: "invalid",
+      preflightState: "plan_invalid",
+      planIssues: expect.arrayContaining([
+        expect.objectContaining({ path: "targetOutcome.mode", code: "invalid_value" })
+      ])
+    });
+
+    await expect(manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: 1,
+      patches: []
+    })).rejects.toMatchObject({
+      code: "generation_plan_invalid",
+      blocker: expect.objectContaining({
+        code: "generation_plan_invalid",
+        blockingCommand: "canvas.document.patch"
+      }),
+      details: expect.objectContaining({
+        auditId: "CANVAS-03",
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: "targetOutcome.mode", code: "invalid_value" })
+        ])
+      })
     });
   });
 

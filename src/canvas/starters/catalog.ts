@@ -42,14 +42,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "high-fi-live-edit", summary: "Launch a product-led hero." },
-      visualDirection: { profile: "product-story" },
-      layoutStrategy: { approach: "hero-first" },
+      visualDirection: { profile: "product-story", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "hero-first", navigationModel: "global-header" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "kit-composed" },
-      motionPosture: { level: "subtle" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "kit-composed", interactionStates: ["default", "hover", "focus", "disabled"] },
+      motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 150
+      }
     },
     shell: {
       pageName: "Product Hero",
@@ -77,14 +82,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "high-fi-live-edit", summary: "Create a subscription pricing starter." },
-      visualDirection: { profile: "commerce-system" },
-      layoutStrategy: { approach: "pricing-stack" },
+      visualDirection: { profile: "commerce-system", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "pricing-stack", navigationModel: "global-header" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "kit-composed" },
-      motionPosture: { level: "subtle" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "kit-composed", interactionStates: ["default", "hover", "focus", "disabled"] },
+      motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 150
+      }
     },
     shell: {
       pageName: "Pricing",
@@ -112,14 +122,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "high-fi-live-edit", summary: "Seed an analytics dashboard." },
-      visualDirection: { profile: "control-room" },
-      layoutStrategy: { approach: "dashboard-grid" },
+      visualDirection: { profile: "control-room", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "dashboard-grid", navigationModel: "sidebar" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "kit-composed" },
-      motionPosture: { level: "subtle" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "kit-composed", interactionStates: ["default", "hover", "focus", "selected", "loading"] },
+      motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 180
+      }
     },
     shell: {
       pageName: "Analytics Dashboard",
@@ -147,14 +162,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "high-fi-live-edit", summary: "Seed an operations command center." },
-      visualDirection: { profile: "ops-control" },
-      layoutStrategy: { approach: "command-grid" },
+      visualDirection: { profile: "ops-control", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "command-grid", navigationModel: "sidebar" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "kit-composed" },
-      motionPosture: { level: "subtle" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "kit-composed", interactionStates: ["default", "hover", "focus", "selected", "loading", "error"] },
+      motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 180
+      }
     },
     shell: {
       pageName: "Operations Dashboard",
@@ -182,14 +202,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "high-fi-live-edit", summary: "Seed a sign-in flow." },
-      visualDirection: { profile: "auth-focused" },
-      layoutStrategy: { approach: "single-column-form" },
+      visualDirection: { profile: "auth-focused", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "single-column-form", navigationModel: "immersive" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "kit-composed" },
-      motionPosture: { level: "minimal" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "kit-composed", interactionStates: ["default", "focus", "disabled", "error"] },
+      motionPosture: { level: "minimal", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 140
+      }
     },
     shell: {
       pageName: "Sign In",
@@ -217,14 +242,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "high-fi-live-edit", summary: "Seed a sign-up flow." },
-      visualDirection: { profile: "auth-focused" },
-      layoutStrategy: { approach: "single-column-form" },
+      visualDirection: { profile: "auth-focused", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "single-column-form", navigationModel: "immersive" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "kit-composed" },
-      motionPosture: { level: "minimal" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "kit-composed", interactionStates: ["default", "focus", "disabled", "error"] },
+      motionPosture: { level: "minimal", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 140
+      }
     },
     shell: {
       pageName: "Sign Up",
@@ -252,14 +282,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "high-fi-live-edit", summary: "Seed account settings." },
-      visualDirection: { profile: "settings-system" },
-      layoutStrategy: { approach: "settings-panel" },
+      visualDirection: { profile: "settings-system", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "settings-panel", navigationModel: "sidebar" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "kit-composed" },
-      motionPosture: { level: "minimal" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "kit-composed", interactionStates: ["default", "hover", "focus", "selected", "disabled"] },
+      motionPosture: { level: "minimal", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 150
+      }
     },
     shell: {
       pageName: "Account Settings",
@@ -287,14 +322,19 @@ const BUILT_IN_CANVAS_STARTERS: readonly BuiltInCanvasStarterDefinition[] = [
     },
     generationPlan: {
       targetOutcome: { mode: "document-only", summary: "Seed a reference documentation layout." },
-      visualDirection: { profile: "documentation" },
-      layoutStrategy: { approach: "content-first" },
+      visualDirection: { profile: "documentation", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "content-first", navigationModel: "sidebar" },
       contentStrategy: { source: "starter-template" },
-      componentStrategy: { mode: "semantic-first" },
-      motionPosture: { level: "none" },
-      responsivePosture: { primaryViewport: "desktop" },
-      accessibilityPosture: { target: "WCAG_2_2_AA" },
-      validationTargets: { blockOn: ["contrast-failure"] }
+      componentStrategy: { mode: "semantic-first", interactionStates: ["default", "focus"] },
+      motionPosture: { level: "none", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "optional",
+        maxInteractionLatencyMs: 220
+      }
     },
     shell: {
       pageName: "Reference Docs",

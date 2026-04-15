@@ -9,14 +9,19 @@ import { CanvasManager } from "../src/browser/canvas-manager";
 const config = resolveConfig({});
 const validGenerationPlan = {
   targetOutcome: { mode: "high-fi-live-edit", summary: "Exercise history and event edge branches." },
-  visualDirection: { profile: "clean-room" },
-  layoutStrategy: { approach: "hero-led-grid" },
+  visualDirection: { profile: "clean-room", themeStrategy: "single-theme" },
+  layoutStrategy: { approach: "hero-led-grid", navigationModel: "global-header" },
   contentStrategy: { source: "document-context" },
-  componentStrategy: { mode: "reuse-first" },
-  motionPosture: { level: "subtle" },
-  responsivePosture: { primaryViewport: "desktop" },
-  accessibilityPosture: { target: "WCAG_2_2_AA" },
-  validationTargets: { blockOn: ["contrast-failure"] }
+  componentStrategy: { mode: "reuse-first", interactionStates: ["default", "hover", "focus", "disabled"] },
+  motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+  responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+  accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+  validationTargets: {
+    blockOn: ["contrast-failure"],
+    requiredThemes: ["light"],
+    browserValidation: "required",
+    maxInteractionLatencyMs: 150
+  }
 };
 
 describe("CanvasManager edge branches", () => {

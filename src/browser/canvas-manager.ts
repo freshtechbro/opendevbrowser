@@ -12,6 +12,7 @@ import type {
 } from "./manager-types";
 import { CanvasClient } from "./canvas-client";
 import {
+  assessGenerationPlan,
   buildDocumentContext,
   buildGovernanceBlockStates,
   CANVAS_PROJECT_DEFAULTS,
@@ -57,6 +58,7 @@ import type {
   CanvasFeedbackCompleteReason,
   CanvasFeedbackEvent,
   CanvasFeedbackItem,
+  CanvasGenerationPlanIssue,
   CanvasHistoryDirection,
   CanvasInventoryOrigin,
   CanvasImportFailureCode,
@@ -78,7 +80,23 @@ import type {
   CanvasTargetState,
   CanvasValidationWarning
 } from "../canvas/types";
-import { CANVAS_SCHEMA_VERSION } from "../canvas/types";
+import {
+  CANVAS_BROWSER_VALIDATION_MODES,
+  CANVAS_GENERATION_PLAN_REQUIRED_FIELDS,
+  CANVAS_INTERACTION_STATES,
+  CANVAS_NAVIGATION_MODELS,
+  CANVAS_OPTIONAL_INHERITED_GOVERNANCE_KEYS,
+  CANVAS_PLAN_THEMES,
+  CANVAS_PLAN_VIEWPORTS,
+  CANVAS_PUBLIC_WARNING_CLASSES,
+  CANVAS_REQUIRED_MUTATION_GOVERNANCE_KEYS,
+  CANVAS_REQUIRED_SAVE_GOVERNANCE_KEYS,
+  CANVAS_SCHEMA_VERSION,
+  CANVAS_SESSION_MODES,
+  CANVAS_THEME_STRATEGIES,
+  CANVAS_VALIDATION_TARGET_BLOCK_ON_CODES,
+  CANVAS_VISUAL_DIRECTION_PROFILES
+} from "../canvas/types";
 import { CanvasCodeSyncManager } from "./canvas-code-sync-manager";
 import { CanvasSessionSyncManager } from "./canvas-session-sync-manager";
 import {
@@ -125,6 +143,11 @@ type CanvasGuidanceCommand =
 const PREPLAN_CANVAS_GUIDANCE: CanvasStepGuidance = {
   recommendedNextCommands: ["canvas.plan.set"],
   reason: "Handshake is complete. Submit a complete generationPlan before mutation."
+};
+
+const INVALID_PLAN_CANVAS_GUIDANCE: CanvasStepGuidance = {
+  recommendedNextCommands: ["canvas.plan.set"],
+  reason: "generationPlan is invalid. Submit a supported plan before mutation."
 };
 
 const PLAN_ACCEPTED_CANVAS_GUIDANCE: CanvasStepGuidance = {
@@ -241,6 +264,7 @@ type CanvasSession = {
   store: CanvasDocumentStore;
   preflightState: CanvasPreflightState;
   planStatus: CanvasPlanStatus;
+  planIssues: CanvasGenerationPlanIssue[];
   activeTargets: Map<string, CanvasTargetState>;
   overlayMounts: Map<string, { mountId: string; targetId: string; mountedAt: string }>;
   designTabTargetId: string | null;
@@ -258,6 +282,33 @@ type CanvasSession = {
 };
 
 type CanvasFeedbackStreamEvent = CanvasFeedbackEvent;
+
+function resolveGenerationPlanState(plan: unknown): {
+  planStatus: CanvasPlanStatus;
+  preflightState: CanvasPreflightState;
+  planIssues: CanvasGenerationPlanIssue[];
+} {
+  const assessment = assessGenerationPlan(plan);
+  if (assessment.status === "accepted") {
+    return {
+      planStatus: "accepted",
+      preflightState: "plan_accepted",
+      planIssues: []
+    };
+  }
+  if (assessment.status === "invalid") {
+    return {
+      planStatus: "invalid",
+      preflightState: "plan_invalid",
+      planIssues: assessment.issues
+    };
+  }
+  return {
+    planStatus: "missing",
+    preflightState: "handshake_read",
+    planIssues: []
+  };
+}
 
 type CanvasFeedbackSubscription = {
   id: string;
@@ -435,6 +486,7 @@ export class CanvasManager implements CanvasManagerLike {
       : createDefaultCanvasDocument(requestedDocumentId ?? undefined);
     const sessionId = `canvas_${randomUUID()}`;
     const leaseId = `lease_${randomUUID()}`;
+    const planState = resolveGenerationPlanState(document.designGovernance.generationPlan);
     const session: CanvasSession = {
       canvasSessionId: sessionId,
       browserSessionId,
@@ -444,8 +496,9 @@ export class CanvasManager implements CanvasManagerLike {
       mode,
       usesCanvasRelay: false,
       store: new CanvasDocumentStore(document),
-      preflightState: "handshake_read",
-      planStatus: isNonEmptyRecord(document.designGovernance.generationPlan) ? "accepted" : "missing",
+      preflightState: planState.preflightState,
+      planStatus: planState.planStatus,
+      planIssues: planState.planIssues,
       activeTargets: new Map<string, CanvasTargetState>(),
       overlayMounts: new Map(),
       designTabTargetId: null,
@@ -553,17 +606,23 @@ export class CanvasManager implements CanvasManagerLike {
     session.preflightState = "plan_submitted";
     const validation = validateGenerationPlan(plan);
     if (!validation.ok) {
-      throw this.invalidGenerationPlan(session, validation.missing);
+      session.planStatus = "invalid";
+      session.preflightState = "plan_invalid";
+      session.planIssues = validation.issues;
+      throw this.invalidGenerationPlan(session, validation.missing, validation.issues);
     }
-    const result = session.store.setGenerationPlan(plan);
+    const result = session.store.setGenerationPlan(validation.plan);
     session.planStatus = result.planStatus;
     session.preflightState = "plan_accepted";
+    session.planIssues = [];
     this.emitWarnings(session, result.warnings, { category: "validation" });
     void this.syncLiveViews(session).catch(() => {});
     return {
       planStatus: result.planStatus,
       documentRevision: result.documentRevision,
       preflightState: session.preflightState,
+      generationPlan: session.store.getDocument().designGovernance.generationPlan,
+      planIssues: session.planIssues,
       warnings: result.warnings,
       guidance: this.buildCanvasGuidance(session, "canvas.plan.set")
     };
@@ -577,6 +636,7 @@ export class CanvasManager implements CanvasManagerLike {
       planStatus: session.planStatus,
       documentRevision: session.store.getRevision(),
       preflightState: session.preflightState,
+      planIssues: session.planIssues,
       guidance: this.buildCanvasGuidance(session, "canvas.plan.get")
     };
   }
@@ -608,8 +668,10 @@ export class CanvasManager implements CanvasManagerLike {
     session.store.loadDocument(document);
     session.repoRoot = repoRoot;
     session.documentRepoPath = resolvedRepoPath;
-    session.planStatus = isNonEmptyRecord(document.designGovernance.generationPlan) ? "accepted" : "missing";
-    session.preflightState = session.planStatus === "accepted" ? "plan_accepted" : "handshake_read";
+    const planState = resolveGenerationPlanState(document.designGovernance.generationPlan);
+    session.planStatus = planState.planStatus;
+    session.preflightState = planState.preflightState;
+    session.planIssues = planState.planIssues;
     session.editorSelection = {
       pageId: document.pages[0]?.id ?? null,
       nodeId: null,
@@ -624,6 +686,7 @@ export class CanvasManager implements CanvasManagerLike {
       documentId: session.store.getDocumentId(),
       documentRevision: session.store.getRevision(),
       document: session.store.getDocument(),
+      planIssues: session.planIssues,
       handshake: this.buildHandshake(session, "canvas.document.load")
     };
   }
@@ -631,9 +694,7 @@ export class CanvasManager implements CanvasManagerLike {
   private async importDocument(params: CanvasCommandParams): Promise<CanvasDocumentImportResult> {
     const session = this.requireSession(params);
     this.assertLease(session, params);
-    if (session.planStatus !== "accepted") {
-      throw this.planRequired("canvas.document.import", session);
-    }
+    this.assertAcceptedPlan(session, "canvas.document.import");
     const baseRevision = params.baseRevision === undefined
       ? session.store.getRevision()
       : requireNumber(params.baseRevision, "baseRevision");
@@ -798,9 +859,7 @@ export class CanvasManager implements CanvasManagerLike {
   private async patchDocument(params: CanvasCommandParams): Promise<unknown> {
     const session = this.requireSession(params);
     this.assertLease(session, params);
-    if (session.planStatus !== "accepted") {
-      throw this.planRequired("canvas.document.patch", session);
-    }
+    this.assertAcceptedPlan(session, "canvas.document.patch");
     const baseRevision = requireNumber(params.baseRevision, "baseRevision");
     const patches = requirePatches(params.patches);
     try {
@@ -1320,9 +1379,7 @@ export class CanvasManager implements CanvasManagerLike {
   private async insertInventory(params: CanvasCommandParams): Promise<unknown> {
     const session = this.requireSession(params);
     this.assertLease(session, params);
-    if (session.planStatus !== "accepted") {
-      throw this.planRequired("canvas.inventory.insert", session);
-    }
+    this.assertAcceptedPlan(session, "canvas.inventory.insert");
     const document = session.store.getDocument();
     const item = requireInventoryItem(getAvailableInventory(document), requireString(params.itemId, "itemId"));
     const pageId = optionalString(params.pageId) ?? session.editorSelection.pageId ?? document.pages[0]?.id ?? null;
@@ -1466,6 +1523,7 @@ export class CanvasManager implements CanvasManagerLike {
       const result = session.store.setGenerationPlan(structuredClone(definition.generationPlan));
       session.planStatus = result.planStatus;
       session.preflightState = "plan_accepted";
+      session.planIssues = [];
       planSeeded = true;
       this.emitWarnings(session, result.warnings, { category: "validation" });
     }
@@ -1813,9 +1871,7 @@ export class CanvasManager implements CanvasManagerLike {
     if (!session.browserSessionId) {
       throw new Error("canvas.preview.render requires a browserSessionId.");
     }
-    if (session.planStatus !== "accepted") {
-      throw this.planRequired("canvas.preview.render", session);
-    }
+    this.assertAcceptedPlan(session, "canvas.preview.render");
     const result = await this.renderPreviewTarget(session, targetId, prototypeId, { cause: "manual", syncAfter: true });
     return {
       ...result,
@@ -2347,72 +2403,30 @@ export class CanvasManager implements CanvasManagerLike {
       preflightState: session.preflightState,
       planStatus: session.planStatus,
       governanceRequirements: {
-        requiredBeforeMutation: [
-          "intent",
-          "generationPlan",
-          "designLanguage",
-          "contentModel",
-          "layoutSystem",
-          "typographySystem",
-          "motionSystem",
-          "responsiveSystem",
-          "accessibilityPolicy"
-        ],
-        requiredBeforeSave: [
-          "intent",
-          "generationPlan",
-          "designLanguage",
-          "contentModel",
-          "layoutSystem",
-          "typographySystem",
-          "colorSystem",
-          "surfaceSystem",
-          "iconSystem",
-          "motionSystem",
-          "responsiveSystem",
-          "accessibilityPolicy",
-          "libraryPolicy",
-          "runtimeBudgets"
-        ],
-        optionalInherited: ["colorSystem", "surfaceSystem", "iconSystem", "libraryPolicy", "runtimeBudgets"]
+        requiredBeforeMutation: [...CANVAS_REQUIRED_MUTATION_GOVERNANCE_KEYS],
+        requiredBeforeSave: [...CANVAS_REQUIRED_SAVE_GOVERNANCE_KEYS],
+        optionalInherited: [...CANVAS_OPTIONAL_INHERITED_GOVERNANCE_KEYS]
       },
       generationPlanRequirements: {
-        requiredBeforeMutation: [
-          "targetOutcome",
-          "visualDirection",
-          "layoutStrategy",
-          "contentStrategy",
-          "componentStrategy",
-          "motionPosture",
-          "responsivePosture",
-          "accessibilityPosture",
-          "validationTargets"
-        ]
+        requiredBeforeMutation: [...CANVAS_GENERATION_PLAN_REQUIRED_FIELDS],
+        allowedValues: {
+          targetOutcomeModes: [...CANVAS_SESSION_MODES],
+          visualDirectionProfiles: [...CANVAS_VISUAL_DIRECTION_PROFILES],
+          themeStrategies: [...CANVAS_THEME_STRATEGIES],
+          navigationModels: [...CANVAS_NAVIGATION_MODELS],
+          interactionStates: [...CANVAS_INTERACTION_STATES],
+          viewports: [...CANVAS_PLAN_VIEWPORTS],
+          themes: [...CANVAS_PLAN_THEMES],
+          browserValidationModes: [...CANVAS_BROWSER_VALIDATION_MODES],
+          blockOn: [...CANVAS_VALIDATION_TARGET_BLOCK_ON_CODES]
+        }
       },
       supportedVariantDimensions: ["viewport", "theme", "interaction", "content"],
       allowedLibraries: libraryPolicy,
       governanceBlockStates,
       runtimeBudgets,
-      warningClasses: [
-        "missing-generation-plan",
-        "missing-governance-block",
-        "missing-intent",
-        "missing-typography-system",
-        "hierarchy-weak",
-        "overflow",
-        "token-missing",
-        "contrast-failure",
-        "broken-asset-reference",
-        "font-policy-missing",
-        "font-load-failure",
-        "missing-state-coverage",
-        "reduced-motion-violation",
-        "unresolved-component-binding",
-        "library-policy-violation",
-        "responsive-mismatch",
-        "runtime-budget-exceeded",
-        "unsupported-target"
-      ],
+      warningClasses: [...CANVAS_PUBLIC_WARNING_CLASSES],
+      generationPlanIssues: session.planIssues,
       mutationPolicy: {
         planRequiredBeforePatch: true,
         allowedBeforePlan: [
@@ -2433,6 +2447,9 @@ export class CanvasManager implements CanvasManagerLike {
   }
 
   private buildCanvasGuidance(session: CanvasSession, command: CanvasGuidanceCommand): CanvasStepGuidance {
+    if (session.planStatus === "invalid") {
+      return cloneCanvasGuidance(INVALID_PLAN_CANVAS_GUIDANCE);
+    }
     if (session.planStatus !== "accepted") {
       return cloneCanvasGuidance(PREPLAN_CANVAS_GUIDANCE);
     }
@@ -2581,9 +2598,7 @@ export class CanvasManager implements CanvasManagerLike {
   ): Promise<unknown> {
     const session = this.requireSession(params);
     this.assertLease(session, params);
-    if (session.planStatus !== "accepted") {
-      throw this.planRequired(direction === "undo" ? "canvas.history.undo" : "canvas.history.redo", session);
-    }
+    this.assertAcceptedPlan(session, direction === "undo" ? "canvas.history.undo" : "canvas.history.redo");
     const stack = direction === "undo" ? session.history.undoStack : session.history.redoStack;
     if (stack.length === 0) {
       return {
@@ -2677,6 +2692,24 @@ export class CanvasManager implements CanvasManagerLike {
     }
   }
 
+  private assertAcceptedPlan(session: CanvasSession, command: string): void {
+    if (session.planStatus === "accepted") {
+      return;
+    }
+    if (session.planStatus === "invalid") {
+      throw this.invalidGenerationPlan(session, [], session.planIssues, command);
+    }
+    throw this.planRequired(command, session);
+  }
+
+  private describeGenerationPlanFailure(missingFields: string[], issues: CanvasGenerationPlanIssue[]): string {
+    if (missingFields.length > 0) {
+      return `Generation plan missing fields: ${missingFields.join(", ")}`;
+    }
+    const invalidPaths = [...new Set(issues.map((issue) => issue.path))];
+    return `Generation plan has invalid fields: ${invalidPaths.join(", ")}`;
+  }
+
   private planRequired(command: string, session: CanvasSession): Error {
     const blocker: CanvasBlocker = {
       code: "plan_required",
@@ -2688,20 +2721,26 @@ export class CanvasManager implements CanvasManagerLike {
     return attachDetails(new Error(blocker.message), { code: blocker.code, blocker, details: { auditId: "CANVAS-01" } });
   }
 
-  private invalidGenerationPlan(session: CanvasSession, missingFields: string[]): Error {
+  private invalidGenerationPlan(
+    session: CanvasSession,
+    missingFields: string[],
+    issues: CanvasGenerationPlanIssue[],
+    command = "canvas.plan.set"
+  ): Error {
     const blocker: CanvasBlocker = {
       code: "generation_plan_invalid",
-      blockingCommand: "canvas.plan.set",
-      requiredNextCommands: ["canvas.plan.set"],
+      blockingCommand: command,
+      requiredNextCommands: ["canvas.plan.set", "canvas.plan.get"],
       latestRevision: session.store.getRevision(),
-      message: `Generation plan missing fields: ${missingFields.join(", ")}`
+      message: this.describeGenerationPlanFailure(missingFields, issues)
     };
     return attachDetails(new Error(blocker.message), {
       code: blocker.code,
       blocker,
       details: {
         auditId: "CANVAS-03",
-        missingFields
+        missingFields,
+        issues
       }
     });
   }
@@ -2826,13 +2865,21 @@ export class CanvasManager implements CanvasManagerLike {
   }
 
   private buildPreflightFeedback(session: CanvasSession): CanvasFeedbackItem {
-    const blocker = {
-      code: "plan_required",
-      blockingCommand: "canvas.feedback.poll",
-      requiredNextCommands: ["canvas.plan.set"],
-      latestRevision: session.store.getRevision(),
-      message: "generationPlan must be accepted before the live design loop is ready."
-    } satisfies CanvasBlocker;
+    const blocker = session.planStatus === "invalid"
+      ? {
+        code: "generation_plan_invalid",
+        blockingCommand: "canvas.feedback.poll",
+        requiredNextCommands: ["canvas.plan.set", "canvas.plan.get"],
+        latestRevision: session.store.getRevision(),
+        message: this.describeGenerationPlanFailure([], session.planIssues)
+      } satisfies CanvasBlocker
+      : {
+        code: "plan_required",
+        blockingCommand: "canvas.feedback.poll",
+        requiredNextCommands: ["canvas.plan.set"],
+        latestRevision: session.store.getRevision(),
+        message: "generationPlan must be accepted before the live design loop is ready."
+      } satisfies CanvasBlocker;
     return {
       id: `fb_preflight_${session.store.getRevision()}`,
       cursor: `fb_preflight_${session.store.getRevision()}`,
@@ -2848,7 +2895,8 @@ export class CanvasManager implements CanvasManagerLike {
       evidenceRefs: [],
       details: {
         blocker,
-        auditId: "CANVAS-01"
+        auditId: session.planStatus === "invalid" ? "CANVAS-03" : "CANVAS-01",
+        issues: session.planStatus === "invalid" ? session.planIssues : undefined
       }
     };
   }
