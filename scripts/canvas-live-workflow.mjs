@@ -30,16 +30,21 @@ const GOVERNANCE = [
   { op: "governance.update", block: "runtimeBudgets", changes: { defaultLivePreviewLimit: 2, maxPinnedFullPreviewExtra: 1, reconnectGraceMs: 20000, overflowRenderMode: "thumbnail_only", backgroundTelemetryMode: "sampled" } }
 ];
 
-const GENERATION_PLAN = {
+export const GENERATION_PLAN = {
   targetOutcome: { mode: "high-fi-live-edit", summary: "Validate the current /canvas workflow against a real hero scenario." },
-  visualDirection: { profile: "clean-room" },
-  layoutStrategy: { approach: "hero-led-grid" },
+  visualDirection: { profile: "clean-room", themeStrategy: "single-theme" },
+  layoutStrategy: { approach: "hero-led-grid", navigationModel: "global-header" },
   contentStrategy: { source: "document-context" },
-  componentStrategy: { mode: "reuse-first" },
-  motionPosture: { level: "subtle" },
-  responsivePosture: { primaryViewport: "desktop" },
-  accessibilityPosture: { target: "WCAG_2_2_AA" },
-  validationTargets: { blockOn: ["contrast-failure"] }
+  componentStrategy: { mode: "reuse-first", interactionStates: ["default", "hover", "focus", "disabled"] },
+  motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+  responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+  accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+  validationTargets: {
+    blockOn: ["contrast-failure", "responsive-mismatch"],
+    requiredThemes: ["light"],
+    browserValidation: "required",
+    maxInteractionLatencyMs: 180
+  }
 };
 
 const SURFACE_CONFIG = {

@@ -20,7 +20,7 @@ export const CANVAS_LIVE_TIMEOUTS_MS = Object.freeze({
   managedHeadless: 300_000,
   managedHeaded: 300_000,
   extension: 240_000,
-  cdp: 360_000
+  cdp: 420_000
 });
 export const CANVAS_CDP_LONG_STEP_TIMEOUT_MS = 45_000;
 export const CANVAS_CDP_CODE_SYNC_STEP_TIMEOUT_MS = 120_000;
