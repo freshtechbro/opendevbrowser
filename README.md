@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/opendevbrowser.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
-[![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-green.svg?style=flat-square)](https://opencode.ai)
+[![OpenCode Tool Calls](https://img.shields.io/badge/OpenCode-Tool_Calls-green.svg?style=flat-square)](https://opencode.ai)
 [![CLI](https://img.shields.io/badge/Interface-CLI-orange.svg?style=flat-square)](docs/CLI.md)
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-blue.svg?style=flat-square)](docs/EXTENSION.md)
 [![Test Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen.svg?style=flat-square)](https://registry.npmjs.org/opendevbrowser)
@@ -51,7 +51,7 @@ Generated help is the canonical first-contact discovery surface: `npx opendevbro
 |-----------|-------------------|----------|
 | **CLI (`npx opendevbrowser ...`)** | No | Any agent/workflow that can run shell commands |
 | **Chrome Extension + Relay** | No | Reusing existing logged-in tabs without launching a new browser |
-| **OpenCode Plugin Tools** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
+| **OpenCode Tool Calls** | Yes | Native tool-calling inside OpenCode (`opendevbrowser_*`) |
 | **Frontend Website (private repo)** | No | Product website and generated docs routes |
 
 The public repo owns the automation runtime and canonical docs; see [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the full surface inventory.
@@ -142,7 +142,7 @@ Website build/data pipeline lives in the private repo:
 - `npm run sync:assets` copies mirrored assets into private `frontend/public/brand`.
 - `npm run generate:docs` regenerates docs, metrics, and roadmap JSON consumed by `/docs`.
 
-### Agent Installation (OpenCode)
+### OpenCode Tool-Call Installation
 
 Use OpenCode only when you want native `opendevbrowser_*` tool calls; the CLI and extension workflows work without it.
 
@@ -810,7 +810,7 @@ Local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `co
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Distribution Layer                         │
 ├──────────────────┬──────────────────┬──────────────────┬──────────────────────────┤
-│  OpenCode Plugin │       CLI        │    Hub Daemon    │    Chrome Extension       │
+│ OpenCode Tools   │       CLI        │    Hub Daemon    │    Chrome Extension       │
 │  (src/index.ts)  │ (src/cli/index)  │ (opendevbrowser  │   (extension/src/)        │
 │                  │                  │      serve)     │                           │
 └────────┬─────────┴────────┬─────────┴─────────┬────────┴──────────────┬────────────┘
@@ -859,7 +859,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 
 ```
 .
-├── src/              # Plugin implementation
+├── src/              # Runtime implementation
 │   ├── annotate/     # Annotation transports + output shaping
 │   ├── automation/    # Automation helpers and coordinator
 │   ├── browser/      # Browser sessions, target orchestration, canvas preview/code-sync

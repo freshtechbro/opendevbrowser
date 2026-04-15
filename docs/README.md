@@ -1,6 +1,6 @@
 # Documentation Index
 
-Canonical documentation map for OpenDevBrowser runtime, extension, and distribution surfaces.
+Canonical documentation map for the OpenDevBrowser runtime, OpenCode tool-call integration, extension, and distribution surfaces.
 
 Generated help is the canonical first-contact discovery surface and must keep the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` easy to find.
 
