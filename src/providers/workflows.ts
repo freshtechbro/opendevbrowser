@@ -5,7 +5,18 @@ import {
   type ProviderNextStepGuidance
 } from "./constraint";
 import { enrichResearchRecords, type ResearchRecord } from "./enrichment";
-import { renderResearch, renderShopping, type RenderMode, type ShoppingOffer } from "./renderer";
+import {
+  renderInspiredesign,
+  renderResearch,
+  renderShopping,
+  type RenderMode,
+  type ShoppingOffer
+} from "./renderer";
+import {
+  buildInspiredesignPacket,
+  type InspiredesignCaptureEvidence,
+  type InspiredesignReferenceEvidence
+} from "./inspiredesign-contract";
 import {
   LOOKS_LIKE_URL_RE,
   asNumber,
@@ -68,7 +79,8 @@ import type {
   ProviderSelection,
   ProviderSource,
   WorkflowSuspendedIntentKind,
-  WorkflowBrowserMode
+  WorkflowBrowserMode,
+  InspiredesignCaptureMode
 } from "./types";
 
 export interface ProviderExecutor {
@@ -117,6 +129,20 @@ export interface ShoppingRunInput {
   cookiePolicyOverride?: ProviderCookiePolicy;
 }
 
+export interface InspiredesignRunInput {
+  brief: string;
+  urls?: string[];
+  captureMode?: InspiredesignCaptureMode;
+  includePrototypeGuidance?: boolean;
+  mode: RenderMode;
+  timeoutMs?: number;
+  outputDir?: string;
+  ttlHours?: number;
+  useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
+  cookiePolicyOverride?: ProviderCookiePolicy;
+}
+
 export interface ProductVideoRunInput {
   product_url?: string;
   product_name?: string;
@@ -134,6 +160,10 @@ export interface ProductVideoRunInput {
 
 export interface ProductVideoWorkflowOptions {
   captureScreenshot?: (url: string, timeoutMs?: number) => Promise<Buffer | null>;
+}
+
+export interface InspiredesignWorkflowOptions {
+  captureReference?: (url: string, timeoutMs?: number) => Promise<InspiredesignCaptureEvidence | null>;
 }
 
 type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited" | "transcript_unavailable";
@@ -621,6 +651,7 @@ const withBrowserModeOverride = (
 const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind, WorkflowKind> = {
   "workflow.research": "research",
   "workflow.shopping": "shopping",
+  "workflow.inspiredesign": "inspiredesign",
   "workflow.product_video": "product_video"
 };
 
@@ -1091,6 +1122,268 @@ const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | und
   const startedAtMs = Date.now();
   return () => Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAtMs));
 };
+
+type InspiredesignResolvedInput = Omit<InspiredesignRunInput, "brief" | "urls" | "captureMode"> & {
+  brief: string;
+  urls: string[];
+  captureMode: InspiredesignCaptureMode;
+};
+
+const INSPIREDESIGN_RENDER_MODES = new Set<RenderMode>(["compact", "json", "md", "context", "path"]);
+const INSPIREDESIGN_CAPTURE_MODES = new Set<InspiredesignCaptureMode>(["off", "deep"]);
+
+type InspiredesignCaptureOutcome = {
+  captureStatus: InspiredesignReferenceEvidence["captureStatus"];
+  capture?: InspiredesignCaptureEvidence | null;
+  captureFailure?: string;
+};
+
+const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Record<string, JsonValue> => ({
+  brief: input.brief,
+  urls: input.urls,
+  captureMode: input.captureMode,
+  mode: input.mode,
+  ...(input.includePrototypeGuidance !== undefined ? { includePrototypeGuidance: input.includePrototypeGuidance } : {}),
+  ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
+  ...(input.outputDir ? { outputDir: input.outputDir } : {}),
+  ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
+  ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
+  ...(input.challengeAutomationMode ? { challengeAutomationMode: input.challengeAutomationMode } : {}),
+  ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
+});
+
+const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"]): InspiredesignRunInput => ({
+  brief: typeof input.brief === "string" ? input.brief : "",
+  mode: typeof input.mode === "string" && INSPIREDESIGN_RENDER_MODES.has(input.mode as RenderMode)
+    ? (input.mode as RenderMode)
+    : "compact",
+  ...(Array.isArray(input.urls) ? { urls: input.urls.filter((url): url is string => typeof url === "string") } : {}),
+  ...(typeof input.captureMode === "string" && INSPIREDESIGN_CAPTURE_MODES.has(input.captureMode as InspiredesignCaptureMode)
+    ? { captureMode: input.captureMode as InspiredesignCaptureMode }
+    : {}),
+  ...(typeof input.includePrototypeGuidance === "boolean" ? { includePrototypeGuidance: input.includePrototypeGuidance } : {}),
+  ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
+  ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
+  ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
+  ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
+  ...(typeof input.challengeAutomationMode === "string"
+    ? { challengeAutomationMode: input.challengeAutomationMode as ChallengeAutomationMode }
+    : {}),
+  ...(typeof input.cookiePolicyOverride === "string"
+    ? { cookiePolicyOverride: input.cookiePolicyOverride as ProviderCookiePolicy }
+    : {})
+});
+
+const normalizeInspiredesignUrls = (urls: string[] | undefined): string[] => {
+  if (!urls || urls.length === 0) return [];
+  const normalized = urls
+    .map((url) => url.trim())
+    .filter(Boolean);
+  const invalid = normalized.find((url) => !LOOKS_LIKE_URL_RE.test(url));
+  if (invalid) {
+    throw new Error(`Inspiredesign workflow received an invalid URL: ${invalid}`);
+  }
+  return [...new Set(normalized.map((url) => canonicalizeUrl(url)))];
+};
+
+const normalizeInspiredesignInput = (input: InspiredesignRunInput): InspiredesignResolvedInput => {
+  const brief = input.brief.trim();
+  if (!brief) {
+    throw new Error("Inspiredesign workflow requires a non-empty brief.");
+  }
+  return {
+    ...input,
+    brief,
+    urls: normalizeInspiredesignUrls(input.urls),
+    captureMode: input.captureMode ?? "off",
+    mode: input.mode ?? "compact"
+  };
+};
+
+const isInspiredesignWorkflowEnvelopeInput = (
+  input: InspiredesignRunInput | WorkflowResumeEnvelope
+): input is WorkflowResumeEnvelope => {
+  return "kind" in input && "input" in input;
+};
+
+const buildInspiredesignEnvelope = (
+  input: InspiredesignRunInput | WorkflowResumeEnvelope
+): { envelope: WorkflowResumeEnvelope; workflowInput: InspiredesignResolvedInput } => {
+  if (isInspiredesignWorkflowEnvelopeInput(input)) {
+    if (!isWorkflowResumeEnvelope(input as JsonValue)) {
+      throw new Error("Inspiredesign workflow envelope is invalid.");
+    }
+    if (input.kind !== "inspiredesign") {
+      throw new Error(`Inspiredesign workflow envelope kind mismatch. Expected inspiredesign but received ${input.kind}.`);
+    }
+    return {
+      envelope: input,
+      workflowInput: normalizeInspiredesignInput(parseInspiredesignEnvelopeInput(input.input))
+    };
+  }
+  const workflowInput = normalizeInspiredesignInput(input);
+  return {
+    envelope: buildWorkflowResumeEnvelope("inspiredesign", serializeInspiredesignRunInput(workflowInput)),
+    workflowInput
+  };
+};
+
+const appendWorkflowTrace = (
+  trace: WorkflowTraceEntry[],
+  stage: WorkflowTraceEntry["stage"],
+  event: string,
+  details: Record<string, JsonValue>
+): WorkflowTraceEntry[] => [
+  ...trace,
+  {
+    at: new Date().toISOString(),
+    stage,
+    event,
+    details
+  }
+];
+
+const buildInspiredesignStepEnvelope = (
+  workflowInput: InspiredesignResolvedInput,
+  trace: WorkflowTraceEntry[],
+  stepIndex: number,
+  url: string
+): WorkflowResumeEnvelope => buildWorkflowResumeEnvelope(
+  "inspiredesign",
+  serializeInspiredesignRunInput(workflowInput),
+  {
+    checkpoint: {
+      stage: "execute",
+      stepId: "fetch_reference",
+      stepIndex,
+      state: { url },
+      updatedAt: new Date().toISOString()
+    },
+    trace
+  }
+);
+
+const buildInspiredesignFetchOptions = (
+  workflowInput: InspiredesignResolvedInput,
+  envelope: WorkflowResumeEnvelope,
+  timeoutMs?: number
+): ProviderRunOptions => withWorkflowResumeEnvelopeIntent(
+  withChallengeAutomationOverride(
+    withCookieOverrides({
+      ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+    }, workflowInput),
+    workflowInput
+  ),
+  "workflow.inspiredesign",
+  envelope
+);
+
+const hasInspiredesignCaptureEvidence = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): capture is InspiredesignCaptureEvidence => {
+  if (!capture) return false;
+  return Boolean(capture.title || capture.snapshot || capture.dom || capture.clone);
+};
+
+const captureInspiredesignReference = async (
+  url: string,
+  captureMode: InspiredesignCaptureMode,
+  captureReference: InspiredesignWorkflowOptions["captureReference"],
+  timeoutMs?: number
+): Promise<InspiredesignCaptureOutcome> => {
+  if (captureMode === "off") {
+    return { captureStatus: "off" };
+  }
+  if (!captureReference) {
+    return {
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but no browser capture callback was available."
+    };
+  }
+  try {
+    const capture = await captureReference(url, timeoutMs);
+    if (!hasInspiredesignCaptureEvidence(capture)) {
+      return {
+        captureStatus: "failed",
+        captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence."
+      };
+    }
+    return {
+      captureStatus: "captured",
+      capture
+    };
+  } catch (error) {
+    return {
+      captureStatus: "failed",
+      captureFailure: error instanceof Error ? error.message : "Deep capture failed."
+    };
+  }
+};
+
+const getInspiredesignPrimaryRecord = (
+  result: ProviderAggregateResult,
+  url: string
+): NormalizedRecord | undefined => {
+  const canonicalUrl = canonicalizeUrl(url);
+  return result.records.find((record) => record.url && canonicalizeUrl(record.url) === canonicalUrl) ?? result.records[0];
+};
+
+const summarizeInspiredesignFetchFailure = (result: ProviderAggregateResult): string | undefined => {
+  return summarizePrimaryProviderIssue(result.failures)?.summary
+    ?? result.error?.message;
+};
+
+const excerptFromInspiredesignRecord = (record: NormalizedRecord | undefined): string | undefined => {
+  const content = normalizePlainText(record?.content);
+  if (!content) return undefined;
+  return toSnippet(content, 240);
+};
+
+const buildInspiredesignReference = (
+  url: string,
+  result: ProviderAggregateResult,
+  capture: InspiredesignCaptureOutcome
+): InspiredesignReferenceEvidence => {
+  const primary = getInspiredesignPrimaryRecord(result, url);
+  const title = primary?.title ?? capture.capture?.title;
+  const excerpt = excerptFromInspiredesignRecord(primary);
+  const fetchStatus: InspiredesignReferenceEvidence["fetchStatus"] = result.records.length > 0 ? "captured" : "failed";
+  return {
+    id: createHash("sha256").update(url).digest("hex").slice(0, 12),
+    url,
+    ...(title ? { title } : {}),
+    ...(excerpt ? { excerpt } : {}),
+    fetchStatus,
+    captureStatus: capture.captureStatus,
+    ...(fetchStatus === "failed" && summarizeInspiredesignFetchFailure(result)
+      ? { fetchFailure: summarizeInspiredesignFetchFailure(result) }
+      : {}),
+    ...(capture.captureFailure ? { captureFailure: capture.captureFailure } : {}),
+    ...(capture.capture ? { capture: capture.capture } : {})
+  };
+};
+
+const buildInspiredesignMeta = (
+  runtime: ProviderExecutor,
+  workflowInput: InspiredesignResolvedInput,
+  references: InspiredesignReferenceEvidence[],
+  failures: ProviderFailureEntry[]
+): Record<string, unknown> => withPrimaryConstraintMeta({
+  selection: {
+    urls: workflowInput.urls,
+    capture_mode: workflowInput.captureMode,
+    include_prototype_guidance: Boolean(workflowInput.includePrototypeGuidance)
+  },
+  metrics: {
+    reference_count: references.length,
+    fetched_references: references.filter((reference) => reference.fetchStatus === "captured").length,
+    captured_references: references.filter((reference) => reference.captureStatus === "captured").length,
+    failed_fetches: references.filter((reference) => reference.fetchStatus === "failed").length,
+    failed_captures: references.filter((reference) => reference.captureStatus === "failed").length,
+    reasonCodeDistribution: summarizeReasonCodeDistribution(failures)
+  },
+  alerts: buildWorkflowAlerts(runtime, failures)
+}, failures);
 
 const inferBrandFromContent = (content: string | undefined): string | undefined => {
   const normalized = normalizePlainText(content);
@@ -2088,6 +2381,98 @@ export const runShoppingWorkflow = async (
   return {
     ...rendered.response,
     offers,
+    artifact_path: bundle.basePath,
+    meta: {
+      ...meta,
+      artifact_manifest: bundle.manifest
+    }
+  };
+};
+
+export const runInspiredesignWorkflow = async (
+  runtime: ProviderExecutor,
+  input: InspiredesignRunInput | WorkflowResumeEnvelope,
+  options: InspiredesignWorkflowOptions = {}
+): Promise<Record<string, unknown>> => {
+  const { envelope, workflowInput } = buildInspiredesignEnvelope(input);
+  const remainingTimeoutMs = createRemainingTimeoutResolver(workflowInput.timeoutMs);
+  let trace = appendWorkflowTrace(envelope.trace ?? [], "compile", "compile_started", {
+    kind: "inspiredesign"
+  });
+  trace = appendWorkflowTrace(trace, "compile", "compile_completed", {
+    kind: "inspiredesign",
+    urlCount: workflowInput.urls.length,
+    captureMode: workflowInput.captureMode
+  });
+
+  const references: InspiredesignReferenceEvidence[] = [];
+  const failures: ProviderFailureEntry[] = [];
+  for (const [index, url] of workflowInput.urls.entries()) {
+    const stepTrace = appendWorkflowTrace(trace, "execute", "reference_started", {
+      stepIndex: index,
+      url
+    });
+    const timeoutMs = remainingTimeoutMs();
+    const result = await runtime.fetch(
+      { url },
+      buildInspiredesignFetchOptions(
+        workflowInput,
+        buildInspiredesignStepEnvelope(workflowInput, stepTrace, index, url),
+        timeoutMs
+      )
+    );
+    observeWorkflowSignals(runtime, result);
+    failures.push(...result.failures);
+    const capture = await captureInspiredesignReference(url, workflowInput.captureMode, options.captureReference, timeoutMs);
+    references.push(buildInspiredesignReference(url, result, capture));
+    trace = appendWorkflowTrace(stepTrace, "execute", "reference_completed", {
+      stepIndex: index,
+      url,
+      fetchStatus: result.records.length > 0 ? "captured" : "failed",
+      captureStatus: capture.captureStatus
+    });
+  }
+
+  const meta = buildInspiredesignMeta(runtime, workflowInput, references, failures);
+  const packet = buildInspiredesignPacket({
+    brief: workflowInput.brief,
+    urls: workflowInput.urls,
+    references,
+    includePrototypeGuidance: workflowInput.includePrototypeGuidance
+  });
+  const rendered = renderInspiredesign({
+    mode: workflowInput.mode,
+    brief: workflowInput.brief,
+    urls: workflowInput.urls,
+    designContract: packet.designContract,
+    generationPlan: packet.generationPlan,
+    implementationPlan: packet.implementationPlan,
+    designMarkdown: packet.designMarkdown,
+    implementationPlanMarkdown: packet.implementationPlanMarkdown,
+    prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+    evidence: packet.evidence,
+    meta
+  });
+  const bundle = await createArtifactBundle({
+    namespace: "inspiredesign",
+    outputDir: workflowInput.outputDir,
+    ttlHours: workflowInput.ttlHours,
+    files: rendered.files
+  });
+
+  if (workflowInput.mode === "path") {
+    return {
+      ...rendered.response,
+      path: bundle.basePath,
+      meta: {
+        ...meta,
+        artifact_manifest: bundle.manifest
+      }
+    };
+  }
+
+  return {
+    ...rendered.response,
     artifact_path: bundle.basePath,
     meta: {
       ...meta,

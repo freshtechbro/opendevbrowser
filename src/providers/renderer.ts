@@ -1,5 +1,7 @@
 import { canonicalizeUrl } from "./web/crawler";
 import type { ResearchRecord } from "./enrichment";
+import type { InspiredesignImplementationPlan } from "./inspiredesign-contract";
+import type { CanvasDesignGovernance, CanvasGenerationPlan } from "../canvas/types";
 
 export type RenderMode = "compact" | "json" | "md" | "context" | "path";
 
@@ -232,6 +234,109 @@ export const renderShopping = (args: {
       response: {
         mode: args.mode,
         markdown,
+        meta: args.meta
+      },
+      files
+    };
+  }
+  if (args.mode === "context") {
+    return {
+      response: {
+        mode: args.mode,
+        context: contextPayload,
+        meta: args.meta
+      },
+      files
+    };
+  }
+
+  return {
+    response: {
+      mode: "path",
+      meta: args.meta
+    },
+    files
+  };
+};
+
+export const renderInspiredesign = (args: {
+  mode: RenderMode;
+  brief: string;
+  urls: string[];
+  designContract: CanvasDesignGovernance;
+  generationPlan: CanvasGenerationPlan;
+  implementationPlan: InspiredesignImplementationPlan;
+  designMarkdown: string;
+  implementationPlanMarkdown: string;
+  prototypeGuidanceMarkdown: string | null;
+  evidence: Record<string, unknown>;
+  meta: Record<string, unknown>;
+}): {
+  response: Record<string, unknown>;
+  files: Array<{ path: string; content: string | Record<string, unknown> }>;
+} => {
+  const summary = [
+    `Brief: ${args.brief}`,
+    `References: ${args.urls.length}`,
+    `Profile: ${args.generationPlan.visualDirection.profile}`
+  ].join("\n");
+  const contextPayload = {
+    brief: args.brief,
+    urls: args.urls,
+    designContract: args.designContract,
+    generationPlan: args.generationPlan,
+    implementationPlan: args.implementationPlan,
+    designMarkdown: args.designMarkdown,
+    implementationPlanMarkdown: args.implementationPlanMarkdown,
+    prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
+    evidence: args.evidence,
+    meta: args.meta
+  };
+  const files = [
+    { path: "design.md", content: args.designMarkdown },
+    { path: "design-contract.json", content: args.designContract },
+    { path: "generation-plan.json", content: args.generationPlan },
+    { path: "implementation-plan.md", content: args.implementationPlanMarkdown },
+    { path: "implementation-plan.json", content: args.implementationPlan },
+    { path: "evidence.json", content: args.evidence }
+  ];
+  if (args.prototypeGuidanceMarkdown) {
+    files.push({ path: "prototype-guidance.md", content: args.prototypeGuidanceMarkdown });
+  }
+
+  if (args.mode === "compact") {
+    return {
+      response: {
+        mode: args.mode,
+        summary,
+        meta: args.meta
+      },
+      files
+    };
+  }
+  if (args.mode === "json") {
+    return {
+      response: {
+        mode: args.mode,
+        brief: args.brief,
+        urls: args.urls,
+        designContract: args.designContract,
+        generationPlan: args.generationPlan,
+        implementationPlan: args.implementationPlan,
+        prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
+        evidence: args.evidence,
+        meta: args.meta
+      },
+      files
+    };
+  }
+  if (args.mode === "md") {
+    return {
+      response: {
+        mode: args.mode,
+        markdown: args.designMarkdown,
+        implementationPlanMarkdown: args.implementationPlanMarkdown,
+        prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
         meta: args.meta
       },
       files

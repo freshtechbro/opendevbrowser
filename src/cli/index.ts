@@ -92,6 +92,7 @@ import { runMacroResolve } from "./commands/macro-resolve";
 import { runResearchCommand } from "./commands/research";
 import { runShoppingCommand } from "./commands/shopping";
 import { runProductVideoCommand } from "./commands/product-video";
+import { runInspiredesignCommand } from "./commands/inspiredesign";
 import { extractExtension } from "../extension-extractor";
 import { setDefaultLogSink, stderrSink } from "../core/logging";
 import { flushOutputAndExit, writeOutput } from "./output";
@@ -869,6 +870,12 @@ async function main(): Promise<void> {
       name: "product-video",
       description: "Run product presentation asset workflows",
       run: async () => runProductVideoCommand(args)
+    });
+
+    registerCommand({
+      name: "inspiredesign",
+      description: "Run inspiredesign workflows",
+      run: async () => runInspiredesignCommand(args)
     });
 
     registerCommand({

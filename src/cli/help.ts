@@ -123,7 +123,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
     title: "Navigation / Interaction / Diagnostics Flags",
     summary: "Command-specific flags for page actions, reads, and diagnostics.",
     flags: [
-      { flag: "--url", description: "Target URL for navigation, connect, or workflow commands.", example: "opendevbrowser goto --session-id s1 --url https://example.com" },
+      { flag: "--url", description: "Target URL for navigation, connect, or workflow commands; repeat for multi-reference inspiredesign runs.", example: "opendevbrowser goto --session-id s1 --url https://example.com" },
       { flag: "--wait-until", description: "Navigation wait strategy such as load or domcontentloaded." },
       { flag: "--timeout-ms", description: "Operation timeout in milliseconds.", example: "opendevbrowser canvas --timeout-ms 120000 --command canvas.session.open ..." },
       { flag: "--ref", description: "Snapshot ref id for element-targeted commands.", example: "opendevbrowser click --session-id s1 --ref r12" },
@@ -202,6 +202,9 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--budget", description: "Budget filter for shopping workflows." },
       { flag: "--region", description: "Region or country hint for provider selection. Treat it as advisory unless output metadata reports `region_authoritative=true`." },
       { flag: "--sort", description: "Sort mode for shopping results." },
+      { flag: "--brief", description: "Inspiredesign brief describing the target design direction." },
+      { flag: "--capture-mode", description: "Inspiredesign capture mode: off (default) or deep." },
+      { flag: "--include-prototype-guidance", description: "Include inspiredesign prototype guidance in workflow output." },
       { flag: "--product-url", description: "Target product URL for product-video workflows." },
       { flag: "--product-name", description: "Product name override for product-video workflows." },
       { flag: "--provider-hint", description: "Provider hint override for product workflows." },

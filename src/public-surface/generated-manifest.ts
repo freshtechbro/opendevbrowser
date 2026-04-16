@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-16T03:02:56.202Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-16T14:26:18.453Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-16T03:02:56.202Z",
+  "generatedAt": "2026-04-16T14:26:18.453Z",
   "cli": {
     "groups": [
       {
@@ -65,6 +65,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "research",
           "shopping",
           "product-video",
+          "inspiredesign",
           "artifacts",
           "macro-resolve"
         ]
@@ -458,6 +459,27 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy",
           "--output-dir",
           "--ttl-hours"
+        ],
+        "groupId": "provider_workflows",
+        "groupTitle": "Provider Workflows",
+        "groupSummary": "Run research, shopping, media, and artifact workflows."
+      },
+      {
+        "name": "inspiredesign",
+        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "flags": [
+          "--brief",
+          "--url",
+          "--capture-mode",
+          "--include-prototype-guidance",
+          "--mode",
+          "--timeout-ms",
+          "--output-dir",
+          "--ttl-hours",
+          "--use-cookies",
+          "--challenge-automation-mode",
+          "--cookie-policy-override",
+          "--cookie-policy"
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
@@ -1638,6 +1660,18 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "kind": "value"
       },
       {
+        "name": "--brief",
+        "kind": "value"
+      },
+      {
+        "name": "--capture-mode",
+        "kind": "value"
+      },
+      {
+        "name": "--include-prototype-guidance",
+        "kind": "value"
+      },
+      {
         "name": "--product-url",
         "kind": "value"
       },
@@ -1741,9 +1775,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
       "--budget",
       "--region",
       "--sort",
+      "--brief",
+      "--capture-mode",
       "--product-url",
       "--product-name",
       "--provider-hint",
+      "--include-prototype-guidance",
       "--x",
       "--y",
       "--from-x",
@@ -2025,6 +2062,11 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "name": "opendevbrowser_product_video_run",
         "description": "Run the product-video asset workflow directly.",
         "cliEquivalent": "product-video"
+      },
+      {
+        "name": "opendevbrowser_inspiredesign_run",
+        "description": "Run the inspiredesign workflow directly.",
+        "cliEquivalent": "inspiredesign"
       },
       {
         "name": "opendevbrowser_canvas",
@@ -2316,6 +2358,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "toolName": "opendevbrowser_product_video_run"
       },
       {
+        "cliCommand": "inspiredesign",
+        "toolName": "opendevbrowser_inspiredesign_run"
+      },
+      {
         "cliCommand": "canvas",
         "toolName": "opendevbrowser_canvas"
       },
@@ -2378,9 +2424,9 @@ export const PUBLIC_SURFACE_MANIFEST = {
     ]
   },
   "counts": {
-    "commandCount": 76,
-    "toolCount": 69,
-    "cliToolPairCount": 66
+    "commandCount": 77,
+    "toolCount": 70,
+    "cliToolPairCount": 67
   }
 } satisfies PublicSurfaceManifest;
 

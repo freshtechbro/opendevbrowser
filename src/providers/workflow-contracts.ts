@@ -1,6 +1,6 @@
 import type { JsonValue } from "./types";
 
-export type WorkflowKind = "research" | "shopping" | "product_video";
+export type WorkflowKind = "research" | "shopping" | "product_video" | "inspiredesign";
 export type WorkflowStage = "compile" | "execute" | "postprocess" | "resume";
 
 export type WorkflowStepBudget = {
@@ -76,7 +76,7 @@ const isWorkflowTraceEntry = (value: JsonValue | undefined): value is WorkflowTr
 );
 
 export const isWorkflowKind = (value: JsonValue | undefined): value is WorkflowKind => (
-  value === "research" || value === "shopping" || value === "product_video"
+  value === "research" || value === "shopping" || value === "product_video" || value === "inspiredesign"
 );
 
 export const buildWorkflowResumeEnvelope = (

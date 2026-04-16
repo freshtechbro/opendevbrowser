@@ -7,7 +7,13 @@ import {
 } from "../browser/session-inspector";
 import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
+import { captureInspiredesignReferenceFromManager } from "../providers/inspiredesign-capture";
+import {
+  runInspiredesignWorkflow,
+  runProductVideoWorkflow,
+  runResearchWorkflow,
+  runShoppingWorkflow
+} from "../providers/workflows";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
   type MacroExecutionPayload,
@@ -804,6 +810,29 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
+    case "inspiredesign.run": {
+      const inspiredesignTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
+      return runInspiredesignWorkflow(
+        createDaemonWorkflowRuntime(core),
+        {
+          brief: requireString(params.brief, "brief"),
+          urls: optionalStringArray(params.urls),
+          captureMode: optionalInspiredesignCaptureMode(params.captureMode),
+          includePrototypeGuidance: optionalBoolean(params.includePrototypeGuidance),
+          mode: optionalRenderMode(params.mode) ?? "compact",
+          timeoutMs: inspiredesignTimeoutMs,
+          outputDir: optionalString(params.outputDir),
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
+        },
+        {
+          captureReference: async (url: string, timeoutMs?: number) =>
+            captureInspiredesignReferenceFromManager(core.manager, url, timeoutMs)
+        }
+      );
+    }
     case "product.video.run": {
       const productVideoTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
       return runProductVideoWorkflow(
@@ -1720,6 +1749,14 @@ function optionalWorkflowBrowserMode(value: unknown): "auto" | "extension" | "ma
     return value;
   }
   throw new Error("Invalid browserMode");
+}
+
+function optionalInspiredesignCaptureMode(value: unknown): "off" | "deep" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "off" || value === "deep") {
+    return value;
+  }
+  throw new Error("Invalid captureMode");
 }
 
 function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networkidle" {

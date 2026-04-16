@@ -26,6 +26,7 @@ export const VALID_FLAGS = [
   "--stored",
   "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
   "--query", "--providers", "--budget", "--region", "--browser-mode", "--sort",
+  "--brief", "--capture-mode", "--include-prototype-guidance",
   "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
   "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy",
   "--output-dir", "--ttl-hours", "--expired-only"
@@ -90,9 +91,12 @@ export const VALID_EQUALS_FLAGS = [
   "--budget",
   "--region",
   "--sort",
+  "--brief",
+  "--capture-mode",
   "--product-url",
   "--product-name",
   "--provider-hint",
+  "--include-prototype-guidance",
   "--x",
   "--y",
   "--from-x",
@@ -248,6 +252,11 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
         name: "product-video",
         usage: "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
         flags: ["--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy", "--timeout-ms", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy", "--output-dir", "--ttl-hours"]
+      },
+      {
+        name: "inspiredesign",
+        usage: "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        flags: ["--brief", "--url", "--capture-mode", "--include-prototype-guidance", "--mode", "--timeout-ms", "--output-dir", "--ttl-hours", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
       },
       {
         name: "artifacts",
@@ -683,6 +692,7 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_research_run", description: "Run the research workflow directly.", cliEquivalent: "research" },
   { name: "opendevbrowser_shopping_run", description: "Run the shopping workflow directly.", cliEquivalent: "shopping" },
   { name: "opendevbrowser_product_video_run", description: "Run the product-video asset workflow directly.", cliEquivalent: "product-video" },
+  { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly.", cliEquivalent: "inspiredesign" },
   { name: "opendevbrowser_canvas", description: "Execute a typed design-canvas command surface call.", cliEquivalent: "canvas" },
   { name: "opendevbrowser_clone_page", description: "Export the active page into React code.", cliEquivalent: "clone-page" },
   { name: "opendevbrowser_clone_component", description: "Export a component by ref into React code.", cliEquivalent: "clone-component" },
