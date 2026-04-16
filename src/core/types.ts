@@ -47,7 +47,7 @@ export type OpenDevBrowserCore = {
   observeDesktopAndVerify: (args: DesktopObservationRequest & {
     browserSessionId: string;
     targetId?: string | null;
-    maxChars: number;
+    maxChars?: number;
     cursor?: string;
   }) => Promise<{
     observation: DesktopObservationEnvelope;

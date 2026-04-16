@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-12T18:43:44.761Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-15T20:45:02.395Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-12T18:43:44.761Z",
+  "generatedAt": "2026-04-15T20:45:02.395Z",
   "cli": {
     "groups": [
       {
@@ -52,6 +52,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "connect",
           "disconnect",
           "status",
+          "status-capabilities",
           "cookie-import",
           "cookie-list"
         ]
@@ -84,7 +85,8 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "goto",
           "wait",
           "snapshot",
-          "review"
+          "review",
+          "review-desktop"
         ]
       },
       {
@@ -144,6 +146,8 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "summary": "Collect session-centric diagnostics, trace proof, and annotation payloads.",
         "commands": [
           "session-inspector",
+          "session-inspector-plan",
+          "session-inspector-audit",
           "perf",
           "screenshot",
           "dialog",
@@ -353,6 +357,19 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "groupSummary": "Launch, connect, and manage browser session state."
       },
       {
+        "name": "status-capabilities",
+        "usage": "npx opendevbrowser status-capabilities [--session-id <id>] [--target-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--challenge-automation-mode",
+          "--timeout-ms"
+        ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
         "name": "cookie-import",
         "usage": "npx opendevbrowser cookie-import --session-id <id> (--cookies <json> | --cookies-file <path>) [--strict <bool>]",
         "flags": [
@@ -532,6 +549,21 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "flags": [
           "--session-id",
           "--target-id",
+          "--max-chars",
+          "--cursor",
+          "--timeout-ms"
+        ],
+        "groupId": "navigation",
+        "groupTitle": "Navigation",
+        "groupSummary": "Move through pages and capture fresh refs."
+      },
+      {
+        "name": "review-desktop",
+        "usage": "npx opendevbrowser review-desktop --session-id <id> [--target-id <id>] [--reason <text>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--reason",
           "--max-chars",
           "--cursor",
           "--timeout-ms"
@@ -913,6 +945,41 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--since-exception-seq",
           "--max",
           "--request-id"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "session-inspector-plan",
+        "usage": "npx opendevbrowser session-inspector-plan --session-id <id> [--target-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--challenge-automation-mode",
+          "--timeout-ms"
+        ],
+        "groupId": "diagnostics_annotation",
+        "groupTitle": "Diagnostics & Annotation",
+        "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
+      },
+      {
+        "name": "session-inspector-audit",
+        "usage": "npx opendevbrowser session-inspector-audit --session-id <id> [--target-id <id>] [--reason <text>] [--max-chars <n>] [--cursor <cursor>] [--include-urls] [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
+        "flags": [
+          "--session-id",
+          "--target-id",
+          "--reason",
+          "--max-chars",
+          "--cursor",
+          "--include-urls",
+          "--since-console-seq",
+          "--since-network-seq",
+          "--since-exception-seq",
+          "--max",
+          "--request-id",
+          "--challenge-automation-mode",
+          "--timeout-ms"
         ],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
@@ -1721,9 +1788,24 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "cliEquivalent": "status"
       },
       {
+        "name": "opendevbrowser_status_capabilities",
+        "description": "Inspect runtime capability discovery for the host and an optional session.",
+        "cliEquivalent": "status-capabilities"
+      },
+      {
         "name": "opendevbrowser_session_inspector",
         "description": "Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.",
         "cliEquivalent": "session-inspector"
+      },
+      {
+        "name": "opendevbrowser_session_inspector_plan",
+        "description": "Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.",
+        "cliEquivalent": "session-inspector-plan"
+      },
+      {
+        "name": "opendevbrowser_session_inspector_audit",
+        "description": "Capture a correlated audit bundle across desktop evidence, browser review, and policy state.",
+        "cliEquivalent": "session-inspector-audit"
       },
       {
         "name": "opendevbrowser_targets_list",
@@ -1779,6 +1861,11 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "name": "opendevbrowser_review",
         "description": "Capture a first-class review payload with status and actionables.",
         "cliEquivalent": "review"
+      },
+      {
+        "name": "opendevbrowser_review_desktop",
+        "description": "Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification.",
+        "cliEquivalent": "review-desktop"
       },
       {
         "name": "opendevbrowser_click",
@@ -2041,8 +2128,20 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "toolName": "opendevbrowser_status"
       },
       {
+        "cliCommand": "status-capabilities",
+        "toolName": "opendevbrowser_status_capabilities"
+      },
+      {
         "cliCommand": "session-inspector",
         "toolName": "opendevbrowser_session_inspector"
+      },
+      {
+        "cliCommand": "session-inspector-plan",
+        "toolName": "opendevbrowser_session_inspector_plan"
+      },
+      {
+        "cliCommand": "session-inspector-audit",
+        "toolName": "opendevbrowser_session_inspector_audit"
       },
       {
         "cliCommand": "targets-list",
@@ -2087,6 +2186,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "cliCommand": "review",
         "toolName": "opendevbrowser_review"
+      },
+      {
+        "cliCommand": "review-desktop",
+        "toolName": "opendevbrowser_review_desktop"
       },
       {
         "cliCommand": "click",
@@ -2275,9 +2378,9 @@ export const PUBLIC_SURFACE_MANIFEST = {
     ]
   },
   "counts": {
-    "commandCount": 72,
-    "toolCount": 65,
-    "cliToolPairCount": 62
+    "commandCount": 76,
+    "toolCount": 69,
+    "cliToolPairCount": 66
   }
 } satisfies PublicSurfaceManifest;
 

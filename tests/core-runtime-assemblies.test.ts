@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  requireChallengeOrchestrationConfig,
+  resolveConfig
+} from "../src/config";
 
 const createProviderRuntimeBundle = vi.fn();
 const createDesktopRuntime = vi.fn();
@@ -54,19 +58,22 @@ describe("createCoreRuntimeAssemblies", () => {
     createAutomationCoordinator.mockReturnValue(automationCoordinator);
 
     const { createCoreRuntimeAssemblies } = await import("../src/core/runtime-assemblies");
-    const config = { desktop: { permissionLevel: "observe" } } as never;
+    const config = resolveConfig({});
+    const challengeConfig = requireChallengeOrchestrationConfig(config);
     const manager = { status: vi.fn() } as never;
     const challengeOrchestrator = { orchestrate: vi.fn() } as never;
     const assemblies = createCoreRuntimeAssemblies({
       cacheRoot: "/tmp/opendevbrowser",
       config,
       manager,
+      challengeConfig,
       challengeOrchestrator
     });
 
     expect(createProviderRuntimeBundle).toHaveBeenCalledWith({
       config,
       manager,
+      challengeConfig,
       challengeOrchestrator
     });
     expect(createDesktopRuntime).toHaveBeenCalledWith({
@@ -75,7 +82,16 @@ describe("createCoreRuntimeAssemblies", () => {
     });
     expect(createAutomationCoordinator).toHaveBeenCalledWith({
       manager,
-      desktopRuntime
+      desktopRuntime,
+      challengeMode: "browser_with_helper",
+      governedLanes: {
+        allowOwnedEnvironmentFixtures: true,
+        allowSanctionedIdentity: false,
+        allowServiceAdapters: false,
+        requireAuditMetadata: true
+      },
+      helperBridgeEnabled: true,
+      snapshotMaxChars: config.snapshot.maxChars
     });
     expect(assemblies).toEqual({
       providerRuntime,

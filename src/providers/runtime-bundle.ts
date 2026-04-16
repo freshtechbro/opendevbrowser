@@ -1,5 +1,8 @@
 import type { BrowserManagerLike } from "../browser/manager-types";
-import type { OpenDevBrowserConfig } from "../config";
+import type {
+  OpenDevBrowserConfig,
+  ProvidersChallengeOrchestrationConfig
+} from "../config";
 import { type ChallengeOrchestrator } from "../challenges";
 import type { BrowserFallbackPort } from "./types";
 import { createBrowserFallbackPort, createConfiguredProviderRuntime } from "./runtime-factory";
@@ -17,6 +20,7 @@ type ProviderRuntimeBundleArgs = {
   config?: ProviderRuntimeBundleConfig;
   manager?: BrowserManagerLike;
   browserFallbackPort?: BrowserFallbackPort;
+  challengeConfig?: ProvidersChallengeOrchestrationConfig;
   challengeOrchestrator?: ChallengeOrchestrator;
   init?: Omit<RuntimeInit, "providers">;
 };
@@ -49,13 +53,14 @@ export const createProviderRuntimeBundle = (
     },
     resolveFallbackTransportConfig(args.config),
     args.challengeOrchestrator,
-    args.config?.providers?.challengeOrchestration?.mode ?? "browser_with_helper",
-    args.config?.providers?.challengeOrchestration?.optionalComputerUseBridge.enabled ?? true
+    args.challengeConfig?.mode ?? "browser_with_helper",
+    args.challengeConfig?.optionalComputerUseBridge.enabled ?? true
   );
   const providerRuntime = createConfiguredProviderRuntime({
     config: args.config,
     manager: args.manager,
     browserFallbackPort,
+    challengeConfig: args.challengeConfig,
     challengeOrchestrator: args.challengeOrchestrator,
     init: args.init
   });

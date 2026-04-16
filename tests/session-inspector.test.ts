@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { inspectSession } from "../src/browser/session-inspector";
+import {
+  buildCorrelatedAuditBundle,
+  inspectSession
+} from "../src/browser/session-inspector";
+import type {
+  BrowserVerificationEnvelope,
+  DesktopObservationEnvelope
+} from "../src/automation/coordinator";
+import type { ChallengeInspectPlan } from "../src/challenges";
 import type { SessionInspectorHandle } from "../src/browser/manager-types";
 import type { RelayStatus } from "../src/relay/relay-server";
 
@@ -73,6 +81,83 @@ const makeHandle = (options: {
 
   return { handle, session, targets, trace };
 };
+
+const observation: DesktopObservationEnvelope = {
+  observationId: "observation-1",
+  requestedAt: "2026-04-15T00:00:00.000Z",
+  status: {
+    platform: "darwin",
+    permissionLevel: "observe",
+    available: true,
+    capabilities: ["observe.screen"],
+    auditArtifactsDir: "/tmp/desktop-audit"
+  }
+};
+
+const review: BrowserVerificationEnvelope = {
+  observationId: "observation-1",
+  verifiedAt: "2026-04-15T00:00:01.000Z",
+  review: {
+    sessionId: "session-1",
+    targetId: "target-1",
+    mode: "managed",
+    snapshotId: "snapshot-1",
+    content: "review content",
+    truncated: false,
+    refCount: 1,
+    timingMs: 5
+  }
+};
+
+const makeChallengePlan = (overrides: Partial<ChallengeInspectPlan> = {}): ChallengeInspectPlan => ({
+  classification: "auth_required",
+  authState: "credentials_required",
+  summary: "Authentication challenge detected.",
+  mode: "browser_with_helper",
+  source: "config",
+  helperEligibility: { allowed: true, reason: "Helper remains eligible." },
+  yield: { required: false, reason: "none" },
+  decision: {
+    lane: "generic_browser_autonomy",
+    rationale: "Use bounded browser actions.",
+    attemptBudget: 1,
+    noProgressLimit: 1,
+    verificationLevel: "full",
+    stopConditions: [],
+    allowedActionFamilies: ["verification"]
+  },
+  allowedActionFamilies: ["verification"],
+  forbiddenActionFamilies: [],
+  governedLanes: [],
+  capabilityMatrix: {
+    canNavigateToAuth: false,
+    canReuseExistingSession: false,
+    canReuseCookies: false,
+    canFillNonSecretFields: false,
+    canExploreClicks: false,
+    canUseOwnedEnvironmentFixture: false,
+    canUseSanctionedIdentity: false,
+    canUseServiceAdapter: false,
+    canUseComputerUseBridge: true,
+    helperEligibility: { allowed: true, reason: "Helper remains eligible." },
+    mustYield: false,
+    mustDefer: false
+  },
+  helper: {
+    status: "suggested",
+    reason: "Helper returned bounded browser actions.",
+    suggestedSteps: []
+  },
+  suggestedSteps: [],
+  evidence: {
+    blockerState: "active",
+    loginRefs: [],
+    sessionReuseRefs: [],
+    humanVerificationRefs: [],
+    checkpointRefs: []
+  },
+  ...overrides
+});
 
 describe("inspectSession", () => {
   it("aggregates console and network summaries into a warning result", async () => {
@@ -408,5 +493,77 @@ describe("inspectSession", () => {
     expect(result.suggestedNextAction).toBe(
       "Capture snapshot or review and continue the normal snapshot -> action -> snapshot loop."
     );
+  });
+});
+
+describe("buildCorrelatedAuditBundle", () => {
+  it("uses an explicit requestId and omits optional bundle fields when they are absent", async () => {
+    const { handle } = makeHandle({
+      trace: {
+        channels: {},
+        meta: {},
+        page: {}
+      } as InspectorTrace
+    });
+
+    const result = await buildCorrelatedAuditBundle({
+      handle,
+      browserSessionId: "session-1",
+      observation,
+      review,
+      challengePlan: makeChallengePlan(),
+      requestId: "manual-request-id"
+    });
+
+    expect(result.requestId).toBe("manual-request-id");
+    expect(result).not.toHaveProperty("targetId");
+    expect(result).not.toHaveProperty("challengeId");
+  });
+
+  it("prefers proof-artifact request ids and preserves target and challenge ids when present", async () => {
+    const { handle } = makeHandle({
+      trace: {
+        requestId: "trace-request-id",
+        channels: {},
+        meta: {},
+        page: {}
+      } as InspectorTrace
+    });
+
+    const result = await buildCorrelatedAuditBundle({
+      handle,
+      browserSessionId: "session-1",
+      targetId: "target-1",
+      observation,
+      review,
+      challengePlan: makeChallengePlan({
+        challengeId: "challenge-1"
+      })
+    });
+
+    expect(result.requestId).toBe("trace-request-id");
+    expect(result.targetId).toBe("target-1");
+    expect(result.challengeId).toBe("challenge-1");
+  });
+
+  it("falls back to the explicit requestId when the proof artifact omits one", async () => {
+    const { handle } = makeHandle({
+      trace: {
+        channels: {},
+        meta: {},
+        page: {}
+      } as InspectorTrace
+    });
+
+    const result = await buildCorrelatedAuditBundle({
+      handle,
+      browserSessionId: "session-1",
+      observation,
+      review,
+      challengePlan: makeChallengePlan(),
+      requestId: "manual-fallback-id"
+    });
+
+    expect(result.requestId).toBe("manual-fallback-id");
   });
 });

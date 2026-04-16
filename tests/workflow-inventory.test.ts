@@ -19,9 +19,9 @@ describe("workflow inventory", () => {
   it("builds a code-derived workflow inventory with the expected current splits", () => {
     const inventory = buildWorkflowInventory();
 
-    expect(inventory.coverage.commandCount).toBe(72);
-    expect(inventory.coverage.toolCount).toBe(65);
-    expect(inventory.coverage.cliToolPairCount).toBe(62);
+    expect(inventory.coverage.commandCount).toBe(76);
+    expect(inventory.coverage.toolCount).toBe(69);
+    expect(inventory.coverage.cliToolPairCount).toBe(66);
     expect(inventory.coverage.cliOnlyCommandCount).toBe(10);
     expect(inventory.coverage.toolOnlySurfaceCount).toBe(3);
   });
@@ -35,8 +35,12 @@ describe("workflow inventory", () => {
     expect(byCli.get("research")).toBe("opendevbrowser_research_run");
     expect(byCli.get("shopping")).toBe("opendevbrowser_shopping_run");
     expect(byCli.get("product-video")).toBe("opendevbrowser_product_video_run");
+    expect(byCli.get("status-capabilities")).toBe("opendevbrowser_status_capabilities");
+    expect(byCli.get("review-desktop")).toBe("opendevbrowser_review_desktop");
     expect(byCli.get("canvas")).toBe("opendevbrowser_canvas");
     expect(byCli.get("session-inspector")).toBe("opendevbrowser_session_inspector");
+    expect(byCli.get("session-inspector-plan")).toBe("opendevbrowser_session_inspector_plan");
+    expect(byCli.get("session-inspector-audit")).toBe("opendevbrowser_session_inspector_audit");
   });
 
   it("maps guarded and tool-only surfaces explicitly instead of pretending they are CLI executable", () => {

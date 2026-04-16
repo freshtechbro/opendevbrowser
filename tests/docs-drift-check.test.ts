@@ -11,8 +11,8 @@ describe("docs-drift-check", () => {
   it("loads source surface counts", async () => {
     const { getSurfaceCounts } = await loadDocsDriftModule();
     const counts = getSurfaceCounts();
-    expect(counts.commandCount).toBe(72);
-    expect(counts.toolCount).toBe(65);
+    expect(counts.commandCount).toBe(76);
+    expect(counts.toolCount).toBe(69);
     expect(counts.opsCommandCount).toBeGreaterThan(0);
     expect(counts.commandNames).toHaveLength(counts.commandCount);
     expect(counts.toolNames).toHaveLength(counts.toolCount);

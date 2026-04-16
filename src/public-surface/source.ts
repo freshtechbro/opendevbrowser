@@ -213,6 +213,11 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
         flags: ["--session-id", "--daemon", "--transport"]
       },
       {
+        name: "status-capabilities",
+        usage: "npx opendevbrowser status-capabilities [--session-id <id>] [--target-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
+        flags: ["--session-id", "--target-id", "--challenge-automation-mode", "--timeout-ms"]
+      },
+      {
         name: "cookie-import",
         usage: "npx opendevbrowser cookie-import --session-id <id> (--cookies <json> | --cookies-file <path>) [--strict <bool>]",
         flags: ["--session-id", "--cookies", "--cookies-file", "--strict"]
@@ -292,6 +297,11 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
         name: "review",
         usage: "npx opendevbrowser review --session-id <id> [--target-id <id>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
         flags: ["--session-id", "--target-id", "--max-chars", "--cursor", "--timeout-ms"]
+      },
+      {
+        name: "review-desktop",
+        usage: "npx opendevbrowser review-desktop --session-id <id> [--target-id <id>] [--reason <text>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
+        flags: ["--session-id", "--target-id", "--reason", "--max-chars", "--cursor", "--timeout-ms"]
       }
     ]
   },
@@ -477,6 +487,16 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
         flags: ["--session-id", "--include-urls", "--since-console-seq", "--since-network-seq", "--since-exception-seq", "--max", "--request-id"]
       },
       {
+        name: "session-inspector-plan",
+        usage: "npx opendevbrowser session-inspector-plan --session-id <id> [--target-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
+        flags: ["--session-id", "--target-id", "--challenge-automation-mode", "--timeout-ms"]
+      },
+      {
+        name: "session-inspector-audit",
+        usage: "npx opendevbrowser session-inspector-audit --session-id <id> [--target-id <id>] [--reason <text>] [--max-chars <n>] [--cursor <cursor>] [--include-urls] [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
+        flags: ["--session-id", "--target-id", "--reason", "--max-chars", "--cursor", "--include-urls", "--since-console-seq", "--since-network-seq", "--since-exception-seq", "--max", "--request-id", "--challenge-automation-mode", "--timeout-ms"]
+      },
+      {
         name: "perf",
         usage: "npx opendevbrowser perf --session-id <id>",
         flags: ["--session-id"]
@@ -615,7 +635,10 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_connect", description: "Connect to an existing browser session.", cliEquivalent: "connect" },
   { name: "opendevbrowser_disconnect", description: "Disconnect a managed or connected session.", cliEquivalent: "disconnect" },
   { name: "opendevbrowser_status", description: "Inspect session and relay status.", cliEquivalent: "status" },
+  { name: "opendevbrowser_status_capabilities", description: "Inspect runtime capability discovery for the host and an optional session.", cliEquivalent: "status-capabilities" },
   { name: "opendevbrowser_session_inspector", description: "Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.", cliEquivalent: "session-inspector" },
+  { name: "opendevbrowser_session_inspector_plan", description: "Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.", cliEquivalent: "session-inspector-plan" },
+  { name: "opendevbrowser_session_inspector_audit", description: "Capture a correlated audit bundle across desktop evidence, browser review, and policy state.", cliEquivalent: "session-inspector-audit" },
   { name: "opendevbrowser_targets_list", description: "List available page targets/tabs.", cliEquivalent: "targets-list" },
   { name: "opendevbrowser_target_use", description: "Switch the active target by id.", cliEquivalent: "target-use" },
   { name: "opendevbrowser_target_new", description: "Create a new target or tab.", cliEquivalent: "target-new" },
@@ -627,6 +650,7 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_wait", description: "Wait for load, ref, or state conditions.", cliEquivalent: "wait" },
   { name: "opendevbrowser_snapshot", description: "Capture AX-tree refs for actions.", cliEquivalent: "snapshot" },
   { name: "opendevbrowser_review", description: "Capture a first-class review payload with status and actionables.", cliEquivalent: "review" },
+  { name: "opendevbrowser_review_desktop", description: "Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification.", cliEquivalent: "review-desktop" },
   { name: "opendevbrowser_click", description: "Click an element by ref.", cliEquivalent: "click" },
   { name: "opendevbrowser_hover", description: "Hover an element by ref.", cliEquivalent: "hover" },
   { name: "opendevbrowser_press", description: "Send a keyboard key.", cliEquivalent: "press" },

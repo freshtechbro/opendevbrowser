@@ -4,7 +4,7 @@ Command-line interface for installing and managing the OpenDevBrowser plugin, pl
 Status: active  
 Last updated: 2026-04-13
 
-OpenDevBrowser exposes 65 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 69 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
 That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
@@ -145,13 +145,13 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `72`.
-- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, browser capture and replay, desktop observation, design canvas, export plus session-centric diagnostics, macro/annotation, and internal power (`rpc`).
+- Total commands: `76`.
+- Categories: install/runtime management, session/connection plus capability discovery, navigation plus desktop-assisted browser review, interaction plus low-level pointer control, targets/pages, DOM inspection, browser capture and replay, desktop observation, design canvas, export plus session-centric diagnostics and browser-scoped inspection, macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `65` (`opendevbrowser_*`).
-- CLI-tool pairs: `62`.
+- Total tools: `69` (`opendevbrowser_*`).
+- CLI-tool pairs: `66`.
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
@@ -683,6 +683,17 @@ npx opendevbrowser status --session-id <session-id>
 npx opendevbrowser status --transport native
 ```
 
+### Status capabilities
+
+```bash
+npx opendevbrowser status-capabilities
+npx opendevbrowser status-capabilities --session-id <session-id> --target-id <target-id> --challenge-automation-mode browser_with_helper --timeout-ms 30000
+```
+
+Notes:
+- `status-capabilities` can inspect host capability discovery without a session, or add `--session-id` to include session-scoped browser and policy state.
+- `--challenge-automation-mode` lets you preview the effective browser-scoped computer-use mode and source before running a workflow.
+
 ### Cookie import
 
 ```bash
@@ -1011,6 +1022,19 @@ npx opendevbrowser review --session-id <session-id>
 npx opendevbrowser review --session-id <session-id> --target-id <target-id> --max-chars 16000 --cursor <cursor>
 ```
 
+### Review desktop
+
+Use `review-desktop` when you want the browser-owned review payload plus read-only desktop observation evidence in one correlated response.
+
+```bash
+npx opendevbrowser review-desktop --session-id <session-id> --reason "compare browser review with visible desktop state"
+npx opendevbrowser review-desktop --session-id <session-id> --target-id <target-id> --reason "audit active target" --max-chars 16000 --cursor <cursor>
+```
+
+Notes:
+- `review-desktop` keeps authority in the review family and augments it with public desktop observation evidence.
+- Use `--reason` when you want explicit audit context recorded alongside the correlated desktop evidence.
+
 ---
 
 ## Interaction commands (daemon required)
@@ -1326,6 +1350,28 @@ Notes:
 - `--include-urls` keeps target URLs in the target summary. Omit it to use the default runtime behavior.
 - `--since-console-seq`, `--since-network-seq`, `--since-exception-seq`, and `--max` mirror the trace cursors used by `debug-trace-snapshot`.
 
+### Session inspector plan
+
+```bash
+npx opendevbrowser session-inspector-plan --session-id <session-id>
+npx opendevbrowser session-inspector-plan --session-id <session-id> --target-id <target-id> --challenge-automation-mode browser --timeout-ms 30000
+```
+
+Notes:
+- Returns browser-scoped computer-use policy, eligibility, stand-down reasons, yield state, and safe suggested steps without running a provider workflow.
+- `--challenge-automation-mode` lets you inspect the effective mode you want to compare against current session or config defaults.
+
+### Session inspector audit
+
+```bash
+npx opendevbrowser session-inspector-audit --session-id <session-id> --reason "capture correlated operator audit"
+npx opendevbrowser session-inspector-audit --session-id <session-id> --target-id <target-id> --reason "trace challenge state" --include-urls --request-id req-session-audit-001 --challenge-automation-mode browser_with_helper
+```
+
+Notes:
+- Returns a correlated audit bundle across desktop evidence, browser review, session status, and browser-scoped policy state.
+- `--reason`, `--request-id`, trace cursors, and `--include-urls` mirror the session-inspector and review audit lanes in one surface.
+
 ---
 
 ## Desktop observation commands (daemon required)
@@ -1433,14 +1479,14 @@ Notes:
 | `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
 | `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
 | `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |
-| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot`, `session-inspector` | Optional request correlation id |
+| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Optional request correlation id |
 | `--expression` | `macro-resolve` | Macro expression to resolve |
 | `--default-provider` | `macro-resolve` | Provider fallback for shorthand macros |
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
 | `--use-cookies` | `research run`, `shopping run`, `product-video run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
-| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `macro-resolve --execute` | Per-run challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
+| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
 | `--cookie-policy-override` | `research run`, `shopping run`, `product-video run` | Per-run provider cookie policy override (`off|auto|required`) |
 | `--cookie-policy` | `research run`, `shopping run`, `product-video run` | Alias of `--cookie-policy-override` |
 
@@ -1462,14 +1508,14 @@ Notes:
 |------|---------|-------------|
 | `--url` | `goto`, `page`, `target-new`, `cookie-list` | URL to navigate/open or filter cookie listing |
 | `--wait-until` | `goto` | Load state (`load`, `domcontentloaded`, etc.) |
-| `--timeout-ms` | `goto`, `wait`, `review` | Timeout in ms |
+| `--timeout-ms` | `goto`, `wait`, `review`, `review-desktop`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Timeout in ms |
 | `--ref` | `wait` | Element ref to wait for |
 | `--state` | `wait` | Element state (e.g. `visible`) |
 | `--until` | `wait` | Page load state |
 | `--mode` | `snapshot` | Snapshot mode (`outline` or `actionables`) |
-| `--target-id` | `review` | Optional target override for the review payload |
-| `--max-chars` | `snapshot`, `review`, `dom-*` | Max characters returned |
-| `--cursor` | `snapshot`, `review` | Snapshot pagination cursor |
+| `--target-id` | `review`, `review-desktop`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Optional target override for review or inspection payloads |
+| `--max-chars` | `snapshot`, `review`, `review-desktop`, `session-inspector-audit`, `dom-*` | Max characters returned |
+| `--cursor` | `snapshot`, `review`, `review-desktop`, `session-inspector-audit` | Snapshot pagination cursor |
 
 **Annotation**
 
@@ -1523,7 +1569,7 @@ Notes:
 | Flag | Used by | Description |
 |------|---------|-------------|
 | `--target-id` | `target-use`, `target-close` | Target id from `targets-list` |
-| `--include-urls` | `targets-list`, `session-inspector` | Include URLs in target or session-inspector target-list output |
+| `--include-urls` | `targets-list`, `session-inspector`, `session-inspector-audit` | Include URLs in target or session-inspector target-list output |
 | `--name` | `page`, `page-close` | Named page identifier |
 
 **Devtools**
@@ -1544,16 +1590,16 @@ Notes:
 | `--timeout-ms` | `screenshot`, `screencast-start`, `screencast-stop` | Explicit client-side daemon call timeout in ms |
 | `--timeout-ms` | `dialog` | Client-side daemon call timeout in ms; defaults to 30s |
 | `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
-| `--since-console-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for console channel |
-| `--since-network-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for network channel |
-| `--since-exception-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for exception channel |
-| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector` | Max events to return per channel |
+| `--since-console-seq` | `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Resume cursor for console channel |
+| `--since-network-seq` | `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Resume cursor for network channel |
+| `--since-exception-seq` | `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Resume cursor for exception channel |
+| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Max events to return per channel |
 
 **Desktop observation**
 
 | Flag | Used by | Description |
 |------|---------|-------------|
-| `--reason` | `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` | Audit reason recorded with desktop observation results |
+| `--reason` | `review-desktop`, `session-inspector-audit`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` | Audit reason recorded with review, audit, or desktop observation results |
 | `--window-id` | `desktop-capture-window`, `desktop-accessibility-snapshot` | Window id for direct window capture or accessibility requests |
 | `--timeout-ms` | all `desktop-*` commands | Client-side daemon call timeout in ms |
 

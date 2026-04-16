@@ -4,7 +4,10 @@ import { createLaunchTool } from "./launch";
 import { createConnectTool } from "./connect";
 import { createDisconnectTool } from "./disconnect";
 import { createStatusTool } from "./status";
+import { createStatusCapabilitiesTool } from "./status_capabilities";
 import { createSessionInspectorTool } from "./session_inspector";
+import { createSessionInspectorPlanTool } from "./session_inspector_plan";
+import { createSessionInspectorAuditTool } from "./session_inspector_audit";
 import { createTargetsListTool } from "./targets_list";
 import { createTargetUseTool } from "./target_use";
 import { createTargetNewTool } from "./target_new";
@@ -16,6 +19,7 @@ import { createGotoTool } from "./goto";
 import { createWaitTool } from "./wait";
 import { createSnapshotTool } from "./snapshot";
 import { createReviewTool } from "./review";
+import { createReviewDesktopTool } from "./review_desktop";
 import { createClickTool } from "./click";
 import { createHoverTool } from "./hover";
 import { createPressTool } from "./press";
@@ -92,7 +96,19 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_connect: wrap("opendevbrowser_connect", createConnectTool(deps)),
     opendevbrowser_disconnect: wrap("opendevbrowser_disconnect", createDisconnectTool(deps)),
     opendevbrowser_status: wrap("opendevbrowser_status", createStatusTool(deps)),
+    opendevbrowser_status_capabilities: wrap(
+      "opendevbrowser_status_capabilities",
+      createStatusCapabilitiesTool(deps)
+    ),
     opendevbrowser_session_inspector: wrap("opendevbrowser_session_inspector", createSessionInspectorTool(deps)),
+    opendevbrowser_session_inspector_plan: wrap(
+      "opendevbrowser_session_inspector_plan",
+      createSessionInspectorPlanTool(deps)
+    ),
+    opendevbrowser_session_inspector_audit: wrap(
+      "opendevbrowser_session_inspector_audit",
+      createSessionInspectorAuditTool(deps)
+    ),
     opendevbrowser_targets_list: wrap("opendevbrowser_targets_list", createTargetsListTool(deps)),
     opendevbrowser_target_use: wrap("opendevbrowser_target_use", createTargetUseTool(deps)),
     opendevbrowser_target_new: wrap("opendevbrowser_target_new", createTargetNewTool(deps)),
@@ -104,6 +120,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_wait: wrap("opendevbrowser_wait", createWaitTool(deps)),
     opendevbrowser_snapshot: wrap("opendevbrowser_snapshot", createSnapshotTool(deps)),
     opendevbrowser_review: wrap("opendevbrowser_review", createReviewTool(deps)),
+    opendevbrowser_review_desktop: wrap("opendevbrowser_review_desktop", createReviewDesktopTool(deps)),
     opendevbrowser_click: wrap("opendevbrowser_click", createClickTool(deps)),
     opendevbrowser_hover: wrap("opendevbrowser_hover", createHoverTool(deps)),
     opendevbrowser_press: wrap("opendevbrowser_press", createPressTool(deps)),

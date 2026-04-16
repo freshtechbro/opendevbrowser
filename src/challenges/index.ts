@@ -15,6 +15,7 @@ export type {
   ChallengeEvidenceBundle,
   ChallengeGovernedLaneKind,
   ChallengeHumanBoundary,
+  ChallengeInspectPlan,
   ChallengeInterpreterResult,
   ChallengeOrchestrationResult,
   ChallengeOrchestrationSnapshot,
@@ -36,9 +37,16 @@ export type {
 export { CHALLENGE_AUTOMATION_MODES, isChallengeAutomationMode } from "./types";
 export { runChallengeActionLoop } from "./action-loop";
 export { buildCapabilityMatrix } from "./capability-matrix";
+export { captureChallengeEvidence } from "./capture";
 export { buildChallengeEvidenceBundle } from "./evidence-bundle";
 export { evaluateGovernedLane } from "./governed-adapter-gateway";
 export { buildHumanYieldPacket, shouldYieldToHuman } from "./human-yield-gate";
+export {
+  buildChallengeActionSuggestions,
+  buildChallengeInspectPlan,
+  inspectChallengePlanFromRuntime,
+  selectChallengeActionStep
+} from "./inspect-plan";
 export { interpretChallengeEvidence } from "./interpreter";
 export { suggestComputerUseActions } from "./optional-computer-use-bridge";
 export { OutcomeRecorder } from "./outcome-recorder";

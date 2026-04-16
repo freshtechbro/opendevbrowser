@@ -385,6 +385,41 @@ export type ComputerUseBridgeResult = {
   auditMetadata?: Record<string, JsonValue>;
 };
 
+export type ChallengeInspectPlan = {
+  challengeId?: string;
+  sessionMode?: string;
+  classification: ChallengeClassification;
+  authState: ChallengeInterpreterResult["authState"];
+  summary: string;
+  mode: ChallengeAutomationMode;
+  source: ChallengeAutomationModeSource;
+  helperEligibility: ChallengeAutomationHelperEligibility;
+  standDownReason?: ChallengeAutomationStandDownReason;
+  yield: {
+    required: boolean;
+    reason: ChallengeHumanBoundary;
+  };
+  decision: ChallengeStrategyDecision;
+  allowedActionFamilies: ChallengeActionFamily[];
+  forbiddenActionFamilies: ChallengeActionFamily[];
+  governedLanes: ChallengeGovernedLaneKind[];
+  capabilityMatrix: ChallengeCapabilityMatrix;
+  helper: ComputerUseBridgeResult;
+  suggestedSteps: ChallengeActionStep[];
+  evidence: {
+    blockerState: ChallengeRuntimeBlockerState;
+    blockerType?: BlockerSignalV1["type"];
+    url?: string;
+    title?: string;
+    activeTargetId?: string | null;
+    snapshotId?: string;
+    loginRefs: string[];
+    sessionReuseRefs: string[];
+    humanVerificationRefs: string[];
+    checkpointRefs: string[];
+  };
+};
+
 export type ChallengeOrchestrationResult = {
   bundle: ChallengeEvidenceBundle;
   interpretation: ChallengeInterpreterResult;

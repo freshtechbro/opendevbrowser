@@ -2,7 +2,11 @@
 import type { BrowserManager } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
 import type { BlockerSignalV1, SessionChallengeSummary } from "../providers/types";
-import type { ChallengeAutomationMode, ChallengeOrchestrationSnapshot } from "../challenges";
+import type {
+  ChallengeAutomationMode,
+  ChallengeInspectPlan,
+  ChallengeOrchestrationSnapshot
+} from "../challenges";
 import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
@@ -276,6 +280,11 @@ export type BrowserManagerLike = Pick<BrowserManager,
     sessionId: string,
     mode?: ChallengeAutomationMode
   ) => void;
+  inspectChallengePlan?: (input: {
+    sessionId: string;
+    targetId?: string | null;
+    runMode?: ChallengeAutomationMode;
+  }) => Promise<ChallengeInspectPlan>;
   createChallengeRuntimeHandle?: () => ChallengeRuntimeHandle;
   createSessionInspector?: () => SessionInspectorHandle;
   clonePageHtmlWithOptions?: (

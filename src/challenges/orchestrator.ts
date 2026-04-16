@@ -1,7 +1,7 @@
 import type { ChallengeRuntimeHandle } from "../browser/manager-types";
 import type { ProvidersChallengeOrchestrationConfig } from "../config";
 import { buildCapabilityMatrix } from "./capability-matrix";
-import { buildChallengeEvidenceBundle } from "./evidence-bundle";
+import { captureChallengeEvidence } from "./capture";
 import { evaluateGovernedLane } from "./governed-adapter-gateway";
 import { buildHumanYieldPacket, shouldYieldToHuman } from "./human-yield-gate";
 import { interpretChallengeEvidence } from "./interpreter";
@@ -133,27 +133,7 @@ export class ChallengeOrchestrator {
     registryPressure?: ChallengeEvidenceBundle["registryPressure"];
     taskData?: ChallengeEvidenceBundle["taskData"];
   }): Promise<ChallengeEvidenceBundle> {
-    const status = await args.handle.status(args.sessionId);
-    const effectiveTargetId = status.activeTargetId ?? args.targetId ?? null;
-    const snapshot = await args.handle.snapshot(args.sessionId, "actionables", 2400, undefined, effectiveTargetId);
-    const debugTrace = await args.handle.debugTraceSnapshot(args.sessionId, { max: 50 });
-    const cookies = status.url
-      ? await args.handle.cookieList(args.sessionId, [status.url])
-      : { count: 0 };
-    return buildChallengeEvidenceBundle({
-      status,
-      snapshot: {
-        snapshotId: snapshot.snapshotId,
-        content: snapshot.content,
-        warnings: snapshot.warnings
-      },
-      debugTrace,
-      cookieCount: cookies.count,
-      canImportCookies: args.canImportCookies,
-      fallbackDisposition: args.fallbackDisposition,
-      registryPressure: args.registryPressure,
-      taskData: args.taskData
-    });
+    return captureChallengeEvidence(args);
   }
 
   async orchestrate(args: {
@@ -360,6 +340,7 @@ export class ChallengeOrchestrator {
       targetId: args.targetId,
       initialBundle: bundle,
       decision,
+      helperEligibility: capabilityMatrix.helperEligibility,
       config: this.config,
       suggestedSteps
     });

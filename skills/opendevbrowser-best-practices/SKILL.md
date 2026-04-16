@@ -84,7 +84,8 @@ Start every surface audit with generated help so the capability map reflects the
 
 - Browser replay: `screencast-start`, `screencast-stop`
 - Desktop observation: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- Browser-scoped computer use: `--challenge-automation-mode off|browser|browser_with_helper` plus manager-owned `review`, `session-inspector`, and workflow fallback metadata
+- Desktop-assisted browser review: `review-desktop`
+- Browser-scoped computer use: `--challenge-automation-mode off|browser|browser_with_helper`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit`, plus manager-owned `review`, `session-inspector`, and workflow fallback metadata
 
 Boundary rules:
 - desktop observation is public and read-only
@@ -288,7 +289,7 @@ node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.j
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (72 CLI commands, 65 tools, 59 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
+- `docs/SURFACE_REFERENCE.md` (76 CLI commands, 69 tools, 59 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
 - `artifacts/skill-runtime-surface-matrix.md` and `assets/templates/skill-runtime-pack-matrix.json` (canonical pack/runtime audit inventory)
 

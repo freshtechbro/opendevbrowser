@@ -20,13 +20,21 @@
         "cliCommands": [
           "serve",
           "status",
+          "status-capabilities",
           "launch",
+          "review-desktop",
+          "session-inspector-plan",
+          "session-inspector-audit",
           "research",
           "shopping",
           "product-video",
           "canvas"
         ],
         "tools": [
+          "opendevbrowser_status_capabilities",
+          "opendevbrowser_review_desktop",
+          "opendevbrowser_session_inspector_plan",
+          "opendevbrowser_session_inspector_audit",
           "opendevbrowser_canvas",
           "opendevbrowser_research_run",
           "opendevbrowser_shopping_run",

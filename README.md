@@ -12,7 +12,7 @@
 
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
-The current public surface includes [72 CLI commands and 65 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+The current public surface includes [76 CLI commands and 69 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 
 <p align="center">
@@ -336,7 +336,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **65 tools** organized by category:
+OpenDevBrowser provides **69 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 Terminal help now mirrors the generated public-surface manifest rooted at `src/public-surface/source.ts` and refreshed by `scripts/generate-public-surface-manifest.mjs`. `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
@@ -349,9 +349,12 @@ See [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md) for the brand and generat
 | `opendevbrowser_connect` | Connect to existing Chrome CDP endpoint (or relay `/ops`; legacy `/cdp` via `--extension-legacy`) |
 | `opendevbrowser_disconnect` | Disconnect browser session |
 | `opendevbrowser_status` | Get session status and connection info (daemon status in hub mode) |
+| `opendevbrowser_status_capabilities` | Inspect runtime capability discovery for the host and an optional session |
 | `opendevbrowser_cookie_import` | Import validated cookies into the current session |
 | `opendevbrowser_cookie_list` | List session cookies with optional URL filters |
 | `opendevbrowser_session_inspector` | Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action |
+| `opendevbrowser_session_inspector_plan` | Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps |
+| `opendevbrowser_session_inspector_audit` | Capture a correlated audit bundle across desktop evidence, browser review, and policy state |
 
 ### Tab/Target Management
 | Tool | Description |
@@ -375,6 +378,7 @@ See [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md) for the brand and generat
 | `opendevbrowser_wait` | Wait for load state or element |
 | `opendevbrowser_snapshot` | Capture page accessibility tree with refs |
 | `opendevbrowser_review` | Capture target-aware actionables plus status context before acting |
+| `opendevbrowser_review_desktop` | Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification |
 | `opendevbrowser_click` | Click element by ref |
 | `opendevbrowser_hover` | Hover element by ref |
 | `opendevbrowser_press` | Press a keyboard key (optionally focusing a ref) |
@@ -698,22 +702,22 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, browser capture and replay, desktop observation, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (72 CLI commands, 65 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (76 CLI commands, 69 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
 | Category | Commands |
 |---------|----------|
 | Install/runtime | `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run` |
-| Session/connection | `launch`, `connect`, `disconnect`, `status`, `cookie-import`, `cookie-list` |
-| Navigation | `goto`, `wait`, `snapshot` |
+| Session/connection | `launch`, `connect`, `disconnect`, `status`, `status-capabilities`, `cookie-import`, `cookie-list` |
+| Navigation | `goto`, `wait`, `snapshot`, `review`, `review-desktop` |
 | Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
 | DOM | `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked` |
 | Browser capture | `screenshot`, `screencast-start`, `screencast-stop` |
 | Desktop observation | `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` |
 | Design canvas | `canvas` |
-| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `macro-resolve`, `annotate`, `rpc` |
+| Export/diagnostics/macro/annotation/power | `clone-page`, `clone-component`, `perf`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `session-inspector-plan`, `session-inspector-audit`, `macro-resolve`, `annotate`, `rpc` |
 
 ### Install/Management
 
@@ -739,10 +743,14 @@ Start the daemon with `npx opendevbrowser serve`, then use:
 | `npx opendevbrowser connect` | Connect via relay or direct CDP endpoint |
 | `npx opendevbrowser disconnect` | Disconnect session |
 | `npx opendevbrowser status` | Show session status |
+| `npx opendevbrowser status-capabilities --session-id <id>` | Inspect host and session capability discovery before a workflow run |
 | `npx opendevbrowser session-inspector --session-id <id>` | Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action |
+| `npx opendevbrowser session-inspector-plan --session-id <id>` | Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps |
+| `npx opendevbrowser session-inspector-audit --session-id <id>` | Capture a correlated audit bundle across desktop evidence, browser review, and policy state |
 | `npx opendevbrowser goto` | Navigate to URL |
 | `npx opendevbrowser wait` | Wait for load or element |
 | `npx opendevbrowser snapshot` | Capture snapshot with refs |
+| `npx opendevbrowser review-desktop --session-id <id> --reason "<context>"` | Capture desktop-assisted browser review with read-only desktop evidence |
 | `npx opendevbrowser click` | Click element by ref |
 | `npx opendevbrowser type` | Type into element by ref |
 | `npx opendevbrowser select` | Select dropdown option by ref |
@@ -878,7 +886,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 65 opendevbrowser_* tool definitions
+│   ├── tools/        # 69 opendevbrowser_* tool definitions
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)

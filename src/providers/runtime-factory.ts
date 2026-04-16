@@ -3,7 +3,10 @@ import * as os from "os";
 import { readFile } from "fs/promises";
 import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../browser/manager-types";
 import { isOpsRequestTimeoutError } from "../browser/ops-client";
-import type { OpenDevBrowserConfig } from "../config";
+import type {
+  OpenDevBrowserConfig,
+  ProvidersChallengeOrchestrationConfig
+} from "../config";
 import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
 import { classifyBlockerSignal } from "./blocker";
@@ -1379,7 +1382,8 @@ export const createBrowserFallbackPort = (
 
 export const buildRuntimeInitFromConfig = (
   config: RuntimeConfig | undefined,
-  browserFallbackPort?: BrowserFallbackPort
+  browserFallbackPort?: BrowserFallbackPort,
+  challengeConfig?: ProvidersChallengeOrchestrationConfig
 ): Omit<RuntimeInit, "providers"> => {
   const providers = config?.providers;
   return {
@@ -1444,8 +1448,8 @@ export const buildRuntimeInitFromConfig = (
         }
       }
       : {}),
-    ...(providers?.challengeOrchestration?.mode
-      ? { challengeAutomationModeDefault: providers.challengeOrchestration.mode }
+    ...(challengeConfig?.mode
+      ? { challengeAutomationModeDefault: challengeConfig.mode }
       : {}),
     ...(browserFallbackPort ? { browserFallbackPort } : {})
   };
@@ -1456,12 +1460,13 @@ export const createConfiguredProviderRuntime = (args: {
   defaults?: RuntimeDefaults;
   manager?: BrowserManagerLike;
   browserFallbackPort?: BrowserFallbackPort;
+  challengeConfig?: ProvidersChallengeOrchestrationConfig;
   challengeOrchestrator?: ChallengeOrchestrator;
   init?: Omit<RuntimeInit, "providers">;
 }) => {
   const challengeOrchestrator = args.challengeOrchestrator
-    ?? (args.config?.providers?.challengeOrchestration
-      ? new ChallengeOrchestrator(args.config.providers.challengeOrchestration)
+    ?? (args.challengeConfig
+      ? new ChallengeOrchestrator(args.challengeConfig)
       : undefined);
   if (challengeOrchestrator && typeof (args.manager as { setChallengeOrchestrator?: (value?: ChallengeOrchestrator) => void } | undefined)?.setChallengeOrchestrator === "function") {
     (args.manager as { setChallengeOrchestrator?: (value?: ChallengeOrchestrator) => void }).setChallengeOrchestrator?.(challengeOrchestrator);
@@ -1469,9 +1474,9 @@ export const createConfiguredProviderRuntime = (args: {
   const fallbackPort = args.browserFallbackPort ?? createBrowserFallbackPort(args.manager, {
     policy: args.config?.providers?.cookiePolicy,
     source: args.config?.providers?.cookieSource
-  }, {}, challengeOrchestrator, args.config?.providers?.challengeOrchestration?.mode ?? "browser_with_helper", args.config?.providers?.challengeOrchestration?.optionalComputerUseBridge.enabled ?? true);
+  }, {}, challengeOrchestrator, args.challengeConfig?.mode ?? "browser_with_helper", args.challengeConfig?.optionalComputerUseBridge.enabled ?? true);
   const runtimeInit = {
-    ...buildRuntimeInitFromConfig(args.config, fallbackPort),
+    ...buildRuntimeInitFromConfig(args.config, fallbackPort, args.challengeConfig),
     ...(args.init ?? {})
   };
   return createDefaultRuntime(args.defaults ?? {}, runtimeInit);

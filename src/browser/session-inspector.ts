@@ -1,5 +1,11 @@
+import { randomUUID } from "node:crypto";
+import type { ChallengeInspectPlan } from "../challenges";
 import type { RelayStatus } from "../relay/relay-server";
 import type { BrowserResponseMeta, SessionInspectorHandle } from "./manager-types";
+import type {
+  BrowserVerificationEnvelope,
+  DesktopObservationEnvelope
+} from "../automation/coordinator";
 
 type SessionInspectorStatus = Awaited<ReturnType<SessionInspectorHandle["status"]>>;
 type SessionInspectorTargets = Awaited<ReturnType<SessionInspectorHandle["listTargets"]>>;
@@ -52,6 +58,20 @@ export type SessionInspectorResult = {
   };
   healthState: "ok" | "warning" | "blocked";
   suggestedNextAction: string;
+};
+
+export type CorrelatedAuditBundle = {
+  bundleId: string;
+  createdAt: string;
+  browserSessionId: string;
+  targetId?: string | null;
+  observationId: string;
+  requestId: string | null;
+  challengeId?: string;
+  desktop: DesktopObservationEnvelope;
+  review: BrowserVerificationEnvelope;
+  sessionInspector: SessionInspectorResult;
+  challengePlan: ChallengeInspectPlan;
 };
 
 export type InspectSessionOptions = {
@@ -125,6 +145,48 @@ export async function inspectSession(
       consoleErrors: traceConsole.errorCount,
       networkFailures: traceNetwork.failureCount
     })
+  };
+}
+
+export async function buildCorrelatedAuditBundle(args: {
+  handle: SessionInspectorHandle;
+  browserSessionId: string;
+  targetId?: string | null;
+  observation: DesktopObservationEnvelope;
+  review: BrowserVerificationEnvelope;
+  challengePlan: ChallengeInspectPlan;
+  includeUrls?: boolean;
+  sinceConsoleSeq?: number;
+  sinceNetworkSeq?: number;
+  sinceExceptionSeq?: number;
+  max?: number;
+  requestId?: string;
+  relayStatus?: RelayStatus | null;
+}): Promise<CorrelatedAuditBundle> {
+  const requestId = args.requestId ?? randomUUID();
+  const sessionInspector = await inspectSession(args.handle, {
+    sessionId: args.browserSessionId,
+    includeUrls: args.includeUrls,
+    sinceConsoleSeq: args.sinceConsoleSeq,
+    sinceNetworkSeq: args.sinceNetworkSeq,
+    sinceExceptionSeq: args.sinceExceptionSeq,
+    max: args.max,
+    requestId,
+    relayStatus: args.relayStatus
+  });
+
+  return {
+    bundleId: randomUUID(),
+    createdAt: new Date().toISOString(),
+    browserSessionId: args.browserSessionId,
+    ...(typeof args.targetId !== "undefined" ? { targetId: args.targetId } : {}),
+    observationId: args.observation.observationId,
+    requestId: sessionInspector.proofArtifact.requestId ?? requestId,
+    ...(args.challengePlan.challengeId ? { challengeId: args.challengePlan.challengeId } : {}),
+    desktop: args.observation,
+    review: args.review,
+    sessionInspector,
+    challengePlan: args.challengePlan
   };
 }
 

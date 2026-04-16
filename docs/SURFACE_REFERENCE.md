@@ -27,7 +27,7 @@ First-contact note:
 
 ---
 
-## CLI Command Inventory (72)
+## CLI Command Inventory (76)
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
@@ -41,22 +41,24 @@ First-contact note:
 - `run` - Execute a JSON script in a single process.
 - `artifacts` - Manage workflow artifact lifecycle.
 
-### Session, connection, and workflow wrappers (9)
+### Session, connection, and workflow wrappers (10)
 - `launch` - Launch a managed browser session via daemon.
 - `connect` - Connect to an existing browser via daemon.
 - `disconnect` - Disconnect a daemon session.
 - `status` - Get daemon or session status.
+- `status-capabilities` - Inspect runtime capability discovery for the host and an optional session.
 - `cookie-import` - Import validated cookies into a session.
 - `cookie-list` - List cookies for a session, optionally filtered by URL.
 - `research` - Run research workflows.
 - `shopping` - Run shopping workflows.
 - `product-video` - Run product presentation asset workflows.
 
-### Navigation (4)
+### Navigation (5)
 - `goto` - Navigate the current session to a URL.
 - `wait` - Wait for load completion or a ref/state condition.
 - `snapshot` - Capture a snapshot of the active page.
 - `review` - Capture a first-class review payload for the active target.
+- `review-desktop` - Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification.
 
 ### Interaction (14)
 - `click` - Click an element by ref.
@@ -111,7 +113,7 @@ Operational note:
 ### Design canvas (1)
 - `canvas` - Execute a design-canvas command.
 
-### Export, diagnostics, macro, annotation, power (11)
+### Export, diagnostics, macro, annotation, power (13)
 - `clone-page` - Clone the active page to React.
 - `clone-component` - Clone a component by ref.
 - `perf` - Capture performance metrics.
@@ -120,19 +122,22 @@ Operational note:
 - `network-poll` - Poll network events.
 - `debug-trace-snapshot` - Capture page, console, network, and exception diagnostics.
 - `session-inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
+- `session-inspector-plan` - Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.
+- `session-inspector-audit` - Capture a correlated audit bundle across desktop evidence, browser review, and policy state.
 - `macro-resolve` - Resolve or execute a macro expression via provider actions.
 - `annotate` - Request interactive annotations via direct or relay transport.
 - `rpc` - Execute an internal daemon RPC command. CLI-only, internal power surface.
 
 ---
 
-## Tool Inventory (65)
+## Tool Inventory (69)
 
-### Session and cookies (6)
+### Session and cookies (7)
 - `opendevbrowser_launch` - Launch a managed browser session.
 - `opendevbrowser_connect` - Connect to an existing browser session.
 - `opendevbrowser_disconnect` - Disconnect a managed or connected session.
 - `opendevbrowser_status` - Inspect session and relay status.
+- `opendevbrowser_status_capabilities` - Inspect runtime capability discovery for the host and an optional session.
 - `opendevbrowser_cookie_import` - Import validated cookies into a session.
 - `opendevbrowser_cookie_list` - List cookies in a session with optional URL filters.
 
@@ -145,11 +150,12 @@ Operational note:
 - `opendevbrowser_list` - List named pages in the session.
 - `opendevbrowser_close` - Close a named page.
 
-### Navigation and interaction (19)
+### Navigation and interaction (20)
 - `opendevbrowser_goto` - Navigate to a URL.
 - `opendevbrowser_wait` - Wait for load, ref, or state conditions.
 - `opendevbrowser_snapshot` - Capture AX-tree refs for actions.
 - `opendevbrowser_review` - Capture a first-class review payload with status and actionables.
+- `opendevbrowser_review_desktop` - Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification.
 - `opendevbrowser_click` - Click an element by ref.
 - `opendevbrowser_hover` - Hover an element by ref.
 - `opendevbrowser_press` - Send a keyboard key.
@@ -188,11 +194,13 @@ Operational note:
 - `opendevbrowser_desktop_capture_window` - Capture a specific window through the public read-only desktop observation plane.
 - `opendevbrowser_desktop_accessibility_snapshot` - Capture desktop accessibility state through the public read-only desktop observation plane.
 
-### Diagnostics and export (9)
+### Diagnostics and export (11)
 - `opendevbrowser_console_poll` - Poll redacted console events.
 - `opendevbrowser_network_poll` - Poll redacted network events.
 - `opendevbrowser_debug_trace_snapshot` - Capture page, console, and network diagnostics.
 - `opendevbrowser_session_inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
+- `opendevbrowser_session_inspector_plan` - Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.
+- `opendevbrowser_session_inspector_audit` - Capture a correlated audit bundle across desktop evidence, browser review, and policy state.
 - `opendevbrowser_perf` - Collect browser performance metrics.
 - `opendevbrowser_dialog` - Inspect or handle a JavaScript dialog.
 - `opendevbrowser_clone_page` - Export the active page into React code.

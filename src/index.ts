@@ -35,6 +35,7 @@ import type { RelayLike } from "./relay/relay-types";
 import type { ToolDeps } from "./tools/deps";
 import { createCoreRuntimeAssemblies } from "./core";
 import { createAutomationCoordinator } from "./automation/coordinator";
+import { requireChallengeOrchestrationConfig } from "./config";
 
 const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   const core = createOpenDevBrowserCore({ directory, worktree });
@@ -85,6 +86,8 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     if (!daemonClient) {
       daemonClient = new DaemonClient({ autoRenew: true });
     }
+    const currentConfig = configStore.get();
+    const challengeConfig = requireChallengeOrchestrationConfig(currentConfig);
     manager = new RemoteManager(daemonClient);
     canvasManager = new RemoteCanvasManager(daemonClient);
     desktopRuntime = new RemoteDesktopRuntime(daemonClient);
@@ -97,12 +100,17 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
       browserFallbackPort
     } = createCoreRuntimeAssemblies({
       cacheRoot: core.cacheRoot,
-      config: configStore.get(),
-      manager
+      config: currentConfig,
+      manager,
+      challengeConfig
     }));
     automationCoordinator = createAutomationCoordinator({
       manager,
-      desktopRuntime
+      desktopRuntime,
+      challengeMode: challengeConfig.mode,
+      governedLanes: challengeConfig.governed,
+      helperBridgeEnabled: challengeConfig.optionalComputerUseBridge.enabled,
+      snapshotMaxChars: currentConfig.snapshot.maxChars
     });
     toolDeps.manager = manager;
     toolDeps.canvasManager = canvasManager;

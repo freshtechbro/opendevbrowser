@@ -18,8 +18,8 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `72`
-- Plugin tools: `65`
+- CLI commands: `76`
+- Plugin tools: `69`
 - `/ops` command names: `59`
 - `/canvas` command names: `35`
 
@@ -30,6 +30,7 @@ Human-facing inventory metadata now composes through one generated manifest:
 - `src/cli/onboarding-metadata.json` owns the canonical first-contact skill, topic, quick-start commands, and onboarding doc pointers
 - `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/index.ts` consume or re-export the generated manifest for human-facing command and tool inventory output
 - `src/cli/help.ts` also owns the first-contact `Find It Fast` block for `screencast / browser replay`, `desktop observation`, and the browser-scoped computer-use lane surfaced through `--challenge-automation-mode`
+- Additive operator pairings stay inside the existing families: `status-capabilities` -> `status.capabilities`, `review-desktop` -> `nav.reviewDesktop`, `session-inspector-plan` -> `session.inspectPlan`, and `session-inspector-audit` -> `session.inspectAudit`
 - `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
 - `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/tools/index.ts` remains the runtime tool registry authority

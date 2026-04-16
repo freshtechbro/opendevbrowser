@@ -1,7 +1,10 @@
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
 import { buildBrowserReviewResult } from "../browser/review-surface";
-import { inspectSession } from "../browser/session-inspector";
+import {
+  buildCorrelatedAuditBundle,
+  inspectSession
+} from "../browser/session-inspector";
 import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
@@ -125,12 +128,14 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "session.status":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.status(requireString(params.sessionId, "sessionId"));
+    case "status.capabilities":
+      if (typeof params.sessionId === "string") {
+        await authorizeSessionCommand(core, params, request.name, bindingId);
+      }
+      return runStatusCapabilities(core, params);
     case "session.inspect": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      const inspector = core.manager.createSessionInspector?.();
-      if (!inspector) {
-        throw new Error("Session inspector is unavailable for the current runtime.");
-      }
+      const inspector = requireSessionInspectorHandle(core);
       return inspectSession(inspector, {
         sessionId: requireString(params.sessionId, "sessionId"),
         includeUrls: optionalBoolean(params.includeUrls) ?? true,
@@ -142,6 +147,12 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         relayStatus: core.relay.status()
       });
     }
+    case "session.inspectPlan":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return runInspectChallengePlan(core, params);
+    case "session.inspectAudit":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return runInspectAudit(core, params);
     case "desktop.status":
       return core.desktopRuntime.status();
     case "desktop.windows.list":
@@ -337,6 +348,9 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         maxChars: optionalNumber(params.maxChars, "maxChars") ?? core.config.snapshot.maxChars,
         cursor: optionalString(params.cursor)
       });
+    case "nav.reviewDesktop":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return runReviewDesktop(core, params);
     case "interact.click":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.click(
@@ -1063,6 +1077,84 @@ async function disconnectSession(
     return { ok: true, bindingReleased: true };
   }
   return { ok: true };
+}
+
+function requireSessionInspectorHandle(core: OpenDevBrowserCore) {
+  const inspector = core.manager.createSessionInspector?.();
+  if (!inspector) {
+    throw new Error("Session inspector is unavailable for the current runtime.");
+  }
+  return inspector;
+}
+
+function readChallengeAutomationMode(
+  params: Record<string, unknown>
+): ChallengeAutomationMode | undefined {
+  return optionalChallengeAutomationMode(params.challengeAutomationMode);
+}
+
+async function runReviewDesktop(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  return core.automationCoordinator.reviewDesktop({
+    browserSessionId: requireString(params.sessionId, "sessionId"),
+    targetId: optionalString(params.targetId),
+    reason: optionalString(params.reason),
+    maxChars: optionalNumber(params.maxChars, "maxChars"),
+    cursor: optionalString(params.cursor)
+  });
+}
+
+async function runInspectChallengePlan(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  return core.automationCoordinator.inspectChallengePlan({
+    browserSessionId: requireString(params.sessionId, "sessionId"),
+    targetId: optionalString(params.targetId),
+    runMode: readChallengeAutomationMode(params)
+  });
+}
+
+async function runInspectAudit(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  const browserSessionId = requireString(params.sessionId, "sessionId");
+  const targetId = optionalString(params.targetId);
+  const review = await runReviewDesktop(core, params);
+  const challengePlan = await core.automationCoordinator.inspectChallengePlan({
+    browserSessionId,
+    targetId,
+    runMode: readChallengeAutomationMode(params)
+  });
+  return buildCorrelatedAuditBundle({
+    handle: requireSessionInspectorHandle(core),
+    browserSessionId,
+    targetId,
+    observation: review.observation,
+    review: review.verification,
+    challengePlan,
+    includeUrls: optionalBoolean(params.includeUrls) ?? undefined,
+    sinceConsoleSeq: optionalNumber(params.sinceConsoleSeq, "sinceConsoleSeq"),
+    sinceNetworkSeq: optionalNumber(params.sinceNetworkSeq, "sinceNetworkSeq"),
+    sinceExceptionSeq: optionalNumber(params.sinceExceptionSeq, "sinceExceptionSeq"),
+    max: optionalNumber(params.max, "max"),
+    requestId: optionalString(params.requestId),
+    relayStatus: core.relay.status()
+  });
+}
+
+async function runStatusCapabilities(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  return core.automationCoordinator.statusCapabilities({
+    browserSessionId: optionalString(params.sessionId),
+    targetId: optionalString(params.targetId),
+    runMode: readChallengeAutomationMode(params)
+  });
 }
 
 async function authorizeSessionCommand(

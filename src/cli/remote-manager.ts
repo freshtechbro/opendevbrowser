@@ -4,6 +4,7 @@ import type { TargetInfo } from "../browser/target-manager";
 import type { ReactExport } from "../export/react-emitter";
 import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
+import type { ChallengeAutomationMode, ChallengeInspectPlan } from "../challenges";
 import { classifySessionRelayEndpoint } from "../relay/relay-endpoints";
 import { DaemonClient } from "./daemon-client";
 
@@ -396,6 +397,20 @@ export class RemoteManager implements BrowserManagerLike {
     return this.client.call<CallResult<"debugTraceSnapshot">>("devtools.debugTraceSnapshot", {
       sessionId,
       ...options
+    });
+  }
+
+  inspectChallengePlan(input: {
+    sessionId: string;
+    targetId?: string | null;
+    runMode?: ChallengeAutomationMode;
+  }): Promise<ChallengeInspectPlan> {
+    return this.client.call<ChallengeInspectPlan>("session.inspectPlan", {
+      sessionId: input.sessionId,
+      ...(typeof input.targetId === "string" ? { targetId: input.targetId } : {}),
+      ...(typeof input.runMode === "string"
+        ? { challengeAutomationMode: input.runMode }
+        : {})
     });
   }
 
