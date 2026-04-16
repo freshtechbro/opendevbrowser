@@ -18,7 +18,7 @@ import type {
   ProviderSource
 } from "../src/providers/types";
 
-type WorkflowKind = "research" | "shopping" | "product_video";
+type WorkflowKind = "research" | "shopping" | "product_video" | "inspiredesign";
 
 const isoHoursAgo = (hours: number): string => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 const isoHoursAhead = (hours: number): string => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
@@ -1022,6 +1022,13 @@ describe("workflow branch coverage", () => {
     expect(
       workflowTestUtils.buildWorkflowResumePayload("workflow.shopping", existingEnvelope)
     ).toEqual({ workflow: existingEnvelope });
+    const inspiredesignEnvelope = buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "Synthesize inspiration",
+      urls: ["https://example.com"]
+    } as JsonValue);
+    expect(
+      workflowTestUtils.buildWorkflowResumePayload("workflow.inspiredesign", inspiredesignEnvelope)
+    ).toEqual({ workflow: inspiredesignEnvelope });
 
     expect(
       workflowTestUtils.inferBrandFromContent("Brand Acme Audio keeps setup simple for travel.")

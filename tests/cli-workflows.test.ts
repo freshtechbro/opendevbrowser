@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
+import { runInspiredesignCommand } from "../src/cli/commands/inspiredesign";
 import { runMacroResolve } from "../src/cli/commands/macro-resolve";
 import { runProductVideoCommand } from "../src/cli/commands/product-video";
 import { runResearchCommand } from "../src/cli/commands/research";
@@ -327,6 +328,49 @@ describe("workflow CLI commands", () => {
     });
   });
 
+  it("parses and dispatches inspiredesign run payload with repeated urls", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Build a docs landing page contract",
+      "--url=https://example.com/a",
+      "--url=https://example.com/b",
+      "--capture-mode=deep",
+      "--include-prototype-guidance",
+      "--mode=md"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", {
+      brief: "Build a docs landing page contract",
+      urls: ["https://example.com/a", "https://example.com/b"],
+      captureMode: "deep",
+      includePrototypeGuidance: true,
+      mode: "md",
+      timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
+      outputDir: undefined,
+      ttlHours: undefined,
+      useCookies: undefined,
+      challengeAutomationMode: undefined,
+      cookiePolicyOverride: undefined
+    });
+  });
+
+  it("defaults inspiredesign capture mode to off", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Design system baseline"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      brief: "Design system baseline",
+      captureMode: "off",
+      mode: "compact"
+    }));
+  });
+
   it("parses and dispatches product-video run payload", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 
@@ -465,5 +509,7 @@ describe("workflow CLI commands", () => {
     await expect(runShoppingCommand(makeArgs("shopping", ["run"]))).rejects.toThrow("Missing --query");
     await expect(runShoppingCommand(makeArgs("shopping", ["run", "--query=macbook", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
     await expect(runProductVideoCommand(makeArgs("product-video", ["run"]))).rejects.toThrow("Missing --product-url or --product-name");
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run"]))).rejects.toThrow("Missing --brief");
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", "--capture-mode=wrong"]))).rejects.toThrow("Invalid --capture-mode: wrong");
   });
 });

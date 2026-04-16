@@ -19,9 +19,9 @@ describe("workflow inventory", () => {
   it("builds a code-derived workflow inventory with the expected current splits", () => {
     const inventory = buildWorkflowInventory();
 
-    expect(inventory.coverage.commandCount).toBe(76);
-    expect(inventory.coverage.toolCount).toBe(69);
-    expect(inventory.coverage.cliToolPairCount).toBe(66);
+    expect(inventory.coverage.commandCount).toBe(77);
+    expect(inventory.coverage.toolCount).toBe(70);
+    expect(inventory.coverage.cliToolPairCount).toBe(67);
     expect(inventory.coverage.cliOnlyCommandCount).toBe(10);
     expect(inventory.coverage.toolOnlySurfaceCount).toBe(3);
   });
@@ -35,6 +35,7 @@ describe("workflow inventory", () => {
     expect(byCli.get("research")).toBe("opendevbrowser_research_run");
     expect(byCli.get("shopping")).toBe("opendevbrowser_shopping_run");
     expect(byCli.get("product-video")).toBe("opendevbrowser_product_video_run");
+    expect(byCli.get("inspiredesign")).toBe("opendevbrowser_inspiredesign_run");
     expect(byCli.get("status-capabilities")).toBe("opendevbrowser_status_capabilities");
     expect(byCli.get("review-desktop")).toBe("opendevbrowser_review_desktop");
     expect(byCli.get("canvas")).toBe("opendevbrowser_canvas");
@@ -68,6 +69,7 @@ describe("workflow inventory", () => {
       "workflow.shopping.run",
       "workflow.product_video.url",
       "workflow.product_video.name",
+      "workflow.inspiredesign.run",
       "workflow.macro.web_search",
       "workflow.macro.web_fetch",
       "workflow.macro.community_search",
@@ -124,11 +126,18 @@ describe("workflow inventory", () => {
     const media = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.macro.media_search");
     const productVideoUrl = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.product_video.url");
     const productVideoName = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.product_video.name");
+    const inspiredesign = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.inspiredesign.run");
 
     expect(community?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(media?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoUrl?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoName?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(inspiredesign?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(inspiredesign?.entryPath).toBe("opendevbrowser inspiredesign run");
+    expect(inspiredesign?.primaryArgs).toEqual(expect.arrayContaining(["--url", "https://example.com/"]));
+    expect(inspiredesign?.secondaryArgs).toEqual(expect.arrayContaining(["--include-prototype-guidance"]));
+    expect(inspiredesign?.secondaryArgs).not.toContain("--urls");
+    expect(inspiredesign?.ownerFiles).toContain("src/cli/commands/inspiredesign.ts");
   });
 });
 

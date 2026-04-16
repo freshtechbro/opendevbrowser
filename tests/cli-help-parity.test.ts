@@ -91,6 +91,20 @@ describe("cli help parity", () => {
     ]));
   });
 
+  it("includes inspiredesign command, tool, and required workflow flags", () => {
+    const commandNames = HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands]);
+    const toolNames = HELP_TOOL_ENTRIES.map((entry) => entry.name);
+
+    expect(commandNames).toContain("inspiredesign");
+    expect(toolNames).toContain("opendevbrowser_inspiredesign_run");
+    expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
+      "--brief",
+      "--url",
+      "--capture-mode",
+      "--include-prototype-guidance"
+    ]));
+  });
+
   it("keeps runtime command registration aligned with the declared CLI inventory", () => {
     const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
     const registeredNames = [...source.matchAll(/registerCommand\(\{\s*name:\s*"([^"]+)"/gs)].map((match) => match[1]);
@@ -111,6 +125,14 @@ describe("cli help parity", () => {
     expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
     expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
     expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
+      "--brief",
+      "--url",
+      "--capture-mode",
+      "--include-prototype-guidance"
+    ]));
+    expect(HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands])).toContain("inspiredesign");
+    expect(HELP_TOOL_ENTRIES.map((entry) => entry.name)).toContain("opendevbrowser_inspiredesign_run");
   });
 
   it("mentions both help invocations in the generated help text", () => {

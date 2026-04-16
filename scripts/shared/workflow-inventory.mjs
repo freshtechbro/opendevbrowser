@@ -108,13 +108,23 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "providers",
     label: "First-class provider workflows",
-    commands: ["research", "shopping", "product-video"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/research.ts", "src/cli/commands/shopping.ts", "src/cli/commands/product-video.ts", "src/providers/workflows.ts"],
+    commands: ["research", "shopping", "product-video", "inspiredesign"],
+    ownerFiles: [
+      "src/cli/args.ts",
+      "src/cli/index.ts",
+      "src/cli/commands/research.ts",
+      "src/cli/commands/shopping.ts",
+      "src/cli/commands/product-video.ts",
+      "src/cli/commands/inspiredesign.ts",
+      "src/providers/inspiredesign-contract.ts",
+      "src/providers/workflows.ts"
+    ],
     scenarioIds: [
       "workflow.research.run",
       "workflow.shopping.run",
       "workflow.product_video.url",
-      "workflow.product_video.name"
+      "workflow.product_video.name",
+      "workflow.inspiredesign.run"
     ]
   },
   {
@@ -209,8 +219,19 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "workflow",
     label: "First-class workflows",
-    members: ["opendevbrowser_research_run", "opendevbrowser_shopping_run", "opendevbrowser_product_video_run"],
-    scenarioIds: ["workflow.research.run", "workflow.shopping.run", "workflow.product_video.url", "workflow.product_video.name"]
+    members: [
+      "opendevbrowser_research_run",
+      "opendevbrowser_shopping_run",
+      "opendevbrowser_product_video_run",
+      "opendevbrowser_inspiredesign_run"
+    ],
+    scenarioIds: [
+      "workflow.research.run",
+      "workflow.shopping.run",
+      "workflow.product_video.url",
+      "workflow.product_video.name",
+      "workflow.inspiredesign.run"
+    ]
   },
   {
     id: "annotation",
@@ -326,6 +347,50 @@ export const VALIDATION_SCENARIOS = [
     primaryTask: "Resolve a product by name and prepare an asset pack for a motion designer without supplying a URL manually.",
     secondaryTask: "Resolve a second named product with the same provider hint to check search-driven asset-pack stability.",
     ownerFiles: ["src/cli/commands/product-video.ts", "src/providers/workflows.ts", "src/providers/shopping-postprocess.ts"]
+  },
+  {
+    id: "workflow.inspiredesign.run",
+    label: "Inspiredesign workflow",
+    runner: "cli",
+    primaryArgs: [
+      "inspiredesign",
+      "run",
+      "--brief",
+      "Synthesize an editorial product landing page direction from public references.",
+      "--url",
+      "https://example.com/",
+      "--url",
+      "https://www.iana.org/domains/example",
+      "--timeout-ms",
+      "120000"
+    ],
+    secondaryArgs: [
+      "inspiredesign",
+      "run",
+      "--brief",
+      "Produce a reusable docs-marketing design contract with prototype guidance from public references.",
+      "--url",
+      "https://developer.mozilla.org/en-US/",
+      "--url",
+      "https://playwright.dev/",
+      "--include-prototype-guidance",
+      "--mode",
+      "compact",
+      "--timeout-ms",
+      "120000"
+    ],
+    timeoutMs: 120_000,
+    allowedStatuses: ["pass", "env_limited"],
+    executionPolicy: "automated",
+    entryPath: "opendevbrowser inspiredesign run",
+    primaryTask: "Study multiple public references and return a reusable design contract without relying on deep browser capture.",
+    secondaryTask: "Return the same inspiredesign contract plus prototype guidance while proving repeated --url inputs stay canonical.",
+    ownerFiles: [
+      "src/cli/commands/inspiredesign.ts",
+      "src/tools/inspiredesign_run.ts",
+      "src/providers/inspiredesign-contract.ts",
+      "src/providers/workflows.ts"
+    ]
   },
   {
     id: "workflow.macro.web_search",

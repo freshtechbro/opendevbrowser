@@ -1817,6 +1817,40 @@ describe("daemon-commands integration", () => {
     );
   });
 
+  it("forwards inspiredesign timeout and capture mode through the daemon router", async () => {
+    const core = makeCore();
+    const workflowSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
+      mode: "json",
+      designContract: {},
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Generate a dashboard design contract",
+        urls: ["https://example.com/a", "https://example.com/b"],
+        captureMode: "deep",
+        includePrototypeGuidance: true,
+        timeoutMs: 45000
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        brief: "Generate a dashboard design contract",
+        urls: ["https://example.com/a", "https://example.com/b"],
+        captureMode: "deep",
+        includePrototypeGuidance: true,
+        timeoutMs: 45000
+      }),
+      expect.objectContaining({
+        captureReference: expect.any(Function)
+      })
+    );
+  });
+
   it("threads browserFallbackPort into daemon shopping workflows", async () => {
     const core = makeCore();
     const browserFallbackPort = { resolve: vi.fn() };

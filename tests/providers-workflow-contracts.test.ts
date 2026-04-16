@@ -3,7 +3,7 @@ import { buildWorkflowResumeEnvelope, isWorkflowResumePayload } from "../src/pro
 import type { JsonValue, SuspendedIntentSummary, WorkflowResumePayload } from "../src/providers/types";
 
 const workflowResumeInput = (
-  kind: "research" | "shopping" | "product_video",
+  kind: "research" | "shopping" | "product_video" | "inspiredesign",
   input: Record<string, JsonValue>
 ): WorkflowResumePayload => ({
   workflow: {
@@ -24,6 +24,16 @@ describe("workflow suspended intent contracts", () => {
         mode: "json"
       }
     });
+  });
+
+  it("accepts inspiredesign workflow envelopes in the canonical resume payload shape", () => {
+    const payload = workflowResumeInput("inspiredesign", {
+      brief: "Synthesize a landing page direction",
+      urls: ["https://example.com"]
+    });
+
+    expect(payload.workflow.kind).toBe("inspiredesign");
+    expect(isWorkflowResumePayload(payload)).toBe(true);
   });
 
   it("embeds workflow resume envelopes through the runtime-owned suspended intent payload shape", () => {

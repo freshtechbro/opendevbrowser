@@ -3,7 +3,7 @@ import { ProviderRuntime } from "../src/providers";
 import { normalizeRecord } from "../src/providers/normalize";
 import type { ProviderAdapter, ProviderContext, ProviderSource, SessionChallengeSummary } from "../src/providers/types";
 
-type WorkflowKind = "research" | "shopping" | "product_video";
+type WorkflowKind = "research" | "shopping" | "product_video" | "inspiredesign";
 
 const makeProvider = (
   id: string,
@@ -691,6 +691,52 @@ describe("provider runtime resume", () => {
       expect.objectContaining({ event: "compile_completed" }),
       expect.objectContaining({ event: "pre_suspend_checkpoint" })
     ]));
+  });
+
+  it("replays workflow inspiredesign intents through the shared runtime", async () => {
+    let inspiredesignContext: ProviderContext | undefined;
+    const runtime = new ProviderRuntime({
+      providers: [
+        makeProvider("web/inspiredesign", "web", {
+          fetch: async (input, context) => {
+            inspiredesignContext = context;
+            return [normalizeRecord("web/inspiredesign", "web", {
+              url: input.url,
+              title: "Inspiredesign reference",
+              content: "Design reference content"
+            })];
+          }
+        })
+      ]
+    });
+
+    const output = await runtime.resumeChallengeIntent(makeChallenge({
+      suspendedIntent: {
+        kind: "workflow.inspiredesign",
+        input: workflowResumeInput("inspiredesign", {
+          brief: "Create a reusable design contract",
+          urls: ["https://example.com/inspiration"],
+          captureMode: "off",
+          mode: "json"
+        })
+      }
+    }));
+
+    expect(output).toMatchObject({
+      designContract: expect.objectContaining({
+        intent: expect.objectContaining({
+          task: "Create a reusable design contract"
+        })
+      })
+    });
+    expect(inspiredesignContext?.suspendedIntent).toMatchObject({
+      kind: "workflow.inspiredesign",
+      input: {
+        workflow: {
+          kind: "inspiredesign"
+        }
+      }
+    });
   });
 
   it("resumes workflow shopping from checkpoint state without replaying completed provider searches", async () => {

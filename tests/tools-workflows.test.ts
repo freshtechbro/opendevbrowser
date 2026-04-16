@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -13,6 +13,19 @@ const parse = (value: string): Record<string, unknown> => JSON.parse(value) as R
 const makeDeps = () => {
   const manager = {
     launch: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
+    goto: vi.fn().mockResolvedValue({ ok: true }),
+    waitForLoad: vi.fn().mockResolvedValue(undefined),
+    snapshot: vi.fn().mockResolvedValue({
+      content: "snapshot content",
+      refCount: 1,
+      warnings: []
+    }),
+    clonePage: vi.fn().mockResolvedValue({
+      component: "<section>clone</section>",
+      css: ".hero{display:block;}",
+      warnings: []
+    }),
+    clonePageHtmlWithOptions: vi.fn().mockResolvedValue({ html: "<html><body>clone</body></html>" }),
     screenshot: vi.fn().mockResolvedValue({ base64: Buffer.from([1, 2, 3]).toString("base64") }),
     disconnect: vi.fn().mockResolvedValue(undefined)
   };
@@ -105,6 +118,10 @@ const makeDeps = () => {
 };
 
 describe("workflow tools", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("executes research and shopping workflow tools", async () => {
     const deps = makeDeps();
     const { createResearchRunTool } = await import("../src/tools/research_run");
@@ -160,6 +177,62 @@ describe("workflow tools", () => {
       { url: "https://example.com/product" },
       expect.objectContaining({ timeoutMs: 9876 })
     );
+  });
+
+  it("executes inspiredesign tool with default capture-mode off", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      mode: "json"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.manager.launch).not.toHaveBeenCalled();
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/reference" },
+      expect.any(Object)
+    );
+  });
+
+  it("executes inspiredesign deep capture through browser manager helpers", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      mode: "compact",
+      timeoutMs: 45000
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.manager.launch).toHaveBeenCalledTimes(1);
+    expect(deps.manager.goto).toHaveBeenCalledWith("session-1", "https://example.com/reference", "load", 30000);
+    expect(deps.manager.waitForLoad).toHaveBeenCalledTimes(1);
+    expect(deps.manager.snapshot).toHaveBeenCalledTimes(1);
+    expect(deps.manager.clonePage).toHaveBeenCalledTimes(1);
+    expect(deps.manager.clonePageHtmlWithOptions).toHaveBeenCalledTimes(1);
+    expect(deps.manager.disconnect).toHaveBeenCalledWith("session-1", true);
+  });
+
+  it("defaults inspiredesign tool mode to compact when omitted", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"]
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(response.mode).toBe("compact");
   });
 
   it("forwards challengeAutomationMode through workflow tools", async () => {
