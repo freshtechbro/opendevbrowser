@@ -130,6 +130,7 @@ describe("daemon e2e", () => {
     expect(status).toEqual(expect.objectContaining({
       ok: true,
       pid: expect.any(Number),
+      fingerprint: expect.any(String),
       hub: { instanceId: expect.any(String) },
       relay: expect.any(Object)
     }));
@@ -218,6 +219,7 @@ describe("daemon e2e", () => {
         .mockResolvedValueOnce(new Response(JSON.stringify({
           ok: true,
           pid: 1234,
+          fingerprint: "test-fingerprint",
           hub: { instanceId: "hub-1" },
           relay: {
             running: true,

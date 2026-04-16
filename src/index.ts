@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { createOpenDevBrowserCore } from "./core";
 import { ScriptRunner } from "./browser/script-runner";
-import { startDaemon } from "./cli/daemon";
+import { getCurrentDaemonFingerprint, readDaemonMetadata, startDaemon } from "./cli/daemon";
 import { DaemonClient } from "./cli/daemon-client";
 import { RemoteManager } from "./cli/remote-manager";
 import { RemoteCanvasManager } from "./cli/remote-canvas-manager";
@@ -134,14 +134,30 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     const deadline = Date.now() + 2000;
     let attempt = 0;
     let lastError: Error | null = null;
+    const currentFingerprint = getCurrentDaemonFingerprint();
 
     while (attempt < 2 && Date.now() < deadline) {
       attempt += 1;
       const status = await fetchDaemonStatusFromMetadata(currentConfig);
-      if (status?.ok) {
+      if (status?.ok && status.fingerprint === currentFingerprint) {
         bindRemote();
         await relay?.refresh?.();
         return;
+      }
+      if (status?.ok) {
+        const metadata = readDaemonMetadata();
+        const daemonPort = metadata?.port ?? currentConfig.daemonPort;
+        const daemonToken = metadata?.token ?? currentConfig.daemonToken;
+        if (daemonPort > 0 && daemonToken) {
+          try {
+            await fetch(`http://127.0.0.1:${daemonPort}/stop`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${daemonToken}` }
+            });
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+          }
+        }
       }
       try {
         const { stop } = await startDaemon({ config: currentConfig, directory, worktree });

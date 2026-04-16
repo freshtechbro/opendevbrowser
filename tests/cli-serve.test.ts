@@ -5,6 +5,7 @@ import type { OpenDevBrowserConfig } from "../src/config";
 const mocks = vi.hoisted(() => ({
   startDaemon: vi.fn(),
   readDaemonMetadata: vi.fn(),
+  getCurrentDaemonFingerprint: vi.fn(),
   fetchDaemonStatus: vi.fn(),
   loadGlobalConfig: vi.fn(),
   fetchWithTimeout: vi.fn(),
@@ -16,7 +17,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/cli/daemon", () => ({
   startDaemon: mocks.startDaemon,
-  readDaemonMetadata: mocks.readDaemonMetadata
+  readDaemonMetadata: mocks.readDaemonMetadata,
+  getCurrentDaemonFingerprint: mocks.getCurrentDaemonFingerprint
 }));
 
 vi.mock("../src/config", () => ({
@@ -94,6 +96,7 @@ describe("serve command", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.readDaemonMetadata.mockReturnValue(null);
+    mocks.getCurrentDaemonFingerprint.mockReturnValue("current-fingerprint");
     mocks.fetchDaemonStatus.mockResolvedValue(null);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true });
     mocks.getNativeStatusSnapshot.mockReturnValue({
@@ -147,6 +150,7 @@ describe("serve command", () => {
     mocks.fetchDaemonStatus.mockResolvedValue({
       ok: true,
       pid: 8080,
+      fingerprint: "current-fingerprint",
       hub: { instanceId: "hub-1" },
       relay: {
         extensionConnected: false,
@@ -373,6 +377,7 @@ describe("serve command", () => {
       .mockResolvedValueOnce({
         ok: true,
         pid: 9999,
+        fingerprint: "current-fingerprint",
         hub: { instanceId: "hub-1" },
         relay: {
           extensionConnected: false,
@@ -426,6 +431,7 @@ describe("serve command", () => {
     mocks.fetchDaemonStatus.mockResolvedValue({
       ok: true,
       pid: 8080,
+      fingerprint: "current-fingerprint",
       hub: { instanceId: "hub-1" },
       relay: {
         extensionConnected: false,
@@ -598,6 +604,55 @@ describe("serve command", () => {
     expect(mocks.startDaemon).toHaveBeenCalledTimes(2);
     expect(killSpy).toHaveBeenCalledWith(7777, "SIGTERM");
     expect(killSpy).toHaveBeenCalledWith(7777, "SIGKILL");
+    killSpy.mockRestore();
+  });
+
+  it("replaces a healthy daemon when fingerprint does not match", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "stale-fingerprint"
+    });
+    mocks.fetchDaemonStatus.mockResolvedValue({
+      ok: true,
+      pid: 8080,
+      fingerprint: "stale-fingerprint",
+      hub: { instanceId: "hub-1" },
+      relay: {
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false,
+        port: 8787,
+        tokenConfigured: true,
+        health: { status: "ok", reason: "ready" }
+      },
+      binding: null
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Daemon running on 127.0.0.1:8788 (relay 8787)");
+    expect(result.message).toContain("Replaced stale daemon fingerprint.");
+    expect(result.message).toContain("Cleared 1 stale daemon process.");
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/stop",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer daemon-token" })
+      })
+    );
+    expect(mocks.startDaemon).toHaveBeenCalledTimes(1);
+    expect(killSpy).not.toHaveBeenCalledWith(8080, "SIGTERM");
     killSpy.mockRestore();
   });
 
