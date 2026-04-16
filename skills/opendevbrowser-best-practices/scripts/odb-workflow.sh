@@ -28,6 +28,7 @@ Usage:
 Workflows:
   provider-search
   provider-crawl
+  inspiredesign
   parallel-multipage-safe
   qa-debug
   social-readonly-check
@@ -69,6 +70,12 @@ opendevbrowser_wait sessionId="<session-id>" until="networkidle"
 opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
 opendevbrowser_scroll sessionId="<session-id>" dy=1000
 opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+EOF
+    ;;
+  inspiredesign)
+    cat <<EOF
+# Pair with opendevbrowser-design-agent when the contract will flow into implementation or /canvas work.
+$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
 EOF
     ;;
   parallel-multipage-safe)
@@ -187,6 +194,9 @@ $CLI_PREFIX research run --topic "Chrome extension debugging workflows" --days 3
 # Deterministic shopping reruns with explicit providers
 $CLI_PREFIX shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
 $CLI_PREFIX shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+
+# Public-reference inspiredesign contract synthesis
+$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
 
 # Region note: advisory unless output reports meta.selection.region_authoritative=true
 $CLI_PREFIX shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json

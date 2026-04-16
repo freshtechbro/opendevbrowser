@@ -12,7 +12,9 @@
     "docs/ARCHITECTURE.md",
     "docs/SURFACE_REFERENCE.md",
     "AGENTS.md",
-    "skills/opendevbrowser-best-practices/SKILL.md"
+    "skills/opendevbrowser-best-practices/SKILL.md",
+    "docs/README.md",
+    "docs/FIRST_RUN_ONBOARDING.md"
   ],
   "checks": [
     "CLI command names documented by category",
@@ -29,6 +31,17 @@
     "Annotation send/copy semantics documented",
     "CDP envelope contract documented",
     "Global and command-specific flags documented",
-    "Mode semantics documented"
+    "Mode semantics documented",
+    "Generated help first-contact owners documented",
+    "Onboarding metadata owner documented",
+    "First-run onboarding proof owner documented"
+  ],
+  "firstContactOwners": [
+    "src/cli/help.ts",
+    "src/cli/onboarding-metadata.json",
+    "README.md",
+    "docs/README.md",
+    "docs/FIRST_RUN_ONBOARDING.md",
+    "skills/opendevbrowser-best-practices/SKILL.md"
   ]
 }

@@ -100,7 +100,7 @@ Load this section directly with:
 opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"
 ```
 
-Current reliable lanes from the April 6 validation pass:
+Current reliable lanes:
 
 1. Public-first YouTube transcript retrieval.
 
@@ -138,6 +138,17 @@ Rules:
 - inspect `meta.primaryConstraintSummary` first on no-offer runs
 - if `meta.primaryConstraint.guidance` is present, follow `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]`
 - if guidance is absent, inspect `meta.offerFilterDiagnostics` before calling a no-offer run a provider outage
+
+4. Design-contract synthesis with repeated public references.
+
+```bash
+npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
+```
+
+Rules:
+- keep inspiredesign references public-first unless the task explicitly requires deeper browser capture
+- use repeated `--url` flags instead of packed URL strings
+- pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 
 ## Agent Sync Targets
 
@@ -248,6 +259,7 @@ Use the router script to avoid retyping flows:
 ```bash
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh provider-search
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh provider-crawl
+./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh inspiredesign
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh qa-debug
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh social-readonly-check
 ./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh parity-check

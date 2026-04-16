@@ -661,6 +661,12 @@ export function runDocsDriftChecks() {
     ok: bestPracticesSkill.includes(`${commandCount} CLI commands, ${toolCount} tools, ${opsCommandCount} \`/ops\` commands, ${canvasCommandCount} \`/canvas\` commands`),
     detail: `skills/opendevbrowser-best-practices/SKILL.md must mirror source counts ${commandCount}/${toolCount}/${opsCommandCount}/${canvasCommandCount}.`
   });
+  checks.push({
+    id: "skill.best_practices.inspiredesign_lane_documented",
+    ok: bestPracticesSkill.includes("npx opendevbrowser inspiredesign run")
+      && bestPracticesSkill.includes("./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh inspiredesign"),
+    detail: "skills/opendevbrowser-best-practices/SKILL.md must expose the inspiredesign lane in both validated capability guidance and router usage."
+  });
 
   checks.push({
     id: "skill.command_channel_reference.canvas_and_annotation_markers_documented",
@@ -701,6 +707,32 @@ export function runDocsDriftChecks() {
       && surfaceAuditChecklist.checks.includes("Browser replay and screencast commands documented")
       && surfaceAuditChecklist.checks.includes("Desktop observation commands documented"),
     detail: "surface-audit-checklist must explicitly include browser replay and desktop observation checks."
+  });
+  checks.push({
+    id: "skill.surface_audit_checklist.first_contact_docs_documented",
+    ok: Array.isArray(surfaceAuditChecklist?.docsMustCover)
+      && surfaceAuditChecklist.docsMustCover.includes("docs/README.md")
+      && surfaceAuditChecklist.docsMustCover.includes("docs/FIRST_RUN_ONBOARDING.md"),
+    detail: "surface-audit-checklist must cover docs/README.md and docs/FIRST_RUN_ONBOARDING.md as first-contact docs."
+  });
+  checks.push({
+    id: "skill.surface_audit_checklist.first_contact_owners_documented",
+    ok: Array.isArray(surfaceAuditChecklist?.firstContactOwners)
+      && surfaceAuditChecklist.firstContactOwners.includes("src/cli/help.ts")
+      && surfaceAuditChecklist.firstContactOwners.includes("src/cli/onboarding-metadata.json")
+      && surfaceAuditChecklist.firstContactOwners.includes("README.md")
+      && surfaceAuditChecklist.firstContactOwners.includes("docs/README.md")
+      && surfaceAuditChecklist.firstContactOwners.includes("docs/FIRST_RUN_ONBOARDING.md")
+      && surfaceAuditChecklist.firstContactOwners.includes("skills/opendevbrowser-best-practices/SKILL.md"),
+    detail: "surface-audit-checklist must name generated help, onboarding metadata, README paths, and the best-practices runbook as first-contact owners."
+  });
+  checks.push({
+    id: "skill.surface_audit_checklist.first_contact_checks_documented",
+    ok: Array.isArray(surfaceAuditChecklist?.checks)
+      && surfaceAuditChecklist.checks.includes("Generated help first-contact owners documented")
+      && surfaceAuditChecklist.checks.includes("Onboarding metadata owner documented")
+      && surfaceAuditChecklist.checks.includes("First-run onboarding proof owner documented"),
+    detail: "surface-audit-checklist must include the first-contact owner and proof-lane audit checks."
   });
 
   checks.push({
