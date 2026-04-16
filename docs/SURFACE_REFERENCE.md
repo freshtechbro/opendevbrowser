@@ -27,7 +27,7 @@ First-contact note:
 
 ---
 
-## CLI Command Inventory (76)
+## CLI Command Inventory (77)
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
@@ -41,7 +41,7 @@ First-contact note:
 - `run` - Execute a JSON script in a single process.
 - `artifacts` - Manage workflow artifact lifecycle.
 
-### Session, connection, and workflow wrappers (10)
+### Session, connection, and workflow wrappers (11)
 - `launch` - Launch a managed browser session via daemon.
 - `connect` - Connect to an existing browser via daemon.
 - `disconnect` - Disconnect a daemon session.
@@ -52,6 +52,7 @@ First-contact note:
 - `research` - Run research workflows.
 - `shopping` - Run shopping workflows.
 - `product-video` - Run product presentation asset workflows.
+- `inspiredesign` - Run inspiredesign workflows.
 
 ### Navigation (5)
 - `goto` - Navigate the current session to a URL.
@@ -130,7 +131,7 @@ Operational note:
 
 ---
 
-## Tool Inventory (69)
+## Tool Inventory (70)
 
 ### Session and cookies (7)
 - `opendevbrowser_launch` - Launch a managed browser session.
@@ -210,11 +211,12 @@ Operational note:
 ### Design canvas (1)
 - `opendevbrowser_canvas` - Execute a typed design-canvas command surface call.
 
-### Macro, workflow, and skill surfaces (7)
+### Macro, workflow, and skill surfaces (8)
 - `opendevbrowser_macro_resolve` - Resolve or execute provider macro expressions.
 - `opendevbrowser_research_run` - Run the research workflow directly.
 - `opendevbrowser_shopping_run` - Run the shopping workflow directly.
 - `opendevbrowser_product_video_run` - Run the product-video asset workflow directly.
+- `opendevbrowser_inspiredesign_run` - Run the inspiredesign workflow directly.
 - `opendevbrowser_prompting_guide` - Return best-practice prompting guidance and the bundled quick start. Tool-only.
 - `opendevbrowser_skill_list` - List available bundled and discovered skill packs. Tool-only.
 - `opendevbrowser_skill_load` - Load a specific skill pack locally without browser work. Tool-only.
@@ -543,7 +545,7 @@ Auth and policy:
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
-- Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
+- Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
 - Workflow response keys: provider follow-up summaries use `meta.primaryConstraintSummary`.
 - Research and shopping guidance uses `meta.primaryConstraint.guidance.reason` plus `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.
 - Failure tallies use `meta.metrics.reasonCodeDistribution` for research/shopping and `meta.reasonCodeDistribution` for product-video.

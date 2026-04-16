@@ -4,9 +4,9 @@ Command-line interface for installing and managing the OpenDevBrowser plugin, pl
 Status: active  
 Last updated: 2026-04-13
 
-OpenDevBrowser exposes 69 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 70 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
-That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
+That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
 Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts` and `src/public-surface/generated-manifest.json`, which are consumed by `src/cli/help.ts`, `src/cli/args.ts`, inventory scripts, mirrored website inputs, and re-export paths in `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
@@ -145,13 +145,13 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `76`.
+- Total commands: `77`.
 - Categories: install/runtime management, session/connection plus capability discovery, navigation plus desktop-assisted browser review, interaction plus low-level pointer control, targets/pages, DOM inspection, browser capture and replay, desktop observation, design canvas, export plus session-centric diagnostics and browser-scoped inspection, macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `69` (`opendevbrowser_*`).
-- CLI-tool pairs: `66`.
+- Total tools: `70` (`opendevbrowser_*`).
+- CLI-tool pairs: `67`.
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
@@ -262,7 +262,7 @@ npx opendevbrowser -v
 
 `--help` and `help` print the same generated first-contact inventory:
 - A `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
-- That block maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`, with a concrete `research run --topic ... --challenge-automation-mode browser` entry command.
+- That block maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with a concrete `research run --topic ... --challenge-automation-mode browser` entry command.
 - An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
 - A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current reliable transcript, research, and shopping runbook.
 - A direct pointer to `opendevbrowser_skill_list` when an agent needs a different local skill lane.
@@ -273,7 +273,7 @@ npx opendevbrowser -v
 Quick lookup terms from generated help:
 - `screencast / browser replay`: `screencast-start`, `screencast-stop`
 - `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`; entry command `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`; entry command `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
 
 These first-contact assets are also mirrored as release and website inputs through `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, and `src/public-surface/generated-manifest.json`.
 
@@ -409,8 +409,8 @@ Notes:
 
 ### Workflow wrappers
 
-The workflow wrappers expose the finalized research/shopping/product-video surfaces from
-`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md`.
+The workflow wrappers expose the finalized research, shopping, product-video, and inspiredesign surfaces from
+`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md` and `docs/INSPIRE_DESIGN_WORKFLOW_INVESTIGATION_2026-04-15.md`.
 
 #### Research (`research run`)
 
@@ -497,10 +497,37 @@ Flags:
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
+#### Inspiredesign (`inspiredesign run`)
+
+```bash
+npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing page from calm editorial references" --url https://stripe.com --url https://vercel.com
+npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign
+```
+
+Flags:
+- `--brief` (required)
+- `--url` (repeatable inspiration URL input)
+- `--capture-mode` (`off|deep`)
+- `--include-prototype-guidance` (`true|false`; bare flag means `true`)
+- `--mode` (`compact|json|md|context|path`)
+- `--timeout-ms`
+- `--output-dir`
+- `--ttl-hours`
+- `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
+- `--cookie-policy-override` (`off|auto|required`)
+- `--cookie-policy` (alias of `--cookie-policy-override`)
+
+Notes:
+- `--capture-mode` defaults to `off`; opt into `deep` only when live DOM/layout capture is required.
+- Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
+- `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
+
 Wrapper behavior:
 - Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
-- Render modes for `research` and `shopping` are shared: `compact|json|md|context|path`.
+- Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
 - `product-video run` always returns a path-based local asset pack.
+- `inspiredesign run` returns a reusable design contract; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
 - Path-bearing modes persist artifacts under the configured output directory (or default tmp namespace) and include TTL metadata in manifest files.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
@@ -1485,10 +1512,10 @@ Notes:
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
-| `--use-cookies` | `research run`, `shopping run`, `product-video run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
-| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
-| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run` | Per-run provider cookie policy override (`off|auto|required`) |
-| `--cookie-policy` | `research run`, `shopping run`, `product-video run` | Alias of `--cookie-policy-override` |
+| `--use-cookies` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
+| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
+| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Per-run provider cookie policy override (`off|auto|required`) |
+| `--cookie-policy` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Alias of `--cookie-policy-override` |
 
 **Browser launch (launch/run)**
 

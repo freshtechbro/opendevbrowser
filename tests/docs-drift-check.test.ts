@@ -11,8 +11,8 @@ describe("docs-drift-check", () => {
   it("loads source surface counts", async () => {
     const { getSurfaceCounts } = await loadDocsDriftModule();
     const counts = getSurfaceCounts();
-    expect(counts.commandCount).toBe(76);
-    expect(counts.toolCount).toBe(69);
+    expect(counts.commandCount).toBe(77);
+    expect(counts.toolCount).toBe(70);
     expect(counts.opsCommandCount).toBeGreaterThan(0);
     expect(counts.commandNames).toHaveLength(counts.commandCount);
     expect(counts.toolNames).toHaveLength(counts.toolCount);
@@ -25,6 +25,8 @@ describe("docs-drift-check", () => {
     for (const id of [
       "doc.readme.command_count_matches_source",
       "doc.readme.tool_count_matches_source",
+      "doc.cli.inspiredesign_workflow_documented",
+      "doc.workflow_surface_map.inspiredesign_documented",
       "doc.cli.no_stale_help_inventory_counts",
       "doc.cli.onboarding_help_path_documented",
       "doc.release_runbook.registry_consumer_smoke_documented",

@@ -88,6 +88,7 @@ export function runDocsDriftChecks() {
   const releaseRunbook = read("docs/RELEASE_RUNBOOK.md");
   const distributionPlan = read("docs/DISTRIBUTION_PLAN.md");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
+  const workflowSurfaceMapDoc = read("docs/WORKFLOW_SURFACE_MAP.md");
   const architectureDoc = read("docs/ARCHITECTURE.md");
   const designCanvasSpec = read("docs/DESIGN_CANVAS_TECHNICAL_SPEC.md");
   const onboardingMetadata = JSON.parse(read("src/cli/onboarding-metadata.json"));
@@ -221,6 +222,15 @@ export function runDocsDriftChecks() {
     ok: cliToolsCount === toolCount,
     detail: `docs/CLI.md tool count=${cliToolsCount}, source=${toolCount}`
   });
+  checks.push({
+    id: "doc.cli.inspiredesign_workflow_documented",
+    ok: cliDoc.includes("#### Inspiredesign (`inspiredesign run`)")
+      && cliDoc.includes("--brief")
+      && cliDoc.includes("--url")
+      && cliDoc.includes("--capture-mode")
+      && cliDoc.includes("--include-prototype-guidance"),
+    detail: "docs/CLI.md must document inspiredesign run, repeated --url inputs, capture mode, and prototype guidance."
+  });
 
   checks.push({
     id: "doc.cli.no_stale_help_inventory_counts",
@@ -262,6 +272,12 @@ export function runDocsDriftChecks() {
     id: "doc.architecture.ops_command_count_matches_source",
     ok: architectureOpsCount === opsCommandCount,
     detail: `docs/ARCHITECTURE.md /ops count=${architectureOpsCount}, source=${opsCommandCount}`
+  });
+  checks.push({
+    id: "doc.workflow_surface_map.inspiredesign_documented",
+    ok: workflowSurfaceMapDoc.includes("workflow.inspiredesign")
+      && workflowSurfaceMapDoc.includes("inspiredesign run"),
+    detail: "docs/WORKFLOW_SURFACE_MAP.md must include workflow.inspiredesign and the inspiredesign run CLI entry."
   });
 
   checks.push({

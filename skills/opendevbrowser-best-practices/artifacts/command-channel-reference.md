@@ -6,8 +6,8 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 
 ## Current coverage snapshot
 
-- CLI commands: `76`
-- Plugin tools: `69`
+- CLI commands: `77`
+- Plugin tools: `70`
 - `/ops` command names: `59`
 - `/canvas` command names: `35`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level)
@@ -27,7 +27,7 @@ Skill-pack installation and discovery are synchronized for:
 ## CLI surface categories
 
 - Install/runtime: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run`, `artifacts`
-- Session/connection/workflow: `launch`, `connect`, `disconnect`, `status`, `status-capabilities`, `cookie-import`, `cookie-list`, `research`, `shopping`, `product-video`
+- Session/connection/workflow: `launch`, `connect`, `disconnect`, `status`, `status-capabilities`, `cookie-import`, `cookie-list`, `research`, `shopping`, `product-video`, `inspiredesign`
 - Navigation/interaction: `goto`, `wait`, `snapshot`, `review`, `review-desktop`, `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`
 - Pointer controls: `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag`
 - Targets/pages/DOM: `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close`, `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked`

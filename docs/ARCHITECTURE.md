@@ -18,8 +18,8 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `76`
-- Plugin tools: `69`
+- CLI commands: `77`
+- Plugin tools: `70`
 - `/ops` command names: `59`
 - `/canvas` command names: `35`
 
@@ -356,6 +356,7 @@ sequenceDiagram
   - `research.run` / `opendevbrowser_research_run` / `opendevbrowser research run`
   - `shopping.run` / `opendevbrowser_shopping_run` / `opendevbrowser shopping run`
   - `product.video.run` / `opendevbrowser_product_video_run` / `opendevbrowser product-video run`
+  - `inspiredesign.run` / `opendevbrowser_inspiredesign_run` / `opendevbrowser inspiredesign run`
 - Those workflow wrappers also expose `challengeAutomationMode` (`off|browser|browser_with_helper`) as a run-scoped override with `run > session > config` precedence.
 - Workflow runtime primitives are layered as:
   - `timebox` (strict `days|from|to` resolution)

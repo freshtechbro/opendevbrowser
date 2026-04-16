@@ -12,7 +12,7 @@
 
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
-The current public surface includes [76 CLI commands and 69 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+The current public surface includes [77 CLI commands and 70 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 
 <p align="center">
@@ -246,7 +246,7 @@ Start every surface check from generated help when you need the current public l
 
 - `screencast / browser replay`: `screencast-start`, `screencast-stop`
 - `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`; start with `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json` when you need the first entry point, and use `review` plus `session-inspector` as the quickest proof surfaces while the optional helper stays browser-scoped rather than becoming a desktop agent
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`; start with `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json` when you need the first entry point, and use `review` plus `session-inspector` as the quickest proof surfaces while the optional helper stays browser-scoped rather than becoming a desktop agent
 
 ## Challenge Handling Boundary
 
@@ -336,7 +336,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Tool Reference
 
-OpenDevBrowser provides **69 tools** organized by category:
+OpenDevBrowser provides **70 tools** organized by category:
 Most runtime actions also have CLI command equivalents (see [docs/CLI.md](docs/CLI.md)).
 Complete source-accurate inventory (tools + CLI + `/ops` + `/canvas` + `/cdp`): [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md).
 Terminal help now mirrors the generated public-surface manifest rooted at `src/public-surface/source.ts` and refreshed by `scripts/generate-public-surface-manifest.mjs`. `npx opendevbrowser --help` and `npx opendevbrowser help` both show every command with its usage and primary flags, every grouped CLI flag, and every bundled `opendevbrowser_*` tool with its CLI equivalent or tool-only scope.
@@ -702,7 +702,7 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, browser capture and replay, desktop observation, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (76 CLI commands, 69 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (77 CLI commands, 70 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
@@ -759,12 +759,12 @@ Start the daemon with `npx opendevbrowser serve`, then use:
 | `npx opendevbrowser canvas --command canvas.session.open --params '{...}'` | Start or continue a design-canvas workflow through the daemon |
 | `npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000` | Execute macro plans with extended timeout for slow runs |
 
-Workflow cookie controls (`research run`, `shopping run`, `product-video run`):
+Workflow cookie controls (`research run`, `shopping run`, `product-video run`, `inspiredesign run`):
 - Defaults come from `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).
 - Per-run overrides: `--use-cookies`, `--cookie-policy-override` (alias `--cookie-policy`).
 - `auto` is non-blocking when cookies are unavailable; `required` fails fast with `reasonCode=auth_required`.
 
-Workflow challenge controls (`research run`, `shopping run`, `product-video run`):
+Workflow challenge controls (`research run`, `shopping run`, `product-video run`, `inspiredesign run`):
 - Per-run override: `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode`.
 - Effective precedence is `run > session > config`.
 - `off` keeps detection and reporting active but stands down challenge actions.
@@ -886,7 +886,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 69 opendevbrowser_* tool definitions
+│   ├── tools/        # 70 opendevbrowser_* tool definitions
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
