@@ -64,6 +64,9 @@ const executableScripts = [
 ];
 
 const workflowMarkers = [
+  "inspiredesign)",
+  "inspiredesign run",
+  "--include-prototype-guidance",
   "canvas-preflight",
   "canvas-feedback-eval",
   "release-direct-gates",
@@ -142,11 +145,14 @@ const readUtf8 = (relPath) => fs.readFileSync(path.join(skillRoot, relPath), "ut
 const hasMarker = (content, marker) => content.includes(marker);
 (async () => {
   const { getSurfaceCounts } = await import(pathToFileURL(path.join(repoRoot, "scripts", "docs-drift-check.mjs")).href);
+  const { getBundledSkillDirectoryPackIds } = await import(pathToFileURL(path.join(repoRoot, "scripts", "skill-runtime-scenarios.mjs")).href);
   const { commandCount, toolCount, opsCommandCount, canvasCommandCount } = getSurfaceCounts();
 
   const skillDocMarkers = [
     "npx opendevbrowser --help",
     "npx opendevbrowser help",
+    "npx opendevbrowser inspiredesign run",
+    "./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh inspiredesign",
     `${commandCount} CLI commands, ${toolCount} tools, ${opsCommandCount} \`/ops\` commands, ${canvasCommandCount} \`/canvas\` commands`,
     "Treat `tests/parity-matrix.test.ts` as contract coverage only.",
     "canonical owner of direct-run release evidence policy",
@@ -214,11 +220,17 @@ const hasMarker = (content, marker) => content.includes(marker);
     `"tools": ${toolCount}`,
     `"opsCommands": ${opsCommandCount}`,
     `"canvasCommands": ${canvasCommandCount}`,
+    "\"docs/README.md\"",
+    "\"docs/FIRST_RUN_ONBOARDING.md\"",
+    "\"firstContactOwners\"",
     "Pointer controls documented",
     "Ops pointer and preview namespaces documented",
     "Canvas command names documented",
     "Canvas code-sync surface documented",
-    "Annotation send/copy semantics documented"
+    "Annotation send/copy semantics documented",
+    "Generated help first-contact owners documented",
+    "Onboarding metadata owner documented",
+    "First-run onboarding proof owner documented"
   ];
 
   for (const relPath of requiredPaths) {
@@ -259,15 +271,23 @@ const hasMarker = (content, marker) => content.includes(marker);
       ? packMatrix.canonicalPacks.map((entry) => entry?.packId).filter((value) => typeof value === "string")
       : [];
     const uniquePackIds = new Set(packIds);
+    const bundledSkillNames = getBundledSkillDirectoryPackIds();
+    const bundledSkillNameSet = new Set(bundledSkillNames);
     const auditDomainIds = Array.isArray(packMatrix.auditDomains)
       ? packMatrix.auditDomains.map((entry) => entry?.id).filter((value) => typeof value === "string")
       : [];
     const uniqueAuditDomainIds = new Set(auditDomainIds);
-    if (packIds.length !== 9 || uniquePackIds.size !== 9) {
-      failures.push(`Skill runtime pack matrix must contain 9 unique canonical packs; found ${uniquePackIds.size}.`);
+    if (packIds.length === 0 || uniquePackIds.size !== packIds.length) {
+      failures.push(`Skill runtime pack matrix must contain non-empty unique canonical packs; found ${uniquePackIds.size}/${packIds.length}.`);
     }
-    if (auditDomainIds.length !== 9 || uniqueAuditDomainIds.size !== 9) {
-      failures.push(`Skill runtime pack matrix must contain 9 unique audit domains; found ${uniqueAuditDomainIds.size}.`);
+    if (bundledSkillNames.length === 0) {
+      failures.push("Bundled skill registry did not expose any canonical pack names.");
+    }
+    if (packIds.some((packId) => !bundledSkillNameSet.has(packId)) || bundledSkillNames.some((packId) => !uniquePackIds.has(packId))) {
+      failures.push("Skill runtime pack matrix canonical packs must match src/skills/bundled-skill-directories.ts.");
+    }
+    if (auditDomainIds.length === 0 || uniqueAuditDomainIds.size !== auditDomainIds.length) {
+      failures.push(`Skill runtime pack matrix must contain non-empty unique audit domains; found ${uniqueAuditDomainIds.size}/${auditDomainIds.length}.`);
     }
     if (!Array.isArray(packMatrix.runtimeFamilies) || packMatrix.runtimeFamilies.length === 0) {
       failures.push("Skill runtime pack matrix missing runtimeFamilies.");
@@ -289,28 +309,15 @@ const hasMarker = (content, marker) => content.includes(marker);
   const runtimeMatrixPath = "artifacts/skill-runtime-surface-matrix.md";
   if (fs.existsSync(path.join(skillRoot, runtimeMatrixPath))) {
     const runtimeMatrix = readUtf8(runtimeMatrixPath);
-    for (const marker of [
-      "opendevbrowser-best-practices",
-      "opendevbrowser-continuity-ledger",
-      "opendevbrowser-data-extraction",
-      "opendevbrowser-design-agent",
-      "opendevbrowser-form-testing",
-      "opendevbrowser-login-automation",
-      "opendevbrowser-product-presentation-asset",
-      "opendevbrowser-research",
-      "opendevbrowser-shopping",
+    const packMatrix = JSON.parse(fs.readFileSync(path.join(skillRoot, "assets/templates/skill-runtime-pack-matrix.json"), "utf8"));
+    const runtimeMatrixMarkers = [
+      ...packMatrix.canonicalPacks.map((entry) => entry.packId),
       "Shared runtime families",
+      ...packMatrix.runtimeFamilies.map((entry) => entry.label),
       "Audit domains",
-      "skills-assets-discovery",
-      "cli-tools-surface",
-      "scripts-and-governance",
-      "browser-snapshot-interaction",
-      "canvas-annotate-design",
-      "extension-relay-cdp",
-      "providers-macros-workflows",
-      "challenges-and-guardrails",
-      "runtime-infrastructure"
-    ]) {
+      ...packMatrix.auditDomains.map((entry) => entry.id)
+    ];
+    for (const marker of runtimeMatrixMarkers) {
       if (!hasMarker(runtimeMatrix, marker)) {
         failures.push(`Skill runtime surface matrix missing marker: ${marker}`);
       }

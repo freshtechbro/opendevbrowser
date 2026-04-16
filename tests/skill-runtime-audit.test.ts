@@ -9,6 +9,10 @@ import {
   shouldUseConfiguredAuditEnv,
   summarizeJsonLane
 } from "../scripts/skill-runtime-audit.mjs";
+import {
+  getBundledSkillDirectoryPackIds,
+  loadSkillRuntimeMatrix
+} from "../scripts/skill-runtime-scenarios.mjs";
 
 describe("skill runtime audit status modeling", () => {
   it("keeps mixed pass plus external counts as a passing lane", () => {
@@ -303,5 +307,46 @@ describe("skill runtime audit status modeling", () => {
         artifactPath: "artifacts/live-regression-rerun.json"
       }
     });
+  });
+
+  it("keeps the runtime matrix aligned with inspiredesign and first-contact governance", () => {
+    const matrix = loadSkillRuntimeMatrix();
+    const bestPractices = matrix.canonicalPacks.find((entry) => entry.packId === "opendevbrowser-best-practices");
+    const cliToolsSurface = matrix.auditDomains.find((entry) => entry.id === "cli-tools-surface");
+    const providersWorkflows = matrix.auditDomains.find((entry) => entry.id === "providers-macros-workflows");
+    const replayDesktopFamily = matrix.runtimeFamilies.find((entry) => entry.id === "browser-replay-desktop-observation");
+
+    expect(bestPractices?.runtimeSurfaces.cliCommands).toEqual(expect.arrayContaining([
+      "inspiredesign",
+      "screencast-start",
+      "desktop-status"
+    ]));
+    expect(bestPractices?.runtimeSurfaces.tools).toEqual(expect.arrayContaining([
+      "opendevbrowser_inspiredesign_run",
+      "opendevbrowser_screencast_start",
+      "opendevbrowser_desktop_status"
+    ]));
+    expect(cliToolsSurface?.sourceSeams).toEqual(expect.arrayContaining([
+      "src/cli/onboarding-metadata.json",
+      "docs/FIRST_RUN_ONBOARDING.md",
+      "docs/README.md"
+    ]));
+    expect(providersWorkflows?.contractTests).toContain("tests/providers-inspiredesign-workflow.test.ts");
+    expect(providersWorkflows?.sourceSeams).toEqual(expect.arrayContaining([
+      "src/cli/commands/inspiredesign.ts",
+      "src/tools/inspiredesign_run.ts",
+      "src/providers/inspiredesign-contract.ts"
+    ]));
+    expect(replayDesktopFamily).toEqual({
+      id: "browser-replay-desktop-observation",
+      label: "Browser replay and desktop observation",
+      proofLanes: ["docs-drift", "live-regression"]
+    });
+  });
+
+  it("keeps bundled skill registry ordering aligned with the runtime matrix", () => {
+    const matrixPackIds = loadSkillRuntimeMatrix().canonicalPacks.map((entry) => entry.packId);
+
+    expect(getBundledSkillDirectoryPackIds()).toEqual(matrixPackIds);
   });
 });

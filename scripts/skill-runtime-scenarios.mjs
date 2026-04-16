@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MATRIX_PATH = path.join(
@@ -11,6 +12,7 @@ const MATRIX_PATH = path.join(
   "templates",
   "skill-runtime-pack-matrix.json"
 );
+const BUNDLED_SKILL_DIRECTORIES_PATH = path.join(ROOT, "src", "skills", "bundled-skill-directories.ts");
 
 function readMatrix() {
   return JSON.parse(fs.readFileSync(MATRIX_PATH, "utf8"));
@@ -32,6 +34,47 @@ function assertRelativePathsExist(paths, label) {
       throw new Error(`${label} missing path: ${relativePath}`);
     }
   }
+}
+
+function readBundledSkillEntryName(entry) {
+  if (!ts.isObjectLiteralExpression(entry)) {
+    throw new Error("bundledSkillDirectories entries must be object literals.");
+  }
+  const property = entry.properties.find((candidate) =>
+    ts.isPropertyAssignment(candidate)
+    && ts.isIdentifier(candidate.name)
+    && candidate.name.text === "name"
+  );
+  if (!property || !ts.isStringLiteralLike(property.initializer)) {
+    throw new Error("bundledSkillDirectories entries must include a string literal name.");
+  }
+  return property.initializer.text;
+}
+
+function findBundledSkillDirectoriesInitializer(sourceFile) {
+  const declaration = sourceFile.statements
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => [...statement.declarationList.declarations])
+    .find((candidate) =>
+      ts.isIdentifier(candidate.name)
+      && candidate.name.text === "bundledSkillDirectories"
+    );
+  if (!declaration || !declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) {
+    throw new Error("bundledSkillDirectories array literal is missing.");
+  }
+  return declaration.initializer;
+}
+
+export function getBundledSkillDirectoryPackIds() {
+  const sourceText = fs.readFileSync(BUNDLED_SKILL_DIRECTORIES_PATH, "utf8");
+  const sourceFile = ts.createSourceFile(
+    BUNDLED_SKILL_DIRECTORIES_PATH,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  return findBundledSkillDirectoriesInitializer(sourceFile).elements.map(readBundledSkillEntryName);
 }
 
 export function loadSkillRuntimeMatrix() {
