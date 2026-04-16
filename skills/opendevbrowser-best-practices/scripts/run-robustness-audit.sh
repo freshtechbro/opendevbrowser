@@ -96,8 +96,10 @@ check_canvas_pack() {
     const robustness = JSON.parse(fs.readFileSync(robustnessPath, "utf8"));
     const feedbackIds = new Set(feedback.requiredIssueClasses || []);
     const blockerIds = new Set((blockers.blockers || []).map((entry) => entry.auditId));
+    const reviewIds = new Set((blockers.reviewChecks || []).map((entry) => entry.auditId));
+    const checklistIds = new Set([...blockerIds, ...reviewIds]);
     const robustnessIds = new Set((((robustness.canvas || {}).issueClasses) || []).map((entry) => entry.auditId));
-    const missing = expected.filter((id) => !feedbackIds.has(id) || !blockerIds.has(id) || !robustnessIds.has(id));
+    const missing = expected.filter((id) => !feedbackIds.has(id) || !checklistIds.has(id) || !robustnessIds.has(id));
     if (missing.length > 0) {
       console.error(`[canvas-pack] missing canvas audit ids in JSON templates: ${missing.join(", ")}`);
       process.exit(1);

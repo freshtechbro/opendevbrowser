@@ -343,4 +343,39 @@ describe("workflow skill packs", () => {
       expect(result.status, `${relativePath}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
     }
   }, 60000);
+
+  it("accepts review-only canvas audit ids in the best-practices robustness audit", async () => {
+    if (process.platform === "win32") return;
+
+    const checklistPath = join(
+      bundledSkillsDir,
+      "opendevbrowser-best-practices",
+      "assets",
+      "templates",
+      "canvas-blocker-checklist.json"
+    );
+    const checklist = JSON.parse(await readFile(checklistPath, "utf8")) as {
+      blockers?: Array<{ auditId?: string }>;
+      reviewChecks?: Array<{ auditId?: string }>;
+    };
+    const blockerIds = (checklist.blockers ?? []).flatMap((entry) => entry.auditId ?? []);
+    const reviewIds = (checklist.reviewChecks ?? []).flatMap((entry) => entry.auditId ?? []);
+
+    expect(reviewIds).toEqual(expect.arrayContaining(["CANVAS-04", "CANVAS-06", "CANVAS-07"]));
+    expect(blockerIds).not.toEqual(expect.arrayContaining(["CANVAS-04", "CANVAS-06", "CANVAS-07"]));
+
+    const result = spawnSync(
+      "/bin/bash",
+      [join(repoRoot, "skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh"), "canvas-pack"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: process.env
+      }
+    );
+
+    expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("Robustness audit checks passed for canvas-pack.");
+    expect(result.stderr).not.toContain("missing canvas audit ids in JSON templates");
+  });
 });
