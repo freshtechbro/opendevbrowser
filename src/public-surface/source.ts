@@ -553,7 +553,7 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
   {
     id: "desktop_observation",
     title: "Desktop Observation",
-    summary: "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay.",
+    summary: "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay.",
     commands: [
       {
         name: "desktop-status",

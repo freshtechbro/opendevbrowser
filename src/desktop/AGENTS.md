@@ -8,7 +8,7 @@ Read-only desktop observation runtime. Extends `src/AGENTS.md`.
 src/desktop/
 ├── index.ts       # Public re-exports
 ├── types.ts       # DesktopCapability, DesktopRuntimeLike, DesktopResult<T>, DesktopFailureCode
-├── runtime.ts     # createDesktopRuntime(), platform dispatch, screencapture/ax collection
+├── runtime.ts     # createDesktopRuntime(), platform dispatch, ScreenCaptureKit window inventory ordering, swift-based AX collection, and screencapture-backed capture
 ├── audit.ts       # writeDesktopAuditRecord(), DesktopAuditRecord, DesktopAuditEnvelope
 └── errors.ts      # DesktopRuntimeError, isDesktopRuntimeError()
 ```
@@ -24,7 +24,7 @@ src/desktop/
 
 ## Module Boundaries
 
-- **runtime.ts** owns all platform dispatch (macOS screencapture, AppleScript). No direct tool imports.
+- **runtime.ts** owns all platform dispatch (macOS ScreenCaptureKit window inventory ordering, swift-based permission/accessibility probes, and screencapture-backed image capture). No direct tool imports.
 - **audit.ts** writes JSON audit records to `config.desktop.auditArtifactsDir` (default `.opendevbrowser/desktop-runtime`). Uses `writeFileAtomic`.
 - **types.ts** is pure type exports. No runtime logic.
 - **errors.ts** is `DesktopRuntimeError` (typed error class) plus type guard.
@@ -50,7 +50,7 @@ Config lives in `src/config.ts` under `desktop.*`:
 - **Observation-only**. No desktop agent, no `/ops` or `/cdp` control plane.
 - `permissionLevel: "off"` disables all desktop tools.
 - Audit records are written for every call (ok or failed).
-- screencapture commands run via `execFile` with bounded timeout.
+- Swift probes execute through `execFile` with bounded timeout; `screencapture` runs use explicit-arg spawned processes with the same timeout and no shell interpolation.
 - No secrets, tokens, or browser-control paths exposed.
 
 ## Anti-Patterns

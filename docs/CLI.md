@@ -1417,7 +1417,7 @@ npx opendevbrowser desktop-accessibility-snapshot --window-id <window-id> --reas
 
 Notes:
 - On supported macOS hosts, availability, window inventory, and accessibility probes require the local `swift` command. If `desktop-status` returns `desktop_unsupported` on macOS, install Xcode or a Swift toolchain and retry.
-- Desktop screenshots still use the built-in `screencapture` utility.
+- Desktop screenshots use macOS `screencapture`.
 - `desktop-status` reports availability, permissions, capabilities, and the configured audit artifacts directory.
 - `desktop-windows` and `desktop-active-window` accept optional `--reason` values for audit context.
 - `desktop-capture-desktop`, `desktop-capture-window`, and `desktop-accessibility-snapshot` require `--reason`.

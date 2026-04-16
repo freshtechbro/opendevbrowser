@@ -112,10 +112,9 @@ Evidence:
 
 - `src/desktop/types.ts:1-4` limits capabilities to `observe.windows`, `observe.screen`, `observe.window`, and `observe.accessibility`.
 - `src/desktop/types.ts:74-82` defines `DesktopRuntimeLike` with status, listing, capture, and accessibility methods only.
-- `src/desktop/runtime.ts:67` defines `MACOS_SCREENCAPTURE_PATH`.
-- `src/desktop/runtime.ts:378-383` rejects non-macOS platforms and `desktop.permissionLevel=off`.
-- `src/desktop/runtime.ts:440-517` creates the runtime and probes permissions through local commands.
-- `src/desktop/runtime.ts:619-722` wraps list, active-window, capture, and accessibility operations in audit-backed execution.
+- `src/desktop/runtime.ts` rejects non-macOS platforms and `desktop.permissionLevel=off`.
+- `src/desktop/runtime.ts` creates the runtime and probes permissions through local swift commands.
+- `src/desktop/runtime.ts` wraps list, active-window, `screencapture`-backed capture, and accessibility operations in audit-backed execution.
 - `src/desktop/audit.ts:56-71` persists audit records with artifact paths.
 - `src/config.ts:464-468` shows the shipped desktop defaults: `permissionLevel=observe`, audit directory, and accessibility depth/child bounds.
 - `docs/ARCHITECTURE.md:81-95` states that the desktop-agent boundary is roadmap-only and enumerates the minimum capability bar, including OS-level actuation, cross-app focus, consent gating, bounded workspace controls, replay-safe logs, and separate failure taxonomy.

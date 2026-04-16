@@ -1,5 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import type { Stats } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -146,8 +145,7 @@ describe("desktop runtime permission and availability", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl,
-      statImpl: vi.fn(async () => ({ size: 1 } as Stats))
+      execFileImpl
     });
 
     const status = await runtime.status();
@@ -197,12 +195,7 @@ describe("desktop runtime permission and availability", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl,
-      statImpl: vi.fn(async (target: string) => (
-        target === "/usr/sbin/screencapture"
-          ? ({ size: 1 } as Stats)
-          : stat(target)
-      ))
+      execFileImpl
     });
 
     const status = await runtime.status();
@@ -230,12 +223,7 @@ describe("desktop runtime permission and availability", () => {
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl,
-      statImpl: vi.fn(async (target: string) => (
-        target === "/usr/sbin/screencapture"
-          ? ({ size: 1 } as Stats)
-          : stat(target)
-      ))
+      execFileImpl
     });
 
     const status = await runtime.status();
@@ -280,74 +268,28 @@ describe("desktop runtime permission and availability", () => {
     });
   });
 
-  it("captures the desktop with screencapture when swift is unavailable", async () => {
+  it("fails desktop capture when swift tooling is unavailable", async () => {
     const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-capture-no-swift-"));
     cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async (command: string, args: readonly string[] = []) => {
-      if (command !== "screencapture") {
-        throw new Error("spawn swift ENOENT");
-      }
-      const outputPath = args.at(-1);
-      if (!outputPath) {
-        throw new Error("missing capture path");
-      }
-      await writeFile(outputPath, "png-bytes");
-      return { stdout: "", stderr: "" };
+    const execFileImpl = vi.fn(async () => {
+      throw new Error("spawn swift ENOENT");
     });
 
     const runtime = createDesktopRuntime({
       cacheRoot,
       platform: "darwin",
       config: makeDesktopConfig(),
-      execFileImpl,
-      statImpl: vi.fn(async (target: string) => (
-        target === "/usr/sbin/screencapture"
-          ? ({ size: 1 } as Stats)
-          : stat(target)
-      ))
+      execFileImpl
     });
 
     const result = await runtime.captureDesktop({ reason: "capture-without-swift" });
 
     expect(result).toMatchObject({
-      ok: true,
-      value: {
-        capture: {
-          mimeType: "image/png"
-        }
-      }
-    });
-    expect(execFileImpl).toHaveBeenCalledTimes(2);
-    expect(execFileImpl.mock.calls[0]?.[0]).toBe("swift");
-    expect(execFileImpl.mock.calls[1]?.[0]).toBe("screencapture");
-  });
-
-  it("fails desktop capture when swift is unavailable and screencapture is missing", async () => {
-    const cacheRoot = await mkdtemp(path.join(os.tmpdir(), "odb-desktop-capture-no-tool-"));
-    cleanupPaths.push(cacheRoot);
-    const execFileImpl = vi.fn(async () => {
-      throw new Error("spawn swift ENOENT");
-    });
-    const statImpl = vi.fn(async () => {
-      throw new Error("stat /usr/sbin/screencapture ENOENT");
-    });
-
-    const runtime = createDesktopRuntime({
-      cacheRoot,
-      platform: "darwin",
-      config: makeDesktopConfig(),
-      execFileImpl,
-      statImpl
-    });
-
-    const result = await runtime.captureDesktop({ reason: "capture-without-swift-or-tool" });
-
-    expect(result).toMatchObject({
       ok: false,
       code: "desktop_unsupported",
-      message: "Required desktop observation tooling is unavailable on this host."
+      message: "Desktop observation requires the macOS swift command for availability, window, and accessibility probes. Install Xcode or a Swift toolchain and retry."
     });
-    expect(statImpl).toHaveBeenCalledWith("/usr/sbin/screencapture");
+    expect(execFileImpl).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to query_failed when the permission probe throws a non-error value", async () => {

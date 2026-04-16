@@ -1,6 +1,6 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { randomUUID } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "util";
 import type { DesktopConfig } from "../config";
@@ -36,6 +36,7 @@ type ExecFileAsync = (
 
 type DesktopRuntimeDependencies = {
   execFileImpl?: ExecFileAsync;
+  captureCommandImpl?: ExecFileAsync;
   statImpl?: typeof stat;
   platform?: NodeJS.Platform;
   writeAuditRecord?: typeof writeDesktopAuditRecord;
@@ -48,6 +49,7 @@ type DesktopRuntimeArgs = {
 
 type DesktopProcessInventory = {
   frontmostPid: number;
+  frontmostWindowId?: string;
   windows: DesktopWindowSummary[];
 };
 
@@ -68,6 +70,121 @@ const MACOS_SCREENCAPTURE_PATH = "/usr/sbin/screencapture";
 const SCREEN_CAPTURE_PERMISSION_MESSAGE = "Desktop screen capture permission is not granted on this host.";
 const ACCESSIBILITY_PERMISSION_MESSAGE = "Desktop accessibility permission is not granted on this host.";
 
+type BufferedProcessOutput = {
+  chunks: Buffer[];
+  bytes: number;
+};
+
+const appendProcessOutput = (
+  output: BufferedProcessOutput,
+  chunk: Buffer,
+  maxBuffer: number
+): BufferedProcessOutput => {
+  const bytes = output.bytes + chunk.length;
+  if (bytes > maxBuffer) {
+    throw new Error("desktop command maxBuffer exceeded");
+  }
+  return {
+    chunks: [...output.chunks, chunk],
+    bytes
+  };
+};
+
+const decodeProcessOutput = (
+  output: BufferedProcessOutput,
+  encoding: BufferEncoding
+): string => {
+  return Buffer.concat(output.chunks).toString(encoding);
+};
+
+const buildCommandFailureMessage = (
+  file: string,
+  args: readonly string[],
+  stderr: string,
+  signal: NodeJS.Signals | null
+): string => {
+  const command = [file, ...args].join(" ");
+  if (stderr.trim().length > 0) {
+    return stderr.trim();
+  }
+  return signal ? `Command failed: ${command} (${signal})` : `Command failed: ${command}`;
+};
+
+const spawnFileAsync: ExecFileAsync = (file, args = [], options = {}) =>
+  new Promise((resolve, reject) => {
+    const encoding = options.encoding ?? "utf8";
+    const maxBuffer = options.maxBuffer ?? MAX_PROCESS_OUTPUT_BYTES;
+    const child = spawn(file, [...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout: BufferedProcessOutput = { chunks: [], bytes: 0 };
+    let stderr: BufferedProcessOutput = { chunks: [], bytes: 0 };
+    let settled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const settle = (callback: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      callback();
+    };
+
+    const fail = (error: unknown): void => {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      settle(() => reject(normalized));
+    };
+
+    const bindStream = (
+      stream: NodeJS.ReadableStream | null,
+      update: (output: BufferedProcessOutput) => void,
+      readCurrent: () => BufferedProcessOutput
+    ): void => {
+      if (!stream) {
+        return;
+      }
+      stream.on("data", (chunk: Buffer | string) => {
+        try {
+          const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
+          update(appendProcessOutput(readCurrent(), value, maxBuffer));
+        } catch (error) {
+          child.kill("SIGTERM");
+          fail(error);
+        }
+      });
+    };
+
+    bindStream(child.stdout, (output) => {
+      stdout = output;
+    }, () => stdout);
+    bindStream(child.stderr, (output) => {
+      stderr = output;
+    }, () => stderr);
+    child.on("error", fail);
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        settle(() => resolve({
+          stdout: decodeProcessOutput(stdout, encoding),
+          stderr: decodeProcessOutput(stderr, encoding)
+        }));
+        return;
+      }
+      fail(new Error(buildCommandFailureMessage(
+        file,
+        args,
+        decodeProcessOutput(stderr, encoding),
+        signal
+      )));
+    });
+    if ((options.timeout ?? 0) > 0) {
+      timeoutHandle = setTimeout(() => {
+        child.kill("SIGTERM");
+        fail(new Error("desktop command timed out"));
+      }, options.timeout);
+    }
+  });
+
 const buildPermissionProbeSwift = (): string => `
 import Foundation
 import ApplicationServices
@@ -84,57 +201,92 @@ FileHandle.standardOutput.write(data)
 const buildWindowInventorySwift = (): string => `
 import Foundation
 import AppKit
+import ScreenCaptureKit
 import CoreGraphics
 
-func intValue(_ value: Any?) -> Int {
-  return (value as? NSNumber)?.intValue ?? 0
-}
+@main
+struct Main {
+  static func main() async {
+    _ = NSApplication.shared
+    let frontmostPid = Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)
 
-func doubleValue(_ value: Any?) -> Double {
-  return (value as? NSNumber)?.doubleValue ?? 0
-}
+    func orderedWindowIds(for ownerPid: Int) -> [String] {
+      guard ownerPid > 0 else {
+        return []
+      }
+      guard let entries = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+        return []
+      }
+      return entries.compactMap { entry in
+        guard let pid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.intValue else {
+          return nil
+        }
+        guard pid == ownerPid else {
+          return nil
+        }
+        guard let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue else {
+          return nil
+        }
+        guard layer == 0 else {
+          return nil
+        }
+        guard let windowId = (entry[kCGWindowNumber as String] as? NSNumber)?.intValue else {
+          return nil
+        }
+        return String(windowId)
+      }
+    }
 
-let frontmostPid = Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)
-let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-let rawWindows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
-let windows = rawWindows.compactMap { entry -> [String: Any]? in
-  let layer = intValue(entry[kCGWindowLayer as String])
-  if layer != 0 {
-    return nil
+    func encodeWindow(_ window: SCWindow) -> [String: Any]? {
+      let frame = window.frame
+      if window.windowLayer != 0 {
+        return nil
+      }
+      if frame.width <= 50 || frame.height <= 50 {
+        return nil
+      }
+      let ownerName = window.owningApplication?.applicationName ?? ""
+      if ownerName.isEmpty {
+        return nil
+      }
+      return [
+        "id": String(window.windowID),
+        "ownerName": ownerName,
+        "ownerPid": Int(window.owningApplication?.processID ?? 0),
+        "title": window.title ?? "",
+        "bounds": [
+          "x": frame.origin.x,
+          "y": frame.origin.y,
+          "width": frame.width,
+          "height": frame.height
+        ],
+        "layer": Int(window.windowLayer),
+        "alpha": 1.0,
+        "isOnscreen": window.isOnScreen
+      ]
+    }
+
+    do {
+      let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+      let windows = content.windows.compactMap(encodeWindow)
+      let orderedFrontmostWindowIds = orderedWindowIds(for: frontmostPid)
+      var value: [String: Any] = [
+        "frontmostPid": frontmostPid,
+        "windows": windows
+      ]
+      if let frontmostWindowId = orderedFrontmostWindowIds.first(where: { id in
+        windows.contains { ($0["id"] as? String) == id }
+      }) {
+        value["frontmostWindowId"] = frontmostWindowId
+      }
+      let data = try JSONSerialization.data(withJSONObject: value, options: [])
+      FileHandle.standardOutput.write(data)
+    } catch {
+      fputs(String(describing: error), stderr)
+      Foundation.exit(1)
+    }
   }
-  let bounds = entry[kCGWindowBounds as String] as? [String: Any] ?? [:]
-  let width = doubleValue(bounds["Width"])
-  let height = doubleValue(bounds["Height"])
-  if width <= 50 || height <= 50 {
-    return nil
-  }
-  let ownerName = entry[kCGWindowOwnerName as String] as? String ?? ""
-  if ownerName.isEmpty {
-    return nil
-  }
-  let title = entry[kCGWindowName as String] as? String ?? ""
-  return [
-    "id": String(intValue(entry[kCGWindowNumber as String])),
-    "ownerName": ownerName,
-    "ownerPid": intValue(entry[kCGWindowOwnerPID as String]),
-    "title": title,
-    "bounds": [
-      "x": doubleValue(bounds["X"]),
-      "y": doubleValue(bounds["Y"]),
-      "width": width,
-      "height": height
-    ],
-    "layer": layer,
-    "alpha": doubleValue(entry[kCGWindowAlpha as String]),
-    "isOnscreen": intValue(entry[kCGWindowIsOnscreen as String]) != 0
-  ]
 }
-let payload: [String: Any] = [
-  "frontmostPid": frontmostPid,
-  "windows": windows
-]
-let data = try JSONSerialization.data(withJSONObject: payload, options: [])
-FileHandle.standardOutput.write(data)
 `;
 
 const buildAccessibilitySwift = (
@@ -266,8 +418,16 @@ const parseWindowInventory = (raw: unknown): DesktopProcessInventory => {
         }];
       })
     : [];
+  const frontmostWindowId = toStringOrUndefined(raw.frontmostWindowId);
+  const hasFrontmostWindow = frontmostWindowId
+    ? windows.some((entry) => entry.id === frontmostWindowId)
+    : false;
 
-  return { frontmostPid, windows };
+  return {
+    frontmostPid,
+    ...(hasFrontmostWindow && frontmostWindowId ? { frontmostWindowId } : {}),
+    windows
+  };
 };
 
 const parseAccessibilityTree = (raw: unknown): DesktopAccessibilityNode => {
@@ -410,21 +570,12 @@ const resolveStatus = async (
   }
 };
 
-const byDescendingArea = (left: DesktopWindowSummary, right: DesktopWindowSummary): number => {
-  const leftArea = left.bounds.width * left.bounds.height;
-  const rightArea = right.bounds.width * right.bounds.height;
-  return rightArea - leftArea;
-};
-
 const pickActiveWindow = (inventory: DesktopProcessInventory): DesktopWindowSummary | null => {
-  const matchingWindows = inventory.windows
-    .filter((window) => window.ownerPid === inventory.frontmostPid)
-    .sort(byDescendingArea);
-  if (matchingWindows.length > 0) {
-    return matchingWindows[0]!;
-  }
-  const allWindows = [...inventory.windows].sort(byDescendingArea);
-  return allWindows[0] ?? null;
+  const frontmostWindow = inventory.frontmostWindowId
+    ? inventory.windows.find((window) => window.id === inventory.frontmostWindowId)
+    : undefined;
+  const matchingWindow = inventory.windows.find((window) => window.ownerPid === inventory.frontmostPid);
+  return frontmostWindow ?? matchingWindow ?? inventory.windows[0] ?? null;
 };
 
 const verifyCaptureArtifact = async (
@@ -439,6 +590,7 @@ const verifyCaptureArtifact = async (
 
 export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLike {
   const execImpl = args.execFileImpl ?? execFileAsync;
+  const captureImpl = args.captureCommandImpl ?? spawnFileAsync;
   const statImpl = args.statImpl ?? stat;
   const platform = args.platform ?? process.platform;
   const auditArtifactsDir = resolveAuditArtifactsDir(args.cacheRoot, args.config.auditArtifactsDir);
@@ -449,6 +601,13 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       encoding: "utf8",
       timeout: args.config.commandTimeoutMs,
       maxBuffer: MAX_PROCESS_OUTPUT_BYTES
+    });
+    return result.stdout;
+  };
+
+  const runCaptureCommand = async (command: string, commandArgs: readonly string[]): Promise<string> => {
+    const result = await captureImpl(command, commandArgs, {
+      timeout: args.config.commandTimeoutMs
     });
     return result.stdout;
   };
@@ -497,51 +656,25 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
     );
   };
 
-  const ensureCaptureToolAvailable = async (): Promise<void> => {
-    ensureDesktopRuntimeEnabled();
-    const { status: runtimeStatus, failureMessage } = await getStatusResolution();
-    if (runtimeStatus.available) {
-      return;
-    }
-    if (runtimeStatus.reason !== "desktop_unsupported") {
-      const failureCode = runtimeStatus.reason as DesktopFailureCode;
-      if (failureCode === "desktop_permission_denied") {
-        throw new DesktopRuntimeError(failureCode, SCREEN_CAPTURE_PERMISSION_MESSAGE);
-      }
-      throw new DesktopRuntimeError(
-        failureCode,
-        failureMessage!
-      );
-    }
-    try {
-      await statImpl(MACOS_SCREENCAPTURE_PATH);
-    } catch (error) {
-      const failure = normalizeFailure(error, "desktop_capture_failed");
-      throw new DesktopRuntimeError(
-        failure.code,
-        failure.message
-      );
-    }
-  };
-
   const runWindowInventory = async (): Promise<DesktopProcessInventory> => {
-    const stdout = await runCommand("swift", ["-e", buildWindowInventorySwift()]);
-    return parseWindowInventory(JSON.parse(stdout) as unknown);
+    const inventoryRoot = await mkdtemp(path.join(args.cacheRoot, "desktop-window-inventory-"));
+    const sourcePath = path.join(inventoryRoot, "main.swift");
+    const binaryPath = path.join(inventoryRoot, "main");
+    await writeFile(sourcePath, buildWindowInventorySwift(), "utf8");
+    try {
+      await runCommand("swiftc", ["-parse-as-library", sourcePath, "-o", binaryPath]);
+      const stdout = await runCommand(binaryPath, []);
+      return parseWindowInventory(JSON.parse(stdout) as unknown);
+    } finally {
+      await rm(inventoryRoot, { recursive: true, force: true });
+    }
   };
 
   const resolveWindowForCapture = async (
     windowId: string
-  ): Promise<DesktopWindowSummary | null | undefined> => {
-    try {
-      const inventory = await runWindowInventory();
-      return inventory.windows.find((entry) => entry.id === windowId) ?? null;
-    } catch (error) {
-      const failure = normalizeFailure(error, "desktop_query_failed");
-      if (failure.code === "desktop_unsupported") {
-        return undefined;
-      }
-      throw error;
-    }
+  ): Promise<DesktopWindowSummary | null> => {
+    const inventory = await runWindowInventory();
+    return inventory.windows.find((entry) => entry.id === windowId) ?? null;
   };
 
   const withAudit = async <T>(params: {
@@ -657,11 +790,11 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       operation: "capture.desktop",
       capability: "observe.screen",
       reason: input.reason,
-      ensureReady: ensureCaptureToolAvailable,
+      ensureReady: async () => ensureUsable("observe.screen"),
       failureCode: "desktop_capture_failed",
       run: async (auditId) => {
         const artifactPath = path.join(auditArtifactsDir, `${auditId}.png`);
-        await runCommand("screencapture", ["-x", artifactPath]);
+        await runCaptureCommand(MACOS_SCREENCAPTURE_PATH, ["-x", artifactPath]);
         await verifyCaptureArtifact(statImpl, artifactPath);
         return {
           value: {
@@ -684,7 +817,7 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
       operation: "capture.window",
       capability: "observe.window",
       reason: input.reason,
-      ensureReady: ensureCaptureToolAvailable,
+      ensureReady: async () => ensureUsable("observe.window"),
       failureCode: "desktop_capture_failed",
       run: async (auditId) => {
         const window = await resolveWindowForCapture(windowId);
@@ -695,7 +828,7 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
           );
         }
         const artifactPath = path.join(auditArtifactsDir, `${auditId}.png`);
-        await runCommand("screencapture", ["-x", "-l", windowId, artifactPath]);
+        await runCaptureCommand(MACOS_SCREENCAPTURE_PATH, ["-x", `-l${window.id}`, artifactPath]);
         await verifyCaptureArtifact(statImpl, artifactPath);
         return {
           value: {
@@ -703,12 +836,12 @@ export function createDesktopRuntime(args: DesktopRuntimeArgs): DesktopRuntimeLi
               path: artifactPath,
               mimeType: SCREENSHOT_MIME_TYPE
             },
-            ...(window ? { window } : {})
+            window
           },
           artifactPaths: [artifactPath],
           details: {
             windowId,
-            ...(window?.ownerName ? { ownerName: window.ownerName } : {})
+            ownerName: window.ownerName
           }
         };
       }

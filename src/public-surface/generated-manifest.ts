@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-15T20:45:02.395Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-16T03:02:56.202Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-15T20:45:02.395Z",
+  "generatedAt": "2026-04-16T03:02:56.202Z",
   "cli": {
     "groups": [
       {
@@ -169,7 +169,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "id": "desktop_observation",
         "title": "Desktop Observation",
-        "summary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay.",
+        "summary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay.",
         "commands": [
           "desktop-status",
           "desktop-windows",
@@ -1118,7 +1118,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
       },
       {
         "name": "desktop-windows",
@@ -1129,7 +1129,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
       },
       {
         "name": "desktop-active-window",
@@ -1140,7 +1140,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
       },
       {
         "name": "desktop-capture-desktop",
@@ -1151,7 +1151,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
       },
       {
         "name": "desktop-capture-window",
@@ -1163,7 +1163,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
       },
       {
         "name": "desktop-accessibility-snapshot",
@@ -1175,7 +1175,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
-        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; window inventory and accessibility probes use the local swift command, while screenshots use screencapture outside extension relay."
+        "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
       },
       {
         "name": "rpc",
