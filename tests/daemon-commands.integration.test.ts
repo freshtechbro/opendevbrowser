@@ -1412,7 +1412,7 @@ describe("daemon-commands integration", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        instanceId: "relay-observed",
+        instanceId: "relay-test",
         running: true,
         port: 8787,
         extensionConnected: true,
@@ -1437,6 +1437,51 @@ describe("daemon-commands integration", () => {
     }));
 
     expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
+  });
+
+  it("rejects extension launch when observed handshake completion belongs to a different relay instance", async () => {
+    const core = makeCore({
+      relayStatus: {
+        extensionConnected: true,
+        extensionHandshakeComplete: false
+      }
+    });
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-ops",
+      mode: "extension",
+      activeTargetId: "target-1",
+      leaseId: "lease-ops",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "relay-observed",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch);
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.launch",
+      params: {
+        clientId: "client-1",
+        extensionOnly: true
+      }
+    })).rejects.toThrow("expected relay instance");
+
+    expect(core.manager.connectRelay).not.toHaveBeenCalled();
   });
 
   it("routes debug trace snapshot to manager capability when available", async () => {

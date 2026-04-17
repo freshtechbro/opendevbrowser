@@ -929,6 +929,7 @@ async function launchWithRelay(
   const observedPort = resolveObservedPort(relayStatus, relayPort);
   const shouldFetchObserved = !managedExplicit && (!relayUrl || !relayStatus.extensionHandshakeComplete);
   const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
+  const matchingObservedStatus = getMatchingObservedRelayStatus(relayStatus, observedStatus);
   if (!relayUrl) {
     const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
     relayUrl = fallbackPort ? buildLoopbackSessionRelayEndpoint(fallbackPort, { extensionLegacy }) : null;
@@ -936,15 +937,26 @@ async function launchWithRelay(
   const extensionReady = Boolean(
     relayUrl && (
       relayStatus.extensionHandshakeComplete ||
-      observedStatus?.extensionHandshakeComplete
+      matchingObservedStatus?.extensionHandshakeComplete
     )
   );
-  const extensionSocketConnected = Boolean(relayStatus.extensionConnected || observedStatus?.extensionConnected);
+  const extensionSocketConnected = Boolean(
+    relayStatus.extensionConnected || matchingObservedStatus?.extensionConnected
+  );
+  const observedInstanceMismatch = Boolean(
+    observedStatus
+    && observedStatus.instanceId !== relayStatus.instanceId
+    && (observedStatus.extensionConnected || observedStatus.extensionHandshakeComplete)
+  );
   const handshakePending = Boolean(relayUrl && extensionSocketConnected && !extensionReady);
   const diagnostics = observedStatus
     ? `Diagnostics: relayPort=${observedPort ?? "?"} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} ops=${observedStatus.opsConnected} cdp=${observedStatus.cdpConnected}`
     : null;
-  const missingReason = handshakePending
+  const missingReason = observedInstanceMismatch
+    ? diagnostics
+      ? `Extension not connected to the expected relay instance. ${diagnostics}`
+      : "Extension not connected to the expected relay instance."
+    : handshakePending
     ? diagnostics
       ? `Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake. ${diagnostics}`
       : "Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake."
@@ -1873,17 +1885,21 @@ function clampWaitTimeout(timeoutMs: number): number {
 }
 
 async function waitForRelayHandshake(
-  relay: { status: () => { extensionHandshakeComplete: boolean } },
+  relay: { status: () => { extensionHandshakeComplete: boolean; instanceId: string } },
   observedPort: number | null,
   timeoutMs: number
 ): Promise<boolean> {
   const start = Date.now();
   let delay = WAIT_MIN_DELAY_MS;
   while (Date.now() - start < timeoutMs) {
-    if (relay.status().extensionHandshakeComplete) {
+    const relayStatus = relay.status();
+    if (relayStatus.extensionHandshakeComplete) {
       return true;
     }
-    const observedStatus = await fetchRelayObservedStatus(observedPort);
+    const observedStatus = getMatchingObservedRelayStatus(
+      relayStatus,
+      await fetchRelayObservedStatus(observedPort)
+    );
     if (observedStatus?.extensionHandshakeComplete) {
       return true;
     }
@@ -1937,6 +1953,16 @@ async function fetchRelayObservedStatus(port: number | null): Promise<RelayObser
   } catch {
     return null;
   }
+}
+
+function getMatchingObservedRelayStatus(
+  relayStatus: { instanceId: string },
+  observedStatus: RelayObservedStatus | null
+): RelayObservedStatus | null {
+  if (!observedStatus) {
+    return null;
+  }
+  return observedStatus.instanceId === relayStatus.instanceId ? observedStatus : null;
 }
 
 async function loadMacroRuntime(): Promise<MacroRuntimeModule | null> {
