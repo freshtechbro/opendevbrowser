@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
-import { timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { generateSecureToken } from "../utils/crypto";
 import { createOpenDevBrowserCore } from "../core";
 import { loadGlobalConfig, resolveConfig, type OpenDevBrowserConfig } from "../config";
@@ -15,6 +15,7 @@ const RECOVERABLE_PLAYWRIGHT_TRANSPORT_ERRORS = [
   "Cannot find context with specified id",
   "Detached while handling command."
 ] as const;
+const DAEMON_FINGERPRINT_VERSION = "v1";
 
 export type DaemonState = {
   port: number;
@@ -22,6 +23,7 @@ export type DaemonState = {
   pid: number;
   relayPort: number;
   startedAt: string;
+  fingerprint: string;
   hubInstanceId?: string;
   relayInstanceId?: string;
   relayEpoch?: number;
@@ -72,6 +74,43 @@ export function clearDaemonMetadata(): void {
   } catch {
     void 0;
   }
+}
+
+export function resolveCurrentDaemonEntrypointPath(): string {
+  const rawEntry = process.argv[1];
+  if (typeof rawEntry === "string" && rawEntry.trim().length > 0) {
+    return resolve(rawEntry);
+  }
+  return resolve(__filename);
+}
+
+function hashEntrypointContents(entryPath: string): string {
+  try {
+    return createHash("sha256").update(readFileSync(entryPath)).digest("hex");
+  } catch {
+    return "missing";
+  }
+}
+
+export function getCurrentDaemonFingerprint(): string {
+  const entryPath = resolveCurrentDaemonEntrypointPath();
+  const entryHash = hashEntrypointContents(entryPath);
+  return createHash("sha256")
+    .update([DAEMON_FINGERPRINT_VERSION, process.execPath, entryPath, entryHash].join("\n"))
+    .digest("hex");
+}
+
+export function isCurrentDaemonFingerprint(fingerprint?: string | null): boolean {
+  return typeof fingerprint === "string" && fingerprint === getCurrentDaemonFingerprint();
+}
+
+export function resolveDaemonFingerprint(...candidates: Array<string | null | undefined>): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+  return "missing";
 }
 
 export function isRecoverablePlaywrightTransportError(error: unknown): boolean {
@@ -130,6 +169,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
   const port = options.port ?? config.daemonPort ?? DEFAULT_DAEMON_PORT;
   const token = options.token ?? config.daemonToken ?? generateSecureToken();
   const startedAt = new Date().toISOString();
+  const fingerprint = getCurrentDaemonFingerprint();
   const core = createOpenDevBrowserCore({
     directory: options.directory ?? process.cwd(),
     worktree: options.worktree ?? null,
@@ -154,6 +194,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
         pid: process.pid,
         relayPort: relayStatus.port ?? config.relayPort,
         startedAt,
+        fingerprint,
         hubInstanceId: getHubInstanceId(),
         relayInstanceId: relayStatus.instanceId,
         relayEpoch: relayStatus.epoch
@@ -161,6 +202,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
       sendJson(response, 200, {
         ok: true,
         pid: process.pid,
+        fingerprint,
         hub: { instanceId: getHubInstanceId() },
         relay: relayStatus,
         binding: getBindingDiagnostics()
@@ -203,6 +245,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
     pid: process.pid,
     relayPort: config.relayPort,
     startedAt,
+    fingerprint,
     hubInstanceId: getHubInstanceId(),
     relayInstanceId: core.relay.status().instanceId,
     relayEpoch: core.relay.status().epoch

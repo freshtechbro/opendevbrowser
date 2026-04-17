@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -13,7 +13,26 @@ const parse = (value: string): Record<string, unknown> => JSON.parse(value) as R
 const makeDeps = () => {
   const manager = {
     launch: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
+    cookieImport: vi.fn().mockResolvedValue({ imported: 1, rejected: [] }),
+    cookieList: vi.fn().mockResolvedValue({
+      count: 1,
+      cookies: [{ name: "sid" }]
+    }),
+    goto: vi.fn().mockResolvedValue({ ok: true }),
+    waitForLoad: vi.fn().mockResolvedValue(undefined),
+    snapshot: vi.fn().mockResolvedValue({
+      content: "snapshot content",
+      refCount: 1,
+      warnings: []
+    }),
+    clonePage: vi.fn().mockResolvedValue({
+      component: "<section>clone</section>",
+      css: ".hero{display:block;}",
+      warnings: []
+    }),
+    clonePageHtmlWithOptions: vi.fn().mockResolvedValue({ html: "<html><body>clone</body></html>" }),
     screenshot: vi.fn().mockResolvedValue({ base64: Buffer.from([1, 2, 3]).toString("base64") }),
+    setSessionChallengeAutomationMode: vi.fn(),
     disconnect: vi.fn().mockResolvedValue(undefined)
   };
 
@@ -105,6 +124,10 @@ const makeDeps = () => {
 };
 
 describe("workflow tools", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("executes research and shopping workflow tools", async () => {
     const deps = makeDeps();
     const { createResearchRunTool } = await import("../src/tools/research_run");
@@ -162,6 +185,99 @@ describe("workflow tools", () => {
     );
   });
 
+  it("executes inspiredesign tool with default capture-mode off", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      mode: "json"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.manager.launch).not.toHaveBeenCalled();
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/reference" },
+      expect.any(Object)
+    );
+  });
+
+  it("executes inspiredesign deep capture through browser manager helpers", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      mode: "compact",
+      timeoutMs: 45000
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.manager.launch).toHaveBeenCalledTimes(1);
+    expect(deps.manager.goto).toHaveBeenCalledWith(
+      "session-1",
+      "https://example.com/reference",
+      "load",
+      expect.any(Number)
+    );
+    expect(deps.manager.goto.mock.calls[0]?.[3]).toBeGreaterThan(0);
+    expect(deps.manager.goto.mock.calls[0]?.[3]).toBeLessThanOrEqual(30000);
+    expect(deps.manager.waitForLoad).toHaveBeenCalledTimes(1);
+    expect(deps.manager.snapshot).toHaveBeenCalledTimes(1);
+    expect(deps.manager.clonePage).toHaveBeenCalledTimes(1);
+    expect(deps.manager.clonePageHtmlWithOptions).toHaveBeenCalledTimes(1);
+    expect(deps.manager.disconnect).toHaveBeenCalledWith("session-1", true);
+  });
+
+  it("keeps inspiredesign deep capture parity with daemon cookie-source imports", async () => {
+    const deps = makeDeps();
+    const cookieSource = {
+      type: "inline" as const,
+      value: [{ name: "sid", value: "abc", url: "https://example.com/reference" }]
+    };
+    deps.config = new ConfigStore({
+      ...resolveConfig({}),
+      relayToken: false,
+      providers: { cookieSource }
+    });
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      mode: "compact",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      challengeAutomationMode: "browser"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.manager.cookieImport).toHaveBeenCalledWith("session-1", cookieSource.value, false);
+    expect(deps.manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/reference"]);
+    expect(deps.manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
+  });
+
+  it("defaults inspiredesign tool mode to compact when omitted", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"]
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(response.mode).toBe("compact");
+  });
+
   it("forwards challengeAutomationMode through workflow tools", async () => {
     const deps = makeDeps();
     const { createResearchRunTool } = await import("../src/tools/research_run");
@@ -215,6 +331,270 @@ describe("workflow tools", () => {
         })
       })
     );
+  });
+
+  it("locks operator surfaces to the canonical challengeAutomationMode enum", async () => {
+    const deps = makeDeps();
+    const { createStatusCapabilitiesTool } = await import("../src/tools/status_capabilities");
+    const { createSessionInspectorPlanTool } = await import("../src/tools/session_inspector_plan");
+    const { createSessionInspectorAuditTool } = await import("../src/tools/session_inspector_audit");
+
+    const operatorTools = [
+      createStatusCapabilitiesTool(deps as never),
+      createSessionInspectorPlanTool(deps as never),
+      createSessionInspectorAuditTool(deps as never)
+    ];
+
+    for (const operatorTool of operatorTools) {
+      const challengeAutomationMode = operatorTool.args.challengeAutomationMode;
+      expect(challengeAutomationMode.safeParse("off").success).toBe(true);
+      expect(challengeAutomationMode.safeParse("browser").success).toBe(true);
+      expect(challengeAutomationMode.safeParse("browser_with_helper").success).toBe(true);
+      expect(challengeAutomationMode.safeParse("invalid").success).toBe(false);
+    }
+  });
+
+  it("returns structured unavailability errors for operator tools", async () => {
+    const deps = makeDeps();
+    const { createReviewDesktopTool } = await import("../src/tools/review_desktop");
+    const { createStatusCapabilitiesTool } = await import("../src/tools/status_capabilities");
+    const { createSessionInspectorPlanTool } = await import("../src/tools/session_inspector_plan");
+    const { createSessionInspectorAuditTool } = await import("../src/tools/session_inspector_audit");
+
+    const review = parse(await createReviewDesktopTool(deps as never).execute({
+      sessionId: "session-1"
+    } as never));
+    const status = parse(await createStatusCapabilitiesTool(deps as never).execute({} as never));
+    const plan = parse(await createSessionInspectorPlanTool(deps as never).execute({
+      sessionId: "session-1"
+    } as never));
+    const audit = parse(await createSessionInspectorAuditTool(deps as never).execute({
+      sessionId: "session-1"
+    } as never));
+
+    expect(review.error).toMatchObject({ code: "automation_coordinator_unavailable" });
+    expect(status.error).toMatchObject({ code: "automation_coordinator_unavailable" });
+    expect(plan.error).toMatchObject({ code: "automation_coordinator_unavailable" });
+    expect(audit.error).toMatchObject({ code: "automation_coordinator_unavailable" });
+  });
+
+  it("executes review, status, and inspect-plan operator tools through the coordinator", async () => {
+    const deps = makeDeps();
+    deps.automationCoordinator = {
+      reviewDesktop: vi.fn(async () => ({
+        browserSessionId: "session-1",
+        observation: { observationId: "obs-1" },
+        verification: { observationId: "obs-1" }
+      })),
+      inspectChallengePlan: vi.fn(async () => ({
+        summary: "inspect-plan",
+        mode: "browser_with_helper"
+      })),
+      statusCapabilities: vi.fn(async () => ({
+        host: {
+          desktopObservation: {
+            available: true
+          }
+        }
+      }))
+    } as never;
+    const { createReviewDesktopTool } = await import("../src/tools/review_desktop");
+    const { createStatusCapabilitiesTool } = await import("../src/tools/status_capabilities");
+    const { createSessionInspectorPlanTool } = await import("../src/tools/session_inspector_plan");
+
+    const review = parse(await createReviewDesktopTool(deps as never).execute({
+      sessionId: "session-1",
+      targetId: "target-1"
+    } as never));
+    const status = parse(await createStatusCapabilitiesTool(deps as never).execute({
+      sessionId: "session-1",
+      targetId: "target-1"
+    } as never));
+    const plan = parse(await createSessionInspectorPlanTool(deps as never).execute({
+      sessionId: "session-1",
+      targetId: "target-1",
+      challengeAutomationMode: "browser"
+    } as never));
+
+    expect(review.ok).toBe(true);
+    expect(status.ok).toBe(true);
+    expect(plan.ok).toBe(true);
+    expect(deps.automationCoordinator.reviewDesktop).toHaveBeenCalledWith({
+      browserSessionId: "session-1",
+      targetId: "target-1",
+      reason: undefined,
+      maxChars: undefined,
+      cursor: undefined
+    });
+    expect(deps.automationCoordinator.statusCapabilities).toHaveBeenCalledWith({
+      browserSessionId: "session-1",
+      targetId: "target-1",
+      runMode: undefined
+    });
+    expect(deps.automationCoordinator.inspectChallengePlan).toHaveBeenCalledWith({
+      browserSessionId: "session-1",
+      targetId: "target-1",
+      runMode: "browser"
+    });
+  });
+
+  it("reports session-inspector unavailability before composing the audit bundle", async () => {
+    const deps = makeDeps();
+    deps.automationCoordinator = {
+      reviewDesktop: vi.fn(),
+      inspectChallengePlan: vi.fn(),
+      statusCapabilities: vi.fn()
+    } as never;
+    const { createSessionInspectorAuditTool } = await import("../src/tools/session_inspector_audit");
+
+    const audit = parse(await createSessionInspectorAuditTool(deps as never).execute({
+      sessionId: "session-1"
+    } as never));
+
+    expect(audit.error).toMatchObject({ code: "session_inspector_unavailable" });
+    expect(deps.automationCoordinator.reviewDesktop).not.toHaveBeenCalled();
+  });
+
+  it("builds correlated audit bundles with and without relay status", async () => {
+    const runAudit = async (relayStatus?: Record<string, unknown>) => {
+      const deps = makeDeps();
+      deps.automationCoordinator = {
+        reviewDesktop: vi.fn(async () => ({
+          browserSessionId: "session-1",
+          observation: {
+            observationId: "obs-1",
+            requestedAt: "2026-04-15T00:00:00.000Z",
+            status: {
+              platform: "darwin",
+              permissionLevel: "observe",
+              available: true,
+              capabilities: ["observe.screen"],
+              auditArtifactsDir: "/tmp/audit"
+            }
+          },
+          verification: {
+            observationId: "obs-1",
+            verifiedAt: "2026-04-15T00:00:01.000Z",
+            review: {
+              sessionId: "session-1",
+              targetId: "target-1",
+              mode: "managed",
+              snapshotId: "snapshot-1",
+              content: "review content",
+              truncated: false,
+              refCount: 1,
+              timingMs: 5
+            }
+          }
+        })),
+        inspectChallengePlan: vi.fn(async () => ({
+          challengeId: "challenge-1",
+          summary: "inspect-plan",
+          mode: "browser_with_helper",
+          source: "config",
+          helperEligibility: { allowed: true, reason: "helper available" },
+          yield: { required: false, reason: "none" },
+          decision: {
+            lane: "generic_browser_autonomy",
+            rationale: "safe",
+            attemptBudget: 1,
+            noProgressLimit: 1,
+            verificationLevel: "full",
+            stopConditions: [],
+            allowedActionFamilies: ["verification"]
+          },
+          classification: "auth_required",
+          authState: "credentials_required",
+          allowedActionFamilies: ["verification"],
+          forbiddenActionFamilies: [],
+          governedLanes: [],
+          capabilityMatrix: {
+            canNavigateToAuth: false,
+            canReuseExistingSession: false,
+            canReuseCookies: false,
+            canFillNonSecretFields: false,
+            canExploreClicks: false,
+            canUseOwnedEnvironmentFixture: false,
+            canUseSanctionedIdentity: false,
+            canUseServiceAdapter: false,
+            canUseComputerUseBridge: true,
+            helperEligibility: { allowed: true, reason: "helper available" },
+            mustYield: false,
+            mustDefer: false
+          },
+          helper: {
+            status: "suggested",
+            reason: "helper available",
+            suggestedSteps: []
+          },
+          suggestedSteps: [],
+          evidence: {
+            blockerState: "active",
+            loginRefs: [],
+            sessionReuseRefs: [],
+            humanVerificationRefs: [],
+            checkpointRefs: []
+          }
+        }))
+      } as never;
+      deps.manager.createSessionInspector = vi.fn(() => ({
+        status: vi.fn(async () => ({
+          sessionId: "session-1",
+          mode: "managed",
+          activeTargetId: "target-1",
+          url: "https://example.com/session",
+          title: "Session",
+          meta: { blockerState: "active", dialog: { open: false } }
+        })),
+        listTargets: vi.fn(async () => ({
+          activeTargetId: "target-1",
+          targets: [{ targetId: "target-1", type: "page", title: "Session", url: "https://example.com/session" }]
+        })),
+        debugTraceSnapshot: vi.fn(async () => ({
+          channels: {},
+          meta: {},
+          page: { url: "https://example.com/session", title: "Session" }
+        }))
+      })) as never;
+      deps.relay = relayStatus
+        ? {
+          refresh: vi.fn(async () => {
+            throw new Error("ignored refresh failure");
+          }),
+          status: vi.fn(() => relayStatus)
+        } as never
+        : undefined;
+      const { createSessionInspectorAuditTool } = await import("../src/tools/session_inspector_audit");
+      return parse(await createSessionInspectorAuditTool(deps as never).execute({
+        sessionId: "session-1",
+        targetId: "target-1",
+        challengeAutomationMode: "browser_with_helper"
+      } as never));
+    };
+
+    const withoutRelay = await runAudit();
+    const withRelay = await runAudit({
+      running: true,
+      extensionConnected: false,
+      extensionHandshakeComplete: true,
+      annotationConnected: false,
+      opsConnected: true,
+      canvasConnected: false,
+      cdpConnected: false,
+      pairingRequired: false,
+      health: {
+        ok: true,
+        challengeState: "clear",
+        blockedSessions: [],
+        waitingForExtension: false,
+        actionable: []
+      }
+    });
+
+    expect(withoutRelay.ok).toBe(true);
+    expect(withRelay.ok).toBe(true);
+    expect(withoutRelay.sessionInspector.relay).toBeNull();
+    expect(withRelay.sessionInspector.relay).toMatchObject({ running: true, opsConnected: true });
   });
 
   it("returns structured errors when required workflow input is missing", async () => {

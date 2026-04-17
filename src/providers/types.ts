@@ -444,11 +444,13 @@ export type SuspendedIntentKind =
   | "provider.post"
   | "workflow.research"
   | "workflow.shopping"
+  | "workflow.inspiredesign"
   | "workflow.product_video"
   | "youtube.transcript";
 export type WorkflowSuspendedIntentKind =
   | "workflow.research"
   | "workflow.shopping"
+  | "workflow.inspiredesign"
   | "workflow.product_video";
 export type BrowserFallbackDisposition = "completed" | "challenge_preserved" | "deferred" | "failed";
 export type SessionChallengeStatus = "active" | "resolved" | "deferred" | "expired";
@@ -500,6 +502,7 @@ export interface ProviderRecoveryHints {
 }
 
 export type WorkflowBrowserMode = "auto" | "extension" | "managed";
+export type InspiredesignCaptureMode = "off" | "deep";
 
 export interface ProviderRuntimePolicyInput {
   browserMode?: WorkflowBrowserMode;

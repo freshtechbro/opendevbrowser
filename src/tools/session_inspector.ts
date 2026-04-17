@@ -3,6 +3,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import { inspectSession } from "../browser/session-inspector";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
+import { requireSessionInspectorHandle } from "./automation-shared";
 
 const z = tool.schema;
 
@@ -20,9 +21,9 @@ export function createSessionInspectorTool(deps: ToolDeps): ToolDefinition {
     },
     async execute(args) {
       try {
-        const inspector = deps.manager.createSessionInspector?.();
-        if (!inspector) {
-          return failure("Session inspector is unavailable for the current runtime.", "session_inspector_unavailable");
+        const inspector = requireSessionInspectorHandle(deps);
+        if (typeof inspector === "string") {
+          return inspector;
         }
 
         await deps.relay?.refresh?.().catch(() => undefined);

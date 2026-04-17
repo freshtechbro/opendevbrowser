@@ -18,8 +18,8 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `72`
-- Plugin tools: `65`
+- CLI commands: `77`
+- Plugin tools: `70`
 - `/ops` command names: `59`
 - `/canvas` command names: `35`
 
@@ -30,6 +30,7 @@ Human-facing inventory metadata now composes through one generated manifest:
 - `src/cli/onboarding-metadata.json` owns the canonical first-contact skill, topic, quick-start commands, and onboarding doc pointers
 - `src/cli/help.ts`, `src/cli/args.ts`, and `src/tools/index.ts` consume or re-export the generated manifest for human-facing command and tool inventory output
 - `src/cli/help.ts` also owns the first-contact `Find It Fast` block for `screencast / browser replay`, `desktop observation`, and the browser-scoped computer-use lane surfaced through `--challenge-automation-mode`
+- Additive operator pairings stay inside the existing families: `status-capabilities` -> `status.capabilities`, `review-desktop` -> `nav.reviewDesktop`, `session-inspector-plan` -> `session.inspectPlan`, and `session-inspector-audit` -> `session.inspectAudit`
 - `docs/SURFACE_REFERENCE.md` mirrors every public CLI command and tool name with those short descriptions
 - `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/tools/index.ts` remains the runtime tool registry authority
@@ -355,6 +356,7 @@ sequenceDiagram
   - `research.run` / `opendevbrowser_research_run` / `opendevbrowser research run`
   - `shopping.run` / `opendevbrowser_shopping_run` / `opendevbrowser shopping run`
   - `product.video.run` / `opendevbrowser_product_video_run` / `opendevbrowser product-video run`
+  - `inspiredesign.run` / `opendevbrowser_inspiredesign_run` / `opendevbrowser inspiredesign run`
 - Those workflow wrappers also expose `challengeAutomationMode` (`off|browser|browser_with_helper`) as a run-scoped override with `run > session > config` precedence.
 - Workflow runtime primitives are layered as:
   - `timebox` (strict `days|from|to` resolution)
@@ -366,14 +368,14 @@ sequenceDiagram
 - Execute-mode macro responses keep existing shapes and add metadata fields: `meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, and `meta.provenance.retrievedAt`.
 - Diagnostics include a session-first inspection lane (`session.inspect`, `opendevbrowser_session_inspector`, `session-inspector`) plus console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).
 - Design canvas surfaces expose `canvas.execute` / `opendevbrowser_canvas` / `opendevbrowser canvas` and are layered as:
-  - `session handshake + attach` (`canvas.session.open`, `canvas.session.attach`, `canvas.capabilities.get`) for governance, plan requirements, same-user observer joins, and explicit lease reclaim
-  - `document store` (`canvas.document.load`, `canvas.document.import`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`) for repo-native JSON artifacts, typed Yjs-backed document state, Figma file or node ingestion, governance completion, save/export policy gates, and patch-driven preview re-materialization
+  - `session handshake + attach` (`canvas.session.open`, `canvas.session.attach`, `canvas.capabilities.get`) for governance, plan requirements, same-user observer joins, explicit lease reclaim, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, and runtime-returned `guidance.recommendedNextCommands`
+  - `document store` (`canvas.document.load`, `canvas.document.import`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`) for repo-native JSON artifacts, typed Yjs-backed document state, Figma file or node ingestion, governance completion, save/export policy gates, missing-vs-invalid generation-plan classification, and patch-driven preview re-materialization
   - `history` (`canvas.history.undo`, `canvas.history.redo`) for lease-held undo/redo, selection and viewport preimages, no-op-before-first-mutation behavior, deterministic invalidation when external revision drift makes the recorded stack stale, and extension design-tab history controls that emit `canvas_history_requested` before public undo/redo execution
   - `inventory` (`canvas.inventory.list`, `canvas.inventory.insert`, plus `inventory.promote|update|remove` patch ops) for reusable stage-node promotion, document-backed component catalogs, built-in kit catalog inventory, and governed reinsertion onto the active page
   - `starters` (`canvas.starter.list`, `canvas.starter.apply`) for built-in starter discovery, automatic generation-plan seeding, kit token merges, required inventory installation, and starter shell materialization with semantic fallback for unsupported framework or adapter requests; starter responses prefer `libraryAdapterId` for the resolved kit adapter while retaining `adapterId` as a compatibility alias distinct from code-sync `frameworkAdapterId`
   - `code sync` (`canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, `canvas.code.resolve`) for framework-adapter-backed round-trip bindings, manifest persistence under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`, built-in React/HTML/custom-elements/Vue/Svelte lanes, repo-local BYO adapter plugins, watch-driven drift detection, deterministic migration/plugin failure reason codes, and conflict resolution
   - `live editor + preview + overlay` (`canvas.tab.open`, `canvas.overlay.mount`, `canvas.preview.render`, `canvas.preview.refresh`) for browser-backed iteration; extension mode uses `extension/canvas.html` as the same-origin infinite-canvas host with pages, layers, properties, token collection or mode authoring, alias or binding controls, keyboard shortcuts, and extension-stage region annotation, while preview targets prefer `bound_app_runtime` reconciliation for opted-in bindings and fall back to core-generated `canvas_html` projections when runtime bridge preflight fails or no bound sync root exists
-  - `feedback` (`canvas.feedback.poll`, `canvas.feedback.subscribe`, `canvas.feedback.next`, `canvas.feedback.unsubscribe`) for render, validation, export, editor-patch, and target-filtered feedback signals; `canvas.feedback.poll` remains the snapshot query, while CLI and tool consumers now share the same public pull-stream contract through `subscribe -> next -> unsubscribe`
+  - `feedback` (`canvas.feedback.poll`, `canvas.feedback.subscribe`, `canvas.feedback.next`, `canvas.feedback.unsubscribe`) for render, validation, export, editor-patch, and target-filtered feedback signals; `canvas.feedback.poll` remains the snapshot query, synthesizes preflight blockers while a plan is missing or invalid, and CLI and tool consumers now share the same public pull-stream contract through `subscribe -> next -> unsubscribe`
   - `figma import` (`canvas.document.import`) resolves auth from config or `FIGMA_ACCESS_TOKEN`, calls the official Figma REST file, node, image, and optional `variables/local` endpoints, caches image/SVG receipts under `.opendevbrowser/canvas/assets/figma/<fileKey>/`, records `document.meta.imports[]` provenance, and keeps imports framework-neutral unless a matching framework adapter explicitly materializes the result
 - The canonical validator for the shipped canvas surface is `scripts/canvas-competitive-validation.mjs`; it groups send-to-agent, feedback/history, adapter conformance, framework/library fixtures, plugin packaging negatives, inventory/starters, token round-trip, surface parity, Figma fixture import, configured plugin fixture status, and optional live Figma smoke into one report plus per-group logs.
 - Legal/compliance gating for scrape-first adapters is enforced with per-provider review checklists (review date, allowed surfaces, prohibited flows, reviewer, expiry, signed-off status) and blocks expired/invalid enablement.

@@ -9,6 +9,7 @@ const COVERAGE_TMP = path.join(COVERAGE_ROOT, ".tmp");
 const VITEST_BIN = path.join(ROOT, "node_modules", "vitest", "vitest.mjs");
 const RM_GUARD = path.join(ROOT, "scripts", "vitest-coverage-rm-guard.cjs");
 const RETRYABLE_COVERAGE_SHARD_ERROR = /ENOENT: no such file or directory, open '([^']+coverage\/\.tmp\/coverage-\d+\.json)'/;
+const COVERAGE_CLEANUP_RETRIES = 3;
 const FOCUSED_COVERAGE_THRESHOLD_ARGS = [
   "--coverage.thresholds.lines",
   "0",
@@ -36,9 +37,34 @@ export function isRetryableCoverageShardError(output, coverageRoot = COVERAGE_RO
   return relative.startsWith(`.tmp${path.sep}coverage-`) && relative.endsWith(".json");
 }
 
-async function resetCoverageRoot() {
-  await rm(COVERAGE_ROOT, { recursive: true, force: true });
-  await mkdir(COVERAGE_TMP, { recursive: true });
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isRetryableCoverageCleanupError(error) {
+  const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+  return code === "ENOTEMPTY" || code === "EBUSY";
+}
+
+export async function resetCoverageRoot({
+  coverageRoot = COVERAGE_ROOT,
+  coverageTmp = path.join(coverageRoot, ".tmp"),
+  rmImpl = rm,
+  mkdirImpl = mkdir,
+  sleepImpl = sleep
+} = {}) {
+  for (let attempt = 1; attempt <= COVERAGE_CLEANUP_RETRIES; attempt += 1) {
+    try {
+      await rmImpl(coverageRoot, { recursive: true, force: true });
+      await mkdirImpl(coverageTmp, { recursive: true });
+      return;
+    } catch (error) {
+      if (!isRetryableCoverageCleanupError(error) || attempt === COVERAGE_CLEANUP_RETRIES) {
+        throw error;
+      }
+      await sleepImpl(250);
+    }
+  }
 }
 
 export function shouldRelaxCoverageThresholds(args = []) {

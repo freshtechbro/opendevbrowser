@@ -1,12 +1,13 @@
-import * as path from "path";
-import * as os from "os";
-import { readFile } from "fs/promises";
 import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../browser/manager-types";
 import { isOpsRequestTimeoutError } from "../browser/ops-client";
-import type { OpenDevBrowserConfig } from "../config";
+import type {
+  OpenDevBrowserConfig,
+  ProvidersChallengeOrchestrationConfig
+} from "../config";
 import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
 import { classifyBlockerSignal } from "./blocker";
+import { cookieSourceRef, readCookiesFromSource } from "./cookie-source";
 import { ProviderRuntimeError } from "./errors";
 import { resolveProviderRuntimePolicy } from "./runtime-policy";
 import { canonicalizeUrl } from "./web/crawler";
@@ -48,6 +49,13 @@ type BrowserFallbackCookieDiagnostics = {
   strict: boolean;
   reasonCode?: BrowserFallbackResponse["reasonCode"];
   message?: string;
+};
+
+export const resolveEffectiveChallengeConfig = (
+  config: RuntimeConfig | undefined,
+  challengeConfig?: ProvidersChallengeOrchestrationConfig
+): ProvidersChallengeOrchestrationConfig | undefined => {
+  return challengeConfig ?? config?.providers?.challengeOrchestration;
 };
 
 const DEFAULT_COOKIE_POLICY: ProviderCookiePolicy = "auto";
@@ -200,87 +208,6 @@ const reconnectExplicitShoppingExtensionSession = async (args: {
     sessionId: attached.sessionId,
     navigatedDuringAttach: didExtensionAttachReachRequestUrl(args.requestUrl, attachedUrl)
   };
-};
-
-const expandHomePath = (filePath: string): string => {
-  if (filePath === "~") return os.homedir();
-  if (filePath.startsWith("~/")) {
-    return path.join(os.homedir(), filePath.slice(2));
-  }
-  return filePath;
-};
-
-const cookieSourceRef = (source: ProviderCookieSourceConfig): string => {
-  if (source.type === "file") {
-    return expandHomePath(source.value);
-  }
-  if (source.type === "env") {
-    return source.value;
-  }
-  return "inline";
-};
-
-const parseCookieArray = (payload: string): ProviderCookieImportRecord[] => {
-  const parsed = JSON.parse(payload);
-  if (!Array.isArray(parsed)) {
-    throw new Error("Cookie payload must be a JSON array.");
-  }
-  return parsed as ProviderCookieImportRecord[];
-};
-
-const readCookiesFromSource = async (
-  source: ProviderCookieSourceConfig
-): Promise<{ cookies: ProviderCookieImportRecord[]; available: boolean; message?: string }> => {
-  if (source.type === "inline") {
-    return {
-      cookies: source.value,
-      available: source.value.length > 0,
-      ...(source.value.length === 0 ? { message: "Inline cookie source is empty." } : {})
-    };
-  }
-
-  if (source.type === "env") {
-    const envValue = process.env[source.value];
-    if (!envValue || envValue.trim().length === 0) {
-      return {
-        cookies: [],
-        available: false,
-        message: `Cookie env ${source.value} is not set.`
-      };
-    }
-    try {
-      const cookies = parseCookieArray(envValue);
-      return { cookies, available: cookies.length > 0 };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        cookies: [],
-        available: false,
-        message: `Cookie env ${source.value} is invalid JSON: ${message}`
-      };
-    }
-  }
-
-  const resolvedPath = expandHomePath(source.value);
-  try {
-    const payload = await readFile(resolvedPath, "utf8");
-    const cookies = parseCookieArray(payload);
-    return { cookies, available: cookies.length > 0 };
-  } catch (error) {
-    if ((error as { code?: string }).code === "ENOENT") {
-      return {
-        cookies: [],
-        available: false,
-        message: `Cookie file not found: ${resolvedPath}`
-      };
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      cookies: [],
-      available: false,
-      message: `Cookie file read failed: ${message}`
-    };
-  }
 };
 
 const baseCookieDiagnostics = (
@@ -1379,9 +1306,11 @@ export const createBrowserFallbackPort = (
 
 export const buildRuntimeInitFromConfig = (
   config: RuntimeConfig | undefined,
-  browserFallbackPort?: BrowserFallbackPort
+  browserFallbackPort?: BrowserFallbackPort,
+  challengeConfig?: ProvidersChallengeOrchestrationConfig
 ): Omit<RuntimeInit, "providers"> => {
   const providers = config?.providers;
+  const effectiveChallengeConfig = resolveEffectiveChallengeConfig(config, challengeConfig);
   return {
     ...(typeof config?.blockerDetectionThreshold === "number"
       ? { blockerDetectionThreshold: config.blockerDetectionThreshold }
@@ -1444,8 +1373,8 @@ export const buildRuntimeInitFromConfig = (
         }
       }
       : {}),
-    ...(providers?.challengeOrchestration?.mode
-      ? { challengeAutomationModeDefault: providers.challengeOrchestration.mode }
+    ...(effectiveChallengeConfig?.mode
+      ? { challengeAutomationModeDefault: effectiveChallengeConfig.mode }
       : {}),
     ...(browserFallbackPort ? { browserFallbackPort } : {})
   };
@@ -1456,12 +1385,14 @@ export const createConfiguredProviderRuntime = (args: {
   defaults?: RuntimeDefaults;
   manager?: BrowserManagerLike;
   browserFallbackPort?: BrowserFallbackPort;
+  challengeConfig?: ProvidersChallengeOrchestrationConfig;
   challengeOrchestrator?: ChallengeOrchestrator;
   init?: Omit<RuntimeInit, "providers">;
 }) => {
+  const effectiveChallengeConfig = resolveEffectiveChallengeConfig(args.config, args.challengeConfig);
   const challengeOrchestrator = args.challengeOrchestrator
-    ?? (args.config?.providers?.challengeOrchestration
-      ? new ChallengeOrchestrator(args.config.providers.challengeOrchestration)
+    ?? (effectiveChallengeConfig
+      ? new ChallengeOrchestrator(effectiveChallengeConfig)
       : undefined);
   if (challengeOrchestrator && typeof (args.manager as { setChallengeOrchestrator?: (value?: ChallengeOrchestrator) => void } | undefined)?.setChallengeOrchestrator === "function") {
     (args.manager as { setChallengeOrchestrator?: (value?: ChallengeOrchestrator) => void }).setChallengeOrchestrator?.(challengeOrchestrator);
@@ -1469,9 +1400,9 @@ export const createConfiguredProviderRuntime = (args: {
   const fallbackPort = args.browserFallbackPort ?? createBrowserFallbackPort(args.manager, {
     policy: args.config?.providers?.cookiePolicy,
     source: args.config?.providers?.cookieSource
-  }, {}, challengeOrchestrator, args.config?.providers?.challengeOrchestration?.mode ?? "browser_with_helper", args.config?.providers?.challengeOrchestration?.optionalComputerUseBridge.enabled ?? true);
+  }, {}, challengeOrchestrator, effectiveChallengeConfig?.mode ?? "browser_with_helper", effectiveChallengeConfig?.optionalComputerUseBridge.enabled ?? true);
   const runtimeInit = {
-    ...buildRuntimeInitFromConfig(args.config, fallbackPort),
+    ...buildRuntimeInitFromConfig(args.config, fallbackPort, effectiveChallengeConfig),
     ...(args.init ?? {})
   };
   return createDefaultRuntime(args.defaults ?? {}, runtimeInit);

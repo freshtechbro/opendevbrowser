@@ -10,7 +10,11 @@ vi.mock("../src/challenges/verification-gate", () => ({
 }));
 
 import { buildChallengeEvidenceBundle, runChallengeActionLoop } from "../src/challenges";
-import type { ChallengeActionStep, ChallengeStrategyDecision } from "../src/challenges";
+import type {
+  ChallengeActionStep,
+  ChallengeAutomationHelperEligibility,
+  ChallengeStrategyDecision
+} from "../src/challenges";
 import type { ChallengeRuntimeHandle } from "../src/browser/manager-types";
 import type { ProvidersChallengeOrchestrationConfig } from "../src/config";
 
@@ -107,9 +111,24 @@ const decision: ChallengeStrategyDecision = {
   allowedActionFamilies: ["verification"]
 };
 
+const runLoop = (
+  args: Omit<Parameters<typeof runChallengeActionLoop>[0], "helperEligibility">
+    & { helperEligibility?: ChallengeAutomationHelperEligibility }
+) => {
+  return runChallengeActionLoop({
+    ...args,
+    helperEligibility: args.helperEligibility ?? {
+      allowed: args.config.optionalComputerUseBridge.enabled,
+      reason: args.config.optionalComputerUseBridge.enabled
+        ? "Helper bridge enabled for fallback coverage."
+        : "Helper bridge disabled for fallback coverage."
+    }
+  });
+};
+
 describe("challenge action loop fallback branches", () => {
   it("keeps the current bundle when verification omits one and ignores unknown suggested step kinds", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-fallback",
       initialBundle: bundle,

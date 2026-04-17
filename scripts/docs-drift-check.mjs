@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPublicSurfaceCounts } from "./shared/public-surface-manifest.mjs";
+import { buildWorkflowInventory } from "./shared/workflow-inventory.mjs";
+import { renderWorkflowSurfaceMapMarkdown } from "./workflow-inventory-report.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -74,6 +76,10 @@ function extractBacktickedNamesFromDocSection(source, startHeading, endHeading, 
   return [...section.matchAll(/^- `([^`]+)`(?:[^\n]*)$/gm)].map((match) => match[1]);
 }
 
+function normalizeWorkflowSurfaceMap(source) {
+  return source.trim().replace(/^Last updated: .+$/m, "Last updated: <normalized-date>");
+}
+
 export function runDocsDriftChecks() {
   const packageJson = JSON.parse(read("package.json"));
   const version = String(packageJson.version ?? "");
@@ -87,8 +93,12 @@ export function runDocsDriftChecks() {
   const onboardingDoc = read("docs/FIRST_RUN_ONBOARDING.md");
   const releaseRunbook = read("docs/RELEASE_RUNBOOK.md");
   const distributionPlan = read("docs/DISTRIBUTION_PLAN.md");
+  const cliHelpSource = read("src/cli/help.ts");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
+  const workflowSurfaceMapDoc = read("docs/WORKFLOW_SURFACE_MAP.md");
   const architectureDoc = read("docs/ARCHITECTURE.md");
+  const workflowSurfaceMapExpected = renderWorkflowSurfaceMapMarkdown(buildWorkflowInventory(ROOT));
+  const designCanvasSpec = read("docs/DESIGN_CANVAS_TECHNICAL_SPEC.md");
   const onboardingMetadata = JSON.parse(read("src/cli/onboarding-metadata.json"));
   const annotateDoc = read("docs/ANNOTATE.md");
   const extensionDoc = read("docs/EXTENSION.md");
@@ -220,6 +230,15 @@ export function runDocsDriftChecks() {
     ok: cliToolsCount === toolCount,
     detail: `docs/CLI.md tool count=${cliToolsCount}, source=${toolCount}`
   });
+  checks.push({
+    id: "doc.cli.inspiredesign_workflow_documented",
+    ok: cliDoc.includes("#### Inspiredesign (`inspiredesign run`)")
+      && cliDoc.includes("--brief")
+      && cliDoc.includes("--url")
+      && cliDoc.includes("--capture-mode")
+      && cliDoc.includes("--include-prototype-guidance"),
+    detail: "docs/CLI.md must document inspiredesign run, repeated --url inputs, capture mode, and prototype guidance."
+  });
 
   checks.push({
     id: "doc.cli.no_stale_help_inventory_counts",
@@ -261,6 +280,22 @@ export function runDocsDriftChecks() {
     id: "doc.architecture.ops_command_count_matches_source",
     ok: architectureOpsCount === opsCommandCount,
     detail: `docs/ARCHITECTURE.md /ops count=${architectureOpsCount}, source=${opsCommandCount}`
+  });
+  checks.push({
+    id: "doc.workflow_surface_map.inspiredesign_documented",
+    ok: workflowSurfaceMapDoc.includes("workflow.inspiredesign")
+      && workflowSurfaceMapDoc.includes("inspiredesign run"),
+    detail: "docs/WORKFLOW_SURFACE_MAP.md must include workflow.inspiredesign and the inspiredesign run CLI entry."
+  });
+  checks.push({
+    id: "doc.workflow_surface_map.matches_generated_inventory",
+    ok: normalizeWorkflowSurfaceMap(workflowSurfaceMapDoc) === normalizeWorkflowSurfaceMap(workflowSurfaceMapExpected),
+    detail: "docs/WORKFLOW_SURFACE_MAP.md must match the generated workflow inventory map aside from the date stamp."
+  });
+  checks.push({
+    id: "doc.cli.help_references_workflow_surface_map",
+    ok: cliHelpSource.includes("docs/WORKFLOW_SURFACE_MAP.md"),
+    detail: "src/cli/help.ts must keep docs/WORKFLOW_SURFACE_MAP.md in the first-contact help reference pointers."
   });
 
   checks.push({
@@ -447,6 +482,13 @@ export function runDocsDriftChecks() {
     forbidden: ["primary_constraint_summary", "reason_code_distribution"],
     detail: "docs/CLI.md must document camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
   });
+  checks.push({
+    id: "doc.cli.canvas_plan_guidance_documented",
+    ok: cliDoc.includes("generationPlanIssues")
+      && cliDoc.includes("plan_invalid")
+      && cliDoc.includes("generation_plan_invalid"),
+    detail: "docs/CLI.md must document generationPlanIssues, plan_invalid, and generation_plan_invalid for the /canvas flow."
+  });
 
   checks.push({
     id: "doc.architecture.canvas_history_event_documented",
@@ -454,6 +496,21 @@ export function runDocsDriftChecks() {
       && architectureDoc.includes("canvas.history.undo")
       && architectureDoc.includes("canvas.history.redo"),
     detail: "docs/ARCHITECTURE.md must document the canvas history event boundary and public undo/redo commands."
+  });
+  checks.push({
+    id: "doc.architecture.canvas_plan_guidance_documented",
+    ok: architectureDoc.includes("generationPlanIssues")
+      && architectureDoc.includes("allowedValues")
+      && architectureDoc.includes("missing-vs-invalid generation-plan classification"),
+    detail: "docs/ARCHITECTURE.md must document generationPlanIssues, allowedValues, and missing-vs-invalid plan ownership."
+  });
+  checks.push({
+    id: "doc.design_canvas_spec.plan_guidance_documented",
+    ok: designCanvasSpec.includes("generationPlanIssues")
+      && designCanvasSpec.includes("plan_invalid")
+      && designCanvasSpec.includes("canvas.plan.get")
+      && designCanvasSpec.includes("not required after a successful `canvas.plan.set`"),
+    detail: "docs/DESIGN_CANVAS_TECHNICAL_SPEC.md must document generationPlanIssues, plan_invalid, and the optional diagnostic role of canvas.plan.get."
   });
 
   checks.push({
@@ -519,6 +576,13 @@ export function runDocsDriftChecks() {
     required: ["meta.primaryConstraintSummary", "meta.metrics.reasonCodeDistribution", "meta.reasonCodeDistribution"],
     forbidden: ["primary_constraint_summary", "reason_code_distribution"],
     detail: "docs/SURFACE_REFERENCE.md must document the camelCase workflow summary and reason-code distribution keys without the removed snake_case aliases."
+  });
+  checks.push({
+    id: "doc.surface.canvas_plan_guidance_documented",
+    ok: surfaceDoc.includes("generationPlanIssues")
+      && surfaceDoc.includes("generation_plan_invalid")
+      && surfaceDoc.includes("preflight-blocker"),
+    detail: "docs/SURFACE_REFERENCE.md must document generationPlanIssues, generation_plan_invalid, and preflight-blocker guidance for /canvas."
   });
 
   checks.push({
@@ -604,9 +668,22 @@ export function runDocsDriftChecks() {
     detail: "skills/opendevbrowser-best-practices/SKILL.md must own direct-run release evidence policy."
   });
   checks.push({
+    id: "skill.best_practices.canvas_plan_guidance_documented",
+    ok: bestPracticesSkill.includes("generationPlanIssues")
+      && bestPracticesSkill.includes("plan_invalid")
+      && bestPracticesSkill.includes("generation_plan_invalid"),
+    detail: "skills/opendevbrowser-best-practices/SKILL.md must document generationPlanIssues, plan_invalid, and generation_plan_invalid."
+  });
+  checks.push({
     id: "skill.best_practices.surface_counts_match_source",
     ok: bestPracticesSkill.includes(`${commandCount} CLI commands, ${toolCount} tools, ${opsCommandCount} \`/ops\` commands, ${canvasCommandCount} \`/canvas\` commands`),
     detail: `skills/opendevbrowser-best-practices/SKILL.md must mirror source counts ${commandCount}/${toolCount}/${opsCommandCount}/${canvasCommandCount}.`
+  });
+  checks.push({
+    id: "skill.best_practices.inspiredesign_lane_documented",
+    ok: bestPracticesSkill.includes("npx opendevbrowser inspiredesign run")
+      && bestPracticesSkill.includes("./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh inspiredesign"),
+    detail: "skills/opendevbrowser-best-practices/SKILL.md must expose the inspiredesign lane in both validated capability guidance and router usage."
   });
 
   checks.push({
@@ -649,15 +726,43 @@ export function runDocsDriftChecks() {
       && surfaceAuditChecklist.checks.includes("Desktop observation commands documented"),
     detail: "surface-audit-checklist must explicitly include browser replay and desktop observation checks."
   });
+  checks.push({
+    id: "skill.surface_audit_checklist.first_contact_docs_documented",
+    ok: Array.isArray(surfaceAuditChecklist?.docsMustCover)
+      && surfaceAuditChecklist.docsMustCover.includes("docs/README.md")
+      && surfaceAuditChecklist.docsMustCover.includes("docs/FIRST_RUN_ONBOARDING.md"),
+    detail: "surface-audit-checklist must cover docs/README.md and docs/FIRST_RUN_ONBOARDING.md as first-contact docs."
+  });
+  checks.push({
+    id: "skill.surface_audit_checklist.first_contact_owners_documented",
+    ok: Array.isArray(surfaceAuditChecklist?.firstContactOwners)
+      && surfaceAuditChecklist.firstContactOwners.includes("src/cli/help.ts")
+      && surfaceAuditChecklist.firstContactOwners.includes("src/cli/onboarding-metadata.json")
+      && surfaceAuditChecklist.firstContactOwners.includes("README.md")
+      && surfaceAuditChecklist.firstContactOwners.includes("docs/README.md")
+      && surfaceAuditChecklist.firstContactOwners.includes("docs/FIRST_RUN_ONBOARDING.md")
+      && surfaceAuditChecklist.firstContactOwners.includes("skills/opendevbrowser-best-practices/SKILL.md"),
+    detail: "surface-audit-checklist must name generated help, onboarding metadata, README paths, and the best-practices runbook as first-contact owners."
+  });
+  checks.push({
+    id: "skill.surface_audit_checklist.first_contact_checks_documented",
+    ok: Array.isArray(surfaceAuditChecklist?.checks)
+      && surfaceAuditChecklist.checks.includes("Generated help first-contact owners documented")
+      && surfaceAuditChecklist.checks.includes("Onboarding metadata owner documented")
+      && surfaceAuditChecklist.checks.includes("First-run onboarding proof owner documented"),
+    detail: "surface-audit-checklist must include the first-contact owner and proof-lane audit checks."
+  });
 
   checks.push({
     id: "skill.design_agent.canvas_validation_markers_documented",
     ok: designSkill.includes("canvas.history.undo")
       && designSkill.includes("canvas.history.redo")
       && designSkill.includes("canvas_history_requested")
+      && designSkill.includes("generationPlanIssues")
+      && designSkill.includes("plan_invalid")
       && designSkill.includes("Delivered to agent")
       && designSkill.includes("Stored only; fetch with annotate --stored"),
-    detail: "design-agent skill must document history control validation and annotation send receipts."
+    detail: "design-agent skill must document history control validation, invalid-plan guidance, and annotation send receipts."
   });
 
   checks.push({

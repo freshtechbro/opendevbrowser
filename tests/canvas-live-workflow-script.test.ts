@@ -7,6 +7,7 @@ import {
   classifyWorkflowFailure,
   DISCONNECT_TIMEOUT_MS,
   DISCONNECT_WRAPPER_TIMEOUT_MS,
+  GENERATION_PLAN,
   getSurfaceConfig,
   parseArgs,
   resolveCanvasWorkflowTargetId,
@@ -26,6 +27,48 @@ describe("canvas-live-workflow script", () => {
 
     expect(parsed.surface).toBe("extension");
     expect(parsed.out).toContain("/tmp/odb-canvas-extension-hero-");
+  });
+
+  it("keeps the live workflow generation plan aligned to the current canvas contract", () => {
+    expect(GENERATION_PLAN).toEqual({
+      targetOutcome: {
+        mode: "high-fi-live-edit",
+        summary: "Validate the current /canvas workflow against a real hero scenario."
+      },
+      visualDirection: {
+        profile: "clean-room",
+        themeStrategy: "single-theme"
+      },
+      layoutStrategy: {
+        approach: "hero-led-grid",
+        navigationModel: "global-header"
+      },
+      contentStrategy: {
+        source: "document-context"
+      },
+      componentStrategy: {
+        mode: "reuse-first",
+        interactionStates: ["default", "hover", "focus", "disabled"]
+      },
+      motionPosture: {
+        level: "subtle",
+        reducedMotion: "respect-user-preference"
+      },
+      responsivePosture: {
+        primaryViewport: "desktop",
+        requiredViewports: ["desktop", "tablet", "mobile"]
+      },
+      accessibilityPosture: {
+        target: "WCAG_2_2_AA",
+        keyboardNavigation: "full"
+      },
+      validationTargets: {
+        blockOn: ["contrast-failure", "responsive-mismatch"],
+        requiredThemes: ["light"],
+        browserValidation: "required",
+        maxInteractionLatencyMs: 180
+      }
+    });
   });
 
   it("uses temporary managed profiles for direct live workflow surfaces", () => {
@@ -50,6 +93,13 @@ describe("canvas-live-workflow script", () => {
     expect(cdp?.closeBrowser).toBe(false);
     expect(DISCONNECT_TIMEOUT_MS).toBe(120_000);
     expect(DISCONNECT_WRAPPER_TIMEOUT_MS).toBeGreaterThan(DISCONNECT_TIMEOUT_MS);
+  });
+
+  it("keeps enough parent watchdog budget for late cdp export, save, close, and disconnect cleanup", () => {
+    expect(CDP_PARENT_WATCHDOG_MS).toBe(420_000);
+    expect(CDP_PARENT_WATCHDOG_MS).toBeGreaterThan(
+      CDP_CODE_SYNC_STEP_TIMEOUT_MS + (4 * CDP_LONG_STEP_TIMEOUT_MS) + CDP_TEARDOWN_RESERVE_MS
+    );
   });
 
   it("classifies restricted-url preview failures as env-limited only for extension-backed surfaces", () => {

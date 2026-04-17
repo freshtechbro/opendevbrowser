@@ -14,7 +14,7 @@ export async function buildBrowserReviewResult(args: {
     "actionables",
     args.maxChars,
     args.cursor,
-    args.targetId
+    reviewTargetId
   );
   const dialog = reviewTargetId
     ? (await args.manager.dialog(args.sessionId, {

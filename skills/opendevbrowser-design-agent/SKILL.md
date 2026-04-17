@@ -92,6 +92,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - Prefer real content, realistic states, and explicit user journeys over placeholder copy.
 - Preserve the repo's existing design system when one already exists. Only introduce a new direction when the brief or product gap justifies it.
 - Treat `/canvas` governance as the strongest contract in the repo: read the handshake, respect `generationPlanRequirements`, and do not mutate before the plan is accepted.
+- Treat `preflightState="handshake_read"` as the required ready state for the first post-open decision loop unless the handshake is already reporting an invalid-plan repair path.
 - For non-canvas frontend work, still fill the same design-contract fields before coding so decisions stay consistent across code, preview, and docs.
 - Use one owner for overlays, drawers, sheets, and detail panels; prefer item-backed state over boolean sprawl.
 - If motion depends on scroll or viewport progress, define the driver and reduced-motion fallback before implementation.
@@ -176,16 +177,17 @@ Use when starting from screenshots, mocks, or an existing page.
 Use when the task should run through the design canvas.
 
 - Start with `canvas.session.open` or `canvas.capabilities.get`.
-- Read the handshake and confirm `preflightState="handshake_read"`, `planStatus`, and `guidance.recommendedNextCommands` before choosing the next command.
+- Read the handshake and inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, and `guidance.recommendedNextCommands` before choosing the next command.
+- Treat `preflightState="handshake_read"` as the normal first-step checkpoint before `canvas.plan.set`; if the handshake already reports `plan_invalid`, repair the plan instead of mutating.
 - Fill the full design contract and extract the `generationPlan`.
 - Submit `canvas.plan.set`.
-- Re-check `canvas.plan.get` or `canvas.capabilities.get` until the runtime reports `planStatus="accepted"` or `preflightState="plan_accepted"`.
-- Follow `guidance.recommendedNextCommands` after `canvas.plan.set`, then mutate with `canvas.document.patch`.
+- If `canvas.plan.set` succeeds with `planStatus="accepted"` or `preflightState="plan_accepted"`, follow the returned `guidance.recommendedNextCommands`, then mutate with `canvas.document.patch`.
+- If `canvas.plan.set` fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, and `generationPlanIssues`, then optionally re-read with `canvas.plan.get` or `canvas.capabilities.get` before resubmitting.
 - After every successful `canvas.document.patch`, `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.document.save`, or `canvas.document.export`, read `guidance.recommendedNextCommands` and `guidance.reason` before choosing the next step.
 - Validate extension-stage history controls against public `canvas.history.undo` and `canvas.history.redo`; design-tab clicks emit the internal `canvas_history_requested` event, but acceptance is still on the public command outcomes.
 - When token work is in scope, validate collection or mode authoring, token value or alias edits, selected-node binding, and token usage inspection in the extension stage.
 - If annotation send is part of the workflow, record whether the design tab returned `Delivered to agent` or `Stored only; fetch with annotate --stored`.
-- Use `canvas.preview.render`, `canvas.feedback.poll`, `canvas.preview.refresh`, and `canvas.document.save` as the validation loop in that order.
+- Use `canvas.preview.render`, `canvas.feedback.poll`, `canvas.preview.refresh`, and `canvas.document.save` as the validation loop in that order. If `canvas.feedback.poll` returns a `preflight-blocker`, return to `canvas.plan.set` before continuing.
 
 ### `real-surface-validation`
 

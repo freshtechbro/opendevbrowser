@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ConfigStore, loadGlobalConfig, resolveConfig } from "../src/config";
+import {
+  ConfigStore,
+  loadGlobalConfig,
+  requireChallengeOrchestrationConfig,
+  resolveConfig
+} from "../src/config";
 import { resolveFigmaAccessToken } from "../src/integrations/figma/auth";
 import * as fs from "fs";
 import * as path from "path";
@@ -488,6 +493,20 @@ describe("resolveConfig", () => {
 
   it("rejects invalid overrides", () => {
     expect(() => resolveConfig({ relayPort: -1 })).toThrow("Invalid opendevbrowser config override");
+  });
+});
+
+describe("requireChallengeOrchestrationConfig", () => {
+  it("returns the configured challenge orchestration block", () => {
+    const config = resolveConfig({});
+
+    expect(requireChallengeOrchestrationConfig(config)).toBe(config.providers?.challengeOrchestration);
+  });
+
+  it("throws when the challenge orchestration block is unavailable", () => {
+    expect(() => requireChallengeOrchestrationConfig({ providers: undefined })).toThrow(
+      "Challenge orchestration config is unavailable."
+    );
   });
 });
 

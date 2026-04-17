@@ -51,6 +51,7 @@ import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
 import { isWorkflowResumePayload, type WorkflowKind, type WorkflowResumeEnvelope } from "./workflow-contracts";
 import {
+  runInspiredesignWorkflow,
   runProductVideoWorkflow,
   runResearchWorkflow,
   runShoppingWorkflow
@@ -99,6 +100,7 @@ const DEFAULT_PROVIDER_SUSPENDED_INTENT_KIND: Record<ProviderOperation, Suspende
 const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind, WorkflowKind> = {
   "workflow.research": "research",
   "workflow.shopping": "shopping",
+  "workflow.inspiredesign": "inspiredesign",
   "workflow.product_video": "product_video"
 };
 
@@ -1909,6 +1911,14 @@ export class ProviderRuntime {
         );
       case "workflow.shopping":
         return runShoppingWorkflow(
+          this,
+          unwrapWorkflowResumeEnvelope(
+            WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
+            input
+          )
+        );
+      case "workflow.inspiredesign":
+        return runInspiredesignWorkflow(
           this,
           unwrapWorkflowResumeEnvelope(
             WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],

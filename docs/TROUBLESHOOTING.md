@@ -42,7 +42,7 @@ If `desktop-status` or another `desktop-*` command reports `reason=desktop_unsup
 2. If `swift` is missing, install Xcode or a Swift toolchain, then restart the daemon.
 3. Retry `npx opendevbrowser desktop-status --output-format json`.
 
-The shipped desktop runtime uses `swift -e` for availability, window, and accessibility probes, and the built-in `screencapture` utility for image capture.
+The shipped desktop runtime uses `swift -e` for availability, window inventory, and accessibility probes, and uses `screencapture` for image capture.
 
 ### Canvas inventory vs starter commands
 

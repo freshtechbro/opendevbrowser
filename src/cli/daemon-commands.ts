@@ -1,10 +1,19 @@
 import { randomUUID } from "crypto";
 import type { OpenDevBrowserCore } from "../core";
 import { buildBrowserReviewResult } from "../browser/review-surface";
-import { inspectSession } from "../browser/session-inspector";
+import {
+  buildCorrelatedAuditBundle,
+  inspectSession
+} from "../browser/session-inspector";
 import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import { runProductVideoWorkflow, runResearchWorkflow, runShoppingWorkflow } from "../providers/workflows";
+import { captureInspiredesignReferenceFromManager } from "../providers/inspiredesign-capture";
+import {
+  runInspiredesignWorkflow,
+  runProductVideoWorkflow,
+  runResearchWorkflow,
+  runShoppingWorkflow
+} from "../providers/workflows";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
   type MacroExecutionPayload,
@@ -125,12 +134,14 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     case "session.status":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.status(requireString(params.sessionId, "sessionId"));
+    case "status.capabilities":
+      if (typeof params.sessionId === "string") {
+        await authorizeSessionCommand(core, params, request.name, bindingId);
+      }
+      return runStatusCapabilities(core, params);
     case "session.inspect": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
-      const inspector = core.manager.createSessionInspector?.();
-      if (!inspector) {
-        throw new Error("Session inspector is unavailable for the current runtime.");
-      }
+      const inspector = requireSessionInspectorHandle(core);
       return inspectSession(inspector, {
         sessionId: requireString(params.sessionId, "sessionId"),
         includeUrls: optionalBoolean(params.includeUrls) ?? true,
@@ -142,6 +153,12 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         relayStatus: core.relay.status()
       });
     }
+    case "session.inspectPlan":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return runInspectChallengePlan(core, params);
+    case "session.inspectAudit":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return runInspectAudit(core, params);
     case "desktop.status":
       return core.desktopRuntime.status();
     case "desktop.windows.list":
@@ -337,6 +354,9 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         maxChars: optionalNumber(params.maxChars, "maxChars") ?? core.config.snapshot.maxChars,
         cursor: optionalString(params.cursor)
       });
+    case "nav.reviewDesktop":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      return runReviewDesktop(core, params);
     case "interact.click":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.click(
@@ -790,6 +810,32 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         }
       );
+    case "inspiredesign.run": {
+      const inspiredesignTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
+      return runInspiredesignWorkflow(
+        createDaemonWorkflowRuntime(core),
+        {
+          brief: requireString(params.brief, "brief"),
+          urls: optionalStringArray(params.urls),
+          captureMode: optionalInspiredesignCaptureMode(params.captureMode),
+          includePrototypeGuidance: optionalBoolean(params.includePrototypeGuidance),
+          mode: optionalRenderMode(params.mode) ?? "compact",
+          timeoutMs: inspiredesignTimeoutMs,
+          outputDir: optionalString(params.outputDir),
+          ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          useCookies: optionalBoolean(params.useCookies),
+          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
+        },
+        {
+          captureReference: async (url, options) =>
+            captureInspiredesignReferenceFromManager(core.manager, url, {
+              ...options,
+              cookieSource: core.config.providers?.cookieSource
+            })
+        }
+      );
+    }
     case "product.video.run": {
       const productVideoTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
       return runProductVideoWorkflow(
@@ -886,6 +932,7 @@ async function launchWithRelay(
   const observedPort = resolveObservedPort(relayStatus, relayPort);
   const shouldFetchObserved = !managedExplicit && (!relayUrl || !relayStatus.extensionHandshakeComplete);
   const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
+  const matchingObservedStatus = getMatchingObservedRelayStatus(relayStatus, observedStatus);
   if (!relayUrl) {
     const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
     relayUrl = fallbackPort ? buildLoopbackSessionRelayEndpoint(fallbackPort, { extensionLegacy }) : null;
@@ -893,15 +940,26 @@ async function launchWithRelay(
   const extensionReady = Boolean(
     relayUrl && (
       relayStatus.extensionHandshakeComplete ||
-      observedStatus?.extensionHandshakeComplete
+      matchingObservedStatus?.extensionHandshakeComplete
     )
   );
-  const extensionSocketConnected = Boolean(relayStatus.extensionConnected || observedStatus?.extensionConnected);
+  const extensionSocketConnected = Boolean(
+    relayStatus.extensionConnected || matchingObservedStatus?.extensionConnected
+  );
+  const observedInstanceMismatch = Boolean(
+    observedStatus
+    && observedStatus.instanceId !== relayStatus.instanceId
+    && (observedStatus.extensionConnected || observedStatus.extensionHandshakeComplete)
+  );
   const handshakePending = Boolean(relayUrl && extensionSocketConnected && !extensionReady);
   const diagnostics = observedStatus
     ? `Diagnostics: relayPort=${observedPort ?? "?"} instance=${observedStatus.instanceId.slice(0, 8)} ext=${observedStatus.extensionConnected} handshake=${observedStatus.extensionHandshakeComplete} ops=${observedStatus.opsConnected} cdp=${observedStatus.cdpConnected}`
     : null;
-  const missingReason = handshakePending
+  const missingReason = observedInstanceMismatch
+    ? diagnostics
+      ? `Extension not connected to the expected relay instance. ${diagnostics}`
+      : "Extension not connected to the expected relay instance."
+    : handshakePending
     ? diagnostics
       ? `Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake. ${diagnostics}`
       : "Extension websocket connected but handshake incomplete. Re-establish a clean daemon-extension handshake."
@@ -1063,6 +1121,84 @@ async function disconnectSession(
     return { ok: true, bindingReleased: true };
   }
   return { ok: true };
+}
+
+function requireSessionInspectorHandle(core: OpenDevBrowserCore) {
+  const inspector = core.manager.createSessionInspector?.();
+  if (!inspector) {
+    throw new Error("Session inspector is unavailable for the current runtime.");
+  }
+  return inspector;
+}
+
+function readChallengeAutomationMode(
+  params: Record<string, unknown>
+): ChallengeAutomationMode | undefined {
+  return optionalChallengeAutomationMode(params.challengeAutomationMode);
+}
+
+async function runReviewDesktop(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  return core.automationCoordinator.reviewDesktop({
+    browserSessionId: requireString(params.sessionId, "sessionId"),
+    targetId: optionalString(params.targetId),
+    reason: optionalString(params.reason),
+    maxChars: optionalNumber(params.maxChars, "maxChars"),
+    cursor: optionalString(params.cursor)
+  });
+}
+
+async function runInspectChallengePlan(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  return core.automationCoordinator.inspectChallengePlan({
+    browserSessionId: requireString(params.sessionId, "sessionId"),
+    targetId: optionalString(params.targetId),
+    runMode: readChallengeAutomationMode(params)
+  });
+}
+
+async function runInspectAudit(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  const browserSessionId = requireString(params.sessionId, "sessionId");
+  const targetId = optionalString(params.targetId);
+  const review = await runReviewDesktop(core, params);
+  const challengePlan = await core.automationCoordinator.inspectChallengePlan({
+    browserSessionId,
+    targetId,
+    runMode: readChallengeAutomationMode(params)
+  });
+  return buildCorrelatedAuditBundle({
+    handle: requireSessionInspectorHandle(core),
+    browserSessionId,
+    targetId,
+    observation: review.observation,
+    review: review.verification,
+    challengePlan,
+    includeUrls: optionalBoolean(params.includeUrls) ?? undefined,
+    sinceConsoleSeq: optionalNumber(params.sinceConsoleSeq, "sinceConsoleSeq"),
+    sinceNetworkSeq: optionalNumber(params.sinceNetworkSeq, "sinceNetworkSeq"),
+    sinceExceptionSeq: optionalNumber(params.sinceExceptionSeq, "sinceExceptionSeq"),
+    max: optionalNumber(params.max, "max"),
+    requestId: optionalString(params.requestId),
+    relayStatus: core.relay.status()
+  });
+}
+
+async function runStatusCapabilities(
+  core: OpenDevBrowserCore,
+  params: Record<string, unknown>
+) {
+  return core.automationCoordinator.statusCapabilities({
+    browserSessionId: optionalString(params.sessionId),
+    targetId: optionalString(params.targetId),
+    runMode: readChallengeAutomationMode(params)
+  });
 }
 
 async function authorizeSessionCommand(
@@ -1630,6 +1766,14 @@ function optionalWorkflowBrowserMode(value: unknown): "auto" | "extension" | "ma
   throw new Error("Invalid browserMode");
 }
 
+function optionalInspiredesignCaptureMode(value: unknown): "off" | "deep" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "off" || value === "deep") {
+    return value;
+  }
+  throw new Error("Invalid captureMode");
+}
+
 function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networkidle" {
   if (value === "domcontentloaded" || value === "load" || value === "networkidle") {
     return value;
@@ -1744,17 +1888,21 @@ function clampWaitTimeout(timeoutMs: number): number {
 }
 
 async function waitForRelayHandshake(
-  relay: { status: () => { extensionHandshakeComplete: boolean } },
+  relay: { status: () => { extensionHandshakeComplete: boolean; instanceId: string } },
   observedPort: number | null,
   timeoutMs: number
 ): Promise<boolean> {
   const start = Date.now();
   let delay = WAIT_MIN_DELAY_MS;
   while (Date.now() - start < timeoutMs) {
-    if (relay.status().extensionHandshakeComplete) {
+    const relayStatus = relay.status();
+    if (relayStatus.extensionHandshakeComplete) {
       return true;
     }
-    const observedStatus = await fetchRelayObservedStatus(observedPort);
+    const observedStatus = getMatchingObservedRelayStatus(
+      relayStatus,
+      await fetchRelayObservedStatus(observedPort)
+    );
     if (observedStatus?.extensionHandshakeComplete) {
       return true;
     }
@@ -1808,6 +1956,16 @@ async function fetchRelayObservedStatus(port: number | null): Promise<RelayObser
   } catch {
     return null;
   }
+}
+
+function getMatchingObservedRelayStatus(
+  relayStatus: { instanceId: string },
+  observedStatus: RelayObservedStatus | null
+): RelayObservedStatus | null {
+  if (!observedStatus) {
+    return null;
+  }
+  return observedStatus.instanceId === relayStatus.instanceId ? observedStatus : null;
 }
 
 async function loadMacroRuntime(): Promise<MacroRuntimeModule | null> {

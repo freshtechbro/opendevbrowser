@@ -759,6 +759,16 @@ export function resolveConfig(config: unknown): OpenDevBrowserConfig {
   return { ...data, relayToken, daemonToken };
 }
 
+export function requireChallengeOrchestrationConfig(
+  config: Pick<OpenDevBrowserConfig, "providers">
+): ProvidersChallengeOrchestrationConfig {
+  const challengeOrchestration = config.providers?.challengeOrchestration;
+  if (!challengeOrchestration) {
+    throw new Error("Challenge orchestration config is unavailable.");
+  }
+  return challengeOrchestration;
+}
+
 function persistDaemonConfigDefaults(params: {
   configPath: string;
   content: string;

@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import type {
   CanvasAsset,
   CanvasBinding,
+  CanvasBrowserValidationMode,
   CanvasBlockState,
   CanvasCapabilityGrant,
   CanvasComponentContentContract,
@@ -16,6 +17,9 @@ import type {
   CanvasDocumentMeta,
   CanvasFeedbackCategory,
   CanvasFeedbackItem,
+  CanvasGenerationPlanField,
+  CanvasGenerationPlanIssue,
+  CanvasGenerationPlanValidationResult,
   CanvasGenerationPlan,
   CanvasGovernanceBlockKey,
   CanvasGovernanceBlockState,
@@ -24,6 +28,8 @@ import type {
   CanvasImportProvenance,
   CanvasImportSource,
   CanvasInventoryOrigin,
+  CanvasInteractionState,
+  CanvasKeyboardNavigationMode,
   CanvasLibraryPolicy,
   CanvasAdapterCapability,
   CanvasAdapterErrorEnvelope,
@@ -33,10 +39,14 @@ import type {
   CanvasFrameworkCompatibility,
   CanvasFrameworkRef,
   CanvasLibraryCompatibility,
+  CanvasMotionLevel,
   CanvasNode,
   CanvasPage,
+  CanvasPlanTheme,
+  CanvasPlanViewport,
   CanvasPatch,
   CanvasPrototype,
+  CanvasReducedMotionPolicy,
   CanvasStarterApplication,
   CanvasStarterTemplate,
   CanvasTokenAlias,
@@ -46,67 +56,39 @@ import type {
   CanvasTokenMode,
   CanvasTokenStore,
   CanvasValidationWarning,
+  CanvasVisualDirectionProfile,
   CanvasVariantPatch,
   CanvasVariantSelector,
   CanvasSourceFamily
 } from "./types";
-import { CANVAS_SCHEMA_VERSION } from "./types";
+import {
+  CANVAS_BROWSER_VALIDATION_MODES,
+  CANVAS_GENERATION_PLAN_REQUIRED_FIELDS,
+  CANVAS_GOVERNANCE_BLOCK_KEYS,
+  CANVAS_INTERACTION_STATES,
+  CANVAS_KEYBOARD_NAVIGATION_MODES,
+  CANVAS_MOTION_LEVELS,
+  CANVAS_NAVIGATION_MODELS,
+  CANVAS_OPTIONAL_INHERITED_GOVERNANCE_KEYS,
+  CANVAS_PLAN_THEMES,
+  CANVAS_PLAN_VIEWPORTS,
+  CANVAS_PUBLIC_WARNING_CLASSES,
+  CANVAS_REDUCED_MOTION_POLICIES,
+  CANVAS_REQUIRED_SAVE_GOVERNANCE_KEYS,
+  CANVAS_SCHEMA_VERSION,
+  CANVAS_SESSION_MODES,
+  CANVAS_THEME_STRATEGIES,
+  CANVAS_VALIDATION_TARGET_BLOCK_ON_CODES,
+  CANVAS_VISUAL_DIRECTION_PROFILES
+} from "./types";
 import { normalizeCodeSyncBindingMetadata } from "./code-sync/types";
 import { resolveCanvasTokenValue } from "./token-references";
 
-const GOVERNANCE_KEYS: CanvasGovernanceBlockKey[] = [
-  "intent",
-  "generationPlan",
-  "designLanguage",
-  "contentModel",
-  "layoutSystem",
-  "typographySystem",
-  "colorSystem",
-  "surfaceSystem",
-  "iconSystem",
-  "motionSystem",
-  "responsiveSystem",
-  "accessibilityPolicy",
-  "libraryPolicy",
-  "runtimeBudgets"
-];
+const GOVERNANCE_KEYS: CanvasGovernanceBlockKey[] = [...CANVAS_GOVERNANCE_BLOCK_KEYS];
 
-const OPTIONAL_INHERITED_KEYS = new Set<CanvasGovernanceBlockKey>([
-  "colorSystem",
-  "surfaceSystem",
-  "iconSystem",
-  "libraryPolicy",
-  "runtimeBudgets"
-]);
+const OPTIONAL_INHERITED_KEYS = new Set<CanvasGovernanceBlockKey>(CANVAS_OPTIONAL_INHERITED_GOVERNANCE_KEYS);
 
-const REQUIRED_BEFORE_SAVE_KEYS: CanvasGovernanceBlockKey[] = [
-  "intent",
-  "generationPlan",
-  "designLanguage",
-  "contentModel",
-  "layoutSystem",
-  "typographySystem",
-  "colorSystem",
-  "surfaceSystem",
-  "iconSystem",
-  "motionSystem",
-  "responsiveSystem",
-  "accessibilityPolicy",
-  "libraryPolicy",
-  "runtimeBudgets"
-];
-
-const REQUIRED_PLAN_FIELDS = [
-  "targetOutcome",
-  "visualDirection",
-  "layoutStrategy",
-  "contentStrategy",
-  "componentStrategy",
-  "motionPosture",
-  "responsivePosture",
-  "accessibilityPosture",
-  "validationTargets"
-] as const;
+const REQUIRED_BEFORE_SAVE_KEYS: CanvasGovernanceBlockKey[] = [...CANVAS_REQUIRED_SAVE_GOVERNANCE_KEYS];
 
 const PROJECT_DEFAULT_LIBRARY_POLICY: CanvasLibraryPolicy = {
   icons: ["3dicons", "tabler", "microsoft-fluent-ui-system-icons", "@lobehub/fluent-emoji-3d"],
@@ -159,6 +141,19 @@ const CANVAS_ADAPTER_CAPABILITIES = new Set<CanvasAdapterCapability>([
   "tokens",
   "starter_templates"
 ]);
+
+const CANVAS_SESSION_MODE_SET = new Set(CANVAS_SESSION_MODES);
+const CANVAS_VISUAL_DIRECTION_PROFILE_SET = new Set<CanvasVisualDirectionProfile>(CANVAS_VISUAL_DIRECTION_PROFILES);
+const CANVAS_THEME_STRATEGY_SET = new Set(CANVAS_THEME_STRATEGIES);
+const CANVAS_NAVIGATION_MODEL_SET = new Set(CANVAS_NAVIGATION_MODELS);
+const CANVAS_INTERACTION_STATE_SET = new Set<CanvasInteractionState>(CANVAS_INTERACTION_STATES);
+const CANVAS_VIEWPORT_SET = new Set<CanvasPlanViewport>(CANVAS_PLAN_VIEWPORTS);
+const CANVAS_THEME_SET = new Set<CanvasPlanTheme>(CANVAS_PLAN_THEMES);
+const CANVAS_MOTION_LEVEL_SET = new Set<CanvasMotionLevel>(CANVAS_MOTION_LEVELS);
+const CANVAS_REDUCED_MOTION_POLICY_SET = new Set<CanvasReducedMotionPolicy>(CANVAS_REDUCED_MOTION_POLICIES);
+const CANVAS_KEYBOARD_NAVIGATION_SET = new Set<CanvasKeyboardNavigationMode>(CANVAS_KEYBOARD_NAVIGATION_MODES);
+const CANVAS_BROWSER_VALIDATION_MODE_SET = new Set<CanvasBrowserValidationMode>(CANVAS_BROWSER_VALIDATION_MODES);
+const CANVAS_VALIDATION_TARGET_BLOCK_ON_SET = new Set(CANVAS_VALIDATION_TARGET_BLOCK_ON_CODES);
 
 function inheritedDefaultForGovernanceKey(key: CanvasGovernanceBlockKey): Record<string, unknown> | null {
   switch (key) {
@@ -1303,12 +1298,407 @@ export function mergeImportedCanvasState(
   return next;
 }
 
-export function validateGenerationPlan(plan: unknown): { ok: true } | { ok: false; missing: string[] } {
-  if (!isRecord(plan)) {
-    return { ok: false, missing: [...REQUIRED_PLAN_FIELDS] };
+function pushGenerationPlanIssue(
+  issues: CanvasGenerationPlanIssue[],
+  issue: CanvasGenerationPlanIssue
+): void {
+  issues.push(issue);
+}
+
+function requirePlanSection(
+  plan: Record<string, unknown>,
+  field: CanvasGenerationPlanField,
+  missing: CanvasGenerationPlanField[],
+  issues: CanvasGenerationPlanIssue[]
+): Record<string, unknown> | null {
+  const value = plan[field];
+  if (isNonEmptyRecord(value)) {
+    return value;
   }
-  const missing = REQUIRED_PLAN_FIELDS.filter((field) => !isNonEmptyRecord(plan[field]));
-  return missing.length === 0 ? { ok: true } : { ok: false, missing: [...missing] };
+  missing.push(field);
+  pushGenerationPlanIssue(issues, {
+    path: field,
+    code: "missing_field",
+    message: `generationPlan.${field} is required.`,
+    expected: "non-empty object",
+    received: clone(value)
+  });
+  return null;
+}
+
+function requirePlanString(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  issues: CanvasGenerationPlanIssue[]
+): string | null {
+  const value = record[key];
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+  pushGenerationPlanIssue(issues, {
+    path,
+    code: value === undefined ? "missing_field" : "invalid_type",
+    message: `${path} must be a non-empty string.`,
+    expected: "non-empty string",
+    received: clone(value)
+  });
+  return null;
+}
+
+function requirePlanEnum<T extends string>(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  allowedValues: readonly T[],
+  allowedSet: ReadonlySet<T>,
+  issues: CanvasGenerationPlanIssue[]
+): T | null {
+  const value = record[key];
+  if (typeof value === "string" && allowedSet.has(value as T)) {
+    return value as T;
+  }
+  pushGenerationPlanIssue(issues, {
+    path,
+    code: value === undefined ? "missing_field" : "invalid_value",
+    message: `${path} must be one of the supported values.`,
+    expected: [...allowedValues],
+    received: clone(value)
+  });
+  return null;
+}
+
+function requirePlanEnumArray<T extends string>(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  allowedValues: readonly T[],
+  allowedSet: ReadonlySet<T>,
+  issues: CanvasGenerationPlanIssue[]
+): T[] | null {
+  const value = record[key];
+  if (!Array.isArray(value) || value.length === 0) {
+    pushGenerationPlanIssue(issues, {
+      path,
+      code: value === undefined ? "missing_field" : "invalid_type",
+      message: `${path} must be a non-empty array of supported values.`,
+      expected: [...allowedValues],
+      received: clone(value)
+    });
+    return null;
+  }
+  const normalized = uniqueStrings(value.filter((entry): entry is T => typeof entry === "string")) as T[];
+  const invalidEntries = normalized.filter((entry) => !allowedSet.has(entry));
+  if (invalidEntries.length > 0) {
+    pushGenerationPlanIssue(issues, {
+      path,
+      code: "invalid_value",
+      message: `${path} contains unsupported values.`,
+      expected: [...allowedValues],
+      received: invalidEntries
+    });
+    return null;
+  }
+  if (normalized.length === 0) {
+    pushGenerationPlanIssue(issues, {
+      path,
+      code: "invalid_type",
+      message: `${path} must include at least one supported value.`,
+      expected: [...allowedValues],
+      received: clone(value)
+    });
+    return null;
+  }
+  return normalized;
+}
+
+function requirePositiveNumber(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  issues: CanvasGenerationPlanIssue[]
+): number | null {
+  const value = record[key];
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  pushGenerationPlanIssue(issues, {
+    path,
+    code: value === undefined ? "missing_field" : "invalid_value",
+    message: `${path} must be a finite positive number.`,
+    expected: "finite positive number",
+    received: clone(value)
+  });
+  return null;
+}
+
+function buildGenerationPlanFailureMessage(
+  missing: CanvasGenerationPlanField[],
+  issues: CanvasGenerationPlanIssue[]
+): string {
+  if (missing.length > 0) {
+    return `Generation plan missing fields: ${missing.join(", ")}`;
+  }
+  const invalidPaths = uniqueStrings(issues.map((issue) => issue.path));
+  return `Generation plan has invalid fields: ${invalidPaths.join(", ")}`;
+}
+
+export function validateGenerationPlan(plan: unknown): CanvasGenerationPlanValidationResult {
+  if (!isRecord(plan)) {
+    return {
+      ok: false,
+      missing: [...CANVAS_GENERATION_PLAN_REQUIRED_FIELDS],
+      issues: CANVAS_GENERATION_PLAN_REQUIRED_FIELDS.map((field) => ({
+        path: field,
+        code: "missing_field",
+        message: `generationPlan.${field} is required.`,
+        expected: "non-empty object",
+        received: clone(plan)
+      }))
+    };
+  }
+  const missing: CanvasGenerationPlanField[] = [];
+  const issues: CanvasGenerationPlanIssue[] = [];
+  const targetOutcome = requirePlanSection(plan, "targetOutcome", missing, issues);
+  const visualDirection = requirePlanSection(plan, "visualDirection", missing, issues);
+  const layoutStrategy = requirePlanSection(plan, "layoutStrategy", missing, issues);
+  const contentStrategy = requirePlanSection(plan, "contentStrategy", missing, issues);
+  const componentStrategy = requirePlanSection(plan, "componentStrategy", missing, issues);
+  const motionPosture = requirePlanSection(plan, "motionPosture", missing, issues);
+  const responsivePosture = requirePlanSection(plan, "responsivePosture", missing, issues);
+  const accessibilityPosture = requirePlanSection(plan, "accessibilityPosture", missing, issues);
+  const validationTargets = requirePlanSection(plan, "validationTargets", missing, issues);
+
+  const mode = targetOutcome
+    ? requirePlanEnum(targetOutcome, "mode", "targetOutcome.mode", CANVAS_SESSION_MODES, CANVAS_SESSION_MODE_SET, issues)
+    : null;
+  const summary = targetOutcome
+    ? requirePlanString(targetOutcome, "summary", "targetOutcome.summary", issues)
+    : null;
+  const profile = visualDirection
+    ? requirePlanEnum(
+      visualDirection,
+      "profile",
+      "visualDirection.profile",
+      CANVAS_VISUAL_DIRECTION_PROFILES,
+      CANVAS_VISUAL_DIRECTION_PROFILE_SET,
+      issues
+    )
+    : null;
+  const themeStrategy = visualDirection
+    ? requirePlanEnum(
+      visualDirection,
+      "themeStrategy",
+      "visualDirection.themeStrategy",
+      CANVAS_THEME_STRATEGIES,
+      CANVAS_THEME_STRATEGY_SET,
+      issues
+    )
+    : null;
+  const approach = layoutStrategy
+    ? requirePlanString(layoutStrategy, "approach", "layoutStrategy.approach", issues)
+    : null;
+  const navigationModel = layoutStrategy
+    ? requirePlanEnum(
+      layoutStrategy,
+      "navigationModel",
+      "layoutStrategy.navigationModel",
+      CANVAS_NAVIGATION_MODELS,
+      CANVAS_NAVIGATION_MODEL_SET,
+      issues
+    )
+    : null;
+  const contentSource = contentStrategy
+    ? requirePlanString(contentStrategy, "source", "contentStrategy.source", issues)
+    : null;
+  const componentMode = componentStrategy
+    ? requirePlanString(componentStrategy, "mode", "componentStrategy.mode", issues)
+    : null;
+  const interactionStates = componentStrategy
+    ? requirePlanEnumArray(
+      componentStrategy,
+      "interactionStates",
+      "componentStrategy.interactionStates",
+      CANVAS_INTERACTION_STATES,
+      CANVAS_INTERACTION_STATE_SET,
+      issues
+    )
+    : null;
+  const motionLevel = motionPosture
+    ? requirePlanEnum(
+      motionPosture,
+      "level",
+      "motionPosture.level",
+      CANVAS_MOTION_LEVELS,
+      CANVAS_MOTION_LEVEL_SET,
+      issues
+    )
+    : null;
+  const reducedMotion = motionPosture
+    ? requirePlanEnum(
+      motionPosture,
+      "reducedMotion",
+      "motionPosture.reducedMotion",
+      CANVAS_REDUCED_MOTION_POLICIES,
+      CANVAS_REDUCED_MOTION_POLICY_SET,
+      issues
+    )
+    : null;
+  const primaryViewport = responsivePosture
+    ? requirePlanEnum(
+      responsivePosture,
+      "primaryViewport",
+      "responsivePosture.primaryViewport",
+      CANVAS_PLAN_VIEWPORTS,
+      CANVAS_VIEWPORT_SET,
+      issues
+    )
+    : null;
+  const requiredViewports = responsivePosture
+    ? requirePlanEnumArray(
+      responsivePosture,
+      "requiredViewports",
+      "responsivePosture.requiredViewports",
+      CANVAS_PLAN_VIEWPORTS,
+      CANVAS_VIEWPORT_SET,
+      issues
+    )
+    : null;
+  if (primaryViewport && requiredViewports && !requiredViewports.includes(primaryViewport)) {
+    pushGenerationPlanIssue(issues, {
+      path: "responsivePosture.requiredViewports",
+      code: "invalid_value",
+      message: "responsivePosture.requiredViewports must include responsivePosture.primaryViewport.",
+      expected: primaryViewport,
+      received: clone(requiredViewports)
+    });
+  }
+  const accessibilityTarget = accessibilityPosture
+    ? requirePlanString(accessibilityPosture, "target", "accessibilityPosture.target", issues)
+    : null;
+  const keyboardNavigation = accessibilityPosture
+    ? requirePlanEnum(
+      accessibilityPosture,
+      "keyboardNavigation",
+      "accessibilityPosture.keyboardNavigation",
+      CANVAS_KEYBOARD_NAVIGATION_MODES,
+      CANVAS_KEYBOARD_NAVIGATION_SET,
+      issues
+    )
+    : null;
+  const blockOn = validationTargets
+    ? requirePlanEnumArray(
+      validationTargets,
+      "blockOn",
+      "validationTargets.blockOn",
+      CANVAS_VALIDATION_TARGET_BLOCK_ON_CODES,
+      CANVAS_VALIDATION_TARGET_BLOCK_ON_SET,
+      issues
+    )
+    : null;
+  const requiredThemes = validationTargets
+    ? requirePlanEnumArray(
+      validationTargets,
+      "requiredThemes",
+      "validationTargets.requiredThemes",
+      CANVAS_PLAN_THEMES,
+      CANVAS_THEME_SET,
+      issues
+    )
+    : null;
+  const browserValidation = validationTargets
+    ? requirePlanEnum(
+      validationTargets,
+      "browserValidation",
+      "validationTargets.browserValidation",
+      CANVAS_BROWSER_VALIDATION_MODES,
+      CANVAS_BROWSER_VALIDATION_MODE_SET,
+      issues
+    )
+    : null;
+  const maxInteractionLatencyMs = validationTargets
+    ? requirePositiveNumber(validationTargets, "maxInteractionLatencyMs", "validationTargets.maxInteractionLatencyMs", issues)
+    : null;
+
+  if (issues.length > 0 || missing.length > 0) {
+    return {
+      ok: false,
+      missing,
+      issues
+    };
+  }
+
+  return {
+    ok: true,
+    missing: [],
+    issues: [],
+    plan: {
+      targetOutcome: {
+        mode: mode as CanvasGenerationPlan["targetOutcome"]["mode"],
+        summary: summary as string
+      },
+      visualDirection: {
+        profile: profile as CanvasGenerationPlan["visualDirection"]["profile"],
+        themeStrategy: themeStrategy as CanvasGenerationPlan["visualDirection"]["themeStrategy"]
+      },
+      layoutStrategy: {
+        approach: approach as string,
+        navigationModel: navigationModel as CanvasGenerationPlan["layoutStrategy"]["navigationModel"]
+      },
+      contentStrategy: {
+        source: contentSource as string
+      },
+      componentStrategy: {
+        mode: componentMode as string,
+        interactionStates: interactionStates as CanvasGenerationPlan["componentStrategy"]["interactionStates"]
+      },
+      motionPosture: {
+        level: motionLevel as CanvasGenerationPlan["motionPosture"]["level"],
+        reducedMotion: reducedMotion as CanvasGenerationPlan["motionPosture"]["reducedMotion"]
+      },
+      responsivePosture: {
+        primaryViewport: primaryViewport as CanvasGenerationPlan["responsivePosture"]["primaryViewport"],
+        requiredViewports: requiredViewports as CanvasGenerationPlan["responsivePosture"]["requiredViewports"]
+      },
+      accessibilityPosture: {
+        target: accessibilityTarget as string,
+        keyboardNavigation: keyboardNavigation as CanvasGenerationPlan["accessibilityPosture"]["keyboardNavigation"]
+      },
+      validationTargets: {
+        blockOn: blockOn as CanvasGenerationPlan["validationTargets"]["blockOn"],
+        requiredThemes: requiredThemes as CanvasGenerationPlan["validationTargets"]["requiredThemes"],
+        browserValidation: browserValidation as CanvasGenerationPlan["validationTargets"]["browserValidation"],
+        maxInteractionLatencyMs: maxInteractionLatencyMs as number
+      }
+    }
+  };
+}
+
+export function assessGenerationPlan(plan: unknown):
+  | { status: "missing"; missing: CanvasGenerationPlanField[]; issues: CanvasGenerationPlanIssue[] }
+  | { status: "invalid"; missing: CanvasGenerationPlanField[]; issues: CanvasGenerationPlanIssue[] }
+  | { status: "accepted"; missing: []; issues: []; plan: CanvasGenerationPlan } {
+  const validation = validateGenerationPlan(plan);
+  if (validation.ok) {
+    return {
+      status: "accepted",
+      missing: [],
+      issues: [],
+      plan: validation.plan
+    };
+  }
+  if (!isNonEmptyRecord(plan)) {
+    return {
+      status: "missing",
+      missing: validation.missing,
+      issues: validation.issues
+    };
+  }
+  return {
+    status: "invalid",
+    missing: validation.missing,
+    issues: validation.issues
+  };
 }
 
 export function resolveCanvasLibraryPolicy(document: CanvasDocument): CanvasLibraryPolicy {
@@ -1339,12 +1729,16 @@ export function buildGovernanceBlockStates(document: CanvasDocument): Record<Can
     let status: CanvasBlockState = "missing";
     let source: "document" | "project-default" = "document";
     if (isNonEmptyRecord(block)) {
-      const inheritedDefault = OPTIONAL_INHERITED_KEYS.has(key) ? inheritedDefaultForGovernanceKey(key) : null;
-      status = inheritedDefault && stableStringify(block) === stableStringify(inheritedDefault)
-        ? "inherited"
-        : "present";
-      if (status === "inherited") {
-        source = "project-default";
+      if (key === "generationPlan") {
+        status = assessGenerationPlan(block).status === "invalid" ? "invalid" : "present";
+      } else {
+        const inheritedDefault = OPTIONAL_INHERITED_KEYS.has(key) ? inheritedDefaultForGovernanceKey(key) : null;
+        status = inheritedDefault && stableStringify(block) === stableStringify(inheritedDefault)
+          ? "inherited"
+          : "present";
+        if (status === "inherited") {
+          source = "project-default";
+        }
       }
     } else if (OPTIONAL_INHERITED_KEYS.has(key)) {
       status = "inherited";
@@ -1404,10 +1798,19 @@ export function evaluateCanvasWarnings(
 ): CanvasValidationWarning[] {
   const warnings: CanvasValidationWarning[] = [];
   const states = buildGovernanceBlockStates(document);
-  const generationPlan = getGovernanceBlock(document, "generationPlan");
+  const generationPlanStatus = assessGenerationPlan(document.designGovernance.generationPlan);
   const typographySystem = getGovernanceBlock(document, "typographySystem");
-  if (!isNonEmptyRecord(generationPlan)) {
+  if (generationPlanStatus.status === "missing") {
     warnings.push(buildWarning("missing-generation-plan", "generationPlan is required before mutation or save.", { auditId: "CANVAS-03" }));
+  } else if (generationPlanStatus.status === "invalid") {
+    warnings.push(buildWarning("invalid-generation-plan", buildGenerationPlanFailureMessage(generationPlanStatus.missing, generationPlanStatus.issues), {
+      auditId: "CANVAS-03",
+      severity: "error",
+      details: {
+        missingFields: generationPlanStatus.missing,
+        issues: generationPlanStatus.issues
+      }
+    }));
   }
   if (states.intent.status === "missing") {
     warnings.push(buildWarning("missing-intent", "designGovernance.intent is missing.", { auditId: "CANVAS-02" }));
@@ -1487,6 +1890,9 @@ export function evaluateCanvasWarnings(
   }
   if (options.forSave) {
     for (const key of missingRequiredSaveBlocks(document)) {
+      if (key === "generationPlan" && generationPlanStatus.status === "invalid") {
+        continue;
+      }
       warnings.push(buildWarning(warningCodeForGovernanceBlock(key), `Required save governance block ${key} is missing.`, {
         auditId: "CANVAS-02",
         details: { block: key },
@@ -1499,7 +1905,9 @@ export function evaluateCanvasWarnings(
 
 export function missingRequiredSaveBlocks(document: CanvasDocument): CanvasGovernanceBlockKey[] {
   const states = buildGovernanceBlockStates(document);
-  return REQUIRED_BEFORE_SAVE_KEYS.filter((key) => states[key].status === "missing");
+  return REQUIRED_BEFORE_SAVE_KEYS.filter((key) => key === "generationPlan"
+    ? states[key].status === "missing" || states[key].status === "invalid"
+    : states[key].status === "missing");
 }
 
 export function validateCanvasSave(document: CanvasDocument): {
@@ -1879,10 +2287,10 @@ export class CanvasDocumentStore {
   setGenerationPlan(plan: CanvasGenerationPlan): { planStatus: "accepted"; documentRevision: number; warnings: CanvasValidationWarning[] } {
     const validation = validateGenerationPlan(plan);
     if (!validation.ok) {
-      throw new Error(`Generation plan missing fields: ${validation.missing.join(", ")}`);
+      throw new Error(buildGenerationPlanFailureMessage(validation.missing, validation.issues));
     }
     const nextDocument = normalizeCanvasDocument(this.document);
-    nextDocument.designGovernance.generationPlan = clone(plan);
+    nextDocument.designGovernance.generationPlan = clone(validation.plan);
     this.replaceDocument(nextDocument, this.revision + 1, "canvas.store.set-generation-plan");
     return {
       planStatus: "accepted",

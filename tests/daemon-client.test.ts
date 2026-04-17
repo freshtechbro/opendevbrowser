@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { getCurrentDaemonFingerprint } from "../src/cli/daemon";
 import { DaemonClient, __test__ as daemonClientTest } from "../src/cli/daemon-client";
 
 const writeDaemonMetadata = async (root: string): Promise<void> => {
@@ -12,7 +13,8 @@ const writeDaemonMetadata = async (root: string): Promise<void> => {
     token: "test-token",
     pid: 9999,
     relayPort: 8787,
-    startedAt: new Date().toISOString()
+    startedAt: new Date().toISOString(),
+    fingerprint: getCurrentDaemonFingerprint()
   };
   await writeFile(join(cacheRoot, "daemon.json"), JSON.stringify(payload), "utf-8");
 };

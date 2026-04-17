@@ -6,6 +6,7 @@ import {
   hasDirtyRelayClients,
   isAnnotationPendingCompletion,
   parseCliOptions,
+  resolveExtensionLegacyFailure,
   resolveMacroFailureOutcome,
   resolveRpcFailureOutcome,
   shouldStopDaemonAfterRun,
@@ -186,5 +187,12 @@ describe("live-regression release-gate options", () => {
   it("recognizes annotate manual-completion waits as expected timeout state", () => {
     expect(isAnnotationPendingCompletion("Annotation UI started and is waiting for manual completion.")).toBe(true);
     expect(isAnnotationPendingCompletion("Timed out waiting for annotation completion.")).toBe(false);
+  });
+
+  it("treats missing extension legacy targets as env-limited outside release gate", () => {
+    expect(resolveExtensionLegacyFailure("No active target")).toEqual({
+      status: "env_limited",
+      detail: "No active target"
+    });
   });
 });

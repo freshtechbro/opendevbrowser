@@ -4,9 +4,9 @@ Command-line interface for installing and managing the OpenDevBrowser plugin, pl
 Status: active  
 Last updated: 2026-04-13
 
-OpenDevBrowser exposes 65 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
+OpenDevBrowser exposes 70 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
 Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
-That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
+That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
 Public-surface metadata now flows from `src/public-surface/source.ts` through `scripts/generate-public-surface-manifest.mjs` into `src/public-surface/generated-manifest.ts` and `src/public-surface/generated-manifest.json`, which are consumed by `src/cli/help.ts`, `src/cli/args.ts`, inventory scripts, mirrored website inputs, and re-export paths in `src/tools/index.ts`. Onboarding literals still live in `src/cli/onboarding-metadata.json`, and runtime execution authority remains `src/cli/args.ts` plus `src/tools/index.ts`.
@@ -145,13 +145,13 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `72`.
-- Categories: install/runtime management, session/connection, navigation, interaction plus low-level pointer control, targets/pages, DOM inspection, browser capture and replay, desktop observation, design canvas, export plus session-centric diagnostics, macro/annotation, and internal power (`rpc`).
+- Total commands: `77`.
+- Categories: install/runtime management, session/connection plus capability discovery, navigation plus desktop-assisted browser review, interaction plus low-level pointer control, targets/pages, DOM inspection, browser capture and replay, desktop observation, design canvas, export plus session-centric diagnostics and browser-scoped inspection, macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
 
-- Total tools: `65` (`opendevbrowser_*`).
-- CLI-tool pairs: `62`.
+- Total tools: `70` (`opendevbrowser_*`).
+- CLI-tool pairs: `67`.
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
 - CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
 
@@ -262,7 +262,7 @@ npx opendevbrowser -v
 
 `--help` and `help` print the same generated first-contact inventory:
 - A `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
-- That block maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`, with a concrete `research run --topic ... --challenge-automation-mode browser` entry command.
+- That block maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with a concrete `research run --topic ... --challenge-automation-mode browser` entry command.
 - An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
 - A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current reliable transcript, research, and shopping runbook.
 - A direct pointer to `opendevbrowser_skill_list` when an agent needs a different local skill lane.
@@ -273,7 +273,7 @@ npx opendevbrowser -v
 Quick lookup terms from generated help:
 - `screencast / browser replay`: `screencast-start`, `screencast-stop`
 - `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`; entry command `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`; entry command `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
 
 These first-contact assets are also mirrored as release and website inputs through `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, and `src/public-surface/generated-manifest.json`.
 
@@ -409,8 +409,8 @@ Notes:
 
 ### Workflow wrappers
 
-The workflow wrappers expose the finalized research/shopping/product-video surfaces from
-`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md`.
+The workflow wrappers expose the finalized research, shopping, product-video, and inspiredesign surfaces from
+`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md` and `docs/INSPIRE_DESIGN_WORKFLOW_INVESTIGATION_2026-04-15.md`.
 
 #### Research (`research run`)
 
@@ -497,10 +497,37 @@ Flags:
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
+#### Inspiredesign (`inspiredesign run`)
+
+```bash
+npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing page from calm editorial references" --url https://stripe.com --url https://vercel.com
+npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign
+```
+
+Flags:
+- `--brief` (required)
+- `--url` (repeatable inspiration URL input)
+- `--capture-mode` (`off|deep`)
+- `--include-prototype-guidance` (`true|false`; bare flag means `true`)
+- `--mode` (`compact|json|md|context|path`)
+- `--timeout-ms`
+- `--output-dir`
+- `--ttl-hours`
+- `--use-cookies` (`true|false`; bare flag means `true`)
+- `--challenge-automation-mode` (`off|browser|browser_with_helper`)
+- `--cookie-policy-override` (`off|auto|required`)
+- `--cookie-policy` (alias of `--cookie-policy-override`)
+
+Notes:
+- `--capture-mode` defaults to `off`; opt into `deep` only when live DOM/layout capture is required.
+- Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
+- `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
+
 Wrapper behavior:
 - Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
-- Render modes for `research` and `shopping` are shared: `compact|json|md|context|path`.
+- Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
 - `product-video run` always returns a path-based local asset pack.
+- `inspiredesign run` returns a reusable design contract; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
 - Path-bearing modes persist artifacts under the configured output directory (or default tmp namespace) and include TTL metadata in manifest files.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
@@ -682,6 +709,17 @@ npx opendevbrowser status --daemon      # daemon status (explicit)
 npx opendevbrowser status --session-id <session-id>
 npx opendevbrowser status --transport native
 ```
+
+### Status capabilities
+
+```bash
+npx opendevbrowser status-capabilities
+npx opendevbrowser status-capabilities --session-id <session-id> --target-id <target-id> --challenge-automation-mode browser_with_helper --timeout-ms 30000
+```
+
+Notes:
+- `status-capabilities` can inspect host capability discovery without a session, or add `--session-id` to include session-scoped browser and policy state.
+- `--challenge-automation-mode` lets you preview the effective browser-scoped computer-use mode and source before running a workflow.
 
 ### Cookie import
 
@@ -923,7 +961,8 @@ Canonical examples:
 ### Design Canvas
 
 Use `canvas` to call the typed `canvas.*` surface through the daemon. The normal sequence is:
-`canvas.session.open` -> inspect the handshake -> `canvas.plan.set` -> `canvas.document.patch` (including `governance.update` blocks) -> `canvas.preview.render` or `canvas.feedback.poll`.
+`canvas.session.open` -> inspect the handshake (`planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `guidance.recommendedNextCommands`) -> `canvas.plan.set` -> if accepted, follow returned guidance into `canvas.document.patch` (including `governance.update` blocks) -> `canvas.preview.render` -> `canvas.feedback.poll` -> `canvas.document.save` or `canvas.document.export`.
+If `canvas.plan.set` fails with `generation_plan_invalid`, inspect the returned `details.missingFields` and `details.issues`, or re-read the current state with `canvas.plan.get` / `canvas.capabilities.get`, then resubmit `canvas.plan.set`. `canvas.plan.get` is diagnostic on that failure path, not a required success-path checkpoint.
 Additional same-session clients use `canvas.session.attach` with `attachMode=observer` or `attachMode=lease_reclaim`.
 Unless `params.repoRoot` is provided explicitly, the CLI injects the caller cwd as the canvas session repo root. Relative `canvas.document.save`, `canvas.document.export`, and `canvas.code.*` paths resolve against that session root even when the daemon is launchd-owned or started from another working directory.
 
@@ -947,7 +986,7 @@ npx opendevbrowser canvas --command canvas.document.save \
   --output-format json
 ```
 
-`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, runtime budgets, and warning classes. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. `canvas.document.import` now imports Figma file URLs, node URLs, or raw file-key inputs into the same lease-governed document surface; it resolves auth from `FIGMA_ACCESS_TOKEN` first and `integrations.figma.accessToken` second, caches image and SVG receipts under `.opendevbrowser/canvas/assets/figma/<fileKey>/`, records provenance in `document.meta.imports[]`, and degrades `variables/local` failures with typed feedback (`scope_denied`, `plan_limited`, `account_limited`, or `variables_unavailable`) instead of opaque fatal errors. `canvas.history.undo` and `canvas.history.redo` are now public lease-governed mutations; they are unavailable before the first accepted-plan edit, require the active lease holder, and invalidate deterministically when document revision drift makes the recorded stack stale. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, forwards editor-originated patch requests through `/canvas`, exposes pages/layers/properties/history controls plus keyboard shortcuts, and keeps freeform region annotation scoped to the extension-hosted stage. `canvas.feedback.poll` remains the snapshot query for cursor-based audits, while `canvas.feedback.subscribe`, `canvas.feedback.next`, and `canvas.feedback.unsubscribe` now expose the public pull-stream contract. In `stream-json` mode, the CLI emits `initialItems`, then loops on `canvas.feedback.next` until `feedback.complete` or CLI timeout, and finally best-effort calls `canvas.feedback.unsubscribe`. `canvas.inventory.list` now returns the merged reusable inventory surface: document-backed promoted items plus the shipped built-in kit catalog entries. `canvas.inventory.insert` materializes either kind of inventory template back onto the stage as a governed mutation. `canvas.starter.list` exposes the eight shipped built-in starters, and `canvas.starter.apply` now seeds a generation plan when needed, merges built-in kit token collections, installs required kit inventory entries into the live document, and inserts a starter shell with semantic fallback when the requested framework or adapter is unavailable. For starter application, prefer `libraryAdapterId` when selecting or reading the resolved built-in kit adapter; the legacy `adapterId` field remains as a backward-compatible alias and is distinct from code-sync `frameworkAdapterId`. The public `/canvas` surface is now `35` commands. The tool wrapper stays thin and uses the same public `opendevbrowser_canvas` commands through repeated calls.
+`canvas.session.open` returns a handshake with `canvasSessionId`, `leaseId`, governance block states, required generation-plan fields, `generationPlanRequirements.allowedValues`, runtime budgets, warning classes, `generationPlanIssues`, `mutationPolicy.allowedBeforePlan`, and `guidance.recommendedNextCommands`. Treat `planStatus="missing"` with `preflightState="handshake_read"` as "submit a plan next." Treat `planStatus="invalid"` with `preflightState="plan_invalid"` as "fix the reported plan issues before mutation." A successful `canvas.plan.set` response is authoritative enough to proceed: it already returns accepted state plus next-step guidance, so `canvas.plan.get` is only needed when diagnosing invalid-plan responses or re-reading current state after attach. `canvas.document.patch` is blocked until `canvas.plan.set` succeeds. `canvas.document.save` and `canvas.document.export` return `policy_violation` until all `requiredBeforeSave` governance blocks are present. `canvas.document.import` now imports Figma file URLs, node URLs, or raw file-key inputs into the same lease-governed document surface; it resolves auth from `FIGMA_ACCESS_TOKEN` first and `integrations.figma.accessToken` second, caches image and SVG receipts under `.opendevbrowser/canvas/assets/figma/<fileKey>/`, records provenance in `document.meta.imports[]`, and degrades `variables/local` failures with typed feedback (`scope_denied`, `plan_limited`, `account_limited`, or `variables_unavailable`) instead of opaque fatal errors. `canvas.history.undo` and `canvas.history.redo` are now public lease-governed mutations; they are unavailable before the first accepted-plan edit, require the active lease holder, and invalidate deterministically when document revision drift makes the recorded stack stale. In extension mode, `canvas.tab.open` opens an extension-hosted `canvas.html` infinite-canvas editor that persists full page state in `IndexedDB`, converges same-origin tabs through `BroadcastChannel`, forwards editor-originated patch requests through `/canvas`, exposes pages/layers/properties/history controls plus keyboard shortcuts, and keeps freeform region annotation scoped to the extension-hosted stage. `canvas.feedback.poll` remains the snapshot query for cursor-based audits, and when the plan is still missing or invalid it synthesizes the same preflight blocker agents see from mutation commands. `canvas.feedback.subscribe`, `canvas.feedback.next`, and `canvas.feedback.unsubscribe` now expose the public pull-stream contract. In `stream-json` mode, the CLI emits `initialItems`, then loops on `canvas.feedback.next` until `feedback.complete` or CLI timeout, and finally best-effort calls `canvas.feedback.unsubscribe`. `canvas.inventory.list` now returns the merged reusable inventory surface: document-backed promoted items plus the shipped built-in kit catalog entries. `canvas.inventory.insert` materializes either kind of inventory template back onto the stage as a governed mutation. `canvas.starter.list` exposes the eight shipped built-in starters, and `canvas.starter.apply` now seeds a generation plan when needed, merges built-in kit token collections, installs required kit inventory entries into the live document, and inserts a starter shell with semantic fallback when the requested framework or adapter is unavailable. For starter application, prefer `libraryAdapterId` when selecting or reading the resolved built-in kit adapter; the legacy `adapterId` field remains as a backward-compatible alias and is distinct from code-sync `frameworkAdapterId`. The public `/canvas` surface is now `35` commands. The tool wrapper stays thin and uses the same public `opendevbrowser_canvas` commands through repeated calls.
 `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` add framework-adapter-backed code sync on top of the same session. Built-in lanes currently ship for `builtin:react-tsx-v2`, `builtin:html-static-v1`, `builtin:custom-elements-v1`, `builtin:vue-sfc-v1`, and `builtin:svelte-sfc-v1`; legacy `tsx-react-v1` bindings and manifests migrate on load to `builtin:react-tsx-v2` instead of failing ambiguously. Bound source manifests are stored under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`; preview targets default to projected `canvas_html` and only attempt `bound_app_runtime` reconciliation when the binding opts in and runtime bridge preflight succeeds. `canvas.code.status` returns `frameworkAdapterId`, `frameworkId`, `sourceFamily`, declared/granted capabilities, explicit denial entries, and deterministic `reasonCode` values such as `framework_migrated`, `manifest_migrated`, `plugin_not_found`, and `plugin_load_failed`. Repo-local BYO adapter plugins are discovered from workspace `package.json`, `.opendevbrowser/canvas/adapters.json`, and explicit local config declarations only; declaration-level `capabilityOverrides` narrow plugin capabilities rather than widening them. See `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md` for the plugin manifest and trust model, and `node scripts/canvas-competitive-validation.mjs --out <report.json>` for the grouped canvas validator.
 
 ### RPC (power-user, internal)
@@ -1009,6 +1048,19 @@ Use `review` as the explicit `snapshot -> review -> action` step when you want t
 npx opendevbrowser review --session-id <session-id>
 npx opendevbrowser review --session-id <session-id> --target-id <target-id> --max-chars 16000 --cursor <cursor>
 ```
+
+### Review desktop
+
+Use `review-desktop` when you want the browser-owned review payload plus read-only desktop observation evidence in one correlated response.
+
+```bash
+npx opendevbrowser review-desktop --session-id <session-id> --reason "compare browser review with visible desktop state"
+npx opendevbrowser review-desktop --session-id <session-id> --target-id <target-id> --reason "audit active target" --max-chars 16000 --cursor <cursor>
+```
+
+Notes:
+- `review-desktop` keeps authority in the review family and augments it with public desktop observation evidence.
+- Use `--reason` when you want explicit audit context recorded alongside the correlated desktop evidence.
 
 ---
 
@@ -1325,6 +1377,28 @@ Notes:
 - `--include-urls` keeps target URLs in the target summary. Omit it to use the default runtime behavior.
 - `--since-console-seq`, `--since-network-seq`, `--since-exception-seq`, and `--max` mirror the trace cursors used by `debug-trace-snapshot`.
 
+### Session inspector plan
+
+```bash
+npx opendevbrowser session-inspector-plan --session-id <session-id>
+npx opendevbrowser session-inspector-plan --session-id <session-id> --target-id <target-id> --challenge-automation-mode browser --timeout-ms 30000
+```
+
+Notes:
+- Returns browser-scoped computer-use policy, eligibility, stand-down reasons, yield state, and safe suggested steps without running a provider workflow.
+- `--challenge-automation-mode` lets you inspect the effective mode you want to compare against current session or config defaults.
+
+### Session inspector audit
+
+```bash
+npx opendevbrowser session-inspector-audit --session-id <session-id> --reason "capture correlated operator audit"
+npx opendevbrowser session-inspector-audit --session-id <session-id> --target-id <target-id> --reason "trace challenge state" --include-urls --request-id req-session-audit-001 --challenge-automation-mode browser_with_helper
+```
+
+Notes:
+- Returns a correlated audit bundle across desktop evidence, browser review, session status, and browser-scoped policy state.
+- `--reason`, `--request-id`, trace cursors, and `--include-urls` mirror the session-inspector and review audit lanes in one surface.
+
 ---
 
 ## Desktop observation commands (daemon required)
@@ -1370,7 +1444,7 @@ npx opendevbrowser desktop-accessibility-snapshot --window-id <window-id> --reas
 
 Notes:
 - On supported macOS hosts, availability, window inventory, and accessibility probes require the local `swift` command. If `desktop-status` returns `desktop_unsupported` on macOS, install Xcode or a Swift toolchain and retry.
-- Desktop screenshots still use the built-in `screencapture` utility.
+- Desktop screenshots use macOS `screencapture`.
 - `desktop-status` reports availability, permissions, capabilities, and the configured audit artifacts directory.
 - `desktop-windows` and `desktop-active-window` accept optional `--reason` values for audit context.
 - `desktop-capture-desktop`, `desktop-capture-window`, and `desktop-accessibility-snapshot` require `--reason`.
@@ -1432,16 +1506,16 @@ Notes:
 | `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
 | `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
 | `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |
-| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot`, `session-inspector` | Optional request correlation id |
+| `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Optional request correlation id |
 | `--expression` | `macro-resolve` | Macro expression to resolve |
 | `--default-provider` | `macro-resolve` | Provider fallback for shorthand macros |
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
-| `--use-cookies` | `research run`, `shopping run`, `product-video run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
-| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `macro-resolve --execute` | Per-run challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
-| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run` | Per-run provider cookie policy override (`off|auto|required`) |
-| `--cookie-policy` | `research run`, `shopping run`, `product-video run` | Alias of `--cookie-policy-override` |
+| `--use-cookies` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
+| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
+| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Per-run provider cookie policy override (`off|auto|required`) |
+| `--cookie-policy` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Alias of `--cookie-policy-override` |
 
 **Browser launch (launch/run)**
 
@@ -1461,14 +1535,14 @@ Notes:
 |------|---------|-------------|
 | `--url` | `goto`, `page`, `target-new`, `cookie-list` | URL to navigate/open or filter cookie listing |
 | `--wait-until` | `goto` | Load state (`load`, `domcontentloaded`, etc.) |
-| `--timeout-ms` | `goto`, `wait`, `review` | Timeout in ms |
+| `--timeout-ms` | `goto`, `wait`, `review`, `review-desktop`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Timeout in ms |
 | `--ref` | `wait` | Element ref to wait for |
 | `--state` | `wait` | Element state (e.g. `visible`) |
 | `--until` | `wait` | Page load state |
 | `--mode` | `snapshot` | Snapshot mode (`outline` or `actionables`) |
-| `--target-id` | `review` | Optional target override for the review payload |
-| `--max-chars` | `snapshot`, `review`, `dom-*` | Max characters returned |
-| `--cursor` | `snapshot`, `review` | Snapshot pagination cursor |
+| `--target-id` | `review`, `review-desktop`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Optional target override for review or inspection payloads |
+| `--max-chars` | `snapshot`, `review`, `review-desktop`, `session-inspector-audit`, `dom-*` | Max characters returned |
+| `--cursor` | `snapshot`, `review`, `review-desktop`, `session-inspector-audit` | Snapshot pagination cursor |
 
 **Annotation**
 
@@ -1522,7 +1596,7 @@ Notes:
 | Flag | Used by | Description |
 |------|---------|-------------|
 | `--target-id` | `target-use`, `target-close` | Target id from `targets-list` |
-| `--include-urls` | `targets-list`, `session-inspector` | Include URLs in target or session-inspector target-list output |
+| `--include-urls` | `targets-list`, `session-inspector`, `session-inspector-audit` | Include URLs in target or session-inspector target-list output |
 | `--name` | `page`, `page-close` | Named page identifier |
 
 **Devtools**
@@ -1543,16 +1617,16 @@ Notes:
 | `--timeout-ms` | `screenshot`, `screencast-start`, `screencast-stop` | Explicit client-side daemon call timeout in ms |
 | `--timeout-ms` | `dialog` | Client-side daemon call timeout in ms; defaults to 30s |
 | `--since-seq` | `console-poll`, `network-poll` | Start sequence number |
-| `--since-console-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for console channel |
-| `--since-network-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for network channel |
-| `--since-exception-seq` | `debug-trace-snapshot`, `session-inspector` | Resume cursor for exception channel |
-| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector` | Max events to return per channel |
+| `--since-console-seq` | `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Resume cursor for console channel |
+| `--since-network-seq` | `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Resume cursor for network channel |
+| `--since-exception-seq` | `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Resume cursor for exception channel |
+| `--max` | `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Max events to return per channel |
 
 **Desktop observation**
 
 | Flag | Used by | Description |
 |------|---------|-------------|
-| `--reason` | `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` | Audit reason recorded with desktop observation results |
+| `--reason` | `review-desktop`, `session-inspector-audit`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot` | Audit reason recorded with review, audit, or desktop observation results |
 | `--window-id` | `desktop-capture-window`, `desktop-accessibility-snapshot` | Window id for direct window capture or accessibility requests |
 | `--timeout-ms` | all `desktop-*` commands | Client-side daemon call timeout in ms |
 

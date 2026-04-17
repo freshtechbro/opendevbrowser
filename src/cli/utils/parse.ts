@@ -67,3 +67,27 @@ export function parseStringArrayFlag(rawArgs: string[], flag: string): string[] 
   }
   return items;
 }
+
+export function parseRepeatedStringFlag(rawArgs: string[], flag: string): string[] | undefined {
+  const values: string[] = [];
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const arg = rawArgs[index];
+    if (arg === flag) {
+      const value = rawArgs[index + 1];
+      if (!value) {
+        throw createUsageError(`Missing value for ${flag}`);
+      }
+      values.push(value);
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith(`${flag}=`)) {
+      const value = arg.split("=", 2)[1];
+      if (!value) {
+        throw createUsageError(`Missing value for ${flag}`);
+      }
+      values.push(value);
+    }
+  }
+  return values.length > 0 ? values : undefined;
+}

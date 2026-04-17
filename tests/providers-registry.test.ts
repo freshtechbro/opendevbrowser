@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { normalizeRecord } from "../src/providers/normalize";
 import { createProviderError } from "../src/providers/errors";
 import { selectProviders } from "../src/providers/policy";
@@ -54,44 +54,49 @@ describe("provider registry + runtime", () => {
   });
 
   it("isolates failures and falls back to healthy providers", async () => {
+    vi.useFakeTimers();
     let failingCalls = 0;
     let healthyCalls = 0;
 
-    const runtime = new ProviderRuntime({
-      budgets: {
-        retries: { read: 0, write: 0 },
-        circuitBreaker: { failureThreshold: 1, cooldownMs: 200 }
-      }
-    });
+    try {
+      const runtime = new ProviderRuntime({
+        budgets: {
+          retries: { read: 0, write: 0 },
+          circuitBreaker: { failureThreshold: 1, cooldownMs: 200 }
+        }
+      });
 
-    runtime.register(makeWebProvider("web/failing", async () => {
-      failingCalls += 1;
-      throw new Error("ECONNRESET");
-    }));
-    runtime.register(makeWebProvider("web/healthy", async () => {
-      healthyCalls += 1;
-      return [normalizeRecord("web/healthy", "web", {
-        url: "https://example.com",
-        title: "ok",
-        content: "healthy"
-      })];
-    }));
+      runtime.register(makeWebProvider("web/failing", async () => {
+        failingCalls += 1;
+        throw new Error("ECONNRESET");
+      }));
+      runtime.register(makeWebProvider("web/healthy", async () => {
+        healthyCalls += 1;
+        return [normalizeRecord("web/healthy", "web", {
+          url: "https://example.com",
+          title: "ok",
+          content: "healthy"
+        })];
+      }));
 
-    const first = await runtime.search({ query: "x" }, { source: "all" });
-    expect(first.ok).toBe(true);
-    expect(first.partial).toBe(true);
-    expect(first.failures).toHaveLength(1);
-    expect(first.failures[0]?.provider).toBe("web/failing");
+      const first = await runtime.search({ query: "x" }, { source: "all" });
+      expect(first.ok).toBe(true);
+      expect(first.partial).toBe(true);
+      expect(first.failures).toHaveLength(1);
+      expect(first.failures[0]?.provider).toBe("web/failing");
 
-    const second = await runtime.search({ query: "y" }, { source: "all" });
-    expect(second.ok).toBe(true);
-    expect(second.failures[0]?.error.code).toBe("circuit_open");
-    expect(failingCalls).toBe(1);
-    expect(healthyCalls).toBe(2);
+      const second = await runtime.search({ query: "y" }, { source: "all" });
+      expect(second.ok).toBe(true);
+      expect(second.failures[0]?.error.code).toBe("circuit_open");
+      expect(failingCalls).toBe(1);
+      expect(healthyCalls).toBe(2);
 
-    await wait(220);
-    await runtime.search({ query: "z" }, { source: "all" });
-    expect(failingCalls).toBe(2);
+      await vi.advanceTimersByTimeAsync(220);
+      await runtime.search({ query: "z" }, { source: "all" });
+      expect(failingCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("applies timeout + retry budgets per provider", async () => {

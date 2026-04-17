@@ -200,7 +200,7 @@ describe("createOpenDevBrowserCore", () => {
   });
 
   it("loads config defaults when not provided", async () => {
-    const config = makeConfig();
+    const config = resolveConfig(makeConfig());
     const configModule = await import("../src/config");
     const spy = vi.spyOn(configModule, "loadGlobalConfig").mockReturnValue(config);
     const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");

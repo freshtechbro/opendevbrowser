@@ -20,19 +20,45 @@
         "cliCommands": [
           "serve",
           "status",
+          "status-capabilities",
           "launch",
+          "review-desktop",
+          "session-inspector-plan",
+          "session-inspector-audit",
           "research",
           "shopping",
           "product-video",
-          "canvas"
+          "canvas",
+          "inspiredesign",
+          "screencast-start",
+          "screencast-stop",
+          "desktop-status",
+          "desktop-windows",
+          "desktop-active-window",
+          "desktop-capture-desktop",
+          "desktop-capture-window",
+          "desktop-accessibility-snapshot"
         ],
         "tools": [
+          "opendevbrowser_status_capabilities",
+          "opendevbrowser_review_desktop",
+          "opendevbrowser_session_inspector_plan",
+          "opendevbrowser_session_inspector_audit",
           "opendevbrowser_canvas",
           "opendevbrowser_research_run",
           "opendevbrowser_shopping_run",
           "opendevbrowser_product_video_run",
           "opendevbrowser_skill_list",
-          "opendevbrowser_skill_load"
+          "opendevbrowser_skill_load",
+          "opendevbrowser_inspiredesign_run",
+          "opendevbrowser_screencast_start",
+          "opendevbrowser_screencast_stop",
+          "opendevbrowser_desktop_status",
+          "opendevbrowser_desktop_windows",
+          "opendevbrowser_desktop_active_window",
+          "opendevbrowser_desktop_capture_desktop",
+          "opendevbrowser_desktop_capture_window",
+          "opendevbrowser_desktop_accessibility_snapshot"
         ],
         "modes": [
           "managed",
@@ -327,8 +353,9 @@
       "sourceSeams": [
         "skills/opendevbrowser-best-practices/SKILL.md",
         "src/skills/skill-loader.ts",
-        "src/cli/installers/global.ts",
-        "src/cli/installers/local.ts",
+        "src/cli/installers/skills.ts",
+        "src/cli/utils/skills.ts",
+        "src/skills/bundled-skill-directories.ts",
         "src/tools/skill_list.ts",
         "src/tools/skill_load.ts"
       ],
@@ -358,7 +385,11 @@
         "src/cli/help.ts",
         "src/tools/index.ts",
         "src/public-surface/source.ts",
-        "docs/SURFACE_REFERENCE.md"
+        "docs/SURFACE_REFERENCE.md",
+        "src/cli/onboarding-metadata.json",
+        "docs/FIRST_RUN_ONBOARDING.md",
+        "docs/README.md",
+        "skills/opendevbrowser-best-practices/SKILL.md"
       ],
       "targetedRerunCommands": [
         "node scripts/docs-drift-check.mjs",
@@ -388,7 +419,11 @@
         "scripts/skill-runtime-scenarios.mjs",
         "scripts/docs-drift-check.mjs",
         "skills/opendevbrowser-best-practices/scripts/odb-workflow.sh",
-        "skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh"
+        "skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh",
+        "skills/opendevbrowser-best-practices/artifacts/command-channel-reference.md",
+        "skills/opendevbrowser-best-practices/artifacts/skill-runtime-surface-matrix.md",
+        "skills/opendevbrowser-best-practices/assets/templates/skill-runtime-pack-matrix.json",
+        "skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklist.json"
       ],
       "targetedRerunCommands": [
         "./skills/opendevbrowser-best-practices/scripts/run-robustness-audit.sh",
@@ -511,7 +546,8 @@
       "contractTests": [
         "tests/provider-direct-runs.test.ts",
         "tests/macro-resolve.test.ts",
-        "tests/cli-macro-resolve.test.ts"
+        "tests/cli-macro-resolve.test.ts",
+        "tests/providers-inspiredesign-workflow.test.ts"
       ],
       "sourceSeams": [
         "src/providers/registry.ts",
@@ -519,7 +555,10 @@
         "src/providers/workflows.ts",
         "src/macros/execute.ts",
         "src/tools/macro_resolve.ts",
-        "src/cli/commands/macro-resolve.ts"
+        "src/cli/commands/macro-resolve.ts",
+        "src/cli/commands/inspiredesign.ts",
+        "src/tools/inspiredesign_run.ts",
+        "src/providers/inspiredesign-contract.ts"
       ],
       "targetedRerunCommands": [
         "node scripts/provider-direct-runs.mjs --smoke --out artifacts/skill-runtime-audit/lanes/provider-direct.json",
@@ -635,6 +674,14 @@
       "label": "Diagnostics and export",
       "proofLanes": [
         "cli-smoke",
+        "live-regression"
+      ]
+    },
+    {
+      "id": "browser-replay-desktop-observation",
+      "label": "Browser replay and desktop observation",
+      "proofLanes": [
+        "docs-drift",
         "live-regression"
       ]
     },

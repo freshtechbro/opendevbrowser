@@ -1,10 +1,15 @@
 import { writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
-import type { OpenDevBrowserConfig } from "../config";
+import { requireChallengeOrchestrationConfig, type OpenDevBrowserConfig } from "../config";
 import { createLogger, createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
-import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
+import {
+  ChallengeOrchestrator,
+  inspectChallengePlanFromRuntime,
+  resolveChallengeAutomationPolicy,
+  type ChallengeAutomationMode
+} from "../challenges";
 import type {
   BrowserCloneHtmlResult,
   BrowserClonePageOptions,
@@ -118,6 +123,23 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return;
     }
     this.opsSessionChallengeAutomationModes.set(sessionId, mode);
+  }
+
+  async inspectChallengePlan(input: {
+    sessionId: string;
+    targetId?: string | null;
+    runMode?: ChallengeAutomationMode;
+  }) {
+    const challengeConfig = requireChallengeOrchestrationConfig(this.config);
+    return inspectChallengePlanFromRuntime({
+      handle: this.createChallengeRuntimeHandle(),
+      sessionId: input.sessionId,
+      targetId: input.targetId,
+      config: challengeConfig,
+      runMode: input.runMode,
+      sessionMode: this.getSessionChallengeAutomationMode(input.sessionId),
+      canImportCookies: true
+    });
   }
 
   createChallengeRuntimeHandle(): ChallengeRuntimeHandle {

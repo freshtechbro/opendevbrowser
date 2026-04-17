@@ -30,11 +30,15 @@ import { runSessionLaunch } from "./commands/session/launch";
 import { runSessionConnect } from "./commands/session/connect";
 import { runSessionDisconnect } from "./commands/session/disconnect";
 import { runSessionInspector } from "./commands/session/inspector";
+import { runSessionInspectorAudit } from "./commands/session/inspector-audit";
+import { runSessionInspectorPlan } from "./commands/session/inspector-plan";
 import { runStatus } from "./commands/status";
+import { runStatusCapabilities } from "./commands/status-capabilities";
 import { runGoto } from "./commands/nav/goto";
 import { runWait } from "./commands/nav/wait";
 import { runSnapshot } from "./commands/nav/snapshot";
 import { runReview } from "./commands/nav/review";
+import { runReviewDesktop } from "./commands/nav/review-desktop";
 import { runAnnotate } from "./commands/annotate";
 import { runCanvas } from "./commands/canvas";
 import { runRpc } from "./commands/rpc";
@@ -88,6 +92,7 @@ import { runMacroResolve } from "./commands/macro-resolve";
 import { runResearchCommand } from "./commands/research";
 import { runShoppingCommand } from "./commands/shopping";
 import { runProductVideoCommand } from "./commands/product-video";
+import { runInspiredesignCommand } from "./commands/inspiredesign";
 import { extractExtension } from "../extension-extractor";
 import { setDefaultLogSink, stderrSink } from "../core/logging";
 import { flushOutputAndExit, writeOutput } from "./output";
@@ -496,9 +501,27 @@ async function main(): Promise<void> {
     });
 
     registerCommand({
+      name: "status-capabilities",
+      description: "Inspect runtime capability discovery for the host and an optional session",
+      run: async () => runStatusCapabilities(args)
+    });
+
+    registerCommand({
       name: "session-inspector",
       description: "Capture a session-first diagnostic summary with relay health and trace proof",
       run: async () => runSessionInspector(args)
+    });
+
+    registerCommand({
+      name: "session-inspector-plan",
+      description: "Inspect browser-scoped computer-use policy and safe suggested steps",
+      run: async () => runSessionInspectorPlan(args)
+    });
+
+    registerCommand({
+      name: "session-inspector-audit",
+      description: "Capture a correlated audit bundle across desktop evidence, browser review, and policy state",
+      run: async () => runSessionInspectorAudit(args)
     });
 
     registerCommand({
@@ -523,6 +546,12 @@ async function main(): Promise<void> {
       name: "review",
       description: "Capture a first-class review payload for the active page",
       run: async () => runReview(args)
+    });
+
+    registerCommand({
+      name: "review-desktop",
+      description: "Capture desktop-assisted browser review with read-only desktop evidence",
+      run: async () => runReviewDesktop(args)
     });
 
     registerCommand({
@@ -841,6 +870,12 @@ async function main(): Promise<void> {
       name: "product-video",
       description: "Run product presentation asset workflows",
       run: async () => runProductVideoCommand(args)
+    });
+
+    registerCommand({
+      name: "inspiredesign",
+      description: "Run inspiredesign workflows",
+      run: async () => runInspiredesignCommand(args)
     });
 
     registerCommand({

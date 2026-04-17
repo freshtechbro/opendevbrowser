@@ -7,6 +7,14 @@ import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_REFER
 import { LOCAL_ONLY_TOOL_NAMES } from "../src/tools";
 import { TOOL_SURFACE_ENTRIES } from "../src/public-surface/generated-manifest";
 
+function getRuntimeCommandDescriptions(): Record<string, string> {
+  const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
+  return Object.fromEntries(
+    [...source.matchAll(/registerCommand\(\{\s*name:\s*"([^"]+)",\s*description:\s*"([^"]+)"/gs)]
+      .map((match) => [match[1], match[2]])
+  );
+}
+
 describe("cli help parity", () => {
   it("covers the full CLI command inventory", () => {
     const helpCommands = HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands]);
@@ -91,11 +99,35 @@ describe("cli help parity", () => {
     ]));
   });
 
+  it("includes inspiredesign command, tool, and required workflow flags", () => {
+    const commandNames = HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands]);
+    const toolNames = HELP_TOOL_ENTRIES.map((entry) => entry.name);
+
+    expect(commandNames).toContain("inspiredesign");
+    expect(toolNames).toContain("opendevbrowser_inspiredesign_run");
+    expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
+      "--brief",
+      "--url",
+      "--capture-mode",
+      "--include-prototype-guidance"
+    ]));
+  });
+
   it("keeps runtime command registration aligned with the declared CLI inventory", () => {
     const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
     const registeredNames = [...source.matchAll(/registerCommand\(\{\s*name:\s*"([^"]+)"/gs)].map((match) => match[1]);
 
     expect(new Set(registeredNames)).toEqual(new Set(CLI_COMMANDS));
+  });
+
+  it("keeps runtime command descriptions aligned with generated help descriptions", () => {
+    const runtimeDescriptions = getRuntimeCommandDescriptions();
+
+    expect(new Set(Object.keys(runtimeDescriptions))).toEqual(new Set(CLI_COMMANDS));
+    for (const command of CLI_COMMANDS) {
+      expect(COMMAND_HELP_DETAILS[command].description.length).toBeGreaterThan(0);
+      expect(COMMAND_HELP_DETAILS[command].description).toBe(runtimeDescriptions[command]);
+    }
   });
 
   it("keeps runtime tool names aligned with the mirrored tool inventory", () => {
@@ -111,6 +143,14 @@ describe("cli help parity", () => {
     expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
     expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
     expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
+      "--brief",
+      "--url",
+      "--capture-mode",
+      "--include-prototype-guidance"
+    ]));
+    expect(HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands])).toContain("inspiredesign");
+    expect(HELP_TOOL_ENTRIES.map((entry) => entry.name)).toContain("opendevbrowser_inspiredesign_run");
   });
 
   it("mentions both help invocations in the generated help text", () => {
@@ -121,6 +161,7 @@ describe("cli help parity", () => {
     expect(labels).toContain("src/cli/help.ts");
     expect(labels).toContain("src/cli/onboarding-metadata.json");
     expect(labels).toContain("src/public-surface/generated-manifest.ts");
+    expect(labels).toContain("docs/WORKFLOW_SURFACE_MAP.md");
     expect(labels).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(labels).toContain(onboardingMetadata.referencePaths.skillDoc);
     expect(labels).not.toContain("~/.codex/skills/opendevbrowser-best-practices");

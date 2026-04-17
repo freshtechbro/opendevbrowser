@@ -19,20 +19,28 @@ import type { CanvasDocument, CanvasGenerationPlan } from "../src/canvas/types";
 
 const validPlan = {
   targetOutcome: { mode: "high-fi-live-edit", summary: "Refine the hero." },
-  visualDirection: { profile: "cinematic-minimal" },
-  layoutStrategy: { approach: "hero-led-grid" },
+  visualDirection: { profile: "cinematic-minimal", themeStrategy: "single-theme" },
+  layoutStrategy: { approach: "hero-led-grid", navigationModel: "global-header" },
   contentStrategy: { source: "document-context" },
-  componentStrategy: { mode: "reuse-first" },
-  motionPosture: { level: "subtle" },
-  responsivePosture: { primaryViewport: "desktop" },
-  accessibilityPosture: { target: "WCAG_2_2_AA" },
-  validationTargets: { blockOn: ["contrast-failure"] }
+  componentStrategy: { mode: "reuse-first", interactionStates: ["default", "hover", "focus", "disabled"] },
+  motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+  responsivePosture: { primaryViewport: "desktop", requiredViewports: ["desktop", "tablet", "mobile"] },
+  accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "full" },
+  validationTargets: {
+    blockOn: ["contrast-failure"],
+    requiredThemes: ["light"],
+    browserValidation: "required",
+    maxInteractionLatencyMs: 150
+  }
 };
 
 describe("canvas document store", () => {
   it("validates generation plan completeness", () => {
-    expect(validateGenerationPlan(validPlan)).toEqual({ ok: true });
-    expect(validateGenerationPlan(null)).toEqual({
+    expect(validateGenerationPlan(validPlan)).toMatchObject({
+      ok: true,
+      plan: structuredClone(validPlan)
+    });
+    expect(validateGenerationPlan(null)).toMatchObject({
       ok: false,
       missing: [
         "targetOutcome",
@@ -46,7 +54,7 @@ describe("canvas document store", () => {
         "validationTargets"
       ]
     });
-    expect(validateGenerationPlan({ targetOutcome: { mode: "draft" } })).toEqual({
+    expect(validateGenerationPlan({ targetOutcome: { mode: "draft" } })).toMatchObject({
       ok: false,
       missing: [
         "visualDirection",
@@ -57,7 +65,77 @@ describe("canvas document store", () => {
         "responsivePosture",
         "accessibilityPosture",
         "validationTargets"
-      ]
+      ],
+      issues: expect.arrayContaining([
+        expect.objectContaining({
+          path: "targetOutcome.mode",
+          code: "invalid_value"
+        })
+      ])
+    });
+  });
+
+  it("reports nested missing generation plan fields when sections exist but are incomplete", () => {
+    expect(validateGenerationPlan({
+      targetOutcome: { mode: "high-fi-live-edit" },
+      visualDirection: { profile: "clean-room" },
+      layoutStrategy: { note: "missing required keys" },
+      contentStrategy: { note: "missing source" },
+      componentStrategy: { mode: "reuse-first", interactionStates: [] },
+      motionPosture: { level: "subtle" },
+      responsivePosture: { primaryViewport: "desktop" },
+      accessibilityPosture: { target: "WCAG_2_2_AA" },
+      validationTargets: {
+        blockOn: ["contrast-failure"],
+        requiredThemes: ["light"],
+        browserValidation: "required"
+      }
+    })).toMatchObject({
+      ok: false,
+      missing: [],
+      issues: expect.arrayContaining([
+        expect.objectContaining({ path: "targetOutcome.summary", code: "missing_field" }),
+        expect.objectContaining({ path: "visualDirection.themeStrategy", code: "missing_field" }),
+        expect.objectContaining({ path: "layoutStrategy.approach", code: "missing_field" }),
+        expect.objectContaining({ path: "contentStrategy.source", code: "missing_field" }),
+        expect.objectContaining({ path: "componentStrategy.interactionStates", code: "invalid_type" }),
+        expect.objectContaining({ path: "motionPosture.reducedMotion", code: "missing_field" }),
+        expect.objectContaining({ path: "responsivePosture.requiredViewports", code: "missing_field" }),
+        expect.objectContaining({ path: "accessibilityPosture.keyboardNavigation", code: "missing_field" }),
+        expect.objectContaining({ path: "validationTargets.maxInteractionLatencyMs", code: "missing_field" })
+      ])
+    });
+  });
+
+  it("reports nested invalid generation plan values without treating the sections as missing", () => {
+    expect(validateGenerationPlan({
+      targetOutcome: { mode: "high-fi-live-edit", summary: "Refine the hero" },
+      visualDirection: { profile: "not-a-profile", themeStrategy: "single-theme" },
+      layoutStrategy: { approach: "hero-led-grid", navigationModel: "global-header" },
+      contentStrategy: { source: "document-context" },
+      componentStrategy: { mode: "reuse-first", interactionStates: [123] },
+      motionPosture: { level: "subtle", reducedMotion: "respect-user-preference" },
+      responsivePosture: { primaryViewport: "desktop", requiredViewports: ["tablet"] },
+      accessibilityPosture: { target: "WCAG_2_2_AA", keyboardNavigation: "sideways" },
+      validationTargets: {
+        blockOn: "contrast-failure",
+        requiredThemes: ["sepia"],
+        browserValidation: "sometimes",
+        maxInteractionLatencyMs: 0
+      }
+    })).toMatchObject({
+      ok: false,
+      missing: [],
+      issues: expect.arrayContaining([
+        expect.objectContaining({ path: "visualDirection.profile", code: "invalid_value" }),
+        expect.objectContaining({ path: "componentStrategy.interactionStates", code: "invalid_type" }),
+        expect.objectContaining({ path: "responsivePosture.requiredViewports", code: "invalid_value" }),
+        expect.objectContaining({ path: "accessibilityPosture.keyboardNavigation", code: "invalid_value" }),
+        expect.objectContaining({ path: "validationTargets.blockOn", code: "invalid_type" }),
+        expect.objectContaining({ path: "validationTargets.requiredThemes", code: "invalid_value" }),
+        expect.objectContaining({ path: "validationTargets.browserValidation", code: "invalid_value" }),
+        expect.objectContaining({ path: "validationTargets.maxInteractionLatencyMs", code: "invalid_value" })
+      ])
     });
   });
 
@@ -3066,6 +3144,44 @@ describe("canvas document store", () => {
       expect.objectContaining({
         code: "asset-provenance-missing",
         details: expect.objectContaining({ assetId: "asset_generated" })
+      })
+    ]));
+  });
+
+  it("marks malformed persisted generation plans invalid and blocks save", () => {
+    const document = createDefaultCanvasDocument("dc_invalid_plan");
+    document.designGovernance.generationPlan = {
+      targetOutcome: { mode: "draft", summary: "Invalid plan" }
+    } as unknown as CanvasDocument["designGovernance"]["generationPlan"];
+    document.designGovernance.intent = { summary: "Governed invalid-plan document" };
+    document.designGovernance.designLanguage = { profile: "clean-room" };
+    document.designGovernance.contentModel = { requiredStates: ["default", "loading", "empty", "error"] };
+    document.designGovernance.layoutSystem = { grid: { columns: 12 } };
+    document.designGovernance.typographySystem = { hierarchy: { display: "display-01" }, fontPolicy: "Local Sans" };
+    document.designGovernance.colorSystem = { roles: { primary: "#0055ff" } };
+    document.designGovernance.surfaceSystem = { panels: { elevation: "medium" } };
+    document.designGovernance.iconSystem = { primary: "tabler" };
+    document.designGovernance.motionSystem = { reducedMotion: "respect-user-preference" };
+    document.designGovernance.responsiveSystem = { breakpoints: { mobile: 390, tablet: 1024, desktop: 1440 } };
+    document.designGovernance.accessibilityPolicy = { reducedMotion: "respect-user-preference" };
+    document.designGovernance.libraryPolicy = structuredClone(CANVAS_PROJECT_DEFAULTS.libraryPolicy);
+    document.designGovernance.runtimeBudgets = structuredClone(CANVAS_PROJECT_DEFAULTS.runtimeBudgets);
+    document.viewports = [{ id: "desktop" }, { id: "tablet" }, { id: "mobile" }] as CanvasDocument["viewports"];
+    document.themes = [{ id: "light" }] as CanvasDocument["themes"];
+
+    expect(buildGovernanceBlockStates(document).generationPlan.status).toBe("invalid");
+    expect(missingRequiredSaveBlocks(document)).toContain("generationPlan");
+
+    const validation = validateCanvasSave(document);
+    expect(validation.missingBlocks).toContain("generationPlan");
+    expect(validation.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "invalid-generation-plan",
+        details: expect.objectContaining({
+          issues: expect.arrayContaining([
+            expect.objectContaining({ path: "targetOutcome.mode", code: "invalid_value" })
+          ])
+        })
       })
     ]));
   });

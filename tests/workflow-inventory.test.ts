@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CANVAS_LIVE_TIMEOUTS_MS } from "../scripts/live-direct-utils.mjs";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import {
+  PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS,
   buildWorkflowInventory,
   deriveCliToolPairs,
   VALIDATION_SCENARIOS
@@ -19,9 +20,9 @@ describe("workflow inventory", () => {
   it("builds a code-derived workflow inventory with the expected current splits", () => {
     const inventory = buildWorkflowInventory();
 
-    expect(inventory.coverage.commandCount).toBe(72);
-    expect(inventory.coverage.toolCount).toBe(65);
-    expect(inventory.coverage.cliToolPairCount).toBe(62);
+    expect(inventory.coverage.commandCount).toBe(77);
+    expect(inventory.coverage.toolCount).toBe(70);
+    expect(inventory.coverage.cliToolPairCount).toBe(67);
     expect(inventory.coverage.cliOnlyCommandCount).toBe(10);
     expect(inventory.coverage.toolOnlySurfaceCount).toBe(3);
   });
@@ -35,8 +36,13 @@ describe("workflow inventory", () => {
     expect(byCli.get("research")).toBe("opendevbrowser_research_run");
     expect(byCli.get("shopping")).toBe("opendevbrowser_shopping_run");
     expect(byCli.get("product-video")).toBe("opendevbrowser_product_video_run");
+    expect(byCli.get("inspiredesign")).toBe("opendevbrowser_inspiredesign_run");
+    expect(byCli.get("status-capabilities")).toBe("opendevbrowser_status_capabilities");
+    expect(byCli.get("review-desktop")).toBe("opendevbrowser_review_desktop");
     expect(byCli.get("canvas")).toBe("opendevbrowser_canvas");
     expect(byCli.get("session-inspector")).toBe("opendevbrowser_session_inspector");
+    expect(byCli.get("session-inspector-plan")).toBe("opendevbrowser_session_inspector_plan");
+    expect(byCli.get("session-inspector-audit")).toBe("opendevbrowser_session_inspector_audit");
   });
 
   it("maps guarded and tool-only surfaces explicitly instead of pretending they are CLI executable", () => {
@@ -64,6 +70,7 @@ describe("workflow inventory", () => {
       "workflow.shopping.run",
       "workflow.product_video.url",
       "workflow.product_video.name",
+      "workflow.inspiredesign.run",
       "workflow.macro.web_search",
       "workflow.macro.web_fetch",
       "workflow.macro.community_search",
@@ -120,11 +127,20 @@ describe("workflow inventory", () => {
     const media = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.macro.media_search");
     const productVideoUrl = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.product_video.url");
     const productVideoName = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.product_video.name");
+    const inspiredesign = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.inspiredesign.run");
 
     expect(community?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(media?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoUrl?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoName?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(productVideoUrl?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
+    expect(productVideoName?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
+    expect(inspiredesign?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(inspiredesign?.entryPath).toBe("opendevbrowser inspiredesign run");
+    expect(inspiredesign?.primaryArgs).toEqual(expect.arrayContaining(["--url", "https://example.com/"]));
+    expect(inspiredesign?.secondaryArgs).toEqual(expect.arrayContaining(["--include-prototype-guidance"]));
+    expect(inspiredesign?.secondaryArgs).not.toContain("--urls");
+    expect(inspiredesign?.ownerFiles).toContain("src/cli/commands/inspiredesign.ts");
   });
 });
 
@@ -182,17 +198,69 @@ describe("workflow validation matrix helpers", () => {
     });
   });
 
-  it("classifies explicit manual browser follow-up failures as env_limited when the scenario allows it", () => {
+  it("fails timeout reason codes by default and only downgrades them when a scenario opts in", () => {
+    const timeoutResult = {
+      status: 1,
+      timedOut: false,
+      detail: "Provider request timed out after 120000ms",
+      json: {
+        summary: {
+          failures: [
+            {
+              error: {
+                code: "timeout",
+                message: "Provider request timed out after 120000ms"
+              }
+            }
+          ]
+        }
+      }
+    };
+
+    expect(determineScenarioStatus(timeoutResult, {
+      allowedStatuses: ["pass", "env_limited"]
+    })).toMatchObject({
+      status: "fail",
+      detail: "unexpected_reason_codes=timeout",
+      ok: false
+    });
+
+    expect(determineScenarioStatus(timeoutResult, {
+      allowedStatuses: ["pass", "env_limited"],
+      envLimitedReasonCodes: ["timeout"]
+    })).toMatchObject({
+      status: "env_limited",
+      detail: "reason_codes=timeout",
+      ok: true
+    });
+  });
+
+  it("classifies provider browser-only constraints as env_limited when the scenario allows it", () => {
     expect(determineScenarioStatus({
       status: 1,
       timedOut: false,
       detail: "Best Buy requires manual browser follow-up; this run did not determine a reliable PDP price.",
       json: { status: "fail" }
     }, {
-      allowedStatuses: ["pass", "env_limited"]
+      allowedStatuses: ["pass", "env_limited"],
+      envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS
     })).toMatchObject({
       status: "env_limited",
       detail: "Best Buy requires manual browser follow-up; this run did not determine a reliable PDP price.",
+      ok: true
+    });
+
+    expect(determineScenarioStatus({
+      status: 1,
+      timedOut: false,
+      detail: "Bestbuy requires a live browser-rendered page.",
+      json: { status: "fail" }
+    }, {
+      allowedStatuses: ["pass", "env_limited"],
+      envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS
+    })).toMatchObject({
+      status: "env_limited",
+      detail: "Bestbuy requires a live browser-rendered page.",
       ok: true
     });
   });

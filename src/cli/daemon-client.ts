@@ -1,12 +1,24 @@
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { readDaemonMetadata, getCacheRoot, writeDaemonMetadata } from "./daemon";
+import {
+  getCacheRoot,
+  isCurrentDaemonFingerprint,
+  readDaemonMetadata,
+  resolveCurrentDaemonEntrypointPath
+} from "./daemon";
 import { CliError, createDisconnectedError, EXIT_EXECUTION } from "./errors";
 import { writeFileAtomic } from "../utils/fs";
 import { loadGlobalConfig } from "../config";
-import { fetchDaemonStatus, type DaemonStatusFetchOptions } from "./daemon-status";
 import {
+  fetchDaemonStatus,
+  persistDaemonStatusMetadata,
+  type DaemonStatusFetchOptions,
+  type DaemonStatusPayload
+} from "./daemon-status";
+import {
+  fetchWithTimeout,
   fetchWithTimeoutContext,
   readResponseJsonWithTimeout,
   readResponseTextWithTimeout,
@@ -23,6 +35,9 @@ const DAEMON_STATUS_RETRY_OPTIONS: DaemonStatusFetchOptions = {
   retryAttempts: 5,
   retryDelayMs: 250
 };
+const DAEMON_RESTART_STATUS_TIMEOUT_MS = 5_000;
+const DAEMON_RESTART_POLL_ATTEMPTS = 20;
+const DAEMON_RESTART_POLL_DELAY_MS = 250;
 
 type DaemonResponse<T> = { ok?: boolean; data?: T; error?: string };
 
@@ -451,31 +466,158 @@ type DaemonConnection = {
   token: string;
 };
 
-const resolveDaemonConnection = async (): Promise<DaemonConnection> => {
-  const metadata = readDaemonMetadata();
-  if (metadata) {
-    return { port: metadata.port, token: metadata.token };
+const sleep = async (delayMs: number): Promise<void> => {
+  if (!(Number.isFinite(delayMs) && delayMs > 0)) {
+    return;
   }
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+};
 
+const getConfiguredDaemonConnection = (): DaemonConnection | null => {
   const config = loadGlobalConfig();
-  if (config.daemonPort > 0 && config.daemonToken) {
-    const status = await fetchDaemonStatus(config.daemonPort, config.daemonToken, DAEMON_STATUS_RETRY_OPTIONS);
-    if (status?.ok) {
-      writeDaemonMetadata({
-        port: config.daemonPort,
-        token: config.daemonToken,
-        pid: status.pid,
-        relayPort: status.relay.port ?? config.relayPort,
-        startedAt: new Date().toISOString(),
-        hubInstanceId: status.hub.instanceId,
-        relayInstanceId: status.relay.instanceId,
-        relayEpoch: status.relay.epoch
-      });
-      return { port: config.daemonPort, token: config.daemonToken };
+  if (!(config.daemonPort > 0 && config.daemonToken)) {
+    return null;
+  }
+  return { port: config.daemonPort, token: config.daemonToken };
+};
+
+const sameDaemonConnection = (left: DaemonConnection, right: DaemonConnection): boolean => {
+  return left.port === right.port && left.token === right.token;
+};
+
+const persistResolvedDaemonStatus = (
+  connection: DaemonConnection,
+  status: DaemonStatusPayload
+): void => {
+  const config = loadGlobalConfig();
+  persistDaemonStatusMetadata({
+    port: connection.port,
+    token: connection.token,
+    startedAt: new Date().toISOString(),
+    fingerprint: status.fingerprint
+  }, status, config);
+};
+
+const stopDaemonConnection = async (connection: DaemonConnection): Promise<void> => {
+  try {
+    await fetchWithTimeout(`http://127.0.0.1:${connection.port}/stop`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${connection.token}` }
+    }, DAEMON_RESTART_STATUS_TIMEOUT_MS);
+  } catch {
+    // Best effort only. The restart probe below is the source of truth.
+  }
+};
+
+const restartDaemonConnection = async (connection: DaemonConnection): Promise<void> => {
+  const child = spawn(process.execPath, [
+    resolveCurrentDaemonEntrypointPath(),
+    "serve",
+    "--port",
+    String(connection.port),
+    "--token",
+    connection.token,
+    "--output-format",
+    "json"
+  ], {
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+};
+
+const waitForCurrentDaemonStatus = async (connection: DaemonConnection): Promise<DaemonStatusPayload | null> => {
+  for (let attempt = 1; attempt <= DAEMON_RESTART_POLL_ATTEMPTS; attempt += 1) {
+    const status = await fetchDaemonStatus(connection.port, connection.token, {
+      timeoutMs: DAEMON_RESTART_STATUS_TIMEOUT_MS
+    });
+    if (status?.ok && isCurrentDaemonFingerprint(status.fingerprint)) {
+      return status;
+    }
+    if (attempt < DAEMON_RESTART_POLL_ATTEMPTS) {
+      await sleep(DAEMON_RESTART_POLL_DELAY_MS);
     }
   }
+  return null;
+};
 
-  throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
+const resolveMetadataConnection = async (
+  metadataConnection: DaemonConnection,
+  configuredConnection: DaemonConnection
+): Promise<{ connection: DaemonConnection; status: DaemonStatusPayload } | null> => {
+  const status = await fetchDaemonStatus(
+    metadataConnection.port,
+    metadataConnection.token,
+    DAEMON_STATUS_RETRY_OPTIONS
+  );
+  if (!status?.ok) {
+    return null;
+  }
+  if (isCurrentDaemonFingerprint(status.fingerprint)) {
+    persistResolvedDaemonStatus(metadataConnection, status);
+    return { connection: metadataConnection, status };
+  }
+  if (sameDaemonConnection(metadataConnection, configuredConnection)) {
+    return null;
+  }
+  return { connection: metadataConnection, status };
+};
+
+const resolveFreshDaemonConnection = async (): Promise<DaemonConnection> => {
+  const configuredConnection = getConfiguredDaemonConnection();
+  if (!configuredConnection) {
+    throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
+  }
+
+  const configuredStatus = await fetchDaemonStatus(
+    configuredConnection.port,
+    configuredConnection.token,
+    DAEMON_STATUS_RETRY_OPTIONS
+  );
+  if (configuredStatus?.ok && isCurrentDaemonFingerprint(configuredStatus.fingerprint)) {
+    persistResolvedDaemonStatus(configuredConnection, configuredStatus);
+    return configuredConnection;
+  }
+
+  const metadata = readDaemonMetadata();
+  const metadataConnection = metadata
+    ? { port: metadata.port, token: metadata.token }
+    : null;
+  const staleMetadata = metadataConnection
+    ? await resolveMetadataConnection(metadataConnection, configuredConnection)
+    : null;
+  if (staleMetadata?.status.ok && isCurrentDaemonFingerprint(staleMetadata.status.fingerprint)) {
+    return staleMetadata.connection;
+  }
+
+  const staleConnections: DaemonConnection[] = [];
+  if (configuredStatus?.ok) {
+    staleConnections.push(configuredConnection);
+  }
+  if (staleMetadata && !sameDaemonConnection(staleMetadata.connection, configuredConnection)) {
+    staleConnections.push(staleMetadata.connection);
+  }
+  if (staleConnections.length === 0) {
+    throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
+  }
+  for (const staleConnection of staleConnections) {
+    await stopDaemonConnection(staleConnection);
+  }
+  await restartDaemonConnection(configuredConnection);
+  const refreshedStatus = await waitForCurrentDaemonStatus(configuredConnection);
+  if (!refreshedStatus?.ok) {
+    throw createDisconnectedError("Daemon restart failed after fingerprint mismatch. Start with `opendevbrowser serve`.");
+  }
+  persistResolvedDaemonStatus(configuredConnection, refreshedStatus);
+  return configuredConnection;
+};
+
+const resolveDaemonConnection = async (): Promise<DaemonConnection> => {
+  const metadata = readDaemonMetadata();
+  if (metadata && isCurrentDaemonFingerprint(metadata.fingerprint)) {
+    return { port: metadata.port, token: metadata.token };
+  }
+  return await resolveFreshDaemonConnection();
 };
 
 const retryWithRefreshedConnection = async (
@@ -483,25 +625,8 @@ const retryWithRefreshedConnection = async (
   params: Record<string, unknown>,
   timeoutMs?: number
 ): Promise<TimedFetchResponse> => {
-  const config = loadGlobalConfig();
-  if (config.daemonPort <= 0 || !config.daemonToken) {
-    throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
-  }
-  const status = await fetchDaemonStatus(config.daemonPort, config.daemonToken, DAEMON_STATUS_RETRY_OPTIONS);
-  if (status?.ok) {
-    writeDaemonMetadata({
-      port: config.daemonPort,
-      token: config.daemonToken,
-      pid: status.pid,
-      relayPort: status.relay.port ?? config.relayPort,
-      startedAt: new Date().toISOString(),
-      hubInstanceId: status.hub.instanceId,
-      relayInstanceId: status.relay.instanceId,
-      relayEpoch: status.relay.epoch
-    });
-    return await openDaemonCommand(config.daemonPort, config.daemonToken, name, params, timeoutMs);
-  }
-  throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
+  const connection = await resolveFreshDaemonConnection();
+  return await openDaemonCommand(connection.port, connection.token, name, params, timeoutMs);
 };
 
 const openDaemonCommand = async (

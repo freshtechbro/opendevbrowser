@@ -10,38 +10,39 @@ type FailureShape = {
   };
 };
 
+const asRecord = (value: unknown): Record<string, unknown> | null => (
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+);
+
+const readNonEmptyString = (value: unknown): string | null => (
+  typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null
+);
+
 const readMeta = (data: unknown): Record<string, unknown> | null => {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const meta = (data as Record<string, unknown>).meta;
-  return meta && typeof meta === "object" && !Array.isArray(meta)
-    ? meta as Record<string, unknown>
-    : null;
+  return asRecord(asRecord(data)?.meta);
 };
 
 const readPrimaryConstraint = (data: unknown): Record<string, unknown> | null => {
   const meta = readMeta(data);
   if (!meta) return null;
-  const constraint = meta.primaryConstraint ?? meta.primary_constraint;
-  return constraint && typeof constraint === "object" && !Array.isArray(constraint)
-    ? constraint as Record<string, unknown>
-    : null;
+  return asRecord(meta.primaryConstraint);
 };
 
 const readPrimarySummary = (data: unknown): string | null => {
   const meta = readMeta(data);
-  if (!meta) return null;
-  const summary = meta.primaryConstraintSummary;
-  return typeof summary === "string" && summary.trim().length > 0
-    ? summary.trim()
-    : null;
+  return readNonEmptyString(meta?.primaryConstraintSummary);
 };
 
 const readPrimaryNextStep = (data: unknown): string | null => {
   const constraint = readPrimaryConstraint(data);
   if (!constraint) return null;
-  const guidance = constraint.guidance;
-  if (!guidance || typeof guidance !== "object" || Array.isArray(guidance)) return null;
-  const commands = (guidance as Record<string, unknown>).recommendedNextCommands;
+  const guidance = asRecord(constraint.guidance);
+  if (!guidance) return null;
+  const commands = guidance.recommendedNextCommands;
   if (!Array.isArray(commands)) return null;
   const nextStep = commands.find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
   return nextStep?.trim() ?? null;
@@ -56,21 +57,52 @@ const readFailures = (data: unknown): FailureShape[] => {
     : [];
 };
 
-const withNextStep = (message: string, nextStep: string | null): string => {
+const readSuggestedSteps = (data: unknown): readonly Record<string, unknown>[] => {
+  const steps = asRecord(data)?.suggestedSteps;
+  return Array.isArray(steps)
+    ? steps.flatMap((step) => {
+      const record = asRecord(step);
+      return record ? [record] : [];
+    })
+    : [];
+};
+
+export const buildNextStepMessage = (message: string, nextStep: string | null): string => {
   return nextStep ? `${message} Next step: ${nextStep}` : message;
+};
+
+export const readSuggestedNextAction = (data: unknown): string | null => {
+  const record = asRecord(data);
+  if (!record) return null;
+  return readNonEmptyString(record.suggestedNextAction)
+    ?? readNonEmptyString(asRecord(record.sessionInspector)?.suggestedNextAction);
+};
+
+export const readSuggestedStepReason = (data: unknown): string | null => {
+  let current = asRecord(data);
+
+  while (current) {
+    const [firstStep] = readSuggestedSteps(current);
+    if (firstStep) {
+      return readNonEmptyString(firstStep.reason);
+    }
+    current = asRecord(current.challengePlan);
+  }
+
+  return null;
 };
 
 export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unknown): string => {
   const explicitSummary = readPrimarySummary(data);
   if (explicitSummary) {
-    return withNextStep(
+    return buildNextStepMessage(
       `${workflowLabel} completed with provider follow-up required: ${explicitSummary}`,
       readPrimaryNextStep(data)
     );
   }
   const inferred = summarizePrimaryProviderIssue(readFailures(data));
   if (inferred) {
-    return withNextStep(
+    return buildNextStepMessage(
       `${workflowLabel} completed with provider follow-up required: ${inferred.summary}`,
       inferred.guidance?.recommendedNextCommands[0] ?? null
     );

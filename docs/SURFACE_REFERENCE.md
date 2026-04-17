@@ -27,7 +27,7 @@ First-contact note:
 
 ---
 
-## CLI Command Inventory (72)
+## CLI Command Inventory (77)
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
@@ -41,22 +41,25 @@ First-contact note:
 - `run` - Execute a JSON script in a single process.
 - `artifacts` - Manage workflow artifact lifecycle.
 
-### Session, connection, and workflow wrappers (9)
+### Session, connection, and workflow wrappers (11)
 - `launch` - Launch a managed browser session via daemon.
 - `connect` - Connect to an existing browser via daemon.
 - `disconnect` - Disconnect a daemon session.
 - `status` - Get daemon or session status.
+- `status-capabilities` - Inspect runtime capability discovery for the host and an optional session.
 - `cookie-import` - Import validated cookies into a session.
 - `cookie-list` - List cookies for a session, optionally filtered by URL.
 - `research` - Run research workflows.
 - `shopping` - Run shopping workflows.
 - `product-video` - Run product presentation asset workflows.
+- `inspiredesign` - Run inspiredesign workflows.
 
-### Navigation (4)
+### Navigation (5)
 - `goto` - Navigate the current session to a URL.
 - `wait` - Wait for load completion or a ref/state condition.
 - `snapshot` - Capture a snapshot of the active page.
 - `review` - Capture a first-class review payload for the active target.
+- `review-desktop` - Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification.
 
 ### Interaction (14)
 - `click` - Click an element by ref.
@@ -111,7 +114,7 @@ Operational note:
 ### Design canvas (1)
 - `canvas` - Execute a design-canvas command.
 
-### Export, diagnostics, macro, annotation, power (11)
+### Export, diagnostics, macro, annotation, power (13)
 - `clone-page` - Clone the active page to React.
 - `clone-component` - Clone a component by ref.
 - `perf` - Capture performance metrics.
@@ -120,19 +123,22 @@ Operational note:
 - `network-poll` - Poll network events.
 - `debug-trace-snapshot` - Capture page, console, network, and exception diagnostics.
 - `session-inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
+- `session-inspector-plan` - Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.
+- `session-inspector-audit` - Capture a correlated audit bundle across desktop evidence, browser review, and policy state.
 - `macro-resolve` - Resolve or execute a macro expression via provider actions.
 - `annotate` - Request interactive annotations via direct or relay transport.
 - `rpc` - Execute an internal daemon RPC command. CLI-only, internal power surface.
 
 ---
 
-## Tool Inventory (65)
+## Tool Inventory (70)
 
-### Session and cookies (6)
+### Session and cookies (7)
 - `opendevbrowser_launch` - Launch a managed browser session.
 - `opendevbrowser_connect` - Connect to an existing browser session.
 - `opendevbrowser_disconnect` - Disconnect a managed or connected session.
 - `opendevbrowser_status` - Inspect session and relay status.
+- `opendevbrowser_status_capabilities` - Inspect runtime capability discovery for the host and an optional session.
 - `opendevbrowser_cookie_import` - Import validated cookies into a session.
 - `opendevbrowser_cookie_list` - List cookies in a session with optional URL filters.
 
@@ -145,11 +151,12 @@ Operational note:
 - `opendevbrowser_list` - List named pages in the session.
 - `opendevbrowser_close` - Close a named page.
 
-### Navigation and interaction (19)
+### Navigation and interaction (20)
 - `opendevbrowser_goto` - Navigate to a URL.
 - `opendevbrowser_wait` - Wait for load, ref, or state conditions.
 - `opendevbrowser_snapshot` - Capture AX-tree refs for actions.
 - `opendevbrowser_review` - Capture a first-class review payload with status and actionables.
+- `opendevbrowser_review_desktop` - Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification.
 - `opendevbrowser_click` - Click an element by ref.
 - `opendevbrowser_hover` - Hover an element by ref.
 - `opendevbrowser_press` - Send a keyboard key.
@@ -188,11 +195,13 @@ Operational note:
 - `opendevbrowser_desktop_capture_window` - Capture a specific window through the public read-only desktop observation plane.
 - `opendevbrowser_desktop_accessibility_snapshot` - Capture desktop accessibility state through the public read-only desktop observation plane.
 
-### Diagnostics and export (9)
+### Diagnostics and export (11)
 - `opendevbrowser_console_poll` - Poll redacted console events.
 - `opendevbrowser_network_poll` - Poll redacted network events.
 - `opendevbrowser_debug_trace_snapshot` - Capture page, console, and network diagnostics.
 - `opendevbrowser_session_inspector` - Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.
+- `opendevbrowser_session_inspector_plan` - Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.
+- `opendevbrowser_session_inspector_audit` - Capture a correlated audit bundle across desktop evidence, browser review, and policy state.
 - `opendevbrowser_perf` - Collect browser performance metrics.
 - `opendevbrowser_dialog` - Inspect or handle a JavaScript dialog.
 - `opendevbrowser_clone_page` - Export the active page into React code.
@@ -202,11 +211,12 @@ Operational note:
 ### Design canvas (1)
 - `opendevbrowser_canvas` - Execute a typed design-canvas command surface call.
 
-### Macro, workflow, and skill surfaces (7)
+### Macro, workflow, and skill surfaces (8)
 - `opendevbrowser_macro_resolve` - Resolve or execute provider macro expressions.
 - `opendevbrowser_research_run` - Run the research workflow directly.
 - `opendevbrowser_shopping_run` - Run the shopping workflow directly.
 - `opendevbrowser_product_video_run` - Run the product-video asset workflow directly.
+- `opendevbrowser_inspiredesign_run` - Run the inspiredesign workflow directly.
 - `opendevbrowser_prompting_guide` - Return best-practice prompting guidance and the bundled quick start. Tool-only.
 - `opendevbrowser_skill_list` - List available bundled and discovered skill packs. Tool-only.
 - `opendevbrowser_skill_load` - Load a specific skill pack locally without browser work. Tool-only.
@@ -395,6 +405,8 @@ Extension runtime subset (internal relay helpers, not public agent commands):
 
 Behavior notes:
 - `canvas.session.open` creates a session and lease; `canvas.session.attach` joins an existing session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
+- `canvas.session.open` and `canvas.capabilities.get` return the authoritative operator handshake, including `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `warningClasses`, `mutationPolicy.allowedBeforePlan`, and `guidance.recommendedNextCommands`.
+- `canvas.plan.set` is the mutation gate. On success it returns accepted state plus next-step guidance; on failure it throws `generation_plan_invalid` with `details.missingFields` and `details.issues`. `canvas.plan.get` remains useful for diagnostics after that failure or after attach, but it is not required on the success path.
 - `canvas.document.patch` supports governance completion through `governance.update` patch batches in addition to scene/node operations.
 - `canvas.document.patch` also supports reusable inventory mutations through `inventory.promote`, `inventory.update`, and `inventory.remove`.
 - `canvas.document.import` imports Figma file URLs, node URLs, or raw file-key inputs through the same lease-governed session flow. It caches image/SVG receipts under `.opendevbrowser/canvas/assets/figma/<fileKey>/`, records provenance in `document.meta.imports[]`, and treats `variables/local` failures as typed degraded paths instead of opaque fatal errors.
@@ -408,7 +420,7 @@ Behavior notes:
 - `canvas.tab.open` is the public command; internal `canvas.tab.sync` keeps extension-hosted design tabs on the same core-rendered HTML materialization path after public mutations.
 - `canvas.code.*` manages framework-adapter-backed bindings with repo-local manifests under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`. Built-in lanes currently ship for `builtin:react-tsx-v2`, `builtin:html-static-v1`, `builtin:custom-elements-v1`, `builtin:vue-sfc-v1`, and `builtin:svelte-sfc-v1`; legacy `tsx-react-v1` bindings migrate on load to `builtin:react-tsx-v2`, and repo-local BYO adapter plugins load only from workspace metadata, repo manifests, or explicit local config declarations.
 - `canvas.preview.render` and `canvas.preview.refresh` default to projected `canvas_html`, but bindings that opt into `projection=bound_app_runtime` attempt in-place runtime reconciliation before falling back to canonical HTML projection.
-- `canvas.feedback.poll` remains the snapshot query for cursor-based audits. `canvas.feedback.subscribe` returns `subscriptionId`, `cursor`, `heartbeatMs`, `expiresAt`, `initialItems`, and `activeTargetIds`; `canvas.feedback.next` returns exactly one `feedback.item`, `feedback.heartbeat`, or `feedback.complete` event; `canvas.feedback.unsubscribe` ends the public pull stream. The CLI `stream-json` bridge now uses the same public `subscribe -> next -> unsubscribe` contract, and tool callers can do the same through repeated `opendevbrowser_canvas` calls.
+- `canvas.feedback.poll` remains the snapshot query for cursor-based audits. Before the plan is accepted it synthesizes a `preflight-blocker` item for `plan_required` or `generation_plan_invalid`, so agents can reuse the same loop for missing and invalid plan states. `canvas.feedback.subscribe` returns `subscriptionId`, `cursor`, `heartbeatMs`, `expiresAt`, `initialItems`, and `activeTargetIds`; `canvas.feedback.next` returns exactly one `feedback.item`, `feedback.heartbeat`, or `feedback.complete` event; `canvas.feedback.unsubscribe` ends the public pull stream. The CLI `stream-json` bridge now uses the same public `subscribe -> next -> unsubscribe` contract, and tool callers can do the same through repeated `opendevbrowser_canvas` calls.
 - `canvas.session.status` and `canvas.code.status` surface attached clients, active lease holder, watch state, drift/conflict state, projection mode, fallback reasons, parity artifacts, available starter count, and the currently applied starter metadata.
 
 Envelope contract:
@@ -533,7 +545,7 @@ Auth and policy:
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
-- Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
+- Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
 - Workflow response keys: provider follow-up summaries use `meta.primaryConstraintSummary`.
 - Research and shopping guidance uses `meta.primaryConstraint.guidance.reason` plus `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.
 - Failure tallies use `meta.metrics.reasonCodeDistribution` for research/shopping and `meta.reasonCodeDistribution` for product-video.

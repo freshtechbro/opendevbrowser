@@ -4,7 +4,12 @@ import { AnnotationManager } from "../browser/annotation-manager";
 import { CanvasManager } from "../browser/canvas-manager";
 import { ScriptRunner } from "../browser/script-runner";
 import { AgentInbox } from "../annotate/agent-inbox";
-import { ConfigStore, loadGlobalConfig, resolveConfig } from "../config";
+import {
+  ConfigStore,
+  loadGlobalConfig,
+  requireChallengeOrchestrationConfig,
+  resolveConfig
+} from "../config";
 import { getExtensionPath } from "../extension-extractor";
 import { RelayServer } from "../relay/relay-server";
 import { SkillLoader } from "../skills/skill-loader";
@@ -18,15 +23,12 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     : resolveConfig(options.config);
   const configStore = new ConfigStore(config);
   const cacheRoot = options.worktree ?? options.directory;
+  const challengeConfig = requireChallengeOrchestrationConfig(config);
   const baseManager = new BrowserManager(cacheRoot, config);
   const manager = new OpsBrowserManager(baseManager, config, cacheRoot);
-  const challengeOrchestrator = config.providers?.challengeOrchestration
-    ? new ChallengeOrchestrator(config.providers.challengeOrchestration)
-    : undefined;
-  if (challengeOrchestrator) {
-    baseManager.setChallengeOrchestrator(challengeOrchestrator);
-    manager.setChallengeOrchestrator(challengeOrchestrator);
-  }
+  const challengeOrchestrator = new ChallengeOrchestrator(challengeConfig);
+  baseManager.setChallengeOrchestrator(challengeOrchestrator);
+  manager.setChallengeOrchestrator(challengeOrchestrator);
   const runner = new ScriptRunner(manager);
   const skills = new SkillLoader(cacheRoot, config.skillPaths);
   const agentInbox = new AgentInbox(cacheRoot);
@@ -39,6 +41,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     cacheRoot,
     config,
     manager,
+    challengeConfig,
     challengeOrchestrator
   });
   const relay = new RelayServer();

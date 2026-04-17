@@ -4,7 +4,7 @@ import { join } from "path";
 import { freemem, totalmem } from "os";
 import type { Browser, BrowserContext, CDPSession, Dialog, Page } from "playwright-core";
 import { Mutex } from "async-mutex";
-import type { OpenDevBrowserConfig } from "../config";
+import { requireChallengeOrchestrationConfig, type OpenDevBrowserConfig } from "../config";
 import { resolveCachePaths } from "../cache/paths";
 import { findChromeExecutable } from "../cache/chrome-locator";
 import { downloadChromeForTesting } from "../cache/downloader";
@@ -21,7 +21,12 @@ import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoin
 import type { RelayStatus } from "../relay/relay-server";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
+import {
+  ChallengeOrchestrator,
+  inspectChallengePlanFromRuntime,
+  resolveChallengeAutomationPolicy,
+  type ChallengeAutomationMode
+} from "../challenges";
 import type {
   BlockerSignalV1,
   ChallengeOwnerSurface,
@@ -472,6 +477,23 @@ export class BrowserManager {
       return;
     }
     session.challengeAutomationMode = mode;
+  }
+
+  async inspectChallengePlan(input: {
+    sessionId: string;
+    targetId?: string | null;
+    runMode?: ChallengeAutomationMode;
+  }) {
+    const challengeConfig = requireChallengeOrchestrationConfig(this.config);
+    return inspectChallengePlanFromRuntime({
+      handle: this.createChallengeRuntimeHandle(),
+      sessionId: input.sessionId,
+      targetId: input.targetId,
+      config: challengeConfig,
+      runMode: input.runMode,
+      sessionMode: this.getSessionChallengeAutomationMode(input.sessionId),
+      canImportCookies: true
+    });
   }
 
   createChallengeRuntimeHandle(): ChallengeRuntimeHandle {

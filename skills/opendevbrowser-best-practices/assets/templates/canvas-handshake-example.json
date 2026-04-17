@@ -56,7 +56,93 @@
       "responsivePosture",
       "accessibilityPosture",
       "validationTargets"
-    ]
+    ],
+    "allowedValues": {
+      "targetOutcomeModes": [
+        "low-fi-wireframe",
+        "high-fi-live-edit",
+        "dual-track",
+        "document-only"
+      ],
+      "visualDirectionProfiles": [
+        "clean-room",
+        "cinematic-minimal",
+        "product-story",
+        "commerce-system",
+        "control-room",
+        "ops-control",
+        "auth-focused",
+        "settings-system",
+        "documentation"
+      ],
+      "themeStrategies": [
+        "single-theme",
+        "light-dark-parity",
+        "multi-theme-system"
+      ],
+      "navigationModels": [
+        "global-header",
+        "sidebar",
+        "tabbed",
+        "contextual",
+        "immersive"
+      ],
+      "interactionStates": [
+        "default",
+        "hover",
+        "focus",
+        "active",
+        "disabled",
+        "loading",
+        "empty",
+        "error",
+        "success",
+        "selected"
+      ],
+      "viewports": [
+        "desktop",
+        "tablet",
+        "mobile"
+      ],
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "browserValidationModes": [
+        "required",
+        "optional"
+      ],
+      "blockOn": [
+        "missing-generation-plan",
+        "invalid-generation-plan",
+        "missing-governance-block",
+        "missing-intent",
+        "missing-design-language",
+        "missing-content-model",
+        "missing-typography-system",
+        "missing-color-role",
+        "missing-surface-policy",
+        "missing-state-coverage",
+        "missing-reduced-motion-policy",
+        "missing-responsive-policy",
+        "overflow",
+        "token-missing",
+        "broken-asset-reference",
+        "contrast-failure",
+        "hierarchy-weak",
+        "asset-provenance-missing",
+        "font-policy-missing",
+        "font-load-failure",
+        "reduced-motion-violation",
+        "unresolved-component-binding",
+        "icon-policy-violation",
+        "library-policy-violation",
+        "responsive-mismatch",
+        "runtime-budget-exceeded",
+        "unsupported-target",
+        "export-warning"
+      ]
+    }
   },
   "allowedLibraries": {
     "icons": [
@@ -74,15 +160,37 @@
     "motion": [],
     "threeD": []
   },
-  "warningAuditIds": [
-    "CANVAS-01",
-    "CANVAS-02",
-    "CANVAS-03",
-    "CANVAS-04",
-    "CANVAS-05",
-    "CANVAS-06",
-    "CANVAS-07"
+  "warningClasses": [
+    "missing-generation-plan",
+    "invalid-generation-plan",
+    "missing-governance-block",
+    "missing-intent",
+    "missing-design-language",
+    "missing-content-model",
+    "missing-typography-system",
+    "missing-color-role",
+    "missing-surface-policy",
+    "missing-state-coverage",
+    "missing-reduced-motion-policy",
+    "missing-responsive-policy",
+    "overflow",
+    "token-missing",
+    "broken-asset-reference",
+    "contrast-failure",
+    "hierarchy-weak",
+    "asset-provenance-missing",
+    "font-policy-missing",
+    "font-load-failure",
+    "reduced-motion-violation",
+    "unresolved-component-binding",
+    "icon-policy-violation",
+    "library-policy-violation",
+    "responsive-mismatch",
+    "runtime-budget-exceeded",
+    "unsupported-target",
+    "export-warning"
   ],
+  "generationPlanIssues": [],
   "mutationPolicy": {
     "planRequiredBeforePatch": true,
     "allowedBeforePlan": [

@@ -28,6 +28,7 @@ Usage:
 Workflows:
   provider-search
   provider-crawl
+  inspiredesign
   parallel-multipage-safe
   qa-debug
   social-readonly-check
@@ -69,6 +70,12 @@ opendevbrowser_wait sessionId="<session-id>" until="networkidle"
 opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
 opendevbrowser_scroll sessionId="<session-id>" dy=1000
 opendevbrowser_wait sessionId="<session-id>" until="networkidle"
+EOF
+    ;;
+  inspiredesign)
+    cat <<EOF
+# Pair with opendevbrowser-design-agent when the contract will flow into implementation or /canvas work.
+$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
 EOF
     ;;
   parallel-multipage-safe)
@@ -115,11 +122,13 @@ EOF
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
 $CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
-# Read handshake before any mutation. Require preflightState=handshake_read.
+# Read handshake before any mutation. Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, and guidance.recommendedNextCommands.
 $CLI_PREFIX canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
 # Replace placeholders in the plan file with canvasSessionId, leaseId, and documentId from the open response.
-$CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
-# Require planStatus=accepted or preflightState=plan_accepted before canvas.document.patch.
+# If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
+# Optional diagnostics after generation_plan_invalid:
+# $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
 EOF
     ;;
   canvas-feedback-eval)
@@ -128,7 +137,7 @@ cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-feedback-eval.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-blocker-checklist.json
 $CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
-# Verify every feedback item is target-attributed and uses approved categories.
+# Verify every feedback item is target-attributed and uses approved categories. If feedback returns preflight-blocker, return to canvas.plan.set first.
 $CLI_PREFIX canvas --command canvas.preview.refresh --params '{"requestId":"req_refresh_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","refreshMode":"full"}'
 $CLI_PREFIX canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
 # Save should fail or warn when requiredBeforeSave governance blocks remain unresolved.
@@ -185,6 +194,9 @@ $CLI_PREFIX research run --topic "Chrome extension debugging workflows" --days 3
 # Deterministic shopping reruns with explicit providers
 $CLI_PREFIX shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
 $CLI_PREFIX shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+
+# Public-reference inspiredesign contract synthesis
+$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
 
 # Region note: advisory unless output reports meta.selection.region_authoritative=true
 $CLI_PREFIX shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json

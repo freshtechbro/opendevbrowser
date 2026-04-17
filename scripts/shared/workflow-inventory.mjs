@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expectedProviderIdsFromSource } from "../provider-live-scenarios.mjs";
 import { CANVAS_LIVE_TIMEOUTS_MS } from "../live-direct-utils.mjs";
+import { PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS } from "./workflow-lane-constants.mjs";
 import {
   getPublicSurfaceCounts,
   getPublicSurfaceToolEntries
@@ -40,8 +41,8 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "session",
     label: "Session lifecycle",
-    commands: ["launch", "connect", "disconnect", "status", "cookie-import", "cookie-list"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/launch.ts", "src/cli/commands/session/connect.ts", "src/cli/commands/session/disconnect.ts", "src/cli/commands/session/cookie-import.ts", "src/cli/commands/session/cookie-list.ts", "scripts/cli-smoke-test.mjs"],
+    commands: ["launch", "connect", "disconnect", "status", "status-capabilities", "cookie-import", "cookie-list"],
+    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/launch.ts", "src/cli/commands/session/connect.ts", "src/cli/commands/session/disconnect.ts", "src/cli/commands/status-capabilities.ts", "src/cli/commands/session/cookie-import.ts", "src/cli/commands/session/cookie-list.ts", "scripts/cli-smoke-test.mjs"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -54,8 +55,8 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "navigation",
     label: "Navigation and review",
-    commands: ["goto", "wait", "snapshot", "review"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/nav/goto.ts", "src/cli/commands/nav/wait.ts", "src/cli/commands/nav/snapshot.ts", "src/cli/commands/nav/review.ts", "scripts/cli-smoke-test.mjs"],
+    commands: ["goto", "wait", "snapshot", "review", "review-desktop"],
+    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/nav/goto.ts", "src/cli/commands/nav/wait.ts", "src/cli/commands/nav/snapshot.ts", "src/cli/commands/nav/review.ts", "src/cli/commands/nav/review-desktop.ts", "scripts/cli-smoke-test.mjs"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -82,8 +83,8 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "diagnostics",
     label: "Diagnostics",
-    commands: ["session-inspector", "perf", "screenshot", "screencast-start", "screencast-stop", "dialog", "console-poll", "network-poll", "debug-trace-snapshot", "artifacts"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/inspector.ts", "src/cli/commands/devtools", "src/cli/commands/artifacts.ts", "src/browser/session-inspector.ts", "src/browser/screencast-recorder.ts", "scripts/cli-smoke-test.mjs"],
+    commands: ["session-inspector", "session-inspector-plan", "session-inspector-audit", "perf", "screenshot", "screencast-start", "screencast-stop", "dialog", "console-poll", "network-poll", "debug-trace-snapshot", "artifacts"],
+    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/inspector.ts", "src/cli/commands/session/inspector-plan.ts", "src/cli/commands/session/inspector-audit.ts", "src/cli/commands/devtools", "src/cli/commands/artifacts.ts", "src/browser/session-inspector.ts", "src/browser/screencast-recorder.ts", "scripts/cli-smoke-test.mjs"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -108,13 +109,23 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "providers",
     label: "First-class provider workflows",
-    commands: ["research", "shopping", "product-video"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/research.ts", "src/cli/commands/shopping.ts", "src/cli/commands/product-video.ts", "src/providers/workflows.ts"],
+    commands: ["research", "shopping", "product-video", "inspiredesign"],
+    ownerFiles: [
+      "src/cli/args.ts",
+      "src/cli/index.ts",
+      "src/cli/commands/research.ts",
+      "src/cli/commands/shopping.ts",
+      "src/cli/commands/product-video.ts",
+      "src/cli/commands/inspiredesign.ts",
+      "src/providers/inspiredesign-contract.ts",
+      "src/providers/workflows.ts"
+    ],
     scenarioIds: [
       "workflow.research.run",
       "workflow.shopping.run",
       "workflow.product_video.url",
-      "workflow.product_video.name"
+      "workflow.product_video.name",
+      "workflow.inspiredesign.run"
     ]
   },
   {
@@ -149,7 +160,7 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "session",
     label: "Session lifecycle",
-    members: ["opendevbrowser_launch", "opendevbrowser_connect", "opendevbrowser_disconnect", "opendevbrowser_status", "opendevbrowser_cookie_import", "opendevbrowser_cookie_list"],
+    members: ["opendevbrowser_launch", "opendevbrowser_connect", "opendevbrowser_disconnect", "opendevbrowser_status", "opendevbrowser_status_capabilities", "opendevbrowser_cookie_import", "opendevbrowser_cookie_list"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -161,7 +172,7 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "navigation",
     label: "Navigation and review",
-    members: ["opendevbrowser_goto", "opendevbrowser_wait", "opendevbrowser_snapshot", "opendevbrowser_review"],
+    members: ["opendevbrowser_goto", "opendevbrowser_wait", "opendevbrowser_snapshot", "opendevbrowser_review", "opendevbrowser_review_desktop"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -185,7 +196,7 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "diagnostics",
     label: "Diagnostics",
-    members: ["opendevbrowser_session_inspector", "opendevbrowser_console_poll", "opendevbrowser_network_poll", "opendevbrowser_debug_trace_snapshot", "opendevbrowser_perf", "opendevbrowser_screenshot", "opendevbrowser_screencast_start", "opendevbrowser_screencast_stop", "opendevbrowser_dialog"],
+    members: ["opendevbrowser_session_inspector", "opendevbrowser_session_inspector_plan", "opendevbrowser_session_inspector_audit", "opendevbrowser_console_poll", "opendevbrowser_network_poll", "opendevbrowser_debug_trace_snapshot", "opendevbrowser_perf", "opendevbrowser_screenshot", "opendevbrowser_screencast_start", "opendevbrowser_screencast_stop", "opendevbrowser_dialog"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -209,8 +220,19 @@ const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "workflow",
     label: "First-class workflows",
-    members: ["opendevbrowser_research_run", "opendevbrowser_shopping_run", "opendevbrowser_product_video_run"],
-    scenarioIds: ["workflow.research.run", "workflow.shopping.run", "workflow.product_video.url", "workflow.product_video.name"]
+    members: [
+      "opendevbrowser_research_run",
+      "opendevbrowser_shopping_run",
+      "opendevbrowser_product_video_run",
+      "opendevbrowser_inspiredesign_run"
+    ],
+    scenarioIds: [
+      "workflow.research.run",
+      "workflow.shopping.run",
+      "workflow.product_video.url",
+      "workflow.product_video.name",
+      "workflow.inspiredesign.run"
+    ]
   },
   {
     id: "annotation",
@@ -307,6 +329,7 @@ export const VALIDATION_SCENARIOS = [
     secondaryArgs: ["product-video", "run", "--product-url", "https://www.bestbuy.com/site/sony-wh-1000xm5-wireless-noise-canceling-over-the-ear-headphones-black/6505727.p?skuId=6505727", "--timeout-ms", "180000", "--include-copy"],
     timeoutMs: 180_000,
     allowedStatuses: ["pass", "env_limited"],
+    envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS,
     executionPolicy: "automated",
     entryPath: "opendevbrowser product-video run --product-url ...",
     primaryTask: "Build a product presentation asset pack from a live Best Buy PDP for a creative brief.",
@@ -321,11 +344,56 @@ export const VALIDATION_SCENARIOS = [
     secondaryArgs: ["product-video", "run", "--product-name", "Sony WH-1000XM5 Headphones", "--provider-hint", "shopping/bestbuy", "--timeout-ms", "180000", "--include-copy"],
     timeoutMs: 180_000,
     allowedStatuses: ["pass", "env_limited"],
+    envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS,
     executionPolicy: "automated",
     entryPath: "opendevbrowser product-video run --product-name ...",
     primaryTask: "Resolve a product by name and prepare an asset pack for a motion designer without supplying a URL manually.",
     secondaryTask: "Resolve a second named product with the same provider hint to check search-driven asset-pack stability.",
     ownerFiles: ["src/cli/commands/product-video.ts", "src/providers/workflows.ts", "src/providers/shopping-postprocess.ts"]
+  },
+  {
+    id: "workflow.inspiredesign.run",
+    label: "Inspiredesign workflow",
+    runner: "cli",
+    primaryArgs: [
+      "inspiredesign",
+      "run",
+      "--brief",
+      "Synthesize an editorial product landing page direction from public references.",
+      "--url",
+      "https://example.com/",
+      "--url",
+      "https://www.iana.org/domains/example",
+      "--timeout-ms",
+      "120000"
+    ],
+    secondaryArgs: [
+      "inspiredesign",
+      "run",
+      "--brief",
+      "Produce a reusable docs-marketing design contract with prototype guidance from public references.",
+      "--url",
+      "https://developer.mozilla.org/en-US/",
+      "--url",
+      "https://playwright.dev/",
+      "--include-prototype-guidance",
+      "--mode",
+      "compact",
+      "--timeout-ms",
+      "120000"
+    ],
+    timeoutMs: 120_000,
+    allowedStatuses: ["pass", "env_limited"],
+    executionPolicy: "automated",
+    entryPath: "opendevbrowser inspiredesign run",
+    primaryTask: "Study multiple public references and return a reusable design contract without relying on deep browser capture.",
+    secondaryTask: "Return the same inspiredesign contract plus prototype guidance while proving repeated --url inputs stay canonical.",
+    ownerFiles: [
+      "src/cli/commands/inspiredesign.ts",
+      "src/tools/inspiredesign_run.ts",
+      "src/providers/inspiredesign-contract.ts",
+      "src/providers/workflows.ts"
+    ]
   },
   {
     id: "workflow.macro.web_search",
@@ -527,6 +595,8 @@ export const VALIDATION_SCENARIOS = [
     ownerFiles: ["src/tools/index.ts", "src/public-surface/source.ts"]
   }
 ];
+
+export { PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS };
 
 function buildFamilyLookup(definitions, key) {
   const lookup = new Map();

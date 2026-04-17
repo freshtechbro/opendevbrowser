@@ -56,8 +56,28 @@ describe("live-direct-utils", () => {
       timeoutMs: 50
     });
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBeGreaterThan(0);
     expect(result.timedOut).toBe(true);
     expect(result.detail).toContain("Node script timed out after 50ms");
+  });
+
+  it("kills stubborn async children that ignore SIGTERM", async () => {
+    const scriptPath = writeTempScript(`
+      process.on("SIGTERM", () => {});
+      setInterval(() => {}, 1_000);
+    `);
+
+    const startedAt = Date.now();
+    // Give the child enough time to install the SIGTERM handler so this
+    // exercise covers the forced SIGKILL path instead of startup timing.
+    const result = await runNodeAsync([scriptPath], {
+      allowFailure: true,
+      timeoutMs: 500
+    });
+
+    expect(result.status).toBeGreaterThan(0);
+    expect(result.timedOut).toBe(true);
+    expect(result.signal).toBe("SIGKILL");
+    expect(Date.now() - startedAt).toBeLessThan(2_500);
   });
 });

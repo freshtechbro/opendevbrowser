@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resolveConfig } from "../src/config";
+import {
+  requireChallengeOrchestrationConfig,
+  resolveConfig
+} from "../src/config";
 import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../src/browser/manager-types";
 import { OpsRequestTimeoutError } from "../src/browser/ops-client";
 import { ProviderRuntimeError } from "../src/providers/errors";
@@ -4045,7 +4048,7 @@ describe("provider runtime factory", () => {
         details: {
           cookieDiagnostics: {
             loaded: 0,
-            message: "Required provider cookies are missing."
+            message: `Cookie file is empty: ${filePath}`
           }
         }
       });
@@ -4596,6 +4599,23 @@ describe("provider runtime factory", () => {
     expect(setChallengeOrchestrator).toHaveBeenCalledWith(challengeOrchestrator);
   });
 
+  it("builds a challenge orchestrator from threaded challenge config when provided", () => {
+    const setChallengeOrchestrator = vi.fn();
+    const manager = {
+      setChallengeOrchestrator
+    } as unknown as BrowserManagerLike;
+    const config = resolveConfig({});
+    const challengeConfig = requireChallengeOrchestrationConfig(config);
+
+    createConfiguredProviderRuntime({
+      manager,
+      challengeConfig
+    });
+
+    expect(setChallengeOrchestrator).toHaveBeenCalledTimes(1);
+    expect(setChallengeOrchestrator.mock.calls[0]?.[0]).toBeDefined();
+  });
+
   it("keeps desktop config out of browser runtime init", () => {
     const config = resolveConfig({
       desktop: {
@@ -4606,12 +4626,13 @@ describe("provider runtime factory", () => {
         accessibilityMaxChildren: 30
       }
     });
+    const challengeConfig = requireChallengeOrchestrationConfig(config);
 
-    const runtimeInit = buildRuntimeInitFromConfig(config);
+    const runtimeInit = buildRuntimeInitFromConfig(config, undefined, challengeConfig);
 
     expect(runtimeInit).not.toHaveProperty("desktop");
     expect(runtimeInit.challengeAutomationModeDefault).toBe(
-      config.providers?.challengeOrchestration.mode
+      challengeConfig.mode
     );
   });
 });

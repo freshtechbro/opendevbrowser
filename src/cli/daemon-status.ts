@@ -1,12 +1,18 @@
 import type { RelayStatus } from "../relay/relay-server";
 import type { OpenDevBrowserConfig } from "../config";
 import { loadGlobalConfig } from "../config";
-import { readDaemonMetadata, writeDaemonMetadata, type DaemonState } from "./daemon";
+import {
+  readDaemonMetadata,
+  resolveDaemonFingerprint,
+  writeDaemonMetadata,
+  type DaemonState
+} from "./daemon";
 import { fetchWithTimeout } from "./utils/http";
 
 export type DaemonStatusPayload = {
   ok: true;
   pid: number;
+  fingerprint?: string;
   hub: { instanceId: string };
   relay: RelayStatus;
   binding: {
@@ -22,6 +28,9 @@ export type DaemonStatusFetchOptions = {
   retryAttempts?: number;
   retryDelayMs?: number;
 };
+
+type DaemonMetadataSeed = Pick<DaemonState, "port" | "token">
+  & Partial<Omit<DaemonState, "port" | "token">>;
 
 const sleep = async (delayMs: number): Promise<void> => {
   if (!(Number.isFinite(delayMs) && delayMs > 0)) {
@@ -83,7 +92,7 @@ export async function fetchDaemonStatusFromMetadata(
     if (metadata) {
       const status = await fetchDaemonStatus(metadata.port, metadata.token, { timeoutMs: options.timeoutMs });
       if (status?.ok) {
-        persistDaemonMetadata(metadata, status, resolvedConfig);
+        persistDaemonStatusMetadata(metadata, status, resolvedConfig);
         return status;
       }
     }
@@ -93,7 +102,7 @@ export async function fetchDaemonStatusFromMetadata(
         timeoutMs: options.timeoutMs
       });
       if (status?.ok) {
-        persistDaemonMetadata({
+        persistDaemonStatusMetadata({
           port: resolvedConfig.daemonPort,
           token: resolvedConfig.daemonToken,
           pid: status.pid,
@@ -112,8 +121,8 @@ export async function fetchDaemonStatusFromMetadata(
   return null;
 }
 
-function persistDaemonMetadata(
-  base: DaemonState,
+export function persistDaemonStatusMetadata(
+  base: DaemonMetadataSeed,
   status: DaemonStatusPayload,
   config?: OpenDevBrowserConfig
 ): void {
@@ -124,6 +133,7 @@ function persistDaemonMetadata(
     pid: status.pid,
     relayPort: status.relay.port ?? resolvedConfig.relayPort,
     startedAt: base.startedAt ?? new Date().toISOString(),
+    fingerprint: resolveDaemonFingerprint(status.fingerprint, base.fingerprint),
     hubInstanceId: status.hub.instanceId,
     relayInstanceId: status.relay.instanceId,
     relayEpoch: status.relay.epoch

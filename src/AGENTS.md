@@ -6,7 +6,7 @@ Extends root `AGENTS.md`. Nearest file takes precedence.
 
 ```
 src/
-├── index.ts              # Plugin entry, exports OpenDevBrowserPlugin
+├── index.ts              # OpenCode tool-call entry, exports OpenDevBrowserPlugin
 ├── config.ts             # Zod schema, loadConfig()
 ├── automation/           # Cross-runtime automation coordinator helpers
 ├── canvas/               # Canvas document store, repo IO, code-sync, export helpers

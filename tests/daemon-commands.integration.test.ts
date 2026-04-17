@@ -1412,7 +1412,7 @@ describe("daemon-commands integration", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        instanceId: "relay-observed",
+        instanceId: "relay-test",
         running: true,
         port: 8787,
         extensionConnected: true,
@@ -1437,6 +1437,51 @@ describe("daemon-commands integration", () => {
     }));
 
     expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops");
+  });
+
+  it("rejects extension launch when observed handshake completion belongs to a different relay instance", async () => {
+    const core = makeCore({
+      relayStatus: {
+        extensionConnected: true,
+        extensionHandshakeComplete: false
+      }
+    });
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-ops",
+      mode: "extension",
+      activeTargetId: "target-1",
+      leaseId: "lease-ops",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        instanceId: "relay-observed",
+        running: true,
+        port: 8787,
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch);
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.launch",
+      params: {
+        clientId: "client-1",
+        extensionOnly: true
+      }
+    })).rejects.toThrow("expected relay instance");
+
+    expect(core.manager.connectRelay).not.toHaveBeenCalled();
   });
 
   it("routes debug trace snapshot to manager capability when available", async () => {
@@ -1815,6 +1860,97 @@ describe("daemon-commands integration", () => {
         timeoutMs: 45000
       })
     );
+  });
+
+  it("forwards inspiredesign timeout and capture mode through the daemon router", async () => {
+    const core = makeCore();
+    const manager = core.manager as OpenDevBrowserCore["manager"] & {
+      launch: ReturnType<typeof vi.fn>;
+      cookieImport: ReturnType<typeof vi.fn>;
+      cookieList: ReturnType<typeof vi.fn>;
+      goto: ReturnType<typeof vi.fn>;
+      waitForLoad: ReturnType<typeof vi.fn>;
+      snapshot: ReturnType<typeof vi.fn>;
+      clonePage: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
+      setSessionChallengeAutomationMode: ReturnType<typeof vi.fn>;
+    };
+    (core.config as OpenDevBrowserCore["config"] & {
+      providers?: { cookieSource?: { type: "inline"; value: Array<{ name: string; value: string; url: string }> } };
+    }).providers = {
+      cookieSource: {
+        type: "inline",
+        value: [{ name: "sid", value: "abc", url: "https://example.com/capture" }]
+      }
+    };
+    manager.launch = vi.fn(async () => ({ sessionId: "session-1" })) as never;
+    manager.cookieImport = vi.fn(async () => ({ imported: 1, rejected: [] })) as never;
+    manager.cookieList = vi.fn(async () => ({ count: 2, cookies: [{ name: "sid" }] })) as never;
+    manager.goto = vi.fn(async () => undefined) as never;
+    manager.waitForLoad = vi.fn(async () => undefined) as never;
+    manager.snapshot = vi.fn(async () => ({ content: "capture", refCount: 1, warnings: [] })) as never;
+    manager.clonePage = vi.fn(async () => ({ component: "<section />", css: ".x{}", warnings: [] })) as never;
+    manager.disconnect = vi.fn(async () => undefined) as never;
+    manager.setSessionChallengeAutomationMode = vi.fn() as never;
+    const workflowSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
+      mode: "json",
+      designContract: {},
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Generate a dashboard design contract",
+        urls: ["https://example.com/a", "https://example.com/b"],
+        captureMode: "deep",
+        includePrototypeGuidance: true,
+        timeoutMs: 45000,
+        useCookies: true,
+        challengeAutomationMode: "browser",
+        cookiePolicyOverride: "required"
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        brief: "Generate a dashboard design contract",
+        urls: ["https://example.com/a", "https://example.com/b"],
+        captureMode: "deep",
+        includePrototypeGuidance: true,
+        timeoutMs: 45000,
+        useCookies: true,
+        challengeAutomationMode: "browser",
+        cookiePolicyOverride: "required"
+      }),
+      expect.objectContaining({
+        captureReference: expect.any(Function)
+      })
+    );
+
+    const captureReference = workflowSpy.mock.calls[0]?.[2]?.captureReference;
+    expect(captureReference).toEqual(expect.any(Function));
+
+    await captureReference?.("https://example.com/capture", {
+      timeoutMs: 1234,
+      challengeAutomationMode: "browser",
+      cookiePolicyOverride: "required"
+    });
+
+    expect(manager.cookieImport).toHaveBeenCalledWith("session-1", [
+      { name: "sid", value: "abc", url: "https://example.com/capture" }
+    ], false);
+    expect(manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/capture"]);
+    expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
+    expect(manager.goto).toHaveBeenCalledWith(
+      "session-1",
+      "https://example.com/capture",
+      "load",
+      expect.any(Number)
+    );
+    expect(manager.goto.mock.calls[0]?.[3]).toBeGreaterThan(0);
+    expect(manager.goto.mock.calls[0]?.[3]).toBeLessThanOrEqual(1234);
   });
 
   it("threads browserFallbackPort into daemon shopping workflows", async () => {

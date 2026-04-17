@@ -16,28 +16,146 @@ export type CanvasPreflightState =
   | "opened"
   | "handshake_read"
   | "plan_submitted"
+  | "plan_invalid"
   | "plan_accepted"
   | "patching_enabled";
 
-export type CanvasPlanStatus = "missing" | "submitted" | "accepted";
+export type CanvasPlanStatus = "missing" | "submitted" | "invalid" | "accepted";
 
-export type CanvasSessionMode = "low-fi-wireframe" | "high-fi-live-edit" | "dual-track" | "document-only";
+export const CANVAS_SESSION_MODES = ["low-fi-wireframe", "high-fi-live-edit", "dual-track", "document-only"] as const;
 
-export type CanvasGovernanceBlockKey =
-  | "intent"
-  | "generationPlan"
-  | "designLanguage"
-  | "contentModel"
-  | "layoutSystem"
-  | "typographySystem"
-  | "colorSystem"
-  | "surfaceSystem"
-  | "iconSystem"
-  | "motionSystem"
-  | "responsiveSystem"
-  | "accessibilityPolicy"
-  | "libraryPolicy"
-  | "runtimeBudgets";
+export type CanvasSessionMode = (typeof CANVAS_SESSION_MODES)[number];
+
+export const CANVAS_GOVERNANCE_BLOCK_KEYS = [
+  "intent",
+  "generationPlan",
+  "designLanguage",
+  "contentModel",
+  "layoutSystem",
+  "typographySystem",
+  "colorSystem",
+  "surfaceSystem",
+  "iconSystem",
+  "motionSystem",
+  "responsiveSystem",
+  "accessibilityPolicy",
+  "libraryPolicy",
+  "runtimeBudgets"
+] as const;
+
+export type CanvasGovernanceBlockKey = (typeof CANVAS_GOVERNANCE_BLOCK_KEYS)[number];
+
+export const CANVAS_REQUIRED_MUTATION_GOVERNANCE_KEYS = [
+  "intent",
+  "generationPlan",
+  "designLanguage",
+  "contentModel",
+  "layoutSystem",
+  "typographySystem",
+  "motionSystem",
+  "responsiveSystem",
+  "accessibilityPolicy"
+] as const satisfies readonly CanvasGovernanceBlockKey[];
+
+export const CANVAS_REQUIRED_SAVE_GOVERNANCE_KEYS = [
+  "intent",
+  "generationPlan",
+  "designLanguage",
+  "contentModel",
+  "layoutSystem",
+  "typographySystem",
+  "colorSystem",
+  "surfaceSystem",
+  "iconSystem",
+  "motionSystem",
+  "responsiveSystem",
+  "accessibilityPolicy",
+  "libraryPolicy",
+  "runtimeBudgets"
+] as const satisfies readonly CanvasGovernanceBlockKey[];
+
+export const CANVAS_OPTIONAL_INHERITED_GOVERNANCE_KEYS = [
+  "colorSystem",
+  "surfaceSystem",
+  "iconSystem",
+  "libraryPolicy",
+  "runtimeBudgets"
+] as const satisfies readonly CanvasGovernanceBlockKey[];
+
+export const CANVAS_GENERATION_PLAN_REQUIRED_FIELDS = [
+  "targetOutcome",
+  "visualDirection",
+  "layoutStrategy",
+  "contentStrategy",
+  "componentStrategy",
+  "motionPosture",
+  "responsivePosture",
+  "accessibilityPosture",
+  "validationTargets"
+] as const;
+
+export type CanvasGenerationPlanField = (typeof CANVAS_GENERATION_PLAN_REQUIRED_FIELDS)[number];
+
+export const CANVAS_VISUAL_DIRECTION_PROFILES = [
+  "clean-room",
+  "cinematic-minimal",
+  "product-story",
+  "commerce-system",
+  "control-room",
+  "ops-control",
+  "auth-focused",
+  "settings-system",
+  "documentation"
+] as const;
+
+export type CanvasVisualDirectionProfile = (typeof CANVAS_VISUAL_DIRECTION_PROFILES)[number];
+
+export const CANVAS_THEME_STRATEGIES = ["single-theme", "light-dark-parity", "multi-theme-system"] as const;
+
+export type CanvasThemeStrategy = (typeof CANVAS_THEME_STRATEGIES)[number];
+
+export const CANVAS_NAVIGATION_MODELS = ["global-header", "sidebar", "tabbed", "contextual", "immersive"] as const;
+
+export type CanvasNavigationModel = (typeof CANVAS_NAVIGATION_MODELS)[number];
+
+export const CANVAS_INTERACTION_STATES = [
+  "default",
+  "hover",
+  "focus",
+  "active",
+  "disabled",
+  "loading",
+  "empty",
+  "error",
+  "success",
+  "selected"
+] as const;
+
+export type CanvasInteractionState = (typeof CANVAS_INTERACTION_STATES)[number];
+
+export const CANVAS_PLAN_VIEWPORTS = ["desktop", "tablet", "mobile"] as const;
+
+export type CanvasPlanViewport = (typeof CANVAS_PLAN_VIEWPORTS)[number];
+
+export const CANVAS_PLAN_THEMES = ["light", "dark"] as const;
+
+export type CanvasPlanTheme = (typeof CANVAS_PLAN_THEMES)[number];
+
+export const CANVAS_MOTION_LEVELS = ["none", "minimal", "subtle", "expressive"] as const;
+
+export type CanvasMotionLevel = (typeof CANVAS_MOTION_LEVELS)[number];
+
+export const CANVAS_REDUCED_MOTION_POLICIES = ["respect-user-preference", "static-alternative"] as const;
+
+export type CanvasReducedMotionPolicy = (typeof CANVAS_REDUCED_MOTION_POLICIES)[number];
+
+export const CANVAS_KEYBOARD_NAVIGATION_MODES = ["full", "core-flows"] as const;
+
+export type CanvasKeyboardNavigationMode = (typeof CANVAS_KEYBOARD_NAVIGATION_MODES)[number];
+
+export const CANVAS_BROWSER_VALIDATION_MODES = ["required", "optional"] as const;
+
+export type CanvasBrowserValidationMode = (typeof CANVAS_BROWSER_VALIDATION_MODES)[number];
 
 export type CanvasVariantSelector = Partial<Record<"viewport" | "theme" | "interaction" | "content", string>>;
 
@@ -84,6 +202,7 @@ export type CanvasFeedbackSeverity = "info" | "warning" | "error";
 
 export type CanvasValidationWarningCode =
   | "missing-generation-plan"
+  | "invalid-generation-plan"
   | "missing-governance-block"
   | "missing-intent"
   | "missing-design-language"
@@ -111,6 +230,39 @@ export type CanvasValidationWarningCode =
   | "unsupported-target"
   | "export-warning";
 
+export const CANVAS_VALIDATION_TARGET_BLOCK_ON_CODES = [
+  "missing-generation-plan",
+  "invalid-generation-plan",
+  "missing-governance-block",
+  "missing-intent",
+  "missing-design-language",
+  "missing-content-model",
+  "missing-typography-system",
+  "missing-color-role",
+  "missing-surface-policy",
+  "missing-state-coverage",
+  "missing-reduced-motion-policy",
+  "missing-responsive-policy",
+  "overflow",
+  "token-missing",
+  "broken-asset-reference",
+  "contrast-failure",
+  "hierarchy-weak",
+  "asset-provenance-missing",
+  "font-policy-missing",
+  "font-load-failure",
+  "reduced-motion-violation",
+  "unresolved-component-binding",
+  "icon-policy-violation",
+  "library-policy-violation",
+  "responsive-mismatch",
+  "runtime-budget-exceeded",
+  "unsupported-target",
+  "export-warning"
+] as const satisfies readonly CanvasValidationWarningCode[];
+
+export const CANVAS_PUBLIC_WARNING_CLASSES = CANVAS_VALIDATION_TARGET_BLOCK_ON_CODES;
+
 export type CanvasPreviewState = "focused" | "pinned" | "background" | "degraded";
 
 export type CanvasDegradeReason = "overflow" | "memory_pressure" | "queue_pressure" | "frozen" | "discarded";
@@ -136,7 +288,88 @@ export type CanvasBlockerCode =
 
 export type CanvasBindingKind = string;
 
-export type CanvasBlockState = "present" | "missing" | "inherited" | "locked";
+export type CanvasBlockState = "present" | "missing" | "invalid" | "inherited" | "locked";
+
+export type CanvasGenerationPlanIssueCode = "missing_field" | "invalid_type" | "invalid_value";
+
+export type CanvasGenerationPlanIssue = {
+  path: string;
+  code: CanvasGenerationPlanIssueCode;
+  message: string;
+  expected?: string | string[];
+  received?: unknown;
+};
+
+export type CanvasGenerationPlanTargetOutcome = {
+  mode: CanvasSessionMode;
+  summary: string;
+};
+
+export type CanvasGenerationPlanVisualDirection = {
+  profile: CanvasVisualDirectionProfile;
+  themeStrategy: CanvasThemeStrategy;
+};
+
+export type CanvasGenerationPlanLayoutStrategy = {
+  approach: string;
+  navigationModel: CanvasNavigationModel;
+};
+
+export type CanvasGenerationPlanContentStrategy = {
+  source: string;
+};
+
+export type CanvasGenerationPlanComponentStrategy = {
+  mode: string;
+  interactionStates: CanvasInteractionState[];
+};
+
+export type CanvasGenerationPlanMotionPosture = {
+  level: CanvasMotionLevel;
+  reducedMotion: CanvasReducedMotionPolicy;
+};
+
+export type CanvasGenerationPlanResponsivePosture = {
+  primaryViewport: CanvasPlanViewport;
+  requiredViewports: CanvasPlanViewport[];
+};
+
+export type CanvasGenerationPlanAccessibilityPosture = {
+  target: string;
+  keyboardNavigation: CanvasKeyboardNavigationMode;
+};
+
+export type CanvasGenerationPlanValidationTargets = {
+  blockOn: CanvasValidationWarningCode[];
+  requiredThemes: CanvasPlanTheme[];
+  browserValidation: CanvasBrowserValidationMode;
+  maxInteractionLatencyMs: number;
+};
+
+export type CanvasGenerationPlan = {
+  targetOutcome: CanvasGenerationPlanTargetOutcome;
+  visualDirection: CanvasGenerationPlanVisualDirection;
+  layoutStrategy: CanvasGenerationPlanLayoutStrategy;
+  contentStrategy: CanvasGenerationPlanContentStrategy;
+  componentStrategy: CanvasGenerationPlanComponentStrategy;
+  motionPosture: CanvasGenerationPlanMotionPosture;
+  responsivePosture: CanvasGenerationPlanResponsivePosture;
+  accessibilityPosture: CanvasGenerationPlanAccessibilityPosture;
+  validationTargets: CanvasGenerationPlanValidationTargets;
+};
+
+export type CanvasGenerationPlanValidationResult =
+  | {
+    ok: true;
+    missing: [];
+    issues: [];
+    plan: CanvasGenerationPlan;
+  }
+  | {
+    ok: false;
+    missing: CanvasGenerationPlanField[];
+    issues: CanvasGenerationPlanIssue[];
+  };
 
 export type CanvasGovernanceBlockState = {
   status: CanvasBlockState;
@@ -525,13 +758,32 @@ export type CanvasPrototype = {
   metadata?: Record<string, unknown>;
 };
 
+export type CanvasGovernanceRecord = Record<string, unknown>;
+
+export type CanvasDesignGovernance = {
+  intent: CanvasGovernanceRecord;
+  generationPlan: CanvasGenerationPlan | CanvasGovernanceRecord;
+  designLanguage: CanvasGovernanceRecord;
+  contentModel: CanvasGovernanceRecord;
+  layoutSystem: CanvasGovernanceRecord;
+  typographySystem: CanvasGovernanceRecord;
+  colorSystem: CanvasGovernanceRecord;
+  surfaceSystem: CanvasGovernanceRecord;
+  iconSystem: CanvasGovernanceRecord;
+  motionSystem: CanvasGovernanceRecord;
+  responsiveSystem: CanvasGovernanceRecord;
+  accessibilityPolicy: CanvasGovernanceRecord;
+  libraryPolicy: CanvasGovernanceRecord;
+  runtimeBudgets: CanvasGovernanceRecord;
+};
+
 export type CanvasDocument = {
   schemaVersion: string;
   documentId: string;
   title: string;
   createdAt: string;
   updatedAt: string;
-  designGovernance: Record<CanvasGovernanceBlockKey, Record<string, unknown>>;
+  designGovernance: CanvasDesignGovernance;
   pages: CanvasPage[];
   components: Array<Record<string, unknown>>;
   componentInventory: CanvasComponentInventoryItem[];
@@ -543,8 +795,6 @@ export type CanvasDocument = {
   prototypes: CanvasPrototype[];
   meta: CanvasDocumentMeta;
 };
-
-export type CanvasGenerationPlan = Record<string, unknown>;
 
 export type CanvasHistoryDirection = "undo" | "redo";
 

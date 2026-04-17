@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildChallengeEvidenceBundle, runChallengeActionLoop } from "../src/challenges";
 import type {
   ChallengeActionStep,
+  ChallengeAutomationHelperEligibility,
   ChallengeEvidenceBundle,
   ChallengeStrategyDecision
 } from "../src/challenges";
@@ -29,6 +30,24 @@ const config: ProvidersChallengeOrchestrationConfig = {
     enabled: false,
     maxSuggestions: 3
   }
+};
+
+const deriveHelperEligibility = (
+  challengeConfig: ProvidersChallengeOrchestrationConfig
+): ChallengeAutomationHelperEligibility => {
+  return challengeConfig.optionalComputerUseBridge.enabled
+    ? { allowed: true, reason: "Helper bridge enabled for action-loop test coverage." }
+    : { allowed: false, reason: "Helper bridge disabled for action-loop test coverage." };
+};
+
+const runLoop = (
+  args: Omit<Parameters<typeof runChallengeActionLoop>[0], "helperEligibility">
+    & { helperEligibility?: ChallengeAutomationHelperEligibility }
+) => {
+  return runChallengeActionLoop({
+    ...args,
+    helperEligibility: args.helperEligibility ?? deriveHelperEligibility(args.config)
+  });
 };
 
 const makeBundle = (args: {
@@ -237,7 +256,7 @@ const makeHandle = (
 
 describe("challenge action loop", () => {
   it("reuses the existing-session lane and resolves after verification clears the blocker", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle("[r1] button \"Use existing session\"\n[r2] link \"Sign in\"", {
         clearOnRef: "r1"
       }),
@@ -255,7 +274,7 @@ describe("challenge action loop", () => {
   });
 
   it("tries visible auth refs before URL guesses and tracks cookie reuse on auth navigation", async () => {
-    const authRefResult = await runChallengeActionLoop({
+    const authRefResult = await runLoop({
       handle: makeHandle("[r2] link \"Sign in\""),
       sessionId: "session-login-ref",
       initialBundle: makeBundle({
@@ -264,7 +283,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["auth_navigation", "verification"]),
       config
     });
-    const gotoResult = await runChallengeActionLoop({
+    const gotoResult = await runLoop({
       handle: makeHandle(""),
       sessionId: "session-login-url",
       initialBundle: makeBundle({
@@ -285,7 +304,7 @@ describe("challenge action loop", () => {
   });
 
   it("prefers chooser account rows before the alternate-account path", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle([
         "[r1] button \"bishop@example.com\"",
         "[r2] button \"team@example.com\"",
@@ -312,7 +331,7 @@ describe("challenge action loop", () => {
   });
 
   it("prefers Google, then GitHub, then Apple when auth navigation is required", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle([
         "[r1] button \"Continue with Apple\"",
         "[r2] button \"Continue with GitHub\"",
@@ -338,7 +357,7 @@ describe("challenge action loop", () => {
 
   it("fills non-secret fields from task data and avoids secret-bearing names", async () => {
     const handle = makeHandle("[r3] textbox \"Email\"\n[r4] textbox \"Password\"");
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-type",
       initialBundle: makeBundle({
@@ -369,7 +388,7 @@ describe("challenge action loop", () => {
           r30: { x: 450, y: 275 }
         }
       });
-      const pending = runChallengeActionLoop({
+      const pending = runLoop({
         handle,
         sessionId: "session-hold",
         initialBundle: makeBundle({
@@ -399,7 +418,7 @@ describe("challenge action loop", () => {
   it("chooses popup clicks, default hold gestures, drag prompts without refs, and respects explicit target ids", async () => {
     vi.useFakeTimers();
     try {
-      const popupResult = await runChallengeActionLoop({
+      const popupResult = await runLoop({
         handle: makeHandle("[r40] dialog \"Choose where you'd like to shop\"\n[r41] button \"Pickup\"", {
           advanceOnKinds: ["click"]
         }),
@@ -415,7 +434,7 @@ describe("challenge action loop", () => {
       const holdHandle = makeHandle("Press and hold to continue.", {
         advanceOnKinds: ["pointer"]
       });
-      const holdPending = runChallengeActionLoop({
+      const holdPending = runLoop({
         handle: holdHandle,
         sessionId: "session-hold-default",
         targetId: "override-target",
@@ -429,7 +448,7 @@ describe("challenge action loop", () => {
       });
       await vi.advanceTimersByTimeAsync(1500);
       const holdResult = await holdPending;
-      const dragResult = await runChallengeActionLoop({
+      const dragResult = await runLoop({
         handle: makeHandle("Drag the slider to continue.", {
           advanceOnKinds: ["drag"]
         }),
@@ -467,7 +486,7 @@ describe("challenge action loop", () => {
       title: "Choose where you'd like to shop",
       snapshot: "[r40] dialog \"Choose where you'd like to shop\""
     });
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle("[r40] dialog \"Choose where you'd like to shop\"", {
         advanceOnKinds: ["wait"]
       }),
@@ -501,7 +520,7 @@ describe("challenge action loop", () => {
         snapshot: "Press and hold to continue."
       });
       const { holdMs: _ignoredHoldMs, ...interactionWithoutHoldMs } = bundle.interaction;
-      const pending = runChallengeActionLoop({
+      const pending = runLoop({
         handle,
         sessionId: "session-repeat-hold",
         initialBundle: {
@@ -546,7 +565,7 @@ describe("challenge action loop", () => {
         r31: { x: 520, y: 210 }
       }
     });
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-drag",
       initialBundle: makeBundle({
@@ -573,7 +592,7 @@ describe("challenge action loop", () => {
   });
 
   it("explores checkpoint, hover, scroll, press, pointer, and drag paths in bounded order", async () => {
-    const checkpoint = await runChallengeActionLoop({
+    const checkpoint = await runLoop({
       handle: makeHandle("[r5] button \"Continue\""),
       sessionId: "session-checkpoint",
       initialBundle: makeBundle({
@@ -582,7 +601,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["click_path", "verification"]),
       config
     });
-    const hover = await runChallengeActionLoop({
+    const hover = await runLoop({
       handle: makeHandle("[r6] link \"Sign in\""),
       sessionId: "session-hover",
       initialBundle: makeBundle({
@@ -591,7 +610,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["hover", "verification"]),
       config
     });
-    const scroll = await runChallengeActionLoop({
+    const scroll = await runLoop({
       handle: makeHandle("", { advanceOnKinds: ["scroll"] }),
       sessionId: "session-scroll",
       initialBundle: makeBundle({
@@ -602,7 +621,7 @@ describe("challenge action loop", () => {
       }),
       config
     });
-    const press = await runChallengeActionLoop({
+    const press = await runLoop({
       handle: makeHandle(""),
       sessionId: "session-press",
       initialBundle: makeBundle({
@@ -611,7 +630,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["press", "verification"]),
       config
     });
-    const pointer = await runChallengeActionLoop({
+    const pointer = await runLoop({
       handle: makeHandle(""),
       sessionId: "session-pointer",
       initialBundle: makeBundle({
@@ -620,7 +639,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["pointer", "verification"]),
       config
     });
-    const drag = await runChallengeActionLoop({
+    const drag = await runLoop({
       handle: makeHandle(""),
       sessionId: "session-drag",
       initialBundle: makeBundle({
@@ -656,7 +675,7 @@ describe("challenge action loop", () => {
   });
 
   it("skips checkpoint clicks when click_path is disallowed and uses hover instead", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle("[r5] button \"Continue\"", {
         advanceOnKinds: ["hover"]
       }),
@@ -676,7 +695,7 @@ describe("challenge action loop", () => {
   });
 
   it("falls back to wait and then optional bridge suggestions when no DOM-native step remains", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle("[r7] button \"Verify you're human\"", {
         advanceOnKinds: ["wait", "click"]
       }),
@@ -717,7 +736,7 @@ describe("challenge action loop", () => {
       ref: "r20",
       reason: "Worker-selected helper suggestion."
     };
-    const explicit = await runChallengeActionLoop({
+    const explicit = await runLoop({
       handle: makeHandle("[r20] button \"Resume\"\n[r21] button \"Verify you're human\"", {
         advanceOnKinds: ["click"]
       }),
@@ -739,7 +758,7 @@ describe("challenge action loop", () => {
         }
       }
     });
-    const fallback = await runChallengeActionLoop({
+    const fallback = await runLoop({
       handle: makeHandle("[r21] button \"Verify you're human\"", {
         advanceOnKinds: ["click"]
       }),
@@ -772,7 +791,7 @@ describe("challenge action loop", () => {
   });
 
   it("falls through invalid auth and task-data inputs to a bounded wait", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle("[r10] textbox \"Password\""),
       sessionId: "session-invalid-inputs",
       initialBundle: makeBundle({
@@ -795,7 +814,7 @@ describe("challenge action loop", () => {
   });
 
   it("falls through blank auth URLs and filtered task-data entries before coercing numeric non-secret fields", async () => {
-    const noUrlOrTaskData = await runChallengeActionLoop({
+    const noUrlOrTaskData = await runLoop({
       handle: makeHandle("[r12] textbox \"Email\""),
       sessionId: "session-empty-url",
       initialBundle: makeBundle({
@@ -806,7 +825,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["auth_navigation", "non_secret_form_fill", "verification"]),
       config
     });
-    const sensitiveTaskKey = await runChallengeActionLoop({
+    const sensitiveTaskKey = await runLoop({
       handle: makeHandle("[r13] textbox \"Email\""),
       sessionId: "session-sensitive-task-key",
       initialBundle: makeBundle({
@@ -818,7 +837,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["non_secret_form_fill", "verification"]),
       config
     });
-    const unmatchedTaskKey = await runChallengeActionLoop({
+    const unmatchedTaskKey = await runLoop({
       handle: makeHandle("[r14] textbox \"Email\""),
       sessionId: "session-unmatched-task-key",
       initialBundle: makeBundle({
@@ -830,7 +849,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["non_secret_form_fill", "verification"]),
       config
     });
-    const numericTaskValue = await runChallengeActionLoop({
+    const numericTaskValue = await runLoop({
       handle: makeHandle("[r15] textbox \"Company\""),
       sessionId: "session-numeric-task-value",
       initialBundle: makeBundle({
@@ -842,7 +861,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["non_secret_form_fill", "verification"]),
       config
     });
-    const booleanTaskValue = await runChallengeActionLoop({
+    const booleanTaskValue = await runLoop({
       handle: makeHandle("[r16] textbox \"Company\""),
       sessionId: "session-boolean-task-value",
       initialBundle: makeBundle({
@@ -854,7 +873,7 @@ describe("challenge action loop", () => {
       decision: makeDecision(["non_secret_form_fill", "verification"]),
       config
     });
-    const structuredTaskValue = await runChallengeActionLoop({
+    const structuredTaskValue = await runLoop({
       handle: makeHandle("[r17] textbox \"Company\""),
       sessionId: "session-structured-task-value",
       initialBundle: makeBundle({
@@ -916,7 +935,7 @@ describe("challenge action loop", () => {
       }
     ];
 
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-suggested",
       initialBundle: makeBundle({
@@ -938,7 +957,7 @@ describe("challenge action loop", () => {
     const handle = makeHandle("[r11] button \"Continue\"", {
       advanceOnKinds: ["press", "scroll", "pointer", "drag", "wait"]
     });
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-defaults",
       initialBundle: makeBundle({
@@ -1017,7 +1036,7 @@ describe("challenge action loop", () => {
       }
     ];
 
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-supported-suggestions",
       initialBundle: makeBundle({
@@ -1042,7 +1061,7 @@ describe("challenge action loop", () => {
     const handle = makeHandle("[r1] button \"Use existing session\"", {
       advanceOnKinds: []
     });
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-2",
       initialBundle: makeBundle({
@@ -1059,7 +1078,7 @@ describe("challenge action loop", () => {
   });
 
   it("uses a null target when no explicit or bundle target is available", async () => {
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle: makeHandle("", {
         advanceOnKinds: ["wait"]
       }),
@@ -1131,7 +1150,7 @@ describe("challenge action loop", () => {
         }
       });
 
-    const result = await runChallengeActionLoop({
+    const result = await runLoop({
       handle,
       sessionId: "session-popup-target-follow",
       targetId: "root-target",
@@ -1158,7 +1177,7 @@ describe("challenge action loop", () => {
       const handle = makeHandle("", {
         advanceOnKinds: ["pointer"]
       });
-      const pending = runChallengeActionLoop({
+      const pending = runLoop({
         handle,
         sessionId: "session-short-hold",
         initialBundle: makeBundle({
@@ -1199,7 +1218,7 @@ describe("challenge action loop", () => {
   });
 
   it("returns no_progress after an empty optional bridge and surfaces deferred verification results", async () => {
-    const exhaustedBridge = await runChallengeActionLoop({
+    const exhaustedBridge = await runLoop({
       handle: makeHandle("", {
         advanceOnKinds: ["wait"]
       }),
@@ -1221,7 +1240,7 @@ describe("challenge action loop", () => {
         }
       }
     });
-    const deferred = await runChallengeActionLoop({
+    const deferred = await runLoop({
       handle: makeHandle("[r16] link \"Sign in\"", {
         deferred: true
       }),

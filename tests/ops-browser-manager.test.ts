@@ -3258,9 +3258,12 @@ describe("OpsBrowserManager", () => {
         parallelismPolicy: expect.any(Object)
       }),
       undefined,
-      30000,
+      expect.any(Number),
       "lease-root"
     );
+    const reconnectTimeoutMs = (requestMock.mock.calls[0] ?? [])[3];
+    expect(reconnectTimeoutMs).toBeGreaterThanOrEqual(29_000);
+    expect(reconnectTimeoutMs).toBeLessThanOrEqual(30_000);
     expect(managerAny.opsSessionTabs.get(connected.sessionId)).toBe(202);
     expect(managerAny.opsSessionReconnectTabs.get(connected.sessionId)).toBe(41);
   });

@@ -338,7 +338,9 @@ export class BrowserScreencastRecorder {
     const index = this.frames.length + 1;
     const frameFilename = `${String(index).padStart(6, "0")}.png`;
     const framePath = join(this.framesDir, frameFilename);
-    const task = (async () => {
+    // Defer the capture body so stop() calls inside captureFrameImpl can still
+    // observe this.capturePromise and wait for the in-flight first frame.
+    const task = Promise.resolve().then(async () => {
       const capturedAt = new Date().toISOString();
       const result = await this.captureFrameImpl(framePath);
       if (Array.isArray(result.warnings)) {
@@ -358,7 +360,7 @@ export class BrowserScreencastRecorder {
       if (this.frames.length === 1) {
         await copyFile(framePath, this.previewPath);
       }
-    })();
+    });
     this.capturePromise = task;
     try {
       await task;
