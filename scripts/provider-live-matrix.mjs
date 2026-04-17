@@ -435,11 +435,113 @@ export function isApprovedProductVideoEnvLimitedDetail(detail) {
   return PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS.some((matcher) => normalized.includes(matcher));
 }
 
-export function classifyProductVideoAmazonStatus(status, detail) {
+function readPositiveCountKeys(value) {
+  if (!value || typeof value !== 'object') return [];
+  return Object.entries(value)
+    .filter(([, count]) => typeof count === 'number' && Number.isFinite(count) && count > 0)
+    .map(([key]) => key);
+}
+
+function readProductVideoAmazonMeta(data) {
+  if (!data || typeof data !== 'object') return {};
+  if (data.meta && typeof data.meta === 'object') {
+    return data.meta;
+  }
+  if (data.error?.details && typeof data.error.details === 'object') {
+    return data.error.details;
+  }
+  return {};
+}
+
+function classifyStructuredProductVideoAmazonFailure(data) {
+  const meta = readProductVideoAmazonMeta(data);
+  const summary = typeof meta.primaryConstraintSummary === 'string'
+    ? meta.primaryConstraintSummary
+    : '';
+  if (!isApprovedProductVideoEnvLimitedDetail(summary)) {
+    return null;
+  }
+  const reasonCodes = readPositiveCountKeys(meta.reasonCodeDistribution);
+  if (reasonCodes.length > 0 && !reasonCodes.every((code) => MATRIX_ENV_LIMITED_CODES.has(code))) {
+    return 'fail';
+  }
+  return 'env_limited';
+}
+
+function readStructuredCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+export function classifyProductVideoAmazonStatus(status, detail, data = {}) {
   if (status === 0) {
     return 'pass';
   }
+  const structuredStatus = classifyStructuredProductVideoAmazonFailure(data);
+  if (structuredStatus) {
+    return structuredStatus;
+  }
   return isApprovedProductVideoEnvLimitedDetail(detail) ? 'env_limited' : 'fail';
+}
+
+export function classifyNestedLiveRegressionStatus(status, parsed, { strictGate = false } = {}) {
+  const failCount = readStructuredCount(parsed?.counts?.fail);
+  const envLimitedCount = readStructuredCount(parsed?.counts?.env_limited);
+  const hasStructuredCounts = failCount !== null || envLimitedCount !== null;
+  const resolvedFailCount = failCount ?? 0;
+  const resolvedEnvLimitedCount = envLimitedCount ?? 0;
+  const nestedStatus = status === 0
+    ? (resolvedFailCount > 0 ? 'fail' : (resolvedEnvLimitedCount > 0 ? 'env_limited' : 'pass'))
+    : (hasStructuredCounts && resolvedFailCount === 0 && resolvedEnvLimitedCount > 0 ? 'env_limited' : 'fail');
+  return strictGate && nestedStatus !== 'pass' ? 'fail' : nestedStatus;
+}
+
+function createNestedLiveRegressionStep(mode, { strictGate = false } = {}) {
+  return {
+    id: 'matrix.live_regression_modes',
+    status: classifyNestedLiveRegressionStatus(mode.status, mode.json, { strictGate }),
+    data: mode.json ?? null,
+    detail: mode.status === 0 ? null : (mode.stderr || mode.stdout || null)
+  };
+}
+
+export async function runNestedLiveRegressionMode(
+  env,
+  { strictGate = false, useGlobalEnv = false } = {},
+  {
+    nodeRunner = runNode,
+    daemonRestorer = restoreDaemonAfterNestedLiveRegression
+  } = {}
+) {
+  const matrixArgs = ['scripts/live-regression-matrix.mjs'];
+  if (strictGate) {
+    matrixArgs.push('--release-gate');
+  }
+  const mode = nodeRunner(matrixArgs, buildLiveRegressionEnv(env, {
+    useGlobalEnv,
+    stopDaemon: false
+  }), {
+    allowFailure: true,
+    timeoutMs: NESTED_LIVE_REGRESSION_TIMEOUT_MS
+  });
+  const step = createNestedLiveRegressionStep(mode, { strictGate });
+  try {
+    const daemonRestore = await daemonRestorer(env);
+    return { restarted: daemonRestore.restarted, step };
+  } catch (error) {
+    return { restarted: false, step: { ...step, status: 'fail', detail: String(error) } };
+  }
+}
+
+function relayNeedsRestartAfterNestedRun(status) {
+  const relay = status?.json?.data?.relay;
+  if (!relay || relay.running !== true) {
+    return true;
+  }
+  return relay.opsConnected === true
+    || relay.canvasConnected === true
+    || relay.annotationConnected === true
+    || relay.cdpConnected === true
+    || (relay.extensionConnected === true && relay.extensionHandshakeComplete !== true);
 }
 
 function summarizeCliDetail(result) {
@@ -612,11 +714,15 @@ function startDaemon(env) {
   child.unref();
 }
 
+function stopDaemon(env) {
+  runCli(env, ['serve', '--stop'], { allowFailure: true, timeoutMs: 15000 });
+}
+
 async function waitForDaemonReady(env, timeoutMs = 30000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const status = runCli(env, ['status', '--daemon'], { allowFailure: true, timeoutMs: 15000 });
-    if (status.status === 0) {
+    if (status.status === 0 && !relayNeedsRestartAfterNestedRun(status)) {
       return status;
     }
     await sleep(500);
@@ -628,17 +734,21 @@ export async function restoreDaemonAfterNestedLiveRegression(
   env,
   {
     statusReader = (daemonEnv) => runCli(daemonEnv, ['status', '--daemon'], { allowFailure: true, timeoutMs: 15000 }),
+    stopper = stopDaemon,
     starter = startDaemon,
     waiter = waitForDaemonReady
   } = {}
 ) {
   const status = statusReader(env);
-  if (status.status === 0) {
+  if (status.status === 0 && !relayNeedsRestartAfterNestedRun(status)) {
     return { restarted: false, status };
+  }
+  if (status.status === 0) {
+    stopper(env);
   }
   starter(env);
   const ready = await waiter(env, 30000);
-  if (!ready) {
+  if (!ready || relayNeedsRestartAfterNestedRun(ready)) {
     throw new Error('daemon not ready after nested live regression');
   }
   return { restarted: true, status: ready };
@@ -1224,35 +1334,14 @@ async function main() {
     }
 
     if (options.runLiveRegression) {
-      try {
-        const matrixArgs = ['scripts/live-regression-matrix.mjs'];
-        if (options.strictGate) {
-          matrixArgs.push('--release-gate');
-        }
-        const liveMatrixEnv = buildLiveRegressionEnv(env, {
-          useGlobalEnv: options.useGlobalEnv,
-          stopDaemon: false
-        });
-        const mode = runNode(matrixArgs, liveMatrixEnv, {
-          allowFailure: true,
-          timeoutMs: NESTED_LIVE_REGRESSION_TIMEOUT_MS
-        });
-        const parsed = mode.json;
-        const releaseGateFailure = options.strictGate && mode.status !== 0;
-        const nonStrictStatus = mode.status === 0 ? 'pass' : ((parsed?.counts?.fail ?? 1) === 0 ? 'env_limited' : 'fail');
-        pushStep({
-          id: 'matrix.live_regression_modes',
-          status: releaseGateFailure ? 'fail' : nonStrictStatus,
-          data: parsed ?? null,
-          detail: mode.status === 0 ? null : (mode.stderr || mode.stdout || null)
-        });
-        const daemonRestore = await restoreDaemonAfterNestedLiveRegression(env);
-        if (daemonRestore.restarted) {
-          daemonStartedByScript = true;
-        }
-      } catch (error) {
-        pushStep({ id: 'matrix.live_regression_modes', status: 'fail', detail: String(error) });
+      const nestedLiveRegression = await runNestedLiveRegressionMode(env, {
+        strictGate: options.strictGate,
+        useGlobalEnv: options.useGlobalEnv
+      });
+      if (nestedLiveRegression.restarted) {
+        daemonStartedByScript = true;
       }
+      pushStep(nestedLiveRegression.step);
     } else {
       pushStep({
         id: 'matrix.live_regression_modes',
@@ -1605,7 +1694,7 @@ async function main() {
         const data = product.json?.data ?? {};
         pushStep({
           id: 'workflow.product_video.amazon',
-          status: classifyProductVideoAmazonStatus(product.status, product.detail),
+          status: classifyProductVideoAmazonStatus(product.status, product.detail, data),
           data: {
             path: data.path ?? null,
             provider: data.provider ?? null,

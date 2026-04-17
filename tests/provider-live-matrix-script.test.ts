@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildDefaultSkippedStep,
+  classifyNestedLiveRegressionStatus,
   classifyProductVideoAmazonStatus,
   buildLiveRegressionEnv,
   classifyMatrixRecords,
@@ -9,6 +10,7 @@ import {
   parseArgs,
   REQUIRED_PLAYWRIGHT_CORE_FILES,
   restoreDaemonAfterNestedLiveRegression,
+  runNestedLiveRegressionMode,
   WORKFLOW_RESEARCH_PROBE_ARGS,
   WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS
 } from "../scripts/provider-live-matrix.mjs";
@@ -56,6 +58,7 @@ describe("provider-live-matrix parseArgs", () => {
       status: 1,
       detail: "Daemon not running. Start with `opendevbrowser serve`."
     }));
+    const stopper = vi.fn();
     const starter = vi.fn();
     const waiter = vi.fn(async () => ({
       status: 0,
@@ -64,9 +67,10 @@ describe("provider-live-matrix parseArgs", () => {
 
     const result = await restoreDaemonAfterNestedLiveRegression(
       { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
-      { statusReader, starter, waiter }
+      { statusReader, stopper, starter, waiter }
     );
 
+    expect(stopper).not.toHaveBeenCalled();
     expect(starter).toHaveBeenCalledTimes(1);
     expect(waiter).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
@@ -84,20 +88,89 @@ describe("provider-live-matrix parseArgs", () => {
       json: { data: { relay: { running: true } } }
     };
     const statusReader = vi.fn(() => healthyStatus);
+    const stopper = vi.fn();
     const starter = vi.fn();
     const waiter = vi.fn();
 
     const result = await restoreDaemonAfterNestedLiveRegression(
       { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
-      { statusReader, starter, waiter }
+      { statusReader, stopper, starter, waiter }
     );
 
+    expect(stopper).not.toHaveBeenCalled();
     expect(starter).not.toHaveBeenCalled();
     expect(waiter).not.toHaveBeenCalled();
     expect(result).toEqual({
       restarted: false,
       status: healthyStatus
     });
+  });
+
+  it("restarts the matrix daemon when nested live-regression leaves dirty relay clients behind", async () => {
+    const statusReader = vi.fn(() => ({
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            running: true,
+            opsConnected: true,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false,
+            extensionConnected: false,
+            extensionHandshakeComplete: true
+          }
+        }
+      }
+    }));
+    const stopper = vi.fn();
+    const starter = vi.fn();
+    const waiter = vi.fn(async () => ({
+      status: 0,
+      json: { data: { relay: { running: true } } }
+    }));
+
+    const result = await restoreDaemonAfterNestedLiveRegression(
+      { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
+      { statusReader, stopper, starter, waiter }
+    );
+
+    expect(stopper).toHaveBeenCalledTimes(1);
+    expect(starter).toHaveBeenCalledTimes(1);
+    expect(waiter).toHaveBeenCalledTimes(1);
+    expect(result.restarted).toBe(true);
+  });
+
+  it("fails restart recovery when the replacement daemon still reports dirty relay state", async () => {
+    const dirtyStatus = {
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            running: true,
+            opsConnected: true,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false,
+            extensionConnected: false,
+            extensionHandshakeComplete: true
+          }
+        }
+      }
+    };
+    const statusReader = vi.fn(() => dirtyStatus);
+    const stopper = vi.fn();
+    const starter = vi.fn();
+    const waiter = vi.fn(async () => dirtyStatus);
+
+    await expect(restoreDaemonAfterNestedLiveRegression(
+      { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
+      { statusReader, stopper, starter, waiter }
+    )).rejects.toThrow("daemon not ready after nested live regression");
+
+    expect(stopper).toHaveBeenCalledTimes(1);
+    expect(starter).toHaveBeenCalledTimes(1);
+    expect(waiter).toHaveBeenCalledTimes(1);
   });
 
   it("treats Playwright server registry files as integrity sentinels", () => {
@@ -150,10 +223,92 @@ describe("provider-live-matrix parseArgs", () => {
       1,
       "Provider request timed out after 300000ms"
     )).toBe("fail");
+    expect(classifyNestedLiveRegressionStatus(0, {
+      counts: {
+        fail: 0,
+        env_limited: 1
+      }
+    })).toBe("env_limited");
+    expect(classifyNestedLiveRegressionStatus(0, {
+      counts: {
+        fail: 0,
+        env_limited: 1
+      }
+    }, { strictGate: true })).toBe("fail");
   });
 
   it("treats ops-client disconnects as env-limited extension probe failures", () => {
     expect(isEnvLimitedDetail("Ops client not connected")).toBe(true);
     expect(isEnvLimitedDetail("[ops_unavailable] Extension not connected to relay.")).toBe(true);
+  });
+
+  it("fails nested live-regression crashes when no structured counts were produced", () => {
+    expect(classifyNestedLiveRegressionStatus(1, null)).toBe("fail");
+    expect(classifyNestedLiveRegressionStatus(1, { counts: {} })).toBe("fail");
+  });
+
+  it("emits a single failed nested live-regression step when daemon restore fails", async () => {
+    const nodeRunner = vi.fn(() => ({
+      status: 0,
+      stdout: "",
+      stderr: "",
+      json: { counts: { env_limited: 1 } }
+    }));
+    const daemonRestorer = vi.fn(async () => {
+      throw new Error("daemon restore failed");
+    });
+
+    const result = await runNestedLiveRegressionMode(
+      { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
+      { strictGate: false, useGlobalEnv: true },
+      { nodeRunner, daemonRestorer }
+    );
+
+    expect(result).toEqual({
+      restarted: false,
+      step: {
+        id: "matrix.live_regression_modes",
+        status: "fail",
+        data: { counts: { env_limited: 1 } },
+        detail: "Error: daemon restore failed"
+      }
+    });
+  });
+
+  it("preserves the classified nested live-regression step when daemon restore succeeds", async () => {
+    const nodeRunner = vi.fn(() => ({
+      status: 1,
+      stdout: "",
+      stderr: "ops unavailable",
+      json: { counts: { env_limited: 1 } }
+    }));
+    const daemonRestorer = vi.fn(async () => ({ restarted: true }));
+
+    const result = await runNestedLiveRegressionMode(
+      { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
+      { strictGate: false, useGlobalEnv: false },
+      { nodeRunner, daemonRestorer }
+    );
+
+    expect(result).toEqual({
+      restarted: true,
+      step: {
+        id: "matrix.live_regression_modes",
+        status: "env_limited",
+        data: { counts: { env_limited: 1 } },
+        detail: "ops unavailable"
+      }
+    });
+  });
+
+  it("prefers structured product-video amazon constraints before free-form detail fallback", () => {
+    expect(classifyProductVideoAmazonStatus(1, "", {
+      meta: {
+        primaryConstraintSummary: "Amazon requires manual browser follow-up; this run did not determine a reliable PDP price.",
+        reasonCodeDistribution: {
+          unavailable: 1
+        }
+      }
+    })).toBe("env_limited");
   });
 });

@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPublicSurfaceCounts } from "./shared/public-surface-manifest.mjs";
+import { buildWorkflowInventory } from "./shared/workflow-inventory.mjs";
+import { renderWorkflowSurfaceMapMarkdown } from "./workflow-inventory-report.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -74,6 +76,10 @@ function extractBacktickedNamesFromDocSection(source, startHeading, endHeading, 
   return [...section.matchAll(/^- `([^`]+)`(?:[^\n]*)$/gm)].map((match) => match[1]);
 }
 
+function normalizeWorkflowSurfaceMap(source) {
+  return source.trim().replace(/^Last updated: .+$/m, "Last updated: <normalized-date>");
+}
+
 export function runDocsDriftChecks() {
   const packageJson = JSON.parse(read("package.json"));
   const version = String(packageJson.version ?? "");
@@ -91,6 +97,7 @@ export function runDocsDriftChecks() {
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
   const workflowSurfaceMapDoc = read("docs/WORKFLOW_SURFACE_MAP.md");
   const architectureDoc = read("docs/ARCHITECTURE.md");
+  const workflowSurfaceMapExpected = renderWorkflowSurfaceMapMarkdown(buildWorkflowInventory(ROOT));
   const designCanvasSpec = read("docs/DESIGN_CANVAS_TECHNICAL_SPEC.md");
   const onboardingMetadata = JSON.parse(read("src/cli/onboarding-metadata.json"));
   const annotateDoc = read("docs/ANNOTATE.md");
@@ -279,6 +286,11 @@ export function runDocsDriftChecks() {
     ok: workflowSurfaceMapDoc.includes("workflow.inspiredesign")
       && workflowSurfaceMapDoc.includes("inspiredesign run"),
     detail: "docs/WORKFLOW_SURFACE_MAP.md must include workflow.inspiredesign and the inspiredesign run CLI entry."
+  });
+  checks.push({
+    id: "doc.workflow_surface_map.matches_generated_inventory",
+    ok: normalizeWorkflowSurfaceMap(workflowSurfaceMapDoc) === normalizeWorkflowSurfaceMap(workflowSurfaceMapExpected),
+    detail: "docs/WORKFLOW_SURFACE_MAP.md must match the generated workflow inventory map aside from the date stamp."
   });
   checks.push({
     id: "doc.cli.help_references_workflow_surface_map",
