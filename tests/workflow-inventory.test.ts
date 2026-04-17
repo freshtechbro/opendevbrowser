@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CANVAS_LIVE_TIMEOUTS_MS } from "../scripts/live-direct-utils.mjs";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import {
+  PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS,
   buildWorkflowInventory,
   deriveCliToolPairs,
   VALIDATION_SCENARIOS
@@ -132,6 +133,8 @@ describe("workflow inventory", () => {
     expect(media?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoUrl?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoName?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(productVideoUrl?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
+    expect(productVideoName?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
     expect(inspiredesign?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(inspiredesign?.entryPath).toBe("opendevbrowser inspiredesign run");
     expect(inspiredesign?.primaryArgs).toEqual(expect.arrayContaining(["--url", "https://example.com/"]));
@@ -195,6 +198,43 @@ describe("workflow validation matrix helpers", () => {
     });
   });
 
+  it("fails timeout reason codes by default and only downgrades them when a scenario opts in", () => {
+    const timeoutResult = {
+      status: 1,
+      timedOut: false,
+      detail: "Provider request timed out after 120000ms",
+      json: {
+        summary: {
+          failures: [
+            {
+              error: {
+                code: "timeout",
+                message: "Provider request timed out after 120000ms"
+              }
+            }
+          ]
+        }
+      }
+    };
+
+    expect(determineScenarioStatus(timeoutResult, {
+      allowedStatuses: ["pass", "env_limited"]
+    })).toMatchObject({
+      status: "fail",
+      detail: "unexpected_reason_codes=timeout",
+      ok: false
+    });
+
+    expect(determineScenarioStatus(timeoutResult, {
+      allowedStatuses: ["pass", "env_limited"],
+      envLimitedReasonCodes: ["timeout"]
+    })).toMatchObject({
+      status: "env_limited",
+      detail: "reason_codes=timeout",
+      ok: true
+    });
+  });
+
   it("classifies provider browser-only constraints as env_limited when the scenario allows it", () => {
     expect(determineScenarioStatus({
       status: 1,
@@ -202,7 +242,8 @@ describe("workflow validation matrix helpers", () => {
       detail: "Best Buy requires manual browser follow-up; this run did not determine a reliable PDP price.",
       json: { status: "fail" }
     }, {
-      allowedStatuses: ["pass", "env_limited"]
+      allowedStatuses: ["pass", "env_limited"],
+      envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS
     })).toMatchObject({
       status: "env_limited",
       detail: "Best Buy requires manual browser follow-up; this run did not determine a reliable PDP price.",
@@ -215,7 +256,8 @@ describe("workflow validation matrix helpers", () => {
       detail: "Bestbuy requires a live browser-rendered page.",
       json: { status: "fail" }
     }, {
-      allowedStatuses: ["pass", "env_limited"]
+      allowedStatuses: ["pass", "env_limited"],
+      envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS
     })).toMatchObject({
       status: "env_limited",
       detail: "Bestbuy requires a live browser-rendered page.",

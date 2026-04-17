@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildDefaultSkippedStep,
+  classifyProductVideoAmazonStatus,
   buildLiveRegressionEnv,
   classifyMatrixRecords,
   isEnvLimitedDetail,
@@ -103,9 +105,9 @@ describe("provider-live-matrix parseArgs", () => {
     expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/registry/index.js");
   });
 
-  it("keeps timeout env-limited for matrix classification and preserves the shared target timeout bucket", () => {
+  it("fails timeout by default, skips default-gated lanes, and only downgrades approved product-video details", () => {
     expect(NESTED_LIVE_REGRESSION_TIMEOUT_MS).toBe(1_500_000);
-    expect(MATRIX_ENV_LIMITED_CODES.has("timeout")).toBe(true);
+    expect(MATRIX_ENV_LIMITED_CODES.has("timeout")).toBe(false);
     expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target")).toBe("120000");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--source-selection");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("auto");
@@ -122,9 +124,32 @@ describe("provider-live-matrix parseArgs", () => {
         }
       }
     ])).toEqual({
-      status: "env_limited",
-      reason: "reason_codes=timeout"
+      status: "fail",
+      reason: "unexpected_reason_codes=timeout"
     });
+    expect(buildDefaultSkippedStep(
+      "provider.shopping.bestbuy.search",
+      "skipped_high_friction_by_default",
+      { highFriction: true, includeHighFriction: false }
+    )).toEqual({
+      id: "provider.shopping.bestbuy.search",
+      status: "skipped",
+      detail: "skipped_high_friction_by_default",
+      data: {
+        skipped: true,
+        highFriction: true,
+        includeHighFriction: false
+      }
+    });
+    expect(classifyProductVideoAmazonStatus(0, null)).toBe("pass");
+    expect(classifyProductVideoAmazonStatus(
+      1,
+      "Amazon requires manual browser follow-up before capture."
+    )).toBe("env_limited");
+    expect(classifyProductVideoAmazonStatus(
+      1,
+      "Provider request timed out after 300000ms"
+    )).toBe("fail");
   });
 
   it("treats ops-client disconnects as env-limited extension probe failures", () => {

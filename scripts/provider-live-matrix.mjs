@@ -18,6 +18,7 @@ import {
   HIGH_FRICTION_SHOPPING_PROVIDERS,
   MATRIX_ENV_LIMITED_CODES,
   MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS,
+  PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS,
   SOCIAL_POST_CASES
 } from './shared/workflow-lane-constants.mjs';
 import {
@@ -418,6 +419,27 @@ export function isEnvLimitedDetail(detail) {
   return /auth|challenge|captcha|token required|environment|extension not connected|ops client not connected|rate limit|timed out|profile is locked|processsingleton|singletonlock|already in use by another instance/i.test(
     String(detail || '')
   );
+}
+
+export function buildDefaultSkippedStep(id, detail, data = {}) {
+  return {
+    id,
+    status: 'skipped',
+    detail,
+    data: { skipped: true, ...data }
+  };
+}
+
+export function isApprovedProductVideoEnvLimitedDetail(detail) {
+  const normalized = String(detail || '').toLowerCase();
+  return PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS.some((matcher) => normalized.includes(matcher));
+}
+
+export function classifyProductVideoAmazonStatus(status, detail) {
+  if (status === 0) {
+    return 'pass';
+  }
+  return isApprovedProductVideoEnvLimitedDetail(detail) ? 'env_limited' : 'fail';
 }
 
 function summarizeCliDetail(result) {
@@ -1486,33 +1508,30 @@ async function main() {
       }
     } else {
       for (const testCase of SOCIAL_POST_CASES) {
-        pushStep({
-          id: testCase.id,
-          status: 'pass',
-          detail: 'skipped_by_default',
-          data: { skipped: true, includeSocialPosts: false }
-        });
+        pushStep(buildDefaultSkippedStep(
+          testCase.id,
+          'skipped_by_default',
+          { includeSocialPosts: false }
+        ));
       }
     }
 
     for (const provider of shoppingProvidersForMode(options.smoke)) {
       const id = `provider.${provider.replace('/', '.')}.search`;
       if (!options.runHighFriction && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)) {
-        pushStep({
+        pushStep(buildDefaultSkippedStep(
           id,
-          status: 'pass',
-          detail: 'skipped_high_friction_by_default',
-          data: { skipped: true, highFriction: true, includeHighFriction: false }
-        });
+          'skipped_high_friction_by_default',
+          { highFriction: true, includeHighFriction: false }
+        ));
         continue;
       }
       if (!options.runAuthGated && AUTH_GATED_SHOPPING_PROVIDERS.has(provider)) {
-        pushStep({
+        pushStep(buildDefaultSkippedStep(
           id,
-          status: 'pass',
-          detail: 'skipped_auth_gated_by_default',
-          data: { skipped: true, authGated: true, includeAuthGated: false }
-        });
+          'skipped_auth_gated_by_default',
+          { authGated: true, includeAuthGated: false }
+        ));
         continue;
       }
       try {
@@ -1586,7 +1605,7 @@ async function main() {
         const data = product.json?.data ?? {};
         pushStep({
           id: 'workflow.product_video.amazon',
-          status: product.status === 0 ? 'pass' : 'env_limited',
+          status: classifyProductVideoAmazonStatus(product.status, product.detail),
           data: {
             path: data.path ?? null,
             provider: data.provider ?? null,

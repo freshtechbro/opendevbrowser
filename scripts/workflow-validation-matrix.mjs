@@ -123,6 +123,17 @@ function buildScenarioCommand(scenario, scenarioArgs) {
     : `node ${scenarioArgs.join(" ")}`;
 }
 
+function matchesScenarioEnvLimitedDetail(detail, scenario) {
+  if (typeof detail !== "string") {
+    return false;
+  }
+  const matchers = Array.isArray(scenario.envLimitedDetailMatchers)
+    ? scenario.envLimitedDetailMatchers
+    : [];
+  const normalized = detail.toLowerCase();
+  return matchers.some((matcher) => typeof matcher === "string" && normalized.includes(matcher.toLowerCase()));
+}
+
 function readDaemonStatus(env = process.env) {
   return runCli(["status", "--daemon"], {
     env,
@@ -271,7 +282,7 @@ export function determineScenarioStatus(result, scenario) {
   if (
     typeof detail === "string"
     && scenario.allowedStatuses.includes("env_limited")
-    && /requires manual browser follow-up|requires a live browser-rendered page/i.test(detail)
+    && matchesScenarioEnvLimitedDetail(detail, scenario)
   ) {
     return {
       status: "env_limited",
@@ -292,8 +303,12 @@ export function determineScenarioStatus(result, scenario) {
   const failures = collectScenarioFailures(result);
   const reasonCodes = normalizedCodesFromFailures(failures);
   if (reasonCodes.length > 0) {
+    const envLimitedCodes = new Set([
+      ...MATRIX_ENV_LIMITED_CODES,
+      ...(Array.isArray(scenario.envLimitedReasonCodes) ? scenario.envLimitedReasonCodes : [])
+    ]);
     const laneStatus = classifyLaneRecords(collectScenarioRecordCount(result), failures, {
-      envLimitedCodes: MATRIX_ENV_LIMITED_CODES
+      envLimitedCodes
     });
     return {
       status: laneStatus.status,

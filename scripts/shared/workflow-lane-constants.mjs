@@ -40,10 +40,11 @@ const BASE_ENV_LIMITED_CODES = [
 ];
 
 export const DIRECT_ENV_LIMITED_CODES = new Set(BASE_ENV_LIMITED_CODES);
-export const MATRIX_ENV_LIMITED_CODES = new Set([
-  ...BASE_ENV_LIMITED_CODES,
-  "timeout"
-]);
+export const MATRIX_ENV_LIMITED_CODES = new Set(BASE_ENV_LIMITED_CODES);
+export const PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS = [
+  "requires manual browser follow-up",
+  "requires a live browser-rendered page"
+];
 export const ENV_LIMITED_SHELL_ONLY_REASONS = new Set([
   "challenge_shell",
   "search_shell",

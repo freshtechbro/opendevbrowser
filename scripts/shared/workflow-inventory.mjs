@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expectedProviderIdsFromSource } from "../provider-live-scenarios.mjs";
 import { CANVAS_LIVE_TIMEOUTS_MS } from "../live-direct-utils.mjs";
+import { PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS } from "./workflow-lane-constants.mjs";
 import {
   getPublicSurfaceCounts,
   getPublicSurfaceToolEntries
@@ -328,6 +329,7 @@ export const VALIDATION_SCENARIOS = [
     secondaryArgs: ["product-video", "run", "--product-url", "https://www.bestbuy.com/site/sony-wh-1000xm5-wireless-noise-canceling-over-the-ear-headphones-black/6505727.p?skuId=6505727", "--timeout-ms", "180000", "--include-copy"],
     timeoutMs: 180_000,
     allowedStatuses: ["pass", "env_limited"],
+    envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS,
     executionPolicy: "automated",
     entryPath: "opendevbrowser product-video run --product-url ...",
     primaryTask: "Build a product presentation asset pack from a live Best Buy PDP for a creative brief.",
@@ -342,6 +344,7 @@ export const VALIDATION_SCENARIOS = [
     secondaryArgs: ["product-video", "run", "--product-name", "Sony WH-1000XM5 Headphones", "--provider-hint", "shopping/bestbuy", "--timeout-ms", "180000", "--include-copy"],
     timeoutMs: 180_000,
     allowedStatuses: ["pass", "env_limited"],
+    envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS,
     executionPolicy: "automated",
     entryPath: "opendevbrowser product-video run --product-name ...",
     primaryTask: "Resolve a product by name and prepare an asset pack for a motion designer without supplying a URL manually.",
@@ -592,6 +595,8 @@ export const VALIDATION_SCENARIOS = [
     ownerFiles: ["src/tools/index.ts", "src/public-surface/source.ts"]
   }
 ];
+
+export { PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS };
 
 function buildFamilyLookup(definitions, key) {
   const lookup = new Map();
