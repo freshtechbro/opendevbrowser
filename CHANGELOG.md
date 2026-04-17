@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.20] - 2026-04-17
+
+### Added
+- First-class operator review and inspection surfaces, including review-desktop, session-inspector audit or plan flows, capability status reporting, and next-step guidance in the CLI or tool surface.
+- First-class Inspire Design workflow coverage with provider contracts, capture flows, docs, and parity-focused tests.
+
+### Changed
+- Canonicalized generated help and public-surface metadata so release-facing discoverability and workflow guidance stay aligned across CLI docs, onboarding, and mirrored website inputs.
+- Expanded the bundled best-practices and design-agent skill packs with the new operator, canvas, and workflow guidance used by the current runtime.
+
+### Fixed
+- Hardened live audit and release harnesses so env-limited verdicts, relay-instance ownership, desktop observation capture, and shopping follow-up classification no longer drift into false failure states.
+- Stabilized extension reconnect or warning states, canvas live workflow closure, screencast completion, and package-script execution around the new operator surfaces.
+
 ## [0.0.19] - 2026-04-13
 
 ### Added
@@ -186,7 +200,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.19...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.20...HEAD
+[0.0.20]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.19...v0.0.20
 [0.0.19]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.18...v0.0.19
 [0.0.18]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.17...v0.0.18
 [0.0.17]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.16...v0.0.17
