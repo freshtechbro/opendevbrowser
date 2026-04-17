@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-16T14:26:18.453Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-17T01:10:55.127Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-16T14:26:18.453Z",
+  "generatedAt": "2026-04-17T01:10:55.127Z",
   "cli": {
     "groups": [
       {
@@ -192,6 +192,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
     "commands": [
       {
         "name": "install",
+        "description": "Install the plugin and sync bundled skill packs",
         "usage": "npx opendevbrowser [--global|--local] [--with-config] [--full] [--skills-global|--skills-local|--no-skills] [--no-prompt] [--quiet]",
         "flags": [
           "--global",
@@ -210,6 +211,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "update",
+        "description": "Clear cached plugin and refresh managed skill packs",
         "usage": "npx opendevbrowser update [--global|--local]",
         "flags": [
           "--global",
@@ -221,6 +223,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "uninstall",
+        "description": "Remove plugin from config and clean managed skill packs",
         "usage": "npx opendevbrowser uninstall [--global|--local] [--no-prompt] [--quiet]",
         "flags": [
           "--global",
@@ -234,6 +237,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "help",
+        "description": "Show help",
         "usage": "npx opendevbrowser --help | npx opendevbrowser help",
         "flags": [
           "--help"
@@ -244,6 +248,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "version",
+        "description": "Show version",
         "usage": "npx opendevbrowser --version | npx opendevbrowser version",
         "flags": [
           "--version"
@@ -254,6 +259,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "serve",
+        "description": "Start or stop the local daemon",
         "usage": "npx opendevbrowser serve [--port <port>] [--token <token>] [--stop]",
         "flags": [
           "--port",
@@ -266,6 +272,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "daemon",
+        "description": "Install/uninstall/status daemon auto-start",
         "usage": "npx opendevbrowser daemon <install|uninstall|status>",
         "flags": [
           "--output-format"
@@ -276,6 +283,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "native",
+        "description": "Install/uninstall/status native messaging host",
         "usage": "npx opendevbrowser native <install|uninstall|status> [extension-id]",
         "flags": [
           "--output-format"
@@ -286,6 +294,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "run",
+        "description": "Execute a JSON script in a single process",
         "usage": "npx opendevbrowser run --script <path> [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>]",
         "flags": [
           "--script",
@@ -302,6 +311,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "launch",
+        "description": "Launch a managed browser session via daemon",
         "usage": "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>]",
         "flags": [
           "--headless",
@@ -322,6 +332,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "connect",
+        "description": "Connect to an existing browser via daemon",
         "usage": "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy]",
         "flags": [
           "--ws-endpoint",
@@ -336,6 +347,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "disconnect",
+        "description": "Disconnect a daemon session",
         "usage": "npx opendevbrowser disconnect --session-id <id> [--close-browser]",
         "flags": [
           "--session-id",
@@ -347,6 +359,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "status",
+        "description": "Get daemon or session status",
         "usage": "npx opendevbrowser status [--session-id <id> | --daemon] [--transport <relay|native>]",
         "flags": [
           "--session-id",
@@ -359,6 +372,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "status-capabilities",
+        "description": "Inspect runtime capability discovery for the host and an optional session",
         "usage": "npx opendevbrowser status-capabilities [--session-id <id>] [--target-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -372,6 +386,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "cookie-import",
+        "description": "Import validated cookies into a session",
         "usage": "npx opendevbrowser cookie-import --session-id <id> (--cookies <json> | --cookies-file <path>) [--strict <bool>]",
         "flags": [
           "--session-id",
@@ -385,6 +400,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "cookie-list",
+        "description": "List cookies for a session (optionally filtered by URL)",
         "usage": "npx opendevbrowser cookie-list --session-id <id> [--url <url>]",
         "flags": [
           "--session-id",
@@ -396,6 +412,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "research",
+        "description": "Run research workflows",
         "usage": "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--topic",
@@ -421,6 +438,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "shopping",
+        "description": "Run shopping workflows",
         "usage": "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--browser-mode <mode>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--query",
@@ -444,6 +462,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "product-video",
+        "description": "Run product presentation asset workflows",
         "usage": "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
         "flags": [
           "--product-url",
@@ -466,6 +485,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "inspiredesign",
+        "description": "Run inspiredesign workflows",
         "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--brief",
@@ -487,6 +507,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "artifacts",
+        "description": "Manage workflow artifact lifecycle",
         "usage": "npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]",
         "flags": [
           "--expired-only",
@@ -498,6 +519,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "macro-resolve",
+        "description": "Resolve or execute a macro expression via provider actions",
         "usage": "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>] [--challenge-automation-mode <mode>]",
         "flags": [
           "--expression",
@@ -513,6 +535,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "canvas",
+        "description": "Execute a design-canvas command",
         "usage": "npx opendevbrowser canvas --command <canvas.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]",
         "flags": [
           "--command",
@@ -526,6 +549,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "goto",
+        "description": "Navigate current session to a URL",
         "usage": "npx opendevbrowser goto --session-id <id> --url <url> [--wait-until <state>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -539,6 +563,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "wait",
+        "description": "Wait for load or a ref to appear",
         "usage": "npx opendevbrowser wait --session-id <id> [--ref <ref>] [--state <state>|--until <condition>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -553,6 +578,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "snapshot",
+        "description": "Capture a snapshot of the active page",
         "usage": "npx opendevbrowser snapshot --session-id <id> [--mode <mode>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -567,6 +593,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "review",
+        "description": "Capture a first-class review payload for the active page",
         "usage": "npx opendevbrowser review --session-id <id> [--target-id <id>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -581,6 +608,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "review-desktop",
+        "description": "Capture desktop-assisted browser review with read-only desktop evidence",
         "usage": "npx opendevbrowser review-desktop --session-id <id> [--target-id <id>] [--reason <text>] [--max-chars <n>] [--cursor <cursor>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -596,6 +624,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "click",
+        "description": "Click an element by ref",
         "usage": "npx opendevbrowser click --session-id <id> --ref <ref> [--target-id <id>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -609,6 +638,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "hover",
+        "description": "Hover an element by ref",
         "usage": "npx opendevbrowser hover --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -620,6 +650,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "press",
+        "description": "Press a keyboard key",
         "usage": "npx opendevbrowser press --session-id <id> --key <key> [--ref <ref>]",
         "flags": [
           "--session-id",
@@ -632,6 +663,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "check",
+        "description": "Check a checkbox by ref",
         "usage": "npx opendevbrowser check --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -643,6 +675,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "uncheck",
+        "description": "Uncheck a checkbox by ref",
         "usage": "npx opendevbrowser uncheck --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -654,6 +687,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "type",
+        "description": "Type into an element by ref",
         "usage": "npx opendevbrowser type --session-id <id> --ref <ref> --text <text> [--clear] [--submit]",
         "flags": [
           "--session-id",
@@ -668,6 +702,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "select",
+        "description": "Select values in a select by ref",
         "usage": "npx opendevbrowser select --session-id <id> --ref <ref> --values <csv>",
         "flags": [
           "--session-id",
@@ -680,6 +715,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "scroll",
+        "description": "Scroll the page or element by ref",
         "usage": "npx opendevbrowser scroll --session-id <id> --dy <pixels> [--ref <ref>]",
         "flags": [
           "--session-id",
@@ -692,6 +728,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "scroll-into-view",
+        "description": "Scroll an element into view by ref",
         "usage": "npx opendevbrowser scroll-into-view --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -703,6 +740,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "upload",
+        "description": "Upload files to a file input or chooser by ref",
         "usage": "npx opendevbrowser upload --session-id <id> --ref <ref> --files <csv> [--target-id <id>]",
         "flags": [
           "--session-id",
@@ -716,6 +754,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "pointer-move",
+        "description": "Move the pointer to viewport coordinates",
         "usage": "npx opendevbrowser pointer-move --session-id <id> --x <n> --y <n> [--steps <n>] [--target-id <id>]",
         "flags": [
           "--session-id",
@@ -730,6 +769,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "pointer-down",
+        "description": "Press a mouse button at viewport coordinates",
         "usage": "npx opendevbrowser pointer-down --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]",
         "flags": [
           "--session-id",
@@ -745,6 +785,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "pointer-up",
+        "description": "Release a mouse button at viewport coordinates",
         "usage": "npx opendevbrowser pointer-up --session-id <id> --x <n> --y <n> [--button <left|middle|right>] [--click-count <n>] [--target-id <id>]",
         "flags": [
           "--session-id",
@@ -760,6 +801,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "pointer-drag",
+        "description": "Drag the pointer between two viewport coordinates",
         "usage": "npx opendevbrowser pointer-drag --session-id <id> --from-x <n> --from-y <n> --to-x <n> --to-y <n> [--steps <n>] [--target-id <id>]",
         "flags": [
           "--session-id",
@@ -776,6 +818,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "targets-list",
+        "description": "List page targets",
         "usage": "npx opendevbrowser targets-list --session-id <id> [--include-urls]",
         "flags": [
           "--session-id",
@@ -787,6 +830,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "target-use",
+        "description": "Focus a target by id",
         "usage": "npx opendevbrowser target-use --session-id <id> --target-id <id>",
         "flags": [
           "--session-id",
@@ -798,6 +842,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "target-new",
+        "description": "Open a new target",
         "usage": "npx opendevbrowser target-new --session-id <id> [--url <url>]",
         "flags": [
           "--session-id",
@@ -809,6 +854,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "target-close",
+        "description": "Close a target by id",
         "usage": "npx opendevbrowser target-close --session-id <id> --target-id <id>",
         "flags": [
           "--session-id",
@@ -820,6 +866,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "page",
+        "description": "Open or focus a named page",
         "usage": "npx opendevbrowser page --session-id <id> --name <page> [--url <url>]",
         "flags": [
           "--session-id",
@@ -832,6 +879,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "pages",
+        "description": "List named pages",
         "usage": "npx opendevbrowser pages --session-id <id>",
         "flags": [
           "--session-id"
@@ -842,6 +890,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "page-close",
+        "description": "Close a named page",
         "usage": "npx opendevbrowser page-close --session-id <id> --name <page>",
         "flags": [
           "--session-id",
@@ -853,6 +902,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dom-html",
+        "description": "Capture HTML for a ref",
         "usage": "npx opendevbrowser dom-html --session-id <id> [--ref <ref>] [--max-chars <n>]",
         "flags": [
           "--session-id",
@@ -865,6 +915,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dom-text",
+        "description": "Capture text for a ref",
         "usage": "npx opendevbrowser dom-text --session-id <id> [--ref <ref>] [--max-chars <n>]",
         "flags": [
           "--session-id",
@@ -877,6 +928,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dom-attr",
+        "description": "Capture attribute value for a ref",
         "usage": "npx opendevbrowser dom-attr --session-id <id> --ref <ref> --attr <name>",
         "flags": [
           "--session-id",
@@ -889,6 +941,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dom-value",
+        "description": "Capture input value for a ref",
         "usage": "npx opendevbrowser dom-value --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -900,6 +953,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dom-visible",
+        "description": "Check visibility for a ref",
         "usage": "npx opendevbrowser dom-visible --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -911,6 +965,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dom-enabled",
+        "description": "Check enabled state for a ref",
         "usage": "npx opendevbrowser dom-enabled --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -922,6 +977,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dom-checked",
+        "description": "Check checked state for a ref",
         "usage": "npx opendevbrowser dom-checked --session-id <id> --ref <ref>",
         "flags": [
           "--session-id",
@@ -933,6 +989,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "clone-page",
+        "description": "Clone the active page to React",
         "usage": "npx opendevbrowser clone-page --session-id <id> [--target-id <id>] [--path <file>]",
         "flags": [
           "--session-id",
@@ -945,6 +1002,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "clone-component",
+        "description": "Clone a component by ref",
         "usage": "npx opendevbrowser clone-component --session-id <id> --ref <ref> [--target-id <id>] [--path <file>]",
         "flags": [
           "--session-id",
@@ -958,6 +1016,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "session-inspector",
+        "description": "Capture a session-first diagnostic summary with relay health and trace proof",
         "usage": "npx opendevbrowser session-inspector --session-id <id> [--include-urls] [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>]",
         "flags": [
           "--session-id",
@@ -974,6 +1033,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "session-inspector-plan",
+        "description": "Inspect browser-scoped computer-use policy and safe suggested steps",
         "usage": "npx opendevbrowser session-inspector-plan --session-id <id> [--target-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -987,6 +1047,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "session-inspector-audit",
+        "description": "Capture a correlated audit bundle across desktop evidence, browser review, and policy state",
         "usage": "npx opendevbrowser session-inspector-audit --session-id <id> [--target-id <id>] [--reason <text>] [--max-chars <n>] [--cursor <cursor>] [--include-urls] [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>] [--challenge-automation-mode <mode>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -1009,6 +1070,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "perf",
+        "description": "Capture performance metrics",
         "usage": "npx opendevbrowser perf --session-id <id>",
         "flags": [
           "--session-id"
@@ -1019,6 +1081,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "screenshot",
+        "description": "Capture a screenshot",
         "usage": "npx opendevbrowser screenshot --session-id <id> [--target-id <id>] [--path <file>] [--ref <ref> | --full-page] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -1034,6 +1097,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "dialog",
+        "description": "Inspect or handle a JavaScript dialog",
         "usage": "npx opendevbrowser dialog --session-id <id> [--target-id <id>] [--action <status|accept|dismiss>] [--prompt-text <text>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -1048,6 +1112,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "console-poll",
+        "description": "Poll console events",
         "usage": "npx opendevbrowser console-poll --session-id <id> [--since-seq <n>] [--max <n>]",
         "flags": [
           "--session-id",
@@ -1060,6 +1125,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "network-poll",
+        "description": "Poll network events",
         "usage": "npx opendevbrowser network-poll --session-id <id> [--since-seq <n>] [--max <n>]",
         "flags": [
           "--session-id",
@@ -1072,6 +1138,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "debug-trace-snapshot",
+        "description": "Capture page + console + network + exception diagnostics",
         "usage": "npx opendevbrowser debug-trace-snapshot --session-id <id> [--since-console-seq <n>] [--since-network-seq <n>] [--since-exception-seq <n>] [--max <n>] [--request-id <id>]",
         "flags": [
           "--session-id",
@@ -1087,6 +1154,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "annotate",
+        "description": "Request interactive annotations via direct or relay transport",
         "usage": "npx opendevbrowser annotate --session-id <id> [--url <url>] [--transport <auto|direct|relay>] [--target-id <id>] [--tab-id <tab>] [--screenshot-mode <visible|full|none>] [--context <text>] [--debug] [--stored] [--include-screenshots <bool>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -1107,6 +1175,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "screencast-start",
+        "description": "Start a browser replay screencast capture",
         "usage": "npx opendevbrowser screencast-start --session-id <id> [--target-id <id>] [--output-dir <path>] [--interval-ms <ms>] [--max-frames <n>] [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -1122,6 +1191,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "screencast-stop",
+        "description": "Stop a browser replay screencast capture",
         "usage": "npx opendevbrowser screencast-stop --session-id <id> --screencast-id <id> [--timeout-ms <ms>]",
         "flags": [
           "--session-id",
@@ -1134,6 +1204,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "desktop-status",
+        "description": "Inspect public read-only desktop observation availability",
         "usage": "npx opendevbrowser desktop-status [--timeout-ms <ms>]",
         "flags": [
           "--timeout-ms"
@@ -1144,6 +1215,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "desktop-windows",
+        "description": "List windows exposed by the public read-only desktop observation plane",
         "usage": "npx opendevbrowser desktop-windows [--reason <text>] [--timeout-ms <ms>]",
         "flags": [
           "--reason",
@@ -1155,6 +1227,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "desktop-active-window",
+        "description": "Inspect the active window through the public read-only desktop observation plane",
         "usage": "npx opendevbrowser desktop-active-window [--reason <text>] [--timeout-ms <ms>]",
         "flags": [
           "--reason",
@@ -1166,6 +1239,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "desktop-capture-desktop",
+        "description": "Capture the current desktop surface through the public read-only desktop observation plane",
         "usage": "npx opendevbrowser desktop-capture-desktop --reason <text> [--timeout-ms <ms>]",
         "flags": [
           "--reason",
@@ -1177,6 +1251,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "desktop-capture-window",
+        "description": "Capture a specific window through the public read-only desktop observation plane",
         "usage": "npx opendevbrowser desktop-capture-window --window-id <id> --reason <text> [--timeout-ms <ms>]",
         "flags": [
           "--window-id",
@@ -1189,6 +1264,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "desktop-accessibility-snapshot",
+        "description": "Capture desktop accessibility state through the public read-only desktop observation plane",
         "usage": "npx opendevbrowser desktop-accessibility-snapshot --reason <text> [--window-id <id>] [--timeout-ms <ms>]",
         "flags": [
           "--reason",
@@ -1201,6 +1277,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "rpc",
+        "description": "Execute an internal daemon RPC command (power-user)",
         "usage": "npx opendevbrowser rpc --unsafe-internal --name <daemon.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]",
         "flags": [
           "--unsafe-internal",
@@ -2438,6 +2515,7 @@ export const CLI_COMMAND_HELP_DETAILS = Object.fromEntries(
   PUBLIC_SURFACE_MANIFEST.cli.commands.map((command) => [
     command.name,
     {
+      description: command.description,
       usage: command.usage,
       flags: [...command.flags]
     } satisfies CommandHelpDetail
@@ -2451,6 +2529,7 @@ const COMMANDS_BY_GROUP = new Map(
       .filter((command) => command.groupId === group.id)
       .map((command) => ({
         name: command.name,
+        description: command.description,
         usage: command.usage,
         flags: [...command.flags]
       }))

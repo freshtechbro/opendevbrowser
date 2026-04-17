@@ -6,7 +6,6 @@ import {
   PUBLIC_CLI_COMMAND_GROUPS,
   TOOL_SURFACE_ENTRIES
 } from "../public-surface/generated-manifest";
-import { listCommands } from "./commands/registry";
 
 type HelpFlag = (typeof VALID_FLAGS)[number];
 
@@ -52,8 +51,21 @@ const DETAIL_LABEL_WIDTH = 9;
 const COMMAND_SET = new Set<string>(CLI_COMMANDS);
 const FLAG_SET = new Set<string>(VALID_FLAGS);
 const TOOL_COUNT = TOOL_SURFACE_ENTRIES.length;
+const CLI_EQUIVALENT_SET = new Set(
+  TOOL_SURFACE_ENTRIES.flatMap((entry) => (entry.cliEquivalent ? [entry.cliEquivalent] : []))
+);
 
 const formatFlags = (flags: readonly HelpFlag[]): string => (flags.length > 0 ? flags.join(", ") : "none");
+
+export const getCliOnlyCommands = (): CliCommand[] => (
+  CLI_COMMANDS.filter((command) => !CLI_EQUIVALENT_SET.has(command))
+);
+
+export const getToolOnlyHelperNames = (): string[] => (
+  TOOL_SURFACE_ENTRIES
+    .filter((entry) => !entry.cliEquivalent)
+    .map((entry) => entry.name)
+);
 
 export const HELP_COMMAND_GROUPS: readonly CommandGroup[] = PUBLIC_CLI_COMMAND_GROUPS.map((group) => ({
   title: group.title,
@@ -299,6 +311,14 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
     details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.happyPath }]
   },
   {
+    label: "surface_split",
+    description: "Use the existing public-surface split when a workflow or helper only exists on one side of the CLI or tool surface.",
+    details: [
+      { label: "cli-only:", value: getCliOnlyCommands().join(", ") },
+      { label: "tool-only:", value: getToolOnlyHelperNames().join(", ") }
+    ]
+  },
+  {
     label: "docs",
     description: "Use the first-run checklist and canonical skill runbook for proof and deeper operating details.",
     details: [{
@@ -319,6 +339,7 @@ export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "docs/CLI.md", description: "Detailed CLI guide and release-gate runbooks." },
   { label: onboardingMetadata.referencePaths.onboardingDoc, description: "First-run checklist for help-led onboarding and happy-path proof." },
   { label: onboardingMetadata.referencePaths.skillDoc, description: "Canonical bundled best-practices runbook and quick-start guidance." },
+  { label: "docs/WORKFLOW_SURFACE_MAP.md", description: "Code-derived workflow and validation inventory, including CLI-only and tool-only surface splits." },
   { label: "docs/SURFACE_REFERENCE.md", description: "Canonical CLI, tool, and relay channel inventory." },
   { label: "opendevbrowser --help", description: "Primary full help invocation for quick discovery." },
   { label: "opendevbrowser help", description: "Alias that prints the same full help inventory." }
@@ -336,15 +357,7 @@ function formatRows(rows: readonly FormattableRow[]): string {
     .join("\n");
 }
 
-function getCommandDescriptions(): Map<string, string> {
-  const descriptions = new Map<string, string>();
-  for (const definition of listCommands()) {
-    descriptions.set(definition.name, definition.description);
-  }
-  return descriptions;
-}
-
-function assertCommandCoverage(commandDescriptions: Map<string, string>): void {
+function assertCommandCoverage(): void {
   const seen = new Set<string>();
 
   for (const group of HELP_COMMAND_GROUPS) {
@@ -353,13 +366,10 @@ function assertCommandCoverage(commandDescriptions: Map<string, string>): void {
       if (!COMMAND_SET.has(command)) {
         throw new Error(`Help references unknown CLI command: ${command}`);
       }
-      if (!commandDescriptions.has(command)) {
-        throw new Error(`Help references unregistered CLI command: ${command}`);
-      }
       if (seen.has(command)) {
         throw new Error(`Help command appears multiple times: ${command}`);
       }
-      if (!detail || !detail.usage.trim()) {
+      if (!detail || !detail.description.trim() || !detail.usage.trim()) {
         throw new Error(`Missing command help metadata: ${command}`);
       }
       for (const flag of detail.flags) {
@@ -422,14 +432,14 @@ function assertToolCoverage(): void {
   }
 }
 
-function formatCommandGroups(commandDescriptions: Map<string, string>): string {
+function formatCommandGroups(): string {
   return HELP_COMMAND_GROUPS
     .map((group) => {
       const rows: FormattableRow[] = group.commands.map((command) => {
         const detail = COMMAND_HELP_DETAILS[command];
         return {
           label: command,
-          description: commandDescriptions.get(command) ?? "Missing command description.",
+          description: detail.description,
           details: [
             { label: "usage:", value: detail.usage },
             { label: "flags:", value: formatFlags(detail.flags) }
@@ -480,8 +490,7 @@ function formatReferenceEntries(): string {
 }
 
 export function getHelpText(): string {
-  const commandDescriptions = getCommandDescriptions();
-  assertCommandCoverage(commandDescriptions);
+  assertCommandCoverage();
   assertFlagCoverage();
   assertToolCoverage();
 
@@ -500,7 +509,7 @@ export function getHelpText(): string {
     formatOnboardingEntries(),
     "",
     `Command Inventory (all ${CLI_COMMANDS.length} commands):`,
-    formatCommandGroups(commandDescriptions),
+    formatCommandGroups(),
     "",
     "Flag Inventory (all supported flags):",
     formatFlagGroups(),
