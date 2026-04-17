@@ -87,6 +87,7 @@ export function runDocsDriftChecks() {
   const onboardingDoc = read("docs/FIRST_RUN_ONBOARDING.md");
   const releaseRunbook = read("docs/RELEASE_RUNBOOK.md");
   const distributionPlan = read("docs/DISTRIBUTION_PLAN.md");
+  const cliHelpSource = read("src/cli/help.ts");
   const surfaceDoc = read("docs/SURFACE_REFERENCE.md");
   const workflowSurfaceMapDoc = read("docs/WORKFLOW_SURFACE_MAP.md");
   const architectureDoc = read("docs/ARCHITECTURE.md");
@@ -278,6 +279,11 @@ export function runDocsDriftChecks() {
     ok: workflowSurfaceMapDoc.includes("workflow.inspiredesign")
       && workflowSurfaceMapDoc.includes("inspiredesign run"),
     detail: "docs/WORKFLOW_SURFACE_MAP.md must include workflow.inspiredesign and the inspiredesign run CLI entry."
+  });
+  checks.push({
+    id: "doc.cli.help_references_workflow_surface_map",
+    ok: cliHelpSource.includes("docs/WORKFLOW_SURFACE_MAP.md"),
+    detail: "src/cli/help.ts must keep docs/WORKFLOW_SURFACE_MAP.md in the first-contact help reference pointers."
   });
 
   checks.push({
