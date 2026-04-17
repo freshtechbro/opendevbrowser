@@ -271,7 +271,7 @@ export function determineScenarioStatus(result, scenario) {
   if (
     typeof detail === "string"
     && scenario.allowedStatuses.includes("env_limited")
-    && /requires manual browser follow-up/i.test(detail)
+    && /requires manual browser follow-up|requires a live browser-rendered page/i.test(detail)
   ) {
     return {
       status: "env_limited",

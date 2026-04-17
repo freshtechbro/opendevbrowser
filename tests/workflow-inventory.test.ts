@@ -195,7 +195,7 @@ describe("workflow validation matrix helpers", () => {
     });
   });
 
-  it("classifies explicit manual browser follow-up failures as env_limited when the scenario allows it", () => {
+  it("classifies provider browser-only constraints as env_limited when the scenario allows it", () => {
     expect(determineScenarioStatus({
       status: 1,
       timedOut: false,
@@ -206,6 +206,19 @@ describe("workflow validation matrix helpers", () => {
     })).toMatchObject({
       status: "env_limited",
       detail: "Best Buy requires manual browser follow-up; this run did not determine a reliable PDP price.",
+      ok: true
+    });
+
+    expect(determineScenarioStatus({
+      status: 1,
+      timedOut: false,
+      detail: "Bestbuy requires a live browser-rendered page.",
+      json: { status: "fail" }
+    }, {
+      allowedStatuses: ["pass", "env_limited"]
+    })).toMatchObject({
+      status: "env_limited",
+      detail: "Bestbuy requires a live browser-rendered page.",
       ok: true
     });
   });
