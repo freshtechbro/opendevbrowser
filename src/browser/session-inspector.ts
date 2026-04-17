@@ -27,6 +27,10 @@ type NetworkSummary = TraceChannelSummary & {
   latestFailures: Array<{ status?: number; method?: string; url?: string; error?: string }>;
 };
 
+type ExceptionSummary = TraceChannelSummary & {
+  latest: Array<{ message: string; url?: string; line?: number; column?: number }>;
+};
+
 export type SessionInspectorResult = {
   session: SessionInspectorStatus;
   relay: {
@@ -48,6 +52,7 @@ export type SessionInspectorResult = {
   };
   console: ConsoleSummary;
   network: NetworkSummary;
+  exception: ExceptionSummary;
   proofArtifact: {
     source: "debug_trace_snapshot";
     requestId: string | null;
@@ -106,15 +111,18 @@ export async function inspectSession(
   const traceMeta = asRecord(trace.meta);
   const traceConsole = summarizeConsole(readChannel(trace, "console"));
   const traceNetwork = summarizeNetwork(readChannel(trace, "network"));
+  const traceException = summarizeException(readChannel(trace, "exception"));
   const blockerState = readBlockerState(traceMeta, session.meta);
   const relay = options.relayStatus ? summarizeRelay(options.relayStatus) : null;
   const healthState = deriveHealthState({
+    mode: session.mode,
     blockerState,
     dialogOpen: session.meta?.dialog?.open === true,
     relay,
     activeTargetId: targets.activeTargetId,
     consoleErrors: traceConsole.errorCount,
-    networkFailures: traceNetwork.failureCount
+    networkFailures: traceNetwork.failureCount,
+    exceptionCount: traceException.eventCount
   });
 
   return {
@@ -127,6 +135,7 @@ export async function inspectSession(
     },
     console: traceConsole,
     network: traceNetwork,
+    exception: traceException,
     proofArtifact: {
       source: "debug_trace_snapshot",
       requestId: getString(trace.requestId) ?? options.requestId ?? null,
@@ -143,7 +152,8 @@ export async function inspectSession(
       relay,
       activeTargetId: targets.activeTargetId,
       consoleErrors: traceConsole.errorCount,
-      networkFailures: traceNetwork.failureCount
+      networkFailures: traceNetwork.failureCount,
+      exceptionCount: traceException.eventCount
     })
   };
 }
@@ -190,7 +200,7 @@ export async function buildCorrelatedAuditBundle(args: {
   };
 }
 
-function readChannel(trace: Record<string, unknown>, channelName: "console" | "network") {
+function readChannel(trace: Record<string, unknown>, channelName: "console" | "network" | "exception") {
   const channels = asRecord(trace.channels);
   const channel = asRecord(channels[channelName]);
   const events = asArray(channel.events);
@@ -198,6 +208,42 @@ function readChannel(trace: Record<string, unknown>, channelName: "console" | "n
     events,
     nextSeq: getNumber(channel.nextSeq),
     truncated: getBoolean(channel.truncated) ?? false
+  };
+}
+
+function summarizeException(channel: {
+  events: unknown[];
+  nextSeq: number | null;
+  truncated: boolean;
+}): ExceptionSummary {
+  const events = channel.events
+    .map((entry) => {
+      const record = asRecord(entry);
+      const message = [
+        getString(record.text),
+        getString(record.message),
+        getString(record.value)
+      ].find((value) => typeof value === "string" && value.trim().length > 0);
+      const url = getString(record.url) ?? getString(record.sourceURL) ?? undefined;
+      const line = getNumber(record.lineNumber) ?? getNumber(record.line) ?? undefined;
+      const column = getNumber(record.columnNumber) ?? getNumber(record.column) ?? undefined;
+      if (!message && !url && typeof line !== "number" && typeof column !== "number") {
+        return null;
+      }
+      return {
+        message: message?.trim() ?? "Unhandled exception",
+        ...(url ? { url } : {}),
+        ...(typeof line === "number" ? { line } : {}),
+        ...(typeof column === "number" ? { column } : {})
+      };
+    })
+    .filter((entry): entry is { message: string; url?: string; line?: number; column?: number } => entry !== null);
+
+  return {
+    eventCount: channel.events.length,
+    nextSeq: channel.nextSeq,
+    truncated: channel.truncated,
+    latest: events.slice(-3).reverse()
   };
 }
 
@@ -281,18 +327,25 @@ function summarizeRelay(relay: RelayStatus) {
 }
 
 function deriveHealthState(input: {
+  mode: SessionInspectorStatus["mode"];
   blockerState: "clear" | "active" | "resolving";
   dialogOpen: boolean;
   relay: SessionInspectorResult["relay"];
   activeTargetId: string | null;
   consoleErrors: number;
   networkFailures: number;
+  exceptionCount: number;
 }): SessionInspectorResult["healthState"] {
   if (
     input.blockerState === "active"
     || input.dialogOpen
     || input.activeTargetId === null
-    || (input.relay && !input.relay.extensionHandshakeComplete && input.relay.extensionConnected)
+    || (
+      input.mode === "extension"
+      && input.relay
+      && !input.relay.extensionHandshakeComplete
+      && input.relay.extensionConnected
+    )
   ) {
     return "blocked";
   }
@@ -300,6 +353,7 @@ function deriveHealthState(input: {
     (input.relay && !input.relay.health.ok)
     || input.consoleErrors > 0
     || input.networkFailures > 0
+    || input.exceptionCount > 0
   ) {
     return "warning";
   }
@@ -314,6 +368,7 @@ function deriveSuggestedNextAction(input: {
   activeTargetId: string | null;
   consoleErrors: number;
   networkFailures: number;
+  exceptionCount: number;
 }): string {
   if (input.dialogOpen) {
     return "Handle the open dialog before continuing any page interaction.";
@@ -327,7 +382,7 @@ function deriveSuggestedNextAction(input: {
   if (input.activeTargetId === null) {
     return "Create or select a target before continuing the next automation step.";
   }
-  if (input.consoleErrors > 0 || input.networkFailures > 0) {
+  if (input.consoleErrors > 0 || input.networkFailures > 0 || input.exceptionCount > 0) {
     return "Inspect the summarized trace failures, fix the page instability, then rerun snapshot or review.";
   }
   return "Capture snapshot or review and continue the normal snapshot -> action -> snapshot loop.";

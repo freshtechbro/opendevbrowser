@@ -828,8 +828,11 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         },
         {
-          captureReference: async (url: string, timeoutMs?: number) =>
-            captureInspiredesignReferenceFromManager(core.manager, url, timeoutMs)
+          captureReference: async (url, options) =>
+            captureInspiredesignReferenceFromManager(core.manager, url, {
+              ...options,
+              cookieSource: core.config.providers?.cookieSource
+            })
         }
       );
     }

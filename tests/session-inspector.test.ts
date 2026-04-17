@@ -494,6 +494,117 @@ describe("inspectSession", () => {
       "Capture snapshot or review and continue the normal snapshot -> action -> snapshot loop."
     );
   });
+
+  it("ignores unrelated extension handshake drift for managed sessions", async () => {
+    const { handle } = makeHandle({
+      session: {
+        mode: "managed"
+      }
+    });
+
+    const result = await inspectSession(handle, {
+      sessionId: "session-5-managed",
+      relayStatus: makeRelayStatus({
+        extensionConnected: true,
+        extensionHandshakeComplete: false
+      })
+    });
+
+    expect(result.healthState).toBe("ok");
+    expect(result.suggestedNextAction).toBe(
+      "Capture snapshot or review and continue the normal snapshot -> action -> snapshot loop."
+    );
+  });
+
+  it("summarizes exception events and treats them as warning-level trace instability", async () => {
+    const { handle } = makeHandle({
+      trace: {
+        channels: {
+          exception: {
+            events: [
+              {
+                message: "ReferenceError: missingWidget is not defined",
+                sourceURL: "https://example.com/app.js",
+                lineNumber: 17,
+                columnNumber: 4
+              },
+              {
+                text: "Unhandled promise rejection"
+              }
+            ],
+            nextSeq: 11,
+            truncated: true
+          }
+        },
+        meta: {
+          blockerState: "clear"
+        },
+        page: {}
+      } as InspectorTrace
+    });
+
+    const result = await inspectSession(handle, {
+      sessionId: "session-exception"
+    });
+
+    expect(result.exception).toEqual({
+      eventCount: 2,
+      nextSeq: 11,
+      truncated: true,
+      latest: [
+        { message: "Unhandled promise rejection" },
+        {
+          message: "ReferenceError: missingWidget is not defined",
+          url: "https://example.com/app.js",
+          line: 17,
+          column: 4
+        }
+      ]
+    });
+    expect(result.healthState).toBe("warning");
+    expect(result.suggestedNextAction).toBe(
+      "Inspect the summarized trace failures, fix the page instability, then rerun snapshot or review."
+    );
+  });
+
+  it("drops empty exception payloads and falls back to a default message when only location data is present", async () => {
+    const { handle } = makeHandle({
+      trace: {
+        channels: {
+          exception: {
+            events: [
+              {},
+              {
+                sourceURL: "https://example.com/app.js"
+              }
+            ],
+            nextSeq: 4,
+            truncated: false
+          }
+        },
+        meta: {
+          blockerState: "clear"
+        },
+        page: {}
+      } as InspectorTrace
+    });
+
+    const result = await inspectSession(handle, {
+      sessionId: "session-exception-fallback"
+    });
+
+    expect(result.exception).toEqual({
+      eventCount: 2,
+      nextSeq: 4,
+      truncated: false,
+      latest: [
+        {
+          message: "Unhandled exception",
+          url: "https://example.com/app.js"
+        }
+      ]
+    });
+  });
 });
 
 describe("buildCorrelatedAuditBundle", () => {

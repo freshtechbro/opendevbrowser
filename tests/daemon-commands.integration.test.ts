@@ -1864,6 +1864,34 @@ describe("daemon-commands integration", () => {
 
   it("forwards inspiredesign timeout and capture mode through the daemon router", async () => {
     const core = makeCore();
+    const manager = core.manager as OpenDevBrowserCore["manager"] & {
+      launch: ReturnType<typeof vi.fn>;
+      cookieImport: ReturnType<typeof vi.fn>;
+      cookieList: ReturnType<typeof vi.fn>;
+      goto: ReturnType<typeof vi.fn>;
+      waitForLoad: ReturnType<typeof vi.fn>;
+      snapshot: ReturnType<typeof vi.fn>;
+      clonePage: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
+      setSessionChallengeAutomationMode: ReturnType<typeof vi.fn>;
+    };
+    (core.config as OpenDevBrowserCore["config"] & {
+      providers?: { cookieSource?: { type: "inline"; value: Array<{ name: string; value: string; url: string }> } };
+    }).providers = {
+      cookieSource: {
+        type: "inline",
+        value: [{ name: "sid", value: "abc", url: "https://example.com/capture" }]
+      }
+    };
+    manager.launch = vi.fn(async () => ({ sessionId: "session-1" })) as never;
+    manager.cookieImport = vi.fn(async () => ({ imported: 1, rejected: [] })) as never;
+    manager.cookieList = vi.fn(async () => ({ count: 2, cookies: [{ name: "sid" }] })) as never;
+    manager.goto = vi.fn(async () => undefined) as never;
+    manager.waitForLoad = vi.fn(async () => undefined) as never;
+    manager.snapshot = vi.fn(async () => ({ content: "capture", refCount: 1, warnings: [] })) as never;
+    manager.clonePage = vi.fn(async () => ({ component: "<section />", css: ".x{}", warnings: [] })) as never;
+    manager.disconnect = vi.fn(async () => undefined) as never;
+    manager.setSessionChallengeAutomationMode = vi.fn() as never;
     const workflowSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
       mode: "json",
       designContract: {},
@@ -1877,7 +1905,10 @@ describe("daemon-commands integration", () => {
         urls: ["https://example.com/a", "https://example.com/b"],
         captureMode: "deep",
         includePrototypeGuidance: true,
-        timeoutMs: 45000
+        timeoutMs: 45000,
+        useCookies: true,
+        challengeAutomationMode: "browser",
+        cookiePolicyOverride: "required"
       }
     });
 
@@ -1888,12 +1919,38 @@ describe("daemon-commands integration", () => {
         urls: ["https://example.com/a", "https://example.com/b"],
         captureMode: "deep",
         includePrototypeGuidance: true,
-        timeoutMs: 45000
+        timeoutMs: 45000,
+        useCookies: true,
+        challengeAutomationMode: "browser",
+        cookiePolicyOverride: "required"
       }),
       expect.objectContaining({
         captureReference: expect.any(Function)
       })
     );
+
+    const captureReference = workflowSpy.mock.calls[0]?.[2]?.captureReference;
+    expect(captureReference).toEqual(expect.any(Function));
+
+    await captureReference?.("https://example.com/capture", {
+      timeoutMs: 1234,
+      challengeAutomationMode: "browser",
+      cookiePolicyOverride: "required"
+    });
+
+    expect(manager.cookieImport).toHaveBeenCalledWith("session-1", [
+      { name: "sid", value: "abc", url: "https://example.com/capture" }
+    ], false);
+    expect(manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/capture"]);
+    expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
+    expect(manager.goto).toHaveBeenCalledWith(
+      "session-1",
+      "https://example.com/capture",
+      "load",
+      expect.any(Number)
+    );
+    expect(manager.goto.mock.calls[0]?.[3]).toBeGreaterThan(0);
+    expect(manager.goto.mock.calls[0]?.[3]).toBeLessThanOrEqual(1234);
   });
 
   it("threads browserFallbackPort into daemon shopping workflows", async () => {
