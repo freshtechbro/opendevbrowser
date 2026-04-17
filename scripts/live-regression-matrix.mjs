@@ -585,6 +585,10 @@ function isExtensionUnavailable(detail) {
     || message.includes("extension handshake");
 }
 
+function isNoActiveTargetError(detail) {
+  return String(detail || "").toLowerCase().includes("no active target");
+}
+
 function isRestrictedUrlError(detail) {
   const message = String(detail || "").toLowerCase();
   return message.includes("[restricted_url]")
@@ -617,6 +621,33 @@ export function resolveRpcFailureOutcome(id, detail) {
   }
   return {
     status: "fail",
+    detail
+  };
+}
+
+export function resolveExtensionLegacyFailure(detail, { releaseGate = false } = {}) {
+  if (isDetachedFrameError(detail)) {
+    return {
+      status: "pass",
+      detail: "declared_divergence_boundary_observed: frame detached during legacy /cdp sequential navigation"
+    };
+  }
+  if (releaseGate && isLegacyCdpConnectTimeout(detail)) {
+    return {
+      status: "pass",
+      detail: "declared_divergence_boundary_observed: legacy /cdp connect timeout"
+    };
+  }
+  if (releaseGate && isRestrictedUrlError(detail)) {
+    return {
+      status: "pass",
+      detail: "verified_expected_restricted_url_gate"
+    };
+  }
+  return {
+    status: isExtensionUnavailable(detail) || isRateLimitedError(detail) || isNoActiveTargetError(detail)
+      ? "env_limited"
+      : "fail",
     detail
   };
 }
@@ -1495,31 +1526,12 @@ async function runMatrix(options) {
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      if (isDetachedFrameError(detail)) {
-        addResult(results, {
-          id: "mode.extension_legacy_cdp",
-          status: "pass",
-          detail: "declared_divergence_boundary_observed: frame detached during legacy /cdp sequential navigation"
-        });
-      } else if (options.releaseGate && isLegacyCdpConnectTimeout(detail)) {
-        addResult(results, {
-          id: "mode.extension_legacy_cdp",
-          status: "pass",
-          detail: "declared_divergence_boundary_observed: legacy /cdp connect timeout"
-        });
-      } else if (options.releaseGate && isRestrictedUrlError(detail)) {
-        addResult(results, {
-          id: "mode.extension_legacy_cdp",
-          status: "pass",
-          detail: "verified_expected_restricted_url_gate"
-        });
-      } else {
-        addResult(results, {
-          id: "mode.extension_legacy_cdp",
-          status: isExtensionUnavailable(detail) || isRateLimitedError(detail) || isDetachedFrameError(detail) ? "env_limited" : "fail",
-          detail
-        });
-      }
+      const outcome = resolveExtensionLegacyFailure(detail, { releaseGate: options.releaseGate });
+      addResult(results, {
+        id: "mode.extension_legacy_cdp",
+        status: outcome.status,
+        detail: outcome.detail
+      });
     } finally {
       if (extensionLegacySessionId) {
         runCli(["disconnect", "--session-id", extensionLegacySessionId], { allowFailure: true, env: matrixEnv });

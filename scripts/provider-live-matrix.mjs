@@ -414,8 +414,8 @@ function isTimeoutDetail(detail) {
   return /timed out|timeout/i.test(String(detail || ''));
 }
 
-function isEnvLimitedDetail(detail) {
-  return /auth|challenge|captcha|token required|environment|extension not connected|rate limit|timed out|profile is locked|processsingleton|singletonlock|already in use by another instance/i.test(
+export function isEnvLimitedDetail(detail) {
+  return /auth|challenge|captcha|token required|environment|extension not connected|ops client not connected|rate limit|timed out|profile is locked|processsingleton|singletonlock|already in use by another instance/i.test(
     String(detail || '')
   );
 }
@@ -600,6 +600,26 @@ async function waitForDaemonReady(env, timeoutMs = 30000) {
     await sleep(500);
   }
   return null;
+}
+
+export async function restoreDaemonAfterNestedLiveRegression(
+  env,
+  {
+    statusReader = (daemonEnv) => runCli(daemonEnv, ['status', '--daemon'], { allowFailure: true, timeoutMs: 15000 }),
+    starter = startDaemon,
+    waiter = waitForDaemonReady
+  } = {}
+) {
+  const status = statusReader(env);
+  if (status.status === 0) {
+    return { restarted: false, status };
+  }
+  starter(env);
+  const ready = await waiter(env, 30000);
+  if (!ready) {
+    throw new Error('daemon not ready after nested live regression');
+  }
+  return { restarted: true, status: ready };
 }
 
 async function waitForExtensionReady(env, timeoutMs = EXTENSION_LAUNCH_WAIT_TIMEOUT_MS) {
@@ -1204,6 +1224,10 @@ async function main() {
           data: parsed ?? null,
           detail: mode.status === 0 ? null : (mode.stderr || mode.stdout || null)
         });
+        const daemonRestore = await restoreDaemonAfterNestedLiveRegression(env);
+        if (daemonRestore.restarted) {
+          daemonStartedByScript = true;
+        }
       } catch (error) {
         pushStep({ id: 'matrix.live_regression_modes', status: 'fail', detail: String(error) });
       }

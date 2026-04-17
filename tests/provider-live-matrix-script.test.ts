@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildLiveRegressionEnv,
   classifyMatrixRecords,
+  isEnvLimitedDetail,
   NESTED_LIVE_REGRESSION_TIMEOUT_MS,
   parseArgs,
   REQUIRED_PLAYWRIGHT_CORE_FILES,
+  restoreDaemonAfterNestedLiveRegression,
   WORKFLOW_RESEARCH_PROBE_ARGS,
   WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS
 } from "../scripts/provider-live-matrix.mjs";
@@ -47,6 +49,55 @@ describe("provider-live-matrix parseArgs", () => {
     expect(env.LIVE_MATRIX_STOP_DAEMON).toBe("0");
   });
 
+  it("restarts the matrix daemon when nested live-regression leaves it unavailable", async () => {
+    const statusReader = vi.fn(() => ({
+      status: 1,
+      detail: "Daemon not running. Start with `opendevbrowser serve`."
+    }));
+    const starter = vi.fn();
+    const waiter = vi.fn(async () => ({
+      status: 0,
+      json: { data: { relay: { running: true } } }
+    }));
+
+    const result = await restoreDaemonAfterNestedLiveRegression(
+      { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
+      { statusReader, starter, waiter }
+    );
+
+    expect(starter).toHaveBeenCalledTimes(1);
+    expect(waiter).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      restarted: true,
+      status: {
+        status: 0,
+        json: { data: { relay: { running: true } } }
+      }
+    });
+  });
+
+  it("reuses the existing matrix daemon when nested live-regression keeps it alive", async () => {
+    const healthyStatus = {
+      status: 0,
+      json: { data: { relay: { running: true } } }
+    };
+    const statusReader = vi.fn(() => healthyStatus);
+    const starter = vi.fn();
+    const waiter = vi.fn();
+
+    const result = await restoreDaemonAfterNestedLiveRegression(
+      { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
+      { statusReader, starter, waiter }
+    );
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(waiter).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      restarted: false,
+      status: healthyStatus
+    });
+  });
+
   it("treats Playwright server registry files as integrity sentinels", () => {
     expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/index.js");
     expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/registry/index.js");
@@ -74,5 +125,10 @@ describe("provider-live-matrix parseArgs", () => {
       status: "env_limited",
       reason: "reason_codes=timeout"
     });
+  });
+
+  it("treats ops-client disconnects as env-limited extension probe failures", () => {
+    expect(isEnvLimitedDetail("Ops client not connected")).toBe(true);
+    expect(isEnvLimitedDetail("[ops_unavailable] Extension not connected to relay.")).toBe(true);
   });
 });
