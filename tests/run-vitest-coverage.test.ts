@@ -2,7 +2,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildVitestArgs,
+  isRetryableCoverageCleanupError,
   isRetryableCoverageShardError,
+  resetCoverageRoot,
   shouldRelaxCoverageThresholds
 } from "../scripts/run-vitest-coverage.mjs";
 
@@ -50,5 +52,34 @@ describe("run-vitest-coverage", () => {
 
     expect(shouldRelaxCoverageThresholds(args)).toBe(false);
     expect(buildVitestArgs(args)).toEqual(args);
+  });
+
+  it("retries coverage cleanup for transient non-empty directory errors", async () => {
+    let attempt = 0;
+    const rmImpl = async () => {
+      attempt += 1;
+      if (attempt === 1) {
+        const error = new Error("coverage busy");
+        Object.assign(error, { code: "ENOTEMPTY" });
+        throw error;
+      }
+    };
+    const mkdirImpl = async () => {};
+    const sleepImpl = async () => {};
+
+    await expect(resetCoverageRoot({
+      coverageRoot: "/tmp/coverage-root",
+      coverageTmp: "/tmp/coverage-root/.tmp",
+      rmImpl,
+      mkdirImpl,
+      sleepImpl
+    })).resolves.toBeUndefined();
+    expect(attempt).toBe(2);
+  });
+
+  it("recognizes retryable coverage cleanup error codes", () => {
+    expect(isRetryableCoverageCleanupError({ code: "ENOTEMPTY" })).toBe(true);
+    expect(isRetryableCoverageCleanupError({ code: "EBUSY" })).toBe(true);
+    expect(isRetryableCoverageCleanupError({ code: "ENOENT" })).toBe(false);
   });
 });

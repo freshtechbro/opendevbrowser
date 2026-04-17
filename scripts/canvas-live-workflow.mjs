@@ -9,7 +9,7 @@ import {
   defaultArtifactPath,
   ensureCliBuilt,
   ROOT,
-  runCli,
+  runCliAsync,
   sleep,
   writeJson
 } from "./live-direct-utils.mjs";
@@ -210,12 +210,16 @@ function parseArgs(argv) {
   };
 }
 
-function canvas(command, params, timeoutMs = 60_000) {
-  const payload = runCli(
+async function canvas(command, params, timeoutMs = 60_000) {
+  const payload = await runCliAsync(
     ["canvas", "--command", command, "--params", JSON.stringify(params), "--timeout-ms", String(timeoutMs)],
     { timeoutMs: Math.max(timeoutMs + 15_000, 60_000) }
-  ).json;
-  return payload.data.result;
+  );
+  const result = payload.json?.data?.result;
+  if (!result) {
+    throw new Error(`CLI failed (canvas --command ${command}): missing JSON result payload.`);
+  }
+  return result;
 }
 
 function updateArtifactCheckpoint(outPath, artifact, currentStep) {
@@ -257,7 +261,7 @@ function resolveDisconnectTimeout(surface, startedAtMs, currentTimeMs = Date.now
     : 5_000;
 }
 
-function runCanvasStep({
+async function runCanvasStep({
   artifact,
   command,
   options,
@@ -273,7 +277,7 @@ function runCanvasStep({
     stepName
   });
   updateArtifactCheckpoint(options.out, artifact, { step: stepName, command, timeoutMs });
-  const result = canvas(command, params, timeoutMs);
+  const result = await canvas(command, params, timeoutMs);
   updateArtifactCheckpoint(options.out, artifact, null);
   return result;
 }
@@ -304,8 +308,8 @@ function classifyWorkflowFailure(surface, detail) {
   return { status: "fail", detail };
 }
 
-function disconnectSession(sessionId, closeBrowser, timeoutMs = DISCONNECT_WRAPPER_TIMEOUT_MS) {
-  runCli(
+async function disconnectSession(sessionId, closeBrowser, timeoutMs = DISCONNECT_WRAPPER_TIMEOUT_MS) {
+  await runCliAsync(
     ["disconnect", "--session-id", sessionId, ...(closeBrowser ? ["--close-browser"] : [])],
     { allowFailure: true, timeoutMs }
   );
@@ -313,12 +317,16 @@ function disconnectSession(sessionId, closeBrowser, timeoutMs = DISCONNECT_WRAPP
 
 async function establishSession(config) {
   if (!config.connect) {
-    const launch = runCli(config.launchArgs, { timeoutMs: 300_000 }).json;
+    const launch = await runCliAsync(config.launchArgs, { timeoutMs: 300_000 });
+    const launchData = launch.json?.data;
+    if (!launchData?.sessionId) {
+      throw new Error("CLI failed (launch): missing JSON sessionId.");
+    }
     return {
-      sessionId: launch.data.sessionId,
-      activeTargetId: launch.data.activeTargetId,
-      warnings: launch.data.warnings ?? [],
-      mode: launch.data.mode ?? null
+      sessionId: launchData.sessionId,
+      activeTargetId: launchData.activeTargetId,
+      warnings: launchData.warnings ?? [],
+      mode: launchData.mode ?? null
     };
   }
 
@@ -329,20 +337,27 @@ async function establishSession(config) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let sessionId = null;
     try {
-      const connected = runCli(config.connectArgs, { timeoutMs: connectTimeoutMs }).json;
-      sessionId = connected.data.sessionId;
-      const activeTargetId = connected.data.activeTargetId
-        ?? runCli(["status", "--session-id", sessionId], { timeoutMs: statusTimeoutMs }).json.data.activeTargetId;
+      const connected = await runCliAsync(config.connectArgs, { timeoutMs: connectTimeoutMs });
+      const connectedData = connected.json?.data;
+      if (!connectedData?.sessionId) {
+        throw new Error("CLI failed (connect): missing JSON sessionId.");
+      }
+      sessionId = connectedData.sessionId;
+      let activeTargetId = connectedData.activeTargetId ?? null;
+      if (!activeTargetId) {
+        const status = await runCliAsync(["status", "--session-id", sessionId], { timeoutMs: statusTimeoutMs });
+        activeTargetId = status.json?.data?.activeTargetId ?? null;
+      }
       return {
         sessionId,
         activeTargetId,
-        warnings: connected.data.warnings ?? [],
-        mode: connected.data.mode ?? null
+        warnings: connectedData.warnings ?? [],
+        mode: connectedData.mode ?? null
       };
     } catch (error) {
       lastError = error;
       if (sessionId) {
-        disconnectSession(sessionId, config.closeBrowser === true);
+        await disconnectSession(sessionId, config.closeBrowser === true);
       }
       if (attempt < attempts) {
         await sleep(2_000);
@@ -352,7 +367,7 @@ async function establishSession(config) {
   throw lastError ?? new Error("Unable to establish CDP session.");
 }
 
-function refreshCanvasWorkflowTargetId({
+async function refreshCanvasWorkflowTargetId({
   sessionId,
   surface,
   capturedTargetId,
@@ -367,7 +382,7 @@ function refreshCanvasWorkflowTargetId({
     };
   }
 
-  const listedTargets = runCli(["targets-list", "--session-id", sessionId], { allowFailure: true });
+  const listedTargets = await runCliAsync(["targets-list", "--session-id", sessionId], { allowFailure: true });
   if (listedTargets.status !== 0) {
     throw new Error(`Canvas workflow target reseed failed: ${listedTargets.detail}`);
   }
@@ -386,7 +401,7 @@ function refreshCanvasWorkflowTargetId({
   });
 
   if (shouldCreateCanvasWorkflowTarget({ surface, targetId, createUrl })) {
-    const createdTarget = runCli(
+    const createdTarget = await runCliAsync(
       ["target-new", "--session-id", sessionId, "--url", createUrl],
       { allowFailure: true }
     );
@@ -399,7 +414,7 @@ function refreshCanvasWorkflowTargetId({
     if (!createdTargetId) {
       throw new Error("Canvas workflow target reseed failed: target-new returned no targetId.");
     }
-    const focusedTarget = runCli(
+    const focusedTarget = await runCliAsync(
       ["target-use", "--session-id", sessionId, "--target-id", createdTargetId],
       { allowFailure: true }
     );
@@ -419,7 +434,7 @@ function refreshCanvasWorkflowTargetId({
   }
 
   if (targetId !== activeTargetId) {
-    const focusedTarget = runCli(
+    const focusedTarget = await runCliAsync(
       ["target-use", "--session-id", sessionId, "--target-id", targetId],
       { allowFailure: true }
     );
@@ -435,7 +450,7 @@ function refreshCanvasWorkflowTargetId({
   };
 }
 
-function runCanvasTargetStep({
+async function runCanvasTargetStep({
   artifact,
   command,
   createUrl = null,
@@ -448,7 +463,7 @@ function runCanvasTargetStep({
   startedAtMs,
   stepName
 }) {
-  const refreshedTarget = refreshCanvasWorkflowTargetId({
+  const refreshedTarget = await refreshCanvasWorkflowTargetId({
     sessionId,
     surface: options.surface,
     capturedTargetId,
@@ -463,7 +478,7 @@ function runCanvasTargetStep({
     targetCount: refreshedTarget.targetCount,
     createdTargetId: refreshedTarget.createdTargetId ?? null
   });
-  const result = runCanvasStep({
+  const result = await runCanvasStep({
     artifact,
     command,
     options,
@@ -512,7 +527,7 @@ async function main() {
       warnings: connection.warnings
     });
 
-    const opened = runCanvasStep({
+    const opened = await runCanvasStep({
       artifact,
       command: "canvas.session.open",
       options,
@@ -523,7 +538,7 @@ async function main() {
     const { canvasSessionId, leaseId, documentId } = opened;
     artifact.steps.push({ step: "session.open", canvasSessionId, leaseId, documentId });
 
-    const loaded = runCanvasStep({
+    const loaded = await runCanvasStep({
       artifact,
       command: "canvas.document.load",
       options,
@@ -535,7 +550,7 @@ async function main() {
     const pageId = page.id;
     const rootNodeId = page.rootNodeId;
 
-    const planned = runCanvasStep({
+    const planned = await runCanvasStep({
       artifact,
       command: "canvas.plan.set",
       options,
@@ -543,7 +558,7 @@ async function main() {
       startedAtMs,
       stepName: "plan.set"
     });
-    const governed = runCanvasStep({
+    const governed = await runCanvasStep({
       artifact,
       command: "canvas.document.patch",
       options,
@@ -563,7 +578,7 @@ async function main() {
       rootNodeId
     });
 
-    const starter = runCanvasStep({
+    const starter = await runCanvasStep({
       artifact,
       command: "canvas.starter.apply",
       options,
@@ -585,7 +600,7 @@ async function main() {
     });
 
     if (config.includeInventoryHistory) {
-      const inventory = runCanvasStep({
+      const inventory = await runCanvasStep({
         artifact,
         command: "canvas.inventory.list",
         options,
@@ -594,7 +609,7 @@ async function main() {
         stepName: "inventory.list"
       });
       const metricCard = inventory.items.find((item) => item.id === "kit.dashboard.analytics-core.metric-card") ?? inventory.items[0];
-      const afterStarter = runCanvasStep({
+      const afterStarter = await runCanvasStep({
         artifact,
         command: "canvas.document.load",
         options,
@@ -602,7 +617,7 @@ async function main() {
         startedAtMs,
         stepName: "document.load.after-starter"
       });
-      const inserted = runCanvasStep({
+      const inserted = await runCanvasStep({
         artifact,
         command: "canvas.inventory.insert",
         options,
@@ -619,7 +634,7 @@ async function main() {
         startedAtMs,
         stepName: "inventory.insert"
       });
-      const undone = runCanvasStep({
+      const undone = await runCanvasStep({
         artifact,
         command: "canvas.history.undo",
         options,
@@ -627,7 +642,7 @@ async function main() {
         startedAtMs,
         stepName: "history.undo"
       });
-      const redone = runCanvasStep({
+      const redone = await runCanvasStep({
         artifact,
         command: "canvas.history.redo",
         options,
@@ -645,7 +660,7 @@ async function main() {
     }
 
     if (config.includeFeedback) {
-      const subscription = runCanvasStep({
+      const subscription = await runCanvasStep({
         artifact,
         command: "canvas.feedback.subscribe",
         options,
@@ -653,7 +668,7 @@ async function main() {
         startedAtMs,
         stepName: "feedback.subscribe"
       });
-      const rendered = runCanvasStep({
+      const rendered = await runCanvasStep({
         artifact,
         command: "canvas.preview.render",
         options,
@@ -662,7 +677,7 @@ async function main() {
         startedAtMs,
         stepName: "preview.render.feedback"
       });
-      const nextEvent = runCanvasStep({
+      const nextEvent = await runCanvasStep({
         artifact,
         command: "canvas.feedback.next",
         options,
@@ -671,7 +686,7 @@ async function main() {
         startedAtMs,
         stepName: "feedback.next"
       });
-      const polled = runCanvasStep({
+      const polled = await runCanvasStep({
         artifact,
         command: "canvas.feedback.poll",
         options,
@@ -679,7 +694,7 @@ async function main() {
         startedAtMs,
         stepName: "feedback.poll"
       });
-      runCanvasStep({
+      await runCanvasStep({
         artifact,
         command: "canvas.feedback.unsubscribe",
         options,
@@ -694,7 +709,7 @@ async function main() {
         polledItems: polled.items.length
       });
     } else if (config.includePreviewOverlay) {
-      const preview = runCanvasTargetStep({
+      const preview = await runCanvasTargetStep({
         artifact,
         command: "canvas.preview.render",
         createUrl: config.workflowTargetUrl ?? null,
@@ -706,7 +721,7 @@ async function main() {
         startedAtMs,
         stepName: "preview.render.overlay"
       });
-      const mount = runCanvasTargetStep({
+      const mount = await runCanvasTargetStep({
         artifact,
         command: "canvas.overlay.mount",
         options,
@@ -721,7 +736,7 @@ async function main() {
         startedAtMs,
         stepName: "overlay.mount"
       });
-      const selection = runCanvasTargetStep({
+      const selection = await runCanvasTargetStep({
         artifact,
         command: "canvas.overlay.select",
         options,
@@ -737,7 +752,7 @@ async function main() {
         startedAtMs,
         stepName: "overlay.select"
       });
-      const unmount = runCanvasTargetStep({
+      const unmount = await runCanvasTargetStep({
         artifact,
         command: "canvas.overlay.unmount",
         options,
@@ -762,7 +777,7 @@ async function main() {
     }
 
     if (config.designTabMode !== "none") {
-      const openedTab = runCanvasStep({
+      const openedTab = await runCanvasStep({
         artifact,
         command: "canvas.tab.open",
         options,
@@ -777,7 +792,7 @@ async function main() {
       });
       const designTargetId = openedTab.targetId;
       if (config.designTabMode === "overlay") {
-        const mount = runCanvasTargetStep({
+        const mount = await runCanvasTargetStep({
           artifact,
           command: "canvas.overlay.mount",
           options,
@@ -792,7 +807,7 @@ async function main() {
           startedAtMs,
           stepName: "design.overlay.mount"
         });
-        const selection = runCanvasTargetStep({
+        const selection = await runCanvasTargetStep({
           artifact,
           command: "canvas.overlay.select",
           options,
@@ -808,7 +823,7 @@ async function main() {
           startedAtMs,
           stepName: "design.overlay.select"
         });
-        const unmount = runCanvasTargetStep({
+        const unmount = await runCanvasTargetStep({
           artifact,
           command: "canvas.overlay.unmount",
           options,
@@ -823,7 +838,7 @@ async function main() {
           startedAtMs,
           stepName: "design.overlay.unmount"
         });
-        const closed = runCanvasStep({
+        const closed = await runCanvasStep({
           artifact,
           command: "canvas.tab.close",
           options,
@@ -841,7 +856,7 @@ async function main() {
           closed: closed.ok ?? false
         });
       } else {
-        const closed = runCanvasStep({
+        const closed = await runCanvasStep({
           artifact,
           command: "canvas.tab.close",
           options,
@@ -871,7 +886,7 @@ async function main() {
       ].join("\n")
     );
 
-    const bound = runCanvasStep({
+    const bound = await runCanvasStep({
       artifact,
       command: "canvas.code.bind",
       options,
@@ -888,7 +903,7 @@ async function main() {
       startedAtMs,
       stepName: "code.bind"
     });
-    const pulled = runCanvasStep({
+    const pulled = await runCanvasStep({
       artifact,
       command: "canvas.code.pull",
       options,
@@ -897,7 +912,7 @@ async function main() {
       startedAtMs,
       stepName: "code.pull"
     });
-    const afterPull = runCanvasStep({
+    const afterPull = await runCanvasStep({
       artifact,
       command: "canvas.document.load",
       options,
@@ -911,7 +926,7 @@ async function main() {
     if (!importedTextNode?.id) {
       throw new Error(`No imported text node found after canvas.code.pull for surface ${options.surface}`);
     }
-    const patched = runCanvasStep({
+    const patched = await runCanvasStep({
       artifact,
       command: "canvas.document.patch",
       options,
@@ -924,7 +939,7 @@ async function main() {
       startedAtMs,
       stepName: "document.patch.code"
     });
-    const pushed = runCanvasStep({
+    const pushed = await runCanvasStep({
       artifact,
       command: "canvas.code.push",
       options,
@@ -933,7 +948,7 @@ async function main() {
       startedAtMs,
       stepName: "code.push"
     });
-    const codeStatus = runCanvasStep({
+    const codeStatus = await runCanvasStep({
       artifact,
       command: "canvas.code.status",
       options,
@@ -952,7 +967,7 @@ async function main() {
       sourceHasUpdatedText: updatedSource.includes(config.updatedText)
     });
 
-    const exported = runCanvasStep({
+    const exported = await runCanvasStep({
       artifact,
       command: "canvas.document.export",
       options,
@@ -961,7 +976,7 @@ async function main() {
       startedAtMs,
       stepName: "document.export"
     });
-    const saved = runCanvasStep({
+    const saved = await runCanvasStep({
       artifact,
       command: "canvas.document.save",
       options,
@@ -970,7 +985,7 @@ async function main() {
       startedAtMs,
       stepName: "document.save"
     });
-    const unbound = runCanvasStep({
+    const unbound = await runCanvasStep({
       artifact,
       command: "canvas.code.unbind",
       options,
@@ -978,7 +993,7 @@ async function main() {
       startedAtMs,
       stepName: "code.unbind"
     });
-    const closed = runCanvasStep({
+    const closed = await runCanvasStep({
       artifact,
       command: "canvas.session.close",
       options,
@@ -989,7 +1004,7 @@ async function main() {
     const disconnectArgs = ["disconnect", "--session-id", sessionId, ...(config.closeBrowser ? ["--close-browser"] : [])];
     const disconnectTimeoutMs = resolveDisconnectTimeout(options.surface, startedAtMs);
     updateArtifactCheckpoint(options.out, artifact, { step: "disconnect", timeoutMs: disconnectTimeoutMs });
-    const disconnectedRun = runCli(disconnectArgs, { timeoutMs: disconnectTimeoutMs });
+    const disconnectedRun = await runCliAsync(disconnectArgs, { timeoutMs: disconnectTimeoutMs });
     updateArtifactCheckpoint(options.out, artifact, null);
     disconnected = true;
     artifact.steps.push({
@@ -1017,7 +1032,7 @@ async function main() {
     if (sessionId && !disconnected) {
       const disconnectTimeoutMs = resolveDisconnectTimeout(options.surface, startedAtMs);
       updateArtifactCheckpoint(options.out, artifact, { step: "disconnect", timeoutMs: disconnectTimeoutMs });
-      disconnectSession(sessionId, config.closeBrowser === true, disconnectTimeoutMs);
+      await disconnectSession(sessionId, config.closeBrowser === true, disconnectTimeoutMs);
       updateArtifactCheckpoint(options.out, artifact, null);
     }
     writeJson(options.out, artifact);
