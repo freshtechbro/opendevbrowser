@@ -3,6 +3,7 @@ import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
 import { DEFAULT_REVIEW_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
 import { parseOptionalStringFlag, parseNumberFlag } from "../../utils/parse";
+import { buildNextStepMessage, readSuggestedStepReason } from "../../utils/workflow-message";
 import { parseOptionalChallengeAutomationMode } from "../challenge-automation-mode";
 
 function parseOptionalTimeoutMs(rawArgs: string[]): number | undefined {
@@ -29,7 +30,10 @@ export async function runSessionInspectorPlan(args: ParsedArgs) {
   });
   return {
     success: true,
-    message: "Challenge inspect plan captured.",
+    message: buildNextStepMessage(
+      "Challenge inspect plan captured.",
+      readSuggestedStepReason(result)
+    ),
     data: result
   };
 }

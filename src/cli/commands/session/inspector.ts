@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { buildNextStepMessage, readSuggestedNextAction } from "../../utils/workflow-message";
 import { parseSessionInspectorArgs } from "./inspector-shared";
 
 export async function runSessionInspector(args: ParsedArgs) {
@@ -21,7 +22,10 @@ export async function runSessionInspector(args: ParsedArgs) {
 
   return {
     success: true,
-    message: "Session inspector snapshot captured.",
+    message: buildNextStepMessage(
+      "Session inspector snapshot captured.",
+      readSuggestedNextAction(result)
+    ),
     data: result
   };
 }

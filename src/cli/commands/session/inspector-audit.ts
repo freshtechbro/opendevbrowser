@@ -3,6 +3,11 @@ import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
 import { DEFAULT_REVIEW_TRANSPORT_TIMEOUT_MS } from "../../transport-timeouts";
 import { parseOptionalStringFlag, parseNumberFlag } from "../../utils/parse";
+import {
+  buildNextStepMessage,
+  readSuggestedNextAction,
+  readSuggestedStepReason
+} from "../../utils/workflow-message";
 import { parseOptionalChallengeAutomationMode } from "../challenge-automation-mode";
 import { parseReviewCommandArgs } from "../nav/review-shared";
 import { parseSessionInspectorArgs } from "./inspector-shared";
@@ -39,9 +44,13 @@ export async function runSessionInspectorAudit(args: ParsedArgs) {
   }, {
     timeoutMs: timeoutMs ?? DEFAULT_REVIEW_TRANSPORT_TIMEOUT_MS
   });
+
+  const nextStep = readSuggestedNextAction(result)
+    ?? readSuggestedStepReason(result);
+
   return {
     success: true,
-    message: "Correlated audit bundle captured.",
+    message: buildNextStepMessage("Correlated audit bundle captured.", nextStep),
     data: result
   };
 }
