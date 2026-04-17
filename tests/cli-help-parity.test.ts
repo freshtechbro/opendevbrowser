@@ -7,6 +7,14 @@ import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_REFER
 import { LOCAL_ONLY_TOOL_NAMES } from "../src/tools";
 import { TOOL_SURFACE_ENTRIES } from "../src/public-surface/generated-manifest";
 
+function getRuntimeCommandDescriptions(): Record<string, string> {
+  const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
+  return Object.fromEntries(
+    [...source.matchAll(/registerCommand\(\{\s*name:\s*"([^"]+)",\s*description:\s*"([^"]+)"/gs)]
+      .map((match) => [match[1], match[2]])
+  );
+}
+
 describe("cli help parity", () => {
   it("covers the full CLI command inventory", () => {
     const helpCommands = HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands]);
@@ -112,6 +120,16 @@ describe("cli help parity", () => {
     expect(new Set(registeredNames)).toEqual(new Set(CLI_COMMANDS));
   });
 
+  it("keeps runtime command descriptions aligned with generated help descriptions", () => {
+    const runtimeDescriptions = getRuntimeCommandDescriptions();
+
+    expect(new Set(Object.keys(runtimeDescriptions))).toEqual(new Set(CLI_COMMANDS));
+    for (const command of CLI_COMMANDS) {
+      expect(COMMAND_HELP_DETAILS[command].description.length).toBeGreaterThan(0);
+      expect(COMMAND_HELP_DETAILS[command].description).toBe(runtimeDescriptions[command]);
+    }
+  });
+
   it("keeps runtime tool names aligned with the mirrored tool inventory", () => {
     const source = readFileSync(resolve(process.cwd(), "src/tools/index.ts"), "utf8");
     const runtimeToolNames = [...source.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].map((match) => match[1]);
@@ -143,6 +161,7 @@ describe("cli help parity", () => {
     expect(labels).toContain("src/cli/help.ts");
     expect(labels).toContain("src/cli/onboarding-metadata.json");
     expect(labels).toContain("src/public-surface/generated-manifest.ts");
+    expect(labels).toContain("docs/WORKFLOW_SURFACE_MAP.md");
     expect(labels).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(labels).toContain(onboardingMetadata.referencePaths.skillDoc);
     expect(labels).not.toContain("~/.codex/skills/opendevbrowser-best-practices");

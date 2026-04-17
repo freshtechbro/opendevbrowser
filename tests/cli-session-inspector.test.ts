@@ -137,6 +137,7 @@ describe("session-inspector CLI command", () => {
         healthState: "ok"
       }
     });
+    expect(result.message).not.toContain("Next step:");
   });
 
   it("requires --session-id before calling the daemon", async () => {

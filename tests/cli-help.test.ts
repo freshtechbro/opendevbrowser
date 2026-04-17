@@ -1,26 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS, VALID_FLAGS } from "../src/cli/args";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
-import { registerCommand } from "../src/cli/commands/registry";
 import {
   COMMAND_HELP_DETAILS,
   HELP_CAPABILITY_ENTRIES,
   HELP_COMMAND_GROUPS,
   HELP_FLAG_GROUPS,
   HELP_ONBOARDING_ENTRIES,
+  HELP_REFERENCE_ENTRIES,
   HELP_TOOL_ENTRIES,
-  getHelpText
+  getCliOnlyCommands,
+  getHelpText,
+  getToolOnlyHelperNames
 } from "../src/cli/help";
-
-function registerAllCommands(): void {
-  for (const command of CLI_COMMANDS) {
-    registerCommand({
-      name: command,
-      description: `Description for ${command}`,
-      run: () => ({ success: true, message: "" })
-    });
-  }
-}
 
 describe("CLI help surface", () => {
   it("covers every CLI command exactly once", () => {
@@ -80,6 +72,7 @@ describe("CLI help surface", () => {
       "shopping_reliable",
       "computer_use_entry",
       "happy_path",
+      "surface_split",
       "docs"
     ]);
     expect(HELP_ONBOARDING_ENTRIES[0]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.promptingGuide);
@@ -90,7 +83,11 @@ describe("CLI help surface", () => {
     expect(HELP_ONBOARDING_ENTRIES[4]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedResearch);
     expect(HELP_ONBOARDING_ENTRIES[5]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedShopping);
     expect(HELP_ONBOARDING_ENTRIES[6]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.computerUseEntry);
-    expect(HELP_ONBOARDING_ENTRIES[8]?.details).toHaveLength(1);
+    expect(HELP_ONBOARDING_ENTRIES[8]?.details).toEqual([
+      { label: "cli-only:", value: getCliOnlyCommands().join(", ") },
+      { label: "tool-only:", value: getToolOnlyHelperNames().join(", ") }
+    ]);
+    expect(HELP_ONBOARDING_ENTRIES[9]?.details).toHaveLength(1);
   });
 
   it("defines explicit find-it-fast lookup entries for replay, desktop observation, and browser-scoped computer use", () => {
@@ -114,7 +111,6 @@ describe("CLI help surface", () => {
   });
 
   it("prints complete command, flag, and tool inventories with descriptions", () => {
-    registerAllCommands();
     const output = getHelpText();
 
     expect(output).toContain(`${onboardingMetadata.sectionTitle}:`);
@@ -127,6 +123,8 @@ describe("CLI help surface", () => {
     expect(output).toContain(onboardingMetadata.quickStartCommands.validatedShopping);
     expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
+    expect(output).toContain(getCliOnlyCommands().join(", "));
+    expect(output).toContain(getToolOnlyHelperNames().join(", "));
     expect(output).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(output).toContain(onboardingMetadata.referencePaths.skillDoc);
     expect(output).toContain("Find It Fast:");
@@ -142,13 +140,14 @@ describe("CLI help surface", () => {
     expect(output).toContain("research run, shopping run, product-video run, macro-resolve --execute");
     expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain("not a desktop agent");
+    expect(output).toContain("surface_split");
     expect(output).toContain(`Command Inventory (all ${CLI_COMMANDS.length} commands):`);
     expect(output).toContain("Flag Inventory (all supported flags):");
     expect(output).toContain(`Tool Inventory (all ${HELP_TOOL_ENTRIES.length} opendevbrowser_* tools):`);
 
     for (const command of CLI_COMMANDS) {
       expect(output).toContain(command);
-      expect(output).toContain(`Description for ${command}`);
+      expect(output).toContain(COMMAND_HELP_DETAILS[command].description);
       expect(output).toContain(COMMAND_HELP_DETAILS[command].usage);
     }
 
@@ -165,9 +164,16 @@ describe("CLI help surface", () => {
     expect(output).toContain("flags:");
     expect(output).toContain("cli:");
     expect(output).toContain("docs/SURFACE_REFERENCE.md");
+    expect(output).toContain("docs/WORKFLOW_SURFACE_MAP.md");
     expect(output).toContain("src/tools/index.ts");
     expect(output).toContain("src/cli/help.ts");
     expect(output).toContain("src/public-surface/generated-manifest.ts");
     expect(output).not.toContain("src/tools/surface.ts");
+  });
+
+  it("keeps workflow surface map in the reference pointers", () => {
+    const labels = HELP_REFERENCE_ENTRIES.map((entry) => entry.label);
+
+    expect(labels).toContain("docs/WORKFLOW_SURFACE_MAP.md");
   });
 });
