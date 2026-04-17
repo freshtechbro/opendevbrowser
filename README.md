@@ -14,6 +14,7 @@ OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows
 
 The current public surface includes [77 CLI commands and 70 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
+Shipped builds include Browser replay through `screencast-start` or `screencast-stop` and a separate public read-only desktop observation plane through the `desktop-*` family; those lanes stay explicit, browser-scoped where applicable, and make it clear this is not a desktop agent.
 
 <p align="center">
   <img src="assets/hero-image.png" alt="OpenDevBrowser hero image showing AI-assisted annotation and browser automation workflow" width="920" />
@@ -100,7 +101,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.19.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.20.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -264,13 +265,12 @@ Start every surface check from generated help when you need the current public l
 
 ## Recent Features
 
-### v0.0.19 (Current release prep)
+### v0.0.20 (Current release cycle)
 
-- npm latest remains `0.0.18` until the next tag is pushed and published.
-- **Registry-consumer release proof is now first-class** with a post-publish smoke lane that installs the published package in a fresh temp workspace, verifies help/version, and captures the resolved consumer dependency graph.
-- **Browser-scoped computer use is easier to discover** because help, onboarding, and release-facing docs now expose a concrete workflow entry command instead of relying only on `--challenge-automation-mode` as a hidden modifier.
-- **Browser replay screencast shutdown is safer under load** because stop requests during the first in-flight capture no longer allow a later scheduled frame to sneak through.
-- **The `0.0.18` npm parity investigation is now explicit about chronology**: the published package matched the release-aligned source, while later local worktree drift and semver-based consumer dependency drift explain the mismatch reports.
+- **Operator review and inspection are now first-class surfaces** with dedicated `review`, `review-desktop`, `session-inspector audit`, `session-inspector plan`, and `status-capabilities` entry points across the CLI and tool layers.
+- **Inspire Design is now a first-class workflow surface** with provider contracts, capture lanes, parity coverage, and release-facing docs instead of partial workflow wiring.
+- **Help-led discoverability is stronger** because the generated help surface now carries canonical next-step guidance and release-facing metadata for the new operator and workflow lanes.
+- **Live audit and release harnesses are more honest under load** because env-limited classification, foreign relay ownership handling, desktop observation capture, and shopping follow-up classification were tightened instead of being reported as ambiguous failures.
 
 ### v0.0.16
 
