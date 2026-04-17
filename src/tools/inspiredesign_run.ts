@@ -33,6 +33,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
         const runtime = await resolveProviderRuntime(deps);
         const { runInspiredesignWorkflow } = await import("../providers");
         const captureMode = args.captureMode ?? "off";
+        const cookieSource = deps.config.get().providers?.cookieSource;
         const result = await runInspiredesignWorkflow(runtime, {
           brief: args.brief,
           urls: args.urls,
@@ -47,7 +48,10 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
           cookiePolicyOverride: args.cookiePolicyOverride
         }, {
           captureReference: captureMode === "deep"
-            ? async (url, timeoutMs) => captureInspiredesignReferenceFromManager(deps.manager, url, timeoutMs)
+            ? async (url, options) => captureInspiredesignReferenceFromManager(deps.manager, url, {
+              ...options,
+              cookieSource
+            })
             : undefined
         });
         return ok(result);

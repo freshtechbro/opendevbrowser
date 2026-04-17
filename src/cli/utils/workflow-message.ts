@@ -29,8 +29,7 @@ const readMeta = (data: unknown): Record<string, unknown> | null => {
 const readPrimaryConstraint = (data: unknown): Record<string, unknown> | null => {
   const meta = readMeta(data);
   if (!meta) return null;
-  const constraint = meta.primaryConstraint ?? meta.primary_constraint;
-  return asRecord(constraint);
+  return asRecord(meta.primaryConstraint);
 };
 
 const readPrimarySummary = (data: unknown): string | null => {

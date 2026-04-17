@@ -13,6 +13,11 @@ const parse = (value: string): Record<string, unknown> => JSON.parse(value) as R
 const makeDeps = () => {
   const manager = {
     launch: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
+    cookieImport: vi.fn().mockResolvedValue({ imported: 1, rejected: [] }),
+    cookieList: vi.fn().mockResolvedValue({
+      count: 1,
+      cookies: [{ name: "sid" }]
+    }),
     goto: vi.fn().mockResolvedValue({ ok: true }),
     waitForLoad: vi.fn().mockResolvedValue(undefined),
     snapshot: vi.fn().mockResolvedValue({
@@ -27,6 +32,7 @@ const makeDeps = () => {
     }),
     clonePageHtmlWithOptions: vi.fn().mockResolvedValue({ html: "<html><body>clone</body></html>" }),
     screenshot: vi.fn().mockResolvedValue({ base64: Buffer.from([1, 2, 3]).toString("base64") }),
+    setSessionChallengeAutomationMode: vi.fn(),
     disconnect: vi.fn().mockResolvedValue(undefined)
   };
 
@@ -213,12 +219,49 @@ describe("workflow tools", () => {
 
     expect(response.ok).toBe(true);
     expect(deps.manager.launch).toHaveBeenCalledTimes(1);
-    expect(deps.manager.goto).toHaveBeenCalledWith("session-1", "https://example.com/reference", "load", 30000);
+    expect(deps.manager.goto).toHaveBeenCalledWith(
+      "session-1",
+      "https://example.com/reference",
+      "load",
+      expect.any(Number)
+    );
+    expect(deps.manager.goto.mock.calls[0]?.[3]).toBeGreaterThan(0);
+    expect(deps.manager.goto.mock.calls[0]?.[3]).toBeLessThanOrEqual(30000);
     expect(deps.manager.waitForLoad).toHaveBeenCalledTimes(1);
     expect(deps.manager.snapshot).toHaveBeenCalledTimes(1);
     expect(deps.manager.clonePage).toHaveBeenCalledTimes(1);
     expect(deps.manager.clonePageHtmlWithOptions).toHaveBeenCalledTimes(1);
     expect(deps.manager.disconnect).toHaveBeenCalledWith("session-1", true);
+  });
+
+  it("keeps inspiredesign deep capture parity with daemon cookie-source imports", async () => {
+    const deps = makeDeps();
+    const cookieSource = {
+      type: "inline" as const,
+      value: [{ name: "sid", value: "abc", url: "https://example.com/reference" }]
+    };
+    deps.config = new ConfigStore({
+      ...resolveConfig({}),
+      relayToken: false,
+      providers: { cookieSource }
+    });
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      mode: "compact",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      challengeAutomationMode: "browser"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.manager.cookieImport).toHaveBeenCalledWith("session-1", cookieSource.value, false);
+    expect(deps.manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/reference"]);
+    expect(deps.manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
   });
 
   it("defaults inspiredesign tool mode to compact when omitted", async () => {

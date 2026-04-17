@@ -936,12 +936,12 @@ describe("artifact and workflow runtime", () => {
     })).toMatchObject({
       primaryConstraintSummary: "All candidate offers exceeded the requested budget of 10.00.",
       primaryConstraint: {
-        summary: "All candidate offers exceeded the requested budget of 10.00."
+        summary: "All candidate offers exceeded the requested budget of 10.00.",
+        guidance: {
+          reason: "Amazon needs a live browser-rendered page before retrying."
+        }
       }
     });
-    expect((output.meta as {
-      primaryConstraint: Record<string, unknown>;
-    }).primaryConstraint).not.toHaveProperty("guidance");
   });
 
   it("filters search-index and asset rows out of shopping offers", async () => {

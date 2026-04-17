@@ -4048,7 +4048,7 @@ describe("provider runtime factory", () => {
         details: {
           cookieDiagnostics: {
             loaded: 0,
-            message: "Required provider cookies are missing."
+            message: `Cookie file is empty: ${filePath}`
           }
         }
       });

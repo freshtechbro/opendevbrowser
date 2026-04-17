@@ -298,10 +298,7 @@ function collectMetaGuidance(meta) {
   if (!isJsonRecord(meta)) {
     return null;
   }
-  const primaryConstraint = firstJsonRecord([
-    meta.primaryConstraint,
-    meta.primary_constraint
-  ]);
+  const primaryConstraint = firstJsonRecord([meta.primaryConstraint]);
   return readGuidance(primaryConstraint?.guidance);
 }
 

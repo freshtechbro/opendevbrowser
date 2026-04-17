@@ -5,7 +5,11 @@ import type {
 } from "../config";
 import { type ChallengeOrchestrator } from "../challenges";
 import type { BrowserFallbackPort } from "./types";
-import { createBrowserFallbackPort, createConfiguredProviderRuntime } from "./runtime-factory";
+import {
+  createBrowserFallbackPort,
+  createConfiguredProviderRuntime,
+  resolveEffectiveChallengeConfig
+} from "./runtime-factory";
 import type { RuntimeInit } from "./index";
 
 export type ProviderRuntimeBundleConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "security" | "providers">
@@ -34,6 +38,36 @@ type ResolveBundledProviderRuntimeArgs = ProviderRuntimeBundleArgs & {
   existingRuntime?: BundledProviderRuntime;
 };
 
+const runtimeChallengeConfigFingerprints = new WeakMap<BundledProviderRuntime, string | null>();
+const fallbackPortChallengeConfigFingerprints = new WeakMap<BrowserFallbackPort, string | null>();
+
+const canReuseRuntime = (
+  runtime: BundledProviderRuntime | undefined,
+  challengeFingerprint: string | null,
+  hasInitOverride: boolean,
+  hasExplicitChallengeConfig: boolean
+): runtime is BundledProviderRuntime => {
+  if (!runtime || hasInitOverride) {
+    return false;
+  }
+  const fingerprint = runtimeChallengeConfigFingerprints.get(runtime);
+  if (fingerprint === undefined) {
+    return !hasExplicitChallengeConfig;
+  }
+  return fingerprint === challengeFingerprint;
+};
+
+const canReuseFallbackPort = (
+  fallbackPort: BrowserFallbackPort | undefined,
+  challengeFingerprint: string | null
+): fallbackPort is BrowserFallbackPort => {
+  if (!fallbackPort) {
+    return false;
+  }
+  const fingerprint = fallbackPortChallengeConfigFingerprints.get(fallbackPort);
+  return fingerprint === undefined || fingerprint === challengeFingerprint;
+};
+
 const resolveFallbackTransportConfig = (
   config?: ProviderRuntimeBundleConfig
 ): { extensionWsEndpoint?: string } => (
@@ -45,7 +79,11 @@ const resolveFallbackTransportConfig = (
 export const createProviderRuntimeBundle = (
   args: ProviderRuntimeBundleArgs
 ): ProviderRuntimeBundle => {
-  const browserFallbackPort = args.browserFallbackPort ?? createBrowserFallbackPort(
+  const challengeConfig = resolveEffectiveChallengeConfig(args.config, args.challengeConfig);
+  const challengeFingerprint = challengeConfig ? JSON.stringify(challengeConfig) : null;
+  const browserFallbackPort = canReuseFallbackPort(args.browserFallbackPort, challengeFingerprint)
+    ? args.browserFallbackPort
+    : createBrowserFallbackPort(
     args.manager,
     {
       policy: args.config?.providers?.cookiePolicy,
@@ -53,17 +91,24 @@ export const createProviderRuntimeBundle = (
     },
     resolveFallbackTransportConfig(args.config),
     args.challengeOrchestrator,
-    args.challengeConfig?.mode ?? "browser_with_helper",
-    args.challengeConfig?.optionalComputerUseBridge.enabled ?? true
+    challengeConfig?.mode ?? "browser_with_helper",
+    challengeConfig?.optionalComputerUseBridge.enabled ?? true
   );
+  if (browserFallbackPort && browserFallbackPort !== args.browserFallbackPort) {
+    fallbackPortChallengeConfigFingerprints.set(browserFallbackPort, challengeFingerprint);
+  }
   const providerRuntime = createConfiguredProviderRuntime({
     config: args.config,
     manager: args.manager,
     browserFallbackPort,
-    challengeConfig: args.challengeConfig,
+    challengeConfig,
     challengeOrchestrator: args.challengeOrchestrator,
     init: args.init
   });
+  runtimeChallengeConfigFingerprints.set(
+    providerRuntime,
+    challengeFingerprint
+  );
 
   return {
     providerRuntime,
@@ -74,9 +119,19 @@ export const createProviderRuntimeBundle = (
 export const resolveBundledProviderRuntime = (
   args: ResolveBundledProviderRuntimeArgs
 ): BundledProviderRuntime => {
-  if (args.existingRuntime && !args.init) {
+  const challengeConfig = resolveEffectiveChallengeConfig(args.config, args.challengeConfig);
+  const challengeFingerprint = challengeConfig ? JSON.stringify(challengeConfig) : null;
+  if (canReuseRuntime(
+    args.existingRuntime,
+    challengeFingerprint,
+    Boolean(args.init),
+    typeof args.challengeConfig !== "undefined"
+  )) {
     return args.existingRuntime;
   }
 
-  return createProviderRuntimeBundle(args).providerRuntime;
+  return createProviderRuntimeBundle({
+    ...args,
+    challengeConfig
+  }).providerRuntime;
 };

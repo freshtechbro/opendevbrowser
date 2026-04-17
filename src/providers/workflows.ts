@@ -17,6 +17,7 @@ import {
   type InspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
 } from "./inspiredesign-contract";
+import type { InspiredesignCaptureOptions } from "./inspiredesign-capture";
 import {
   LOOKS_LIKE_URL_RE,
   asNumber,
@@ -49,7 +50,10 @@ import {
 } from "./shopping";
 import { createLogger, redactSensitive } from "../core/logging";
 import { normalizeProviderReasonCode } from "./errors";
-import type { ChallengeAutomationMode } from "../challenges/types";
+import {
+  isChallengeAutomationMode,
+  type ChallengeAutomationMode
+} from "../challenges/types";
 import { providerRequestHeaders } from "./shared/request-headers";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
@@ -163,7 +167,10 @@ export interface ProductVideoWorkflowOptions {
 }
 
 export interface InspiredesignWorkflowOptions {
-  captureReference?: (url: string, timeoutMs?: number) => Promise<InspiredesignCaptureEvidence | null>;
+  captureReference?: (
+    url: string,
+    options?: InspiredesignCaptureOptions
+  ) => Promise<InspiredesignCaptureEvidence | null>;
 }
 
 type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited" | "transcript_unavailable";
@@ -515,11 +522,21 @@ const withPrimaryConstraintMeta = (
   return primaryIssue
     ? {
       ...meta,
-      primary_constraint: primaryIssue,
       primaryConstraint: primaryIssue,
       primaryConstraintSummary: primaryIssue.summary
     }
     : meta;
+};
+
+const withCamelCasePrimaryConstraintMeta = withPrimaryConstraintMeta;
+
+const readPrimaryConstraintGuidance = (
+  constraint: Record<string, unknown>
+): ProviderNextStepGuidance | undefined => {
+  const guidance = constraint.guidance;
+  return guidance && typeof guidance === "object" && !Array.isArray(guidance)
+    ? guidance as ProviderNextStepGuidance
+    : undefined;
 };
 
 const withPrimaryConstraintSummaryOverride = (
@@ -535,13 +552,15 @@ const withPrimaryConstraintSummaryOverride = (
   )
     ? currentPrimaryConstraint as Record<string, unknown>
     : { reasonCode: "env_limited" };
+  const existingGuidance = readPrimaryConstraintGuidance(baseConstraint);
   const { guidance: _existingGuidance, ...nextPrimaryConstraintBase } = baseConstraint;
+  const nextGuidance = guidance ?? existingGuidance;
   const nextPrimaryConstraint = (
-    guidance
+    nextGuidance
       ? {
         ...nextPrimaryConstraintBase,
         summary,
-        guidance
+        guidance: nextGuidance
       }
       : {
         ...nextPrimaryConstraintBase,
@@ -551,10 +570,39 @@ const withPrimaryConstraintSummaryOverride = (
 
   return {
     ...meta,
-    primary_constraint: nextPrimaryConstraint,
     primaryConstraint: nextPrimaryConstraint,
     primaryConstraintSummary: summary
   };
+};
+
+const withReasonCodeDistributionMeta = (
+  meta: Record<string, unknown>,
+  reasonCodeDistribution: Record<string, number>
+): Record<string, unknown> => {
+  const metrics = meta.metrics;
+  const nextMetrics = metrics && typeof metrics === "object" && !Array.isArray(metrics)
+    ? {
+      ...metrics,
+      reasonCodeDistribution
+    }
+    : { reasonCodeDistribution };
+  return {
+    ...meta,
+    metrics: nextMetrics,
+    reasonCodeDistribution
+  };
+};
+
+const incrementReasonCodeDistribution = (
+  reasonCodeDistribution: Record<string, number>,
+  reasonCode: ProviderReasonCode,
+  count: number
+): Record<string, number> => {
+  if (count <= 0) return reasonCodeDistribution;
+  return Object.fromEntries(Object.entries({
+    ...reasonCodeDistribution,
+    [reasonCode]: (reasonCodeDistribution[reasonCode] ?? 0) + count
+  }).sort(([left], [right]) => left.localeCompare(right)));
 };
 
 const summarizeShoppingOfferFilterConstraint = (args: {
@@ -1131,6 +1179,7 @@ type InspiredesignResolvedInput = Omit<InspiredesignRunInput, "brief" | "urls" |
 
 const INSPIREDESIGN_RENDER_MODES = new Set<RenderMode>(["compact", "json", "md", "context", "path"]);
 const INSPIREDESIGN_CAPTURE_MODES = new Set<InspiredesignCaptureMode>(["off", "deep"]);
+const INSPIREDESIGN_COOKIE_POLICIES = new Set<ProviderCookiePolicy>(["off", "auto", "required"]);
 
 type InspiredesignCaptureOutcome = {
   captureStatus: InspiredesignReferenceEvidence["captureStatus"];
@@ -1166,10 +1215,10 @@ const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"])
   ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
   ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
   ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
-  ...(typeof input.challengeAutomationMode === "string"
-    ? { challengeAutomationMode: input.challengeAutomationMode as ChallengeAutomationMode }
+  ...(isChallengeAutomationMode(input.challengeAutomationMode)
+    ? { challengeAutomationMode: input.challengeAutomationMode }
     : {}),
-  ...(typeof input.cookiePolicyOverride === "string"
+  ...(typeof input.cookiePolicyOverride === "string" && INSPIREDESIGN_COOKIE_POLICIES.has(input.cookiePolicyOverride as ProviderCookiePolicy)
     ? { cookiePolicyOverride: input.cookiePolicyOverride as ProviderCookiePolicy }
     : {})
 });
@@ -1288,6 +1337,7 @@ const hasInspiredesignCaptureEvidence = (
 const captureInspiredesignReference = async (
   url: string,
   captureMode: InspiredesignCaptureMode,
+  workflowInput: InspiredesignResolvedInput,
   captureReference: InspiredesignWorkflowOptions["captureReference"],
   timeoutMs?: number
 ): Promise<InspiredesignCaptureOutcome> => {
@@ -1301,7 +1351,12 @@ const captureInspiredesignReference = async (
     };
   }
   try {
-    const capture = await captureReference(url, timeoutMs);
+    const capture = await captureReference(url, {
+      timeoutMs,
+      useCookies: workflowInput.useCookies,
+      challengeAutomationMode: workflowInput.challengeAutomationMode,
+      cookiePolicyOverride: workflowInput.cookiePolicyOverride
+    });
     if (!hasInspiredesignCaptureEvidence(capture)) {
       return {
         captureStatus: "failed",
@@ -1363,27 +1418,66 @@ const buildInspiredesignReference = (
   };
 };
 
+const summarizeInspiredesignCaptureConstraint = (
+  references: InspiredesignReferenceEvidence[]
+): { summary: string; guidance: ProviderNextStepGuidance } | undefined => {
+  const failedReferences = references.filter((reference) => reference.captureStatus === "failed");
+  if (failedReferences.length === 0) {
+    return undefined;
+  }
+  const summary = `Deep capture failed for ${failedReferences.length} ${failedReferences.length === 1 ? "reference" : "references"}.`;
+  const retryUrls = failedReferences
+    .slice(0, 2)
+    .map((reference) => `Retry deep capture for ${reference.url} after restoring the required browser session state.`);
+  return {
+    summary,
+    guidance: {
+      reason: summary,
+      recommendedNextCommands: [
+        "Rerun inspiredesign after configuring providers.cookieSource for the protected references you need to capture.",
+        ...retryUrls
+      ]
+    }
+  };
+};
+
 const buildInspiredesignMeta = (
   runtime: ProviderExecutor,
   workflowInput: InspiredesignResolvedInput,
   references: InspiredesignReferenceEvidence[],
   failures: ProviderFailureEntry[]
-): Record<string, unknown> => withPrimaryConstraintMeta({
-  selection: {
-    urls: workflowInput.urls,
-    capture_mode: workflowInput.captureMode,
-    include_prototype_guidance: Boolean(workflowInput.includePrototypeGuidance)
-  },
-  metrics: {
-    reference_count: references.length,
-    fetched_references: references.filter((reference) => reference.fetchStatus === "captured").length,
-    captured_references: references.filter((reference) => reference.captureStatus === "captured").length,
-    failed_fetches: references.filter((reference) => reference.fetchStatus === "failed").length,
-    failed_captures: references.filter((reference) => reference.captureStatus === "failed").length,
-    reasonCodeDistribution: summarizeReasonCodeDistribution(failures)
-  },
-  alerts: buildWorkflowAlerts(runtime, failures)
-}, failures);
+): Record<string, unknown> => {
+  const failedCaptures = references.filter((reference) => reference.captureStatus === "failed");
+  let reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
+  let meta = withCamelCasePrimaryConstraintMeta(withReasonCodeDistributionMeta({
+    selection: {
+      urls: workflowInput.urls,
+      capture_mode: workflowInput.captureMode,
+      include_prototype_guidance: Boolean(workflowInput.includePrototypeGuidance)
+    },
+    metrics: {
+      reference_count: references.length,
+      fetched_references: references.filter((reference) => reference.fetchStatus === "captured").length,
+      captured_references: references.filter((reference) => reference.captureStatus === "captured").length,
+      failed_fetches: references.filter((reference) => reference.fetchStatus === "failed").length,
+      failed_captures: failedCaptures.length
+    },
+    alerts: buildWorkflowAlerts(runtime, failures)
+  }, reasonCodeDistribution), failures);
+  if (!meta.primaryConstraint) {
+    const captureConstraint = summarizeInspiredesignCaptureConstraint(references);
+    if (captureConstraint) {
+      reasonCodeDistribution = incrementReasonCodeDistribution(
+        reasonCodeDistribution,
+        "env_limited",
+        failedCaptures.length
+      );
+      meta = withReasonCodeDistributionMeta(meta, reasonCodeDistribution);
+      meta = withPrimaryConstraintSummaryOverride(meta, captureConstraint.summary, captureConstraint.guidance);
+    }
+  }
+  return meta;
+};
 
 const inferBrandFromContent = (content: string | undefined): string | undefined => {
   const normalized = normalizePlainText(content);
@@ -2412,18 +2506,25 @@ export const runInspiredesignWorkflow = async (
       stepIndex: index,
       url
     });
-    const timeoutMs = remainingTimeoutMs();
+    const fetchTimeoutMs = remainingTimeoutMs();
     const result = await runtime.fetch(
       { url },
       buildInspiredesignFetchOptions(
         workflowInput,
         buildInspiredesignStepEnvelope(workflowInput, stepTrace, index, url),
-        timeoutMs
+        fetchTimeoutMs
       )
     );
     observeWorkflowSignals(runtime, result);
     failures.push(...result.failures);
-    const capture = await captureInspiredesignReference(url, workflowInput.captureMode, options.captureReference, timeoutMs);
+    const captureTimeoutMs = remainingTimeoutMs();
+    const capture = await captureInspiredesignReference(
+      url,
+      workflowInput.captureMode,
+      workflowInput,
+      options.captureReference,
+      captureTimeoutMs
+    );
     references.push(buildInspiredesignReference(url, result, capture));
     trace = appendWorkflowTrace(stepTrace, "execute", "reference_completed", {
       stepIndex: index,

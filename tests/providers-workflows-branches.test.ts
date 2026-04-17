@@ -1738,6 +1738,7 @@ describe("workflow branch coverage", () => {
     expect(output.meta).toMatchObject({
       primaryConstraintSummary: "Linkedin requires login or an existing session."
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint");
     expect(output.meta).not.toHaveProperty("primary_constraint_summary");
     expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
   });
@@ -2696,6 +2697,7 @@ describe("workflow branch coverage", () => {
         zero_price_excluded: 0
       }
     });
+    expect(output.meta).not.toHaveProperty("primary_constraint");
     expect(output.summary).toContain("Primary constraint: Requested region us was not enforced by the selected providers, and all candidate offers were filtered by the USD currency heuristic.");
   });
 
@@ -2742,6 +2744,14 @@ describe("workflow branch coverage", () => {
     expect(output.offers).toEqual([]);
     expect(output.meta).toMatchObject({
       primaryConstraintSummary: "All candidate offers exceeded the requested budget of 350.00.",
+      primaryConstraint: {
+        guidance: {
+          recommendedNextCommands: [
+            "Retry with browser assistance or a headed browser session.",
+            "Rerun the same provider or workflow after the rendered page is ready."
+          ]
+        }
+      },
       metrics: {
         candidate_offers: 1,
         budget_excluded: 1,

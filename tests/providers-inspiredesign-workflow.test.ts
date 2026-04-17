@@ -18,6 +18,7 @@ import type {
 } from "../src/providers/types";
 
 type InspiredesignWorkflowMeta = {
+  reasonCodeDistribution?: Record<string, number>;
   selection: {
     urls: string[];
     capture_mode: string;
@@ -138,6 +139,16 @@ describe("inspiredesign workflow", () => {
     expect(meta.artifact_manifest.files).toContain("design.md");
   });
 
+  it("defaults to compact mode when inspiredesign input omits an explicit render mode", async () => {
+    const runtime = toRuntime({});
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a compact default output"
+    });
+
+    expect(output.mode).toBe("compact");
+  });
+
   it("parses valid inspiredesign envelopes and forwards every optional runtime override", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       records: [
@@ -248,6 +259,58 @@ describe("inspiredesign workflow", () => {
     });
   });
 
+  it("drops invalid string runtime overrides from inspiredesign envelopes", async () => {
+    const fetch = vi.fn(async (input: { url: string }, options?: { runtimePolicy?: Record<string, unknown> }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Validated title",
+          content: "Validated content"
+        })
+      ],
+      meta: options?.runtimePolicy ? { runtimePolicy: options.runtimePolicy } : undefined
+    }));
+    const captureReference = vi.fn(async (url: string, options?: Record<string, unknown>) => ({
+      ...makeCapture(`Captured ${url}`),
+      clone: {
+        componentPreview: JSON.stringify(options ?? {}),
+        cssPreview: ".validated { display: block; }",
+        warnings: []
+      }
+    }));
+    const runtime = toRuntime({ fetch });
+
+    await runInspiredesignWorkflow(runtime, {
+      kind: "inspiredesign",
+      input: {
+        brief: "Validate resume envelope enums",
+        urls: ["https://example.com/resume"],
+        captureMode: "deep",
+        challengeAutomationMode: "invalid-mode",
+        cookiePolicyOverride: "invalid-policy"
+      }
+    } as never, {
+      captureReference
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/resume" },
+      expect.objectContaining({
+        runtimePolicy: expect.not.objectContaining({
+          challengeAutomationMode: "invalid-mode",
+          cookiePolicyOverride: "invalid-policy"
+        })
+      })
+    );
+    expect(captureReference).toHaveBeenCalledWith(
+      "https://example.com/resume",
+      expect.not.objectContaining({
+        challengeAutomationMode: "invalid-mode",
+        cookiePolicyOverride: "invalid-policy"
+      })
+    );
+  });
+
   it("rejects invalid inspiredesign workflow envelopes", async () => {
     await expect(
       runInspiredesignWorkflow(toRuntime({}), {
@@ -335,6 +398,16 @@ describe("inspiredesign workflow", () => {
       captureFailure: "Deep capture requested, but no browser capture callback was available."
     });
     expect(evidence.references[0]?.fetchFailure).toEqual(expect.any(String));
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: expect.any(String),
+      reasonCodeDistribution: {
+        challenge_detected: 1
+      },
+      primaryConstraint: expect.objectContaining({
+        reasonCode: "challenge_detected"
+      })
+    });
+    expect(output.meta).not.toHaveProperty("primary_constraint");
   });
 
   it("records unusable and non-error deep capture failures without aborting the workflow", async () => {
@@ -414,5 +487,118 @@ describe("inspiredesign workflow", () => {
       captureStatus: "failed",
       captureFailure: "capture exploded"
     });
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Deep capture failed for 1 reference.",
+      reasonCodeDistribution: {
+        env_limited: 1
+      },
+      metrics: {
+        reasonCodeDistribution: {
+          env_limited: 1
+        }
+      },
+      primaryConstraint: expect.objectContaining({
+        summary: "Deep capture failed for 1 reference.",
+        reasonCode: "env_limited",
+        guidance: expect.objectContaining({
+          reason: "Deep capture failed for 1 reference.",
+          recommendedNextCommands: expect.arrayContaining([
+            "Rerun inspiredesign after configuring providers.cookieSource for the protected references you need to capture."
+          ])
+        })
+      })
+    });
+  });
+
+  it("recomputes the remaining timeout budget before deep capture", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-17T10:00:00.000Z"));
+
+    try {
+      const fetch = vi.fn(async (input: { url: string }) => {
+        vi.setSystemTime(new Date("2026-04-17T10:00:03.000Z"));
+        return makeAggregate({
+          records: [
+            normalizeRecord("web/default", "web", {
+              url: input.url,
+              title: "Reference title",
+              content: "Reference content"
+            })
+          ]
+        });
+      });
+      const captureReference = vi.fn(async (url: string, options?: { timeoutMs?: number }) => {
+        return {
+          ...makeCapture(`Captured ${url}`),
+          snapshot: {
+            content: `${url} snapshot (${options?.timeoutMs})`,
+            refCount: 5,
+            warnings: []
+          }
+        };
+      });
+      const runtime = toRuntime({ fetch });
+
+      await runInspiredesignWorkflow(runtime, {
+        brief: "Design a budget-aware capture flow",
+        urls: ["https://example.com/reference"],
+        captureMode: "deep",
+        mode: "json",
+        timeoutMs: 5000,
+        outputDir: makeOutputDir()
+      }, {
+        captureReference
+      });
+
+      expect(fetch).toHaveBeenCalledWith(
+        { url: "https://example.com/reference" },
+        expect.objectContaining({ timeoutMs: 5000 })
+      );
+      expect(captureReference).toHaveBeenCalledWith(
+        "https://example.com/reference",
+        expect.objectContaining({
+          timeoutMs: expect.any(Number)
+        })
+      );
+      expect(captureReference.mock.calls[0]?.[1]?.timeoutMs).toBe(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("forwards deep-capture runtime policy overrides to the capture callback", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+
+    await runInspiredesignWorkflow(runtime, {
+      brief: "Preserve capture runtime policy",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      mode: "json",
+      useCookies: false,
+      challengeAutomationMode: "browser",
+      cookiePolicyOverride: "off"
+    }, {
+      captureReference
+    });
+
+    expect(captureReference).toHaveBeenCalledWith(
+      "https://example.com/reference",
+      expect.objectContaining({
+        useCookies: false,
+        challengeAutomationMode: "browser",
+        cookiePolicyOverride: "off"
+      })
+    );
   });
 });
