@@ -19,6 +19,12 @@ import type {
 
 type InspiredesignWorkflowMeta = {
   reasonCodeDistribution?: Record<string, number>;
+  followthroughSummary?: string;
+  recommendedSkills?: string[];
+  deepCaptureRecommendation?: string;
+  contractScope?: {
+    note?: string;
+  };
   selection: {
     urls: string[];
     capture_mode: string;
@@ -44,6 +50,23 @@ type InspiredesignWorkflowEvidence = {
     fetchFailure?: string;
     captureFailure?: string;
   }>;
+};
+
+type InspiredesignWorkflowContext = {
+  urls: string[];
+  prototypeGuidanceMarkdown: string | null;
+  evidence: InspiredesignWorkflowEvidence;
+  canvasPlanRequest: {
+    canvasSessionId: string;
+    leaseId: string;
+    documentId: string;
+  };
+  designAgentHandoff: {
+    contractScope: {
+      emittedContract: string;
+      omittedTemplateBlocks: string[];
+    };
+  };
 };
 
 const tempDirs: string[] = [];
@@ -128,7 +151,9 @@ describe("inspiredesign workflow", () => {
 
     expect(output).toMatchObject({
       mode: "path",
-      path: expect.any(String)
+      path: expect.any(String),
+      followthroughSummary: expect.stringContaining("OpenDevBrowser Canvas"),
+      suggestedNextAction: expect.stringContaining("canvas.plan.set")
     });
     expect(meta.selection).toEqual({
       urls: [],
@@ -137,6 +162,18 @@ describe("inspiredesign workflow", () => {
     });
     expect(meta.metrics.reference_count).toBe(0);
     expect(meta.artifact_manifest.files).toContain("design.md");
+    expect(meta.followthroughSummary).toEqual(expect.stringContaining("canvas-plan.request.json"));
+    expect(meta.recommendedSkills).toEqual([
+      'opendevbrowser-best-practices "quick start"',
+      'opendevbrowser-design-agent "canvas-contract"'
+    ]);
+    expect(meta.contractScope).toEqual(expect.objectContaining({
+      note: expect.stringContaining("design-contract.json is the narrowed canvas governance contract")
+    }));
+    expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "canvas-plan.request.json",
+      "design-agent-handoff.json"
+    ]));
   });
 
   it("defaults to compact mode when inspiredesign input omits an explicit render mode", async () => {
@@ -179,11 +216,7 @@ describe("inspiredesign workflow", () => {
     });
 
     const meta = output.meta as InspiredesignWorkflowMeta;
-    const context = output.context as {
-      urls: string[];
-      prototypeGuidanceMarkdown: string | null;
-      evidence: InspiredesignWorkflowEvidence;
-    };
+    const context = output.context as InspiredesignWorkflowContext;
 
     expect(fetch).toHaveBeenCalledWith(
       { url: "https://example.com/reference" },
@@ -203,12 +236,24 @@ describe("inspiredesign workflow", () => {
     expect(output.mode).toBe("context");
     expect(context.urls).toEqual(["https://example.com/reference"]);
     expect(context.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
+    expect(context.canvasPlanRequest).toMatchObject({
+      canvasSessionId: "<canvas-session-id>",
+      leaseId: "<lease-id>",
+      documentId: "<document-id>"
+    });
+    expect(context.designAgentHandoff).toMatchObject({
+      contractScope: {
+        emittedContract: "CanvasDesignGovernance",
+        omittedTemplateBlocks: ["navigationModel", "asyncModel", "performanceModel"]
+      }
+    });
     expect(context.evidence.references[0]).toMatchObject({
       fetchStatus: "captured",
       captureStatus: "captured"
     });
     expect(meta.selection.capture_mode).toBe("deep");
     expect(meta.selection.include_prototype_guidance).toBe(true);
+    expect(meta.deepCaptureRecommendation).toContain("captureMode=deep");
   });
 
   it("defaults invalid envelope fields back to the compact off-capture path", async () => {

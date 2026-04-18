@@ -4,6 +4,14 @@ import {
   buildInspiredesignPacket,
   type InspiredesignReferenceEvidence
 } from "../src/providers/inspiredesign-contract";
+import {
+  INSPIREDESIGN_HANDOFF_COMMANDS,
+  INSPIREDESIGN_HANDOFF_FILES,
+  INSPIREDESIGN_HANDOFF_GUIDANCE,
+  INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS,
+  buildInspiredesignFollowthroughSummary,
+  buildInspiredesignNextStep
+} from "../src/inspiredesign/handoff";
 import { renderInspiredesign } from "../src/providers/renderer";
 
 type InspiredesignEvidenceJson = {
@@ -44,6 +52,34 @@ describe("inspiredesign packet + renderer", () => {
 
     expect(packet.generationPlan.visualDirection.profile).toBe("auth-focused");
     expect(packet.generationPlan.visualDirection.themeStrategy).toBe("light-dark-parity");
+    expect(packet.canvasPlanRequest).toMatchObject({
+      requestId: expect.stringMatching(/^req_plan_/),
+      canvasSessionId: "<canvas-session-id>",
+      leaseId: "<lease-id>",
+      documentId: "<document-id>",
+      generationPlan: packet.generationPlan
+    });
+    expect(packet.followthrough).toMatchObject({
+      summary: buildInspiredesignFollowthroughSummary(),
+      nextStep: buildInspiredesignNextStep(),
+      recommendedSkills: [...INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS],
+      commandExamples: {
+        loadBestPractices: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices,
+        loadDesignAgent: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent,
+        continueInCanvas: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
+      },
+      deepCaptureRecommendation: INSPIREDESIGN_HANDOFF_GUIDANCE.deepCaptureRecommendation,
+      contractScope: {
+        emittedContract: "CanvasDesignGovernance",
+        omittedTemplateBlocks: ["navigationModel", "asyncModel", "performanceModel"],
+        note: expect.stringContaining("design-contract.json is the narrowed canvas governance contract")
+      },
+      implementationContext: expect.objectContaining({
+        navigationModel: expect.any(Object),
+        asyncModel: expect.any(Object),
+        performanceModel: expect.any(Object)
+      })
+    });
     expect(packet.prototypeGuidanceMarkdown).toBeNull();
     expect(packet.designMarkdown).toContain("No live inspiration source was provided. The system is derived entirely from the brief.");
     expect(packet.implementationPlan.risksAndAmbiguities[0]).toContain("No live references were supplied");
@@ -172,6 +208,8 @@ describe("inspiredesign packet + renderer", () => {
         brief,
         urls,
         designContract: packet.designContract,
+        canvasPlanRequest: packet.canvasPlanRequest,
+        designAgentHandoff: packet.followthrough,
         generationPlan: packet.generationPlan,
         implementationPlan: packet.implementationPlan,
         designMarkdown: packet.designMarkdown,
@@ -181,27 +219,46 @@ describe("inspiredesign packet + renderer", () => {
         meta: { requestId: "req-1" }
       });
 
-      expect(rendered.files.some((file) => file.path === "design.md")).toBe(true);
-      expect(rendered.files.some((file) => file.path === "prototype-guidance.md")).toBe(true);
+      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designMarkdown)).toBe(true);
+      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(true);
+      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(true);
+      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff)).toBe(true);
 
       if (mode === "compact") {
         expect(rendered.response).toMatchObject({
           mode,
-          summary: expect.stringContaining("Brief: Design a premium product narrative landing page")
+          summary: expect.stringContaining("Brief: Design a premium product narrative landing page"),
+          followthroughSummary: packet.followthrough.summary,
+          suggestedNextAction: packet.followthrough.nextStep
         });
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[0]?.command).toBe(
+          packet.followthrough.commandExamples.loadBestPractices
+        );
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[2]?.reason).toBe(
+          INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest
+        );
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[2]?.command).toBe(
+          INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
+        );
       } else if (mode === "json") {
         expect(rendered.response).toMatchObject({
           mode,
           brief,
           urls,
-          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown
+          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+          canvasPlanRequest: packet.canvasPlanRequest,
+          designAgentHandoff: packet.followthrough,
+          followthroughSummary: packet.followthrough.summary,
+          suggestedNextAction: packet.followthrough.nextStep
         });
       } else if (mode === "md") {
         expect(rendered.response).toMatchObject({
           mode,
           markdown: packet.designMarkdown,
           implementationPlanMarkdown: packet.implementationPlanMarkdown,
-          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown
+          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+          followthroughSummary: packet.followthrough.summary,
+          suggestedNextAction: packet.followthrough.nextStep
         });
       } else if (mode === "context") {
         expect(rendered.response).toMatchObject({
@@ -210,13 +267,19 @@ describe("inspiredesign packet + renderer", () => {
             brief,
             urls,
             designContract: packet.designContract,
-            evidence: packet.evidence
-          })
+            evidence: packet.evidence,
+            canvasPlanRequest: packet.canvasPlanRequest,
+            designAgentHandoff: packet.followthrough
+          }),
+          followthroughSummary: packet.followthrough.summary,
+          suggestedNextAction: packet.followthrough.nextStep
         });
       } else {
         expect(rendered.response).toMatchObject({
           mode: "path",
-          meta: { requestId: "req-1" }
+          meta: { requestId: "req-1" },
+          followthroughSummary: packet.followthrough.summary,
+          suggestedNextAction: packet.followthrough.nextStep
         });
       }
     }
@@ -241,6 +304,8 @@ describe("inspiredesign packet + renderer", () => {
       brief,
       urls: ["https://example.com/detail"],
       designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
       generationPlan: packet.generationPlan,
       implementationPlan: packet.implementationPlan,
       designMarkdown: packet.designMarkdown,
@@ -251,7 +316,7 @@ describe("inspiredesign packet + renderer", () => {
     });
 
     expect(packet.generationPlan.visualDirection.profile).toBe("documentation");
-    expect(rendered.files.some((file) => file.path === "prototype-guidance.md")).toBe(false);
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(false);
     expect(rendered.response).toMatchObject({
       mode: "json",
       prototypeGuidanceMarkdown: null

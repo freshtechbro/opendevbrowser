@@ -197,6 +197,11 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
+    expect(response.suggestedNextAction).toContain("canvas.plan.set");
+    expect(response.followthroughSummary).toContain("canvas-plan.request.json");
+    expect(response.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("OpenDevBrowser Canvas")
+    }));
     expect(deps.manager.launch).not.toHaveBeenCalled();
     expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
       { url: "https://example.com/reference" },

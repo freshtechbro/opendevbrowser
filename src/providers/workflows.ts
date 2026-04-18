@@ -15,6 +15,7 @@ import {
 import {
   buildInspiredesignPacket,
   type InspiredesignCaptureEvidence,
+  type InspiredesignFollowthrough,
   type InspiredesignReferenceEvidence
 } from "./inspiredesign-contract";
 import type { InspiredesignCaptureOptions } from "./inspiredesign-capture";
@@ -1445,7 +1446,8 @@ const buildInspiredesignMeta = (
   runtime: ProviderExecutor,
   workflowInput: InspiredesignResolvedInput,
   references: InspiredesignReferenceEvidence[],
-  failures: ProviderFailureEntry[]
+  failures: ProviderFailureEntry[],
+  followthrough: InspiredesignFollowthrough
 ): Record<string, unknown> => {
   const failedCaptures = references.filter((reference) => reference.captureStatus === "failed");
   let reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
@@ -1476,7 +1478,13 @@ const buildInspiredesignMeta = (
       meta = withPrimaryConstraintSummaryOverride(meta, captureConstraint.summary, captureConstraint.guidance);
     }
   }
-  return meta;
+  return {
+    ...meta,
+    followthroughSummary: followthrough.summary,
+    recommendedSkills: followthrough.recommendedSkills,
+    deepCaptureRecommendation: followthrough.deepCaptureRecommendation,
+    contractScope: followthrough.contractScope
+  };
 };
 
 const inferBrandFromContent = (content: string | undefined): string | undefined => {
@@ -2534,18 +2542,20 @@ export const runInspiredesignWorkflow = async (
     });
   }
 
-  const meta = buildInspiredesignMeta(runtime, workflowInput, references, failures);
   const packet = buildInspiredesignPacket({
     brief: workflowInput.brief,
     urls: workflowInput.urls,
     references,
     includePrototypeGuidance: workflowInput.includePrototypeGuidance
   });
+  const meta = buildInspiredesignMeta(runtime, workflowInput, references, failures, packet.followthrough);
   const rendered = renderInspiredesign({
     mode: workflowInput.mode,
     brief: workflowInput.brief,
     urls: workflowInput.urls,
     designContract: packet.designContract,
+    canvasPlanRequest: packet.canvasPlanRequest,
+    designAgentHandoff: packet.followthrough,
     generationPlan: packet.generationPlan,
     implementationPlan: packet.implementationPlan,
     designMarkdown: packet.designMarkdown,

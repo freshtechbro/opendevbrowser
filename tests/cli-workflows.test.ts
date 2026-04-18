@@ -371,6 +371,27 @@ describe("workflow CLI commands", () => {
     }));
   });
 
+  it("surfaces inspiredesign success follow-through guidance", async () => {
+    callDaemon.mockResolvedValue({
+      followthroughSummary: "Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence.",
+      suggestedNextAction: "Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+    });
+
+    const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Design system baseline"
+    ]));
+
+    expect(result).toEqual({
+      success: true,
+      message: "Inspiredesign workflow completed. Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence. Next step: Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json.",
+      data: {
+        followthroughSummary: "Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence.",
+        suggestedNextAction: "Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+      }
+    });
+  });
+
   it("parses and dispatches product-video run payload", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 
