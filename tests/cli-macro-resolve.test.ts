@@ -64,7 +64,7 @@ describe("macro-resolve CLI command", () => {
       execute: true
     });
     expect(result.success).toBe(true);
-    expect(result.message).toBe("Macro resolved and executed.");
+    expect(result.message).toBe("Macro resolved, but execution is blocked and needs follow-up.");
     expect(result.data).toMatchObject({
       execution: {
         meta: {
@@ -98,6 +98,7 @@ describe("macro-resolve CLI command", () => {
     ]));
 
     expect(result.success).toBe(true);
+    expect(result.message).toBe("Macro resolved and executed.");
     const executionMeta = (result.data as { execution?: { meta?: Record<string, unknown> } }).execution?.meta;
     expect(executionMeta?.ok).toBe(true);
     expect(executionMeta).not.toHaveProperty("blocker");

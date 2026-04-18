@@ -30,6 +30,29 @@ const requireValue = (value: string | undefined, flag: string): string => {
   return value;
 };
 
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+};
+
+const hasExecutionBlocker = (result: unknown): boolean => {
+  const execution = asRecord(asRecord(result)?.execution);
+  const meta = asRecord(execution?.meta);
+  return asRecord(meta?.blocker) !== null;
+};
+
+const buildMacroResolveMessage = (execute: boolean, result: unknown): string => {
+  if (!execute) {
+    return "Macro resolved.";
+  }
+  if (hasExecutionBlocker(result)) {
+    return "Macro resolved, but execution is blocked and needs follow-up.";
+  }
+  return "Macro resolved and executed.";
+};
+
 const parseMacroResolveArgs = (rawArgs: string[]): MacroResolveArgs => {
   const parsed: MacroResolveArgs = {};
 
@@ -121,7 +144,7 @@ export async function runMacroResolve(args: ParsedArgs) {
 
   return {
     success: true,
-    message: parsed.execute ? "Macro resolved and executed." : "Macro resolved.",
+    message: buildMacroResolveMessage(parsed.execute ?? false, result),
     data: result
   };
 }
