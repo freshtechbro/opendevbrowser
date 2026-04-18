@@ -95,7 +95,11 @@ describe("live-regression release-gate options", () => {
   });
 
   it("recycles when relay already has dirty non-extension clients", () => {
-    expect(hasDirtyRelayClients({ opsConnected: true })).toBe(true);
+    expect(hasDirtyRelayClients({
+      opsConnected: true,
+      extensionConnected: false,
+      extensionHandshakeComplete: false
+    })).toBe(true);
     expect(hasDirtyRelayClients({ canvasConnected: true })).toBe(true);
     expect(hasDirtyRelayClients({ annotationConnected: true })).toBe(true);
     expect(hasDirtyRelayClients({ cdpConnected: true })).toBe(true);
@@ -105,7 +109,7 @@ describe("live-regression release-gate options", () => {
     expect(hasDirtyRelayClients({
       extensionConnected: true,
       extensionHandshakeComplete: true,
-      opsConnected: false,
+      opsConnected: true,
       canvasConnected: false,
       annotationConnected: false,
       cdpConnected: false
