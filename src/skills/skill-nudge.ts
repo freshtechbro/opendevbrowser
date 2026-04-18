@@ -7,7 +7,7 @@ export type SkillNudgeState = {
 
 export const SKILL_NUDGE_MARKER = "[opendevbrowser:skill-nudge]";
 
-const SKILL_NUDGE_MESSAGE = `${SKILL_NUDGE_MARKER} If this task likely matches a skill, start with skill("${onboardingMetadata.skillName}", "${onboardingMetadata.skillTopic}"). For frontend, UI, screenshot-to-code, or /canvas design work, then load skill("${onboardingMetadata.designSkillName}"). Use the canonical opendevbrowser-* packs and start with the bundled quick-start lane before low-level browser commands.`;
+const SKILL_NUDGE_MESSAGE = `${SKILL_NUDGE_MARKER} If this task likely matches a skill, start with skill("${onboardingMetadata.skillName}", "${onboardingMetadata.skillTopic}"). For frontend, UI, screenshot-to-code, or /canvas design work, then load skill("${onboardingMetadata.designSkillName}", "${onboardingMetadata.designSkillTopic}"). Use the canonical opendevbrowser-* packs and start with the bundled quick-start lane before low-level browser commands.`;
 
 type TextPart = { type: "text"; text: string };
 type UnknownPart = { type: string; text?: string };

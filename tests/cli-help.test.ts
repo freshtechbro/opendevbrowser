@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS, VALID_FLAGS } from "../src/cli/args";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import {
+  INSPIREDESIGN_HANDOFF_COMMANDS,
+  INSPIREDESIGN_HANDOFF_GUIDANCE
+} from "../src/inspiredesign/handoff";
+import {
   COMMAND_HELP_DETAILS,
   HELP_CAPABILITY_ENTRIES,
   HELP_COMMAND_GROUPS,
@@ -70,6 +74,7 @@ describe("CLI help surface", () => {
       "skill_list",
       "research_reliable",
       "shopping_reliable",
+      "inspiredesign_followthrough",
       "computer_use_entry",
       "happy_path",
       "surface_split",
@@ -82,12 +87,18 @@ describe("CLI help surface", () => {
     expect(HELP_ONBOARDING_ENTRIES[3]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.skillList);
     expect(HELP_ONBOARDING_ENTRIES[4]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedResearch);
     expect(HELP_ONBOARDING_ENTRIES[5]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.validatedShopping);
-    expect(HELP_ONBOARDING_ENTRIES[6]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.computerUseEntry);
-    expect(HELP_ONBOARDING_ENTRIES[8]?.details).toEqual([
+    expect(HELP_ONBOARDING_ENTRIES[6]?.details).toEqual([
+      { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
+      { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
+      { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
+      { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
+    ]);
+    expect(HELP_ONBOARDING_ENTRIES[7]?.details?.[0]?.value).toBe(onboardingMetadata.quickStartCommands.computerUseEntry);
+    expect(HELP_ONBOARDING_ENTRIES[9]?.details).toEqual([
       { label: "cli-only:", value: getCliOnlyCommands().join(", ") },
       { label: "tool-only:", value: getToolOnlyHelperNames().join(", ") }
     ]);
-    expect(HELP_ONBOARDING_ENTRIES[9]?.details).toHaveLength(1);
+    expect(HELP_ONBOARDING_ENTRIES[10]?.details).toHaveLength(1);
   });
 
   it("defines explicit find-it-fast lookup entries for replay, desktop observation, and browser-scoped computer use", () => {
@@ -121,6 +132,10 @@ describe("CLI help surface", () => {
     expect(output).toContain(onboardingMetadata.quickStartCommands.skillList);
     expect(output).toContain(onboardingMetadata.quickStartCommands.validatedResearch);
     expect(output).toContain(onboardingMetadata.quickStartCommands.validatedShopping);
+    expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices);
+    expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent);
+    expect(output).toContain(INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest);
+    expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas);
     expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
     expect(output).toContain(getCliOnlyCommands().join(", "));
@@ -137,7 +152,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("swift command");
     expect(output).toContain("screencapture");
     expect(output).toContain("--challenge-automation-mode off|browser|browser_with_helper");
-    expect(output).toContain("research run, shopping run, product-video run, macro-resolve --execute");
+    expect(output).toContain("research run, shopping run, product-video run, inspiredesign run, macro-resolve --execute");
     expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain("not a desktop agent");
     expect(output).toContain("surface_split");
@@ -167,6 +182,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("docs/WORKFLOW_SURFACE_MAP.md");
     expect(output).toContain("src/tools/index.ts");
     expect(output).toContain("src/cli/help.ts");
+    expect(output).toContain("src/inspiredesign/handoff.ts");
     expect(output).toContain("src/public-surface/generated-manifest.ts");
     expect(output).not.toContain("src/tools/surface.ts");
   });

@@ -57,6 +57,6 @@ describe("skill nudge", () => {
     const message = buildSkillNudgeMessage();
     expect(message).toContain(SKILL_NUDGE_MARKER);
     expect(message).toContain(`skill("${onboardingMetadata.skillName}", "${onboardingMetadata.skillTopic}")`);
-    expect(message).toContain(`skill("${onboardingMetadata.designSkillName}")`);
+    expect(message).toContain(`skill("${onboardingMetadata.designSkillName}", "${onboardingMetadata.designSkillTopic}")`);
   });
 });

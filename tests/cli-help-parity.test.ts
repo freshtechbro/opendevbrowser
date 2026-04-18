@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS } from "../src/cli/args";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import { COMMAND_HELP_DETAILS, HELP_COMMAND_GROUPS, HELP_FLAG_GROUPS, HELP_REFERENCE_ENTRIES, HELP_TOOL_ENTRIES } from "../src/cli/help";
+import { INSPIREDESIGN_HANDOFF_COMMANDS, INSPIREDESIGN_HANDOFF_GUIDANCE } from "../src/inspiredesign/handoff";
 import { LOCAL_ONLY_TOOL_NAMES } from "../src/tools";
 import { TOOL_SURFACE_ENTRIES } from "../src/public-surface/generated-manifest";
 
@@ -160,12 +161,23 @@ describe("cli help parity", () => {
     expect(labels).toContain("opendevbrowser help");
     expect(labels).toContain("src/cli/help.ts");
     expect(labels).toContain("src/cli/onboarding-metadata.json");
+    expect(labels).toContain("src/inspiredesign/handoff.ts");
     expect(labels).toContain("src/public-surface/generated-manifest.ts");
     expect(labels).toContain("docs/WORKFLOW_SURFACE_MAP.md");
     expect(labels).toContain(onboardingMetadata.referencePaths.onboardingDoc);
     expect(labels).toContain(onboardingMetadata.referencePaths.skillDoc);
     expect(labels).not.toContain("~/.codex/skills/opendevbrowser-best-practices");
     expect(labels).not.toContain("src/tools/surface.ts");
+  });
+
+  it("keeps inspiredesign followthrough commands sourced from the shared handoff module", () => {
+    const inspiredesignEntry = HELP_REFERENCE_ENTRIES.find((entry) => entry.label === "src/inspiredesign/handoff.ts");
+
+    expect(inspiredesignEntry?.description).toContain("Shared inspiredesign follow-through commands");
+    expect(INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices).toContain("opendevbrowser-best-practices");
+    expect(INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent).toContain("opendevbrowser-design-agent");
+    expect(INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest).toContain("canvas-plan.request.json");
+    expect(INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas).toContain("canvas.plan.set");
   });
 
   it("keeps onboarding-recommended tool names local-only", () => {

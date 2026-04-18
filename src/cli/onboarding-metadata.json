@@ -5,6 +5,7 @@
   "skillTopic": "quick start",
   "validatedSkillTopic": "validated capability lanes",
   "designSkillName": "opendevbrowser-design-agent",
+  "designSkillTopic": "canvas-contract",
   "localOnlyToolNames": [
     "opendevbrowser_prompting_guide",
     "opendevbrowser_skill_list",
