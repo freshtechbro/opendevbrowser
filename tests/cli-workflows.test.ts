@@ -392,6 +392,49 @@ describe("workflow CLI commands", () => {
     });
   });
 
+  it.each([
+    {
+      name: "research",
+      label: "Research workflow",
+      run: () => runResearchCommand(makeArgs("research", [
+        "run",
+        "--topic=browser automation"
+      ]))
+    },
+    {
+      name: "shopping",
+      label: "Shopping workflow",
+      run: () => runShoppingCommand(makeArgs("shopping", [
+        "run",
+        "--query=usb hub"
+      ]))
+    },
+    {
+      name: "product-video",
+      label: "Product video asset workflow",
+      run: () => runProductVideoCommand(makeArgs("product-video", [
+        "run",
+        "--product-name=Sample Product"
+      ]))
+    }
+  ])("surfaces $name success follow-through guidance", async ({ label, run }) => {
+    callDaemon.mockResolvedValue({
+      followthroughSummary: "Review the returned bundle before publishing the workflow outcome.",
+      suggestedNextAction: "Inspect the artifact path and rerun with tighter inputs if you need stronger evidence."
+    });
+
+    const result = await run();
+
+    expect(result).toEqual({
+      success: true,
+      message: `${label} completed. Review the returned bundle before publishing the workflow outcome. Next step: Inspect the artifact path and rerun with tighter inputs if you need stronger evidence.`,
+      data: {
+        followthroughSummary: "Review the returned bundle before publishing the workflow outcome.",
+        suggestedNextAction: "Inspect the artifact path and rerun with tighter inputs if you need stronger evidence."
+      }
+    });
+  });
+
   it("parses and dispatches product-video run payload", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 

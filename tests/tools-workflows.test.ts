@@ -144,6 +144,14 @@ describe("workflow tools", () => {
     } as never));
 
     expect(research.ok).toBe(true);
+    expect(research.followthroughSummary).toContain("ranked records");
+    expect(research.suggestedNextAction).toContain("artifact path");
+    expect(research.suggestedSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("support") })])
+    );
+    expect(research.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("publishable claim")
+    }));
     expect((research.meta as { selection: { resolved_sources: string[] } }).selection.resolved_sources).toEqual([
       "web",
       "community",
@@ -158,6 +166,14 @@ describe("workflow tools", () => {
     } as never));
 
     expect(shopping.ok).toBe(true);
+    expect(shopping.followthroughSummary).toContain("offer set");
+    expect(shopping.suggestedNextAction).toContain("offerFilterDiagnostics");
+    expect(shopping.suggestedSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("filters") })])
+    );
+    expect(shopping.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("strong deal")
+    }));
     const offers = shopping.offers as Array<{ provider: string; price: { amount: number } }>;
     expect(offers[0]?.price.amount).toBeLessThanOrEqual(offers[1]?.price.amount);
   });
@@ -176,6 +192,14 @@ describe("workflow tools", () => {
 
     expect(response.ok).toBe(true);
     expect(response.path).toEqual(expect.any(String));
+    expect(response.followthroughSummary).toContain("asset pack");
+    expect(response.suggestedNextAction).toContain("render-video-brief.sh");
+    expect(response.suggestedSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("metadata-first") })])
+    );
+    expect(response.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("visual-ready")
+    }));
     expect(deps.manager.launch).toHaveBeenCalledTimes(1);
     expect(deps.manager.screenshot).toHaveBeenCalledTimes(1);
     expect(deps.manager.disconnect).toHaveBeenCalledTimes(1);

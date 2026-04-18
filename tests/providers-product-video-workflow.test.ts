@@ -5,6 +5,7 @@ import {
   readProductVideoCheckpointState,
   serializeProductVideoCheckpointState
 } from "../src/providers/product-video-compiler";
+import { buildProductVideoSuccessHandoff } from "../src/providers/workflow-handoff";
 import { buildWorkflowResumeEnvelope, type WorkflowCheckpoint } from "../src/providers/workflow-contracts";
 import { runProductVideoWorkflow, type ProviderExecutor, type ProductVideoRunInput } from "../src/providers/workflows";
 import type {
@@ -349,20 +350,30 @@ describe("product-video substrate adoption", () => {
     const fetch = vi.fn(async () => makeAggregate({
       records: [makeRecord()]
     }));
+    const handoff = buildProductVideoSuccessHandoff();
 
     const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput());
 
     expect(search).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(Object.keys(output).sort()).toEqual([
+      "followthroughSummary",
       "images",
       "manifest",
       "meta",
       "path",
       "pricing",
       "product",
-      "screenshots"
+      "screenshots",
+      "suggestedNextAction",
+      "suggestedSteps"
     ]);
+    expect(output.followthroughSummary).toBe(handoff.followthroughSummary);
+    expect(output.suggestedNextAction).toBe(handoff.suggestedNextAction);
+    expect(output.suggestedSteps).toEqual(handoff.suggestedSteps);
+    expect(output.meta).toMatchObject({
+      followthroughSummary: handoff.followthroughSummary
+    });
     expect((output.manifest as { assets: { raw: string[] } }).assets.raw).toEqual(["raw/source-record.json"]);
     expect(output.images).toEqual([]);
     expect(output.screenshots).toEqual([]);

@@ -18,6 +18,12 @@ import {
   type InspiredesignFollowthrough,
   type InspiredesignReferenceEvidence
 } from "./inspiredesign-contract";
+import {
+  buildProductVideoSuccessHandoff,
+  buildResearchSuccessHandoff,
+  buildShoppingSuccessHandoff,
+  type WorkflowSuccessHandoff
+} from "./workflow-handoff";
 import type { InspiredesignCaptureOptions } from "./inspiredesign-capture";
 import {
   LOOKS_LIKE_URL_RE,
@@ -189,6 +195,14 @@ const SIGNAL_WINDOW = 50;
 const RECOVERY_WINDOWS_REQUIRED = 2;
 const providerSignalMap = new Map<string, ProviderSignalState>();
 const workflowLogger = createLogger("provider-workflows");
+
+const withFollowthroughMeta = (
+  meta: Record<string, unknown>,
+  handoff: WorkflowSuccessHandoff
+): Record<string, unknown> => ({
+  ...meta,
+  followthroughSummary: handoff.followthroughSummary
+});
 
 const detectSignal = (error: ProviderError): ProviderSignal | null => {
   const reasonCode = error.reasonCode
@@ -2255,12 +2269,14 @@ export const runResearchWorkflow = async (
     failures: mergedFailures,
     alerts: buildWorkflowAlerts(runtime, mergedFailures)
   } as Record<string, unknown>, primaryConstraintFailures);
+  const handoff = buildResearchSuccessHandoff();
+  const responseMeta = withFollowthroughMeta(meta, handoff);
 
   const rendered = renderResearch({
     mode: workflowInput.mode,
     topic: plan.compiled.topic,
     records: ranked,
-    meta
+    meta: responseMeta
   });
 
   const bundle = await createArtifactBundle({
@@ -2273,10 +2289,11 @@ export const runResearchWorkflow = async (
   if (workflowInput.mode === "path") {
     return {
       ...rendered.response,
+      ...handoff,
       path: bundle.basePath,
       records: ranked,
       meta: {
-        ...meta,
+        ...responseMeta,
         artifact_manifest: bundle.manifest
       }
     };
@@ -2284,10 +2301,11 @@ export const runResearchWorkflow = async (
 
   return {
     ...rendered.response,
+    ...handoff,
     artifact_path: bundle.basePath,
     records: ranked,
     meta: {
-      ...meta,
+      ...responseMeta,
       artifact_manifest: bundle.manifest
     }
   };
@@ -2453,12 +2471,14 @@ export const runShoppingWorkflow = async (
   if (typeof filterConstraintSummary === "string") {
     meta = withPrimaryConstraintSummaryOverride(meta, filterConstraintSummary);
   }
+  const handoff = buildShoppingSuccessHandoff();
+  const responseMeta = withFollowthroughMeta(meta, handoff);
 
   const rendered = renderShopping({
     mode: workflowInput.mode,
     query: plan.compiled.query,
     offers,
-    meta
+    meta: responseMeta
   });
 
   const bundle = await createArtifactBundle({
@@ -2471,10 +2491,11 @@ export const runShoppingWorkflow = async (
   if (workflowInput.mode === "path") {
     return {
       ...rendered.response,
+      ...handoff,
       path: bundle.basePath,
       offers,
       meta: {
-        ...meta,
+        ...responseMeta,
         artifact_manifest: bundle.manifest
       }
     };
@@ -2482,10 +2503,11 @@ export const runShoppingWorkflow = async (
 
   return {
     ...rendered.response,
+    ...handoff,
     offers,
     artifact_path: bundle.basePath,
     meta: {
-      ...meta,
+      ...responseMeta,
       artifact_manifest: bundle.manifest
     }
   };
@@ -3001,32 +3023,35 @@ export const runProductVideoWorkflow = async (
   const cookieDiagnostics = summarizeCookieDiagnostics(details.failures, details.records);
   const antiBotPressure = summarizeAntiBotPressure(details.failures);
   const primaryIssue = summarizePrimaryProviderIssue(details.failures);
+  const handoff = buildProductVideoSuccessHandoff();
+  const meta = withFollowthroughMeta({
+    alerts: buildWorkflowAlerts(runtime, details.failures),
+    failures: details.failures,
+    ...(primaryIssue ? { primaryConstraintSummary: primaryIssue.summary } : {}),
+    reasonCodeDistribution,
+    transcript_strategy_failures: transcriptStrategyFailures,
+    transcriptStrategyFailures,
+    transcript_strategy_detail_failures: transcriptStrategyFailures,
+    transcriptStrategyDetailFailures: transcriptStrategyFailures,
+    transcript_strategy_detail_distribution: transcriptStrategyDetailDistribution,
+    transcriptStrategyDetailDistribution,
+    transcript_durability: transcriptDurability,
+    transcriptDurability,
+    cookie_diagnostics: cookieDiagnostics,
+    cookieDiagnostics,
+    anti_bot_pressure: antiBotPressure,
+    antiBotPressure,
+    artifact_manifest: bundle.manifest
+  }, handoff);
 
   return {
+    ...handoff,
     path: bundle.basePath,
     manifest: manifestPayload,
     product: productPayload,
     pricing,
     screenshots: screenshotPaths,
     images: imagePaths,
-    meta: {
-      alerts: buildWorkflowAlerts(runtime, details.failures),
-      failures: details.failures,
-      ...(primaryIssue ? { primaryConstraintSummary: primaryIssue.summary } : {}),
-      reasonCodeDistribution,
-      transcript_strategy_failures: transcriptStrategyFailures,
-      transcriptStrategyFailures,
-      transcript_strategy_detail_failures: transcriptStrategyFailures,
-      transcriptStrategyDetailFailures: transcriptStrategyFailures,
-      transcript_strategy_detail_distribution: transcriptStrategyDetailDistribution,
-      transcriptStrategyDetailDistribution,
-      transcript_durability: transcriptDurability,
-      transcriptDurability,
-      cookie_diagnostics: cookieDiagnostics,
-      cookieDiagnostics,
-      anti_bot_pressure: antiBotPressure,
-      antiBotPressure,
-      artifact_manifest: bundle.manifest
-    }
+    meta
   };
 };
