@@ -5,7 +5,10 @@ import {
   readProductVideoCheckpointState,
   serializeProductVideoCheckpointState
 } from "../src/providers/product-video-compiler";
-import { buildProductVideoSuccessHandoff } from "../src/providers/workflow-handoff";
+import {
+  PRODUCT_VIDEO_BRIEF_HELPER_PATH,
+  buildProductVideoSuccessHandoff
+} from "../src/providers/workflow-handoff";
 import { buildWorkflowResumeEnvelope, type WorkflowCheckpoint } from "../src/providers/workflow-contracts";
 import { runProductVideoWorkflow, type ProviderExecutor, type ProductVideoRunInput } from "../src/providers/workflows";
 import type {
@@ -371,6 +374,10 @@ describe("product-video substrate adoption", () => {
     expect(output.followthroughSummary).toBe(handoff.followthroughSummary);
     expect(output.suggestedNextAction).toBe(handoff.suggestedNextAction);
     expect(output.suggestedSteps).toEqual(handoff.suggestedSteps);
+    expect(output.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
+    expect((output.suggestedSteps as Array<{ command?: string }>)[1]?.command).toBe(
+      `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`
+    );
     expect(output.meta).toMatchObject({
       followthroughSummary: handoff.followthroughSummary
     });

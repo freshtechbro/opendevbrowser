@@ -9,6 +9,10 @@ export type WorkflowSuccessHandoff = {
   suggestedSteps: WorkflowSuccessStep[];
 };
 
+export const PRODUCT_VIDEO_BRIEF_HELPER_PATH = "./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh";
+
+const PRODUCT_VIDEO_BRIEF_HELPER_COMMAND = `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`;
+
 const createSuccessHandoff = (
   followthroughSummary: string,
   suggestedNextAction: string,
@@ -44,10 +48,13 @@ export const buildShoppingSuccessHandoff = (): WorkflowSuccessHandoff => {
 export const buildProductVideoSuccessHandoff = (): WorkflowSuccessHandoff => {
   return createSuccessHandoff(
     "Review the generated asset pack to confirm whether it is visual-ready or metadata-first before briefing production.",
-    "Open the returned pack path, inspect manifest.json plus copy and features, then run scripts/render-video-brief.sh <pack>/manifest.json to generate production briefs and sourcing notes.",
+    `Open the returned pack path, inspect manifest.json plus copy and features, then run ${PRODUCT_VIDEO_BRIEF_HELPER_COMMAND} to generate production briefs and sourcing notes.`,
     [
       { reason: "Confirm whether the pack already includes enough images or screenshots for production." },
-      { reason: "Run scripts/render-video-brief.sh on manifest.json to generate the production brief files." },
+      {
+        reason: "Run the product-presentation-asset brief helper on manifest.json to generate the production brief files.",
+        command: PRODUCT_VIDEO_BRIEF_HELPER_COMMAND
+      },
       { reason: "Source or capture visuals before final handoff if the pack is metadata-first." }
     ]
   );

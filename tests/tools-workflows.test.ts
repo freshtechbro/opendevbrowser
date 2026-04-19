@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { PRODUCT_VIDEO_BRIEF_HELPER_PATH } from "../src/providers/workflow-handoff";
 
 vi.mock("@opencode-ai/plugin", async () => {
   const { z } = await import("zod");
@@ -193,9 +194,12 @@ describe("workflow tools", () => {
     expect(response.ok).toBe(true);
     expect(response.path).toEqual(expect.any(String));
     expect(response.followthroughSummary).toContain("asset pack");
-    expect(response.suggestedNextAction).toContain("render-video-brief.sh");
+    expect(response.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
     expect(response.suggestedSteps).toEqual(
       expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("metadata-first") })])
+    );
+    expect((response.suggestedSteps as Array<{ command?: string }>)[1]?.command).toBe(
+      `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`
     );
     expect(response.meta).toEqual(expect.objectContaining({
       followthroughSummary: expect.stringContaining("visual-ready")
