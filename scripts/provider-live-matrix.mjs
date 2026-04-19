@@ -13,6 +13,7 @@ import {
   shoppingProvidersForMode,
   socialPlatformsForMode
 } from './provider-live-scenarios.mjs';
+import { hasDirtyRelayClients } from './live-regression-matrix.mjs';
 import {
   AUTH_GATED_SHOPPING_PROVIDERS,
   HIGH_FRICTION_SHOPPING_PROVIDERS,
@@ -537,10 +538,7 @@ function relayNeedsRestartAfterNestedRun(status) {
   if (!relay || relay.running !== true) {
     return true;
   }
-  return relay.opsConnected === true
-    || relay.canvasConnected === true
-    || relay.annotationConnected === true
-    || relay.cdpConnected === true
+  return hasDirtyRelayClients(relay)
     || (relay.extensionConnected === true && relay.extensionHandshakeComplete !== true);
 }
 

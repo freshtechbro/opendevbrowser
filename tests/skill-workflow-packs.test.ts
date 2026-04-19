@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import { join } from "path";
 import * as os from "os";
 import { describe, expect, it } from "vitest";
+import { PRODUCT_VIDEO_BRIEF_HELPER_PATH } from "../src/providers/workflow-handoff";
 import { SkillLoader } from "../src/skills/skill-loader";
 
 const repoRoot = process.cwd();
@@ -190,6 +191,14 @@ describe("workflow skill packs", () => {
         await expect(access(join(bundledSkillsDir, skill, relativePath))).resolves.toBeUndefined();
       }
     }
+  });
+  it("documents the product-video brief helper with the bundled skill path", async () => {
+    const content = await readFile(
+      join(bundledSkillsDir, "opendevbrowser-product-presentation-asset", "SKILL.md"),
+      "utf8"
+    );
+
+    expect(content).toContain(`\`${PRODUCT_VIDEO_BRIEF_HELPER_PATH}\``);
   });
 
   it("uses the shared CLI resolver for executable workflow wrappers", async () => {

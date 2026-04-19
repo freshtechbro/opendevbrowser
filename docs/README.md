@@ -31,7 +31,6 @@ Generated help is the canonical first-contact discovery surface and must keep th
 ## Website and design docs
 
 - `<public-repo-root>/docs/FRONTEND.md` - public/private website ownership, sync, and validation contract
-- `<public-repo-root>/docs/CHROME_DEVTOOLS_MCP_COMPETITIVE_INVENTORY_2026-03-27.md` - Chrome DevTools MCP gap audit with current-state annotations
 
 ## Version-scoped evidence
 

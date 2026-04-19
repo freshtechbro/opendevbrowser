@@ -106,6 +106,42 @@ describe("provider-live-matrix parseArgs", () => {
     });
   });
 
+  it("reuses the existing matrix daemon when only a healthy extension relay remains", async () => {
+    const healthyExtensionRelay = {
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            running: true,
+            opsConnected: true,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false,
+            extensionConnected: true,
+            extensionHandshakeComplete: true
+          }
+        }
+      }
+    };
+    const statusReader = vi.fn(() => healthyExtensionRelay);
+    const stopper = vi.fn();
+    const starter = vi.fn();
+    const waiter = vi.fn();
+
+    const result = await restoreDaemonAfterNestedLiveRegression(
+      { OPENCODE_CONFIG_DIR: "/tmp/provider-live" },
+      { statusReader, stopper, starter, waiter }
+    );
+
+    expect(stopper).not.toHaveBeenCalled();
+    expect(starter).not.toHaveBeenCalled();
+    expect(waiter).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      restarted: false,
+      status: healthyExtensionRelay
+    });
+  });
+
   it("restarts the matrix daemon when nested live-regression leaves dirty relay clients behind", async () => {
     const statusReader = vi.fn(() => ({
       status: 0,

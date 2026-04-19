@@ -2,7 +2,7 @@
 
 Status: active release ledger
 Target release date: 2026-04-17  
-Last updated: 2026-04-17
+Last updated: 2026-04-18
 
 ## Scope
 
@@ -84,8 +84,8 @@ Tracks the `0.0.20` release cycle after the published `v0.0.19` release, includi
 ## Local verification snapshot
 
 - `npm run test`
-  - Result: `256 passed | 1 skipped` test files, `3713 passed | 1 skipped` tests
-  - Coverage: `98.10%` statements, `97.01%` branches, `97.74%` functions, `98.16%` lines
+  - Result: `256 passed | 1 skipped` test files, `3720 passed | 1 skipped` tests
+  - Coverage: `98.10%` statements, `97.01%` branches, `97.75%` functions, `98.16%` lines
 - `npm run test:release-gate`
   - Result: all grouped release-gate suites passed
 - `npx opendevbrowser --help` and `npx opendevbrowser help`
@@ -104,5 +104,6 @@ Tracks the `0.0.20` release cycle after the published `v0.0.19` release, includi
 ## Notes
 
 - Use this ledger as the active release checklist until all publish lanes and post-publish proofs are complete.
+- Supporting matrix harnesses were revalidated on 2026-04-18 after aligning relay reuse with the documented `/ops` presence-only status signal: a healthy extension-only relay may report `opsConnected=true` without forcing a daemon recycle, while strict release proof remains anchored on `provider-direct-runs` and `live-regression-direct`.
 - Keep `docs/RELEASE_0.0.19_EVIDENCE.md`, `docs/RELEASE_0.0.18_EVIDENCE.md`, `docs/RELEASE_0.0.17_EVIDENCE.md`, and `docs/RELEASE_0.0.16_EVIDENCE.md` historical.
 - Because the public repo still lacks `NPM_TOKEN` and `CWS_*` secrets, the remaining npm and Chrome Web Store lanes must be completed from the current operator machine or documented as blocked after direct verification.

@@ -63,21 +63,24 @@ describe("live-direct-utils", () => {
 
   it("kills stubborn async children that ignore SIGTERM", async () => {
     const scriptPath = writeTempScript(`
-      process.on("SIGTERM", () => {});
+      process.on("SIGTERM", () => {
+        process.stdout.write("ignoring-sigterm\\n");
+      });
+      process.stdout.write("ready\\n");
       setInterval(() => {}, 1_000);
     `);
 
     const startedAt = Date.now();
-    // Give the child enough time to install the SIGTERM handler so this
-    // exercise covers the forced SIGKILL path instead of startup timing.
     const result = await runNodeAsync([scriptPath], {
       allowFailure: true,
-      timeoutMs: 500
+      timeoutMs: 1_500
     });
 
     expect(result.status).toBeGreaterThan(0);
     expect(result.timedOut).toBe(true);
+    expect(result.stdout).toContain("ready");
+    expect(result.stdout).toContain("ignoring-sigterm");
     expect(result.signal).toBe("SIGKILL");
-    expect(Date.now() - startedAt).toBeLessThan(2_500);
+    expect(Date.now() - startedAt).toBeLessThan(4_000);
   });
 });

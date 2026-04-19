@@ -103,10 +103,18 @@ export function shouldUseGlobalEnv(useGlobalEnvEnv = process.env.LIVE_MATRIX_USE
 }
 
 export function hasDirtyRelayClients(relay) {
-  return relay?.opsConnected === true
-    || relay?.canvasConnected === true
+  if (!relay) {
+    return false;
+  }
+  if (
+    relay.canvasConnected === true
     || relay?.annotationConnected === true
-    || relay?.cdpConnected === true;
+    || relay?.cdpConnected === true
+  ) {
+    return true;
+  }
+  const extensionReady = relay.extensionConnected === true && relay.extensionHandshakeComplete === true;
+  return relay.opsConnected === true && !extensionReady;
 }
 
 export function buildExtensionOpsLaunchArgs() {
@@ -728,13 +736,13 @@ async function waitForExtensionReady(env, timeoutMs = 30000) {
 async function waitForOpsDisconnected(env, timeoutMs = 30000) {
   const latest = await waitForRelayReadiness(
     env,
-    (readiness) => readiness?.opsConnected === false,
+    (readiness) => hasDirtyRelayClients(readiness) === false,
     timeoutMs,
     1000
   );
-  if (latest?.opsConnected === true) {
+  if (latest && hasDirtyRelayClients(latest)) {
     throw new Error(
-      `Extension relay still reports opsConnected=true after /ops cleanup. ${buildExtensionReadinessDetail(latest)}`
+      `Extension relay still reports dirty clients after /ops cleanup. ${buildExtensionReadinessDetail(latest)}`
     );
   }
   return latest;

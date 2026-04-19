@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { PRODUCT_VIDEO_BRIEF_HELPER_PATH } from "../src/providers/workflow-handoff";
 
 vi.mock("@opencode-ai/plugin", async () => {
   const { z } = await import("zod");
@@ -144,6 +145,14 @@ describe("workflow tools", () => {
     } as never));
 
     expect(research.ok).toBe(true);
+    expect(research.followthroughSummary).toContain("ranked records");
+    expect(research.suggestedNextAction).toContain("artifact path");
+    expect(research.suggestedSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("support") })])
+    );
+    expect(research.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("publishable claim")
+    }));
     expect((research.meta as { selection: { resolved_sources: string[] } }).selection.resolved_sources).toEqual([
       "web",
       "community",
@@ -158,6 +167,14 @@ describe("workflow tools", () => {
     } as never));
 
     expect(shopping.ok).toBe(true);
+    expect(shopping.followthroughSummary).toContain("offer set");
+    expect(shopping.suggestedNextAction).toContain("offerFilterDiagnostics");
+    expect(shopping.suggestedSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("filters") })])
+    );
+    expect(shopping.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("strong deal")
+    }));
     const offers = shopping.offers as Array<{ provider: string; price: { amount: number } }>;
     expect(offers[0]?.price.amount).toBeLessThanOrEqual(offers[1]?.price.amount);
   });
@@ -176,6 +193,17 @@ describe("workflow tools", () => {
 
     expect(response.ok).toBe(true);
     expect(response.path).toEqual(expect.any(String));
+    expect(response.followthroughSummary).toContain("asset pack");
+    expect(response.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
+    expect(response.suggestedSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("metadata-first") })])
+    );
+    expect((response.suggestedSteps as Array<{ command?: string }>)[1]?.command).toBe(
+      `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`
+    );
+    expect(response.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("visual-ready")
+    }));
     expect(deps.manager.launch).toHaveBeenCalledTimes(1);
     expect(deps.manager.screenshot).toHaveBeenCalledTimes(1);
     expect(deps.manager.disconnect).toHaveBeenCalledTimes(1);
@@ -197,6 +225,11 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
+    expect(response.suggestedNextAction).toContain("canvas.plan.set");
+    expect(response.followthroughSummary).toContain("canvas-plan.request.json");
+    expect(response.meta).toEqual(expect.objectContaining({
+      followthroughSummary: expect.stringContaining("OpenDevBrowser Canvas")
+    }));
     expect(deps.manager.launch).not.toHaveBeenCalled();
     expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
       { url: "https://example.com/reference" },

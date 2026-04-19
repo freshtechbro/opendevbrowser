@@ -1,7 +1,11 @@
 import { canonicalizeUrl } from "./web/crawler";
 import type { ResearchRecord } from "./enrichment";
-import type { InspiredesignImplementationPlan } from "./inspiredesign-contract";
+import type { InspiredesignFollowthrough, InspiredesignImplementationPlan } from "./inspiredesign-contract";
 import type { CanvasDesignGovernance, CanvasGenerationPlan } from "../canvas/types";
+import {
+  INSPIREDESIGN_HANDOFF_FILES,
+  INSPIREDESIGN_HANDOFF_GUIDANCE
+} from "../inspiredesign/handoff";
 
 export type RenderMode = "compact" | "json" | "md" | "context" | "path";
 
@@ -264,6 +268,8 @@ export const renderInspiredesign = (args: {
   brief: string;
   urls: string[];
   designContract: CanvasDesignGovernance;
+  canvasPlanRequest: Record<string, unknown>;
+  designAgentHandoff: InspiredesignFollowthrough;
   generationPlan: CanvasGenerationPlan;
   implementationPlan: InspiredesignImplementationPlan;
   designMarkdown: string;
@@ -284,6 +290,8 @@ export const renderInspiredesign = (args: {
     brief: args.brief,
     urls: args.urls,
     designContract: args.designContract,
+    canvasPlanRequest: args.canvasPlanRequest,
+    designAgentHandoff: args.designAgentHandoff,
     generationPlan: args.generationPlan,
     implementationPlan: args.implementationPlan,
     designMarkdown: args.designMarkdown,
@@ -292,16 +300,35 @@ export const renderInspiredesign = (args: {
     evidence: args.evidence,
     meta: args.meta
   };
-  const files = [
-    { path: "design.md", content: args.designMarkdown },
-    { path: "design-contract.json", content: args.designContract },
-    { path: "generation-plan.json", content: args.generationPlan },
-    { path: "implementation-plan.md", content: args.implementationPlanMarkdown },
-    { path: "implementation-plan.json", content: args.implementationPlan },
-    { path: "evidence.json", content: args.evidence }
+  const suggestedSteps = [
+    {
+      reason: "Load the baseline workflow runbook before implementation.",
+      command: args.designAgentHandoff.commandExamples.loadBestPractices
+    },
+    {
+      reason: "Load the Canvas contract lane before patching.",
+      command: args.designAgentHandoff.commandExamples.loadDesignAgent
+    },
+    {
+      reason: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest,
+      command: args.designAgentHandoff.commandExamples.continueInCanvas
+    },
+    {
+      reason: args.designAgentHandoff.deepCaptureRecommendation
+    }
+  ];
+  const files: Array<{ path: string; content: string | Record<string, unknown> }> = [
+    { path: INSPIREDESIGN_HANDOFF_FILES.designMarkdown, content: args.designMarkdown },
+    { path: INSPIREDESIGN_HANDOFF_FILES.designContract, content: args.designContract },
+    { path: INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest, content: args.canvasPlanRequest },
+    { path: INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff, content: args.designAgentHandoff },
+    { path: INSPIREDESIGN_HANDOFF_FILES.generationPlan, content: args.generationPlan },
+    { path: INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown, content: args.implementationPlanMarkdown },
+    { path: INSPIREDESIGN_HANDOFF_FILES.implementationPlan, content: args.implementationPlan },
+    { path: INSPIREDESIGN_HANDOFF_FILES.evidence, content: args.evidence }
   ];
   if (args.prototypeGuidanceMarkdown) {
-    files.push({ path: "prototype-guidance.md", content: args.prototypeGuidanceMarkdown });
+    files.push({ path: INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance, content: args.prototypeGuidanceMarkdown });
   }
 
   if (args.mode === "compact") {
@@ -309,6 +336,9 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         summary,
+        followthroughSummary: args.designAgentHandoff.summary,
+        suggestedNextAction: args.designAgentHandoff.nextStep,
+        suggestedSteps,
         meta: args.meta
       },
       files
@@ -320,11 +350,16 @@ export const renderInspiredesign = (args: {
         mode: args.mode,
         brief: args.brief,
         urls: args.urls,
+        canvasPlanRequest: args.canvasPlanRequest,
+        designAgentHandoff: args.designAgentHandoff,
         designContract: args.designContract,
         generationPlan: args.generationPlan,
         implementationPlan: args.implementationPlan,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
         evidence: args.evidence,
+        followthroughSummary: args.designAgentHandoff.summary,
+        suggestedNextAction: args.designAgentHandoff.nextStep,
+        suggestedSteps,
         meta: args.meta
       },
       files
@@ -337,6 +372,9 @@ export const renderInspiredesign = (args: {
         markdown: args.designMarkdown,
         implementationPlanMarkdown: args.implementationPlanMarkdown,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
+        followthroughSummary: args.designAgentHandoff.summary,
+        suggestedNextAction: args.designAgentHandoff.nextStep,
+        suggestedSteps,
         meta: args.meta
       },
       files
@@ -347,6 +385,9 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         context: contextPayload,
+        followthroughSummary: args.designAgentHandoff.summary,
+        suggestedNextAction: args.designAgentHandoff.nextStep,
+        suggestedSteps,
         meta: args.meta
       },
       files
@@ -356,6 +397,9 @@ export const renderInspiredesign = (args: {
   return {
     response: {
       mode: "path",
+      followthroughSummary: args.designAgentHandoff.summary,
+      suggestedNextAction: args.designAgentHandoff.nextStep,
+      suggestedSteps,
       meta: args.meta
     },
     files

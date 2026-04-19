@@ -7,6 +7,14 @@ import type {
   CanvasNavigationModel,
   CanvasVisualDirectionProfile
 } from "../canvas/types";
+import {
+  INSPIREDESIGN_HANDOFF_COMMANDS,
+  INSPIREDESIGN_HANDOFF_GUIDANCE,
+  INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS,
+  INSPIREDESIGN_HANDOFF_FILES,
+  buildInspiredesignFollowthroughSummary,
+  buildInspiredesignNextStep
+} from "../inspiredesign/handoff";
 import type { JsonValue } from "./types";
 
 type JsonRecord = Record<string, JsonValue>;
@@ -17,14 +25,21 @@ type DesignContractTemplate = {
   intent: JsonRecord;
   designLanguage: JsonRecord;
   contentModel: JsonRecord;
+  navigationModel: JsonRecord;
+  asyncModel: JsonRecord;
   layoutSystem: JsonRecord;
   typographySystem: JsonRecord;
   motionSystem: JsonRecord;
+  performanceModel: JsonRecord;
   responsiveSystem: JsonRecord;
   accessibilityPolicy: JsonRecord;
 };
 
-type GenerationPlanTemplate = {
+type CanvasPlanRequestTemplate = {
+  requestId: string;
+  canvasSessionId: string;
+  leaseId: string;
+  documentId: string;
   generationPlan: CanvasGenerationPlan;
 };
 
@@ -102,11 +117,40 @@ export type InspiredesignImplementationPlan = {
 export type InspiredesignPacket = {
   designContract: CanvasDesignGovernance;
   generationPlan: CanvasGenerationPlan;
+  canvasPlanRequest: CanvasPlanRequestTemplate;
+  followthrough: InspiredesignFollowthrough;
   designMarkdown: string;
   implementationPlan: InspiredesignImplementationPlan;
   implementationPlanMarkdown: string;
   prototypeGuidanceMarkdown: string | null;
   evidence: JsonRecord;
+};
+
+export type InspiredesignContractScope = {
+  emittedContract: "CanvasDesignGovernance";
+  emittedGovernanceBlocks: string[];
+  omittedTemplateBlocks: Array<"navigationModel" | "asyncModel" | "performanceModel">;
+  note: string;
+};
+
+export type InspiredesignImplementationContext = {
+  navigationModel: JsonRecord;
+  asyncModel: JsonRecord;
+  performanceModel: JsonRecord;
+};
+
+export type InspiredesignFollowthrough = {
+  summary: string;
+  nextStep: string;
+  recommendedSkills: string[];
+  commandExamples: {
+    loadBestPractices: string;
+    loadDesignAgent: string;
+    continueInCanvas: string;
+  };
+  deepCaptureRecommendation: string;
+  contractScope: InspiredesignContractScope;
+  implementationContext: InspiredesignImplementationContext;
 };
 
 export type BuildInspiredesignPacketInput = {
@@ -117,9 +161,8 @@ export type BuildInspiredesignPacketInput = {
 };
 
 const BASE_CONTRACT_TEMPLATE: DesignContractTemplate = designContractTemplateJson;
-const BASE_GENERATION_PLAN: CanvasGenerationPlan = (
-  generationPlanTemplateJson as GenerationPlanTemplate
-).generationPlan;
+const BASE_PLAN_REQUEST_TEMPLATE = generationPlanTemplateJson as CanvasPlanRequestTemplate;
+const BASE_GENERATION_PLAN: CanvasGenerationPlan = BASE_PLAN_REQUEST_TEMPLATE.generationPlan;
 
 const PROFILE_MATCHERS: ReadonlyArray<{
   profile: CanvasVisualDirectionProfile;
@@ -569,6 +612,69 @@ const buildRuntimeBudgetsBlock = (plan: CanvasGenerationPlan): JsonRecord => ({
   ]
 });
 
+const EMITTED_GOVERNANCE_BLOCKS: InspiredesignContractScope["emittedGovernanceBlocks"] = [
+  "intent",
+  "generationPlan",
+  "designLanguage",
+  "contentModel",
+  "layoutSystem",
+  "typographySystem",
+  "colorSystem",
+  "surfaceSystem",
+  "iconSystem",
+  "motionSystem",
+  "responsiveSystem",
+  "accessibilityPolicy",
+  "libraryPolicy",
+  "runtimeBudgets"
+];
+
+const buildNavigationModelBlock = (profile: CanvasVisualDirectionProfile): JsonRecord => {
+  const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.navigationModel);
+  return {
+    ...block,
+    primaryRouteModel: `Use a ${PROFILE_CONFIG[profile].navigationModel} route shell so the primary action remains stable through state changes.`
+  };
+};
+
+const buildAsyncModelBlock = (): JsonRecord => {
+  return cloneTemplate(BASE_CONTRACT_TEMPLATE.asyncModel);
+};
+
+const buildPerformanceModelBlock = (): JsonRecord => {
+  return cloneTemplate(BASE_CONTRACT_TEMPLATE.performanceModel);
+};
+
+const buildCanvasPlanRequest = (
+  brief: string,
+  generationPlan: CanvasGenerationPlan
+): CanvasPlanRequestTemplate => ({
+  ...cloneTemplate(BASE_PLAN_REQUEST_TEMPLATE),
+  requestId: `req_plan_${referenceFingerprint(brief).slice(0, 12)}`,
+  generationPlan
+});
+
+const buildContractScope = (): InspiredesignContractScope => ({
+  emittedContract: "CanvasDesignGovernance",
+  emittedGovernanceBlocks: [...EMITTED_GOVERNANCE_BLOCKS],
+  omittedTemplateBlocks: ["navigationModel", "asyncModel", "performanceModel"],
+  note: `${INSPIREDESIGN_HANDOFF_FILES.designContract} is the narrowed canvas governance contract. Use ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff} for navigation, async, and performance context that informs implementation but does not belong in canvas governance patches.`
+});
+
+const buildFollowthrough = (generationPlan: CanvasGenerationPlan): InspiredesignFollowthrough => ({
+  summary: buildInspiredesignFollowthroughSummary(),
+  nextStep: buildInspiredesignNextStep(),
+  recommendedSkills: [...INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS],
+  commandExamples: { ...INSPIREDESIGN_HANDOFF_COMMANDS },
+  deepCaptureRecommendation: INSPIREDESIGN_HANDOFF_GUIDANCE.deepCaptureRecommendation,
+  contractScope: buildContractScope(),
+  implementationContext: {
+    navigationModel: buildNavigationModelBlock(generationPlan.visualDirection.profile),
+    asyncModel: buildAsyncModelBlock(),
+    performanceModel: buildPerformanceModelBlock()
+  }
+});
+
 const buildDesignContract = (
   brief: string,
   urls: string[],
@@ -891,6 +997,8 @@ const renderDeliverablesSummary = (includePrototypeGuidance: boolean): string =>
   const deliverables = [
     "Structured `designContract` JSON aligned to canvas governance",
     "Valid `generationPlan` JSON aligned to the canvas generation plan contract",
+    "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`",
+    "Design-agent handoff JSON with contract scope, skill nudges, and richer implementation context",
     "Human-readable `design.md` design specification",
     "Engineering implementation plan in JSON and Markdown"
   ];
@@ -945,7 +1053,9 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   }));
   const profile = classifyProfile(brief, references);
   const generationPlan = buildGenerationPlan(brief, profile, references);
+  const canvasPlanRequest = buildCanvasPlanRequest(brief, generationPlan);
   const designContract = buildDesignContract(brief, urls, references, generationPlan);
+  const followthrough = buildFollowthrough(generationPlan);
   const implementationPlan = buildImplementationPlan(brief, profile, references);
   const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan);
   const implementationPlanMarkdown = renderImplementationMarkdown(implementationPlan);
@@ -995,6 +1105,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   return {
     designContract,
     generationPlan,
+    canvasPlanRequest,
+    followthrough,
     designMarkdown,
     implementationPlan,
     implementationPlanMarkdown,

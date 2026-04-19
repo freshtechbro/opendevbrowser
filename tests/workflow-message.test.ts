@@ -6,6 +6,17 @@ import {
 } from "../src/cli/utils/workflow-message";
 
 describe("workflow message helpers", () => {
+  it("reads inspiredesign success follow-through summaries and next steps", () => {
+    const data = {
+      followthroughSummary: "Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence.",
+      suggestedNextAction: "Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+    };
+
+    expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
+      "Inspiredesign workflow completed. Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence. Next step: Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+    );
+  });
+
   it("reads camelCase primary constraint summaries and next steps", () => {
     const data = {
       meta: {

@@ -1,4 +1,8 @@
 import onboardingMetadata from "./onboarding-metadata.json";
+import {
+  INSPIREDESIGN_HANDOFF_COMMANDS,
+  INSPIREDESIGN_HANDOFF_GUIDANCE
+} from "../inspiredesign/handoff";
 import type { CliCommand } from "./args";
 import { CLI_COMMANDS, VALID_FLAGS } from "./args";
 import {
@@ -262,7 +266,7 @@ export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
     description: "Control the bounded browser-scoped computer-use challenge lane with --challenge-automation-mode; the optional helper is not a desktop agent.",
     details: [
       { label: "flag:", value: "--challenge-automation-mode off|browser|browser_with_helper" },
-      { label: "works:", value: "research run, shopping run, product-video run, macro-resolve --execute" },
+      { label: "works:", value: "research run, shopping run, product-video run, inspiredesign run, macro-resolve --execute" },
       { label: "entry:", value: onboardingMetadata.quickStartCommands.computerUseEntry },
       { label: "proof:", value: "review, session-inspector, workflow fallback metadata" }
     ]
@@ -301,6 +305,16 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
     details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.validatedShopping }]
   },
   {
+    label: "inspiredesign_followthrough",
+    description: "After inspiredesign finishes, continue in Canvas with the emitted request template and load the canvas-contract design-agent lane before patching.",
+    details: [
+      { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
+      { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
+      { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
+      { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
+    ]
+  },
+  {
     label: "computer_use_entry",
     description: "Enter browser-scoped computer use from a workflow run, not from a separate desktop command family.",
     details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.computerUseEntry }]
@@ -330,6 +344,7 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
 
 export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "src/cli/onboarding-metadata.json", description: "Canonical first-contact onboarding metadata shared by help, nudges, and proof lanes." },
+  { label: "src/inspiredesign/handoff.ts", description: "Shared inspiredesign follow-through commands, artifact names, and Canvas continuation guidance." },
   { label: "src/public-surface/source.ts", description: "Authoritative command, usage, flag, and tool surface metadata." },
   { label: "src/public-surface/generated-manifest.ts", description: "Checked-in generated public-surface snapshot consumed by help and parity tests." },
   { label: "src/public-surface/generated-manifest.json", description: "Checked-in generated public-surface snapshot consumed by inventory scripts." },

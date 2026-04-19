@@ -5,8 +5,6 @@ Last updated: 2026-04-16
 
 Canonical code-derived workflow inventory across CLI commands, tool surfaces, and executable validation scenarios.
 
-Discoverability note: [SURFACE_DISCOVERABILITY_AND_NEXT_STEP_GUIDANCE_INVESTIGATION_2026-04-16.md](./SURFACE_DISCOVERABILITY_AND_NEXT_STEP_GUIDANCE_INVESTIGATION_2026-04-16.md) records the help-surface cross-link rationale; this file remains inventory-first.
-
 ## Coverage summary
 
 - CLI commands: `77`

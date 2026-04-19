@@ -5,7 +5,7 @@ Status: active
 Last updated: 2026-04-13
 
 OpenDevBrowser exposes 70 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
-Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser-design-agent` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
+Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
 That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -410,7 +410,7 @@ Notes:
 ### Workflow wrappers
 
 The workflow wrappers expose the finalized research, shopping, product-video, and inspiredesign surfaces from
-`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md` and `docs/INSPIRE_DESIGN_WORKFLOW_INVESTIGATION_2026-04-15.md`.
+`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md` plus the shared inspiredesign handoff source at `src/inspiredesign/handoff.ts`.
 
 #### Research (`research run`)
 
@@ -522,12 +522,14 @@ Notes:
 - `--capture-mode` defaults to `off`; opt into `deep` only when live DOM/layout capture is required.
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
+- Successful runs now emit `canvas-plan.request.json` and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
+- The follow-through path is explicit: load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
 
 Wrapper behavior:
 - Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
 - Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
 - `product-video run` always returns a path-based local asset pack.
-- `inspiredesign run` returns a reusable design contract; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
+- `inspiredesign run` returns a reusable design contract plus a Canvas-first handoff bundle; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
 - Path-bearing modes persist artifacts under the configured output directory (or default tmp namespace) and include TTL metadata in manifest files.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
