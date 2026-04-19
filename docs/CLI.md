@@ -410,7 +410,7 @@ Notes:
 ### Workflow wrappers
 
 The workflow wrappers expose the finalized research, shopping, product-video, and inspiredesign surfaces from
-`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md` and `docs/INSPIRE_DESIGN_WORKFLOW_INVESTIGATION_2026-04-15.md`.
+`docs/RESEARCH_SHOPPING_PRODUCT_VIDEO_FINAL_SPEC.md` plus the shared inspiredesign handoff source at `src/inspiredesign/handoff.ts`.
 
 #### Research (`research run`)
 
