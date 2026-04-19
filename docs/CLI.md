@@ -54,7 +54,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.20.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.21.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -1734,7 +1734,7 @@ npm run test -- tests/providers-performance-gate.test.ts
 
 These commands are release guards, not the live release-proof lane. Use the direct-run harness commands above for release evidence.
 
-Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.20_EVIDENCE.md`.
+Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.21_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
 ---

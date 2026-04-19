@@ -231,4 +231,83 @@ describe("daemon-client retry timeout propagation", () => {
     expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledTimes(1);
     expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[0]).toBe("http://127.0.0.1:8788/command");
   });
+
+  it("waits through a slow stale-daemon restart before issuing the command", async () => {
+    vi.useFakeTimers();
+    try {
+      const unref = vi.fn();
+      const staleStatus = {
+        ok: true,
+        pid: 321,
+        fingerprint: "stale-fingerprint",
+        hub: { instanceId: "hub-1" },
+        relay: {
+          port: 8787,
+          instanceId: "relay-1",
+          epoch: 5
+        }
+      };
+      const currentStatus = {
+        ok: true,
+        pid: 654,
+        fingerprint: "current-fingerprint",
+        hub: { instanceId: "hub-2" },
+        relay: {
+          port: 8787,
+          instanceId: "relay-2",
+          epoch: 6
+        }
+      };
+      mocks.readDaemonMetadata.mockReturnValue({
+        port: 8788,
+        token: "fresh-token",
+        pid: 1,
+        relayPort: 8787,
+        startedAt: new Date().toISOString(),
+        fingerprint: "stale-fingerprint"
+      });
+      mocks.fetchDaemonStatus
+        .mockResolvedValueOnce(staleStatus)
+        .mockResolvedValueOnce(staleStatus);
+      for (let attempt = 0; attempt < 21; attempt += 1) {
+        mocks.fetchDaemonStatus.mockResolvedValueOnce(staleStatus);
+      }
+      mocks.fetchDaemonStatus.mockResolvedValueOnce(currentStatus);
+      mocks.spawn.mockReturnValue({ unref });
+      mocks.fetchWithTimeoutContext.mockResolvedValue(createTimedResponse(new Response(JSON.stringify({
+        ok: true,
+        data: { ok: true }
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }), 30_000));
+
+      const client = new DaemonClient({ autoRenew: false, clientId: "client-1" });
+      const resultPromise = client.call<{ ok: boolean }>("desktop.status", {}, { timeoutMs: 30_000 });
+
+      await vi.advanceTimersByTimeAsync(5_250);
+
+      await expect(resultPromise).resolves.toEqual({ ok: true });
+      expect(mocks.spawn).toHaveBeenCalledTimes(1);
+      expect(unref).toHaveBeenCalledTimes(1);
+      expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledTimes(1);
+      expect(mocks.persistDaemonStatusMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          port: 8788,
+          token: "fresh-token",
+          fingerprint: "current-fingerprint"
+        }),
+        expect.objectContaining({
+          pid: 654,
+          fingerprint: "current-fingerprint"
+        }),
+        expect.objectContaining({
+          daemonPort: 8788,
+          daemonToken: "fresh-token"
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
