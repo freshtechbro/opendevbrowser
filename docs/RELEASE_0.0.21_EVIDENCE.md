@@ -53,7 +53,7 @@ Tracks the `0.0.21` release cycle after the published `v0.0.20` release, includi
 - [x] `npm run extension:build`
 - [x] `npm run extension:pack`
 - [x] `npm pack`
-- [ ] After npm publish, `node scripts/registry-consumer-smoke.mjs --version 0.0.21 --output artifacts/release/v0.0.21/registry-consumer-smoke.json`
+- [x] After npm publish, `node scripts/registry-consumer-smoke.mjs --version 0.0.21 --output artifacts/release/v0.0.21/registry-consumer-smoke.json`
 
 ## Optional release-environment gates
 
@@ -113,16 +113,41 @@ Tracks the `0.0.21` release cycle after the published `v0.0.20` release, includi
   - `npm view opendevbrowser version dist-tags --json` still reports `latest=0.0.20`
   - `gh release view v0.0.21 --repo freshtechbro/opendevbrowser` -> `release not found`
   - `npm whoami` -> `bishopdotun`
+- Post-publish verification:
+  - `npm publish --access public` -> published `opendevbrowser@0.0.21`
+  - `npm view opendevbrowser version dist-tags --json` -> `latest=0.0.21`
+  - `node scripts/registry-consumer-smoke.mjs --version 0.0.21 --output artifacts/release/v0.0.21/registry-consumer-smoke.json` -> success
+  - Registry consumer artifact: `artifacts/release/v0.0.21/registry-consumer-smoke.json`
+  - Consumer graph:
+    - `opendevbrowser=0.0.21`
+    - `plugin=1.14.18`
+    - `ws=8.20.0`
+    - `zod=3.25.76`
+    - `nestedPluginZod=4.1.8`
 
 ## External release workflow evidence
 
-- [ ] GitHub release workflow run URL
-- [ ] GitHub release URL
-- [ ] npm publish verification (`npm view opendevbrowser version`)
+- [x] GitHub release workflow run URL
+  - Tag-push run failed after quality gates because repo secrets still lack `NPM_TOKEN`:
+    - `https://github.com/freshtechbro/opendevbrowser/actions/runs/24632552057`
+  - Repair run succeeded with `publish_npm=false` and `publish_github_release=true`:
+    - `https://github.com/freshtechbro/opendevbrowser/actions/runs/24632711085`
+- [x] GitHub release URL
+  - `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.21`
+- [x] npm publish verification (`npm view opendevbrowser version`)
+  - `npm view opendevbrowser version dist-tags --json` -> `latest=0.0.21`
 - [ ] Chrome Web Store upload or publish status
+  - Blocked on interactive Google auth from this machine.
+  - Scripted publish remains unavailable because `scripts/chrome-store-publish.mjs` still requires `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, and `CWS_EXTENSION_ID`, and those env vars are not present locally.
+  - Managed browser probe to `https://chrome.google.com/webstore/devconsole` redirected to Google account chooser with blocker `auth_required/token_required`.
+  - Extension-mode probe also landed on the Google account chooser and reported `[restricted_url] Chrome Web Store tabs cannot be debugged`.
+  - Current browser evidence shows the active Chrome profile is not signed into Google for the store dashboard flow.
 
 ## Notes
 
 - Use this ledger as the active release checklist until all publish lanes and post-publish proofs are complete.
 - Keep `docs/RELEASE_0.0.20_EVIDENCE.md`, `docs/RELEASE_0.0.19_EVIDENCE.md`, `docs/RELEASE_0.0.18_EVIDENCE.md`, `docs/RELEASE_0.0.17_EVIDENCE.md`, and `docs/RELEASE_0.0.16_EVIDENCE.md` historical.
 - Because the public repo still lacks repo-level `NPM_TOKEN` and `CWS_*` secrets, npm publish must run locally and the Chrome Web Store lane must use local credentials or a browser-manual dashboard flow from this operator machine.
+- `v0.0.21` release assets now exist on GitHub:
+  - `opendevbrowser-extension.zip`
+  - `opendevbrowser-extension.zip.sha256`
