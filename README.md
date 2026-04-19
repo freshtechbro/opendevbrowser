@@ -101,7 +101,7 @@ npm pack
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.20.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.21.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -265,12 +265,12 @@ Start every surface check from generated help when you need the current public l
 
 ## Recent Features
 
-### v0.0.20 (Current release cycle)
+### v0.0.21 (Current release cycle)
 
-- **Operator review and inspection are now first-class surfaces** with dedicated `review`, `review-desktop`, `session-inspector audit`, `session-inspector plan`, and `status-capabilities` entry points across the CLI and tool layers.
-- **Inspire Design is now a first-class workflow surface** with provider contracts, capture lanes, parity coverage, and release-facing docs instead of partial workflow wiring.
-- **Help-led discoverability is stronger** because the generated help surface now carries canonical next-step guidance and release-facing metadata for the new operator and workflow lanes.
-- **Live audit and release harnesses are more honest under load** because env-limited classification, foreign relay ownership handling, desktop observation capture, and shopping follow-up classification were tightened instead of being reported as ambiguous failures.
+- **Workflow success handoffs are now first-class across the main workflow lanes** with explicit follow-through metadata for research, shopping, product-video, and Inspire Design instead of generic success text.
+- **Macro execution reports blocker truthfully** because `macro-resolve --execute` now preserves blocked execution wording when runtime blocker metadata survives the run.
+- **Release validation is more stable under extension mode** because the live harnesses reuse healthy relay ownership and the product-video follow-through or timeout teardown paths no longer drift into false failures.
+- **Help and docs now treat Inspire Design's canvas handoff as the reference workflow contract** for operator next-step guidance.
 
 ### v0.0.16
 

@@ -36,7 +36,7 @@ const DAEMON_STATUS_RETRY_OPTIONS: DaemonStatusFetchOptions = {
   retryDelayMs: 250
 };
 const DAEMON_RESTART_STATUS_TIMEOUT_MS = 5_000;
-const DAEMON_RESTART_POLL_ATTEMPTS = 20;
+const DAEMON_RESTART_READY_TIMEOUT_MS = 15_000;
 const DAEMON_RESTART_POLL_DELAY_MS = 250;
 
 type DaemonResponse<T> = { ok?: boolean; data?: T; error?: string };
@@ -527,18 +527,19 @@ const restartDaemonConnection = async (connection: DaemonConnection): Promise<vo
 };
 
 const waitForCurrentDaemonStatus = async (connection: DaemonConnection): Promise<DaemonStatusPayload | null> => {
-  for (let attempt = 1; attempt <= DAEMON_RESTART_POLL_ATTEMPTS; attempt += 1) {
+  const deadline = Date.now() + DAEMON_RESTART_READY_TIMEOUT_MS;
+  while (true) {
     const status = await fetchDaemonStatus(connection.port, connection.token, {
       timeoutMs: DAEMON_RESTART_STATUS_TIMEOUT_MS
     });
     if (status?.ok && isCurrentDaemonFingerprint(status.fingerprint)) {
       return status;
     }
-    if (attempt < DAEMON_RESTART_POLL_ATTEMPTS) {
-      await sleep(DAEMON_RESTART_POLL_DELAY_MS);
+    if (Date.now() >= deadline) {
+      return null;
     }
+    await sleep(DAEMON_RESTART_POLL_DELAY_MS);
   }
-  return null;
 };
 
 const resolveMetadataConnection = async (

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.21] - 2026-04-19
+
+### Added
+- Workflow success handoff guidance now ships across the first-class research, shopping, product-video, and Inspire Design lanes so successful runs can hand operators a concrete next action.
+
+### Changed
+- Help and release-facing docs now treat Inspire Design's canvas handoff as the reference workflow contract for next-step guidance.
+
+### Fixed
+- `macro-resolve --execute` now reports blocked executions from preserved blocker metadata instead of claiming unconditional success.
+- Live release validation is more stable because extension relay reuse, product-video brief follow-through, and timeout teardown no longer drift into false failures.
+
 ## [0.0.20] - 2026-04-17
 
 ### Added
@@ -200,7 +212,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.20...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.21...HEAD
+[0.0.21]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.20...v0.0.21
 [0.0.20]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.19...v0.0.20
 [0.0.19]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.18...v0.0.19
 [0.0.18]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.17...v0.0.18
