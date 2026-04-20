@@ -27,7 +27,7 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ```bash
 cd <public-repo-root>
 npm pack
-# -> opendevbrowser-0.0.22.tgz
+# -> opendevbrowser-0.0.23.tgz
 ```
 
 ## 2) Simulate a brand-new isolated user workspace
@@ -44,7 +44,7 @@ export AMP_CLI_HOME="$WORKROOT/amp-home"
 mkdir -p "$WORKDIR" "$HOME" "$OPENCODE_CONFIG_DIR" "$OPENCODE_CACHE_DIR" "$CODEX_HOME" "$CLAUDECODE_HOME" "$AMP_CLI_HOME"
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.22.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.23.tgz
 npx --no-install opendevbrowser version --output-format json
 ```
 
