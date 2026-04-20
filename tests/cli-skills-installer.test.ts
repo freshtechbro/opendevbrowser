@@ -338,6 +338,33 @@ describe("bundled skill lifecycle sync", () => {
     expect(fs.existsSync(userOwnedPath)).toBe(true);
   }, 60_000);
 
+  it("removes sentinel-discovered canonical packs during subset-marker uninstall cleanup", () => {
+    const installResult = syncBundledSkills("global");
+    expect(installResult.success).toBe(true);
+
+    const target = getGlobalSkillTargets()[0];
+    if (!target) {
+      throw new Error("Missing global target for subset-marker canonical removal test.");
+    }
+
+    const retainedPackName = bundledSkillNames[0];
+    const removedPackName = bundledSkillNames[1];
+    if (!retainedPackName || !removedPackName) {
+      throw new Error("Missing bundled skills for subset-marker canonical removal test.");
+    }
+
+    writeManagedMarker(target.dir, [retainedPackName], false);
+
+    const selectedTargets = skillInstallers.getBundledSkillLifecycleTargets("global", {
+      includeLegacyArtifacts: true
+    });
+    const result = skillInstallers.removeBundledSkillsForTargets("global", selectedTargets);
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(path.join(target.dir, retainedPackName))).toBe(false);
+    expect(fs.existsSync(path.join(target.dir, removedPackName))).toBe(false);
+  }, 60_000);
+
   it("keeps subset ownership scoped after markerless recovery recreates the marker", () => {
     const installResult = syncBundledSkills("global");
     expect(installResult.success).toBe(true);
@@ -399,6 +426,41 @@ describe("bundled skill lifecycle sync", () => {
     expect(
       fs.readFileSync(path.join(target.dir, managedSkillsMarkerName), "utf8")
     ).toContain('"managesAllCanonicalPacks": true');
+  }, 60_000);
+
+  it("refreshes sentinel-discovered canonical packs during subset-marker sync repair", () => {
+    const installResult = syncBundledSkills("global");
+    expect(installResult.success).toBe(true);
+
+    const target = getGlobalSkillTargets()[0];
+    if (!target) {
+      throw new Error("Missing global target for subset-marker canonical repair test.");
+    }
+
+    const retainedPackName = bundledSkillNames[0];
+    const restoredPackName = bundledSkillNames[1];
+    if (!retainedPackName || !restoredPackName) {
+      throw new Error("Missing bundled skills for subset-marker canonical repair test.");
+    }
+
+    const bundledSkillPath = path.join(getBundledSkillsDir(), restoredPackName, "SKILL.md");
+    const bundledContent = fs.readFileSync(bundledSkillPath, "utf8");
+    const restoredSkillPath = path.join(target.dir, restoredPackName, "SKILL.md");
+
+    writeManagedMarker(target.dir, [retainedPackName], false);
+    fs.writeFileSync(restoredSkillPath, "drifted canonical sentinel-backed pack", "utf8");
+
+    const selectedTargets = skillInstallers.getBundledSkillLifecycleTargets("global", {
+      includeLegacyArtifacts: true
+    });
+    const result = skillInstallers.syncBundledSkillsForTargets("global", selectedTargets);
+
+    expect(result.success).toBe(true);
+    expect(result.targets[0]?.refreshed).toContain(restoredPackName);
+    expect(fs.readFileSync(restoredSkillPath, "utf8")).toBe(bundledContent);
+    expect(
+      fs.readFileSync(path.join(target.dir, managedSkillsMarkerName), "utf8")
+    ).toContain(restoredPackName);
   }, 60_000);
 
   it("restores the previous marker when full-target sync fails after touching earlier packs", () => {
@@ -496,6 +558,40 @@ describe("bundled skill lifecycle sync", () => {
     expect(fs.existsSync(retiredPackPath)).toBe(false);
   }, 60_000);
 
+  it("stops rediscovering edited retired packs after subset-marker sync cleanup drops ownership", () => {
+    const installResult = syncBundledSkills("global");
+    expect(installResult.success).toBe(true);
+
+    const targetDir = getGlobalSkillTargets()[0]?.dir;
+    if (!targetDir) {
+      throw new Error("Missing global target for edited retired-pack sync cleanup test.");
+    }
+
+    const retiredPackName = "opendevbrowser-retired-pack";
+    const retiredPackPath = path.join(targetDir, retiredPackName);
+    fs.mkdirSync(retiredPackPath, { recursive: true });
+    fs.writeFileSync(path.join(retiredPackPath, "SKILL.md"), "retired", "utf8");
+    writeManagedSentinel(targetDir, retiredPackName);
+    fs.writeFileSync(path.join(retiredPackPath, "SKILL.md"), "retired drift", "utf8");
+    writeManagedMarker(targetDir, ["opendevbrowser-best-practices", retiredPackName], false);
+
+    const selectedTargets = skillInstallers.getBundledSkillLifecycleTargets("global", {
+      includeLegacyArtifacts: true
+    });
+    const result = skillInstallers.syncBundledSkillsForTargets("global", selectedTargets);
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(retiredPackPath)).toBe(true);
+    expect(
+      fs.readFileSync(path.join(targetDir, managedSkillsMarkerName), "utf8")
+    ).not.toContain(retiredPackName);
+    const lifecycleTarget = skillInstallers.getBundledSkillLifecycleTargets("global", {
+      includeLegacyArtifacts: true
+    }).find((entry) => entry.dir === targetDir) as ({ managedPackNames?: string[] } & { dir: string }) | undefined;
+
+    expect(lifecycleTarget?.managedPackNames).not.toContain(retiredPackName);
+  }, 60_000);
+
   it("discovers and cleans markerless retired sentinel-backed packs", () => {
     const targetDir = getGlobalSkillTargets()[0]?.dir;
     if (!targetDir) {
@@ -520,6 +616,26 @@ describe("bundled skill lifecycle sync", () => {
     expect(fs.existsSync(retiredPackPath)).toBe(false);
     expect(hasManagedBundledSkillInstall("global")).toBe(false);
     expect(hasBundledSkillArtifacts("global")).toBe(false);
+  });
+
+  it("ignores edited markerless retired sentinel-backed packs for lifecycle discovery", () => {
+    const targetDir = getGlobalSkillTargets()[0]?.dir;
+    if (!targetDir) {
+      throw new Error("Missing global target for edited retired-pack discovery test.");
+    }
+
+    const retiredPackName = "opendevbrowser-retired-pack";
+    const retiredPackPath = path.join(targetDir, retiredPackName);
+    fs.mkdirSync(retiredPackPath, { recursive: true });
+    fs.writeFileSync(path.join(retiredPackPath, "SKILL.md"), "retired", "utf8");
+    writeManagedSentinel(targetDir, retiredPackName);
+    fs.writeFileSync(path.join(retiredPackPath, "SKILL.md"), "retired drift", "utf8");
+
+    expect(hasBundledSkillArtifacts("global")).toBe(false);
+    expect(findInstalledConfigs()).toEqual({ global: false, local: false });
+    expect(skillInstallers.getBundledSkillLifecycleTargets("global", {
+      includeLegacyArtifacts: true
+    })).toEqual([]);
   });
 
   it("treats managed skill markers as installed for uninstall discovery", () => {
