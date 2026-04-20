@@ -195,6 +195,7 @@ function readManagedSkillFingerprint(targetPath: string): string | null {
 }
 
 function getSentinelManagedPackNames(targetDir: string, packNames: readonly string[]): string[] {
+  const canonicalPackNames = new Set(packNames);
   const candidatePackNames = new Set(packNames);
   if (fs.existsSync(targetDir) && isDirectoryPath(targetDir)) {
     for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
@@ -206,7 +207,10 @@ function getSentinelManagedPackNames(targetDir: string, packNames: readonly stri
 
   return Array.from(candidatePackNames).filter((packName) => {
     const targetPath = path.join(targetDir, packName);
-    return fs.existsSync(targetPath) && readManagedSkillFingerprint(targetPath) !== null;
+    if (!fs.existsSync(targetPath) || readManagedSkillFingerprint(targetPath) === null) {
+      return false;
+    }
+    return canonicalPackNames.has(packName) || shouldRemoveRetiredManagedPack(targetPath);
   });
 }
 
@@ -367,7 +371,7 @@ function resolveManagedPackScope(
   const managesAllCanonicalPacks = requestedAllCanonicalPacks || marker?.managesAllCanonicalPacks === true;
   const managedPackNames = managesAllCanonicalPacks
     ? Array.from(new Set([...(marker?.managedPacks ?? []), ...packNames]))
-    : (marker?.managedPacks ?? target.managedPackNames ?? []);
+    : Array.from(new Set(target.managedPackNames ?? marker?.managedPacks ?? []));
   const activePackNames = managesAllCanonicalPacks
     ? [...packNames]
     : managedPackNames.filter((packName) => packNames.includes(packName));
