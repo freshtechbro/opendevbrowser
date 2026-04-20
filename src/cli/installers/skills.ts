@@ -8,14 +8,6 @@ import { listBundledSkillDirectories } from "../../skills/bundled-skill-director
 export type SkillInstallMode = "global" | "local";
 
 type SyncOutcome = "installed" | "refreshed" | "unchanged";
-type LegacyAliasName = "research" | "shopping";
-export type LegacyAliasPreservationReason = "contains_skill_md" | "non_empty" | "unknown_layout";
-
-export interface PreservedLegacyAlias {
-  targetDir: string;
-  name: LegacyAliasName;
-  reason: LegacyAliasPreservationReason;
-}
 
 export interface SkillTargetSyncResult {
   agents: string[];
@@ -23,8 +15,6 @@ export interface SkillTargetSyncResult {
   installed: string[];
   refreshed: string[];
   unchanged: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
   success: boolean;
   error?: string;
 }
@@ -37,8 +27,6 @@ export interface SkillSyncResult {
   installed: string[];
   refreshed: string[];
   unchanged: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
 }
 
 export interface SkillTargetRemovalResult {
@@ -46,8 +34,6 @@ export interface SkillTargetRemovalResult {
   targetDir: string;
   removed: string[];
   missing: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
   success: boolean;
   error?: string;
 }
@@ -59,8 +45,6 @@ export interface SkillRemovalResult {
   targets: SkillTargetRemovalResult[];
   removed: string[];
   missing: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
 }
 
 function getTargets(mode: SkillInstallMode): SkillTarget[] {
@@ -230,8 +214,6 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           installed,
           refreshed,
           unchanged,
-          removedLegacyAliases: [],
-          preservedLegacyAliases: [],
           success: true
         });
       } catch (error) {
@@ -242,8 +224,6 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           installed,
           refreshed,
           unchanged,
-          removedLegacyAliases: [],
-          preservedLegacyAliases: [],
           success: false,
           error: message
         });
@@ -257,9 +237,7 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
       targets: targetResults,
       installed: targetResults.flatMap((entry) => entry.installed),
       refreshed: targetResults.flatMap((entry) => entry.refreshed),
-      unchanged: targetResults.flatMap((entry) => entry.unchanged),
-      removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
-      preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
+      unchanged: targetResults.flatMap((entry) => entry.unchanged)
     };
     result.message = buildSyncMessage(mode, result);
     return result;
@@ -272,9 +250,7 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
       targets: targetResults,
       installed: targetResults.flatMap((entry) => entry.installed),
       refreshed: targetResults.flatMap((entry) => entry.refreshed),
-      unchanged: targetResults.flatMap((entry) => entry.unchanged),
-      removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
-      preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
+      unchanged: targetResults.flatMap((entry) => entry.unchanged)
     };
     result.message = `Failed to sync skills (${mode}): ${message}`;
     return result;
@@ -306,8 +282,6 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
         targetDir: target.dir,
         removed,
         missing,
-        removedLegacyAliases: [],
-        preservedLegacyAliases: [],
         success: true
       });
     } catch (error) {
@@ -317,8 +291,6 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
         targetDir: target.dir,
         removed,
         missing,
-        removedLegacyAliases: [],
-        preservedLegacyAliases: [],
         success: false,
         error: message
       });
@@ -331,9 +303,7 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
     mode,
     targets: targetResults,
     removed: targetResults.flatMap((entry) => entry.removed),
-    missing: targetResults.flatMap((entry) => entry.missing),
-    removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
-    preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
+    missing: targetResults.flatMap((entry) => entry.missing)
   };
   result.message = buildRemovalMessage(mode, result);
   return result;

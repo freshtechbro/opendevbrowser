@@ -24,6 +24,11 @@ let originalCodexHome: string | undefined;
 let originalClaudeCodeHome: string | undefined;
 let originalAmpCliHome: string | undefined;
 
+function expectNoLegacyAliasFields(value: object): void {
+  expect("removedLegacyAliases" in value).toBe(false);
+  expect("preservedLegacyAliases" in value).toBe(false);
+}
+
 function copyCanonicalSkillToAlias(targetDir: string, canonicalName: string, aliasName: string): void {
   const sourceDir = path.join(targetDir, canonicalName);
   const aliasDir = path.join(targetDir, aliasName);
@@ -98,8 +103,8 @@ describe("bundled skill lifecycle sync", () => {
     expect(result.installed.length).toBe(getGlobalSkillTargets().length * bundledSkillNames.length);
     expect(result.refreshed).toEqual([]);
     expect(result.unchanged).toEqual([]);
-    expect(result.removedLegacyAliases).toEqual([]);
-    expect(result.preservedLegacyAliases).toEqual([]);
+    expectNoLegacyAliasFields(result);
+    result.targets.forEach(expectNoLegacyAliasFields);
     expect(result.message).toContain("installed");
     expect(result.message).not.toContain("legacy aliases preserved");
 
@@ -170,8 +175,8 @@ describe("bundled skill lifecycle sync", () => {
 
     const secondRun = syncBundledSkills("global");
     expect(secondRun.success).toBe(true);
-    expect(secondRun.removedLegacyAliases).toEqual([]);
-    expect(secondRun.preservedLegacyAliases).toEqual([]);
+    expectNoLegacyAliasFields(secondRun);
+    secondRun.targets.forEach(expectNoLegacyAliasFields);
     expect(fs.existsSync(path.join(targetDir, "research"))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, "shopping"))).toBe(true);
   }, 60_000);
@@ -218,8 +223,8 @@ describe("bundled skill lifecycle sync", () => {
     const result = removeBundledSkills("global");
     expect(result.success).toBe(true);
     expect(result.removed.length).toBe(getGlobalSkillTargets().length * bundledSkillNames.length);
-    expect(result.removedLegacyAliases).toEqual([]);
-    expect(result.preservedLegacyAliases).toEqual([]);
+    expectNoLegacyAliasFields(result);
+    result.targets.forEach(expectNoLegacyAliasFields);
     expect(fs.existsSync(path.join(targetDir, "research"))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, "shopping"))).toBe(true);
     expect(hasBundledSkillArtifacts("global")).toBe(false);
