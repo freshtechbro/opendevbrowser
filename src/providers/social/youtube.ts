@@ -621,22 +621,28 @@ export const createYouTubeProvider = (options: YouTubeProviderOptions = {}) => {
   }, options);
 };
 
-export const withDefaultYouTubeOptions = (options: YouTubeProviderOptions = {}): YouTubeProviderOptions => ({
-  ...options,
-  recoveryHints: options.recoveryHints ?? (() => ({
-    preferredFallbackModes: ["managed_headed"],
-    challengeProne: true,
-    settleTimeoutMs: 5000,
-    captureDelayMs: 500
-  })),
-  defaultTraversal: {
-    pageLimit: options.defaultTraversal?.pageLimit ?? 1,
-    hopLimit: options.defaultTraversal?.hopLimit ?? 0,
-    expansionPerRecord: options.defaultTraversal?.expansionPerRecord ?? 1,
-    maxRecords: options.defaultTraversal?.maxRecords ?? 8
-  },
-  search: buildSearch(options.search),
-  fetch: buildFetch(options)
-});
+export const withDefaultYouTubeOptions = (options: YouTubeProviderOptions = {}): YouTubeProviderOptions => {
+  const resolvedOptions: YouTubeProviderOptions = {
+    ...options,
+    recoveryHints: options.recoveryHints ?? (() => ({
+      preferredFallbackModes: ["extension", "managed_headed"],
+      challengeProne: true,
+      settleTimeoutMs: 5000,
+      captureDelayMs: 500
+    })),
+    defaultTraversal: {
+      pageLimit: options.defaultTraversal?.pageLimit ?? 1,
+      hopLimit: options.defaultTraversal?.hopLimit ?? 0,
+      expansionPerRecord: options.defaultTraversal?.expansionPerRecord ?? 1,
+      maxRecords: options.defaultTraversal?.maxRecords ?? 8
+    }
+  };
+
+  return {
+    ...resolvedOptions,
+    search: buildSearch(resolvedOptions.search),
+    fetch: buildFetch(resolvedOptions)
+  };
+};
 
 export type { YouTubeTranscriptStrategy };

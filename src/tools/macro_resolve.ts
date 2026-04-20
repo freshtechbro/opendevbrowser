@@ -4,6 +4,7 @@ import {
   type MacroResolution
 } from "../macros/execute";
 import { executeMacroWithRuntime } from "../macros/execute-runtime";
+import { buildMacroResolveSuccessHandoff } from "../providers/workflow-handoff";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
@@ -110,10 +111,17 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
         }
 
         if (!args.execute) {
+          const handoff = buildMacroResolveSuccessHandoff({
+            expression: args.expression,
+            defaultProvider: args.defaultProvider,
+            execute: false,
+            blocked: false
+          });
           return ok({
             runtime: resolvedRuntime,
             resolution,
-            ...(catalog ? { catalog } : {})
+            ...(catalog ? { catalog } : {}),
+            ...handoff
           });
         }
 
@@ -122,12 +130,19 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
           resolution,
           runtime: providerRuntime
         });
+        const handoff = buildMacroResolveSuccessHandoff({
+          expression: args.expression,
+          defaultProvider: args.defaultProvider,
+          execute: true,
+          blocked: Boolean(execution.meta.blocker)
+        });
 
         return ok({
           runtime: resolvedRuntime,
           resolution,
           ...(catalog ? { catalog } : {}),
-          execution
+          execution,
+          ...handoff
         });
       } catch (error) {
         return failure(serializeError(error).message, "macro_resolve_failed");

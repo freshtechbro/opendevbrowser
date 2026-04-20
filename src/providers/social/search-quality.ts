@@ -6,11 +6,17 @@ export type SocialSearchShellCode =
   | "social_first_party_help_shell"
   | "social_verification_wall";
 
-const TARGETED_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit"]);
+const TARGETED_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit", "facebook"]);
 const SOCIAL_JS_REQUIRED_RE = /\b(?:javascript (?:is not available|required|is disabled(?: in this browser)?)|you need to enable javascript|please enable javascript)\b/i;
 const BLUESKY_LOGGED_OUT_SEARCH_RE = /\bsearch is currently unavailable when logged out\b/i;
 const BLUESKY_EMPTY_SEARCH_SHELL_RE = /\b(?:follow 10 people to get started|find people to follow)\b/i;
 const REDDIT_VERIFICATION_WALL_RE = /\b(?:please wait for verification|verify (?:you(?:'re| are) human|that you(?:'re| are) human)|security check)\b/i;
+const FACEBOOK_SEARCH_RESULTS_HEADING_RE = /\bsearch results\b/i;
+const FACEBOOK_SEARCH_RESULT_MARKERS = [
+  /\bshared with public\b/i,
+  /\bopen reel in reels viewer\b/i,
+  /\bcomment as\b/i
+] as const;
 const REDDIT_BLOCKED_EXPANSION_HOSTS = ["accounts.google.com", "ads.reddit.com"] as const;
 const REDDIT_BLOCKED_FIRST_SEGMENTS = new Set(["account", "ads", "notifications", "submit", "verification"]);
 
@@ -95,6 +101,49 @@ const isPrimaryRedditHost = (host: string): boolean => {
     || normalized === "old.reddit.com";
 };
 
+const isPrimaryFacebookHost = (host: string): boolean => {
+  const normalized = host.toLowerCase();
+  return normalized === "www.facebook.com"
+    || normalized === "facebook.com"
+    || normalized === "m.facebook.com";
+};
+
+const isFacebookSearchLikePath = (pathname: string): boolean => (
+  pathname === "/watch/search"
+  || pathname === "/watch/search/"
+  || pathname.startsWith("/watch/explore/")
+  || pathname.startsWith("/search/")
+  || pathname.startsWith("/public/")
+  || pathname.startsWith("/hashtag/")
+);
+
+const isBlockedFacebookNonContentUrl = (
+  parsed: URL,
+  options: { includeSearchRoute: boolean }
+): boolean => {
+  if (!isPrimaryFacebookHost(parsed.hostname)) {
+    return false;
+  }
+  const pathname = parsed.pathname.toLowerCase();
+  if (
+    pathname === "/"
+    || pathname === "/login"
+    || pathname === "/login/"
+    || pathname === "/reg"
+    || pathname === "/reg/"
+    || pathname.startsWith("/recover/")
+  ) {
+    return true;
+  }
+  if ((pathname === "/watch" || pathname === "/watch/") && !parsed.searchParams.get("v")) {
+    return true;
+  }
+  if (isStaticMetadataPath(pathname)) {
+    return true;
+  }
+  return options.includeSearchRoute && isFacebookSearchLikePath(pathname);
+};
+
 const isBlockedRedditNonContentUrl = (
   parsed: URL,
   options: { includeSearchRoute: boolean }
@@ -126,6 +175,8 @@ const isRootShellUrl = (platform: SocialPlatform, parsed: URL): boolean => {
         && (pathname === "/" || pathname === "/login");
     case "reddit":
       return isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: false });
+    case "facebook":
+      return isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: false });
     default:
       return false;
   }
@@ -158,6 +209,8 @@ const isBlockedExpansionPath = (platform: SocialPlatform, parsed: URL): boolean 
         );
     case "reddit":
       return isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: true });
+    case "facebook":
+      return isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: true });
     default:
       return false;
   }
@@ -173,6 +226,8 @@ const isFirstPartySearchRoute = (platform: SocialPlatform, parsed: URL): boolean
       return host === "bsky.app" && pathname === "/search";
     case "reddit":
       return isPrimaryRedditHost(host) && pathname === "/search";
+    case "facebook":
+      return isPrimaryFacebookHost(host) && isFacebookSearchLikePath(pathname);
     default:
       return false;
   }
@@ -262,6 +317,61 @@ const isUsableRedditSearchEvidenceUrl = (url: string): boolean => {
     && /^\/r\/[^/]+\/comments\/[^/]+(?:\/|$)/.test(parsed.pathname.toLowerCase());
 };
 
+const isUsableFacebookSearchEvidenceUrl = (url: string): boolean => {
+  const parsed = parseUrl(url);
+  if (parsed === null || !isPrimaryFacebookHost(parsed.hostname)) {
+    return false;
+  }
+  const pathname = parsed.pathname.toLowerCase();
+  if ((pathname === "/watch" || pathname === "/watch/") && parsed.searchParams.get("v")) {
+    return true;
+  }
+  return /^\/reel\/[^/]+\/?$/.test(pathname)
+    || /^\/groups\/[^/]+\/posts\/[^/]+\/?$/.test(pathname)
+    || /^\/[^/]+\/videos\/[^/]+\/?$/.test(pathname)
+    || /^\/share\/v\/[^/]+\/?$/.test(pathname)
+    || ((pathname === "/permalink.php" || pathname === "/story.php") && parsed.searchParams.has("story_fbid"))
+    || (pathname === "/photo/" && parsed.searchParams.has("fbid"));
+};
+
+const isRetainableFacebookSearchSupportUrl = (url: string): boolean => {
+  const parsed = parseUrl(url);
+  if (parsed === null || !isPrimaryFacebookHost(parsed.hostname)) {
+    return false;
+  }
+  if (isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: true })) {
+    return false;
+  }
+  if (isFirstPartySearchRoute("facebook", parsed)) {
+    return false;
+  }
+  return !isUsableFacebookSearchEvidenceUrl(url);
+};
+
+const hasFacebookSearchResultSignals = (
+  input: { url: string; title?: string; content?: string; links?: readonly string[] }
+): boolean => {
+  const parsed = parseUrl(input.url);
+  if (parsed === null || !isFirstPartySearchRoute("facebook", parsed)) {
+    return false;
+  }
+  const combined = `${normalizeText(input.title)} ${normalizeText(input.content)}`.trim();
+  const hasSearchHeading = FACEBOOK_SEARCH_RESULTS_HEADING_RE.test(combined);
+  const markerCount = FACEBOOK_SEARCH_RESULT_MARKERS.filter((pattern) => pattern.test(combined)).length;
+  const evidence = collectSocialSearchLinkEvidence("facebook", parsed.toString(), Array.isArray(input.links) ? input.links : []);
+  const supportLinkCount = evidence.usableLinks.filter(isRetainableFacebookSearchSupportUrl).length;
+  if (markerCount >= 2) {
+    return true;
+  }
+  if (!hasSearchHeading) {
+    return false;
+  }
+  if (markerCount >= 1) {
+    return true;
+  }
+  return supportLinkCount >= 2;
+};
+
 const isUsableSocialSearchContentUrl = (
   platform: SocialPlatform,
   url: string
@@ -273,6 +383,8 @@ const isUsableSocialSearchContentUrl = (
       return isUsableBlueskySearchEvidenceUrl(url);
     case "reddit":
       return isUsableRedditSearchEvidenceUrl(url);
+    case "facebook":
+      return isUsableFacebookSearchEvidenceUrl(url);
     default:
       return false;
   }
@@ -307,7 +419,6 @@ export const detectSocialSearchShell = (
   const parsed = parseUrl(input.url);
   const combined = `${normalizeText(input.title)} ${normalizeText(input.content)}`.trim();
   const links = Array.isArray(input.links) ? input.links : [];
-
   if (parsed && isFirstPartyHelpHost(platform, parsed.hostname)) {
     return {
       providerShell: "social_first_party_help_shell",
@@ -364,6 +475,15 @@ export const detectSocialSearchShell = (
       providerShell: "social_render_shell",
       browserRequired: true
     };
+  }
+
+  if (
+    parsed
+    && isFirstPartySearchRoute(platform, parsed)
+    && platform === "facebook"
+    && hasFacebookSearchResultSignals(input)
+  ) {
+    return null;
   }
 
   if (

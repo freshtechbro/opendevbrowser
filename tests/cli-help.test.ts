@@ -177,6 +177,7 @@ describe("CLI help surface", () => {
 
     expect(output).toContain("usage:");
     expect(output).toContain("flags:");
+    expect(output).toContain("example:");
     expect(output).toContain("cli:");
     expect(output).toContain("docs/SURFACE_REFERENCE.md");
     expect(output).toContain("docs/WORKFLOW_SURFACE_MAP.md");
@@ -184,6 +185,8 @@ describe("CLI help surface", () => {
     expect(output).toContain("src/cli/help.ts");
     expect(output).toContain("src/inspiredesign/handoff.ts");
     expect(output).toContain("src/public-surface/generated-manifest.ts");
+    expect(output).toContain(COMMAND_HELP_DETAILS.inspiredesign.examples[0]);
+    expect(output).toContain(HELP_TOOL_ENTRIES.find((entry) => entry.name === "opendevbrowser_skill_load")?.example ?? "");
     expect(output).not.toContain("src/tools/surface.ts");
   });
 

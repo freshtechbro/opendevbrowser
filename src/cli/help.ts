@@ -387,6 +387,9 @@ function assertCommandCoverage(): void {
       if (!detail || !detail.description.trim() || !detail.usage.trim()) {
         throw new Error(`Missing command help metadata: ${command}`);
       }
+      if (detail.examples.length === 0) {
+        throw new Error(`Missing command example metadata: ${command}`);
+      }
       for (const flag of detail.flags) {
         if (!FLAG_SET.has(flag)) {
           throw new Error(`Command help metadata references unknown flag ${flag} for ${command}`);
@@ -433,6 +436,9 @@ function assertToolCoverage(): void {
     if (!entry.description.trim()) {
       throw new Error(`Help tool is missing a description: ${entry.name}`);
     }
+    if (!entry.example?.trim()) {
+      throw new Error(`Help tool is missing an example: ${entry.name}`);
+    }
     if (seen.has(entry.name)) {
       throw new Error(`Help tool appears multiple times: ${entry.name}`);
     }
@@ -457,7 +463,9 @@ function formatCommandGroups(): string {
           description: detail.description,
           details: [
             { label: "usage:", value: detail.usage },
-            { label: "flags:", value: formatFlags(detail.flags) }
+            { label: "flags:", value: formatFlags(detail.flags) },
+            ...detail.examples.map((example) => ({ label: "example:", value: example })),
+            ...detail.notes.map((note) => ({ label: "note:", value: note }))
           ]
         };
       });
@@ -483,9 +491,13 @@ function formatToolEntries(): string {
   return formatRows(HELP_TOOL_ENTRIES.map((entry) => ({
     label: entry.name,
     description: entry.description,
-    details: entry.cliEquivalent
-      ? [{ label: "cli:", value: entry.cliEquivalent }]
-      : [{ label: "scope:", value: "tool-only" }]
+    details: [
+      ...(entry.cliEquivalent
+        ? [{ label: "cli:", value: entry.cliEquivalent }]
+        : [{ label: "scope:", value: "tool-only" }]),
+      ...(entry.example ? [{ label: "example:", value: entry.example }] : []),
+      ...((entry.notes ?? []).map((note) => ({ label: "note:", value: note })))
+    ]
   })));
 }
 

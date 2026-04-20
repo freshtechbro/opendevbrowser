@@ -1192,6 +1192,35 @@ describe("workflow branch coverage", () => {
     )).toBe(false);
   });
 
+  it("normalizes product-video provider hints across prefixed, inferred, and passthrough inputs", () => {
+    expect(workflowTestUtils.normalizeProductVideoProviderHint(
+      "https://www.amazon.com/dp/B0TEST1234",
+      "amazon",
+      "shopping/amazon"
+    )).toBe("shopping/amazon");
+    expect(workflowTestUtils.normalizeProductVideoProviderHint(
+      "https://www.amazon.com/dp/B0TEST1234",
+      "shopping/walmart",
+      "amazon"
+    )).toBe("shopping/walmart");
+    expect(workflowTestUtils.normalizeProductVideoProviderHint(
+      "https://www.amazon.com/dp/B0TEST1234"
+    )).toBe("shopping/amazon");
+    expect(workflowTestUtils.normalizeProductVideoProviderHint(
+      "https://unknown.example/product",
+      "bestbuy"
+    )).toBe("shopping/bestbuy");
+    expect(workflowTestUtils.normalizeProductVideoProviderHint(
+      "https://unknown.example/product",
+      undefined,
+      "bestbuy"
+    )).toBe("bestbuy");
+    expect(workflowTestUtils.normalizeProductVideoProviderHint(
+      "not-a-valid-url",
+      "bestbuy"
+    )).toBe("bestbuy");
+  });
+
   it("covers transcript success, brand inference, and offer-record gating helpers", () => {
     expect(workflowTestUtils.hasTranscriptSuccess(makeRecord({
       attributes: {
@@ -4276,7 +4305,7 @@ describe("workflow branch coverage", () => {
       include_all_images: false,
       include_copy: false
     });
-    expect((normalizedHint.product as { provider: string }).provider).toBe("amazon");
+    expect((normalizedHint.product as { provider: string }).provider).toBe("shopping/amazon");
 
     const prefixedHint = await runProductVideoWorkflow(runtime, {
       product_url: "https://www.amazon.com/dp/example",

@@ -335,6 +335,46 @@ function hasLinkedInAuthWall(records) {
   return gated.length > 0 && gated.length === records.length;
 }
 
+function getDeferredChallengeClassification(challengeOrchestration) {
+  const classification = readStringField(challengeOrchestration, "classification");
+  if (
+    readStringField(challengeOrchestration, "status") !== "deferred"
+    || (classification !== "auth_required" && classification !== "checkpoint_or_friction")
+  ) {
+    return null;
+  }
+
+  const verification = readJsonRecordField(challengeOrchestration, "verification");
+  const bundle = readJsonRecordField(verification, "bundle");
+  const continuity = readJsonRecordField(bundle, "continuity");
+  if (!continuity) {
+    return null;
+  }
+
+  const loginRefs = Array.isArray(continuity.loginRefs)
+    ? continuity.loginRefs.filter((entry) => typeof entry === "string" && entry.length > 0)
+    : [];
+  const checkpointRefs = Array.isArray(continuity.checkpointRefs)
+    ? continuity.checkpointRefs.filter((entry) => typeof entry === "string" && entry.length > 0)
+    : [];
+  const likelyLoginPage = continuity.likelyLoginPage === true;
+  const likelyHumanVerification = continuity.likelyHumanVerification === true;
+
+  if (classification === "auth_required" && (likelyLoginPage || loginRefs.length > 0)) {
+    return {
+      status: "env_limited",
+      detail: "deferred_auth_wall_only"
+    };
+  }
+  if (classification === "checkpoint_or_friction" && (likelyHumanVerification || checkpointRefs.length > 0)) {
+    return {
+      status: "env_limited",
+      detail: "deferred_checkpoint_only"
+    };
+  }
+  return null;
+}
+
 function normalizePlainText(value) {
   return typeof value === "string"
     ? value.replace(/\s+/g, " ").trim()
@@ -971,20 +1011,24 @@ function evaluateMacroCase(testCase, result) {
 
   const reasonCodes = normalizedCodesFromFailures(execution.failures);
   const linkedinAuthWall = testCase.providerId === "social/linkedin" && hasLinkedInAuthWall(execution.records);
+  const deferredChallengeClassification = testCase.providerId.startsWith("social/")
+    ? getDeferredChallengeClassification(challengeOrchestration)
+    : null;
   const shellOnlyClassification = classifyMacroRecordQuality(testCase, execution);
-  const classified = linkedinAuthWall
-    ? { status: "env_limited", detail: "linkedin_auth_wall_only" }
-    : (
-      shellOnlyClassification
-      ?? classifyRecords(
-        execution.records.length,
-        execution.failures,
-        {
-          allowExpectedUnavailable: testCase.allowExpectedUnavailable === true,
-          allowNoRecordsNoFailures: testCase.providerId.startsWith("social/")
-        }
-      )
-    );
+  const classified = deferredChallengeClassification
+    ?? (linkedinAuthWall
+      ? { status: "env_limited", detail: "linkedin_auth_wall_only" }
+      : (
+        shellOnlyClassification
+        ?? classifyRecords(
+          execution.records.length,
+          execution.failures,
+          {
+            allowExpectedUnavailable: testCase.allowExpectedUnavailable === true,
+            allowNoRecordsNoFailures: testCase.providerId.startsWith("social/")
+          }
+        )
+      ));
   const { rawFailure, verdict } = resolveDirectHarnessVerdict({
     classified,
     detail: result.detail,

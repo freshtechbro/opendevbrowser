@@ -776,6 +776,7 @@ npx opendevbrowser macro-resolve --expression '@community.search("browser automa
 Notes:
 - Default mode is resolve-only (returns the resolved action/provenance payload).
 - `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
+- Resolve-only and execute responses now both emit `followthroughSummary`, `suggestedNextAction`, and `suggestedSteps` so the next rerun command stays explicit even when execution blocks.
 - `--timeout-ms` sets client-side daemon transport timeout for slow `--execute` runs.
 - `--challenge-automation-mode` is accepted for `--execute` runs and maps to `challengeAutomationMode` with the same `run > session > config` precedence as workflow commands.
 - `opendevbrowser --help` includes this timeout flag in the global flag inventory.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkflowCompletionMessage,
   readSuggestedNextAction,
+  readSuggestedStepCommand,
   readSuggestedStepReason
 } from "../src/cli/utils/workflow-message";
 
@@ -51,5 +52,69 @@ describe("workflow message helpers", () => {
         suggestedSteps: [{ reason: "Run session-inspector-audit --session-id s1" }]
       }
     })).toBe("Run session-inspector-audit --session-id s1");
+  });
+
+  it("falls back to a suggested step command when explicit next action is absent", () => {
+    const data = {
+      followthroughSummary: "Review the asset pack before briefing production.",
+      suggestedSteps: [
+        {
+          reason: "Rerun with a narrower provider mix if the pack is too thin.",
+          command: "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+        }
+      ]
+    };
+
+    expect(readSuggestedStepCommand(data)).toBe(
+      "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+    );
+    expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
+      "Product video workflow completed. Review the asset pack before briefing production. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+    );
+  });
+
+  it("finds the first runnable command even when the first suggested step is informational", () => {
+    const data = {
+      followthroughSummary: "Review the pack before rerunning the workflow.",
+      suggestedSteps: [
+        {
+          reason: "Check the current pack before deciding whether a rerun is necessary."
+        },
+        {
+          reason: "Rerun with the resolved URL when the pack is too thin.",
+          command: "npx opendevbrowser product-video run --product-url \"https://example.com/p/2\" --output-format json"
+        }
+      ]
+    };
+
+    expect(readSuggestedStepCommand(data)).toBe(
+      "npx opendevbrowser product-video run --product-url \"https://example.com/p/2\" --output-format json"
+    );
+    expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
+      "Product video workflow completed. Review the pack before rerunning the workflow. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/2\" --output-format json"
+    );
+  });
+
+  it("skips placeholder helper commands and returns the first concrete rerun command", () => {
+    const data = {
+      followthroughSummary: "Review the current pack, then rerun only if the assets are still too thin.",
+      suggestedSteps: [
+        {
+          reason: "Generate briefing notes from the existing pack.",
+          command: "./skills/opendevbrowser-product-presentation-agent/scripts/render-video-brief.sh <pack>/manifest.json"
+        },
+        {
+          reason: "Rerun the workflow with the resolved product URL if you need a thicker pack.",
+          command: "npx opendevbrowser product-video run --product-url \"https://example.com/p/3\" --provider-hint shopping/amazon --output-format json"
+        }
+      ]
+    };
+
+    expect(readSuggestedStepCommand(data)).toBe(
+      "npx opendevbrowser product-video run --product-url \"https://example.com/p/3\" --provider-hint shopping/amazon --output-format json"
+    );
+    expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
+      "Product video workflow completed. Review the current pack, then rerun only if the assets are still too thin. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/3\" --provider-hint shopping/amazon --output-format json"
+    );
   });
 });

@@ -690,15 +690,141 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
 
 export type PublicSurfaceCliCommandName = typeof PUBLIC_CLI_COMMAND_GROUPS[number]["commands"][number]["name"];
 
+const cliExample = (command: string, args = ""): string => (
+  `npx opendevbrowser ${command}${args ? ` ${args}` : ""}`
+);
+
 export interface CommandHelpDetail {
   description: string;
   usage: string;
   flags: readonly PublicSurfaceFlagName[];
+  examples: readonly string[];
+  notes: readonly string[];
 }
 
 export const CLI_COMMANDS = PUBLIC_CLI_COMMAND_GROUPS.flatMap((group) => (
   group.commands.map((command) => command.name)
 )) as PublicSurfaceCliCommandName[];
+
+const CLI_COMMAND_EXAMPLES = {
+  install: [cliExample("install", "--local --with-config --skills-local")],
+  update: [cliExample("update", "--local --skills-local")],
+  uninstall: [cliExample("uninstall", "--local --no-skills --no-prompt")],
+  help: ["npx opendevbrowser --help"],
+  version: [cliExample("--version")],
+  serve: [cliExample("serve", "--port 8788 --token local-dev-token")],
+  daemon: [cliExample("daemon", "status --output-format json")],
+  native: [cliExample("native", "status --output-format json")],
+  run: [cliExample("run", "--script ./workflow.json --headless --output-format json")],
+  launch: [cliExample("launch", "--no-extension --headless --start-url https://example.com --output-format json")],
+  connect: [cliExample("connect", "--host 127.0.0.1 --cdp-port 9222 --output-format json")],
+  disconnect: [cliExample("disconnect", "--session-id s1 --close-browser --output-format json")],
+  status: [cliExample("status", "--daemon --output-format json")],
+  "status-capabilities": [cliExample("status-capabilities", "--session-id s1 --target-id page-1 --challenge-automation-mode browser --timeout-ms 30000 --output-format json")],
+  "cookie-import": [cliExample("cookie-import", "--session-id s1 --cookies-file ./cookies.json --strict true --output-format json")],
+  "cookie-list": [cliExample("cookie-list", "--session-id s1 --url https://example.com --output-format json")],
+  research: [cliExample("research run", "--topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json")],
+  shopping: [cliExample("shopping run", "--query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json")],
+  "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --include-screenshots --output-format json")],
+  inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
+  artifacts: [cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")],
+  "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --challenge-automation-mode browser --output-format json")],
+  canvas: [cliExample("canvas", "--command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json")],
+  goto: [cliExample("goto", "--session-id s1 --url https://example.com --wait-until networkidle --output-format json")],
+  wait: [cliExample("wait", "--session-id s1 --state networkidle --timeout-ms 30000 --output-format json")],
+  snapshot: [cliExample("snapshot", "--session-id s1 --mode actionables --max-chars 4000 --output-format json")],
+  review: [cliExample("review", "--session-id s1 --target-id page-1 --output-format json")],
+  "review-desktop": [cliExample("review-desktop", "--session-id s1 --reason \"trace challenge state\" --output-format json")],
+  click: [cliExample("click", "--session-id s1 --ref r12 --output-format json")],
+  hover: [cliExample("hover", "--session-id s1 --ref r12 --output-format json")],
+  press: [cliExample("press", "--session-id s1 --key Enter --ref r12 --output-format json")],
+  check: [cliExample("check", "--session-id s1 --ref r12 --output-format json")],
+  uncheck: [cliExample("uncheck", "--session-id s1 --ref r12 --output-format json")],
+  type: [cliExample("type", "--session-id s1 --ref r12 --text \"agent@example.com\" --clear --output-format json")],
+  select: [cliExample("select", "--session-id s1 --ref r12 --values us,ca --output-format json")],
+  scroll: [cliExample("scroll", "--session-id s1 --dy 1000 --output-format json")],
+  "scroll-into-view": [cliExample("scroll-into-view", "--session-id s1 --ref r12 --output-format json")],
+  upload: [cliExample("upload", "--session-id s1 --ref r12 --files ./draft.pdf,./hero.png --output-format json")],
+  "pointer-move": [cliExample("pointer-move", "--session-id s1 --x 320 --y 240 --steps 12 --output-format json")],
+  "pointer-down": [cliExample("pointer-down", "--session-id s1 --x 320 --y 240 --button left --click-count 1 --output-format json")],
+  "pointer-up": [cliExample("pointer-up", "--session-id s1 --x 320 --y 240 --button left --click-count 1 --output-format json")],
+  "pointer-drag": [cliExample("pointer-drag", "--session-id s1 --from-x 320 --from-y 240 --to-x 640 --to-y 240 --steps 18 --output-format json")],
+  "targets-list": [cliExample("targets-list", "--session-id s1 --include-urls --output-format json")],
+  "target-use": [cliExample("target-use", "--session-id s1 --target-id page-2 --output-format json")],
+  "target-new": [cliExample("target-new", "--session-id s1 --url https://example.com/docs --output-format json")],
+  "target-close": [cliExample("target-close", "--session-id s1 --target-id page-2 --output-format json")],
+  page: [cliExample("page", "--session-id s1 --name settings --url https://example.com/settings --output-format json")],
+  pages: [cliExample("pages", "--session-id s1 --output-format json")],
+  "page-close": [cliExample("page-close", "--session-id s1 --name settings --output-format json")],
+  "dom-html": [cliExample("dom-html", "--session-id s1 --ref r12 --max-chars 2000 --output-format json")],
+  "dom-text": [cliExample("dom-text", "--session-id s1 --ref r12 --max-chars 500 --output-format json")],
+  "dom-attr": [cliExample("dom-attr", "--session-id s1 --ref r12 --attr aria-label --output-format json")],
+  "dom-value": [cliExample("dom-value", "--session-id s1 --ref r12 --output-format json")],
+  "dom-visible": [cliExample("dom-visible", "--session-id s1 --ref r12 --output-format json")],
+  "dom-enabled": [cliExample("dom-enabled", "--session-id s1 --ref r12 --output-format json")],
+  "dom-checked": [cliExample("dom-checked", "--session-id s1 --ref r12 --output-format json")],
+  "clone-page": [cliExample("clone-page", "--session-id s1 --target-id page-1 --path ./exports/page.tsx --output-format json")],
+  "clone-component": [cliExample("clone-component", "--session-id s1 --ref r12 --path ./exports/component.tsx --output-format json")],
+  "session-inspector": [cliExample("session-inspector", "--session-id s1 --include-urls --max 20 --output-format json")],
+  "session-inspector-plan": [cliExample("session-inspector-plan", "--session-id s1 --target-id page-1 --challenge-automation-mode browser --output-format json")],
+  "session-inspector-audit": [cliExample("session-inspector-audit", "--session-id s1 --target-id page-1 --reason \"trace challenge state\" --include-urls --request-id req-session-audit-001 --challenge-automation-mode browser_with_helper --output-format json")],
+  perf: [cliExample("perf", "--session-id s1 --output-format json")],
+  screenshot: [cliExample("screenshot", "--session-id s1 --path ./artifacts/page.png --full-page --output-format json")],
+  dialog: [cliExample("dialog", "--session-id s1 --action status --output-format json")],
+  "console-poll": [cliExample("console-poll", "--session-id s1 --max 50 --output-format json")],
+  "network-poll": [cliExample("network-poll", "--session-id s1 --max 50 --output-format json")],
+  "debug-trace-snapshot": [cliExample("debug-trace-snapshot", "--session-id s1 --max 50 --request-id req-trace-001 --output-format json")],
+  annotate: [cliExample("annotate", "--session-id s1 --transport auto --context \"review call to action spacing\" --include-screenshots true --output-format json")],
+  "screencast-start": [cliExample("screencast-start", "--session-id s1 --output-dir ./artifacts/replay --interval-ms 750 --max-frames 40 --output-format json")],
+  "screencast-stop": [cliExample("screencast-stop", "--session-id s1 --screencast-id cast-1 --output-format json")],
+  "desktop-status": [cliExample("desktop-status", "--timeout-ms 5000 --output-format json")],
+  "desktop-windows": [cliExample("desktop-windows", "--reason \"inventory browser-adjacent windows\" --output-format json")],
+  "desktop-active-window": [cliExample("desktop-active-window", "--reason \"capture active browser context\" --output-format json")],
+  "desktop-capture-desktop": [cliExample("desktop-capture-desktop", "--reason \"capture login checkpoint state\" --output-format json")],
+  "desktop-capture-window": [cliExample("desktop-capture-window", "--window-id 101 --reason \"capture browser window\" --output-format json")],
+  "desktop-accessibility-snapshot": [cliExample("desktop-accessibility-snapshot", "--reason \"inspect current browser-adjacent labels\" --window-id 101 --output-format json")],
+  rpc: [cliExample("rpc", "--unsafe-internal --name browser.status --params-file ./rpc-params.json --output-format json")]
+} as const satisfies Record<PublicSurfaceCliCommandName, readonly string[]>;
+
+const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly string[]>> = {
+  help: [
+    "Generated help is the canonical first-contact discovery surface and should stay source-owned."
+  ],
+  run: [
+    "One-shot run uses a temporary profile unless --persist-profile is explicitly enabled."
+  ],
+  launch: [
+    "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
+  ],
+  research: [
+    "Generic topical research is currently safest with --source-selection auto; add shopping only for deliberate commercial comparison."
+  ],
+  shopping: [
+    "Treat --region as advisory unless the workflow output reports region_authoritative=true."
+  ],
+  "product-video": [
+    "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
+  ],
+  inspiredesign: [
+    "--capture-mode defaults to off; opt into deep only when live DOM or layout evidence is required.",
+    "Repeat --url for multiple references. There is no --urls alias."
+  ],
+  "macro-resolve": [
+    "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete."
+  ],
+  canvas: [
+    "Use --params-file for strict request envelopes such as canvas.plan.set or governance handoff payloads."
+  ],
+  annotate: [
+    "Use --stored when you want the last delivered annotation payload without starting a new capture."
+  ],
+  "session-inspector-plan": [
+    "Inspect browser-scoped challenge automation before enabling browser_with_helper on a live rerun."
+  ],
+  "session-inspector-audit": [
+    "Audit mode is the quickest correlated proof lane when you need desktop evidence plus browser trace state."
+  ]
+} as const;
 
 export const CLI_COMMAND_HELP_DETAILS = Object.fromEntries(
   PUBLIC_CLI_COMMAND_GROUPS.flatMap((group) => (
@@ -707,19 +833,26 @@ export const CLI_COMMAND_HELP_DETAILS = Object.fromEntries(
       {
         description: command.description,
         usage: command.usage,
-        flags: [...command.flags]
+        flags: [...command.flags],
+        examples: [...CLI_COMMAND_EXAMPLES[command.name]],
+        notes: [...(CLI_COMMAND_NOTES[command.name] ?? [])]
       } satisfies CommandHelpDetail
     ] as const)
   ))
 ) as unknown as Record<PublicSurfaceCliCommandName, CommandHelpDetail>;
 
-export interface ToolSurfaceEntry {
+export interface ToolSurfaceDefinition {
   name: string;
   description: string;
   cliEquivalent?: string;
+  notes?: readonly string[];
 }
 
-export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
+export interface ToolSurfaceEntry extends ToolSurfaceDefinition {
+  example: string;
+}
+
+export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceDefinition[] = [
   { name: "opendevbrowser_launch", description: "Launch a managed browser session.", cliEquivalent: "launch" },
   { name: "opendevbrowser_connect", description: "Connect to an existing browser session.", cliEquivalent: "connect" },
   { name: "opendevbrowser_disconnect", description: "Disconnect a managed or connected session.", cliEquivalent: "disconnect" },
@@ -792,6 +925,24 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceEntry[] = [
   { name: "opendevbrowser_skill_load", description: "Load a specific skill pack locally, especially the bundled best-practices quick start." }
 ] as const;
 
+const TOOL_SURFACE_EXAMPLES: Partial<Record<string, string>> = {
+  opendevbrowser_prompting_guide: "{\"topic\":\"quick start\"}",
+  opendevbrowser_skill_list: "{}",
+  opendevbrowser_skill_load: "{\"name\":\"opendevbrowser-best-practices\",\"topic\":\"quick start\"}"
+};
+
+const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
+  opendevbrowser_prompting_guide: [
+    "Tool-only helper. Use it before low-level browser commands when an agent needs the canonical quick start."
+  ],
+  opendevbrowser_skill_list: [
+    "Tool-only helper. Use it to inspect local workflow lanes before loading a pack."
+  ],
+  opendevbrowser_skill_load: [
+    "Tool-only helper. Use it to load opendevbrowser-best-practices or design-agent guidance directly into the current agent context."
+  ]
+};
+
 export interface PublicSurfaceCliCommandGroup {
   id: string;
   title: string;
@@ -857,6 +1008,8 @@ export function buildPublicSurfaceCliCommands(): PublicSurfaceCliCommand[] {
       description: command.description,
       usage: command.usage,
       flags: [...command.flags],
+      examples: [...CLI_COMMAND_EXAMPLES[command.name]],
+      notes: [...(CLI_COMMAND_NOTES[command.name] ?? [])],
       groupId: group.id,
       groupTitle: group.title,
       groupSummary: group.summary
@@ -875,7 +1028,12 @@ export function buildPublicSurfaceToolSurfaces(): ToolSurfaceEntry[] {
   return TOOL_SURFACE_ENTRIES.map((entry) => ({
     name: entry.name,
     description: entry.description,
-    ...(entry.cliEquivalent ? { cliEquivalent: entry.cliEquivalent } : {})
+    ...(entry.cliEquivalent ? { cliEquivalent: entry.cliEquivalent } : {}),
+    example: TOOL_SURFACE_EXAMPLES[entry.name]
+      ?? CLI_COMMAND_EXAMPLES[entry.cliEquivalent as PublicSurfaceCliCommandName][0],
+    ...(TOOL_SURFACE_NOTES[entry.name]
+      ? { notes: [...TOOL_SURFACE_NOTES[entry.name]!] }
+      : {})
   }));
 }
 

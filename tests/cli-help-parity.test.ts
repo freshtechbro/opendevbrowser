@@ -30,6 +30,9 @@ describe("cli help parity", () => {
 
     expect(new Set(names).size).toBe(HELP_TOOL_ENTRIES.length);
     expect(HELP_TOOL_ENTRIES).toEqual(TOOL_SURFACE_ENTRIES);
+    for (const entry of HELP_TOOL_ENTRIES) {
+      expect(entry.example?.length ?? 0).toBeGreaterThan(0);
+    }
   });
 
   it("includes the session-inspector public-surface tranche", () => {
@@ -128,6 +131,10 @@ describe("cli help parity", () => {
     for (const command of CLI_COMMANDS) {
       expect(COMMAND_HELP_DETAILS[command].description.length).toBeGreaterThan(0);
       expect(COMMAND_HELP_DETAILS[command].description).toBe(runtimeDescriptions[command]);
+      expect(COMMAND_HELP_DETAILS[command].examples.length).toBeGreaterThan(0);
+      for (const example of COMMAND_HELP_DETAILS[command].examples) {
+        expect(example.startsWith("npx opendevbrowser")).toBe(true);
+      }
     }
   });
 
@@ -140,16 +147,21 @@ describe("cli help parity", () => {
 
   it("keeps multi-flag help metadata aligned for workflow and run commands", () => {
     expect(COMMAND_HELP_DETAILS.uninstall.usage).toContain("--quiet");
+    expect(COMMAND_HELP_DETAILS.run.examples[0]).toContain("run --script ./workflow.json");
     expect(COMMAND_HELP_DETAILS.run.flags).toEqual(expect.arrayContaining(["--headless", "--persist-profile"]));
     expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS.research.examples[0]).toContain("research run");
     expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS.shopping.examples[0]).toContain("shopping run");
     expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS["product-video"].examples[0]).toContain("product-video run");
     expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
       "--brief",
       "--url",
       "--capture-mode",
       "--include-prototype-guidance"
     ]));
+    expect(COMMAND_HELP_DETAILS.inspiredesign.examples[0]).toContain("inspiredesign run");
     expect(HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands])).toContain("inspiredesign");
     expect(HELP_TOOL_ENTRIES.map((entry) => entry.name)).toContain("opendevbrowser_inspiredesign_run");
   });

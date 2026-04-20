@@ -22,6 +22,14 @@ const readNonEmptyString = (value: unknown): string | null => (
     : null
 );
 
+const UNRESOLVED_COMMAND_PLACEHOLDER_RE = /<[^>\n]+>/;
+
+const readRunnableStepCommand = (step: Record<string, unknown>): string | null => {
+  const command = readNonEmptyString(step.command);
+  if (!command) return null;
+  return UNRESOLVED_COMMAND_PLACEHOLDER_RE.test(command) ? null : command;
+};
+
 const readMeta = (data: unknown): Record<string, unknown> | null => {
   return asRecord(asRecord(data)?.meta);
 };
@@ -84,6 +92,22 @@ export const readSuggestedNextAction = (data: unknown): string | null => {
     ?? readNonEmptyString(asRecord(record.sessionInspector)?.suggestedNextAction);
 };
 
+export const readSuggestedStepCommand = (data: unknown): string | null => {
+  let current = asRecord(data);
+
+  while (current) {
+    const command = readSuggestedSteps(current)
+      .map(readRunnableStepCommand)
+      .find((step): step is string => Boolean(step));
+    if (command) {
+      return command;
+    }
+    current = asRecord(current.challengePlan);
+  }
+
+  return null;
+};
+
 export const readSuggestedStepReason = (data: unknown): string | null => {
   let current = asRecord(data);
 
@@ -117,7 +141,7 @@ export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unkn
   if (followthroughSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed. ${followthroughSummary}`,
-      readSuggestedNextAction(data) ?? readSuggestedStepReason(data)
+      readSuggestedNextAction(data) ?? readSuggestedStepCommand(data) ?? readSuggestedStepReason(data)
     );
   }
   return `${workflowLabel} completed.`;

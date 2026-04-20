@@ -41,6 +41,7 @@ describe("docs-drift-check", () => {
       "doc.readme.desktop_observation_swift_prerequisite_documented",
       "doc.readme.skill_discovery_fallback_documented",
       "doc.readme.skill_inventory_split_documented",
+      "doc.readme.current_package_version_ref",
       "doc.cli.challenge_override_contract_documented",
       "doc.cli.computer_use_entry_documented",
       "doc.cli.browser_replay_and_desktop_observation_documented",
