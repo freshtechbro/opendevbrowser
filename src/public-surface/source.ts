@@ -147,14 +147,14 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       {
         name: "update",
         description: "Clear cached plugin and refresh managed skill packs",
-        usage: "npx opendevbrowser update [--global|--local]",
-        flags: ["--global", "--local"]
+        usage: "npx opendevbrowser update [--global|--local] [--skills-global|--skills-local|--no-skills]",
+        flags: ["--global", "--local", "--skills-global", "--skills-local", "--no-skills"]
       },
       {
         name: "uninstall",
         description: "Remove plugin from config and clean managed skill packs",
-        usage: "npx opendevbrowser uninstall [--global|--local] [--no-prompt] [--quiet]",
-        flags: ["--global", "--local", "--no-prompt", "--quiet"]
+        usage: "npx opendevbrowser uninstall [--global|--local] [--no-skills] [--no-prompt] [--quiet]",
+        flags: ["--global", "--local", "--no-skills", "--no-prompt", "--quiet"]
       },
       {
         name: "help",

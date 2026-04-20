@@ -154,6 +154,25 @@ describe("cli help parity", () => {
     expect(HELP_TOOL_ENTRIES.map((entry) => entry.name)).toContain("opendevbrowser_inspiredesign_run");
   });
 
+  it("exposes lifecycle skill flags in generated update and uninstall help", () => {
+    expect(COMMAND_HELP_DETAILS.update.usage).toContain("--skills-global|--skills-local|--no-skills");
+    expect(COMMAND_HELP_DETAILS.update.flags).toEqual(expect.arrayContaining([
+      "--global",
+      "--local",
+      "--skills-global",
+      "--skills-local",
+      "--no-skills"
+    ]));
+    expect(COMMAND_HELP_DETAILS.uninstall.usage).toContain("--no-skills");
+    expect(COMMAND_HELP_DETAILS.uninstall.flags).toEqual(expect.arrayContaining([
+      "--global",
+      "--local",
+      "--no-skills",
+      "--no-prompt",
+      "--quiet"
+    ]));
+  });
+
   it("mentions both help invocations in the generated help text", () => {
     const labels = HELP_REFERENCE_ENTRIES.map((entry) => entry.label);
 

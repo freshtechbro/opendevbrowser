@@ -1,10 +1,8 @@
 import type { InstallMode, ParsedArgs } from "./args";
 import { hasBundledSkillArtifacts, hasManagedBundledSkillInstall } from "./installers/skills";
-import { hasInstalledConfig } from "./commands/uninstall";
 
 function shouldRefreshManagedSkills(mode: InstallMode): boolean {
-  return hasManagedBundledSkillInstall(mode)
-    || (hasInstalledConfig(mode) && hasBundledSkillArtifacts(mode));
+  return hasManagedBundledSkillInstall(mode) || hasBundledSkillArtifacts(mode);
 }
 
 export function resolveUpdateSkillModes(args: ParsedArgs): InstallMode[] {

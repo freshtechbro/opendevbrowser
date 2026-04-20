@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-17T01:10:55.127Z",
+  "generatedAt": "2026-04-20T04:16:59.279Z",
   "cli": {
     "groups": [
       {
@@ -195,10 +195,13 @@
       {
         "name": "update",
         "description": "Clear cached plugin and refresh managed skill packs",
-        "usage": "npx opendevbrowser update [--global|--local]",
+        "usage": "npx opendevbrowser update [--global|--local] [--skills-global|--skills-local|--no-skills]",
         "flags": [
           "--global",
-          "--local"
+          "--local",
+          "--skills-global",
+          "--skills-local",
+          "--no-skills"
         ],
         "groupId": "install_lifecycle",
         "groupTitle": "Install & Lifecycle",
@@ -207,10 +210,11 @@
       {
         "name": "uninstall",
         "description": "Remove plugin from config and clean managed skill packs",
-        "usage": "npx opendevbrowser uninstall [--global|--local] [--no-prompt] [--quiet]",
+        "usage": "npx opendevbrowser uninstall [--global|--local] [--no-skills] [--no-prompt] [--quiet]",
         "flags": [
           "--global",
           "--local",
+          "--no-skills",
           "--no-prompt",
           "--quiet"
         ],

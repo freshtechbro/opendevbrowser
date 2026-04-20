@@ -9,7 +9,7 @@ import {
   removePluginFromContent
 } from "../utils/config";
 import type { InstallMode } from "../args";
-import { hasManagedBundledSkillInstall } from "../installers/skills";
+import { hasBundledSkillArtifacts, hasManagedBundledSkillInstall } from "../installers/skills";
 
 export interface UninstallResult {
   success: boolean;
@@ -60,7 +60,7 @@ export function runUninstall(
     if (!hasPlugin(config)) {
       return {
         success: true,
-        message: `opendevbrowser is not installed in ${configPath}`,
+        message: `No plugin config found in ${configPath}`,
         configPath,
         removed: false,
         configFileDeleted: false
@@ -97,7 +97,11 @@ export function runUninstall(
 
 export function findInstalledConfigs(): { global: boolean; local: boolean } {
   return {
-    global: hasInstalledConfig("global") || hasManagedBundledSkillInstall("global"),
-    local: hasInstalledConfig("local") || hasManagedBundledSkillInstall("local")
+    global: hasInstalledConfig("global")
+      || hasManagedBundledSkillInstall("global")
+      || hasBundledSkillArtifacts("global"),
+    local: hasInstalledConfig("local")
+      || hasManagedBundledSkillInstall("local")
+      || hasBundledSkillArtifacts("local")
   };
 }

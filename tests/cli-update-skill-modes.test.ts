@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -8,6 +8,7 @@ import { installGlobal } from "../src/cli/installers/global";
 import { syncBundledSkills } from "../src/cli/installers/skills";
 import { getGlobalSkillTargets } from "../src/cli/utils/skills";
 import { resolveUpdateSkillModes } from "../src/cli/update-skill-modes";
+import { bundledSkillDirectories } from "../src/skills/bundled-skill-directories";
 
 const MANAGED_SKILLS_MARKER = ".opendevbrowser-managed-skills.json";
 
@@ -58,6 +59,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   process.chdir(originalCwd);
 
   if (originalHome === undefined) {
@@ -131,5 +133,31 @@ describe("resolveUpdateSkillModes", () => {
 
     expect(resolveUpdateSkillModes(makeUpdateArgs(["--update", "--global"], "global"))).toEqual(["global"]);
     expect(resolveUpdateSkillModes(makeUpdateArgs(["--update", "--local"], "local"))).toEqual(["local"]);
+  }, 60_000);
+
+  it("keeps partially synced marker-managed targets discoverable for a later repair", () => {
+    const installResult = syncBundledSkills("global");
+    expect(installResult.success).toBe(true);
+
+    const [target, ...otherTargets] = getGlobalSkillTargets();
+    if (!target) {
+      throw new Error("Missing global target for postinstall recovery test.");
+    }
+
+    const [firstPackName, secondPackName] = bundledSkillDirectories.map((entry) => entry.name);
+    if (!firstPackName || !secondPackName) {
+      throw new Error("Missing bundled skills for postinstall recovery test.");
+    }
+
+    for (const otherTarget of otherTargets) {
+      fs.rmSync(otherTarget.dir, { recursive: true, force: true });
+    }
+
+    expect(fs.existsSync(path.join(target.dir, firstPackName))).toBe(true);
+    expect(fs.existsSync(path.join(target.dir, MANAGED_SKILLS_MARKER))).toBe(true);
+    expect(fs.existsSync(path.join(target.dir, firstPackName, ".opendevbrowser-managed-skill.json"))).toBe(true);
+    fs.rmSync(path.join(target.dir, secondPackName), { recursive: true, force: true });
+    expect(fs.existsSync(path.join(target.dir, secondPackName))).toBe(false);
+    expect(resolveUpdateSkillModes(makeUpdateArgs())).toEqual(["global"]);
   }, 60_000);
 });
