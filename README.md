@@ -479,7 +479,7 @@ OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs**. Install, upda
 Installer note:
 - `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs into managed global or project-local agent directories.
 - Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
-- Uninstall removes managed canonical packs and only prunes legacy `research` or `shopping` leftovers when those directories are empty and clearly obsolete.
+- Uninstall removes managed canonical packs and leaves unrelated directories untouched.
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)
