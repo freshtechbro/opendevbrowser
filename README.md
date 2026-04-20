@@ -112,7 +112,7 @@ See [docs/FIRST_RUN_ONBOARDING.md](docs/FIRST_RUN_ONBOARDING.md) for the full on
 
 Successful installs reconcile daemon auto-start on supported platforms so the relay is available on login. If the current CLI entrypoint lives under a transient temp-root path such as a first-run `/tmp` or `/private/tmp` workspace, OpenDevBrowser refuses to persist that path as auto-start. Rerun `opendevbrowser daemon install`, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, from a stable install location if you want login auto-start; remove it later with `opendevbrowser daemon uninstall`.
 
-Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. Use `--skills-global` for user-wide installs or `--skills-local` for project-local installs; see [docs/CLI.md](docs/CLI.md) for exact target paths.
+Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. `npx opendevbrowser install` manages global or project-local targets according to the selected skills mode, and package installation (`npm install -g`, local tarball install, or equivalent) now refreshes the managed global targets during package `postinstall`. See [docs/CLI.md](docs/CLI.md) for exact target paths.
 
 ### CLI + Extension (No OpenCode)
 
