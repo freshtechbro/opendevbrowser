@@ -8,11 +8,7 @@ import { registerCommand, getCommand } from "./commands/registry";
 import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
 import { installLocal } from "./installers/local";
-import {
-  hasBundledSkillArtifacts,
-  removeBundledSkills,
-  syncBundledSkills
-} from "./installers/skills";
+import { removeBundledSkills, syncBundledSkills } from "./installers/skills";
 import { runUpdate } from "./commands/update";
 import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
@@ -99,35 +95,9 @@ import { flushOutputAndExit, writeOutput } from "./output";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
 import type { CliError } from "./errors";
 import packageJson from "../../package.json";
+import { resolveUpdateSkillModes } from "./update-skill-modes";
 
 const VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
-
-function resolveUpdateSkillModes(args: ParsedArgs): InstallMode[] {
-  if (args.rawArgs.includes("--no-skills")) {
-    return [];
-  }
-  if (args.rawArgs.includes("--skills-global")) {
-    return ["global"];
-  }
-  if (args.rawArgs.includes("--skills-local")) {
-    return ["local"];
-  }
-  if (args.mode) {
-    return [args.mode];
-  }
-
-  const installed = findInstalledConfigs();
-  const modes: InstallMode[] = [];
-
-  if (installed.global || hasBundledSkillArtifacts("global")) {
-    modes.push("global");
-  }
-  if (installed.local || hasBundledSkillArtifacts("local")) {
-    modes.push("local");
-  }
-
-  return modes;
-}
 
 async function promptInstallMode(): Promise<InstallMode> {
   if (!process.stdin.isTTY) {

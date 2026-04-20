@@ -9,6 +9,7 @@ import {
   removePluginFromContent
 } from "../utils/config";
 import type { InstallMode } from "../args";
+import { hasManagedBundledSkillInstall } from "../installers/skills";
 
 export interface UninstallResult {
   success: boolean;
@@ -16,6 +17,17 @@ export interface UninstallResult {
   configPath?: string;
   removed: boolean;
   configFileDeleted: boolean;
+}
+
+export function hasInstalledConfig(mode: InstallMode): boolean {
+  const configPath = mode === "global" ? getGlobalConfigPath() : getLocalConfigPath();
+
+  try {
+    const { config } = readConfig(configPath);
+    return hasPlugin(config);
+  } catch {
+    return false;
+  }
 }
 
 function getPluginConfigPath(mode: InstallMode): string {
@@ -84,22 +96,8 @@ export function runUninstall(
 }
 
 export function findInstalledConfigs(): { global: boolean; local: boolean } {
-  let global = false;
-  let local = false;
-
-  try {
-    const { config: globalConfig } = readConfig(getGlobalConfigPath());
-    global = hasPlugin(globalConfig);
-  } catch {
-    void 0;
-  }
-
-  try {
-    const { config: localConfig } = readConfig(getLocalConfigPath());
-    local = hasPlugin(localConfig);
-  } catch {
-    void 0;
-  }
-
-  return { global, local };
+  return {
+    global: hasInstalledConfig("global") || hasManagedBundledSkillInstall("global"),
+    local: hasInstalledConfig("local") || hasManagedBundledSkillInstall("local")
+  };
 }

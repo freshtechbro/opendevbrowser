@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { mkdtemp, rm } from "fs/promises";
+import { fileURLToPath } from "url";
 import packageJson from "../package.json";
 import { bundledSkillDirectories } from "../src/skills/bundled-skill-directories";
 
@@ -13,6 +15,37 @@ let originalCodexHome: string | undefined;
 let originalClaudeCodeHome: string | undefined;
 let originalAmpCliHome: string | undefined;
 let originalSkipEnv: string | undefined;
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+async function createPackagedPostinstallFixture(): Promise<string> {
+  const packageRoot = path.join(tempRoot, "package");
+  const scriptSource = await fs.promises.readFile(
+    path.join(repoRoot, "scripts", "postinstall-sync-skills.mjs"),
+    "utf8"
+  );
+
+  await fs.promises.mkdir(path.join(packageRoot, "scripts"), { recursive: true });
+  await fs.promises.writeFile(
+    path.join(packageRoot, "scripts", "postinstall-sync-skills.mjs"),
+    scriptSource
+  );
+
+  return packageRoot;
+}
+
+async function writePackagedInstallerEntry(packageRoot: string, source: string): Promise<void> {
+  const entryPath = path.join(packageRoot, "dist", "cli", "installers", "postinstall-skill-sync.js");
+  await fs.promises.mkdir(path.dirname(entryPath), { recursive: true });
+  await fs.promises.writeFile(entryPath, source);
+}
+
+function runPackagedPostinstallScript(packageRoot: string, env: NodeJS.ProcessEnv = {}) {
+  return spawnSync(process.execPath, [path.join(packageRoot, "scripts", "postinstall-sync-skills.mjs")], {
+    cwd: packageRoot,
+    env: { ...process.env, ...env },
+    encoding: "utf8"
+  });
+}
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(os.tmpdir(), "odb-postinstall-skills-"));
@@ -107,5 +140,62 @@ describe("postinstall skill sync", () => {
     expect(result.success).toBe(true);
     expect(result.skipped).toBe(true);
     expect(result.reason).toBe("repo_checkout");
+  });
+
+  it("skips the packaged postinstall script when the opt-out env var is set", async () => {
+    const packageRoot = await createPackagedPostinstallFixture();
+    const sentinelPath = path.join(packageRoot, "sync-called.txt");
+
+    await writePackagedInstallerEntry(
+      packageRoot,
+      [
+        'import * as fs from "fs";',
+        `const sentinelPath = ${JSON.stringify(sentinelPath)};`,
+        "export function runPostinstallSkillSync() {",
+        '  fs.writeFileSync(sentinelPath, "called");',
+        '  return { success: true, skipped: false, message: "synced" };',
+        "}"
+      ].join("\n")
+    );
+
+    const result = runPackagedPostinstallScript(packageRoot, {
+      OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC: "1"
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(fs.existsSync(sentinelPath)).toBe(false);
+  });
+
+  it("warns when the packaged postinstall script cannot find the built installer entry", async () => {
+    const packageRoot = await createPackagedPostinstallFixture();
+
+    const result = runPackagedPostinstallScript(packageRoot);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("postinstall skill sync skipped: built installer entry missing.");
+  });
+
+  it("loads the built installer entry from a packaged layout", async () => {
+    const packageRoot = await createPackagedPostinstallFixture();
+    const sentinelPath = path.join(packageRoot, "sync-called.txt");
+
+    await writePackagedInstallerEntry(
+      packageRoot,
+      [
+        'import * as fs from "fs";',
+        `const sentinelPath = ${JSON.stringify(sentinelPath)};`,
+        "export function runPostinstallSkillSync() {",
+        '  fs.writeFileSync(sentinelPath, "called");',
+        '  return { success: true, skipped: false, message: "synced" };',
+        "}"
+      ].join("\n")
+    );
+
+    const result = runPackagedPostinstallScript(packageRoot);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(fs.readFileSync(sentinelPath, "utf8")).toBe("called");
   });
 });

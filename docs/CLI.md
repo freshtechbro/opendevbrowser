@@ -52,6 +52,13 @@ cd <public-repo-root>
 npm pack
 
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
+ISOLATED_ROOT=$(mktemp -d /tmp/opendevbrowser-first-run-isolated-XXXXXX)
+export HOME="$ISOLATED_ROOT/home"
+export OPENCODE_CONFIG_DIR="$ISOLATED_ROOT/opencode-config"
+export OPENCODE_CACHE_DIR="$ISOLATED_ROOT/opencode-cache"
+export CODEX_HOME="$ISOLATED_ROOT/codex-home"
+export CLAUDECODE_HOME="$ISOLATED_ROOT/claudecode-home"
+export AMP_CLI_HOME="$ISOLATED_ROOT/ampcli-home"
 cd "$WORKDIR"
 npm init -y
 npm install <public-repo-root>/opendevbrowser-0.0.21.tgz
@@ -62,19 +69,15 @@ npx --no-install opendevbrowser help
 Load extension unpacked from:
 - `$WORKDIR/node_modules/opendevbrowser/extension`
 
-For isolated daemon tests on machines that already run OpenDevBrowser, set:
+Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that avoids the install-time managed-skill refresh entirely.
 
-```bash
-export OPENCODE_CONFIG_DIR=/tmp/opendevbrowser-first-run-isolated/config
-export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
-```
-
-By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also refreshes the managed global skill targets during package `postinstall`. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
 - `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
+- Managed installs write a target-level ownership marker, so default updates and uninstall only act on CLI-managed targets or older config installs that already contain canonical packs.
 - Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
-- Uninstall removes managed canonical packs and leaves unrelated directories untouched.
+- Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
 
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 
@@ -235,7 +238,7 @@ This removes cached files from `~/.cache/opencode/node_modules/opendevbrowser/`.
 
 ### Uninstall
 
-Remove the plugin from configuration.
+Remove the plugin from configuration and clean managed skill packs for the selected install target.
 
 ```bash
 # Remove from global config
@@ -1465,7 +1468,7 @@ Notes:
 | `--global` | `-g` | Install to `~/.config/opencode/opencode.json` |
 | `--local` | `-l` | Install to `./opencode.json` |
 | `--update` | `-u` | Clear cache to trigger reinstall |
-| `--uninstall` | | Remove plugin from config |
+| `--uninstall` | | Remove plugin from config and clean managed skills |
 | `--with-config` | | Also create `opendevbrowser.jsonc` |
 | `--full` | `-f` | Create config and pre-extract extension assets |
 | `--no-prompt` | | Skip prompts, use defaults |
