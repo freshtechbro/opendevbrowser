@@ -29,7 +29,7 @@ Tracks the `0.0.22` release cycle after the published `v0.0.21` release, includi
 
 - Release-prep branch: `main`
 - Release tag target: `v0.0.22`
-- npm `latest`: still `0.0.21` before publish
+- npm `latest`: `0.0.22` after local publish verification
 - GitHub release: pending
 - Local version authority is `package.json` at `0.0.22`; extension version owners stay synced via `npm run extension:sync`
 - `docs/RELEASE_0.0.21_EVIDENCE.md` remains historical release evidence
@@ -52,7 +52,7 @@ Tracks the `0.0.22` release cycle after the published `v0.0.21` release, includi
 - [x] `npm run extension:build`
 - [x] `npm run extension:pack`
 - [x] `npm pack`
-- [ ] After npm publish, `node scripts/registry-consumer-smoke.mjs --version 0.0.22 --output artifacts/release/v0.0.22/registry-consumer-smoke.json`
+- [x] After npm publish, `node scripts/registry-consumer-smoke.mjs --version 0.0.22 --output artifacts/release/v0.0.22/registry-consumer-smoke.json`
 
 ## Optional release-environment gates
 
@@ -109,16 +109,30 @@ Tracks the `0.0.22` release cycle after the published `v0.0.21` release, includi
   - Each global skill directory contained `.opendevbrowser-managed-skills.json` plus one `.opendevbrowser-managed-skill.json` sentinel per bundled pack
   - `npx --no-install opendevbrowser --global --full --no-prompt` exited `0`, reported `Skills global sync: 36 unchanged across 4 targets`, and extracted extension assets to the isolated home config path
   - Autostart repair correctly warned that the temp onboarding CLI path is transient
-- External pre-publish state:
-  - `npm view opendevbrowser version dist-tags --json` still reports `latest=0.0.21`
-  - `gh secret list --repo freshtechbro/opendevbrowser` still shows `PRIVATE_REPO_DISPATCH_TOKEN` only
-  - `npm whoami` remains `bishopdotun`
+- External publish-state verification:
+  - `npm publish --access public` succeeded and ended with `+ opendevbrowser@0.0.22`
+  - `npm view opendevbrowser version dist-tags --json` now reports:
+    - `version: 0.0.22`
+    - `dist-tags.latest: 0.0.22`
+  - Registry consumer smoke:
+    - Command: `node scripts/registry-consumer-smoke.mjs --version 0.0.22 --output artifacts/release/v0.0.22/registry-consumer-smoke.json`
+    - Artifact: `artifacts/release/v0.0.22/registry-consumer-smoke.json`
+    - Result: `success: true`
+    - Checks:
+      - `helpAliasMatches: true`
+      - `findItFastPresent: true`
+      - `extensionDirExists: true`
+      - `skillsDirExists: true`
+      - `versionMatches: true`
+  - Release automation constraints remain unchanged:
+    - `gh secret list --repo freshtechbro/opendevbrowser` still shows `PRIVATE_REPO_DISPATCH_TOKEN` only
+    - `npm whoami` remains `bishopdotun`
 
 ## External release workflow evidence
 
 - [ ] GitHub release workflow run URL
 - [ ] GitHub release URL
-- [ ] npm publish verification (`npm view opendevbrowser version`)
+- [x] npm publish verification (`npm view opendevbrowser version`)
 - [ ] Chrome Web Store upload or publish status
 
 ## Notes
