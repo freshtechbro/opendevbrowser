@@ -71,7 +71,7 @@ Expected:
 - the `Find It Fast` block includes the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`
 - the block maps replay to `screencast-start` / `screencast-stop`
 - the block maps desktop observation to the public `desktop-*` family
-- the block maps browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, and `macro-resolve --execute`
+- the block maps browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`
 - the block includes a concrete browser-scoped entry command such as `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
 - help then opens the `Agent Quick Start` block
 - the block explicitly points agents to `opendevbrowser_prompting_guide`

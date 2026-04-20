@@ -12,6 +12,9 @@ type ToolOutput = {
   ok: boolean;
   error?: { message: string; code?: string };
   runtime?: string;
+  followthroughSummary?: string;
+  suggestedNextAction?: string;
+  suggestedSteps?: Array<{ reason: string; command?: string }>;
   resolution?: {
     action: { source: string; operation: string; input: Record<string, unknown> };
     provenance: { macro: string; provider: string; resolvedQuery: string; pack: string };
@@ -180,6 +183,8 @@ describe("macro resolve tool", () => {
     }));
     expect(result.ok).toBe(true);
     expect(result.runtime).toBe("macros");
+    expect(result.followthroughSummary).toBe("Review the resolved provider action and provenance before executing the macro.");
+    expect(result.suggestedNextAction).toContain("npx opendevbrowser macro-resolve");
     expect(result.resolution?.provenance.macro).toBe("web.search");
     expect(result.catalog).toEqual([{ name: "web.search", pack: "core:web", description: "search web" }]);
     expect(resolve).toHaveBeenCalledWith("@web.search('runtime query')", { defaultProvider: undefined });
@@ -229,6 +234,8 @@ describe("macro resolve tool", () => {
 
     expect(result.ok).toBe(true);
     expect(result.runtime).toBe("macros");
+    expect(result.followthroughSummary).toBe("Review execution.records and trace metadata before widening the macro or changing providers.");
+    expect(result.suggestedNextAction).toContain("npx opendevbrowser macro-resolve");
     expect(result.resolution?.provenance.macro).toBe("community.search");
     expect(result.execution).toMatchObject({
       metrics: {
@@ -301,6 +308,8 @@ describe("macro resolve tool", () => {
     }));
 
     expect(result.ok).toBe(true);
+    expect(result.followthroughSummary).toBe("Review execution.meta.blocker and failures before retrying the macro.");
+    expect(result.suggestedNextAction).toContain("--challenge-automation-mode browser");
     expect(result.execution?.meta.ok).toBe(false);
     expect(result.execution?.meta.blocker?.type).toBe("auth_required");
   });

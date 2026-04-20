@@ -2269,7 +2269,7 @@ export const runResearchWorkflow = async (
     failures: mergedFailures,
     alerts: buildWorkflowAlerts(runtime, mergedFailures)
   } as Record<string, unknown>, primaryConstraintFailures);
-  const handoff = buildResearchSuccessHandoff();
+  const handoff = buildResearchSuccessHandoff(plan.compiled.topic);
   const responseMeta = withFollowthroughMeta(meta, handoff);
 
   const rendered = renderResearch({
@@ -2471,7 +2471,14 @@ export const runShoppingWorkflow = async (
   if (typeof filterConstraintSummary === "string") {
     meta = withPrimaryConstraintSummaryOverride(meta, filterConstraintSummary);
   }
-  const handoff = buildShoppingSuccessHandoff();
+  const handoff = buildShoppingSuccessHandoff({
+    query: plan.compiled.query,
+    providers: plan.compiled.providerIds,
+    budget: plan.compiled.budget,
+    region: workflowInput.region,
+    browserMode: workflowInput.browserMode,
+    sort: workflowInput.sort
+  });
   const responseMeta = withFollowthroughMeta(meta, handoff);
 
   const rendered = renderShopping({
@@ -3023,7 +3030,14 @@ export const runProductVideoWorkflow = async (
   const cookieDiagnostics = summarizeCookieDiagnostics(details.failures, details.records);
   const antiBotPressure = summarizeAntiBotPressure(details.failures);
   const primaryIssue = summarizePrimaryProviderIssue(details.failures);
-  const handoff = buildProductVideoSuccessHandoff();
+  const handoff = buildProductVideoSuccessHandoff({
+    productUrl: workflowInput.product_url,
+    productName: workflowInput.product_name,
+    providerHint: workflowInput.provider_hint,
+    includeScreenshots: workflowInput.include_screenshots,
+    includeAllImages: workflowInput.include_all_images,
+    includeCopy: workflowInput.include_copy
+  });
   const meta = withFollowthroughMeta({
     alerts: buildWorkflowAlerts(runtime, details.failures),
     failures: details.failures,

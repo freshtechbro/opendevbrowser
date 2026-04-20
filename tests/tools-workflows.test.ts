@@ -147,8 +147,15 @@ describe("workflow tools", () => {
     expect(research.ok).toBe(true);
     expect(research.followthroughSummary).toContain("ranked records");
     expect(research.suggestedNextAction).toContain("artifact path");
+    expect(research.suggestedNextAction).toContain("npx opendevbrowser research run");
     expect(research.suggestedSteps).toEqual(
-      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("support") })])
+      expect.arrayContaining([
+        expect.objectContaining({ reason: expect.stringContaining("support") }),
+        expect.objectContaining({
+          reason: expect.stringContaining("narrower timebox"),
+          command: expect.stringContaining("npx opendevbrowser research run")
+        })
+      ])
     );
     expect(research.meta).toEqual(expect.objectContaining({
       followthroughSummary: expect.stringContaining("publishable claim")
@@ -169,8 +176,15 @@ describe("workflow tools", () => {
     expect(shopping.ok).toBe(true);
     expect(shopping.followthroughSummary).toContain("offer set");
     expect(shopping.suggestedNextAction).toContain("offerFilterDiagnostics");
+    expect(shopping.suggestedNextAction).toContain("npx opendevbrowser shopping run");
     expect(shopping.suggestedSteps).toEqual(
-      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("filters") })])
+      expect.arrayContaining([
+        expect.objectContaining({ reason: expect.stringContaining("filters") }),
+        expect.objectContaining({
+          reason: expect.stringContaining("updated budget and region"),
+          command: expect.stringContaining("npx opendevbrowser shopping run")
+        })
+      ])
     );
     expect(shopping.meta).toEqual(expect.objectContaining({
       followthroughSummary: expect.stringContaining("strong deal")
@@ -196,10 +210,19 @@ describe("workflow tools", () => {
     expect(response.followthroughSummary).toContain("asset pack");
     expect(response.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
     expect(response.suggestedSteps).toEqual(
-      expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("metadata-first") })])
+      expect.arrayContaining([
+        expect.objectContaining({ reason: expect.stringContaining("metadata-first") }),
+        expect.objectContaining({
+          reason: expect.stringContaining("adjusted provider or media flags"),
+          command: expect.stringContaining("npx opendevbrowser product-video run")
+        })
+      ])
     );
     expect((response.suggestedSteps as Array<{ command?: string }>)[1]?.command).toBe(
       `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`
+    );
+    expect((response.suggestedSteps as Array<{ command?: string }>)[2]?.command).toContain(
+      "npx opendevbrowser product-video run"
     );
     expect(response.meta).toEqual(expect.objectContaining({
       followthroughSummary: expect.stringContaining("visual-ready")

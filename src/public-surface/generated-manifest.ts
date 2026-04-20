@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-20T04:16:59.279Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-20T16:29:04.426Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-20T04:16:59.279Z",
+  "generatedAt": "2026-04-20T16:29:04.426Z",
   "cli": {
     "groups": [
       {
@@ -205,6 +205,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--no-prompt",
           "--quiet"
         ],
+        "examples": [
+          "npx opendevbrowser install --local --with-config --skills-local"
+        ],
+        "notes": [],
         "groupId": "install_lifecycle",
         "groupTitle": "Install & Lifecycle",
         "groupSummary": "Install, remove, and inspect CLI basics."
@@ -220,6 +224,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--skills-local",
           "--no-skills"
         ],
+        "examples": [
+          "npx opendevbrowser update --local --skills-local"
+        ],
+        "notes": [],
         "groupId": "install_lifecycle",
         "groupTitle": "Install & Lifecycle",
         "groupSummary": "Install, remove, and inspect CLI basics."
@@ -235,6 +243,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--no-prompt",
           "--quiet"
         ],
+        "examples": [
+          "npx opendevbrowser uninstall --local --no-skills --no-prompt"
+        ],
+        "notes": [],
         "groupId": "install_lifecycle",
         "groupTitle": "Install & Lifecycle",
         "groupSummary": "Install, remove, and inspect CLI basics."
@@ -245,6 +257,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "usage": "npx opendevbrowser --help | npx opendevbrowser help",
         "flags": [
           "--help"
+        ],
+        "examples": [
+          "npx opendevbrowser --help"
+        ],
+        "notes": [
+          "Generated help is the canonical first-contact discovery surface and should stay source-owned."
         ],
         "groupId": "install_lifecycle",
         "groupTitle": "Install & Lifecycle",
@@ -257,6 +275,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "flags": [
           "--version"
         ],
+        "examples": [
+          "npx opendevbrowser --version"
+        ],
+        "notes": [],
         "groupId": "install_lifecycle",
         "groupTitle": "Install & Lifecycle",
         "groupSummary": "Install, remove, and inspect CLI basics."
@@ -270,6 +292,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--token",
           "--stop"
         ],
+        "examples": [
+          "npx opendevbrowser serve --port 8788 --token local-dev-token"
+        ],
+        "notes": [],
         "groupId": "daemon_runtime",
         "groupTitle": "Daemon & Runtime",
         "groupSummary": "Run daemon services and single-process scripts."
@@ -281,6 +307,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "flags": [
           "--output-format"
         ],
+        "examples": [
+          "npx opendevbrowser daemon status --output-format json"
+        ],
+        "notes": [],
         "groupId": "daemon_runtime",
         "groupTitle": "Daemon & Runtime",
         "groupSummary": "Run daemon services and single-process scripts."
@@ -292,6 +322,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "flags": [
           "--output-format"
         ],
+        "examples": [
+          "npx opendevbrowser native status --output-format json"
+        ],
+        "notes": [],
         "groupId": "daemon_runtime",
         "groupTitle": "Daemon & Runtime",
         "groupSummary": "Run daemon services and single-process scripts."
@@ -308,6 +342,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--chrome-path",
           "--start-url",
           "--flag"
+        ],
+        "examples": [
+          "npx opendevbrowser run --script ./workflow.json --headless --output-format json"
+        ],
+        "notes": [
+          "One-shot run uses a temporary profile unless --persist-profile is explicitly enabled."
         ],
         "groupId": "daemon_runtime",
         "groupTitle": "Daemon & Runtime",
@@ -330,6 +370,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--wait-for-extension",
           "--wait-timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
+        ],
+        "notes": [
+          "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
+        ],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -345,6 +391,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--start-url",
           "--extension-legacy"
         ],
+        "examples": [
+          "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json"
+        ],
+        "notes": [],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -357,6 +407,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--close-browser"
         ],
+        "examples": [
+          "npx opendevbrowser disconnect --session-id s1 --close-browser --output-format json"
+        ],
+        "notes": [],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -370,6 +424,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--daemon",
           "--transport"
         ],
+        "examples": [
+          "npx opendevbrowser status --daemon --output-format json"
+        ],
+        "notes": [],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -384,6 +442,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--challenge-automation-mode",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser status-capabilities --session-id s1 --target-id page-1 --challenge-automation-mode browser --timeout-ms 30000 --output-format json"
+        ],
+        "notes": [],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -398,6 +460,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookies-file",
           "--strict"
         ],
+        "examples": [
+          "npx opendevbrowser cookie-import --session-id s1 --cookies-file ./cookies.json --strict true --output-format json"
+        ],
+        "notes": [],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -410,6 +476,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--url"
         ],
+        "examples": [
+          "npx opendevbrowser cookie-list --session-id s1 --url https://example.com --output-format json"
+        ],
+        "notes": [],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -436,6 +506,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy-override",
           "--cookie-policy"
         ],
+        "examples": [
+          "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json"
+        ],
+        "notes": [
+          "Generic topical research is currently safest with --source-selection auto; add shopping only for deliberate commercial comparison."
+        ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
         "groupSummary": "Run research, shopping, media, and artifact workflows."
@@ -460,6 +536,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy-override",
           "--cookie-policy"
         ],
+        "examples": [
+          "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json"
+        ],
+        "notes": [
+          "Treat --region as advisory unless the workflow output reports region_authoritative=true."
+        ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
         "groupSummary": "Run research, shopping, media, and artifact workflows."
@@ -483,6 +565,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--output-dir",
           "--ttl-hours"
         ],
+        "examples": [
+          "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+        ],
+        "notes": [
+          "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
+        ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
         "groupSummary": "Run research, shopping, media, and artifact workflows."
@@ -505,6 +593,13 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy-override",
           "--cookie-policy"
         ],
+        "examples": [
+          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
+        ],
+        "notes": [
+          "--capture-mode defaults to off; opt into deep only when live DOM or layout evidence is required.",
+          "Repeat --url for multiple references. There is no --urls alias."
+        ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
         "groupSummary": "Run research, shopping, media, and artifact workflows."
@@ -517,6 +612,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--expired-only",
           "--output-dir"
         ],
+        "examples": [
+          "npx opendevbrowser artifacts cleanup --expired-only --output-dir /tmp/opendevbrowser --output-format json"
+        ],
+        "notes": [],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
         "groupSummary": "Run research, shopping, media, and artifact workflows."
@@ -533,6 +632,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--timeout-ms",
           "--challenge-automation-mode"
         ],
+        "examples": [
+          "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --challenge-automation-mode browser --output-format json"
+        ],
+        "notes": [
+          "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete."
+        ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
         "groupSummary": "Run research, shopping, media, and artifact workflows."
@@ -546,6 +651,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--params",
           "--params-file",
           "--timeout-ms"
+        ],
+        "examples": [
+          "npx opendevbrowser canvas --command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json"
+        ],
+        "notes": [
+          "Use --params-file for strict request envelopes such as canvas.plan.set or governance handoff payloads."
         ],
         "groupId": "design_canvas",
         "groupTitle": "Design Canvas",
@@ -561,6 +672,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--wait-until",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser goto --session-id s1 --url https://example.com --wait-until networkidle --output-format json"
+        ],
+        "notes": [],
         "groupId": "navigation",
         "groupTitle": "Navigation",
         "groupSummary": "Move through pages and capture fresh refs."
@@ -576,6 +691,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--until",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser wait --session-id s1 --state networkidle --timeout-ms 30000 --output-format json"
+        ],
+        "notes": [],
         "groupId": "navigation",
         "groupTitle": "Navigation",
         "groupSummary": "Move through pages and capture fresh refs."
@@ -591,6 +710,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cursor",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser snapshot --session-id s1 --mode actionables --max-chars 4000 --output-format json"
+        ],
+        "notes": [],
         "groupId": "navigation",
         "groupTitle": "Navigation",
         "groupSummary": "Move through pages and capture fresh refs."
@@ -606,6 +729,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cursor",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser review --session-id s1 --target-id page-1 --output-format json"
+        ],
+        "notes": [],
         "groupId": "navigation",
         "groupTitle": "Navigation",
         "groupSummary": "Move through pages and capture fresh refs."
@@ -622,6 +749,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cursor",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser review-desktop --session-id s1 --reason \"trace challenge state\" --output-format json"
+        ],
+        "notes": [],
         "groupId": "navigation",
         "groupTitle": "Navigation",
         "groupSummary": "Move through pages and capture fresh refs."
@@ -636,6 +767,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--target-id",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser click --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -648,6 +783,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser hover --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -661,6 +800,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--key",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser press --session-id s1 --key Enter --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -673,6 +816,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser check --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -685,6 +832,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser uncheck --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -700,6 +851,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--clear",
           "--submit"
         ],
+        "examples": [
+          "npx opendevbrowser type --session-id s1 --ref r12 --text \"agent@example.com\" --clear --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -713,6 +868,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--ref",
           "--values"
         ],
+        "examples": [
+          "npx opendevbrowser select --session-id s1 --ref r12 --values us,ca --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -726,6 +885,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--dy",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser scroll --session-id s1 --dy 1000 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -738,6 +901,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser scroll-into-view --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -752,6 +919,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--files",
           "--target-id"
         ],
+        "examples": [
+          "npx opendevbrowser upload --session-id s1 --ref r12 --files ./draft.pdf,./hero.png --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -767,6 +938,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--steps",
           "--target-id"
         ],
+        "examples": [
+          "npx opendevbrowser pointer-move --session-id s1 --x 320 --y 240 --steps 12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -783,6 +958,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--click-count",
           "--target-id"
         ],
+        "examples": [
+          "npx opendevbrowser pointer-down --session-id s1 --x 320 --y 240 --button left --click-count 1 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -799,6 +978,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--click-count",
           "--target-id"
         ],
+        "examples": [
+          "npx opendevbrowser pointer-up --session-id s1 --x 320 --y 240 --button left --click-count 1 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -816,6 +999,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--steps",
           "--target-id"
         ],
+        "examples": [
+          "npx opendevbrowser pointer-drag --session-id s1 --from-x 320 --from-y 240 --to-x 640 --to-y 240 --steps 18 --output-format json"
+        ],
+        "notes": [],
         "groupId": "interaction",
         "groupTitle": "Interaction",
         "groupSummary": "Perform ref-based interactions in the active page."
@@ -828,6 +1015,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--include-urls"
         ],
+        "examples": [
+          "npx opendevbrowser targets-list --session-id s1 --include-urls --output-format json"
+        ],
+        "notes": [],
         "groupId": "targets_pages",
         "groupTitle": "Targets & Pages",
         "groupSummary": "Manage tabs, targets, and named pages."
@@ -840,6 +1031,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--target-id"
         ],
+        "examples": [
+          "npx opendevbrowser target-use --session-id s1 --target-id page-2 --output-format json"
+        ],
+        "notes": [],
         "groupId": "targets_pages",
         "groupTitle": "Targets & Pages",
         "groupSummary": "Manage tabs, targets, and named pages."
@@ -852,6 +1047,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--url"
         ],
+        "examples": [
+          "npx opendevbrowser target-new --session-id s1 --url https://example.com/docs --output-format json"
+        ],
+        "notes": [],
         "groupId": "targets_pages",
         "groupTitle": "Targets & Pages",
         "groupSummary": "Manage tabs, targets, and named pages."
@@ -864,6 +1063,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--target-id"
         ],
+        "examples": [
+          "npx opendevbrowser target-close --session-id s1 --target-id page-2 --output-format json"
+        ],
+        "notes": [],
         "groupId": "targets_pages",
         "groupTitle": "Targets & Pages",
         "groupSummary": "Manage tabs, targets, and named pages."
@@ -877,6 +1080,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--name",
           "--url"
         ],
+        "examples": [
+          "npx opendevbrowser page --session-id s1 --name settings --url https://example.com/settings --output-format json"
+        ],
+        "notes": [],
         "groupId": "targets_pages",
         "groupTitle": "Targets & Pages",
         "groupSummary": "Manage tabs, targets, and named pages."
@@ -888,6 +1095,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "flags": [
           "--session-id"
         ],
+        "examples": [
+          "npx opendevbrowser pages --session-id s1 --output-format json"
+        ],
+        "notes": [],
         "groupId": "targets_pages",
         "groupTitle": "Targets & Pages",
         "groupSummary": "Manage tabs, targets, and named pages."
@@ -900,6 +1111,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--name"
         ],
+        "examples": [
+          "npx opendevbrowser page-close --session-id s1 --name settings --output-format json"
+        ],
+        "notes": [],
         "groupId": "targets_pages",
         "groupTitle": "Targets & Pages",
         "groupSummary": "Manage tabs, targets, and named pages."
@@ -913,6 +1128,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--ref",
           "--max-chars"
         ],
+        "examples": [
+          "npx opendevbrowser dom-html --session-id s1 --ref r12 --max-chars 2000 --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -926,6 +1145,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--ref",
           "--max-chars"
         ],
+        "examples": [
+          "npx opendevbrowser dom-text --session-id s1 --ref r12 --max-chars 500 --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -939,6 +1162,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--ref",
           "--attr"
         ],
+        "examples": [
+          "npx opendevbrowser dom-attr --session-id s1 --ref r12 --attr aria-label --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -951,6 +1178,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser dom-value --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -963,6 +1194,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser dom-visible --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -975,6 +1210,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser dom-enabled --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -987,6 +1226,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--session-id",
           "--ref"
         ],
+        "examples": [
+          "npx opendevbrowser dom-checked --session-id s1 --ref r12 --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -1000,6 +1243,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--target-id",
           "--path"
         ],
+        "examples": [
+          "npx opendevbrowser clone-page --session-id s1 --target-id page-1 --path ./exports/page.tsx --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -1014,6 +1261,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--target-id",
           "--path"
         ],
+        "examples": [
+          "npx opendevbrowser clone-component --session-id s1 --ref r12 --path ./exports/component.tsx --output-format json"
+        ],
+        "notes": [],
         "groupId": "dom_export",
         "groupTitle": "DOM & Export",
         "groupSummary": "Read DOM state and export page or component code."
@@ -1031,6 +1282,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--max",
           "--request-id"
         ],
+        "examples": [
+          "npx opendevbrowser session-inspector --session-id s1 --include-urls --max 20 --output-format json"
+        ],
+        "notes": [],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1044,6 +1299,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--target-id",
           "--challenge-automation-mode",
           "--timeout-ms"
+        ],
+        "examples": [
+          "npx opendevbrowser session-inspector-plan --session-id s1 --target-id page-1 --challenge-automation-mode browser --output-format json"
+        ],
+        "notes": [
+          "Inspect browser-scoped challenge automation before enabling browser_with_helper on a live rerun."
         ],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
@@ -1068,6 +1329,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--challenge-automation-mode",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser session-inspector-audit --session-id s1 --target-id page-1 --reason \"trace challenge state\" --include-urls --request-id req-session-audit-001 --challenge-automation-mode browser_with_helper --output-format json"
+        ],
+        "notes": [
+          "Audit mode is the quickest correlated proof lane when you need desktop evidence plus browser trace state."
+        ],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1079,6 +1346,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "flags": [
           "--session-id"
         ],
+        "examples": [
+          "npx opendevbrowser perf --session-id s1 --output-format json"
+        ],
+        "notes": [],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1095,6 +1366,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--full-page",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser screenshot --session-id s1 --path ./artifacts/page.png --full-page --output-format json"
+        ],
+        "notes": [],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1110,6 +1385,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--prompt-text",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser dialog --session-id s1 --action status --output-format json"
+        ],
+        "notes": [],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1123,6 +1402,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--since-seq",
           "--max"
         ],
+        "examples": [
+          "npx opendevbrowser console-poll --session-id s1 --max 50 --output-format json"
+        ],
+        "notes": [],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1136,6 +1419,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--since-seq",
           "--max"
         ],
+        "examples": [
+          "npx opendevbrowser network-poll --session-id s1 --max 50 --output-format json"
+        ],
+        "notes": [],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1152,6 +1439,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--max",
           "--request-id"
         ],
+        "examples": [
+          "npx opendevbrowser debug-trace-snapshot --session-id s1 --max 50 --request-id req-trace-001 --output-format json"
+        ],
+        "notes": [],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1173,6 +1464,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--include-screenshots",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser annotate --session-id s1 --transport auto --context \"review call to action spacing\" --include-screenshots true --output-format json"
+        ],
+        "notes": [
+          "Use --stored when you want the last delivered annotation payload without starting a new capture."
+        ],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1189,6 +1486,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--max-frames",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser screencast-start --session-id s1 --output-dir ./artifacts/replay --interval-ms 750 --max-frames 40 --output-format json"
+        ],
+        "notes": [],
         "groupId": "browser_replay",
         "groupTitle": "Browser Replay",
         "groupSummary": "Capture temporal replay artifacts through the public browser replay lane for a browser target."
@@ -1202,6 +1503,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--screencast-id",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser screencast-stop --session-id s1 --screencast-id cast-1 --output-format json"
+        ],
+        "notes": [],
         "groupId": "browser_replay",
         "groupTitle": "Browser Replay",
         "groupSummary": "Capture temporal replay artifacts through the public browser replay lane for a browser target."
@@ -1213,6 +1518,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "flags": [
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser desktop-status --timeout-ms 5000 --output-format json"
+        ],
+        "notes": [],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
         "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
@@ -1225,6 +1534,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--reason",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser desktop-windows --reason \"inventory browser-adjacent windows\" --output-format json"
+        ],
+        "notes": [],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
         "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
@@ -1237,6 +1550,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--reason",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser desktop-active-window --reason \"capture active browser context\" --output-format json"
+        ],
+        "notes": [],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
         "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
@@ -1249,6 +1566,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--reason",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser desktop-capture-desktop --reason \"capture login checkpoint state\" --output-format json"
+        ],
+        "notes": [],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
         "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
@@ -1262,6 +1583,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--reason",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser desktop-capture-window --window-id 101 --reason \"capture browser window\" --output-format json"
+        ],
+        "notes": [],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
         "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
@@ -1275,6 +1600,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--window-id",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser desktop-accessibility-snapshot --reason \"inspect current browser-adjacent labels\" --window-id 101 --output-format json"
+        ],
+        "notes": [],
         "groupId": "desktop_observation",
         "groupTitle": "Desktop Observation",
         "groupSummary": "Inspect the public read-only sibling desktop observation plane on macOS; availability, window inventory, and accessibility probes use the local swift command, while screenshots use macOS screencapture outside extension relay."
@@ -1290,6 +1619,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--params-file",
           "--timeout-ms"
         ],
+        "examples": [
+          "npx opendevbrowser rpc --unsafe-internal --name browser.status --params-file ./rpc-params.json --output-format json"
+        ],
+        "notes": [],
         "groupId": "power",
         "groupTitle": "Power",
         "groupSummary": "Unsafe internal daemon passthrough."
@@ -1888,349 +2221,428 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "opendevbrowser_launch",
         "description": "Launch a managed browser session.",
-        "cliEquivalent": "launch"
+        "cliEquivalent": "launch",
+        "example": "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
       },
       {
         "name": "opendevbrowser_connect",
         "description": "Connect to an existing browser session.",
-        "cliEquivalent": "connect"
+        "cliEquivalent": "connect",
+        "example": "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json"
       },
       {
         "name": "opendevbrowser_disconnect",
         "description": "Disconnect a managed or connected session.",
-        "cliEquivalent": "disconnect"
+        "cliEquivalent": "disconnect",
+        "example": "npx opendevbrowser disconnect --session-id s1 --close-browser --output-format json"
       },
       {
         "name": "opendevbrowser_status",
         "description": "Inspect session and relay status.",
-        "cliEquivalent": "status"
+        "cliEquivalent": "status",
+        "example": "npx opendevbrowser status --daemon --output-format json"
       },
       {
         "name": "opendevbrowser_status_capabilities",
         "description": "Inspect runtime capability discovery for the host and an optional session.",
-        "cliEquivalent": "status-capabilities"
+        "cliEquivalent": "status-capabilities",
+        "example": "npx opendevbrowser status-capabilities --session-id s1 --target-id page-1 --challenge-automation-mode browser --timeout-ms 30000 --output-format json"
       },
       {
         "name": "opendevbrowser_session_inspector",
         "description": "Capture a session-first diagnostic bundle with relay health, trace proof, and a suggested next action.",
-        "cliEquivalent": "session-inspector"
+        "cliEquivalent": "session-inspector",
+        "example": "npx opendevbrowser session-inspector --session-id s1 --include-urls --max 20 --output-format json"
       },
       {
         "name": "opendevbrowser_session_inspector_plan",
         "description": "Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.",
-        "cliEquivalent": "session-inspector-plan"
+        "cliEquivalent": "session-inspector-plan",
+        "example": "npx opendevbrowser session-inspector-plan --session-id s1 --target-id page-1 --challenge-automation-mode browser --output-format json"
       },
       {
         "name": "opendevbrowser_session_inspector_audit",
         "description": "Capture a correlated audit bundle across desktop evidence, browser review, and policy state.",
-        "cliEquivalent": "session-inspector-audit"
+        "cliEquivalent": "session-inspector-audit",
+        "example": "npx opendevbrowser session-inspector-audit --session-id s1 --target-id page-1 --reason \"trace challenge state\" --include-urls --request-id req-session-audit-001 --challenge-automation-mode browser_with_helper --output-format json"
       },
       {
         "name": "opendevbrowser_targets_list",
         "description": "List available page targets/tabs.",
-        "cliEquivalent": "targets-list"
+        "cliEquivalent": "targets-list",
+        "example": "npx opendevbrowser targets-list --session-id s1 --include-urls --output-format json"
       },
       {
         "name": "opendevbrowser_target_use",
         "description": "Switch the active target by id.",
-        "cliEquivalent": "target-use"
+        "cliEquivalent": "target-use",
+        "example": "npx opendevbrowser target-use --session-id s1 --target-id page-2 --output-format json"
       },
       {
         "name": "opendevbrowser_target_new",
         "description": "Create a new target or tab.",
-        "cliEquivalent": "target-new"
+        "cliEquivalent": "target-new",
+        "example": "npx opendevbrowser target-new --session-id s1 --url https://example.com/docs --output-format json"
       },
       {
         "name": "opendevbrowser_target_close",
         "description": "Close a target or tab by id.",
-        "cliEquivalent": "target-close"
+        "cliEquivalent": "target-close",
+        "example": "npx opendevbrowser target-close --session-id s1 --target-id page-2 --output-format json"
       },
       {
         "name": "opendevbrowser_page",
         "description": "Open or focus a named page.",
-        "cliEquivalent": "page"
+        "cliEquivalent": "page",
+        "example": "npx opendevbrowser page --session-id s1 --name settings --url https://example.com/settings --output-format json"
       },
       {
         "name": "opendevbrowser_list",
         "description": "List named pages in the session.",
-        "cliEquivalent": "pages"
+        "cliEquivalent": "pages",
+        "example": "npx opendevbrowser pages --session-id s1 --output-format json"
       },
       {
         "name": "opendevbrowser_close",
         "description": "Close a named page.",
-        "cliEquivalent": "page-close"
+        "cliEquivalent": "page-close",
+        "example": "npx opendevbrowser page-close --session-id s1 --name settings --output-format json"
       },
       {
         "name": "opendevbrowser_goto",
         "description": "Navigate to a URL.",
-        "cliEquivalent": "goto"
+        "cliEquivalent": "goto",
+        "example": "npx opendevbrowser goto --session-id s1 --url https://example.com --wait-until networkidle --output-format json"
       },
       {
         "name": "opendevbrowser_wait",
         "description": "Wait for load, ref, or state conditions.",
-        "cliEquivalent": "wait"
+        "cliEquivalent": "wait",
+        "example": "npx opendevbrowser wait --session-id s1 --state networkidle --timeout-ms 30000 --output-format json"
       },
       {
         "name": "opendevbrowser_snapshot",
         "description": "Capture AX-tree refs for actions.",
-        "cliEquivalent": "snapshot"
+        "cliEquivalent": "snapshot",
+        "example": "npx opendevbrowser snapshot --session-id s1 --mode actionables --max-chars 4000 --output-format json"
       },
       {
         "name": "opendevbrowser_review",
         "description": "Capture a first-class review payload with status and actionables.",
-        "cliEquivalent": "review"
+        "cliEquivalent": "review",
+        "example": "npx opendevbrowser review --session-id s1 --target-id page-1 --output-format json"
       },
       {
         "name": "opendevbrowser_review_desktop",
         "description": "Capture desktop-assisted browser review with read-only desktop evidence and browser-owned verification.",
-        "cliEquivalent": "review-desktop"
+        "cliEquivalent": "review-desktop",
+        "example": "npx opendevbrowser review-desktop --session-id s1 --reason \"trace challenge state\" --output-format json"
       },
       {
         "name": "opendevbrowser_click",
         "description": "Click an element by ref.",
-        "cliEquivalent": "click"
+        "cliEquivalent": "click",
+        "example": "npx opendevbrowser click --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_hover",
         "description": "Hover an element by ref.",
-        "cliEquivalent": "hover"
+        "cliEquivalent": "hover",
+        "example": "npx opendevbrowser hover --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_press",
         "description": "Send a keyboard key.",
-        "cliEquivalent": "press"
+        "cliEquivalent": "press",
+        "example": "npx opendevbrowser press --session-id s1 --key Enter --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_check",
         "description": "Check a checkbox or radio by ref.",
-        "cliEquivalent": "check"
+        "cliEquivalent": "check",
+        "example": "npx opendevbrowser check --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_uncheck",
         "description": "Uncheck a checkbox or radio by ref.",
-        "cliEquivalent": "uncheck"
+        "cliEquivalent": "uncheck",
+        "example": "npx opendevbrowser uncheck --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_type",
         "description": "Type text into an input by ref.",
-        "cliEquivalent": "type"
+        "cliEquivalent": "type",
+        "example": "npx opendevbrowser type --session-id s1 --ref r12 --text \"agent@example.com\" --clear --output-format json"
       },
       {
         "name": "opendevbrowser_select",
         "description": "Set select values by ref.",
-        "cliEquivalent": "select"
+        "cliEquivalent": "select",
+        "example": "npx opendevbrowser select --session-id s1 --ref r12 --values us,ca --output-format json"
       },
       {
         "name": "opendevbrowser_scroll",
         "description": "Scroll a page or element.",
-        "cliEquivalent": "scroll"
+        "cliEquivalent": "scroll",
+        "example": "npx opendevbrowser scroll --session-id s1 --dy 1000 --output-format json"
       },
       {
         "name": "opendevbrowser_scroll_into_view",
         "description": "Scroll a target element into view.",
-        "cliEquivalent": "scroll-into-view"
+        "cliEquivalent": "scroll-into-view",
+        "example": "npx opendevbrowser scroll-into-view --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_upload",
         "description": "Upload files to a file input or chooser by ref.",
-        "cliEquivalent": "upload"
+        "cliEquivalent": "upload",
+        "example": "npx opendevbrowser upload --session-id s1 --ref r12 --files ./draft.pdf,./hero.png --output-format json"
       },
       {
         "name": "opendevbrowser_pointer_move",
         "description": "Move the pointer to viewport coordinates.",
-        "cliEquivalent": "pointer-move"
+        "cliEquivalent": "pointer-move",
+        "example": "npx opendevbrowser pointer-move --session-id s1 --x 320 --y 240 --steps 12 --output-format json"
       },
       {
         "name": "opendevbrowser_pointer_down",
         "description": "Press a mouse button at viewport coordinates.",
-        "cliEquivalent": "pointer-down"
+        "cliEquivalent": "pointer-down",
+        "example": "npx opendevbrowser pointer-down --session-id s1 --x 320 --y 240 --button left --click-count 1 --output-format json"
       },
       {
         "name": "opendevbrowser_pointer_up",
         "description": "Release a mouse button at viewport coordinates.",
-        "cliEquivalent": "pointer-up"
+        "cliEquivalent": "pointer-up",
+        "example": "npx opendevbrowser pointer-up --session-id s1 --x 320 --y 240 --button left --click-count 1 --output-format json"
       },
       {
         "name": "opendevbrowser_pointer_drag",
         "description": "Drag the pointer between viewport coordinates.",
-        "cliEquivalent": "pointer-drag"
+        "cliEquivalent": "pointer-drag",
+        "example": "npx opendevbrowser pointer-drag --session-id s1 --from-x 320 --from-y 240 --to-x 640 --to-y 240 --steps 18 --output-format json"
       },
       {
         "name": "opendevbrowser_dom_get_html",
         "description": "Get HTML for a page or ref.",
-        "cliEquivalent": "dom-html"
+        "cliEquivalent": "dom-html",
+        "example": "npx opendevbrowser dom-html --session-id s1 --ref r12 --max-chars 2000 --output-format json"
       },
       {
         "name": "opendevbrowser_dom_get_text",
         "description": "Get text for a page or ref.",
-        "cliEquivalent": "dom-text"
+        "cliEquivalent": "dom-text",
+        "example": "npx opendevbrowser dom-text --session-id s1 --ref r12 --max-chars 500 --output-format json"
       },
       {
         "name": "opendevbrowser_get_attr",
         "description": "Read a DOM attribute by ref.",
-        "cliEquivalent": "dom-attr"
+        "cliEquivalent": "dom-attr",
+        "example": "npx opendevbrowser dom-attr --session-id s1 --ref r12 --attr aria-label --output-format json"
       },
       {
         "name": "opendevbrowser_get_value",
         "description": "Read a form or control value by ref.",
-        "cliEquivalent": "dom-value"
+        "cliEquivalent": "dom-value",
+        "example": "npx opendevbrowser dom-value --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_is_visible",
         "description": "Check ref visibility.",
-        "cliEquivalent": "dom-visible"
+        "cliEquivalent": "dom-visible",
+        "example": "npx opendevbrowser dom-visible --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_is_enabled",
         "description": "Check ref enabled state.",
-        "cliEquivalent": "dom-enabled"
+        "cliEquivalent": "dom-enabled",
+        "example": "npx opendevbrowser dom-enabled --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_is_checked",
         "description": "Check ref checked state.",
-        "cliEquivalent": "dom-checked"
+        "cliEquivalent": "dom-checked",
+        "example": "npx opendevbrowser dom-checked --session-id s1 --ref r12 --output-format json"
       },
       {
         "name": "opendevbrowser_run",
         "description": "Execute multi-action automation scripts.",
-        "cliEquivalent": "run"
+        "cliEquivalent": "run",
+        "example": "npx opendevbrowser run --script ./workflow.json --headless --output-format json"
       },
       {
         "name": "opendevbrowser_prompting_guide",
-        "description": "Start here for first-contact OpenDevBrowser guidance and the bundled best-practices quick start."
+        "description": "Start here for first-contact OpenDevBrowser guidance and the bundled best-practices quick start.",
+        "example": "{\"topic\":\"quick start\"}",
+        "notes": [
+          "Tool-only helper. Use it before low-level browser commands when an agent needs the canonical quick start."
+        ]
       },
       {
         "name": "opendevbrowser_console_poll",
         "description": "Poll redacted console events.",
-        "cliEquivalent": "console-poll"
+        "cliEquivalent": "console-poll",
+        "example": "npx opendevbrowser console-poll --session-id s1 --max 50 --output-format json"
       },
       {
         "name": "opendevbrowser_network_poll",
         "description": "Poll redacted network events.",
-        "cliEquivalent": "network-poll"
+        "cliEquivalent": "network-poll",
+        "example": "npx opendevbrowser network-poll --session-id s1 --max 50 --output-format json"
       },
       {
         "name": "opendevbrowser_debug_trace_snapshot",
         "description": "Capture page, console, and network diagnostics.",
-        "cliEquivalent": "debug-trace-snapshot"
+        "cliEquivalent": "debug-trace-snapshot",
+        "example": "npx opendevbrowser debug-trace-snapshot --session-id s1 --max 50 --request-id req-trace-001 --output-format json"
       },
       {
         "name": "opendevbrowser_cookie_import",
         "description": "Import validated cookies into a session.",
-        "cliEquivalent": "cookie-import"
+        "cliEquivalent": "cookie-import",
+        "example": "npx opendevbrowser cookie-import --session-id s1 --cookies-file ./cookies.json --strict true --output-format json"
       },
       {
         "name": "opendevbrowser_cookie_list",
         "description": "List cookies in a session with optional URL filters.",
-        "cliEquivalent": "cookie-list"
+        "cliEquivalent": "cookie-list",
+        "example": "npx opendevbrowser cookie-list --session-id s1 --url https://example.com --output-format json"
       },
       {
         "name": "opendevbrowser_macro_resolve",
         "description": "Resolve or execute provider macro expressions.",
-        "cliEquivalent": "macro-resolve"
+        "cliEquivalent": "macro-resolve",
+        "example": "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --challenge-automation-mode browser --output-format json"
       },
       {
         "name": "opendevbrowser_research_run",
         "description": "Run the research workflow directly.",
-        "cliEquivalent": "research"
+        "cliEquivalent": "research",
+        "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json"
       },
       {
         "name": "opendevbrowser_shopping_run",
         "description": "Run the shopping workflow directly.",
-        "cliEquivalent": "shopping"
+        "cliEquivalent": "shopping",
+        "example": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json"
       },
       {
         "name": "opendevbrowser_product_video_run",
         "description": "Run the product-video asset workflow directly.",
-        "cliEquivalent": "product-video"
+        "cliEquivalent": "product-video",
+        "example": "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
       },
       {
         "name": "opendevbrowser_inspiredesign_run",
         "description": "Run the inspiredesign workflow directly.",
-        "cliEquivalent": "inspiredesign"
+        "cliEquivalent": "inspiredesign",
+        "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
       },
       {
         "name": "opendevbrowser_canvas",
         "description": "Execute a typed design-canvas command surface call.",
-        "cliEquivalent": "canvas"
+        "cliEquivalent": "canvas",
+        "example": "npx opendevbrowser canvas --command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json"
       },
       {
         "name": "opendevbrowser_clone_page",
         "description": "Export the active page into React code.",
-        "cliEquivalent": "clone-page"
+        "cliEquivalent": "clone-page",
+        "example": "npx opendevbrowser clone-page --session-id s1 --target-id page-1 --path ./exports/page.tsx --output-format json"
       },
       {
         "name": "opendevbrowser_clone_component",
         "description": "Export a component by ref into React code.",
-        "cliEquivalent": "clone-component"
+        "cliEquivalent": "clone-component",
+        "example": "npx opendevbrowser clone-component --session-id s1 --ref r12 --path ./exports/component.tsx --output-format json"
       },
       {
         "name": "opendevbrowser_perf",
         "description": "Collect browser performance metrics.",
-        "cliEquivalent": "perf"
+        "cliEquivalent": "perf",
+        "example": "npx opendevbrowser perf --session-id s1 --output-format json"
       },
       {
         "name": "opendevbrowser_screenshot",
         "description": "Capture a page screenshot.",
-        "cliEquivalent": "screenshot"
+        "cliEquivalent": "screenshot",
+        "example": "npx opendevbrowser screenshot --session-id s1 --path ./artifacts/page.png --full-page --output-format json"
       },
       {
         "name": "opendevbrowser_screencast_start",
         "description": "Start a browser replay screencast capture.",
-        "cliEquivalent": "screencast-start"
+        "cliEquivalent": "screencast-start",
+        "example": "npx opendevbrowser screencast-start --session-id s1 --output-dir ./artifacts/replay --interval-ms 750 --max-frames 40 --output-format json"
       },
       {
         "name": "opendevbrowser_screencast_stop",
         "description": "Stop a browser replay screencast capture.",
-        "cliEquivalent": "screencast-stop"
+        "cliEquivalent": "screencast-stop",
+        "example": "npx opendevbrowser screencast-stop --session-id s1 --screencast-id cast-1 --output-format json"
       },
       {
         "name": "opendevbrowser_dialog",
         "description": "Inspect or handle a JavaScript dialog.",
-        "cliEquivalent": "dialog"
+        "cliEquivalent": "dialog",
+        "example": "npx opendevbrowser dialog --session-id s1 --action status --output-format json"
       },
       {
         "name": "opendevbrowser_desktop_status",
         "description": "Inspect public read-only desktop observation availability.",
-        "cliEquivalent": "desktop-status"
+        "cliEquivalent": "desktop-status",
+        "example": "npx opendevbrowser desktop-status --timeout-ms 5000 --output-format json"
       },
       {
         "name": "opendevbrowser_desktop_windows",
         "description": "List windows exposed by the public read-only desktop observation plane.",
-        "cliEquivalent": "desktop-windows"
+        "cliEquivalent": "desktop-windows",
+        "example": "npx opendevbrowser desktop-windows --reason \"inventory browser-adjacent windows\" --output-format json"
       },
       {
         "name": "opendevbrowser_desktop_active_window",
         "description": "Inspect the active window through the public read-only desktop observation plane.",
-        "cliEquivalent": "desktop-active-window"
+        "cliEquivalent": "desktop-active-window",
+        "example": "npx opendevbrowser desktop-active-window --reason \"capture active browser context\" --output-format json"
       },
       {
         "name": "opendevbrowser_desktop_capture_desktop",
         "description": "Capture the current desktop surface through the public read-only desktop observation plane.",
-        "cliEquivalent": "desktop-capture-desktop"
+        "cliEquivalent": "desktop-capture-desktop",
+        "example": "npx opendevbrowser desktop-capture-desktop --reason \"capture login checkpoint state\" --output-format json"
       },
       {
         "name": "opendevbrowser_desktop_capture_window",
         "description": "Capture a specific window through the public read-only desktop observation plane.",
-        "cliEquivalent": "desktop-capture-window"
+        "cliEquivalent": "desktop-capture-window",
+        "example": "npx opendevbrowser desktop-capture-window --window-id 101 --reason \"capture browser window\" --output-format json"
       },
       {
         "name": "opendevbrowser_desktop_accessibility_snapshot",
         "description": "Capture desktop accessibility state through the public read-only desktop observation plane.",
-        "cliEquivalent": "desktop-accessibility-snapshot"
+        "cliEquivalent": "desktop-accessibility-snapshot",
+        "example": "npx opendevbrowser desktop-accessibility-snapshot --reason \"inspect current browser-adjacent labels\" --window-id 101 --output-format json"
       },
       {
         "name": "opendevbrowser_annotate",
         "description": "Capture interactive annotations.",
-        "cliEquivalent": "annotate"
+        "cliEquivalent": "annotate",
+        "example": "npx opendevbrowser annotate --session-id s1 --transport auto --context \"review call to action spacing\" --include-screenshots true --output-format json"
       },
       {
         "name": "opendevbrowser_skill_list",
-        "description": "List bundled and discovered skill packs before choosing a local onboarding or workflow lane."
+        "description": "List bundled and discovered skill packs before choosing a local onboarding or workflow lane.",
+        "example": "{}",
+        "notes": [
+          "Tool-only helper. Use it to inspect local workflow lanes before loading a pack."
+        ]
       },
       {
         "name": "opendevbrowser_skill_load",
-        "description": "Load a specific skill pack locally, especially the bundled best-practices quick start."
+        "description": "Load a specific skill pack locally, especially the bundled best-practices quick start.",
+        "example": "{\"name\":\"opendevbrowser-best-practices\",\"topic\":\"quick start\"}",
+        "notes": [
+          "Tool-only helper. Use it to load opendevbrowser-best-practices or design-agent guidance directly into the current agent context."
+        ]
       }
     ],
     "cliToolPairs": [
@@ -2521,12 +2933,14 @@ export const CLI_COMMAND_HELP_DETAILS = Object.fromEntries(
     {
       description: command.description,
       usage: command.usage,
-      flags: [...command.flags]
+      flags: [...command.flags],
+      examples: [...command.examples],
+      notes: [...command.notes]
     } satisfies CommandHelpDetail
   ] as const)
 ) as unknown as Record<PublicSurfaceCliCommandName, CommandHelpDetail>;
 
-const COMMANDS_BY_GROUP = new Map(
+const COMMANDS_BY_GROUP = Object.fromEntries(
   PUBLIC_SURFACE_MANIFEST.cli.groups.map((group) => [
     group.id,
     PUBLIC_SURFACE_MANIFEST.cli.commands
@@ -2535,20 +2949,24 @@ const COMMANDS_BY_GROUP = new Map(
         name: command.name,
         description: command.description,
         usage: command.usage,
-        flags: [...command.flags]
+        flags: [...command.flags],
+        examples: [...command.examples],
+        notes: [...command.notes]
       }))
   ] as const)
-);
+) as Record<string, PublicSurfaceCliCommandGroupDefinition['commands']>;
 
 export const PUBLIC_CLI_COMMAND_GROUPS = PUBLIC_SURFACE_MANIFEST.cli.groups.map((group) => ({
   id: group.id,
   title: group.title,
   summary: group.summary,
-  commands: COMMANDS_BY_GROUP.get(group.id) ?? []
+  commands: COMMANDS_BY_GROUP[group.id]
 })) as readonly PublicSurfaceCliCommandGroupDefinition[];
 
 export const TOOL_SURFACE_ENTRIES = PUBLIC_SURFACE_MANIFEST.tools.entries.map((entry) => ({
   name: entry.name,
   description: entry.description,
-  ...(entry.cliEquivalent ? { cliEquivalent: entry.cliEquivalent } : {})
+  ...(entry.cliEquivalent ? { cliEquivalent: entry.cliEquivalent } : {}),
+  example: entry.example,
+  ...(entry.notes ? { notes: [...entry.notes] } : {})
 })) as readonly ToolSurfaceEntry[];

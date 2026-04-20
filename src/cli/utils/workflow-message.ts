@@ -84,6 +84,20 @@ export const readSuggestedNextAction = (data: unknown): string | null => {
     ?? readNonEmptyString(asRecord(record.sessionInspector)?.suggestedNextAction);
 };
 
+export const readSuggestedStepCommand = (data: unknown): string | null => {
+  let current = asRecord(data);
+
+  while (current) {
+    const [firstStep] = readSuggestedSteps(current);
+    if (firstStep) {
+      return readNonEmptyString(firstStep.command);
+    }
+    current = asRecord(current.challengePlan);
+  }
+
+  return null;
+};
+
 export const readSuggestedStepReason = (data: unknown): string | null => {
   let current = asRecord(data);
 
@@ -117,7 +131,7 @@ export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unkn
   if (followthroughSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed. ${followthroughSummary}`,
-      readSuggestedNextAction(data) ?? readSuggestedStepReason(data)
+      readSuggestedNextAction(data) ?? readSuggestedStepCommand(data) ?? readSuggestedStepReason(data)
     );
   }
   return `${workflowLabel} completed.`;

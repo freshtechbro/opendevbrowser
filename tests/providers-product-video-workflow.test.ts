@@ -353,7 +353,9 @@ describe("product-video substrate adoption", () => {
     const fetch = vi.fn(async () => makeAggregate({
       records: [makeRecord()]
     }));
-    const handoff = buildProductVideoSuccessHandoff();
+    const handoff = buildProductVideoSuccessHandoff({
+      productUrl: "https://www.amazon.com/dp/B0PHASE5001"
+    });
 
     const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput());
 

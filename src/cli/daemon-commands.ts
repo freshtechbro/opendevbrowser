@@ -14,6 +14,7 @@ import {
   runResearchWorkflow,
   runShoppingWorkflow
 } from "../providers/workflows";
+import { buildMacroResolveSuccessHandoff } from "../providers/workflow-handoff";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
   type MacroExecutionPayload,
@@ -2047,6 +2048,9 @@ async function resolveMacroExpression(
   resolution: MacroResolution;
   catalog?: Array<{ name: string; pack?: string; description?: string }>;
   execution?: MacroExecutionPayload;
+  followthroughSummary: string;
+  suggestedNextAction: string;
+  suggestedSteps: Array<{ reason: string; command?: string }>;
 }> {
   const runtime = await loadMacroRuntime();
   const registry = runtime?.createDefaultMacroRegistry?.();
@@ -2071,10 +2075,17 @@ async function resolveMacroExpression(
   }
 
   if (!options.execute) {
+    const handoff = buildMacroResolveSuccessHandoff({
+      expression: options.expression,
+      defaultProvider: options.defaultProvider,
+      execute: false,
+      blocked: false
+    });
     return {
       runtime: resolvedRuntime,
       resolution,
-      ...(catalog ? { catalog } : {})
+      ...(catalog ? { catalog } : {}),
+      ...handoff
     };
   }
 
@@ -2087,10 +2098,17 @@ async function resolveMacroExpression(
     timeoutMs: options.timeoutMs,
     challengeAutomationMode: options.challengeAutomationMode
   });
+  const handoff = buildMacroResolveSuccessHandoff({
+    expression: options.expression,
+    defaultProvider: options.defaultProvider,
+    execute: true,
+    blocked: Boolean(execution.meta.blocker)
+  });
   return {
     runtime: resolvedRuntime,
     resolution,
     ...(catalog ? { catalog } : {}),
-    execution
+    execution,
+    ...handoff
   };
 }

@@ -327,6 +327,7 @@ export function runDocsDriftChecks() {
       && onboardingDoc.includes(onboardingMetadata.quickStartCommands.promptingGuide)
       && onboardingDoc.includes(onboardingMetadata.quickStartCommands.skillLoad)
       && onboardingDoc.includes(onboardingMetadata.quickStartCommands.computerUseEntry)
+      && onboardingDoc.includes("inspiredesign run")
       && onboardingDoc.includes(onboardingMetadata.referencePaths.skillDoc)
       && onboardingDoc.includes("docs/RELEASE_RUNBOOK.md"),
     detail: "docs/FIRST_RUN_ONBOARDING.md must document the generated-help quick-start path, computer-use entry command, canonical skill runbook, and the separate release runbook for published npm proof."
@@ -809,6 +810,12 @@ export function runDocsDriftChecks() {
     id: "doc.cli.current_package_version_ref",
     ok: cliDoc.includes(`opendevbrowser-${version}.tgz`),
     detail: `docs/CLI.md should reference opendevbrowser-${version}.tgz`
+  });
+
+  checks.push({
+    id: "doc.readme.current_package_version_ref",
+    ok: publicReadme.includes(`opendevbrowser-${version}.tgz`),
+    detail: `README.md should reference opendevbrowser-${version}.tgz`
   });
 
   checks.push({

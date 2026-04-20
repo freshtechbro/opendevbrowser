@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkflowCompletionMessage,
   readSuggestedNextAction,
+  readSuggestedStepCommand,
   readSuggestedStepReason
 } from "../src/cli/utils/workflow-message";
 
@@ -51,5 +52,24 @@ describe("workflow message helpers", () => {
         suggestedSteps: [{ reason: "Run session-inspector-audit --session-id s1" }]
       }
     })).toBe("Run session-inspector-audit --session-id s1");
+  });
+
+  it("falls back to a suggested step command when explicit next action is absent", () => {
+    const data = {
+      followthroughSummary: "Review the asset pack before briefing production.",
+      suggestedSteps: [
+        {
+          reason: "Rerun with a narrower provider mix if the pack is too thin.",
+          command: "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+        }
+      ]
+    };
+
+    expect(readSuggestedStepCommand(data)).toBe(
+      "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+    );
+    expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
+      "Product video workflow completed. Review the asset pack before briefing production. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+    );
   });
 });
