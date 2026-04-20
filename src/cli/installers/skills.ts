@@ -8,13 +8,29 @@ import { listBundledSkillDirectories } from "../../skills/bundled-skill-director
 export type SkillInstallMode = "global" | "local";
 
 type SyncOutcome = "installed" | "refreshed" | "unchanged";
-type LegacyAliasName = "research" | "shopping";
-export type LegacyAliasPreservationReason = "contains_skill_md" | "non_empty" | "unknown_layout";
+type RetiredAlias = (typeof RETIRED_ALIAS_SKILLS)[number];
 
-export interface PreservedLegacyAlias {
-  targetDir: string;
-  name: LegacyAliasName;
-  reason: LegacyAliasPreservationReason;
+const MANAGED_SKILLS_MARKER = ".opendevbrowser-managed-skills.json";
+
+const RETIRED_ALIAS_SKILLS = [
+  {
+    name: "research",
+    canonical: "opendevbrowser-research",
+    historicalFingerprints: [
+      "994a4bf2d00de68c51621d9a225bc773d835eb3937ec3982d66fc878cb098220"
+    ]
+  },
+  {
+    name: "shopping",
+    canonical: "opendevbrowser-shopping",
+    historicalFingerprints: [
+      "c5cac32c36e8b66f527174c7691e3b517e37af1e4417c064028acefe15249333"
+    ]
+  }
+] as const;
+
+interface ManagedSkillsMarker {
+  managedPacks: string[];
 }
 
 export interface SkillTargetSyncResult {
@@ -23,8 +39,6 @@ export interface SkillTargetSyncResult {
   installed: string[];
   refreshed: string[];
   unchanged: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
   success: boolean;
   error?: string;
 }
@@ -37,8 +51,6 @@ export interface SkillSyncResult {
   installed: string[];
   refreshed: string[];
   unchanged: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
 }
 
 export interface SkillTargetRemovalResult {
@@ -46,8 +58,6 @@ export interface SkillTargetRemovalResult {
   targetDir: string;
   removed: string[];
   missing: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
   success: boolean;
   error?: string;
 }
@@ -59,19 +69,7 @@ export interface SkillRemovalResult {
   targets: SkillTargetRemovalResult[];
   removed: string[];
   missing: string[];
-  removedLegacyAliases: string[];
-  preservedLegacyAliases: PreservedLegacyAlias[];
 }
-
-type LegacyAliasCleanupResult = {
-  removed: string[];
-  preserved: PreservedLegacyAlias[];
-};
-
-const LEGACY_ALIAS_DIRS = [
-  { name: "research", canonical: "opendevbrowser-research" },
-  { name: "shopping", canonical: "opendevbrowser-shopping" }
-] as const;
 
 function getTargets(mode: SkillInstallMode): SkillTarget[] {
   return mode === "global" ? getGlobalSkillTargets() : getLocalSkillTargets();
@@ -83,6 +81,85 @@ function getCanonicalBundledSkillNames(): string[] {
 
 function hasCanonicalBundledSkillInTarget(targetDir: string, packNames: readonly string[]): boolean {
   return packNames.some((packName) => fs.existsSync(path.join(targetDir, packName)));
+}
+
+function getManagedSkillsMarkerPath(targetDir: string): string {
+  return path.join(targetDir, MANAGED_SKILLS_MARKER);
+}
+
+function writeManagedSkillsMarker(targetDir: string, packNames: readonly string[]): void {
+  const marker: ManagedSkillsMarker = {
+    managedPacks: [...packNames]
+  };
+  fs.writeFileSync(
+    getManagedSkillsMarkerPath(targetDir),
+    `${JSON.stringify(marker, null, 2)}\n`,
+    "utf8"
+  );
+}
+
+function removeManagedSkillsMarker(targetDir: string): void {
+  fs.rmSync(getManagedSkillsMarkerPath(targetDir), { force: true });
+}
+
+function shouldRemoveRetiredAlias(
+  aliasPath: string,
+  canonicalPath: string,
+  historicalFingerprints: readonly string[]
+): boolean {
+  const aliasFingerprint = hashDirectoryTree(aliasPath);
+  if (historicalFingerprints.includes(aliasFingerprint)) {
+    return true;
+  }
+
+  if (!fs.existsSync(canonicalPath)) {
+    return false;
+  }
+
+  try {
+    return hashDirectoryTree(canonicalPath) === aliasFingerprint;
+  } catch {
+    return false;
+  }
+}
+
+function removeRetiredAliasSkill(targetDir: string, alias: RetiredAlias): void {
+  const aliasPath = path.join(targetDir, alias.name);
+  if (!fs.existsSync(aliasPath)) {
+    return;
+  }
+
+  const stats = fs.statSync(aliasPath);
+  if (!stats.isDirectory()) {
+    return;
+  }
+
+  const entries = fs.readdirSync(aliasPath);
+  if (entries.length === 0) {
+    fs.rmSync(aliasPath, { recursive: true, force: true });
+    return;
+  }
+
+  if (!fs.existsSync(path.join(aliasPath, "SKILL.md"))) {
+    return;
+  }
+
+  const canonicalPath = path.join(targetDir, alias.canonical);
+  if (!shouldRemoveRetiredAlias(aliasPath, canonicalPath, alias.historicalFingerprints)) {
+    return;
+  }
+
+  fs.rmSync(aliasPath, { recursive: true, force: true });
+}
+
+function removeRetiredAliasSkills(targetDir: string): void {
+  for (const alias of RETIRED_ALIAS_SKILLS) {
+    try {
+      removeRetiredAliasSkill(targetDir, alias);
+    } catch {
+      continue;
+    }
+  }
 }
 
 function formatSummary(parts: string[], totalTargets: number, failures: number): string {
@@ -168,70 +245,12 @@ function syncSkillDirectory(sourcePath: string, targetPath: string, sourceFinger
   }
 }
 
-function cleanupLegacyAlias(targetDir: string, aliasName: LegacyAliasName): LegacyAliasCleanupResult {
-  const aliasPath = path.join(targetDir, aliasName);
-
-  if (!fs.existsSync(aliasPath)) {
-    return { removed: [], preserved: [] };
-  }
-
-  let stats: fs.Stats;
-  try {
-    stats = fs.statSync(aliasPath);
-  } catch {
-    return {
-      removed: [],
-      preserved: [{ targetDir, name: aliasName, reason: "unknown_layout" }]
-    };
-  }
-
-  if (!stats.isDirectory()) {
-    return {
-      removed: [],
-      preserved: [{ targetDir, name: aliasName, reason: "unknown_layout" }]
-    };
-  }
-
-  if (fs.existsSync(path.join(aliasPath, "SKILL.md"))) {
-    return {
-      removed: [],
-      preserved: [{ targetDir, name: aliasName, reason: "contains_skill_md" }]
-    };
-  }
-
-  const entries = fs.readdirSync(aliasPath);
-  if (entries.length === 0) {
-    fs.rmSync(aliasPath, { recursive: true, force: true });
-    return { removed: [aliasName], preserved: [] };
-  }
-
-  return {
-    removed: [],
-    preserved: [{ targetDir, name: aliasName, reason: "non_empty" }]
-  };
-}
-
-function cleanupLegacyAliases(targetDir: string): LegacyAliasCleanupResult {
-  const removed: string[] = [];
-  const preserved: PreservedLegacyAlias[] = [];
-
-  for (const alias of LEGACY_ALIAS_DIRS) {
-    const result = cleanupLegacyAlias(targetDir, alias.name);
-    removed.push(...result.removed);
-    preserved.push(...result.preserved);
-  }
-
-  return { removed, preserved };
-}
-
 function buildSyncMessage(mode: SkillInstallMode, result: SkillSyncResult): string {
   return `Skills ${mode} sync: ${formatSummary(
     [
       result.installed.length > 0 ? `${result.installed.length} installed` : "",
       result.refreshed.length > 0 ? `${result.refreshed.length} refreshed` : "",
-      result.unchanged.length > 0 ? `${result.unchanged.length} unchanged` : "",
-      result.removedLegacyAliases.length > 0 ? `${result.removedLegacyAliases.length} legacy aliases removed` : "",
-      result.preservedLegacyAliases.length > 0 ? `${result.preservedLegacyAliases.length} legacy aliases preserved` : ""
+      result.unchanged.length > 0 ? `${result.unchanged.length} unchanged` : ""
     ].filter(Boolean),
     result.targets.length,
     result.targets.filter((entry) => !entry.success).length
@@ -242,9 +261,7 @@ function buildRemovalMessage(mode: SkillInstallMode, result: SkillRemovalResult)
   return `Skills ${mode} removal: ${formatSummary(
     [
       result.removed.length > 0 ? `${result.removed.length} removed` : "",
-      result.missing.length > 0 ? `${result.missing.length} already absent` : "",
-      result.removedLegacyAliases.length > 0 ? `${result.removedLegacyAliases.length} legacy aliases removed` : "",
-      result.preservedLegacyAliases.length > 0 ? `${result.preservedLegacyAliases.length} legacy aliases preserved` : ""
+      result.missing.length > 0 ? `${result.missing.length} already absent` : ""
     ].filter(Boolean),
     result.targets.length,
     result.targets.filter((entry) => !entry.success).length
@@ -272,8 +289,6 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
       const installed: string[] = [];
       const refreshed: string[] = [];
       const unchanged: string[] = [];
-      const removedLegacyAliases: string[] = [];
-      const preservedLegacyAliases: PreservedLegacyAlias[] = [];
 
       try {
         ensureDir(target.dir);
@@ -296,9 +311,8 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           }
         }
 
-        const legacyCleanup = cleanupLegacyAliases(target.dir);
-        removedLegacyAliases.push(...legacyCleanup.removed);
-        preservedLegacyAliases.push(...legacyCleanup.preserved);
+        removeRetiredAliasSkills(target.dir);
+        writeManagedSkillsMarker(target.dir, packNames);
 
         targetResults.push({
           agents: target.agents,
@@ -306,8 +320,6 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           installed,
           refreshed,
           unchanged,
-          removedLegacyAliases,
-          preservedLegacyAliases,
           success: true
         });
       } catch (error) {
@@ -318,8 +330,6 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           installed,
           refreshed,
           unchanged,
-          removedLegacyAliases,
-          preservedLegacyAliases,
           success: false,
           error: message
         });
@@ -333,9 +343,7 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
       targets: targetResults,
       installed: targetResults.flatMap((entry) => entry.installed),
       refreshed: targetResults.flatMap((entry) => entry.refreshed),
-      unchanged: targetResults.flatMap((entry) => entry.unchanged),
-      removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
-      preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
+      unchanged: targetResults.flatMap((entry) => entry.unchanged)
     };
     result.message = buildSyncMessage(mode, result);
     return result;
@@ -348,9 +356,7 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
       targets: targetResults,
       installed: targetResults.flatMap((entry) => entry.installed),
       refreshed: targetResults.flatMap((entry) => entry.refreshed),
-      unchanged: targetResults.flatMap((entry) => entry.unchanged),
-      removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
-      preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
+      unchanged: targetResults.flatMap((entry) => entry.unchanged)
     };
     result.message = `Failed to sync skills (${mode}): ${message}`;
     return result;
@@ -365,10 +371,10 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
   for (const target of targets) {
     const removed: string[] = [];
     const missing: string[] = [];
-    const removedLegacyAliases: string[] = [];
-    const preservedLegacyAliases: PreservedLegacyAlias[] = [];
 
     try {
+      removeRetiredAliasSkills(target.dir);
+
       for (const packName of packNames) {
         const targetPath = path.join(target.dir, packName);
         if (fs.existsSync(targetPath)) {
@@ -378,18 +384,13 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
           missing.push(packName);
         }
       }
-
-      const legacyCleanup = cleanupLegacyAliases(target.dir);
-      removedLegacyAliases.push(...legacyCleanup.removed);
-      preservedLegacyAliases.push(...legacyCleanup.preserved);
+      removeManagedSkillsMarker(target.dir);
 
       targetResults.push({
         agents: target.agents,
         targetDir: target.dir,
         removed,
         missing,
-        removedLegacyAliases,
-        preservedLegacyAliases,
         success: true
       });
     } catch (error) {
@@ -399,8 +400,6 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
         targetDir: target.dir,
         removed,
         missing,
-        removedLegacyAliases,
-        preservedLegacyAliases,
         success: false,
         error: message
       });
@@ -413,9 +412,7 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
     mode,
     targets: targetResults,
     removed: targetResults.flatMap((entry) => entry.removed),
-    missing: targetResults.flatMap((entry) => entry.missing),
-    removedLegacyAliases: targetResults.flatMap((entry) => entry.removedLegacyAliases),
-    preservedLegacyAliases: targetResults.flatMap((entry) => entry.preservedLegacyAliases)
+    missing: targetResults.flatMap((entry) => entry.missing)
   };
   result.message = buildRemovalMessage(mode, result);
   return result;
@@ -426,4 +423,8 @@ export function hasBundledSkillArtifacts(mode: SkillInstallMode): boolean {
   const targets = getTargets(mode);
 
   return targets.some((target) => hasCanonicalBundledSkillInTarget(target.dir, packNames));
+}
+
+export function hasManagedBundledSkillInstall(mode: SkillInstallMode): boolean {
+  return getTargets(mode).some((target) => fs.existsSync(getManagedSkillsMarkerPath(target.dir)));
 }

@@ -99,6 +99,13 @@ cd <public-repo-root>
 npm pack
 
 WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
+ISOLATED_ROOT=$(mktemp -d /tmp/opendevbrowser-first-run-isolated-XXXXXX)
+export HOME="$ISOLATED_ROOT/home"
+export OPENCODE_CONFIG_DIR="$ISOLATED_ROOT/opencode-config"
+export OPENCODE_CACHE_DIR="$ISOLATED_ROOT/opencode-cache"
+export CODEX_HOME="$ISOLATED_ROOT/codex-home"
+export CLAUDECODE_HOME="$ISOLATED_ROOT/claudecode-home"
+export AMP_CLI_HOME="$ISOLATED_ROOT/ampcli-home"
 cd "$WORKDIR"
 npm init -y
 npm install <public-repo-root>/opendevbrowser-0.0.21.tgz
@@ -108,11 +115,13 @@ npx --no-install opendevbrowser help
 
 Published npm consumer proof is tracked separately in [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md) through `scripts/registry-consumer-smoke.mjs`.
 
+Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that avoids the install-time managed-skill refresh entirely.
+
 See [docs/FIRST_RUN_ONBOARDING.md](docs/FIRST_RUN_ONBOARDING.md) for the full onboarding checklist, [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for runtime inventory, and [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the live CLI and tool surface.
 
 Successful installs reconcile daemon auto-start on supported platforms so the relay is available on login. If the current CLI entrypoint lives under a transient temp-root path such as a first-run `/tmp` or `/private/tmp` workspace, OpenDevBrowser refuses to persist that path as auto-start. Rerun `opendevbrowser daemon install`, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, from a stable install location if you want login auto-start; remove it later with `opendevbrowser daemon uninstall`.
 
-Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. Use `--skills-global` for user-wide installs or `--skills-local` for project-local installs; see [docs/CLI.md](docs/CLI.md) for exact target paths.
+Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. `npx opendevbrowser` manages global or project-local targets according to the selected skills mode, and package installation (`npm install -g`, local tarball install, or equivalent) best-effort syncs the canonical bundled packs into the managed global targets during package `postinstall`. See [docs/CLI.md](docs/CLI.md) for exact target paths.
 
 ### CLI + Extension (No OpenCode)
 
@@ -478,8 +487,9 @@ OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs**. Install, upda
 
 Installer note:
 - `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs into managed global or project-local agent directories.
+- Managed installs write a target-level ownership marker, so later update and uninstall only act on CLI-managed skill targets or older config installs that already contain canonical packs.
 - Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
-- Uninstall removes managed canonical packs and only prunes legacy `research` or `shopping` leftovers when those directories are empty and clearly obsolete.
+- Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)
