@@ -89,18 +89,36 @@ type MacroResolveHandoffInput = {
   blocked: boolean;
 };
 
-const buildMacroPreviewCommand = (input: MacroResolveHandoffInput): string => {
+const buildMacroResolveArgs = (
+  input: MacroResolveHandoffInput,
+  options?: {
+    execute?: boolean;
+    challengeAutomationMode?: "browser" | "browser_with_helper";
+    includeOutputFormat?: boolean;
+  }
+): string => {
   const defaultProvider = input.defaultProvider ? ` --default-provider ${input.defaultProvider}` : "";
-  return cliExample(
-    "macro-resolve",
-    `--expression ${quoteCliValue(input.expression)}${defaultProvider} --output-format json`
-  );
+  const execute = options?.execute ? " --execute" : "";
+  const challenge = options?.challengeAutomationMode
+    ? ` --challenge-automation-mode ${options.challengeAutomationMode}`
+    : "";
+  const outputFormat = options?.includeOutputFormat === false ? "" : " --output-format json";
+  return `--expression ${quoteCliValue(input.expression)}${defaultProvider}${execute}${challenge}${outputFormat}`;
 };
 
-const buildMacroExecuteCommand = (input: MacroResolveHandoffInput, challengeAutomationMode?: "browser" | "browser_with_helper"): string => {
-  const challenge = challengeAutomationMode ? ` --challenge-automation-mode ${challengeAutomationMode}` : "";
-  return `${buildMacroPreviewCommand(input).replace(" --output-format json", "")} --execute${challenge} --output-format json`;
-};
+const buildMacroPreviewCommand = (input: MacroResolveHandoffInput): string => (
+  cliExample("macro-resolve", buildMacroResolveArgs(input))
+);
+
+const buildMacroExecuteCommand = (
+  input: MacroResolveHandoffInput,
+  challengeAutomationMode?: "browser" | "browser_with_helper"
+): string => (
+  cliExample("macro-resolve", buildMacroResolveArgs(input, {
+    execute: true,
+    challengeAutomationMode
+  }))
+);
 
 export const buildResearchSuccessHandoff = (topic: string): WorkflowSuccessHandoff => {
   const rerunCommand = buildResearchRerunCommand(topic);

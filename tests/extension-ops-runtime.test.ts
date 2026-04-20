@@ -8707,7 +8707,7 @@ describe("OpsRuntime target teardown", () => {
         {
           id: 202,
           status: "complete",
-          url: "https://www.facebook.com/search/top/?q=browser%20automation",
+          url: "https://www.facebook.com/watch/search/?q=browser%20automation",
           title: "Facebook Search"
         } as chrome.tabs.Tab
       ];
@@ -8719,7 +8719,7 @@ describe("OpsRuntime target teardown", () => {
         return {
           id: 202,
           status: "complete",
-          url: "https://www.facebook.com/search/top/?q=browser%20automation",
+          url: "https://www.facebook.com/watch/search/?q=browser%20automation",
           title: "Facebook Search"
         } as chrome.tabs.Tab;
       }
@@ -8757,7 +8757,7 @@ describe("OpsRuntime target teardown", () => {
           requestId: "req-launch-fallback-http",
           payload: expect.objectContaining({
             activeTargetId: "tab-202",
-            url: "https://www.facebook.com/search/top/?q=browser%20automation",
+            url: "https://www.facebook.com/watch/search/?q=browser%20automation",
             title: "Facebook Search"
           })
         })

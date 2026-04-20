@@ -72,6 +72,12 @@ describe("youtube provider branches", () => {
 
   it("rejects empty query in the raw default youtube search handler", async () => {
     const options = withDefaultYouTubeOptions();
+    expect(options.recoveryHints?.()).toMatchObject({
+      preferredFallbackModes: ["extension", "managed_headed"],
+      challengeProne: true,
+      settleTimeoutMs: 5000,
+      captureDelayMs: 500
+    });
     expect(options.defaultTraversal).toMatchObject({
       pageLimit: 1,
       hopLimit: 0,
@@ -222,6 +228,151 @@ describe("youtube provider branches", () => {
       video_id: "StC_uaWoiOs",
       links: ["https://www.youtube.com/watch?v=StC_uaWoiOs"]
     });
+  });
+
+  it("normalizes alternate youtube hosts while ignoring foreign watch links", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <body>
+            <a href="https://example.com/watch?v=ignored11111">Foreign host</a>
+            <a href="https://youtu.be/StC_uaWoiOs">Short link</a>
+            <a href="https://music.youtube.com/watch?v=StC_uaWoiOs&feature=share">Music</a>
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "browser automation youtube" }, context);
+
+    expect(records?.[0]?.url).toBe("https://www.youtube.com/watch?v=StC_uaWoiOs");
+    expect(records?.[0]?.attributes).toMatchObject({
+      video_id: "StC_uaWoiOs",
+      links: ["https://www.youtube.com/watch?v=StC_uaWoiOs"]
+    });
+  });
+
+  it("keeps the search result page when extracted youtube links do not resolve to a video id", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <body>
+            <a href="https://www.youtube.com/channel/UC12345678901">Channel</a>
+            <a href="https://www.youtube.com/@automationlab">Handle</a>
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "browser automation youtube" }, context);
+
+    expect(records?.[0]?.url).toBe("https://www.youtube.com/results?search_query=browser+automation+youtube");
+    expect(records?.[0]?.attributes).toMatchObject({
+      video_id: null,
+      links: []
+    });
+  });
+
+  it("keeps channel and views metadata even when the primary result omits title and snippet text", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <body>
+            <script>
+              var ytInitialData = {
+                "contents": {
+                  "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                      "sectionListRenderer": {
+                        "contents": [{
+                          "itemSectionRenderer": {
+                            "contents": [{
+                              "videoRenderer": {
+                                "videoId": "StC_uaWoiOs",
+                                "ownerText": { "runs": [{ "text": "Automation Lab" }] },
+                                "viewCountText": { "simpleText": "12,345 views" }
+                              }
+                            }]
+                          }
+                        }]
+                      }
+                    }
+                  }
+                }
+              };
+            </script>
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "browser automation youtube" }, context);
+
+    expect(records?.[0]?.title).toBe("YouTube search: browser automation youtube");
+    expect(records?.[0]?.content).toContain("Channel: Automation Lab.");
+    expect(records?.[0]?.content).toContain("Views: 12,345 views.");
+    expect(records?.[0]?.attributes).toMatchObject({
+      video_id: "StC_uaWoiOs",
+      channel: "Automation Lab"
+    });
+  });
+
+  it("keeps a title-only primary result without fabricating channel metadata", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <body>
+            <script>
+              var ytInitialData = {
+                "contents": {
+                  "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                      "sectionListRenderer": {
+                        "contents": [{
+                          "itemSectionRenderer": {
+                            "contents": [{
+                              "videoRenderer": {
+                                "videoId": "StC_uaWoiOs",
+                                "title": { "runs": [{ "text": "Automation without extra metadata" }] }
+                              }
+                            }]
+                          }
+                        }]
+                      }
+                    }
+                  }
+                }
+              };
+            </script>
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "browser automation youtube" }, context);
+
+    expect(records?.[0]?.title).toBe("Automation without extra metadata");
+    expect(records?.[0]?.content ?? "").toBe("");
+    expect(records?.[0]?.attributes).toMatchObject({
+      video_id: "StC_uaWoiOs"
+    });
+    expect(records?.[0]?.attributes).not.toHaveProperty("channel");
   });
 
   it("summarizes long english transcripts without translation when full transcript is disabled", async () => {

@@ -71,7 +71,7 @@ const BROWSER_REALWORLD_TARGETS = [
   { id: 'x.search', url: 'https://x.com/home' },
   { id: 'youtube.search', url: 'https://www.youtube.com/results?search_query=browser+automation+anti+bot' },
   { id: 'instagram.explore', url: 'https://www.instagram.com/explore/' },
-  { id: 'facebook.search', url: 'https://www.facebook.com/search/top/?q=browser%20automation' },
+  { id: 'facebook.search', url: 'https://www.facebook.com/watch/search/?q=browser%20automation' },
   { id: 'linkedin.search', url: 'https://www.linkedin.com/search/results/content/?keywords=browser%20automation' }
 ];
 export const WORKFLOW_RESEARCH_PROBE_ARGS = [

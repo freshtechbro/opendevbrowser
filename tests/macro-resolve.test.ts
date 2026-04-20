@@ -314,6 +314,39 @@ describe("macro resolve tool", () => {
     expect(result.execution?.meta.blocker?.type).toBe("auth_required");
   });
 
+  it("preserves literal output-format text inside macro execute guidance", async () => {
+    vi.doMock("../src/macros", () => ({
+      createDefaultMacroRegistry: () => ({
+        resolve: async () => ({
+          action: {
+            source: "web",
+            operation: "search",
+            input: { query: "phase 5 --output-format json", providerId: "web/default", limit: 5 }
+          },
+          provenance: {
+            macro: "web.search",
+            provider: "web/default",
+            resolvedQuery: "phase 5 --output-format json",
+            pack: "core:web",
+            args: { positional: [], named: {} }
+          }
+        }),
+        list: () => []
+      })
+    }));
+
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
+    const tool = createMacroResolveTool({} as never);
+    const result = parse(await tool.execute({
+      expression: "@web.search('phase 5 --output-format json')"
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.suggestedSteps?.[1]?.command).toBe(
+      "npx opendevbrowser macro-resolve --expression \"@web.search('phase 5 --output-format json')\" --execute --output-format json"
+    );
+  });
+
   it("falls back when runtime module cannot load", async () => {
     vi.doMock("../src/macros", () => {
       throw new Error("runtime unavailable");

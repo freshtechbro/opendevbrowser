@@ -8,21 +8,92 @@ import {
 } from "../src/providers/social/search-quality";
 
 describe("social search quality helpers", () => {
-  it("passes through non-targeted platforms without shell gating", () => {
-    const baseUrl = "https://www.facebook.com/search/top?q=browser+automation";
-    const links = [
-      "https://example.com/help",
-      "https://www.facebook.com/posts/123"
-    ];
+  it("treats facebook watch search routes as shells until a concrete content url exists", () => {
+    const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation";
+    const watchUrl = "https://www.facebook.com/watch/?v=123456789012345";
+    const reelUrl = "https://www.facebook.com/reel/123456789012345";
+    const links = [baseUrl, watchUrl, reelUrl];
 
-    expect(isFirstPartySocialSearchRoute("facebook", baseUrl)).toBe(false);
+    expect(isFirstPartySocialSearchRoute("facebook", baseUrl)).toBe(true);
     expect(detectSocialSearchShell("facebook", {
       url: baseUrl,
-      content: "You need to enable JavaScript"
+      content: "Explore the latest browser automation videos in Video."
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Explore the latest browser automation videos in Video.",
+      links: [watchUrl]
     })).toBeNull();
-    expect(isAllowedSocialSearchExpansionUrl("facebook", "not-a-url")).toBe(true);
-    expect(prioritizeSocialSearchLinks("facebook", baseUrl, links)).toEqual(links);
-    expect(selectUsableSocialSearchLinks("facebook", baseUrl, links)).toEqual(links);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", baseUrl)).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", "https://www.facebook.com/public/browser-automation")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", watchUrl)).toBe(true);
+    expect(prioritizeSocialSearchLinks("facebook", baseUrl, links)).toEqual([
+      watchUrl,
+      reelUrl,
+      baseUrl
+    ]);
+    expect(selectUsableSocialSearchLinks("facebook", baseUrl, links)).toEqual([
+      watchUrl,
+      reelUrl
+    ]);
+  });
+
+  it("accepts bare and mobile facebook hosts only when they point at concrete content urls", () => {
+    const baseUrl = "https://m.facebook.com/watch/search/?q=browser+automation";
+
+    expect(detectSocialSearchShell("facebook", {
+      url: "https://facebook.com/login",
+      content: "Log into Facebook"
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
+    expect(isAllowedSocialSearchExpansionUrl("facebook", "https://m.facebook.com/watch")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", "https://facebook.com/reg/")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", "https://facebook.com/recover/initiate")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", "https://m.facebook.com/site.webmanifest")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", "notaurl")).toBe(false);
+    expect(selectUsableSocialSearchLinks("facebook", baseUrl, [
+      "https://facebook.com/story.php?story_fbid=123&id=456",
+      "https://m.facebook.com/share/v/123456789012345/",
+      "https://facebook.com/photo/?fbid=123"
+    ])).toEqual([
+      "https://facebook.com/story.php?story_fbid=123&id=456",
+      "https://m.facebook.com/share/v/123456789012345/",
+      "https://facebook.com/photo/?fbid=123"
+    ]);
+    expect(isAllowedSocialSearchExpansionUrl("facebook", "https://example.com/browser-automation")).toBe(true);
+  });
+
+  it("accepts populated facebook watch search pages when result markers survive but only profile links are exposed", () => {
+    const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation+facebook&page=1";
+
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Top browser automation facebook videos Search results Shared with Public Open reel in Reels Viewer",
+      links: [
+        "/BradfordSCarlton",
+        "/prince.okporu"
+      ]
+    })).toBeNull();
+    expect(selectUsableSocialSearchLinks("facebook", baseUrl, [
+      "/BradfordSCarlton",
+      "/prince.okporu"
+    ])).toEqual([]);
+  });
+
+  it("accepts populated facebook watch search pages without an explicit search heading when strong result markers and support links survive", () => {
+    const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation+facebook&page=1";
+
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Top browser automation facebook videos Shared with Public Open reel in Reels Viewer",
+      links: [
+        "/BradfordSCarlton",
+        "/prince.okporu"
+      ]
+    })).toBeNull();
   });
 
   it("blocks reddit non-content routes while allowing non-primary-host and empty-path edge cases", () => {
@@ -223,6 +294,44 @@ describe("social search quality helpers", () => {
       "https://www.reddit.com/login/",
       "https://www.reddit.com/r/opendevbrowser/comments/123/example"
     ])).toEqual(["https://www.reddit.com/r/opendevbrowser/comments/123/example"]);
+  });
+
+  it("leaves non-targeted platform links untouched", () => {
+    const links = [
+      "https://www.youtube.com/watch?v=abc123def45",
+      "notaurl"
+    ];
+
+    expect(isAllowedSocialSearchExpansionUrl("youtube", "notaurl")).toBe(true);
+    expect(detectSocialSearchShell("youtube", {
+      url: "https://www.youtube.com/results?search_query=test",
+      content: "Please enable JavaScript"
+    })).toBeNull();
+    expect(prioritizeSocialSearchLinks("youtube", "https://www.youtube.com/results?search_query=test", links)).toEqual(links);
+    expect(selectUsableSocialSearchLinks("youtube", "https://www.youtube.com/results?search_query=test", links)).toEqual(links);
+  });
+
+  it("keeps allowed non-content links behind concrete content evidence for targeted platforms", () => {
+    const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation";
+
+    expect(prioritizeSocialSearchLinks("facebook", baseUrl, [
+      "https://example.com/browser-automation",
+      "https://www.facebook.com/login",
+      "https://www.facebook.com/watch/?v=123456789012345"
+    ])).toEqual([
+      "https://www.facebook.com/watch/?v=123456789012345",
+      "https://example.com/browser-automation",
+      "https://www.facebook.com/login"
+    ]);
+  });
+
+  it("detects the empty logged-out bluesky search shell separately from javascript-required shells", () => {
+    expect(detectSocialSearchShell("bluesky", {
+      url: "https://bsky.app/search?q=browser+automation",
+      content: "Follow 10 people to get started"
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
   });
 
   it("ignores malformed and foreign-host bluesky evidence while keeping logged-out shells active", () => {

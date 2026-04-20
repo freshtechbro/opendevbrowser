@@ -1152,6 +1152,115 @@ describe("provider-direct-runs", () => {
     expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
   });
 
+  it("classifies deferred auth walls as env-limited social macro results even when expansion returned records", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.facebook.search",
+      providerId: "social/facebook",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "facebook-search-shell",
+                url: "https://www.facebook.com/watch/search/?q=browser+automation&page=1",
+                title: "browser automation videos | Facebook",
+                content: "Top results",
+                attributes: {
+                  retrievalPath: "social:search:index"
+                }
+              },
+              {
+                id: "facebook-content-record",
+                url: "https://www.facebook.com/reel/123456789",
+                title: "Browser automation reel",
+                content: "Shared reel content.",
+                attributes: {
+                  retrievalPath: "social:fetch:url"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/facebook"],
+              challengeOrchestration: {
+                status: "deferred",
+                classification: "auth_required",
+                verification: {
+                  bundle: {
+                    continuity: {
+                      likelyLoginPage: true,
+                      likelyHumanVerification: false,
+                      loginRefs: ["r2"],
+                      checkpointRefs: []
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("deferred_auth_wall_only");
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("keeps deferred social macro rows as pass when continuity does not show a preserved auth wall", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.facebook.search",
+      providerId: "social/facebook",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "facebook-content-record",
+                url: "https://www.facebook.com/reel/123456789",
+                title: "Browser automation reel",
+                content: "Shared reel content.",
+                attributes: {
+                  retrievalPath: "social:fetch:url"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/facebook"],
+              challengeOrchestration: {
+                status: "deferred",
+                classification: "auth_required",
+                verification: {
+                  bundle: {
+                    continuity: {
+                      likelyLoginPage: false,
+                      likelyHumanVerification: false,
+                      loginRefs: [],
+                      checkpointRefs: []
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.detail).toBeNull();
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
   it("keeps community macro passes when a Reddit verification wall appears with a usable record", () => {
     const step = evaluateMacroCase({
       id: "provider.community.search.keyword",

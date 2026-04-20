@@ -126,14 +126,14 @@ describe("social platform adapters", () => {
         ? "extension" as const
         : "managed_headed" as const,
       output: {
-        url: request.url ?? "https://www.facebook.com/search/top?q=browser%20automation",
+        url: request.url ?? "https://www.facebook.com/watch/search/?q=browser%20automation",
         html: request.provider === "social/x"
           ? `<html><body><main><article><a href="https://x.com/acct/status/123">Recovered X result</a></article></main></body></html>`
           : request.provider === "social/bluesky"
             ? `<html><body><main><article><a href="https://bsky.app/profile/alice.bsky.app/post/123">Recovered Bluesky result</a></article></main></body></html>`
             : request.provider === "social/reddit"
               ? `<html><body><main><article><a href="https://www.reddit.com/r/browserautomation/comments/abc123/runtime_fix/">Recovered Reddit result</a></article></main></body></html>`
-              : `<html><body>fallback social content <a href="https://www.facebook.com/post/1">post</a></body></html>`
+              : `<html><body>fallback social content <a href="https://www.facebook.com/watch/?v=123456789012345">video</a></body></html>`
       },
       details: {}
     }));
@@ -187,12 +187,121 @@ describe("social platform adapters", () => {
       );
       expect(fallbackCalls.get("social/x")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
       expect(fallbackCalls.get("social/bluesky")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
+      expect(fallbackCalls.get("social/facebook")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
       expect(fallbackCalls.get("social/linkedin")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
       expect(fallbackCalls.get("social/instagram")?.runtimePolicy?.browser?.preferredModes).toEqual(["managed_headed"]);
       expect(fallbackCalls.get("social/reddit")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("keeps recovered facebook search rows when the browser page is populated but exposes no concrete content links", async () => {
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      url?: string;
+      runtimePolicy?: { browser?: { preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.facebook.com/watch/search/?q=browser%20automation%20facebook&page=1",
+        html: [
+          "<html><body><main>",
+          "<h1>Top browser automation facebook videos</h1>",
+          "<p>Shared with Public</p>",
+          "<button>Open reel in Reels Viewer</button>",
+          "<a href=\"/BradfordSCarlton\">Dr. Bradford Carlton</a>",
+          "<a href=\"/prince.okporu\">Prince Joseph Okporu</a>",
+          "</main></body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 403,
+      url: String(input),
+      text: async () => "<html><body>auth wall</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation facebook", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/facebook"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.records).toHaveLength(1);
+      expect(result.records[0]).toMatchObject({
+        provider: "social/facebook",
+        url: "https://www.facebook.com/watch/search?page=1&q=browser+automation+facebook",
+        attributes: {
+          retrievalPath: "social:search:index",
+          browser_fallback_mode: "extension",
+          browser_fallback_reason_code: "token_required",
+          links: []
+        }
+      });
+      expect(result.records[0]?.content).toContain("Top browser automation facebook videos");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps recovered facebook search rows when expansion links exist but the downstream fetches are skipped", async () => {
+    const provider = createSocialProvider("facebook", {
+      search: async () => [{
+        url: "https://www.facebook.com/watch/search/?q=browser%20automation%20facebook&page=1",
+        title: "facebook search: browser automation facebook",
+        content: [
+          "Top browser automation facebook videos",
+          "Search results",
+          "Shared with Public",
+          "Open reel in Reels Viewer"
+        ].join(" "),
+        attributes: {
+          browser_fallback_mode: "extension",
+          browser_fallback_reason_code: "token_required",
+          links: [
+            "https://www.facebook.com/watch/?ref=search&v=928712426880997&q=browser%20automation%20facebook"
+          ]
+        }
+      }],
+      fetch: async () => {
+        throw new ProviderRuntimeError("auth", "Facebook expansion requires authentication", {
+          provider: "social/facebook",
+          source: "social",
+          retryable: false
+        });
+      }
+    });
+
+    const result = await provider.search(
+      { query: "browser automation facebook", limit: 5, filters: { pageLimit: 1 } },
+      context("facebook-search-fallback-row-with-links")
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      provider: "social/facebook",
+      url: "https://www.facebook.com/watch/search?page=1&q=browser+automation+facebook",
+      attributes: {
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "token_required",
+        links: [
+          "https://www.facebook.com/watch/?ref=search&v=928712426880997&q=browser%20automation%20facebook"
+        ]
+      }
+    });
+    expect(result[0]?.content).toContain("Top browser automation facebook videos");
   });
 
   it("classifies 200 auth-wall social search pages before traversal rows are returned", async () => {
@@ -1153,6 +1262,38 @@ describe("social platform adapters", () => {
           constraint: {
             kind: "render_required",
             evidenceCode: "social_first_party_help_shell"
+          }
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies Facebook watch search shells as render-required env-limited failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: "https://www.facebook.com/watch/search/?q=browser%20automation&page=1",
+      text: async () => "<html><head><title>browser automation videos</title></head><body>Explore the latest browser automation videos in Video.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5, filters: { pageLimit: 1 } },
+        { source: "social", providerIds: ["social/facebook"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_render_shell",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_render_shell"
           }
         }
       });

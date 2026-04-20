@@ -109,4 +109,50 @@ describe("youtube social adapter", () => {
       }
     });
   });
+
+  it("passes extension-first recovery hints into browser-assisted transcript fallback", async () => {
+    const fallbackResolve = vi.fn(async (request: { url?: string }) => ({
+      ok: true as const,
+      reasonCode: "transcript_unavailable" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.youtube.com/watch?v=browserassist123",
+        html: "<html><body><main>fallback transcript page</main></body></html>"
+      },
+      details: {}
+    }));
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      transcriptResolver: {
+        modeDefault: "web",
+        enableBrowserFallback: true
+      },
+      browserFallbackPort: {
+        resolve: fallbackResolve
+      }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body><main>no captions</main></body></html>"
+    })) as unknown as typeof fetch);
+
+    await provider.fetch?.({
+      url: "https://www.youtube.com/watch?v=browserassist123",
+      filters: {
+        requireTranscript: false
+      }
+    }, context);
+
+    expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "social/youtube",
+      url: "https://www.youtube.com/watch?v=browserassist123",
+      runtimePolicy: expect.objectContaining({
+        browser: {
+          preferredModes: ["extension", "managed_headed"],
+          forceTransport: false
+        }
+      })
+    }));
+  });
 });

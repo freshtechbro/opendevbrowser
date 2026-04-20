@@ -978,6 +978,11 @@ export const workflowTestUtils = {
     redactRawCapture(record as Record<string, unknown>),
   toProviderSource: (providerId: string): ProviderSource | null => toProviderSource(providerId),
   resolveShoppingProviderIdForUrl: (url: string): string | null => resolveShoppingProviderIdForUrl(url),
+  normalizeProductVideoProviderHint: (
+    productUrl: string,
+    providerHint?: string,
+    fallbackProvider?: string
+  ): string | undefined => normalizeProductVideoProviderHint(productUrl, providerHint, fallbackProvider),
   hasTranscriptSuccess: (record: NormalizedRecord): boolean => hasTranscriptSuccess(record),
   sanitizeFeatureList: (values: string[]): string[] => sanitizeFeatureList(values),
   parsePriceFromContent: (content: string | undefined): { amount: number; currency: string } =>
@@ -1092,6 +1097,20 @@ const resolveShoppingProviderIdForUrl = (url: string): string | null => {
   } catch {
     return null;
   }
+};
+
+const normalizeProductVideoProviderHint = (
+  productUrl: string,
+  providerHint?: string,
+  fallbackProvider?: string
+): string | undefined => {
+  if (fallbackProvider?.includes("/")) return fallbackProvider;
+  if (providerHint?.includes("/")) return providerHint;
+  const shoppingProviderId = resolveShoppingProviderIdForUrl(productUrl);
+  if (shoppingProviderId) {
+    return providerHint ? `shopping/${providerHint}` : fallbackProvider ?? shoppingProviderId;
+  }
+  return fallbackProvider ?? providerHint;
 };
 
 const IMAGE_ASSET_RE = /\.(?:png|jpg|jpeg|webp|gif)(?:[?#].*)?$/i;
@@ -2906,6 +2925,7 @@ export const runProductVideoWorkflow = async (
     : null;
   const primaryOffer = extractShoppingOffer(primary, new Date());
   const preferredPrice = resolvePreferredProductPrice(primary, productUrl, refreshedMetadata?.price, primaryOffer);
+  providerHint = normalizeProductVideoProviderHint(productUrl, providerHint, primary.provider);
 
   const resolvedBrand = resolveProductBrand(primary, productUrl, refreshedMetadata?.brand);
   const resolvedTitle = resolveProductTitle(primary, productUrl, resolvedBrand, refreshedMetadata?.title);
@@ -3031,9 +3051,9 @@ export const runProductVideoWorkflow = async (
   const antiBotPressure = summarizeAntiBotPressure(details.failures);
   const primaryIssue = summarizePrimaryProviderIssue(details.failures);
   const handoff = buildProductVideoSuccessHandoff({
-    productUrl: workflowInput.product_url,
+    productUrl,
     productName: workflowInput.product_name,
-    providerHint: workflowInput.provider_hint,
+    providerHint,
     includeScreenshots: workflowInput.include_screenshots,
     includeAllImages: workflowInput.include_all_images,
     includeCopy: workflowInput.include_copy

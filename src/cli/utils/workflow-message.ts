@@ -22,6 +22,14 @@ const readNonEmptyString = (value: unknown): string | null => (
     : null
 );
 
+const UNRESOLVED_COMMAND_PLACEHOLDER_RE = /<[^>\n]+>/;
+
+const readRunnableStepCommand = (step: Record<string, unknown>): string | null => {
+  const command = readNonEmptyString(step.command);
+  if (!command) return null;
+  return UNRESOLVED_COMMAND_PLACEHOLDER_RE.test(command) ? null : command;
+};
+
 const readMeta = (data: unknown): Record<string, unknown> | null => {
   return asRecord(asRecord(data)?.meta);
 };
@@ -88,9 +96,11 @@ export const readSuggestedStepCommand = (data: unknown): string | null => {
   let current = asRecord(data);
 
   while (current) {
-    const [firstStep] = readSuggestedSteps(current);
-    if (firstStep) {
-      return readNonEmptyString(firstStep.command);
+    const command = readSuggestedSteps(current)
+      .map(readRunnableStepCommand)
+      .find((step): step is string => Boolean(step));
+    if (command) {
+      return command;
     }
     current = asRecord(current.challengePlan);
   }

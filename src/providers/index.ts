@@ -106,11 +106,11 @@ const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind
 
 type SuspendedIntentResumeResult = ProviderAggregateResult | Record<string, unknown>;
 
-const EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS = new Set<SocialPlatform>(["x", "reddit", "bluesky", "linkedin"]);
+const EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS = new Set<SocialPlatform>(["x", "reddit", "bluesky", "facebook", "linkedin"]);
 const EXTENSION_MINIMAL_TRAVERSAL_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["linkedin"]);
 const EXTENSION_FIRST_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
 const SOCIAL_BROWSER_RECOVERY_REASON_CODES = new Set<ProviderReasonCode>(["challenge_detected"]);
-const SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit"]);
+const SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit", "facebook"]);
 
 const withPrioritizedFallbackModes = (
   prioritized: readonly BrowserFallbackMode[],
@@ -310,7 +310,7 @@ const SOCIAL_SEARCH_ENDPOINTS: Record<SocialPlatform, (query: string, page: numb
   x: (query, page) => `https://x.com/search?q=${encodeURIComponent(query)}&f=live&page=${page}`,
   reddit: (query, page) => `https://www.reddit.com/search/?q=${encodeURIComponent(query)}&sort=relevance&t=all&page=${page}`,
   bluesky: (query, page) => `https://bsky.app/search?q=${encodeURIComponent(query)}&page=${page}`,
-  facebook: (query, page) => `https://www.facebook.com/search/top?q=${encodeURIComponent(query)}&page=${page}`,
+  facebook: (query, page) => `https://www.facebook.com/watch/search/?q=${encodeURIComponent(query)}&page=${page}`,
   linkedin: (query, page) => `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&page=${page}`,
   instagram: (query, page) => `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(query)}&page=${page}`,
   tiktok: (query, page) => `https://www.tiktok.com/search?q=${encodeURIComponent(query)}&page=${page}`,

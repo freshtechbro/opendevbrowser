@@ -354,7 +354,8 @@ describe("product-video substrate adoption", () => {
       records: [makeRecord()]
     }));
     const handoff = buildProductVideoSuccessHandoff({
-      productUrl: "https://www.amazon.com/dp/B0PHASE5001"
+      productUrl: "https://www.amazon.com/dp/B0PHASE5001",
+      providerHint: "shopping/amazon"
     });
 
     const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput());
@@ -432,6 +433,9 @@ describe("product-video substrate adoption", () => {
       })
     );
     expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
+    expect((output.suggestedSteps as Array<{ command?: string }>)[2]?.command).toBe(
+      "npx opendevbrowser product-video run --product-url \"https://www.amazon.com/dp/B0PHASE5002\" --provider-hint shopping/amazon --output-format json"
+    );
   });
 
   it("skips shopping resolution offers that do not contain a usable product url", async () => {
@@ -770,7 +774,7 @@ describe("product-video substrate adoption", () => {
       })]
     }));
 
-    await runProductVideoWorkflow(
+    const output = await runProductVideoWorkflow(
       toRuntime({ search, fetch }),
       buildWorkflowResumeEnvelope(
         "product_video",
@@ -805,6 +809,10 @@ describe("product-video substrate adoption", () => {
         source: "shopping",
         providerIds: ["shopping/amazon"]
       })
+    );
+    expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
+    expect((output.suggestedSteps as Array<{ command?: string }>)[2]?.command).toBe(
+      "npx opendevbrowser product-video run --product-url \"https://www.amazon.com/dp/B0PHASE5004\" --provider-hint shopping/amazon --output-format json"
     );
   });
 

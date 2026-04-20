@@ -179,6 +179,26 @@ const pickCarryForwardSocialSearchAttributes = (
   return Object.keys(carried).length > 0 ? carried : undefined;
 };
 
+const hasBrowserFallbackMode = (attributes?: Record<string, JsonValue>): boolean => (
+  typeof attributes?.browser_fallback_mode === "string" && attributes.browser_fallback_mode.length > 0
+);
+
+const hasVisibleSearchContent = (
+  row: { title?: string; content?: string }
+): boolean => (
+  (typeof row.title === "string" && row.title.trim().length > 0)
+  || (typeof row.content === "string" && row.content.trim().length > 0)
+);
+
+const shouldKeepRecoveredFacebookSearchRow = (
+  platform: SocialPlatformProfile["platform"],
+  row: { title?: string; content?: string; attributes?: Record<string, JsonValue> }
+): boolean => (
+  platform === "facebook"
+  && hasBrowserFallbackMode(row.attributes)
+  && hasVisibleSearchContent(row)
+);
+
 const extractLinks = (
   platform: SocialPlatformProfile["platform"],
   row: { attributes?: Record<string, JsonValue>; content?: string },
@@ -353,7 +373,9 @@ export const createSocialPlatformProvider = (
         seen.add(canonical);
 
         const links = extractLinks(profile.platform, row, canonical).slice(0, traversal.expansionPerRecord);
-        const keepRow = !isFirstPartySocialSearchRoute(profile.platform, canonical);
+        const keepFirstPartySearchRow = shouldKeepRecoveredFacebookSearchRow(profile.platform, row)
+          || (profile.platform === "facebook" && links.length === 0);
+        const keepRow = !isFirstPartySocialSearchRoute(profile.platform, canonical) || keepFirstPartySearchRow;
         const carryForwardAttributes = keepRow
           ? undefined
           : pickCarryForwardSocialSearchAttributes(row.attributes);

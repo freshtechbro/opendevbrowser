@@ -44,7 +44,7 @@ describe("provider runtime coverage seams", () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]?.error).toMatchObject({
       code: "network",
-      message: "Failed to retrieve https://www.facebook.com/search/top?q=browser%20automation&page=1",
+      message: "Failed to retrieve https://www.facebook.com/watch/search/?q=browser%20automation&page=1",
       provider: "social/facebook",
       source: "social"
     });
@@ -56,13 +56,17 @@ describe("provider runtime coverage seams", () => {
     }));
   });
 
-  it("exposes linkedin extension-first recovery hints through the registered provider adapter", async () => {
+  it("exposes linkedin and facebook extension-first recovery hints through the registered provider adapter", async () => {
     vi.resetModules();
     const { createDefaultRuntime } = await import("../src/providers");
     const runtime = createDefaultRuntime();
+    const facebook = runtime.listProviders().find((provider) => provider.id === "social/facebook");
     const linkedin = runtime.listProviders().find((provider) => provider.id === "social/linkedin");
     const instagram = runtime.listProviders().find((provider) => provider.id === "social/instagram");
 
+    expect(facebook?.recoveryHints?.()).toEqual({
+      preferredFallbackModes: ["extension", "managed_headed"]
+    });
     expect(linkedin?.recoveryHints?.()).toEqual({
       preferredFallbackModes: ["extension", "managed_headed"]
     });
@@ -91,8 +95,8 @@ describe("provider runtime coverage seams", () => {
       ok: true,
       reasonCode: request.reasonCode as "ip_blocked",
       output: {
-        url: request.url ?? "https://www.facebook.com/search/top?q=browser%20automation&page=1",
-        html: "<html><body><main>fallback upstream content</main></body></html>"
+        url: request.url ?? "https://www.facebook.com/watch/search/?q=browser%20automation&page=1",
+        html: "<html><body><main>fallback upstream content <a href=\"https://www.facebook.com/watch/?v=123456789012345\">video</a></main></body></html>"
       }
     }));
 
@@ -136,8 +140,8 @@ describe("provider runtime coverage seams", () => {
       ok: true,
       reasonCode: request.reasonCode as "env_limited",
       output: {
-        url: request.url ?? "https://www.facebook.com/search/top?q=browser%20automation&page=1",
-        html: "<html><body><main>fallback auth content</main></body></html>"
+        url: request.url ?? "https://www.facebook.com/watch/search/?q=browser%20automation&page=1",
+        html: "<html><body><main>fallback auth content <a href=\"https://www.facebook.com/watch/?v=123456789012345\">video</a></main></body></html>"
       }
     }));
 
