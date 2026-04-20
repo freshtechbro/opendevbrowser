@@ -8,9 +8,16 @@ import { registerCommand, getCommand } from "./commands/registry";
 import type { CommandResult } from "./commands/types";
 import { installGlobal } from "./installers/global";
 import { installLocal } from "./installers/local";
-import { removeBundledSkills, syncBundledSkills } from "./installers/skills";
+import {
+  getBundledSkillTargets,
+  getBundledSkillLifecycleTargets,
+  hasBundledSkillArtifacts,
+  removeBundledSkillsForTargets,
+  syncBundledSkills,
+  syncBundledSkillsForTargets
+} from "./installers/skills";
 import { runUpdate } from "./commands/update";
-import { runUninstall, findInstalledConfigs } from "./commands/uninstall";
+import { runUninstall, findInstalledConfigs, hasInstalledConfig } from "./commands/uninstall";
 import { runServe } from "./commands/serve";
 import { runDaemonCommand } from "./commands/daemon";
 import { runNativeCommand } from "./commands/native";
@@ -96,6 +103,7 @@ import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_U
 import type { CliError } from "./errors";
 import packageJson from "../../package.json";
 import { resolveUpdateSkillModes } from "./update-skill-modes";
+import { buildUninstallCommandResult, buildUpdateCommandResult } from "./skill-lifecycle";
 
 const VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
 
@@ -262,29 +270,14 @@ async function main(): Promise<void> {
     registerCommand({
       name: "update",
       description: "Clear cached plugin and refresh managed skill packs",
-      run: () => {
-        const result = runUpdate();
-        const skillModes = result.success ? resolveUpdateSkillModes(args) : [];
-        const skillResults = result.success ? skillModes.map((mode) => syncBundledSkills(mode)) : [];
-        const skillMessage = args.rawArgs.includes("--no-skills")
-          ? "Managed skill refresh skipped (--no-skills)."
-          : skillResults.length > 0
-            ? skillResults.map((entry) => entry.message).join("\n")
-            : result.success
-              ? "No managed skill packs required refresh."
-              : "";
-
-        const message = [result.message, skillMessage].filter(Boolean).join("\n");
-        return {
-          success: result.success && skillResults.every((entry) => entry.success),
-          message,
-          data: {
-            cacheCleared: result.cleared,
-            skillModes,
-            skills: skillResults
-          }
-        };
-      }
+      run: () => buildUpdateCommandResult(args, runUpdate(), {
+        resolveUpdateSkillModes,
+        hasInstalledConfig,
+        hasBundledSkillArtifacts,
+        getBundledSkillTargets,
+        getBundledSkillLifecycleTargets,
+        syncBundledSkillsForTargets
+      })
     });
 
     registerCommand({
@@ -301,21 +294,11 @@ async function main(): Promise<void> {
         if (!mode) {
           return { success: false, message: "Error: Please specify --global or --local for uninstall.", exitCode: EXIT_USAGE };
         }
-        const result = runUninstall(mode);
-        const skipSkills = args.rawArgs.includes("--no-skills");
-        const skillsResult = result.success && !skipSkills ? removeBundledSkills(mode) : undefined;
-        const skillMessage = skipSkills
-          ? "Managed skill cleanup skipped (--no-skills)."
-          : skillsResult?.message ?? "";
-
-        return {
-          success: result.success && (skillsResult?.success ?? true),
-          message: [result.message, skillMessage].filter(Boolean).join("\n"),
-          data: {
-            config: result,
-            skills: skillsResult
-          }
-        };
+        return buildUninstallCommandResult(args, mode, runUninstall(mode), {
+          hasBundledSkillArtifacts,
+          getBundledSkillLifecycleTargets,
+          removeBundledSkillsForTargets
+        });
       }
     });
 

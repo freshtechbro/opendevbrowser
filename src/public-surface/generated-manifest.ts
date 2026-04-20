@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-17T01:10:55.127Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-20T04:16:59.279Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-17T01:10:55.127Z",
+  "generatedAt": "2026-04-20T04:16:59.279Z",
   "cli": {
     "groups": [
       {
@@ -212,10 +212,13 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "update",
         "description": "Clear cached plugin and refresh managed skill packs",
-        "usage": "npx opendevbrowser update [--global|--local]",
+        "usage": "npx opendevbrowser update [--global|--local] [--skills-global|--skills-local|--no-skills]",
         "flags": [
           "--global",
-          "--local"
+          "--local",
+          "--skills-global",
+          "--skills-local",
+          "--no-skills"
         ],
         "groupId": "install_lifecycle",
         "groupTitle": "Install & Lifecycle",
@@ -224,10 +227,11 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "uninstall",
         "description": "Remove plugin from config and clean managed skill packs",
-        "usage": "npx opendevbrowser uninstall [--global|--local] [--no-prompt] [--quiet]",
+        "usage": "npx opendevbrowser uninstall [--global|--local] [--no-skills] [--no-prompt] [--quiet]",
         "flags": [
           "--global",
           "--local",
+          "--no-skills",
           "--no-prompt",
           "--quiet"
         ],

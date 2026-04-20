@@ -6,31 +6,35 @@ import { getBundledSkillsDir, getGlobalSkillTargets, getLocalSkillTargets, type 
 import { listBundledSkillDirectories } from "../../skills/bundled-skill-directories";
 
 export type SkillInstallMode = "global" | "local";
+type ManagedSkillTarget = SkillTarget & {
+  managedPackNames?: string[];
+};
 
 type SyncOutcome = "installed" | "refreshed" | "unchanged";
-type RetiredAlias = (typeof RETIRED_ALIAS_SKILLS)[number];
-
 const MANAGED_SKILLS_MARKER = ".opendevbrowser-managed-skills.json";
-
-const RETIRED_ALIAS_SKILLS = [
-  {
-    name: "research",
-    canonical: "opendevbrowser-research",
-    historicalFingerprints: [
-      "994a4bf2d00de68c51621d9a225bc773d835eb3937ec3982d66fc878cb098220"
-    ]
-  },
-  {
-    name: "shopping",
-    canonical: "opendevbrowser-shopping",
-    historicalFingerprints: [
-      "c5cac32c36e8b66f527174c7691e3b517e37af1e4417c064028acefe15249333"
-    ]
-  }
-] as const;
+const MANAGED_SKILL_SENTINEL = ".opendevbrowser-managed-skill.json";
+const MANAGED_SKILL_OWNER = "opendevbrowser";
+const MANAGED_PACK_PREFIX = "opendevbrowser-";
 
 interface ManagedSkillsMarker {
   managedPacks: string[];
+  managesAllCanonicalPacks: boolean;
+}
+
+interface ManagedSkillSentinel {
+  managedBy: string;
+  packName: string;
+  fingerprint: string;
+}
+
+interface SkillLifecycleTargetOptions {
+  includeLegacyArtifacts: boolean;
+}
+
+interface ManagedPackScope {
+  managedPackNames: string[];
+  activePackNames: string[];
+  managesAllCanonicalPacks: boolean;
 }
 
 export interface SkillTargetSyncResult {
@@ -79,17 +83,73 @@ function getCanonicalBundledSkillNames(): string[] {
   return listBundledSkillDirectories().map((entry) => entry.name);
 }
 
-function hasCanonicalBundledSkillInTarget(targetDir: string, packNames: readonly string[]): boolean {
-  return packNames.some((packName) => fs.existsSync(path.join(targetDir, packName)));
-}
-
 function getManagedSkillsMarkerPath(targetDir: string): string {
   return path.join(targetDir, MANAGED_SKILLS_MARKER);
 }
 
-function writeManagedSkillsMarker(targetDir: string, packNames: readonly string[]): void {
+function getManagedSkillSentinelPath(targetPath: string): string {
+  return path.join(targetPath, MANAGED_SKILL_SENTINEL);
+}
+
+function snapshotManagedSkillsMarker(targetDir: string): string | null {
+  const markerPath = getManagedSkillsMarkerPath(targetDir);
+  return fs.existsSync(markerPath) ? fs.readFileSync(markerPath, "utf8") : null;
+}
+
+function restoreManagedSkillsMarker(targetDir: string, previousMarker: string | null): void {
+  if (previousMarker === null) {
+    removeManagedSkillsMarker(targetDir);
+    return;
+  }
+  fs.writeFileSync(getManagedSkillsMarkerPath(targetDir), previousMarker, "utf8");
+}
+
+function hasManagedSkillsMarker(targetDir: string): boolean {
+  return fs.existsSync(getManagedSkillsMarkerPath(targetDir));
+}
+
+function isSafePathSegment(value: string): boolean {
+  return value.length > 0
+    && value !== "."
+    && value !== ".."
+    && !value.includes("/")
+    && !value.includes("\\")
+    && path.basename(value) === value;
+}
+
+function isManagedPackName(value: string): boolean {
+  return isSafePathSegment(value) && value.startsWith(MANAGED_PACK_PREFIX);
+}
+
+function readManagedSkillsMarker(targetDir: string): ManagedSkillsMarker | null {
+  if (!hasManagedSkillsMarker(targetDir)) {
+    return null;
+  }
+
+  try {
+    const raw = fs.readFileSync(getManagedSkillsMarkerPath(targetDir), "utf8");
+    const parsed = JSON.parse(raw) as Partial<ManagedSkillsMarker>;
+    return Array.isArray(parsed.managedPacks)
+      ? {
+          managedPacks: parsed.managedPacks.filter(
+            (value): value is string => typeof value === "string" && isManagedPackName(value)
+          ),
+          managesAllCanonicalPacks: parsed.managesAllCanonicalPacks !== false
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeManagedSkillsMarker(
+  targetDir: string,
+  packNames: readonly string[],
+  managesAllCanonicalPacks: boolean
+): void {
   const marker: ManagedSkillsMarker = {
-    managedPacks: [...packNames]
+    managedPacks: Array.from(new Set(packNames)),
+    managesAllCanonicalPacks
   };
   fs.writeFileSync(
     getManagedSkillsMarkerPath(targetDir),
@@ -102,64 +162,76 @@ function removeManagedSkillsMarker(targetDir: string): void {
   fs.rmSync(getManagedSkillsMarkerPath(targetDir), { force: true });
 }
 
-function shouldRemoveRetiredAlias(
-  aliasPath: string,
-  canonicalPath: string,
-  historicalFingerprints: readonly string[]
-): boolean {
-  const aliasFingerprint = hashDirectoryTree(aliasPath);
-  if (historicalFingerprints.includes(aliasFingerprint)) {
-    return true;
-  }
+function writeManagedSkillSentinel(targetPath: string, packName: string, fingerprint: string): void {
+  const sentinel: ManagedSkillSentinel = {
+    managedBy: MANAGED_SKILL_OWNER,
+    packName,
+    fingerprint
+  };
+  fs.writeFileSync(
+    getManagedSkillSentinelPath(targetPath),
+    `${JSON.stringify(sentinel, null, 2)}\n`,
+    "utf8"
+  );
+}
 
-  if (!fs.existsSync(canonicalPath)) {
-    return false;
+function readManagedSkillFingerprint(targetPath: string): string | null {
+  const sentinelPath = getManagedSkillSentinelPath(targetPath);
+  if (!fs.existsSync(sentinelPath)) {
+    return null;
   }
 
   try {
-    return hashDirectoryTree(canonicalPath) === aliasFingerprint;
+    const raw = fs.readFileSync(sentinelPath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<ManagedSkillSentinel>;
+    return parsed.managedBy === MANAGED_SKILL_OWNER
+      && parsed.packName === path.basename(targetPath)
+      && typeof parsed.fingerprint === "string"
+      ? parsed.fingerprint
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function removeRetiredAliasSkill(targetDir: string, alias: RetiredAlias): void {
-  const aliasPath = path.join(targetDir, alias.name);
-  if (!fs.existsSync(aliasPath)) {
-    return;
-  }
-
-  const stats = fs.statSync(aliasPath);
-  if (!stats.isDirectory()) {
-    return;
-  }
-
-  const entries = fs.readdirSync(aliasPath);
-  if (entries.length === 0) {
-    fs.rmSync(aliasPath, { recursive: true, force: true });
-    return;
-  }
-
-  if (!fs.existsSync(path.join(aliasPath, "SKILL.md"))) {
-    return;
-  }
-
-  const canonicalPath = path.join(targetDir, alias.canonical);
-  if (!shouldRemoveRetiredAlias(aliasPath, canonicalPath, alias.historicalFingerprints)) {
-    return;
-  }
-
-  fs.rmSync(aliasPath, { recursive: true, force: true });
-}
-
-function removeRetiredAliasSkills(targetDir: string): void {
-  for (const alias of RETIRED_ALIAS_SKILLS) {
-    try {
-      removeRetiredAliasSkill(targetDir, alias);
-    } catch {
-      continue;
+function getSentinelManagedPackNames(targetDir: string, packNames: readonly string[]): string[] {
+  const candidatePackNames = new Set(packNames);
+  if (fs.existsSync(targetDir) && isDirectoryPath(targetDir)) {
+    for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && isManagedPackName(entry.name)) {
+        candidatePackNames.add(entry.name);
+      }
     }
   }
+
+  return Array.from(candidatePackNames).filter((packName) => {
+    const targetPath = path.join(targetDir, packName);
+    return fs.existsSync(targetPath) && readManagedSkillFingerprint(targetPath) !== null;
+  });
+}
+
+function hasManagedCanonicalBundledSkillInTarget(targetDir: string, packNames: readonly string[]): boolean {
+  return getSentinelManagedPackNames(targetDir, packNames).length > 0;
+}
+
+function removeManagedPackArtifacts(
+  targetDir: string,
+  packNames: readonly string[]
+): { removed: string[]; missing: string[] } {
+  const removed: string[] = [];
+  const missing: string[] = [];
+
+  for (const packName of packNames) {
+    const targetPath = path.join(targetDir, packName);
+    if (fs.existsSync(targetPath)) {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      removed.push(packName);
+      continue;
+    }
+    missing.push(packName);
+  }
+
+  return { removed, missing };
 }
 
 function formatSummary(parts: string[], totalTargets: number, failures: number): string {
@@ -180,6 +252,10 @@ function hashDirectoryTree(dirPath: string): string {
       const entryRelativePath = relativePath
         ? path.posix.join(relativePath, entry.name)
         : entry.name;
+
+      if (entry.isFile() && entry.name === MANAGED_SKILL_SENTINEL) {
+        continue;
+      }
 
       if (entry.isDirectory()) {
         hash.update(`D:${entryRelativePath}\0`);
@@ -204,15 +280,29 @@ function hashDirectoryTree(dirPath: string): string {
   return hash.digest("hex");
 }
 
+function isDirectoryPath(targetPath: string): boolean {
+  return fs.lstatSync(targetPath).isDirectory();
+}
+
+function shouldRemoveRetiredManagedPack(targetPath: string): boolean {
+  if (!fs.existsSync(targetPath) || !isDirectoryPath(targetPath)) {
+    return false;
+  }
+  const fingerprint = readManagedSkillFingerprint(targetPath);
+  return fingerprint !== null && hashDirectoryTree(targetPath) === fingerprint;
+}
+
 function syncSkillDirectory(sourcePath: string, targetPath: string, sourceFingerprint: string): SyncOutcome {
   if (!fs.existsSync(targetPath)) {
     fs.cpSync(sourcePath, targetPath, { recursive: true });
     return "installed";
   }
 
-  const targetFingerprint = hashDirectoryTree(targetPath);
-  if (targetFingerprint === sourceFingerprint) {
-    return "unchanged";
+  if (isDirectoryPath(targetPath)) {
+    const targetFingerprint = hashDirectoryTree(targetPath);
+    if (targetFingerprint === sourceFingerprint) {
+      return "unchanged";
+    }
   }
 
   const parentDir = path.dirname(targetPath);
@@ -268,8 +358,75 @@ function buildRemovalMessage(mode: SkillInstallMode, result: SkillRemovalResult)
   )}`;
 }
 
-export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
-  const targets = getTargets(mode);
+function resolveManagedPackScope(
+  target: ManagedSkillTarget,
+  marker: ManagedSkillsMarker | null,
+  packNames: readonly string[]
+): ManagedPackScope {
+  const requestedAllCanonicalPacks = target.managedPackNames === undefined;
+  const managesAllCanonicalPacks = requestedAllCanonicalPacks || marker?.managesAllCanonicalPacks === true;
+  const managedPackNames = managesAllCanonicalPacks
+    ? Array.from(new Set([...(marker?.managedPacks ?? []), ...packNames]))
+    : (marker?.managedPacks ?? target.managedPackNames ?? []);
+  const activePackNames = managesAllCanonicalPacks
+    ? [...packNames]
+    : managedPackNames.filter((packName) => packNames.includes(packName));
+
+  return {
+    managedPackNames,
+    activePackNames,
+    managesAllCanonicalPacks
+  };
+}
+
+export function createNoOpSkillRemovalResult(mode: SkillInstallMode): SkillRemovalResult {
+  const result: SkillRemovalResult = {
+    success: true,
+    message: "",
+    mode,
+    targets: [],
+    removed: [],
+    missing: []
+  };
+  result.message = buildRemovalMessage(mode, result);
+  return result;
+}
+
+export function getBundledSkillLifecycleTargets(
+  mode: SkillInstallMode,
+  options: SkillLifecycleTargetOptions
+): SkillTarget[] {
+  const packNames = getCanonicalBundledSkillNames();
+  return getTargets(mode).flatMap((target) => {
+    const marker = readManagedSkillsMarker(target.dir);
+    if (marker) {
+      if (marker.managesAllCanonicalPacks || !options.includeLegacyArtifacts) {
+        return marker.managesAllCanonicalPacks
+        ? [target]
+        : [{ ...target, managedPackNames: marker.managedPacks }];
+      }
+      const managedPackNames = Array.from(new Set([
+        ...marker.managedPacks,
+        ...getSentinelManagedPackNames(target.dir, packNames)
+      ]));
+      return managedPackNames.length > 0 ? [{ ...target, managedPackNames }] : [];
+    }
+    if (!options.includeLegacyArtifacts) {
+      return [];
+    }
+    const managedPackNames = getSentinelManagedPackNames(target.dir, packNames);
+    return managedPackNames.length > 0 ? [{ ...target, managedPackNames }] : [];
+  });
+}
+
+export function getBundledSkillTargets(mode: SkillInstallMode): SkillTarget[] {
+  return getTargets(mode);
+}
+
+export function syncBundledSkillsForTargets(
+  mode: SkillInstallMode,
+  targets: readonly SkillTarget[]
+): SkillSyncResult {
   const targetResults: SkillTargetSyncResult[] = [];
 
   try {
@@ -289,11 +446,21 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
       const installed: string[] = [];
       const refreshed: string[] = [];
       const unchanged: string[] = [];
+      const previousMarker = snapshotManagedSkillsMarker(target.dir);
 
       try {
         ensureDir(target.dir);
+        const managedTarget = target as ManagedSkillTarget;
+        const marker = readManagedSkillsMarker(target.dir);
+        const { managedPackNames, activePackNames, managesAllCanonicalPacks } = resolveManagedPackScope(
+          managedTarget,
+          marker,
+          packNames
+        );
+        const activePackNameSet = new Set(activePackNames);
+        writeManagedSkillsMarker(target.dir, managedPackNames, managesAllCanonicalPacks);
 
-        for (const packName of packNames) {
+        for (const packName of activePackNames) {
           const sourcePath = path.join(sourceDir, packName);
           const targetPath = path.join(target.dir, packName);
           const sourceFingerprint = bundledFingerprints.get(packName);
@@ -302,6 +469,7 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           }
 
           const outcome = syncSkillDirectory(sourcePath, targetPath, sourceFingerprint);
+          writeManagedSkillSentinel(targetPath, packName, sourceFingerprint);
           if (outcome === "installed") {
             installed.push(packName);
           } else if (outcome === "refreshed") {
@@ -311,8 +479,16 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           }
         }
 
-        removeRetiredAliasSkills(target.dir);
-        writeManagedSkillsMarker(target.dir, packNames);
+        const retiredPackNames = managedPackNames.filter((packName) => {
+          return !activePackNameSet.has(packName)
+            && shouldRemoveRetiredManagedPack(path.join(target.dir, packName));
+        });
+        removeManagedPackArtifacts(target.dir, retiredPackNames);
+        if (activePackNames.length > 0 || managesAllCanonicalPacks) {
+          writeManagedSkillsMarker(target.dir, activePackNames, managesAllCanonicalPacks);
+        } else {
+          removeManagedSkillsMarker(target.dir);
+        }
 
         targetResults.push({
           agents: target.agents,
@@ -323,6 +499,7 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
           success: true
         });
       } catch (error) {
+        restoreManagedSkillsMarker(target.dir, previousMarker);
         const message = error instanceof Error ? error.message : String(error);
         targetResults.push({
           agents: target.agents,
@@ -363,8 +540,14 @@ export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
   }
 }
 
-export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult {
-  const targets = getTargets(mode);
+export function syncBundledSkills(mode: SkillInstallMode): SkillSyncResult {
+  return syncBundledSkillsForTargets(mode, getTargets(mode));
+}
+
+export function removeBundledSkillsForTargets(
+  mode: SkillInstallMode,
+  targets: readonly SkillTarget[]
+): SkillRemovalResult {
   const packNames = getCanonicalBundledSkillNames();
   const targetResults: SkillTargetRemovalResult[] = [];
 
@@ -373,17 +556,26 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
     const missing: string[] = [];
 
     try {
-      removeRetiredAliasSkills(target.dir);
-
-      for (const packName of packNames) {
-        const targetPath = path.join(target.dir, packName);
-        if (fs.existsSync(targetPath)) {
-          fs.rmSync(targetPath, { recursive: true, force: true });
-          removed.push(packName);
-        } else {
-          missing.push(packName);
-        }
-      }
+      const managedTarget = target as ManagedSkillTarget;
+      const marker = readManagedSkillsMarker(target.dir);
+      const { managedPackNames, activePackNames } = resolveManagedPackScope(
+        managedTarget,
+        marker,
+        packNames
+      );
+      const currentRemoval = removeManagedPackArtifacts(
+        target.dir,
+        activePackNames
+      );
+      removed.push(...currentRemoval.removed);
+      missing.push(...currentRemoval.missing);
+      const retiredPackNames = managedPackNames.filter((packName) => {
+        return !packNames.includes(packName)
+          && shouldRemoveRetiredManagedPack(path.join(target.dir, packName));
+      });
+      const retiredRemoval = removeManagedPackArtifacts(target.dir, retiredPackNames);
+      removed.push(...retiredRemoval.removed);
+      missing.push(...retiredRemoval.missing);
       removeManagedSkillsMarker(target.dir);
 
       targetResults.push({
@@ -418,13 +610,17 @@ export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult 
   return result;
 }
 
+export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult {
+  return removeBundledSkillsForTargets(mode, getTargets(mode));
+}
+
 export function hasBundledSkillArtifacts(mode: SkillInstallMode): boolean {
   const packNames = getCanonicalBundledSkillNames();
   const targets = getTargets(mode);
 
-  return targets.some((target) => hasCanonicalBundledSkillInTarget(target.dir, packNames));
+  return targets.some((target) => hasManagedCanonicalBundledSkillInTarget(target.dir, packNames));
 }
 
 export function hasManagedBundledSkillInstall(mode: SkillInstallMode): boolean {
-  return getTargets(mode).some((target) => fs.existsSync(getManagedSkillsMarkerPath(target.dir)));
+  return getTargets(mode).some((target) => readManagedSkillsMarker(target.dir) !== null);
 }
