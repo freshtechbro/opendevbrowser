@@ -1,7 +1,7 @@
 # First-Run Onboarding (Local Artifact Validation)
 
 Status: active  
-Last updated: 2026-04-13
+Last updated: 2026-04-20
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user from a local package artifact. Use `docs/RELEASE_RUNBOOK.md` for the separate published npm registry-consumer proof lane.
 
@@ -27,22 +27,36 @@ This guide is the shipping checklist for validating OpenDevBrowser as a new user
 ```bash
 cd <public-repo-root>
 npm pack
-# -> opendevbrowser-0.0.21.tgz
+# -> opendevbrowser-0.0.22.tgz
 ```
 
-## 2) Simulate a brand-new user workspace
+## 2) Simulate a brand-new isolated user workspace
 
 ```bash
-WORKDIR=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
+WORKROOT=$(mktemp -d /tmp/opendevbrowser-first-run-XXXXXX)
+WORKDIR="$WORKROOT/workdir"
+export HOME="$WORKROOT/home"
+export OPENCODE_CONFIG_DIR="$WORKROOT/opencode-config"
+export OPENCODE_CACHE_DIR="$WORKROOT/opencode-cache"
+export CODEX_HOME="$WORKROOT/codex-home"
+export CLAUDECODE_HOME="$WORKROOT/claude-home"
+export AMP_CLI_HOME="$WORKROOT/amp-home"
+mkdir -p "$WORKDIR" "$HOME" "$OPENCODE_CONFIG_DIR" "$OPENCODE_CACHE_DIR" "$CODEX_HOME" "$CLAUDECODE_HOME" "$AMP_CLI_HOME"
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.21.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.22.tgz
 npx --no-install opendevbrowser version --output-format json
 ```
 
 Expected:
 - package is installed under `./node_modules/opendevbrowser`
 - CLI command inventory is available via both `npx --no-install opendevbrowser --help` and `npx --no-install opendevbrowser help`
+- packaged postinstall skill sync already populates isolated managed skill targets for:
+  - `$OPENCODE_CONFIG_DIR/skill`
+  - `$CODEX_HOME/skills`
+  - `$CLAUDECODE_HOME/skills`
+  - `$AMP_CLI_HOME/skills`
+- each populated global skill directory contains `.opendevbrowser-managed-skills.json` plus one `.opendevbrowser-managed-skill.json` sentinel per bundled canonical pack
 
 ## 2b) Validate the help-led quick-start path
 
@@ -91,17 +105,15 @@ opendevbrowser_skill_load opendevbrowser-best-practices "validated capability la
 Region note:
 - treat `--region` as advisory unless workflow output reports `meta.selection.region_authoritative=true`
 
-## 3) Isolate config/cache to avoid daemon collisions
+## 3) Write isolated config/cache defaults
 
-For onboarding tests on machines that already run OpenDevBrowser, isolate runtime state:
+The temp workspace above already isolates managed-skill targets and the extension extraction home. Add an explicit config file before the first daemon or extension checks:
 
 ```bash
-export OPENCODE_CONFIG_DIR=/tmp/opendevbrowser-first-run-isolated/config
-export OPENCODE_CACHE_DIR=/tmp/opendevbrowser-first-run-isolated/cache
 mkdir -p "$OPENCODE_CONFIG_DIR" "$OPENCODE_CACHE_DIR"
 ```
 
-This isolation keeps config, cache, daemon state, and managed-skill lifecycle proof contained to a temp home while you validate local-package behavior.
+This keeps config, cache, daemon state, extension assets, and managed-skill lifecycle proof contained to the temp home while you validate local-package behavior.
 
 Minimal isolated config:
 
@@ -131,6 +143,7 @@ npx --no-install opendevbrowser --global --full --no-prompt
 Expected:
 - global OpenCode config is created/updated under `$OPENCODE_CONFIG_DIR`
 - bundled skills sync runs without errors
+- if packaged postinstall already populated the managed skill targets, the command may honestly report `unchanged` counts instead of reinstalling the same packs
 - extension assets are extracted to `~/.config/opencode/opendevbrowser/extension`
 - extracted assets now include `manifest.json`, `popup.html`, `canvas.html`, `dist/`, and `icons/`
 - `OPENCODE_CONFIG_DIR` isolates config lookup only; it does not relocate the extracted extension asset directory
