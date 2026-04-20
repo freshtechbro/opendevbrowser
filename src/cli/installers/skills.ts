@@ -73,6 +73,15 @@ const LEGACY_ALIAS_DIRS = [
   { name: "shopping", canonical: "opendevbrowser-shopping" }
 ] as const;
 
+const LEGACY_ALIAS_FINGERPRINTS: Record<LegacyAliasName, readonly string[]> = {
+  research: [
+    "994a4bf2d00de68c51621d9a225bc773d835eb3937ec3982d66fc878cb098220"
+  ],
+  shopping: [
+    "c5cac32c36e8b66f527174c7691e3b517e37af1e4417c064028acefe15249333"
+  ]
+};
+
 function getTargets(mode: SkillInstallMode): SkillTarget[] {
   return mode === "global" ? getGlobalSkillTargets() : getLocalSkillTargets();
 }
@@ -168,8 +177,25 @@ function syncSkillDirectory(sourcePath: string, targetPath: string, sourceFinger
   }
 }
 
-function cleanupLegacyAlias(targetDir: string, aliasName: LegacyAliasName): LegacyAliasCleanupResult {
-  const aliasPath = path.join(targetDir, aliasName);
+function shouldRemoveLegacyAlias(aliasPath: string, canonicalPath: string, aliasName: LegacyAliasName): boolean {
+  const aliasFingerprint = hashDirectoryTree(aliasPath);
+  if (LEGACY_ALIAS_FINGERPRINTS[aliasName].includes(aliasFingerprint)) {
+    return true;
+  }
+
+  if (!fs.existsSync(canonicalPath)) {
+    return false;
+  }
+
+  try {
+    return hashDirectoryTree(canonicalPath) === aliasFingerprint;
+  } catch {
+    return false;
+  }
+}
+
+function cleanupLegacyAlias(targetDir: string, alias: (typeof LEGACY_ALIAS_DIRS)[number]): LegacyAliasCleanupResult {
+  const aliasPath = path.join(targetDir, alias.name);
 
   if (!fs.existsSync(aliasPath)) {
     return { removed: [], preserved: [] };
@@ -181,33 +207,38 @@ function cleanupLegacyAlias(targetDir: string, aliasName: LegacyAliasName): Lega
   } catch {
     return {
       removed: [],
-      preserved: [{ targetDir, name: aliasName, reason: "unknown_layout" }]
+      preserved: [{ targetDir, name: alias.name, reason: "unknown_layout" }]
     };
   }
 
   if (!stats.isDirectory()) {
     return {
       removed: [],
-      preserved: [{ targetDir, name: aliasName, reason: "unknown_layout" }]
-    };
-  }
-
-  if (fs.existsSync(path.join(aliasPath, "SKILL.md"))) {
-    return {
-      removed: [],
-      preserved: [{ targetDir, name: aliasName, reason: "contains_skill_md" }]
+      preserved: [{ targetDir, name: alias.name, reason: "unknown_layout" }]
     };
   }
 
   const entries = fs.readdirSync(aliasPath);
   if (entries.length === 0) {
     fs.rmSync(aliasPath, { recursive: true, force: true });
-    return { removed: [aliasName], preserved: [] };
+    return { removed: [alias.name], preserved: [] };
+  }
+
+  if (fs.existsSync(path.join(aliasPath, "SKILL.md"))) {
+    if (shouldRemoveLegacyAlias(aliasPath, path.join(targetDir, alias.canonical), alias.name)) {
+      fs.rmSync(aliasPath, { recursive: true, force: true });
+      return { removed: [alias.name], preserved: [] };
+    }
+
+    return {
+      removed: [],
+      preserved: [{ targetDir, name: alias.name, reason: "contains_skill_md" }]
+    };
   }
 
   return {
     removed: [],
-    preserved: [{ targetDir, name: aliasName, reason: "non_empty" }]
+    preserved: [{ targetDir, name: alias.name, reason: "non_empty" }]
   };
 }
 
@@ -216,7 +247,7 @@ function cleanupLegacyAliases(targetDir: string): LegacyAliasCleanupResult {
   const preserved: PreservedLegacyAlias[] = [];
 
   for (const alias of LEGACY_ALIAS_DIRS) {
-    const result = cleanupLegacyAlias(targetDir, alias.name);
+    const result = cleanupLegacyAlias(targetDir, alias);
     removed.push(...result.removed);
     preserved.push(...result.preserved);
   }
