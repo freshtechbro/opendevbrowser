@@ -1,3 +1,4 @@
+import { parse, resolve } from "path";
 import { BrowserManager } from "../browser/browser-manager";
 import { OpsBrowserManager } from "../browser/ops-browser-manager";
 import { AnnotationManager } from "../browser/annotation-manager";
@@ -17,12 +18,51 @@ import { ChallengeOrchestrator } from "../challenges";
 import type { CoreOptions, OpenDevBrowserCore } from "./types";
 import { createCoreRuntimeAssemblies } from "./runtime-assemblies";
 
+function normalizeRootCandidate(value?: string | null): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? resolve(trimmed) : null;
+}
+
+function isBoundedRoot(value: string | null): value is string {
+  return value !== null && value !== parse(value).root;
+}
+
+function getCurrentWorkingDirectory(): string | null {
+  try {
+    return process.cwd();
+  } catch {
+    return null;
+  }
+}
+
+function resolveCacheRoot(options: CoreOptions): string {
+  const candidates = [
+    options.worktree,
+    options.directory,
+    process.env.PWD
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeRootCandidate(candidate);
+    if (isBoundedRoot(normalized)) {
+      return normalized;
+    }
+  }
+  const currentDirectory = normalizeRootCandidate(getCurrentWorkingDirectory());
+  if (isBoundedRoot(currentDirectory)) {
+    return currentDirectory;
+  }
+  throw new Error("OpenDevBrowser requires a non-root project/worktree directory.");
+}
+
 export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCore {
   const config = typeof options.config === "undefined"
     ? loadGlobalConfig()
     : resolveConfig(options.config);
   const configStore = new ConfigStore(config);
-  const cacheRoot = options.worktree ?? options.directory;
+  const cacheRoot = resolveCacheRoot(options);
   const challengeConfig = requireChallengeOrchestrationConfig(config);
   const baseManager = new BrowserManager(cacheRoot, config);
   const manager = new OpsBrowserManager(baseManager, config, cacheRoot);

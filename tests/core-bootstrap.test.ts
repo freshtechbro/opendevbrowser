@@ -148,6 +148,78 @@ describe("createOpenDevBrowserCore", () => {
     expect(typeof core.getExtensionPath).toBe("function");
   });
 
+  it("prefers a bounded worktree when cwd lookup throws", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core");
+    const previousPwd = process.env.PWD;
+    process.env.PWD = "/";
+    const cwdSpy = vi.spyOn(process, "cwd").mockImplementation(() => {
+      throw new Error("cwd unavailable");
+    });
+
+    try {
+      const core = createOpenDevBrowserCore({
+        directory: "/tmp/root",
+        worktree: "/tmp/worktree",
+        config: makeConfig()
+      });
+
+      expect(core.cacheRoot).toBe("/tmp/worktree");
+      expect(managerInstances[0]?.cacheRoot).toBe("/tmp/worktree");
+      expect(skillsInstances[0]?.root).toBe("/tmp/worktree");
+      expect(cwdSpy).not.toHaveBeenCalled();
+    } finally {
+      process.env.PWD = previousPwd;
+    }
+  });
+
+  it("falls back to the caller directory when worktree resolves to filesystem root", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core");
+    const core = createOpenDevBrowserCore({
+      directory: "/tmp/root",
+      worktree: "/",
+      config: makeConfig()
+    });
+
+    expect(core.cacheRoot).toBe("/tmp/root");
+    expect(managerInstances[0]?.cacheRoot).toBe("/tmp/root");
+  });
+
+  it("falls back to process cwd when directory resolves to filesystem root", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core");
+    const previousPwd = process.env.PWD;
+    process.env.PWD = "/";
+    vi.spyOn(process, "cwd").mockReturnValue("/tmp/from-cwd");
+
+    try {
+      const core = createOpenDevBrowserCore({
+        directory: "/",
+        config: makeConfig()
+      });
+
+      expect(core.cacheRoot).toBe("/tmp/from-cwd");
+      expect(managerInstances[0]?.cacheRoot).toBe("/tmp/from-cwd");
+    } finally {
+      process.env.PWD = previousPwd;
+    }
+  });
+
+  it("rejects filesystem root when no bounded project directory is available", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core");
+    const previousPwd = process.env.PWD;
+    process.env.PWD = "/";
+    vi.spyOn(process, "cwd").mockReturnValue("/");
+
+    try {
+      expect(() => createOpenDevBrowserCore({
+        directory: "/",
+        worktree: "/",
+        config: makeConfig()
+      })).toThrow("OpenDevBrowser requires a non-root project/worktree directory.");
+    } finally {
+      process.env.PWD = previousPwd;
+    }
+  });
+
   it("rejects store_agent_payload requests without a payload", async () => {
     const { createOpenDevBrowserCore } = await import("../src/core");
     createOpenDevBrowserCore({ directory: "/tmp/root", config: makeConfig() });
