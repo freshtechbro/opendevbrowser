@@ -266,6 +266,7 @@ export const renderShopping = (args: {
 export const renderInspiredesign = (args: {
   mode: RenderMode;
   brief: string;
+  advancedBriefMarkdown: string;
   urls: string[];
   designContract: CanvasDesignGovernance;
   canvasPlanRequest: Record<string, unknown>;
@@ -288,6 +289,7 @@ export const renderInspiredesign = (args: {
   ].join("\n");
   const contextPayload = {
     brief: args.brief,
+    advancedBriefMarkdown: args.advancedBriefMarkdown,
     urls: args.urls,
     designContract: args.designContract,
     canvasPlanRequest: args.canvasPlanRequest,
@@ -319,6 +321,7 @@ export const renderInspiredesign = (args: {
   ];
   const files: Array<{ path: string; content: string | Record<string, unknown> }> = [
     { path: INSPIREDESIGN_HANDOFF_FILES.designMarkdown, content: args.designMarkdown },
+    { path: INSPIREDESIGN_HANDOFF_FILES.advancedBrief, content: args.advancedBriefMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.designContract, content: args.designContract },
     { path: INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest, content: args.canvasPlanRequest },
     { path: INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff, content: args.designAgentHandoff },
@@ -349,6 +352,7 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         brief: args.brief,
+        advancedBriefMarkdown: args.advancedBriefMarkdown,
         urls: args.urls,
         canvasPlanRequest: args.canvasPlanRequest,
         designAgentHandoff: args.designAgentHandoff,

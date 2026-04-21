@@ -48,11 +48,13 @@ const clampInspiredesignCaptureTimeout = (timeoutMs?: number): number => {
   return Math.max(1, Math.min(timeoutMs, INSPIREDESIGN_CAPTURE_TIMEOUT_MS));
 };
 
-const sanitizeInspiredesignCaptureText = (value: string | undefined): string | undefined => {
-  if (!value) return undefined;
+function sanitizeInspiredesignCaptureText(value: string): string;
+function sanitizeInspiredesignCaptureText(value: string | undefined): string | undefined;
+function sanitizeInspiredesignCaptureText(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
   const redacted = redactSensitive(value);
   return typeof redacted === "string" ? redacted : value;
-};
+}
 
 const resolveInspiredesignCaptureCookiePolicy = (
   options: InspiredesignCaptureOptions
@@ -108,16 +110,15 @@ const withCaptureDeadline = async <T>(
   timeoutMs: number,
   label: string
 ): Promise<T> => {
-  let handle: ReturnType<typeof setTimeout> | undefined;
+  let clearDeadline = () => {};
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    const handle = setTimeout(() => reject(new Error(`Deep capture ${label} exceeded timeout budget.`)), timeoutMs);
+    clearDeadline = () => clearTimeout(handle);
+  });
   try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        handle = setTimeout(() => reject(new Error(`Deep capture ${label} exceeded timeout budget.`)), timeoutMs);
-      })
-    ]);
+    return await Promise.race([promise, timeoutPromise]);
   } finally {
-    if (handle) clearTimeout(handle);
+    clearDeadline();
   }
 };
 
@@ -147,21 +148,21 @@ const captureInspiredesignArtifacts = async (
     : null;
   return {
     snapshot: {
-      content: sanitizeInspiredesignCaptureText(snapshot.content) ?? snapshot.content,
+      content: sanitizeInspiredesignCaptureText(snapshot.content),
       refCount: snapshot.refCount,
       warnings: snapshot.warnings ?? []
     },
     ...(dom?.html
       ? {
         dom: {
-          outerHTML: sanitizeInspiredesignCaptureText(dom.html) ?? dom.html,
+          outerHTML: sanitizeInspiredesignCaptureText(dom.html),
           truncated: false
         }
       }
       : {}),
     clone: {
-      componentPreview: sanitizeInspiredesignCaptureText(clone.component) ?? clone.component,
-      cssPreview: sanitizeInspiredesignCaptureText(clone.css) ?? clone.css,
+      componentPreview: sanitizeInspiredesignCaptureText(clone.component),
+      cssPreview: sanitizeInspiredesignCaptureText(clone.css),
       warnings: clone.warnings ?? []
     }
   };

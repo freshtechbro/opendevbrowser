@@ -1,5 +1,6 @@
 export const INSPIREDESIGN_HANDOFF_FILES = {
   designMarkdown: "design.md",
+  advancedBrief: "advanced-brief.md",
   designContract: "design-contract.json",
   canvasPlanRequest: "canvas-plan.request.json",
   designAgentHandoff: "design-agent-handoff.json",
@@ -45,11 +46,11 @@ export const INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS = [
 
 export const INSPIREDESIGN_HANDOFF_GUIDANCE = {
   prepareCanvasPlanRequest: `Fill canvasSessionId, leaseId, and documentId in ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} before running ${INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas}.`,
-  deepCaptureRecommendation: "Rerun inspiredesign with captureMode=deep only when you need richer evidence for visual hierarchy, protected references, or capture-specific debugging."
+  deepCaptureRecommendation: "Any inspiredesign run with reference URLs already uses captureMode=deep. Rerun with the same URLs only when you need refreshed DOM/layout evidence, restored session state, or capture-specific debugging."
 } as const;
 
 export const buildInspiredesignFollowthroughSummary = (): string => (
-  `Continue in OpenDevBrowser Canvas with ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} and ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}, load ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[0]} plus ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[1]} before implementation, and rerun with captureMode=deep only when you need richer evidence.`
+  `Continue in OpenDevBrowser Canvas with ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} and ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}, load ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[0]} plus ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[1]} before implementation, and note that any supplied reference URL already uses captureMode=deep.`
 );
 
 export const buildInspiredesignNextStep = (): string => (

@@ -8,9 +8,11 @@ import {
   workflowTestUtils,
   type ProviderExecutor
 } from "../src/providers/workflows";
+import type { InspiredesignBriefExpansion } from "../src/inspiredesign/brief-expansion";
 import type { InspiredesignCaptureEvidence } from "../src/providers/inspiredesign-contract";
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type {
+  JsonValue,
   ProviderAggregateResult,
   ProviderError,
   ProviderFailureEntry,
@@ -43,6 +45,15 @@ type InspiredesignWorkflowMeta = {
 };
 
 type InspiredesignWorkflowEvidence = {
+  advancedBrief: string;
+  briefExpansion: {
+    templateVersion: string;
+    format: {
+      id: string;
+      label: string;
+      bestFor: string[];
+    };
+  };
   references: Array<{
     url: string;
     fetchStatus: string;
@@ -53,6 +64,7 @@ type InspiredesignWorkflowEvidence = {
 };
 
 type InspiredesignWorkflowContext = {
+  advancedBriefMarkdown: string;
   urls: string[];
   prototypeGuidanceMarkdown: string | null;
   evidence: InspiredesignWorkflowEvidence;
@@ -62,6 +74,13 @@ type InspiredesignWorkflowContext = {
     documentId: string;
   };
   designAgentHandoff: {
+    briefExpansion: {
+      templateVersion: string;
+      file: string;
+      format: {
+        label: string;
+      };
+    };
     contractScope: {
       emittedContract: string;
       omittedTemplateBlocks: string[];
@@ -127,6 +146,20 @@ const makeCapture = (title: string): InspiredesignCaptureEvidence => ({
   }
 });
 
+const makeBriefExpansion = (
+  overrides: Partial<InspiredesignBriefExpansion> = {}
+): InspiredesignBriefExpansion => ({
+  sourceBrief: "Design a premium launch surface",
+  advancedBrief: "Selected prompt format: Premium editorial landing page\n\nSource brief:\nDesign a premium launch surface\n\nPrompt objective:\nStudy the inspiration references and synthesize a premium editorial landing page system that translates the source brief into a reusable, brand-specific direction.",
+  templateVersion: "inspiredesign-advanced-brief.v1",
+  format: {
+    id: "premium-editorial-landing-page",
+    label: "Premium editorial landing page",
+    bestFor: ["launch pages", "docs homepages"]
+  },
+  ...overrides
+});
+
 describe("inspiredesign workflow", () => {
   afterEach(() => {
     workflowTestUtils.resetProviderSignalState();
@@ -171,6 +204,7 @@ describe("inspiredesign workflow", () => {
       note: expect.stringContaining("design-contract.json is the narrowed canvas governance contract")
     }));
     expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "advanced-brief.md",
       "canvas-plan.request.json",
       "design-agent-handoff.json"
     ]));
@@ -184,6 +218,59 @@ describe("inspiredesign workflow", () => {
     });
 
     expect(output.mode).toBe("compact");
+  });
+
+  it("forces deep capture when urls are present without an explicit capture mode", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference"]
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(captureReference).toHaveBeenCalledTimes(1);
+    expect(meta.selection.capture_mode).toBe("deep");
+  });
+
+  it("overrides explicit off to deep capture when urls are present", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference"],
+      captureMode: "off"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(captureReference).toHaveBeenCalledTimes(1);
+    expect(meta.selection.capture_mode).toBe("deep");
   });
 
   it("parses valid inspiredesign envelopes and forwards every optional runtime override", async () => {
@@ -234,6 +321,7 @@ describe("inspiredesign workflow", () => {
     );
     expect(captureReference).toHaveBeenCalledTimes(1);
     expect(output.mode).toBe("context");
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
     expect(context.urls).toEqual(["https://example.com/reference"]);
     expect(context.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
     expect(context.canvasPlanRequest).toMatchObject({
@@ -242,21 +330,29 @@ describe("inspiredesign workflow", () => {
       documentId: "<document-id>"
     });
     expect(context.designAgentHandoff).toMatchObject({
+      briefExpansion: {
+        templateVersion: "inspiredesign-advanced-brief.v1",
+        file: "advanced-brief.md",
+        format: {
+          label: expect.any(String)
+        }
+      },
       contractScope: {
         emittedContract: "CanvasDesignGovernance",
         omittedTemplateBlocks: ["navigationModel", "asyncModel", "performanceModel"]
       }
     });
+    expect(context.evidence.advancedBrief).toContain("Prompt objective:");
     expect(context.evidence.references[0]).toMatchObject({
       fetchStatus: "captured",
       captureStatus: "captured"
     });
     expect(meta.selection.capture_mode).toBe("deep");
     expect(meta.selection.include_prototype_guidance).toBe(true);
-    expect(meta.deepCaptureRecommendation).toContain("captureMode=deep");
+    expect(meta.deepCaptureRecommendation).toContain("already uses captureMode=deep");
   });
 
-  it("defaults invalid envelope fields back to the compact off-capture path", async () => {
+  it("defaults invalid envelope render fields but still forces deep capture when urls are present", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       records: [
         normalizeRecord("web/default", "web", {
@@ -299,9 +395,52 @@ describe("inspiredesign workflow", () => {
     );
     expect(meta.selection).toEqual({
       urls: ["https://example.com/control"],
-      capture_mode: "off",
+      capture_mode: "deep",
       include_prototype_guidance: false
     });
+  });
+
+  it("ignores invalid envelope brief expansions and regenerates the advanced brief", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+    const invalidBriefExpansion: JsonValue = {
+      sourceBrief: "Design a docs workspace",
+      advancedBrief: "This stale brief expansion should be ignored.",
+      templateVersion: "invalid-template",
+      format: {
+        id: "invalid-format",
+        label: "Invalid format",
+        bestFor: ["valid", 42]
+      }
+    };
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      kind: "inspiredesign",
+      input: {
+        brief: "Design a docs workspace",
+        urls: ["https://example.com/reference"],
+        mode: "context",
+        briefExpansion: invalidBriefExpansion
+      }
+    } as never, {
+      captureReference
+    });
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("This stale brief expansion should be ignored.");
+    expect(context.evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
+    expect(context.evidence.briefExpansion.format.bestFor.every((entry) => typeof entry === "string")).toBe(true);
   });
 
   it("drops invalid string runtime overrides from inspiredesign envelopes", async () => {
@@ -356,6 +495,45 @@ describe("inspiredesign workflow", () => {
     );
   });
 
+  it("reuses cached brief expansion from inspiredesign envelopes", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Cached expansion reference",
+          content: "Cached expansion content"
+        })
+      ]
+    }));
+    const runtime = toRuntime({ fetch });
+    const output = await runInspiredesignWorkflow(runtime, buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "Design a premium launch surface",
+      briefExpansion: makeBriefExpansion({
+        advancedBrief: "Selected prompt format: Custom cached brief\n\nSource brief:\nDesign a premium launch surface",
+        templateVersion: "custom-template.v1",
+        format: {
+          id: "custom",
+          label: "Custom cached brief",
+          bestFor: ["custom runs"]
+        }
+      }),
+      urls: ["https://example.com/cached"],
+      mode: "context"
+    }));
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Custom cached brief");
+    expect(context.evidence.briefExpansion).toEqual({
+      templateVersion: "custom-template.v1",
+      format: {
+        id: "custom",
+        label: "Custom cached brief",
+        bestFor: ["custom runs"]
+      }
+    });
+  });
+
   it("rejects invalid inspiredesign workflow envelopes", async () => {
     await expect(
       runInspiredesignWorkflow(toRuntime({}), {
@@ -404,7 +582,7 @@ describe("inspiredesign workflow", () => {
     ).rejects.toThrow("Inspiredesign workflow received an invalid URL: notaurl");
   });
 
-  it("records fetch failures and missing deep-capture callbacks in the evidence payload", async () => {
+  it("records fetch failures without manufacturing missing deep-capture callback failures", async () => {
     const runtime = toRuntime({
       fetch: async () => makeAggregate({
         ok: false,
@@ -435,15 +613,22 @@ describe("inspiredesign workflow", () => {
     });
 
     const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
 
     expect(evidence.references[0]).toMatchObject({
       url: "https://example.com/blocked",
       fetchStatus: "failed",
-      captureStatus: "failed",
-      captureFailure: "Deep capture requested, but no browser capture callback was available."
+      captureStatus: "off"
     });
     expect(evidence.references[0]?.fetchFailure).toEqual(expect.any(String));
-    expect(output.meta).toMatchObject({
+    expect(evidence.references[0]).not.toHaveProperty("captureFailure");
+    expect(meta).toMatchObject({
+      selection: {
+        capture_mode: "deep"
+      },
+      metrics: {
+        failed_captures: 0
+      },
       primaryConstraintSummary: expect.any(String),
       reasonCodeDistribution: {
         challenge_detected: 1
@@ -452,6 +637,7 @@ describe("inspiredesign workflow", () => {
         reasonCode: "challenge_detected"
       })
     });
+    expect(JSON.stringify(output)).not.toContain("Deep capture requested, but no browser capture callback was available.");
     expect(output.meta).not.toHaveProperty("primary_constraint");
   });
 

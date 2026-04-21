@@ -5,6 +5,7 @@ import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 import { captureInspiredesignReferenceFromManager } from "../providers/inspiredesign-capture";
+import { resolveInspiredesignCaptureMode } from "../providers/inspiredesign-capture-mode";
 
 const z = tool.schema;
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
@@ -32,7 +33,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
       try {
         const runtime = await resolveProviderRuntime(deps);
         const { runInspiredesignWorkflow } = await import("../providers");
-        const captureMode = args.captureMode ?? "off";
+        const captureMode = resolveInspiredesignCaptureMode(args.captureMode, args.urls);
         const cookieSource = deps.config.get().providers?.cookieSource;
         const result = await runInspiredesignWorkflow(runtime, {
           brief: args.brief,

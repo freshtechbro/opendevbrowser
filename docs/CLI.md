@@ -504,7 +504,7 @@ Flags:
 
 ```bash
 npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing page from calm editorial references" --url https://stripe.com --url https://vercel.com
-npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign
+npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign
 ```
 
 Flags:
@@ -522,7 +522,7 @@ Flags:
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
 Notes:
-- `--capture-mode` defaults to `off`; opt into `deep` only when live DOM/layout capture is required.
+- Any `--url` forces deep capture so inspiredesign can collect DOM/layout evidence. Without URLs, `--capture-mode` defaults to `off`.
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
 - Successful runs now emit `canvas-plan.request.json` and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.

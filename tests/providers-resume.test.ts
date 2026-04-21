@@ -4,6 +4,23 @@ import { normalizeRecord } from "../src/providers/normalize";
 import type { ProviderAdapter, ProviderContext, ProviderSource, SessionChallengeSummary } from "../src/providers/types";
 
 type WorkflowKind = "research" | "shopping" | "product_video" | "inspiredesign";
+type InspiredesignResumeMeta = {
+  selection: {
+    capture_mode: string;
+  };
+  metrics: {
+    failed_captures: number;
+  };
+};
+
+type InspiredesignResumeEvidence = {
+  references: Array<{
+    url: string;
+    fetchStatus: string;
+    captureStatus: string;
+    captureFailure?: string;
+  }>;
+};
 
 const makeProvider = (
   id: string,
@@ -693,7 +710,7 @@ describe("provider runtime resume", () => {
     ]));
   });
 
-  it("replays workflow inspiredesign intents through the shared runtime", async () => {
+  it("replays workflow inspiredesign intents through the shared runtime without synthetic capture failures", async () => {
     let inspiredesignContext: ProviderContext | undefined;
     const runtime = new ProviderRuntime({
       providers: [
@@ -727,6 +744,14 @@ describe("provider runtime resume", () => {
         intent: expect.objectContaining({
           task: "Create a reusable design contract"
         })
+      }),
+      meta: expect.objectContaining({
+        selection: expect.objectContaining({
+          capture_mode: "deep"
+        }),
+        metrics: expect.objectContaining({
+          failed_captures: 0
+        })
       })
     });
     expect(inspiredesignContext?.suspendedIntent).toMatchObject({
@@ -737,6 +762,15 @@ describe("provider runtime resume", () => {
         }
       }
     });
+    const evidence = output.evidence as InspiredesignResumeEvidence;
+    const meta = output.meta as InspiredesignResumeMeta;
+    expect(meta.selection.capture_mode).toBe("deep");
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/inspiration",
+      fetchStatus: "captured",
+      captureStatus: "off"
+    });
+    expect(evidence.references[0]).not.toHaveProperty("captureFailure");
   });
 
   it("resumes workflow shopping from checkpoint state without replaying completed provider searches", async () => {

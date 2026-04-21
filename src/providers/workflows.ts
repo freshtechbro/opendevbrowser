@@ -19,6 +19,10 @@ import {
   type InspiredesignReferenceEvidence
 } from "./inspiredesign-contract";
 import {
+  expandInspiredesignBrief,
+  type InspiredesignBriefExpansion
+} from "../inspiredesign/brief-expansion";
+import {
   buildProductVideoSuccessHandoff,
   buildResearchSuccessHandoff,
   buildShoppingSuccessHandoff,
@@ -75,6 +79,7 @@ import {
   type WorkflowResumeEnvelope,
   type WorkflowTraceEntry
 } from "./workflow-contracts";
+import { resolveInspiredesignCaptureMode } from "./inspiredesign-capture-mode";
 import type {
   BrowserFallbackMode,
   JsonValue,
@@ -142,6 +147,7 @@ export interface ShoppingRunInput {
 
 export interface InspiredesignRunInput {
   brief: string;
+  briefExpansion?: InspiredesignBriefExpansion;
   urls?: string[];
   captureMode?: InspiredesignCaptureMode;
   includePrototypeGuidance?: boolean;
@@ -1207,6 +1213,7 @@ const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | und
 
 type InspiredesignResolvedInput = Omit<InspiredesignRunInput, "brief" | "urls" | "captureMode"> & {
   brief: string;
+  briefExpansion: InspiredesignBriefExpansion;
   urls: string[];
   captureMode: InspiredesignCaptureMode;
 };
@@ -1215,14 +1222,32 @@ const INSPIREDESIGN_RENDER_MODES = new Set<RenderMode>(["compact", "json", "md",
 const INSPIREDESIGN_CAPTURE_MODES = new Set<InspiredesignCaptureMode>(["off", "deep"]);
 const INSPIREDESIGN_COOKIE_POLICIES = new Set<ProviderCookiePolicy>(["off", "auto", "required"]);
 
+const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
+  typeof value === "object" && value !== null && !Array.isArray(value)
+);
+
 type InspiredesignCaptureOutcome = {
   captureStatus: InspiredesignReferenceEvidence["captureStatus"];
   capture?: InspiredesignCaptureEvidence | null;
   captureFailure?: string;
 };
 
+const serializeInspiredesignBriefExpansion = (
+  expansion: InspiredesignBriefExpansion
+): Record<string, JsonValue> => ({
+  sourceBrief: expansion.sourceBrief,
+  advancedBrief: expansion.advancedBrief,
+  templateVersion: expansion.templateVersion,
+  format: {
+    id: expansion.format.id,
+    label: expansion.format.label,
+    bestFor: [...expansion.format.bestFor]
+  }
+});
+
 const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Record<string, JsonValue> => ({
   brief: input.brief,
+  briefExpansion: serializeInspiredesignBriefExpansion(input.briefExpansion),
   urls: input.urls,
   captureMode: input.captureMode,
   mode: input.mode,
@@ -1235,27 +1260,59 @@ const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Reco
   ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
 });
 
-const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"]): InspiredesignRunInput => ({
-  brief: typeof input.brief === "string" ? input.brief : "",
-  mode: typeof input.mode === "string" && INSPIREDESIGN_RENDER_MODES.has(input.mode as RenderMode)
-    ? (input.mode as RenderMode)
-    : "compact",
-  ...(Array.isArray(input.urls) ? { urls: input.urls.filter((url): url is string => typeof url === "string") } : {}),
-  ...(typeof input.captureMode === "string" && INSPIREDESIGN_CAPTURE_MODES.has(input.captureMode as InspiredesignCaptureMode)
-    ? { captureMode: input.captureMode as InspiredesignCaptureMode }
-    : {}),
-  ...(typeof input.includePrototypeGuidance === "boolean" ? { includePrototypeGuidance: input.includePrototypeGuidance } : {}),
-  ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
-  ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
-  ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
-  ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
-  ...(isChallengeAutomationMode(input.challengeAutomationMode)
-    ? { challengeAutomationMode: input.challengeAutomationMode }
-    : {}),
-  ...(typeof input.cookiePolicyOverride === "string" && INSPIREDESIGN_COOKIE_POLICIES.has(input.cookiePolicyOverride as ProviderCookiePolicy)
-    ? { cookiePolicyOverride: input.cookiePolicyOverride as ProviderCookiePolicy }
-    : {})
-});
+const parseInspiredesignBriefExpansion = (
+  value: JsonValue | undefined
+): InspiredesignBriefExpansion | undefined => {
+  if (!isJsonRecord(value) || !isJsonRecord(value.format)) return undefined;
+  if (
+    typeof value.sourceBrief !== "string"
+    || typeof value.advancedBrief !== "string"
+    || typeof value.templateVersion !== "string"
+    || typeof value.format.id !== "string"
+    || typeof value.format.label !== "string"
+    || !Array.isArray(value.format.bestFor)
+    || value.format.bestFor.some((entry) => typeof entry !== "string")
+  ) {
+    return undefined;
+  }
+  const bestFor = value.format.bestFor.filter((entry): entry is string => typeof entry === "string");
+  return {
+    sourceBrief: value.sourceBrief,
+    advancedBrief: value.advancedBrief,
+    templateVersion: value.templateVersion,
+    format: {
+      id: value.format.id,
+      label: value.format.label,
+      bestFor
+    }
+  };
+};
+
+const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"]): InspiredesignRunInput => {
+  const briefExpansion = parseInspiredesignBriefExpansion(input.briefExpansion);
+  return {
+    brief: typeof input.brief === "string" ? input.brief : "",
+    mode: typeof input.mode === "string" && INSPIREDESIGN_RENDER_MODES.has(input.mode as RenderMode)
+      ? (input.mode as RenderMode)
+      : "compact",
+    ...(briefExpansion ? { briefExpansion } : {}),
+    ...(Array.isArray(input.urls) ? { urls: input.urls.filter((url): url is string => typeof url === "string") } : {}),
+    ...(typeof input.captureMode === "string" && INSPIREDESIGN_CAPTURE_MODES.has(input.captureMode as InspiredesignCaptureMode)
+      ? { captureMode: input.captureMode as InspiredesignCaptureMode }
+      : {}),
+    ...(typeof input.includePrototypeGuidance === "boolean" ? { includePrototypeGuidance: input.includePrototypeGuidance } : {}),
+    ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
+    ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
+    ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
+    ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
+    ...(isChallengeAutomationMode(input.challengeAutomationMode)
+      ? { challengeAutomationMode: input.challengeAutomationMode }
+      : {}),
+    ...(typeof input.cookiePolicyOverride === "string" && INSPIREDESIGN_COOKIE_POLICIES.has(input.cookiePolicyOverride as ProviderCookiePolicy)
+      ? { cookiePolicyOverride: input.cookiePolicyOverride as ProviderCookiePolicy }
+      : {})
+  };
+};
 
 const normalizeInspiredesignUrls = (urls: string[] | undefined): string[] => {
   if (!urls || urls.length === 0) return [];
@@ -1274,11 +1331,16 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
   if (!brief) {
     throw new Error("Inspiredesign workflow requires a non-empty brief.");
   }
+  const urls = normalizeInspiredesignUrls(input.urls);
+  const briefExpansion = input.briefExpansion?.sourceBrief === brief
+    ? input.briefExpansion
+    : expandInspiredesignBrief(brief);
   return {
     ...input,
     brief,
-    urls: normalizeInspiredesignUrls(input.urls),
-    captureMode: input.captureMode ?? "off",
+    briefExpansion,
+    urls,
+    captureMode: resolveInspiredesignCaptureMode(input.captureMode, urls),
     mode: input.mode ?? "compact"
   };
 };
@@ -1379,10 +1441,7 @@ const captureInspiredesignReference = async (
     return { captureStatus: "off" };
   }
   if (!captureReference) {
-    return {
-      captureStatus: "failed",
-      captureFailure: "Deep capture requested, but no browser capture callback was available."
-    };
+    return { captureStatus: "off" };
   }
   try {
     const capture = await captureReference(url, {
@@ -2592,6 +2651,7 @@ export const runInspiredesignWorkflow = async (
 
   const packet = buildInspiredesignPacket({
     brief: workflowInput.brief,
+    briefExpansion: workflowInput.briefExpansion,
     urls: workflowInput.urls,
     references,
     includePrototypeGuidance: workflowInput.includePrototypeGuidance
@@ -2600,6 +2660,7 @@ export const runInspiredesignWorkflow = async (
   const rendered = renderInspiredesign({
     mode: workflowInput.mode,
     brief: workflowInput.brief,
+    advancedBriefMarkdown: packet.advancedBriefMarkdown,
     urls: workflowInput.urls,
     designContract: packet.designContract,
     canvasPlanRequest: packet.canvasPlanRequest,

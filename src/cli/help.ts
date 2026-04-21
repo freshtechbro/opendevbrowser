@@ -219,7 +219,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--region", description: "Region or country hint for provider selection. Treat it as advisory unless output metadata reports `region_authoritative=true`." },
       { flag: "--sort", description: "Sort mode for shopping results." },
       { flag: "--brief", description: "Inspiredesign brief describing the target design direction." },
-      { flag: "--capture-mode", description: "Inspiredesign capture mode: off (default) or deep." },
+      { flag: "--capture-mode", description: "Inspiredesign capture mode: off or deep. Any --url forces deep." },
       { flag: "--include-prototype-guidance", description: "Include inspiredesign prototype guidance in workflow output." },
       { flag: "--product-url", description: "Target product URL for product-video workflows." },
       { flag: "--product-name", description: "Product name override for product-video workflows." },

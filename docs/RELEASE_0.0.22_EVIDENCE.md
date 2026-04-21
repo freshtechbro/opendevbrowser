@@ -30,7 +30,7 @@ Tracks the `0.0.22` release cycle after the published `v0.0.21` release, includi
 - Release-prep branch: `main`
 - Release tag target: `v0.0.22`
 - npm `latest`: `0.0.22` after local publish verification
-- GitHub release: pending
+- GitHub release: `v0.0.22` is live with packaged extension assets
 - Local version authority is `package.json` at `0.0.22`; extension version owners stay synced via `npm run extension:sync`
 - `docs/RELEASE_0.0.21_EVIDENCE.md` remains historical release evidence
 
@@ -130,13 +130,31 @@ Tracks the `0.0.22` release cycle after the published `v0.0.21` release, includi
 
 ## External release workflow evidence
 
-- [ ] GitHub release workflow run URL
-- [ ] GitHub release URL
+- [x] GitHub release workflow run URL
+- [x] GitHub release URL
 - [x] npm publish verification (`npm view opendevbrowser version`)
-- [ ] Chrome Web Store upload or publish status
+- [x] Chrome Web Store upload status
+- [ ] Chrome Web Store submit-for-review status
 
 ## Notes
 
 - Public repo secrets currently visible through `gh secret list --repo freshtechbro/opendevbrowser`: `PRIVATE_REPO_DISPATCH_TOKEN` only.
 - Because the public repo still lacks repo-level `NPM_TOKEN` and `CWS_*` secrets, npm publish must run locally and the Chrome Web Store lane must use local credentials or a browser-manual dashboard flow from this operator machine.
 - Keep this ledger active until npm, GitHub release artifacts, and the Chrome lane are either completed or blocked with evidence.
+- Protected `main` prevented a direct post-publish evidence push. The publish-verification update was merged through PR `#32`: `https://github.com/freshtechbro/opendevbrowser/pull/32`
+- Merge commit for that follow-up evidence PR on `main`: `a204f24323c23f0b6f0eff06b3f71ceb58e12477`
+- GitHub release workflow dispatch used the release-only lane to avoid a duplicate npm publish:
+  - Run URL: `https://github.com/freshtechbro/opendevbrowser/actions/runs/24665306661`
+  - Inputs: `release_ref=main`, `release_tag=v0.0.22`, `publish_npm=false`, `publish_github_release=true`
+  - Result: success
+- GitHub release URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.22`
+- GitHub release assets present:
+  - `opendevbrowser-extension.zip`
+  - `opendevbrowser-extension.zip.sha256`
+- Chrome Web Store manual browser lane:
+  - Item: `OpenDevBrowser Relay`
+  - Upload artifact: local `opendevbrowser-extension.zip`
+  - Accepted state after upload: `Draft 0.0.22`
+  - Current published store version still visible in dashboard: `0.0.20`
+  - Status page state: `This draft is unpublished`
+  - Final `Submit for review` action is still pending explicit operator confirmation

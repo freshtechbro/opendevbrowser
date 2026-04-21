@@ -142,11 +142,11 @@ Rules:
 4. Design-contract synthesis with repeated public references.
 
 ```bash
-npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
+npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
 ```
 
 Rules:
-- keep inspiredesign references public-first unless the task explicitly requires deeper browser capture
+- keep inspiredesign references public-first; any supplied `--url` now forces deep capture so the workflow can collect DOM/layout evidence
 - use repeated `--url` flags instead of packed URL strings
 - pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 

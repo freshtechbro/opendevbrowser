@@ -726,7 +726,7 @@ const CLI_COMMAND_EXAMPLES = {
   research: [cliExample("research run", "--topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json")],
   shopping: [cliExample("shopping run", "--query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json")],
   "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --include-screenshots --output-format json")],
-  inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
+  inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
   artifacts: [cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")],
   "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --challenge-automation-mode browser --output-format json")],
   canvas: [cliExample("canvas", "--command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json")],
@@ -806,7 +806,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
   ],
   inspiredesign: [
-    "--capture-mode defaults to off; opt into deep only when live DOM or layout evidence is required.",
+    "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
     "Repeat --url for multiple references. There is no --urls alias."
   ],
   "macro-resolve": [

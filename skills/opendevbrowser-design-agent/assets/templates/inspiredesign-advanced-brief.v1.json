@@ -1,0 +1,220 @@
+{
+  "version": "inspiredesign-advanced-brief.v1",
+  "defaultFormatId": "premium-editorial-landing-page",
+  "commonRules": [
+    "Preserve only the product, brand, audience, platform, and tone cues that are explicitly present in the source brief.",
+    "Treat missing details as open constraints instead of inventing brand facts or user needs.",
+    "Use inspiration references to extract transferable design logic rather than copying a single layout, visual treatment, or narrative beat literally."
+  ],
+  "outputRequirements": [
+    "Return a reusable design contract that can drive design.md, implementation-plan artifacts, and a Canvas-ready prototype path.",
+    "Keep the direction premium, specific, and implementable instead of generic or template-driven."
+  ],
+  "formats": [
+    {
+      "id": "premium-editorial-landing-page",
+      "label": "Premium editorial landing page",
+      "bestFor": [
+        "product homepages",
+        "docs homepages",
+        "launch pages",
+        "rebrands"
+      ],
+      "matchKeywords": [
+        "landing",
+        "homepage",
+        "home page",
+        "launch",
+        "brand",
+        "rebrand",
+        "editorial",
+        "hero",
+        "marketing",
+        "docs"
+      ],
+      "lead": "Study the inspiration references and synthesize a premium editorial landing page system that translates the source brief into a reusable, brand-specific direction.",
+      "focusAreas": [
+        "hero composition",
+        "brand presence",
+        "typography rhythm",
+        "spacing cadence",
+        "image treatment",
+        "CTA hierarchy",
+        "section sequencing",
+        "trust-building moments",
+        "motion tone"
+      ],
+      "guardrails": [
+        "Prioritize one dominant hero idea and a clear narrative progression instead of dashboard-style clutter.",
+        "Favor a full-bleed visual approach with restrained supporting copy and deliberate section sequencing."
+      ],
+      "deliverables": [
+        "Translate the references into a reusable design contract that fits the product story, audience, and brand voice in the source brief."
+      ]
+    },
+    {
+      "id": "b2b-dashboard-app-shell",
+      "label": "B2B dashboard or app shell",
+      "bestFor": [
+        "admin products",
+        "internal tools",
+        "data-heavy SaaS"
+      ],
+      "matchKeywords": [
+        "dashboard",
+        "admin",
+        "app shell",
+        "app-shell",
+        "internal tool",
+        "operator",
+        "table",
+        "analytics",
+        "saas",
+        "control room"
+      ],
+      "lead": "Use the inspiration references and source brief to extract a reusable dashboard and app-shell contract that stays fast, calm, and operator-friendly.",
+      "focusAreas": [
+        "information hierarchy",
+        "sidebar behavior",
+        "top-bar responsibilities",
+        "search and filter placement",
+        "table-versus-card decisions",
+        "density management",
+        "panel rhythm",
+        "empty states",
+        "loading states",
+        "primary action priority"
+      ],
+      "guardrails": [
+        "Favor predictable layout zones, strong state communication, and clean action paths over decorative UI noise.",
+        "Keep the interaction model credible and scalable across desktop breakpoints."
+      ],
+      "deliverables": [
+        "Return a dashboard contract that can guide a first implementation plan and a Canvas-first prototype handoff."
+      ]
+    },
+    {
+      "id": "cinematic-product-story",
+      "label": "Cinematic product-story or photostudio direction",
+      "bestFor": [
+        "hardware",
+        "consumer products",
+        "showcase pages",
+        "keynote-style launches"
+      ],
+      "matchKeywords": [
+        "product story",
+        "product-story",
+        "hardware",
+        "device",
+        "physical product",
+        "showcase",
+        "photography",
+        "launch page",
+        "keynote",
+        "consumer product"
+      ],
+      "lead": "Study the inspiration references and synthesize a cinematic product-story direction that turns the source brief into a premium, product-led narrative.",
+      "focusAreas": [
+        "lighting",
+        "framing",
+        "crop strategy",
+        "material and surface cues",
+        "typography restraint",
+        "scroll pacing",
+        "transition from emotion to proof",
+        "product-detail storytelling"
+      ],
+      "guardrails": [
+        "Do not fall back to generic ecommerce grids, trust-badge clutter, or spec-dump layouts.",
+        "Prioritize product-story clarity over commerce-system conventions and keep the scene count disciplined."
+      ],
+      "deliverables": [
+        "Return a premium product-led story with 3 to 5 clear scene beats and a strong visual hierarchy."
+      ]
+    },
+    {
+      "id": "mobile-first-onboarding-activation",
+      "label": "Mobile-first onboarding and activation flow",
+      "bestFor": [
+        "consumer apps",
+        "onboarding redesigns",
+        "activation funnel work"
+      ],
+      "matchKeywords": [
+        "mobile",
+        "onboarding",
+        "activation",
+        "signup",
+        "sign-up",
+        "first session",
+        "consumer app",
+        "funnel",
+        "activation flow",
+        "native app"
+      ],
+      "lead": "Work from the inspiration references and source brief to define a mobile-first onboarding and activation experience that moves a user from curiosity to a confident first action.",
+      "focusAreas": [
+        "first impression",
+        "explanation of value",
+        "screen pacing",
+        "UI-preview usage",
+        "illustration or motion strategy",
+        "trust cues",
+        "CTA structure",
+        "key transition moments",
+        "first-session empty state behavior",
+        "visual rules that should carry into the core product"
+      ],
+      "guardrails": [
+        "Keep the system simple, emotionally clear, and conversion-focused instead of overloaded with feature marketing.",
+        "Make the outcome feel native, modern, and brand-specific rather than template-driven."
+      ],
+      "deliverables": [
+        "Return a reusable onboarding direction that can become both a contract and an implementation-ready prototype plan."
+      ]
+    },
+    {
+      "id": "existing-product-redesign",
+      "label": "Existing product redesign from inspiration",
+      "bestFor": [
+        "redesigns that must keep identity",
+        "quality upgrades without a full rebrand",
+        "surface modernization"
+      ],
+      "matchKeywords": [
+        "redesign",
+        "refresh",
+        "modernize",
+        "upgrade",
+        "existing product",
+        "current product",
+        "keep identity",
+        "retain identity",
+        "simplify",
+        "amplify"
+      ],
+      "lead": "Compare the source brief against the inspiration references and synthesize a redesign contract that upgrades the product without discarding its core identity.",
+      "focusAreas": [
+        "hierarchy",
+        "tone",
+        "composition",
+        "visual confidence",
+        "motion",
+        "photography",
+        "layout discipline",
+        "what to keep",
+        "what to remove",
+        "what to simplify",
+        "what to amplify"
+      ],
+      "guardrails": [
+        "Avoid superficial mimicry and avoid proposing a totally unrelated brand system.",
+        "Favor the smallest coherent visual shift that creates a real quality jump."
+      ],
+      "deliverables": [
+        "Return a transformation plan that is specific enough to drive implementation-plan artifacts and clear enough to hand directly into Canvas."
+      ]
+    }
+  ]
+}

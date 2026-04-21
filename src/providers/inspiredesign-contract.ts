@@ -15,6 +15,7 @@ import {
   buildInspiredesignFollowthroughSummary,
   buildInspiredesignNextStep
 } from "../inspiredesign/handoff";
+import type { InspiredesignBriefExpansion } from "../inspiredesign/brief-expansion";
 import type { JsonValue } from "./types";
 
 type JsonRecord = Record<string, JsonValue>;
@@ -115,6 +116,7 @@ export type InspiredesignImplementationPlan = {
 };
 
 export type InspiredesignPacket = {
+  advancedBriefMarkdown: string;
   designContract: CanvasDesignGovernance;
   generationPlan: CanvasGenerationPlan;
   canvasPlanRequest: CanvasPlanRequestTemplate;
@@ -142,6 +144,15 @@ export type InspiredesignImplementationContext = {
 export type InspiredesignFollowthrough = {
   summary: string;
   nextStep: string;
+  briefExpansion: {
+    templateVersion: string;
+    file: string;
+    format: {
+      id: string;
+      label: string;
+      bestFor: string[];
+    };
+  };
   recommendedSkills: string[];
   commandExamples: {
     loadBestPractices: string;
@@ -155,6 +166,7 @@ export type InspiredesignFollowthrough = {
 
 export type BuildInspiredesignPacketInput = {
   brief: string;
+  briefExpansion: InspiredesignBriefExpansion;
   urls: string[];
   references: InspiredesignReferenceEvidence[];
   includePrototypeGuidance?: boolean;
@@ -414,15 +426,24 @@ const hasKeyword = (value: string, keywords: readonly string[]): boolean => {
   return keywords.some((keyword) => haystack.includes(keyword));
 };
 
+const getUsableReferenceAnalysisText = (reference: InspiredesignReferenceEvidence): string => {
+  if (reference.fetchStatus !== "captured") return "";
+  const title = reference.title ?? reference.capture?.title;
+  return [title, reference.excerpt]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map(trimText)
+    .join(" ");
+};
+
 const classifyProfile = (brief: string, references: InspiredesignReferenceEvidence[]): CanvasVisualDirectionProfile => {
-  const combined = [brief, ...references.map((reference) => `${reference.title ?? ""} ${reference.excerpt ?? ""}`)]
+  const combined = [brief, ...references.map(getUsableReferenceAnalysisText)]
     .join(" ")
     .toLowerCase();
   return PROFILE_MATCHERS.find((matcher) => hasKeyword(combined, matcher.keywords))?.profile ?? "product-story";
 };
 
 const resolveThemeStrategy = (brief: string, references: InspiredesignReferenceEvidence[]): CanvasGenerationPlan["visualDirection"]["themeStrategy"] => {
-  const combined = `${brief} ${references.map((reference) => reference.excerpt ?? "").join(" ")}`.toLowerCase();
+  const combined = `${brief} ${references.map(getUsableReferenceAnalysisText).join(" ")}`.toLowerCase();
   return combined.includes("dark")
     ? "light-dark-parity"
     : "single-theme";
@@ -661,9 +682,21 @@ const buildContractScope = (): InspiredesignContractScope => ({
   note: `${INSPIREDESIGN_HANDOFF_FILES.designContract} is the narrowed canvas governance contract. Use ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff} for navigation, async, and performance context that informs implementation but does not belong in canvas governance patches.`
 });
 
-const buildFollowthrough = (generationPlan: CanvasGenerationPlan): InspiredesignFollowthrough => ({
+const buildFollowthrough = (
+  generationPlan: CanvasGenerationPlan,
+  briefExpansion: InspiredesignBriefExpansion
+): InspiredesignFollowthrough => ({
   summary: buildInspiredesignFollowthroughSummary(),
   nextStep: buildInspiredesignNextStep(),
+  briefExpansion: {
+    templateVersion: briefExpansion.templateVersion,
+    file: INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
+    format: {
+      id: briefExpansion.format.id,
+      label: briefExpansion.format.label,
+      bestFor: [...briefExpansion.format.bestFor]
+    }
+  },
   recommendedSkills: [...INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS],
   commandExamples: { ...INSPIREDESIGN_HANDOFF_COMMANDS },
   deepCaptureRecommendation: INSPIREDESIGN_HANDOFF_GUIDANCE.deepCaptureRecommendation,
@@ -835,28 +868,12 @@ const renderReferenceMarkdown = (reference: InspiredesignReferenceEvidence, inde
   ].join("\n");
 };
 
-const resolveProfileConfigFromGenerationPlan = (
-  generationPlan: CanvasDesignGovernance["generationPlan"]
-): ProfileConfig => {
-  if (!generationPlan || typeof generationPlan !== "object" || !("visualDirection" in generationPlan)) {
-    throw new Error("Inspiredesign design contract requires a generation plan.");
-  }
-  const visualDirection = generationPlan.visualDirection;
-  if (!visualDirection || typeof visualDirection !== "object" || !("profile" in visualDirection)) {
-    throw new Error("Inspiredesign design contract requires a visual direction profile.");
-  }
-  const profile = visualDirection.profile;
-  if (typeof profile !== "string" || !(profile in PROFILE_CONFIG)) {
-    throw new Error("Inspiredesign design contract profile is invalid.");
-  }
-  return PROFILE_CONFIG[profile as CanvasVisualDirectionProfile];
-};
-
 const renderGovernanceMarkdown = (
   designContract: CanvasDesignGovernance,
   implementationPlan: InspiredesignImplementationPlan
 ): string => {
-  const profileConfig = resolveProfileConfigFromGenerationPlan(designContract.generationPlan);
+  const generationPlan = designContract.generationPlan as CanvasGenerationPlan;
+  const profileConfig = PROFILE_CONFIG[generationPlan.visualDirection.profile];
   return [
     "## 4.1 Design Intent",
     formatBulletList([
@@ -1011,11 +1028,22 @@ const renderDeliverablesSummary = (includePrototypeGuidance: boolean): string =>
 
 const buildEvidencePayload = (
   brief: string,
+  briefExpansion: InspiredesignBriefExpansion,
   urls: string[],
   references: InspiredesignReferenceEvidence[]
 ): JsonRecord => ({
   brief,
   briefHash: referenceFingerprint(brief),
+  advancedBrief: briefExpansion.advancedBrief,
+  advancedBriefHash: referenceFingerprint(briefExpansion.advancedBrief),
+  briefExpansion: {
+    templateVersion: briefExpansion.templateVersion,
+    format: {
+      id: briefExpansion.format.id,
+      label: briefExpansion.format.label,
+      bestFor: [...briefExpansion.format.bestFor]
+    }
+  },
   urls,
   referenceCount: references.length,
   references: references.map((reference) => toReferenceEvidenceJson(reference))
@@ -1045,6 +1073,7 @@ const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): Jso
 
 export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): InspiredesignPacket => {
   const brief = trimText(input.brief);
+  const advancedBriefMarkdown = input.briefExpansion.advancedBrief;
   const urls = [...new Set(input.urls.map((url) => trimText(url)).filter(Boolean))];
   const references = input.references.map((reference) => ({
     ...reference,
@@ -1055,7 +1084,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   const generationPlan = buildGenerationPlan(brief, profile, references);
   const canvasPlanRequest = buildCanvasPlanRequest(brief, generationPlan);
   const designContract = buildDesignContract(brief, urls, references, generationPlan);
-  const followthrough = buildFollowthrough(generationPlan);
+  const followthrough = buildFollowthrough(generationPlan, input.briefExpansion);
   const implementationPlan = buildImplementationPlan(brief, profile, references);
   const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan);
   const implementationPlanMarkdown = renderImplementationMarkdown(implementationPlan);
@@ -1068,6 +1097,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     formatBulletList([
       `Analyzed brief plus ${references.length || 0} inspiration reference(s).`,
       `Chosen design direction: ${PROFILE_CONFIG[profile].direction}.`,
+      `Prompt format: ${input.briefExpansion.format.label} (${input.briefExpansion.templateVersion}).`,
       "Final outcome: a reusable design contract, engineering plan, and optional prototype guidance.",
       `Scope mode: ${references.length > 1 ? "full-site synthesis" : "single-surface synthesis"}.`
     ]),
@@ -1103,6 +1133,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   ].join("\n");
 
   return {
+    advancedBriefMarkdown,
     designContract,
     generationPlan,
     canvasPlanRequest,
@@ -1111,6 +1142,6 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     implementationPlan,
     implementationPlanMarkdown,
     prototypeGuidanceMarkdown,
-    evidence: buildEvidencePayload(brief, urls, references)
+    evidence: buildEvidencePayload(brief, input.briefExpansion, urls, references)
   };
 };

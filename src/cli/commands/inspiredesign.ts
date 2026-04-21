@@ -10,6 +10,7 @@ import {
 } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
+import { resolveInspiredesignCaptureMode } from "../../providers/inspiredesign-capture-mode";
 
 type InspiredesignCommandArgs = {
   brief?: string;
@@ -187,11 +188,12 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
   if (!parsed.brief?.trim()) {
     throw createUsageError("Missing --brief");
   }
+  const captureMode = resolveInspiredesignCaptureMode(parsed.captureMode, parsed.urls);
 
   const data = await callDaemon("inspiredesign.run", {
     brief: parsed.brief,
     urls: parsed.urls,
-    captureMode: parsed.captureMode ?? "off",
+    captureMode,
     includePrototypeGuidance: parsed.includePrototypeGuidance,
     mode: parsed.mode ?? "compact",
     timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,

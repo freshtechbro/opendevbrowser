@@ -32,6 +32,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - `assets/templates/design-audit-report.v1.md`
 - `assets/templates/design-contract.v1.json`
 - `assets/templates/canvas-generation-plan.design.v1.json`
+- `assets/templates/inspiredesign-advanced-brief.v1.json`
 - `assets/templates/design-review-checklist.json`
 - `assets/templates/real-surface-design-matrix.json`
 - `assets/templates/reference-pattern-board.v1.json`

@@ -236,14 +236,13 @@ describe("workflow tools", () => {
     );
   });
 
-  it("executes inspiredesign tool with default capture-mode off", async () => {
+  it("executes inspiredesign tool with default capture-mode off when no urls are supplied", async () => {
     const deps = makeDeps();
     const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
     const tool = createInspiredesignRunTool(deps as never);
 
     const response = parse(await tool.execute({
       brief: "Design a premium docs website",
-      urls: ["https://example.com/reference"],
       mode: "json"
     } as never));
 
@@ -254,13 +253,10 @@ describe("workflow tools", () => {
       followthroughSummary: expect.stringContaining("OpenDevBrowser Canvas")
     }));
     expect(deps.manager.launch).not.toHaveBeenCalled();
-    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
-      { url: "https://example.com/reference" },
-      expect.any(Object)
-    );
+    expect(deps.providerRuntime.fetch).not.toHaveBeenCalled();
   });
 
-  it("executes inspiredesign deep capture through browser manager helpers", async () => {
+  it("forces inspiredesign deep capture through browser manager helpers when urls are supplied", async () => {
     const deps = makeDeps();
     const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
     const tool = createInspiredesignRunTool(deps as never);
@@ -268,7 +264,6 @@ describe("workflow tools", () => {
     const response = parse(await tool.execute({
       brief: "Design a premium docs website",
       urls: ["https://example.com/reference"],
-      captureMode: "deep",
       mode: "compact",
       timeoutMs: 45000
     } as never));
@@ -307,7 +302,7 @@ describe("workflow tools", () => {
     const response = parse(await tool.execute({
       brief: "Design a premium docs website",
       urls: ["https://example.com/reference"],
-      captureMode: "deep",
+      captureMode: "off",
       mode: "compact",
       useCookies: true,
       cookiePolicyOverride: "required",
@@ -315,6 +310,7 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
+    expect(deps.manager.launch).toHaveBeenCalledTimes(1);
     expect(deps.manager.cookieImport).toHaveBeenCalledWith("session-1", cookieSource.value, false);
     expect(deps.manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/reference"]);
     expect(deps.manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
