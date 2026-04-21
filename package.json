@@ -46,8 +46,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "node scripts/run-package-tool.mjs tsup src/index.ts src/cli/index.ts src/cli/installers/postinstall-skill-sync.ts src/skills/skill-loader.ts --format esm --clean --sourcemap && node scripts/run-package-tool.mjs tsc --emitDeclarationOnly --declaration --declarationMap -p tsconfig.json && node scripts/postbuild-dist.mjs",
-    "dev": "tsup src/index.ts src/cli/index.ts src/cli/installers/postinstall-skill-sync.ts src/skills/skill-loader.ts --format esm --dts --watch",
+    "build": "node scripts/run-package-tool.mjs tsup --config tsup.config.ts && node scripts/run-package-tool.mjs tsc --emitDeclarationOnly --declaration --declarationMap -p tsconfig.json && node scripts/postbuild-dist.mjs",
+    "dev": "node scripts/run-package-tool.mjs tsup --config tsup.config.ts --dts --watch",
     "lint": "node scripts/run-package-tool.mjs eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "typecheck": "node scripts/run-package-tool.mjs tsc --noEmit -p tsconfig.json",
     "test": "node scripts/run-vitest-coverage.mjs",
