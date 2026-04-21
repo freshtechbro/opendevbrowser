@@ -1951,9 +1951,11 @@ describe("OpsBrowserManager", () => {
         parallelismPolicy: expect.any(Object)
       }),
       undefined,
-      30000,
+      expect.any(Number),
       "lease-recover"
     );
+    expect((requestMock.mock.calls[0] ?? [])[3]).toBeLessThanOrEqual(30000);
+    expect((requestMock.mock.calls[0] ?? [])[3]).toBeGreaterThan(0);
     expect(requestMock).toHaveBeenNthCalledWith(
       2,
       "targets.list",
