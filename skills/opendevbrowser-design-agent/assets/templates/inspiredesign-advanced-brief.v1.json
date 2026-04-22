@@ -20,19 +20,53 @@
         "launch pages",
         "rebrands"
       ],
-      "matchKeywords": [
+      "businessFocus": [
+        "premium SaaS marketing",
+        "product launches",
+        "docs-first brands",
+        "brand refresh surfaces"
+      ],
+      "keywords": [
         "landing",
         "homepage",
-        "home page",
         "launch",
         "brand",
-        "rebrand",
         "editorial",
         "hero",
         "marketing",
         "docs"
       ],
+      "matchSignals": {
+        "positive": [
+          "landing",
+          "homepage",
+          "home page",
+          "launch",
+          "brand",
+          "rebrand",
+          "editorial",
+          "hero",
+          "marketing",
+          "docs"
+        ],
+        "excluded": [
+          "dashboard",
+          "admin",
+          "onboarding"
+        ],
+        "tieBreaker": 1
+      },
       "lead": "Study the inspiration references and synthesize a premium editorial landing page system that translates the source brief into a reusable, brand-specific direction.",
+      "archetype": "editorial brand campaign",
+      "layoutArchetype": "full-bleed hero with narrative section cadence",
+      "typographySystem": "display serif or refined grotesk headlines paired with restrained sans body copy",
+      "surfaceTreatment": "bright print-like planes, disciplined image crops, and hairline dividers",
+      "shapeLanguage": "sharp framing with selective soft corners only where interaction requires it",
+      "componentGrammar": "hero composition, proof bands, narrative media strips, restrained CTA groups",
+      "motionGrammar": "measured fades, staggered reveals, and restrained parallax",
+      "paletteIntent": "bright neutral field with one confident accent and controlled contrast",
+      "visualDensity": "airy",
+      "designVariance": "balanced asymmetry",
       "focusAreas": [
         "hero composition",
         "brand presence",
@@ -44,13 +78,30 @@
         "trust-building moments",
         "motion tone"
       ],
+      "responsiveCollapseRules": [
+        "Collapse split editorial compositions into a single text-first stack before line length becomes cramped.",
+        "Keep one dominant visual plane on mobile rather than shrinking multiple competing media blocks."
+      ],
       "guardrails": [
         "Prioritize one dominant hero idea and a clear narrative progression instead of dashboard-style clutter.",
         "Favor a full-bleed visual approach with restrained supporting copy and deliberate section sequencing."
       ],
+      "antiPatterns": [
+        "No feature-card hero.",
+        "No metric strip in the first viewport.",
+        "No generic startup copy tone.",
+        "No dashboard chrome on a marketing surface."
+      ],
       "deliverables": [
-        "Translate the references into a reusable design contract that fits the product story, audience, and brand voice in the source brief."
-      ]
+        "Translate the references into a reusable design contract that fits the product story, audience, and brand voice in the source brief.",
+        "Define the hero doctrine, visual hierarchy, and section cadence clearly enough for a first implementation pass."
+      ],
+      "route": {
+        "profile": "product-story",
+        "themeStrategy": "single-theme",
+        "navigationModel": "global-header",
+        "layoutApproach": "editorial-hero-sequence"
+      }
     },
     {
       "id": "b2b-dashboard-app-shell",
@@ -60,19 +111,53 @@
         "internal tools",
         "data-heavy SaaS"
       ],
-      "matchKeywords": [
+      "businessFocus": [
+        "operations software",
+        "internal tooling",
+        "multi-tenant analytics products",
+        "enterprise control surfaces"
+      ],
+      "keywords": [
         "dashboard",
         "admin",
         "app shell",
-        "app-shell",
         "internal tool",
         "operator",
         "table",
         "analytics",
-        "saas",
-        "control room"
+        "SaaS"
       ],
+      "matchSignals": {
+        "positive": [
+          "dashboard",
+          "admin",
+          "app shell",
+          "app-shell",
+          "internal tool",
+          "operator",
+          "table",
+          "analytics",
+          "saas",
+          "control room"
+        ],
+        "excluded": [
+          "onboarding",
+          "villa",
+          "festival"
+        ],
+        "tieBreaker": 2
+      },
       "lead": "Use the inspiration references and source brief to extract a reusable dashboard and app-shell contract that stays fast, calm, and operator-friendly.",
+      "archetype": "operational workspace shell",
+      "layoutArchetype": "predictable desktop shell with fixed navigation zones and state-aware work panels",
+      "typographySystem": "sharp grotesk UI type with monospaced numeric support for tables and diagnostics",
+      "surfaceTreatment": "bright control-room surfaces with disciplined dividers and low-elevation panels",
+      "shapeLanguage": "rectilinear structure with restrained radii and explicit separators",
+      "componentGrammar": "sidebar, command toolbar, filter rail, data tables, detail drawers, empty states",
+      "motionGrammar": "state-transition clarity, panel continuity, and zero decorative animation noise",
+      "paletteIntent": "crisp neutral shell with one utility accent and clear semantic state colors",
+      "visualDensity": "dense but breathable",
+      "designVariance": "low-variance structure",
       "focusAreas": [
         "information hierarchy",
         "sidebar behavior",
@@ -85,13 +170,30 @@
         "loading states",
         "primary action priority"
       ],
+      "responsiveCollapseRules": [
+        "Collapse secondary panes before compressing the primary work surface.",
+        "Preserve search, filters, and the primary action path as fixed zones on narrow breakpoints."
+      ],
       "guardrails": [
         "Favor predictable layout zones, strong state communication, and clean action paths over decorative UI noise.",
         "Keep the interaction model credible and scalable across desktop breakpoints."
       ],
+      "antiPatterns": [
+        "No hero marketing treatment inside the shell.",
+        "No floating-window chaos.",
+        "No equal-emphasis KPI tiles everywhere.",
+        "No ornamental glass or neon styling."
+      ],
       "deliverables": [
-        "Return a dashboard contract that can guide a first implementation plan and a Canvas-first prototype handoff."
-      ]
+        "Return a dashboard contract that can guide a first implementation plan and a Canvas-first prototype handoff.",
+        "Specify the shell grammar for navigation, filters, data views, and state feedback."
+      ],
+      "route": {
+        "profile": "ops-control",
+        "themeStrategy": "single-theme",
+        "navigationModel": "sidebar",
+        "layoutApproach": "workspace-shell"
+      }
     },
     {
       "id": "cinematic-product-story",
@@ -102,19 +204,52 @@
         "showcase pages",
         "keynote-style launches"
       ],
-      "matchKeywords": [
+      "businessFocus": [
+        "hardware launches",
+        "premium consumer products",
+        "device showcases",
+        "showcase-led commerce alternatives"
+      ],
+      "keywords": [
         "product story",
-        "product-story",
         "hardware",
         "device",
         "physical product",
         "showcase",
         "photography",
-        "launch page",
-        "keynote",
-        "consumer product"
+        "keynote"
       ],
+      "matchSignals": {
+        "positive": [
+          "product story",
+          "product-story",
+          "hardware",
+          "device",
+          "physical product",
+          "showcase",
+          "photography",
+          "launch page",
+          "keynote",
+          "consumer product"
+        ],
+        "excluded": [
+          "dashboard",
+          "settings",
+          "festival"
+        ],
+        "tieBreaker": 2
+      },
       "lead": "Study the inspiration references and synthesize a cinematic product-story direction that turns the source brief into a premium, product-led narrative.",
+      "archetype": "photostudio launch narrative",
+      "layoutArchetype": "scene-based scroll story with full-bleed product reveals",
+      "typographySystem": "restrained sans or condensed display with large scale contrast and minimal body copy",
+      "surfaceTreatment": "dark or bright studio backdrops, high-contrast product planes, and controlled material highlights",
+      "shapeLanguage": "large uninterrupted planes with almost no ornamental framing",
+      "componentGrammar": "scene hero, proof interludes, spec reveals, testimonial or quote punctuations",
+      "motionGrammar": "slow dissolves, glide transitions, and product-led reveal timing",
+      "paletteIntent": "controlled studio palette that serves material realism instead of interface variety",
+      "visualDensity": "sparse",
+      "designVariance": "high cinematic contrast",
       "focusAreas": [
         "lighting",
         "framing",
@@ -125,13 +260,30 @@
         "transition from emotion to proof",
         "product-detail storytelling"
       ],
+      "responsiveCollapseRules": [
+        "Keep one scene per scroll beat on mobile instead of compressing multiple proof layers together.",
+        "Stack product proof and supporting copy under the main image plane once panoramic width is lost."
+      ],
       "guardrails": [
         "Do not fall back to generic ecommerce grids, trust-badge clutter, or spec-dump layouts.",
         "Prioritize product-story clarity over commerce-system conventions and keep the scene count disciplined."
       ],
+      "antiPatterns": [
+        "No marketplace product grid.",
+        "No coupon or deal framing.",
+        "No dense comparison tables in the hero.",
+        "No dashboard-like metric blocks."
+      ],
       "deliverables": [
-        "Return a premium product-led story with 3 to 5 clear scene beats and a strong visual hierarchy."
-      ]
+        "Return a premium product-led story with 3 to 5 clear scene beats and a strong visual hierarchy.",
+        "Define the scene structure, motion posture, and proof handoff clearly enough for a launch-page build."
+      ],
+      "route": {
+        "profile": "cinematic-minimal",
+        "themeStrategy": "single-theme",
+        "navigationModel": "immersive",
+        "layoutApproach": "product-scene-scroll"
+      }
     },
     {
       "id": "mobile-first-onboarding-activation",
@@ -141,19 +293,54 @@
         "onboarding redesigns",
         "activation funnel work"
       ],
-      "matchKeywords": [
+      "businessFocus": [
+        "consumer mobile apps",
+        "activation funnel redesigns",
+        "first-session experiences",
+        "trust-forward account creation"
+      ],
+      "keywords": [
         "mobile",
         "onboarding",
         "activation",
         "signup",
-        "sign-up",
         "first session",
         "consumer app",
-        "funnel",
-        "activation flow",
-        "native app"
+        "funnel"
       ],
+      "matchSignals": {
+        "positive": [
+          "mobile",
+          "onboarding",
+          "activation",
+          "signup",
+          "sign-up",
+          "first session",
+          "consumer app",
+          "funnel",
+          "activation flow",
+          "native app"
+        ],
+        "required": [
+          "mobile"
+        ],
+        "excluded": [
+          "dashboard",
+          "festival"
+        ],
+        "tieBreaker": 2
+      },
       "lead": "Work from the inspiration references and source brief to define a mobile-first onboarding and activation experience that moves a user from curiosity to a confident first action.",
+      "archetype": "trust-forward activation flow",
+      "layoutArchetype": "screen-sequenced onboarding stack with clear first-action transition",
+      "typographySystem": "high-legibility mobile sans with deliberate contrast between titles, helper copy, and CTA labels",
+      "surfaceTreatment": "native-feeling surfaces, clean overlays, and quiet previews of the core product",
+      "shapeLanguage": "soft, tap-friendly forms and decisive CTA containers",
+      "componentGrammar": "value slides, progress moments, CTA stacks, trust cues, first-session empty states",
+      "motionGrammar": "confident screen pacing, low-friction transitions, and gentle confirmation motion",
+      "paletteIntent": "safe, modern mobile palette with one brand accent and generous clean space",
+      "visualDensity": "balanced",
+      "designVariance": "low-noise clarity",
       "focusAreas": [
         "first impression",
         "explanation of value",
@@ -166,13 +353,30 @@
         "first-session empty state behavior",
         "visual rules that should carry into the core product"
       ],
+      "responsiveCollapseRules": [
+        "Treat mobile as the source layout and only expand supporting previews for larger breakpoints.",
+        "Keep primary CTAs anchored within thumb reach when the flow collapses to narrow screens."
+      ],
       "guardrails": [
         "Keep the system simple, emotionally clear, and conversion-focused instead of overloaded with feature marketing.",
         "Make the outcome feel native, modern, and brand-specific rather than template-driven."
       ],
+      "antiPatterns": [
+        "No marketing landing page hero inside onboarding.",
+        "No overloaded feature tour before first action.",
+        "No desktop-first shell adapted down to mobile.",
+        "No modal maze."
+      ],
       "deliverables": [
-        "Return a reusable onboarding direction that can become both a contract and an implementation-ready prototype plan."
-      ]
+        "Return a reusable onboarding direction that can become both a contract and an implementation-ready prototype plan.",
+        "Define the launch tone, CTA posture, first-session empty-state behavior, and transition moments."
+      ],
+      "route": {
+        "profile": "auth-focused",
+        "themeStrategy": "light-dark-parity",
+        "navigationModel": "contextual",
+        "layoutApproach": "stacked-mobile-flow"
+      }
     },
     {
       "id": "existing-product-redesign",
@@ -182,19 +386,50 @@
         "quality upgrades without a full rebrand",
         "surface modernization"
       ],
-      "matchKeywords": [
+      "businessFocus": [
+        "existing digital products",
+        "incremental modernization programs",
+        "identity-preserving redesigns",
+        "mature brands needing a quality lift"
+      ],
+      "keywords": [
         "redesign",
         "refresh",
         "modernize",
         "upgrade",
         "existing product",
-        "current product",
-        "keep identity",
-        "retain identity",
-        "simplify",
-        "amplify"
+        "keep identity"
       ],
+      "matchSignals": {
+        "positive": [
+          "redesign",
+          "refresh",
+          "modernize",
+          "upgrade",
+          "existing product",
+          "current product",
+          "keep identity",
+          "retain identity",
+          "simplify",
+          "amplify"
+        ],
+        "excluded": [
+          "festival",
+          "villa"
+        ],
+        "tieBreaker": 1
+      },
       "lead": "Compare the source brief against the inspiration references and synthesize a redesign contract that upgrades the product without discarding its core identity.",
+      "archetype": "incremental premium redesign",
+      "layoutArchetype": "familiar shell with sharpened hierarchy and reduced ornament",
+      "typographySystem": "brand-safe type refresh that raises contrast without forcing a new visual language",
+      "surfaceTreatment": "existing brand DNA cleaned into brighter, calmer, more disciplined surfaces",
+      "shapeLanguage": "minimal shape shifts that improve confidence without looking like a rebrand",
+      "componentGrammar": "keep-versus-rebuild map across nav, hero, sections, cards, and forms",
+      "motionGrammar": "subtle polish motion that signals quality rather than novelty",
+      "paletteIntent": "stay inside brand memory while improving clarity, contrast, and discipline",
+      "visualDensity": "balanced",
+      "designVariance": "low-disruption improvement",
       "focusAreas": [
         "hierarchy",
         "tone",
@@ -208,13 +443,928 @@
         "what to simplify",
         "what to amplify"
       ],
+      "responsiveCollapseRules": [
+        "Preserve the core product shell while removing only the weakest supporting decoration on smaller breakpoints.",
+        "Collapse any new premium framing before harming the known action path or navigation model."
+      ],
       "guardrails": [
         "Avoid superficial mimicry and avoid proposing a totally unrelated brand system.",
         "Favor the smallest coherent visual shift that creates a real quality jump."
       ],
+      "antiPatterns": [
+        "No hard rebrand unless the brief explicitly asks for it.",
+        "No novelty components that disrupt known user flows.",
+        "No random style mixing from multiple references.",
+        "No gratuitous animation layer."
+      ],
       "deliverables": [
-        "Return a transformation plan that is specific enough to drive implementation-plan artifacts and clear enough to hand directly into Canvas."
-      ]
+        "Return a transformation plan that is specific enough to drive implementation-plan artifacts and clear enough to hand directly into Canvas.",
+        "Explain what to keep, remove, simplify, amplify, and restyle across the core surface."
+      ],
+      "route": {
+        "profile": "clean-room",
+        "themeStrategy": "single-theme",
+        "navigationModel": "contextual",
+        "layoutApproach": "incremental-redesign-system"
+      }
+    },
+    {
+      "id": "maison-campaign-world",
+      "label": "Maison campaign world",
+      "bestFor": [
+        "luxury fashion",
+        "fragrance launches",
+        "jewelry campaigns",
+        "premium hospitality brands"
+      ],
+      "businessFocus": [
+        "fashion maisons",
+        "luxury accessories",
+        "fragrance campaigns",
+        "high-end hospitality identity"
+      ],
+      "keywords": [
+        "maison",
+        "atelier",
+        "collection",
+        "season",
+        "campaign",
+        "couture",
+        "fragrance",
+        "heritage"
+      ],
+      "matchSignals": {
+        "positive": [
+          "maison",
+          "atelier",
+          "collection",
+          "season",
+          "campaign",
+          "craft",
+          "couture",
+          "fragrance",
+          "editorial",
+          "heritage"
+        ],
+        "excluded": [
+          "dashboard",
+          "onboarding",
+          "table"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Study the inspiration references and synthesize a maison campaign system that feels expensive, editorial, and brand-sovereign rather than digitally generic.",
+      "archetype": "luxury campaign world",
+      "layoutArchetype": "poster-scale editorial spread with chaptered campaign beats",
+      "typographySystem": "high-contrast serif display paired with a narrow polished grotesk support system",
+      "surfaceTreatment": "bright gallery whites, deep photographic contrast, and couture-grade negative space",
+      "shapeLanguage": "frame-led compositions, hairline dividers, and almost no utilitarian chrome",
+      "componentGrammar": "campaign hero, chapter markers, collection highlights, quote interludes, couture CTA moments",
+      "motionGrammar": "slow dissolves, image drifts, and precise text reveal pacing",
+      "paletteIntent": "light editorial base with ink-black contrast and one jewel-toned accent",
+      "visualDensity": "very airy",
+      "designVariance": "high-fashion asymmetry",
+      "focusAreas": [
+        "brand mythmaking",
+        "editorial pacing",
+        "hero image posture",
+        "headline scale",
+        "collection sequencing",
+        "proof without dashboard logic",
+        "campaign chapter structure"
+      ],
+      "responsiveCollapseRules": [
+        "Keep one campaign image dominant on mobile rather than shrinking a spread into multiple tiles.",
+        "Move supporting chapter markers beneath the hero stack once the poster layout collapses."
+      ],
+      "guardrails": [
+        "Keep the system poised, bright, and expensive rather than dark, loud, or overtly technical.",
+        "Treat interaction chrome as secondary to image-led composition and typographic authority."
+      ],
+      "antiPatterns": [
+        "No SaaS cards.",
+        "No metric strips.",
+        "No feature-grid hero.",
+        "No startup copy tone."
+      ],
+      "deliverables": [
+        "Define the hero doctrine, chapter sequence, typography scale, photography treatment, motion cues, and CTA posture.",
+        "Return a reusable campaign-world contract that can scale across launch, collection, and brand story surfaces."
+      ],
+      "route": {
+        "profile": "cinematic-minimal",
+        "themeStrategy": "single-theme",
+        "navigationModel": "immersive",
+        "layoutApproach": "maison-editorial-campaign"
+      }
+    },
+    {
+      "id": "sunlit-resort-narrative",
+      "label": "Sunlit resort narrative",
+      "bestFor": [
+        "destination resorts",
+        "travel products",
+        "premium real estate hospitality",
+        "villa or stay showcases"
+      ],
+      "businessFocus": [
+        "resort brands",
+        "villa booking experiences",
+        "destination marketing",
+        "luxury stay products"
+      ],
+      "keywords": [
+        "retreat",
+        "stay",
+        "villa",
+        "destination",
+        "itinerary",
+        "suite",
+        "property",
+        "oceanview"
+      ],
+      "matchSignals": {
+        "positive": [
+          "retreat",
+          "stay",
+          "villa",
+          "destination",
+          "itinerary",
+          "suite",
+          "property",
+          "escape",
+          "reservation",
+          "oceanview"
+        ],
+        "excluded": [
+          "dashboard",
+          "admin",
+          "table"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Work from the references to create a resort narrative system that feels sunlit, breathable, and destination-led rather than like a booking engine template.",
+      "archetype": "panoramic hospitality story",
+      "layoutArchetype": "panoramic media planes with story-to-booking progression",
+      "typographySystem": "refined sans with lightly romantic display moments and generous line length",
+      "surfaceTreatment": "warm mineral surfaces, luminous image planes, and quiet itinerary bands",
+      "shapeLanguage": "soft-edged frames, map ribbons, and understated sectional dividers",
+      "componentGrammar": "panorama hero, itinerary strips, amenity chapters, map moments, booking CTA band",
+      "motionGrammar": "soft parallax, crossfades, and calm scroll pacing",
+      "paletteIntent": "sunlit mineral neutrals with ocean or stone accents",
+      "visualDensity": "airy",
+      "designVariance": "serene asymmetry",
+      "focusAreas": [
+        "story-to-booking flow",
+        "gallery rhythm",
+        "map placement",
+        "reservation CTA timing",
+        "ambient proof moments",
+        "quiet destination framing"
+      ],
+      "responsiveCollapseRules": [
+        "Collapse panoramas into one priority image followed by itinerary and booking content.",
+        "Move any map or amenity ribbons below the first booking CTA on narrow screens."
+      ],
+      "guardrails": [
+        "Keep the composition spacious, bright, and calm rather than dense or transactional in the first viewport.",
+        "Use reservation moments as a payoff to the story, not as the dominant hero payload."
+      ],
+      "antiPatterns": [
+        "No booking-engine clutter above the fold.",
+        "No discount language.",
+        "No crowded comparison blocks.",
+        "No generic travel-card mosaic."
+      ],
+      "deliverables": [
+        "Define the story-to-booking sequence, gallery rules, map module grammar, booking CTA cadence, and responsive image behavior.",
+        "Return a reusable hospitality narrative contract that can support both destination storytelling and conversion."
+      ],
+      "route": {
+        "profile": "product-story",
+        "themeStrategy": "single-theme",
+        "navigationModel": "immersive",
+        "layoutApproach": "panoramic-resort-story"
+      }
+    },
+    {
+      "id": "architecture-monograph-system",
+      "label": "Architecture monograph system",
+      "bestFor": [
+        "architecture studios",
+        "interior practices",
+        "luxury real estate showcases",
+        "industrial design portfolios"
+      ],
+      "businessFocus": [
+        "architecture practices",
+        "interior design studios",
+        "monograph-style project archives",
+        "project-led real estate showcases"
+      ],
+      "keywords": [
+        "studio",
+        "practice",
+        "residence",
+        "project archive",
+        "monograph",
+        "materiality",
+        "plan",
+        "case study"
+      ],
+      "matchSignals": {
+        "positive": [
+          "studio",
+          "practice",
+          "residence",
+          "project archive",
+          "monograph",
+          "materiality",
+          "plan",
+          "section",
+          "site",
+          "case study"
+        ],
+        "excluded": [
+          "dashboard",
+          "activation",
+          "festival"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Study the references and define an architecture monograph system that feels rigorous, silent, and materially precise rather than market-driven.",
+      "archetype": "architectural monograph",
+      "layoutArchetype": "baseline-driven case-study grid with full-bleed drawing and photography pairings",
+      "typographySystem": "elegant serif narrative text with mono or narrow sans captioning for plans, sections, and annotations",
+      "surfaceTreatment": "paper-bright backgrounds, disciplined black rules, and full-bleed documentation plates",
+      "shapeLanguage": "hard-edged framing, asymmetrical margins, and gallery-like restraint",
+      "componentGrammar": "project index, drawing plate, material notes, caption rails, silent CTA treatments",
+      "motionGrammar": "almost-silent motion, precise image crossfades, and subtle chapter shifts",
+      "paletteIntent": "architectural neutrals with stone, graphite, and one material accent",
+      "visualDensity": "measured",
+      "designVariance": "controlled asymmetry",
+      "focusAreas": [
+        "archive index design",
+        "case-study cadence",
+        "plan and section treatment",
+        "caption systems",
+        "material cues",
+        "image rhythm",
+        "spacing discipline"
+      ],
+      "responsiveCollapseRules": [
+        "Stack drawings and photography vertically before shrinking annotation legibility.",
+        "Keep captions attached to their artifacts on mobile instead of floating them into side rails."
+      ],
+      "guardrails": [
+        "Keep the system rigorous, restrained, and material-first rather than promotional.",
+        "Let drawings, plans, and photography carry authority instead of decorative interface chrome."
+      ],
+      "antiPatterns": [
+        "No rounded-card ecosystem.",
+        "No playful animation.",
+        "No marketing filler.",
+        "No sales-led CTA dominance."
+      ],
+      "deliverables": [
+        "Define the archive index, case-study template, caption rules, image rhythm, and spacing discipline.",
+        "Return a monograph-grade contract that can guide both portfolio and project-depth surfaces."
+      ],
+      "route": {
+        "profile": "clean-room",
+        "themeStrategy": "single-theme",
+        "navigationModel": "contextual",
+        "layoutApproach": "monograph-case-study-grid"
+      }
+    },
+    {
+      "id": "luminous-research-atlas",
+      "label": "Luminous research atlas",
+      "bestFor": [
+        "AI labs",
+        "think tanks",
+        "climate or health research",
+        "data-storytelling products"
+      ],
+      "businessFocus": [
+        "research organizations",
+        "evidence-led storytelling",
+        "atlas and observatory products",
+        "methodology-rich publications"
+      ],
+      "keywords": [
+        "atlas",
+        "observatory",
+        "methodology",
+        "evidence",
+        "report",
+        "research",
+        "index",
+        "publication"
+      ],
+      "matchSignals": {
+        "positive": [
+          "atlas",
+          "observatory",
+          "methodology",
+          "evidence",
+          "report",
+          "research",
+          "map",
+          "model",
+          "index",
+          "publication"
+        ],
+        "excluded": [
+          "checkout",
+          "festival",
+          "villa"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Study the inspiration references and synthesize a luminous research atlas that turns evidence, methodology, and narrative into a premium, readable system.",
+      "archetype": "annotated evidence atlas",
+      "layoutArchetype": "bright scroll atlas with chaptered evidence bands and annotation rails",
+      "typographySystem": "precise sans for data and narrative paired with restrained serif emphasis",
+      "surfaceTreatment": "ivory research planes, layered evidence visuals, and quiet annotation rails",
+      "shapeLanguage": "clean modules, chart frames, citation bars, and highlighted note rails",
+      "componentGrammar": "evidence chapters, methodology blocks, chart plates, callout annotations, citation modules",
+      "motionGrammar": "zoom-and-highlight transitions, subtle annotation reveals, and calm data emphasis",
+      "paletteIntent": "bright ivory base with measured accent coding for evidence groups",
+      "visualDensity": "balanced",
+      "designVariance": "structured expressiveness",
+      "focusAreas": [
+        "evidence hierarchy",
+        "methodology framing",
+        "annotation rails",
+        "chart grammar",
+        "citation treatment",
+        "scroll-story beats",
+        "proof sequencing"
+      ],
+      "responsiveCollapseRules": [
+        "Collapse annotation rails beneath the primary evidence block before reducing chart legibility.",
+        "Keep citations attached to the relevant section on mobile instead of moving them to a distant appendix treatment."
+      ],
+      "guardrails": [
+        "Keep the surface bright, exact, and evidence-first rather than dashboard-like or cyber-styled.",
+        "Use motion only to clarify how the user should read charts, maps, and methodology layers."
+      ],
+      "antiPatterns": [
+        "No cyber glow.",
+        "No dashboard clutter.",
+        "No decorative charts.",
+        "No unexplained iconography."
+      ],
+      "deliverables": [
+        "Define the evidence hierarchy, chart grammar, annotation system, citation treatment, and scroll-story beats.",
+        "Return a premium research contract detailed enough for publication surfaces and Canvas-ready implementation."
+      ],
+      "route": {
+        "profile": "documentation",
+        "themeStrategy": "single-theme",
+        "navigationModel": "contextual",
+        "layoutApproach": "annotated-atlas-scroll"
+      }
+    },
+    {
+      "id": "private-wealth-salon",
+      "label": "Private wealth salon",
+      "bestFor": [
+        "private banking",
+        "wealth platforms",
+        "family office software",
+        "premium fintech"
+      ],
+      "businessFocus": [
+        "private client finance",
+        "wealth intelligence products",
+        "family office tools",
+        "advisor-facing premium fintech"
+      ],
+      "keywords": [
+        "wealth",
+        "capital",
+        "portfolio",
+        "treasury",
+        "allocation",
+        "advisor",
+        "estate",
+        "reporting"
+      ],
+      "matchSignals": {
+        "positive": [
+          "wealth",
+          "capital",
+          "portfolio",
+          "treasury",
+          "allocation",
+          "advisor",
+          "private client",
+          "estate",
+          "intelligence",
+          "reporting"
+        ],
+        "excluded": [
+          "crypto",
+          "token",
+          "festival"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Work from the references to synthesize a private wealth system that feels like a discreet salon rather than a retail fintech dashboard.",
+      "archetype": "salon-grade trust interface",
+      "layoutArchetype": "split-panel trust sequence with couture data previews and service-led sections",
+      "typographySystem": "tall high-contrast headlines with polished sans detail and refined numeric styling",
+      "surfaceTreatment": "warm neutral surfaces, quiet paper textures, and disciplined premium separators",
+      "shapeLanguage": "framed content rooms, quiet tab rails, and couture table spacing",
+      "componentGrammar": "trust hero, portfolio preview, advisor modules, secure access moments, service panels",
+      "motionGrammar": "restrained hover microphysics and dignified panel continuity",
+      "paletteIntent": "warm neutrals, muted metallic accents, and calm signal colors",
+      "visualDensity": "measured",
+      "designVariance": "low-noise luxury",
+      "focusAreas": [
+        "trust architecture",
+        "advisor touchpoints",
+        "portfolio preview hierarchy",
+        "secure entry tone",
+        "service-led proof",
+        "numeric typography discipline"
+      ],
+      "responsiveCollapseRules": [
+        "Collapse split salons into a single guided trust sequence before compressing numeric previews.",
+        "Keep the secure action path and advisor contact moment visible without crowding the first viewport."
+      ],
+      "guardrails": [
+        "Keep the system discreet, bright, and high-confidence instead of aggressive or hype-driven.",
+        "Treat data previews as crafted typography and spacing problems, not as loud KPI tiles."
+      ],
+      "antiPatterns": [
+        "No crypto aesthetic.",
+        "No KPI tile wall.",
+        "No loud B2B dashboard chrome.",
+        "No neon or dark-trading UI posture."
+      ],
+      "deliverables": [
+        "Define the trust architecture, data-preview modules, advisor touchpoints, secure entry tone, and motion restraint rules.",
+        "Return a reusable private-wealth contract that can guide both marketing and authenticated advisory surfaces."
+      ],
+      "route": {
+        "profile": "clean-room",
+        "themeStrategy": "single-theme",
+        "navigationModel": "contextual",
+        "layoutApproach": "salon-trust-panels"
+      }
+    },
+    {
+      "id": "cultural-festival-atlas",
+      "label": "Cultural festival atlas",
+      "bestFor": [
+        "biennales",
+        "art fairs",
+        "music festivals",
+        "design weeks",
+        "premium conferences"
+      ],
+      "businessFocus": [
+        "festival identity systems",
+        "program-driven event surfaces",
+        "cultural institutions",
+        "multi-venue schedule products"
+      ],
+      "keywords": [
+        "edition",
+        "lineup",
+        "program",
+        "venue",
+        "exhibition",
+        "passes",
+        "festival",
+        "screening"
+      ],
+      "matchSignals": {
+        "positive": [
+          "edition",
+          "lineup",
+          "program",
+          "venue",
+          "exhibition",
+          "passes",
+          "festival",
+          "talks",
+          "screening",
+          "schedule"
+        ],
+        "excluded": [
+          "dashboard",
+          "billing",
+          "checkout"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Study the references and define a cultural festival atlas that feels poster-led, kinetic, and editorial rather than like a corporate event microsite.",
+      "archetype": "poster-grid program atlas",
+      "layoutArchetype": "chaptered program sequence with wayfinding color blocks and event-driven typographic beats",
+      "typographySystem": "expressive variable type paired with a sober schedule support face",
+      "surfaceTreatment": "bright poster fields, color-block navigation, and layered program markers",
+      "shapeLanguage": "poster frames, directional bars, stacked ribbons, and event tags",
+      "componentGrammar": "edition hero, lineup atlas, schedule chapters, venue maps, ticket pathways",
+      "motionGrammar": "kinetic type bands, chapter transitions, and route-aware section motion",
+      "paletteIntent": "bright thematic palette system with venue or category coding",
+      "visualDensity": "high but legible",
+      "designVariance": "high-expression systems",
+      "focusAreas": [
+        "identity system",
+        "schedule grammar",
+        "venue map modules",
+        "ticket CTA logic",
+        "wayfinding hierarchy",
+        "program chaptering"
+      ],
+      "responsiveCollapseRules": [
+        "Reduce poster-grid complexity to a clean event list plus prominent schedule filters on mobile.",
+        "Keep venue maps and ticket actions in the same narrative lane once space becomes limited."
+      ],
+      "guardrails": [
+        "Keep the direction cultural, expressive, and controlled rather than generic corporate-conference UI.",
+        "Let typography and wayfinding structure create the energy before adding decorative media."
+      ],
+      "antiPatterns": [
+        "No corporate conference template.",
+        "No equal-width card grids.",
+        "No dead spreadsheet agenda hero.",
+        "No low-energy generic icon rows."
+      ],
+      "deliverables": [
+        "Define the identity system, schedule grammar, venue map modules, ticket CTA logic, and motion choreography.",
+        "Return a reusable festival contract that can cover edition landing, lineup, program, and pass-conversion surfaces."
+      ],
+      "route": {
+        "profile": "cinematic-minimal",
+        "themeStrategy": "multi-theme-system",
+        "navigationModel": "immersive",
+        "layoutApproach": "poster-program-sequence"
+      }
+    },
+    {
+      "id": "wellness-ritual-system",
+      "label": "Wellness ritual system",
+      "bestFor": [
+        "beauty",
+        "skincare",
+        "clinics",
+        "premium wellness apps",
+        "recovery products"
+      ],
+      "businessFocus": [
+        "wellness programs",
+        "skincare systems",
+        "beauty rituals",
+        "recovery and clinic products"
+      ],
+      "keywords": [
+        "ritual",
+        "treatment",
+        "glow",
+        "routine",
+        "recovery",
+        "clinic",
+        "ingredient",
+        "reset"
+      ],
+      "matchSignals": {
+        "positive": [
+          "ritual",
+          "treatment",
+          "glow",
+          "routine",
+          "recovery",
+          "clinic",
+          "session",
+          "ingredient",
+          "skin",
+          "reset"
+        ],
+        "excluded": [
+          "dashboard",
+          "table",
+          "festival"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Study the references and synthesize a wellness ritual system that feels luminous, calm, and premium without collapsing into stock spa cliches.",
+      "archetype": "ritual-led wellness story",
+      "layoutArchetype": "porcelain chapter flow with ritual steps, proof surfaces, and booking or activation moments",
+      "typographySystem": "soft modern serif accents over highly legible sans narrative copy",
+      "surfaceTreatment": "porcelain surfaces, mineral gradients, translucent layers, and macro texture photography",
+      "shapeLanguage": "gentle curves, rounded panels, and flowing sectional transitions",
+      "componentGrammar": "ritual hero, routine modules, ingredient proof surfaces, booking moments, calm testimonials",
+      "motionGrammar": "breathing rhythm, gentle float motion, and calm confirmation transitions",
+      "paletteIntent": "bright mineral palette with skin-safe neutrals and one clean accent",
+      "visualDensity": "airy",
+      "designVariance": "soft continuity",
+      "focusAreas": [
+        "ritual flow modules",
+        "ingredient and proof surfaces",
+        "booking posture",
+        "first-session tone",
+        "wellness trust cues",
+        "motion breathing rules"
+      ],
+      "responsiveCollapseRules": [
+        "Stack ritual steps vertically before shrinking proof imagery or ingredient legibility.",
+        "Keep booking or activation moments separated from storytelling content on narrow screens."
+      ],
+      "guardrails": [
+        "Keep the system bright, thematic, and premium rather than washed-out, decorative, or medicalized.",
+        "Use motion to reinforce calm confidence, not to create soft-focus vagueness."
+      ],
+      "antiPatterns": [
+        "No stock-spa cliches.",
+        "No pseudo-medical dashboard.",
+        "No oversaturated gradient fog.",
+        "No generic beauty ecommerce grid."
+      ],
+      "deliverables": [
+        "Define the ritual flow modules, ingredient and proof surfaces, booking moments, first-session tone, and motion breathing rules.",
+        "Return a reusable wellness contract for product, clinic, and app activation surfaces."
+      ],
+      "route": {
+        "profile": "product-story",
+        "themeStrategy": "single-theme",
+        "navigationModel": "global-header",
+        "layoutApproach": "ritual-story-flow"
+      }
+    },
+    {
+      "id": "creative-tool-laboratory",
+      "label": "Creative tool laboratory",
+      "bestFor": [
+        "design tools",
+        "AI builders",
+        "devtools with premium brand positioning",
+        "creative software"
+      ],
+      "businessFocus": [
+        "creative software",
+        "builder platforms",
+        "design tooling",
+        "AI-assisted creation products"
+      ],
+      "keywords": [
+        "canvas",
+        "lab",
+        "studio",
+        "editor",
+        "compose",
+        "prototype",
+        "generate",
+        "workspace",
+        "toolkit",
+        "layer"
+      ],
+      "matchSignals": {
+        "positive": [
+          "canvas",
+          "lab",
+          "studio",
+          "editor",
+          "compose",
+          "prototype",
+          "generate",
+          "workspace",
+          "toolkit",
+          "layer"
+        ],
+        "excluded": [
+          "villa",
+          "festival",
+          "fragrance"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Use the references to create a creative tool laboratory direction that feels precise, bright, and premium without falling back to generic admin shells.",
+      "archetype": "specimen-grade creative workspace",
+      "layoutArchetype": "bright laboratory shell with stage, inspector, and specimen panels",
+      "typographySystem": "sharp grotesk UI type with monospaced support for tokens, coordinates, and diagnostics",
+      "surfaceTreatment": "lab-white shell, modular trays, and layered canvas previews",
+      "shapeLanguage": "modular docks, specimen cards, inspector rails, and crisp separators",
+      "componentGrammar": "stage shell, inspector, prompt panels, specimen modules, stateful controls",
+      "motionGrammar": "state continuity, transform-led panel transitions, and specimen emphasis motion",
+      "paletteIntent": "bright lab whites with one vivid tool accent and disciplined neutral scaffolding",
+      "visualDensity": "balanced to dense",
+      "designVariance": "structured experimentation",
+      "focusAreas": [
+        "shell grammar",
+        "sidebar and inspector rules",
+        "stage hierarchy",
+        "specimen component set",
+        "transition map",
+        "tool-state communication"
+      ],
+      "responsiveCollapseRules": [
+        "Collapse the inspector after the stage and primary controls are stable on smaller breakpoints.",
+        "Keep prompt input and primary creation actions in a fixed vertical lane on narrow screens."
+      ],
+      "guardrails": [
+        "Keep the workspace premium and bright, not dark-gamer or gadget-heavy.",
+        "Make motion serve state continuity and tool confidence, not generic micro-animation noise."
+      ],
+      "antiPatterns": [
+        "No gamer neon.",
+        "No floating-window chaos.",
+        "No generic admin shell.",
+        "No decorative empty-state illustration that hides the tool's real structure."
+      ],
+      "deliverables": [
+        "Define the shell grammar, sidebar and inspector rules, stage hierarchy, specimen component set, and transition map.",
+        "Return a reusable creative-tool contract that can drive both the marketing frame and the actual product shell."
+      ],
+      "route": {
+        "profile": "control-room",
+        "themeStrategy": "single-theme",
+        "navigationModel": "contextual",
+        "layoutApproach": "specimen-workspace"
+      }
+    },
+    {
+      "id": "precision-mobility-flagship",
+      "label": "Precision mobility flagship",
+      "bestFor": [
+        "automotive",
+        "aviation",
+        "robotics",
+        "micromobility",
+        "transport hardware"
+      ],
+      "businessFocus": [
+        "vehicle launches",
+        "mobility hardware",
+        "robotic systems",
+        "engineering-led transport brands"
+      ],
+      "keywords": [
+        "cockpit",
+        "range",
+        "chassis",
+        "drive",
+        "vehicle",
+        "engineering",
+        "autonomous",
+        "aero"
+      ],
+      "matchSignals": {
+        "positive": [
+          "cockpit",
+          "range",
+          "chassis",
+          "drive",
+          "vehicle",
+          "engineering",
+          "autonomous",
+          "performance",
+          "aero",
+          "machine"
+        ],
+        "excluded": [
+          "dashboard",
+          "festival",
+          "onboarding"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Study the references and define a precision mobility flagship that feels engineered, aerodynamic, and premium without becoming a spec dump or dealer template.",
+      "archetype": "engineering-led flagship story",
+      "layoutArchetype": "panoramic launch composition with sectional proof reveals and cockpit framing",
+      "typographySystem": "condensed display typography with technical mono or narrow sans support",
+      "surfaceTreatment": "bright or graphite technical planes, cutaway diagrams, and controlled highlight lines",
+      "shapeLanguage": "aerodynamic bands, sectional overlays, and instrument-inspired detail modules",
+      "componentGrammar": "flagship hero, technical proof rail, sectional cutaways, performance figures, CTA close",
+      "motionGrammar": "glide motion, instrument-style reveals, and controlled engineering emphasis",
+      "paletteIntent": "precision neutrals with one performance accent and disciplined contrast",
+      "visualDensity": "measured technical density",
+      "designVariance": "high-control precision",
+      "focusAreas": [
+        "launch storyboard",
+        "technical proof modules",
+        "performance-data styling",
+        "cutaway treatment",
+        "CTA sequence",
+        "motion timing"
+      ],
+      "responsiveCollapseRules": [
+        "Turn sectional cutaways into stacked proof chapters before sacrificing diagram clarity.",
+        "Keep the primary performance and CTA story lane intact on mobile rather than distributing it across tabs or accordions."
+      ],
+      "guardrails": [
+        "Keep the system premium, exact, and flagship-oriented rather than automotive commerce or gadget marketing.",
+        "Let engineering proof emerge in sequence instead of dumping all specifications at once."
+      ],
+      "antiPatterns": [
+        "No ecommerce spec dump.",
+        "No dealer-site layout.",
+        "No cluttered comparison tables above the fold.",
+        "No generic performance stat tiles."
+      ],
+      "deliverables": [
+        "Define the launch storyboard, technical proof modules, performance-data styling, CTA sequence, and motion timing.",
+        "Return a reusable flagship contract for mobility, robotics, and engineering-led hardware launches."
+      ],
+      "route": {
+        "profile": "cinematic-minimal",
+        "themeStrategy": "single-theme",
+        "navigationModel": "immersive",
+        "layoutApproach": "engineering-glide-story"
+      }
+    },
+    {
+      "id": "members-club-concierge",
+      "label": "Members club concierge",
+      "bestFor": [
+        "invite-only communities",
+        "premium memberships",
+        "concierge products",
+        "executive networks"
+      ],
+      "businessFocus": [
+        "membership programs",
+        "concierge services",
+        "executive communities",
+        "invite-only access products"
+      ],
+      "keywords": [
+        "members",
+        "access",
+        "club",
+        "concierge",
+        "curation",
+        "invite",
+        "tier",
+        "privileges"
+      ],
+      "matchSignals": {
+        "positive": [
+          "members",
+          "access",
+          "club",
+          "concierge",
+          "curation",
+          "invite",
+          "tier",
+          "private",
+          "privileges",
+          "network"
+        ],
+        "excluded": [
+          "dashboard",
+          "checkout",
+          "festival"
+        ],
+        "tieBreaker": 3
+      },
+      "lead": "Use the references to synthesize a members-club concierge system that feels stately, selective, and service-led rather than like a benefits comparison page.",
+      "archetype": "private members salon",
+      "layoutArchetype": "invitation-led room sequence with framed service modules and access moments",
+      "typographySystem": "stately serif headlines with polished sans navigation and membership detail copy",
+      "surfaceTreatment": "bright club rooms, invitation cards, schedule ribbons, and warm premium materials",
+      "shapeLanguage": "framed rooms, invitation panels, ribbon markers, and curated content compartments",
+      "componentGrammar": "invitation hero, tier narrative, concierge request modules, schedule ribbons, social proof rooms",
+      "motionGrammar": "subtle reveal, magnetic hover restraint, and service-led transition pacing",
+      "paletteIntent": "bright cream or stone base with restrained metallic and club-accent notes",
+      "visualDensity": "balanced",
+      "designVariance": "curated composure",
+      "focusAreas": [
+        "access narrative",
+        "membership architecture",
+        "concierge request surfaces",
+        "proof and testimonial format",
+        "schedule ribbons",
+        "spacing and motion contract"
+      ],
+      "responsiveCollapseRules": [
+        "Collapse framed rooms into a guided membership sequence before compressing the access narrative.",
+        "Keep the invitation and concierge request moment within the same mobile lane."
+      ],
+      "guardrails": [
+        "Keep the direction stately, bright, and selective rather than flashy or social-feed oriented.",
+        "Use privilege and service cues with discipline so the surface still feels curated and elegant."
+      ],
+      "antiPatterns": [
+        "No coupon language.",
+        "No social-feed feeling.",
+        "No generic benefit-card grid.",
+        "No noisy badge wall."
+      ],
+      "deliverables": [
+        "Define the access narrative, membership architecture, concierge request surfaces, proof format, and spacing plus motion contract.",
+        "Return a reusable members-club contract for private access, service, and executive-network surfaces."
+      ],
+      "route": {
+        "profile": "product-story",
+        "themeStrategy": "single-theme",
+        "navigationModel": "global-header",
+        "layoutApproach": "concierge-room-sequence"
+      }
     }
   ]
 }

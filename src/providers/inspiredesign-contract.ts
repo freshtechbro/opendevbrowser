@@ -15,7 +15,11 @@ import {
   buildInspiredesignFollowthroughSummary,
   buildInspiredesignNextStep
 } from "../inspiredesign/handoff";
-import type { InspiredesignBriefExpansion } from "../inspiredesign/brief-expansion";
+import {
+  cloneInspiredesignBriefFormat,
+  type InspiredesignBriefExpansion,
+  type InspiredesignBriefFormat
+} from "../inspiredesign/brief-expansion";
 import type { JsonValue } from "./types";
 
 type JsonRecord = Record<string, JsonValue>;
@@ -147,11 +151,7 @@ export type InspiredesignFollowthrough = {
   briefExpansion: {
     templateVersion: string;
     file: string;
-    format: {
-      id: string;
-      label: string;
-      bestFor: string[];
-    };
+    format: InspiredesignBriefFormat;
   };
   recommendedSkills: string[];
   commandExamples: {
@@ -175,17 +175,6 @@ export type BuildInspiredesignPacketInput = {
 const BASE_CONTRACT_TEMPLATE: DesignContractTemplate = designContractTemplateJson;
 const BASE_PLAN_REQUEST_TEMPLATE = generationPlanTemplateJson as CanvasPlanRequestTemplate;
 const BASE_GENERATION_PLAN: CanvasGenerationPlan = BASE_PLAN_REQUEST_TEMPLATE.generationPlan;
-
-const PROFILE_MATCHERS: ReadonlyArray<{
-  profile: CanvasVisualDirectionProfile;
-  keywords: readonly string[];
-}> = [
-  { profile: "auth-focused", keywords: ["auth", "login", "signin", "sign-in", "signup", "sign-up", "onboarding"] },
-  { profile: "settings-system", keywords: ["settings", "preferences", "account", "profile", "billing"] },
-  { profile: "ops-control", keywords: ["dashboard", "admin", "control", "analytics", "monitor", "reporting"] },
-  { profile: "documentation", keywords: ["docs", "documentation", "knowledge base", "reference", "guide"] },
-  { profile: "commerce-system", keywords: ["shop", "commerce", "pricing", "checkout", "product page", "catalog"] }
-] as const;
 
 const PROFILE_CONFIG: Record<CanvasVisualDirectionProfile, ProfileConfig> = {
   "clean-room": {
@@ -421,34 +410,6 @@ const referenceFingerprint = (value: string): string => {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
 };
 
-const hasKeyword = (value: string, keywords: readonly string[]): boolean => {
-  const haystack = value.toLowerCase();
-  return keywords.some((keyword) => haystack.includes(keyword));
-};
-
-const getUsableReferenceAnalysisText = (reference: InspiredesignReferenceEvidence): string => {
-  if (reference.fetchStatus !== "captured") return "";
-  const title = reference.title ?? reference.capture?.title;
-  return [title, reference.excerpt]
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .map(trimText)
-    .join(" ");
-};
-
-const classifyProfile = (brief: string, references: InspiredesignReferenceEvidence[]): CanvasVisualDirectionProfile => {
-  const combined = [brief, ...references.map(getUsableReferenceAnalysisText)]
-    .join(" ")
-    .toLowerCase();
-  return PROFILE_MATCHERS.find((matcher) => hasKeyword(combined, matcher.keywords))?.profile ?? "product-story";
-};
-
-const resolveThemeStrategy = (brief: string, references: InspiredesignReferenceEvidence[]): CanvasGenerationPlan["visualDirection"]["themeStrategy"] => {
-  const combined = `${brief} ${references.map(getUsableReferenceAnalysisText).join(" ")}`.toLowerCase();
-  return combined.includes("dark")
-    ? "light-dark-parity"
-    : "single-theme";
-};
-
 const summarizeBrief = (brief: string): string => {
   const normalized = trimText(brief);
   const sentence = normalized.split(/[.!?]/).map((part) => part.trim()).find(Boolean);
@@ -465,15 +426,15 @@ const buildSupportingMessages = (references: InspiredesignReferenceEvidence[]): 
 
 const buildGenerationPlan = (
   brief: string,
-  profile: CanvasVisualDirectionProfile,
-  references: InspiredesignReferenceEvidence[]
+  format: InspiredesignBriefFormat
 ): CanvasGenerationPlan => {
   const plan = cloneTemplate(BASE_GENERATION_PLAN);
+  const profile = format.route.profile;
   plan.targetOutcome.summary = summarizeBrief(brief);
   plan.visualDirection.profile = profile;
-  plan.visualDirection.themeStrategy = resolveThemeStrategy(brief, references);
-  plan.layoutStrategy.approach = PROFILE_CONFIG[profile].layoutApproach;
-  plan.layoutStrategy.navigationModel = PROFILE_CONFIG[profile].navigationModel;
+  plan.visualDirection.themeStrategy = format.route.themeStrategy;
+  plan.layoutStrategy.approach = format.route.layoutApproach;
+  plan.layoutStrategy.navigationModel = format.route.navigationModel;
   plan.componentStrategy.interactionStates = ["default", "hover", "focus", "disabled", "loading"];
   plan.validationTargets.requiredThemes = plan.visualDirection.themeStrategy === "light-dark-parity"
     ? ["light", "dark"]
@@ -481,13 +442,21 @@ const buildGenerationPlan = (
   return plan;
 };
 
-const buildIntentBlock = (brief: string, urls: string[], references: InspiredesignReferenceEvidence[]): JsonRecord => {
+const buildIntentBlock = (
+  brief: string,
+  urls: string[],
+  references: InspiredesignReferenceEvidence[],
+  format: InspiredesignBriefFormat
+): JsonRecord => {
   const intent = cloneTemplate(BASE_CONTRACT_TEMPLATE.intent);
   return {
     ...intent,
     task: summarizeBrief(brief),
     brief,
     briefHash: referenceFingerprint(brief),
+    selectedFormat: format.label,
+    businessFocus: [...format.businessFocus],
+    keywords: [...format.keywords],
     referenceCount: references.length,
     referenceUrls: urls,
     evidenceStatus: {
@@ -497,14 +466,23 @@ const buildIntentBlock = (brief: string, urls: string[], references: Inspiredesi
   };
 };
 
-const buildDesignLanguageBlock = (profile: CanvasVisualDirectionProfile): JsonRecord => {
+const buildDesignLanguageBlock = (
+  profile: CanvasVisualDirectionProfile,
+  format: InspiredesignBriefFormat
+): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.designLanguage);
   const config = PROFILE_CONFIG[profile];
   return {
     ...block,
     direction: config.direction,
     visualPersonality: config.visualPersonality,
-    brandTone: config.brandTone
+    brandTone: config.brandTone,
+    archetype: format.archetype,
+    surfaceTreatment: format.surfaceTreatment,
+    shapeLanguage: format.shapeLanguage,
+    paletteIntent: format.paletteIntent,
+    visualDensity: format.visualDensity,
+    designVariance: format.designVariance
   };
 };
 
@@ -520,18 +498,25 @@ const buildContentModelBlock = (
   };
 };
 
-const buildLayoutSystemBlock = (profile: CanvasVisualDirectionProfile): JsonRecord => {
+const buildLayoutSystemBlock = (
+  plan: CanvasGenerationPlan,
+  format: InspiredesignBriefFormat
+): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.layoutSystem);
   return {
     ...block,
-    pagePatterns: PROFILE_CONFIG[profile].pagePatterns
+    layoutArchetype: format.layoutArchetype,
+    layoutApproach: plan.layoutStrategy.approach,
+    navigationModel: plan.layoutStrategy.navigationModel,
+    pagePatterns: [format.layoutArchetype, ...PROFILE_CONFIG[plan.visualDirection.profile].pagePatterns]
   };
 };
 
-const buildTypographySystemBlock = (): JsonRecord => {
+const buildTypographySystemBlock = (format: InspiredesignBriefFormat): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.typographySystem);
   return {
     ...block,
+    system: format.typographySystem,
     tokens: {
       display: "56/1.0",
       h1: "40/1.05",
@@ -544,10 +529,14 @@ const buildTypographySystemBlock = (): JsonRecord => {
   };
 };
 
-const buildColorSystemBlock = (profile: CanvasVisualDirectionProfile): JsonRecord => {
+const buildColorSystemBlock = (
+  profile: CanvasVisualDirectionProfile,
+  format: InspiredesignBriefFormat
+): JsonRecord => {
   const colors = PROFILE_CONFIG[profile].colors;
   return {
-    paletteName: `${profile}-default`,
+    paletteName: `${format.id}-default`,
+    paletteIntent: format.paletteIntent,
     tokens: colors,
     contrastRequirements: {
       bodyText: "4.5:1",
@@ -557,7 +546,9 @@ const buildColorSystemBlock = (profile: CanvasVisualDirectionProfile): JsonRecor
   };
 };
 
-const buildSurfaceSystemBlock = (): JsonRecord => ({
+const buildSurfaceSystemBlock = (format: InspiredesignBriefFormat): JsonRecord => ({
+  surfaceTreatment: format.surfaceTreatment,
+  shapeLanguage: format.shapeLanguage,
   radiusScale: {
     xs: "6px",
     sm: "10px",
@@ -582,10 +573,11 @@ const buildIconSystemBlock = (): JsonRecord => ({
   ]
 });
 
-const buildMotionSystemBlock = (): JsonRecord => {
+const buildMotionSystemBlock = (format: InspiredesignBriefFormat): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.motionSystem);
   return {
     ...block,
+    grammar: format.motionGrammar,
     durations: {
       quick: "120ms",
       standard: "180ms",
@@ -594,10 +586,11 @@ const buildMotionSystemBlock = (): JsonRecord => {
   };
 };
 
-const buildResponsiveSystemBlock = (): JsonRecord => {
+const buildResponsiveSystemBlock = (format: InspiredesignBriefFormat): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.responsiveSystem);
   return {
     ...block,
+    collapseRules: [...format.responsiveCollapseRules],
     breakpoints: {
       mobile: "0-639px",
       tablet: "640-1023px",
@@ -650,11 +643,11 @@ const EMITTED_GOVERNANCE_BLOCKS: InspiredesignContractScope["emittedGovernanceBl
   "runtimeBudgets"
 ];
 
-const buildNavigationModelBlock = (profile: CanvasVisualDirectionProfile): JsonRecord => {
+const buildNavigationModelBlock = (navigationModel: CanvasNavigationModel): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.navigationModel);
   return {
     ...block,
-    primaryRouteModel: `Use a ${PROFILE_CONFIG[profile].navigationModel} route shell so the primary action remains stable through state changes.`
+    primaryRouteModel: `Use a ${navigationModel} route shell so the primary action remains stable through state changes.`
   };
 };
 
@@ -682,27 +675,27 @@ const buildContractScope = (): InspiredesignContractScope => ({
   note: `${INSPIREDESIGN_HANDOFF_FILES.designContract} is the narrowed canvas governance contract. Use ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff} for navigation, async, and performance context that informs implementation but does not belong in canvas governance patches.`
 });
 
+const buildBriefExpansionMetadata = (
+  briefExpansion: InspiredesignBriefExpansion
+): InspiredesignFollowthrough["briefExpansion"] => ({
+  templateVersion: briefExpansion.templateVersion,
+  file: INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
+  format: cloneInspiredesignBriefFormat(briefExpansion.format)
+});
+
 const buildFollowthrough = (
   generationPlan: CanvasGenerationPlan,
   briefExpansion: InspiredesignBriefExpansion
 ): InspiredesignFollowthrough => ({
   summary: buildInspiredesignFollowthroughSummary(),
   nextStep: buildInspiredesignNextStep(),
-  briefExpansion: {
-    templateVersion: briefExpansion.templateVersion,
-    file: INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
-    format: {
-      id: briefExpansion.format.id,
-      label: briefExpansion.format.label,
-      bestFor: [...briefExpansion.format.bestFor]
-    }
-  },
+  briefExpansion: buildBriefExpansionMetadata(briefExpansion),
   recommendedSkills: [...INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS],
   commandExamples: { ...INSPIREDESIGN_HANDOFF_COMMANDS },
   deepCaptureRecommendation: INSPIREDESIGN_HANDOFF_GUIDANCE.deepCaptureRecommendation,
   contractScope: buildContractScope(),
   implementationContext: {
-    navigationModel: buildNavigationModelBlock(generationPlan.visualDirection.profile),
+    navigationModel: buildNavigationModelBlock(generationPlan.layoutStrategy.navigationModel),
     asyncModel: buildAsyncModelBlock(),
     performanceModel: buildPerformanceModelBlock()
   }
@@ -712,19 +705,20 @@ const buildDesignContract = (
   brief: string,
   urls: string[],
   references: InspiredesignReferenceEvidence[],
-  plan: CanvasGenerationPlan
+  plan: CanvasGenerationPlan,
+  format: InspiredesignBriefFormat
 ): CanvasDesignGovernance => ({
-  intent: buildIntentBlock(brief, urls, references),
+  intent: buildIntentBlock(brief, urls, references, format),
   generationPlan: plan,
-  designLanguage: buildDesignLanguageBlock(plan.visualDirection.profile),
+  designLanguage: buildDesignLanguageBlock(plan.visualDirection.profile, format),
   contentModel: buildContentModelBlock(brief, references),
-  layoutSystem: buildLayoutSystemBlock(plan.visualDirection.profile),
-  typographySystem: buildTypographySystemBlock(),
-  colorSystem: buildColorSystemBlock(plan.visualDirection.profile),
-  surfaceSystem: buildSurfaceSystemBlock(),
+  layoutSystem: buildLayoutSystemBlock(plan, format),
+  typographySystem: buildTypographySystemBlock(format),
+  colorSystem: buildColorSystemBlock(plan.visualDirection.profile, format),
+  surfaceSystem: buildSurfaceSystemBlock(format),
   iconSystem: buildIconSystemBlock(),
-  motionSystem: buildMotionSystemBlock(),
-  responsiveSystem: buildResponsiveSystemBlock(),
+  motionSystem: buildMotionSystemBlock(format),
+  responsiveSystem: buildResponsiveSystemBlock(format),
   accessibilityPolicy: buildAccessibilityBlock(),
   libraryPolicy: buildLibraryPolicyBlock(),
   runtimeBudgets: buildRuntimeBudgetsBlock(plan)
@@ -789,20 +783,20 @@ const buildComponentBuildPlan = (profile: CanvasVisualDirectionProfile) => {
 };
 
 const buildImplementationPlan = (
-  brief: string,
   profile: CanvasVisualDirectionProfile,
+  format: InspiredesignBriefFormat,
   references: InspiredesignReferenceEvidence[]
 ): InspiredesignImplementationPlan => ({
-  architectureRecommendation: "Implement the surface as token-first components using shared semantic CSS variables, then compose page sections from those primitives before adding any page-specific polish.",
+  architectureRecommendation: `Implement the surface as a ${format.archetype} using token-first components and shared semantic CSS variables, then compose page sections from those primitives before adding any page-specific polish.`,
   tokenStrategy: buildTokenStrategy(profile),
   componentBuildPlan: buildComponentBuildPlan(profile),
   pageAssemblyPlan: [
-    "Start with the shell and primary navigation pattern.",
+    `Start with the ${format.layoutArchetype} and the primary navigation pattern.`,
     "Compose the hero or primary decision section before supporting sections.",
     "Add proof, utility, and footer sections only after the top-level hierarchy is stable."
   ],
   stateAndInteractionPlan: [
-    "Keep hover, focus, loading, success, and error states visually distinct.",
+    `Use ${format.motionGrammar} while keeping hover, focus, loading, success, and error states visually distinct.`,
     "Preserve layout during loading and keep transient confirmations out of the main flow.",
     "Use reduced-motion-safe transitions for reveals and CTA feedback."
   ],
@@ -812,6 +806,7 @@ const buildImplementationPlan = (
     "Keep landmarks and heading levels explicit and sequential."
   ],
   responsiveChecklist: [
+    ...format.responsiveCollapseRules,
     "Collapse multicolumn layouts before text measure becomes cramped.",
     "Keep the primary CTA visible without overlap on narrow screens.",
     "Avoid horizontal scrolling for primary content."
@@ -870,7 +865,8 @@ const renderReferenceMarkdown = (reference: InspiredesignReferenceEvidence, inde
 
 const renderGovernanceMarkdown = (
   designContract: CanvasDesignGovernance,
-  implementationPlan: InspiredesignImplementationPlan
+  implementationPlan: InspiredesignImplementationPlan,
+  format: InspiredesignBriefFormat
 ): string => {
   const generationPlan = designContract.generationPlan as CanvasGenerationPlan;
   const profileConfig = PROFILE_CONFIG[generationPlan.visualDirection.profile];
@@ -890,6 +886,10 @@ const renderGovernanceMarkdown = (
       `Aesthetic style: ${profileConfig.visualPersonality}`,
       `Brand tone: ${profileConfig.brandTone}`,
       `Quality posture: ${profileConfig.direction}`,
+      `Format archetype: ${format.archetype}`,
+      `Surface treatment: ${format.surfaceTreatment}`,
+      `Shape language: ${format.shapeLanguage}`,
+      `Palette intent: ${format.paletteIntent}`,
       "Direction: modern, system-led, and implementation-aware."
     ]),
     "",
@@ -897,10 +897,20 @@ const renderGovernanceMarkdown = (
     formatRecordList(implementationPlan.tokenStrategy.colors),
     "",
     "## 4.5 Typography System",
-    formatRecordList(implementationPlan.tokenStrategy.typography),
+    [
+      formatBulletList([`system: ${format.typographySystem}`]),
+      formatRecordList(implementationPlan.tokenStrategy.typography)
+    ].join("\n"),
     "",
     "## 4.6 Spacing and Layout System",
-    formatRecordList(implementationPlan.tokenStrategy.spacing),
+    [
+      formatBulletList([
+        `layout archetype: ${format.layoutArchetype}`,
+        `layout approach: ${generationPlan.layoutStrategy.approach}`,
+        `navigation model: ${generationPlan.layoutStrategy.navigationModel}`
+      ]),
+      formatRecordList(implementationPlan.tokenStrategy.spacing)
+    ].join("\n"),
     "",
     "## 4.7 Shape, Border, and Elevation Rules",
     [
@@ -909,7 +919,10 @@ const renderGovernanceMarkdown = (
     ].join("\n"),
     "",
     "## 4.8 Motion and Interaction Rules",
-    formatRecordList(implementationPlan.tokenStrategy.motion),
+    [
+      formatBulletList([`motion grammar: ${format.motionGrammar}`]),
+      formatRecordList(implementationPlan.tokenStrategy.motion)
+    ].join("\n"),
     "",
     "## 4.9 Component System",
     implementationPlan.componentBuildPlan.map((component) => [
@@ -947,7 +960,8 @@ const renderGovernanceMarkdown = (
       "Do preserve one dominant message per section.",
       "Do encode repeated visual rules into semantic tokens.",
       "Don't copy proprietary logos, screenshots, or brand-only illustrations.",
-      "Don't hide important actions inside ambiguous hover-only affordances."
+      "Don't hide important actions inside ambiguous hover-only affordances.",
+      ...format.antiPatterns.map((rule) => `Don't ${rule.replace(/\.$/, "").toLowerCase()}.`)
     ]),
     "",
     "## 4.15 Acceptance Criteria",
@@ -1038,11 +1052,7 @@ const buildEvidencePayload = (
   advancedBriefHash: referenceFingerprint(briefExpansion.advancedBrief),
   briefExpansion: {
     templateVersion: briefExpansion.templateVersion,
-    format: {
-      id: briefExpansion.format.id,
-      label: briefExpansion.format.label,
-      bestFor: [...briefExpansion.format.bestFor]
-    }
+    format: cloneInspiredesignBriefFormat(briefExpansion.format)
   },
   urls,
   referenceCount: references.length,
@@ -1073,6 +1083,7 @@ const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): Jso
 
 export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): InspiredesignPacket => {
   const brief = trimText(input.brief);
+  const selectedFormat = cloneInspiredesignBriefFormat(input.briefExpansion.format);
   const advancedBriefMarkdown = input.briefExpansion.advancedBrief;
   const urls = [...new Set(input.urls.map((url) => trimText(url)).filter(Boolean))];
   const references = input.references.map((reference) => ({
@@ -1080,13 +1091,13 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     title: reference.title ? trimText(reference.title) : undefined,
     excerpt: reference.excerpt ? trimText(reference.excerpt) : undefined
   }));
-  const profile = classifyProfile(brief, references);
-  const generationPlan = buildGenerationPlan(brief, profile, references);
+  const generationPlan = buildGenerationPlan(brief, selectedFormat);
+  const profile = generationPlan.visualDirection.profile;
   const canvasPlanRequest = buildCanvasPlanRequest(brief, generationPlan);
-  const designContract = buildDesignContract(brief, urls, references, generationPlan);
+  const designContract = buildDesignContract(brief, urls, references, generationPlan, selectedFormat);
   const followthrough = buildFollowthrough(generationPlan, input.briefExpansion);
-  const implementationPlan = buildImplementationPlan(brief, profile, references);
-  const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan);
+  const implementationPlan = buildImplementationPlan(profile, selectedFormat, references);
+  const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan, selectedFormat);
   const implementationPlanMarkdown = renderImplementationMarkdown(implementationPlan);
   const prototypeGuidanceMarkdown = input.includePrototypeGuidance
     ? renderPrototypeGuidance(profile)
@@ -1096,8 +1107,9 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     formatBulletList([
       `Analyzed brief plus ${references.length || 0} inspiration reference(s).`,
-      `Chosen design direction: ${PROFILE_CONFIG[profile].direction}.`,
-      `Prompt format: ${input.briefExpansion.format.label} (${input.briefExpansion.templateVersion}).`,
+      `Chosen design direction: ${selectedFormat.archetype}.`,
+      `Route profile: ${PROFILE_CONFIG[profile].direction}.`,
+      `Prompt format: ${selectedFormat.label} (${input.briefExpansion.templateVersion}).`,
       "Final outcome: a reusable design contract, engineering plan, and optional prototype guidance.",
       `Scope mode: ${references.length > 1 ? "full-site synthesis" : "single-surface synthesis"}.`
     ]),
@@ -1113,6 +1125,9 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     formatBulletList([
       `visual personality: ${PROFILE_CONFIG[profile].visualPersonality}`,
       `tone: ${PROFILE_CONFIG[profile].brandTone}`,
+      `layout archetype: ${selectedFormat.layoutArchetype}`,
+      `typography system: ${selectedFormat.typographySystem}`,
+      `motion grammar: ${selectedFormat.motionGrammar}`,
       `UX principles: ${PROFILE_CONFIG[profile].hierarchyPrinciples.join(" ")}`,
       `interaction philosophy: ${PROFILE_CONFIG[profile].interactionPhilosophy}`,
       "branding posture: preserve the intent of the references without cloning brand-only assets.",
@@ -1121,7 +1136,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     "# 4. Design Governance (`design.md`)",
     "",
-    renderGovernanceMarkdown(designContract, implementationPlan),
+    governanceMarkdown,
     "",
     renderImplementationMarkdown(implementationPlan),
     "",

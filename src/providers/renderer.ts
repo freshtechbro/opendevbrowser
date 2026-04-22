@@ -304,6 +304,9 @@ export const renderInspiredesign = (args: {
   };
   const suggestedSteps = [
     {
+      reason: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief
+    },
+    {
       reason: "Load the baseline workflow runbook before implementation.",
       command: args.designAgentHandoff.commandExamples.loadBestPractices
     },

@@ -45,14 +45,15 @@ export const INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS = [
 ] as const;
 
 export const INSPIREDESIGN_HANDOFF_GUIDANCE = {
+  reviewAdvancedBrief: `${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} is the authoritative prompt route for the selected format, profile defaults, layout posture, motion grammar, and anti-patterns. Read it before touching Canvas or implementation files.`,
   prepareCanvasPlanRequest: `Fill canvasSessionId, leaseId, and documentId in ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} before running ${INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas}.`,
   deepCaptureRecommendation: "Any inspiredesign run with reference URLs already uses captureMode=deep. Rerun with the same URLs only when you need refreshed DOM/layout evidence, restored session state, or capture-specific debugging."
 } as const;
 
 export const buildInspiredesignFollowthroughSummary = (): string => (
-  `Continue in OpenDevBrowser Canvas with ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} and ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}, load ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[0]} plus ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[1]} before implementation, and note that any supplied reference URL already uses captureMode=deep.`
+  `Read ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} first, then continue in OpenDevBrowser Canvas with ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} and ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}, load ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[0]} plus ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[1]} before implementation, and note that any supplied reference URL already uses captureMode=deep.`
 );
 
 export const buildInspiredesignNextStep = (): string => (
-  `${INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest} Then run ${INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas}, confirm planStatus=accepted, then patch only the governance blocks listed in ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}.`
+  `Read ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} first. ${INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest} Then run ${INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas}, confirm planStatus=accepted, then patch only the governance blocks listed in ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}.`
 );

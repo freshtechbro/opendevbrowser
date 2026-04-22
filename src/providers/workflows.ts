@@ -21,8 +21,10 @@ import {
   type InspiredesignReferenceEvidence
 } from "./inspiredesign-contract";
 import {
+  normalizeInspiredesignBriefText,
   expandInspiredesignBrief,
-  type InspiredesignBriefExpansion
+  type InspiredesignBriefExpansion,
+  type InspiredesignBriefFormat
 } from "../inspiredesign/brief-expansion";
 import {
   buildProductVideoSuccessHandoff,
@@ -1236,16 +1238,7 @@ type InspiredesignCaptureOutcome = {
 
 const serializeInspiredesignBriefExpansion = (
   expansion: InspiredesignBriefExpansion
-): Record<string, JsonValue> => ({
-  sourceBrief: expansion.sourceBrief,
-  advancedBrief: expansion.advancedBrief,
-  templateVersion: expansion.templateVersion,
-  format: {
-    id: expansion.format.id,
-    label: expansion.format.label,
-    bestFor: [...expansion.format.bestFor]
-  }
-});
+): Record<string, JsonValue> => structuredClone(expansion) as Record<string, JsonValue>;
 
 const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Record<string, JsonValue> => ({
   brief: input.brief,
@@ -1262,31 +1255,101 @@ const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Reco
   ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
 });
 
+const isStringArray = (value: JsonValue | undefined): value is string[] => (
+  Array.isArray(value) && value.every((entry) => typeof entry === "string")
+);
+
+const parseInspiredesignBriefFormatRoute = (
+  value: JsonValue | undefined
+): InspiredesignBriefFormat["route"] | undefined => {
+  if (!isJsonRecord(value)) return undefined;
+  if (
+    typeof value.profile !== "string"
+    || typeof value.themeStrategy !== "string"
+    || typeof value.navigationModel !== "string"
+    || typeof value.layoutApproach !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    profile: value.profile as InspiredesignBriefFormat["route"]["profile"],
+    themeStrategy: value.themeStrategy as InspiredesignBriefFormat["route"]["themeStrategy"],
+    navigationModel: value.navigationModel as InspiredesignBriefFormat["route"]["navigationModel"],
+    layoutApproach: value.layoutApproach
+  };
+};
+
+const parseInspiredesignBriefFormat = (
+  value: JsonValue | undefined
+): InspiredesignBriefFormat | undefined => {
+  if (!isJsonRecord(value)) return undefined;
+  const route = parseInspiredesignBriefFormatRoute(value.route);
+  if (
+    typeof value.id !== "string"
+    || typeof value.label !== "string"
+    || !isStringArray(value.bestFor)
+    || !isStringArray(value.businessFocus)
+    || !isStringArray(value.keywords)
+    || typeof value.archetype !== "string"
+    || typeof value.layoutArchetype !== "string"
+    || typeof value.typographySystem !== "string"
+    || typeof value.surfaceTreatment !== "string"
+    || typeof value.shapeLanguage !== "string"
+    || typeof value.componentGrammar !== "string"
+    || typeof value.motionGrammar !== "string"
+    || typeof value.paletteIntent !== "string"
+    || typeof value.visualDensity !== "string"
+    || typeof value.designVariance !== "string"
+    || !isStringArray(value.responsiveCollapseRules)
+    || !isStringArray(value.guardrails)
+    || !isStringArray(value.antiPatterns)
+    || !isStringArray(value.deliverables)
+    || !route
+  ) {
+    return undefined;
+  }
+  return {
+    id: value.id,
+    label: value.label,
+    bestFor: [...value.bestFor],
+    businessFocus: [...value.businessFocus],
+    keywords: [...value.keywords],
+    archetype: value.archetype,
+    layoutArchetype: value.layoutArchetype,
+    typographySystem: value.typographySystem,
+    surfaceTreatment: value.surfaceTreatment,
+    shapeLanguage: value.shapeLanguage,
+    componentGrammar: value.componentGrammar,
+    motionGrammar: value.motionGrammar,
+    paletteIntent: value.paletteIntent,
+    visualDensity: value.visualDensity,
+    designVariance: value.designVariance,
+    responsiveCollapseRules: [...value.responsiveCollapseRules],
+    guardrails: [...value.guardrails],
+    antiPatterns: [...value.antiPatterns],
+    deliverables: [...value.deliverables],
+    route
+  };
+};
+
 const parseInspiredesignBriefExpansion = (
   value: JsonValue | undefined
 ): InspiredesignBriefExpansion | undefined => {
-  if (!isJsonRecord(value) || !isJsonRecord(value.format)) return undefined;
+  if (!isJsonRecord(value)) return undefined;
+  const format = parseInspiredesignBriefFormat(value.format);
   if (
     typeof value.sourceBrief !== "string"
     || typeof value.advancedBrief !== "string"
     || typeof value.templateVersion !== "string"
-    || typeof value.format.id !== "string"
-    || typeof value.format.label !== "string"
-    || !Array.isArray(value.format.bestFor)
-    || value.format.bestFor.some((entry) => typeof entry !== "string")
+    || !format
   ) {
     return undefined;
   }
-  const bestFor = value.format.bestFor.filter((entry): entry is string => typeof entry === "string");
   return {
     sourceBrief: value.sourceBrief,
     advancedBrief: value.advancedBrief,
     templateVersion: value.templateVersion,
-    format: {
-      id: value.format.id,
-      label: value.format.label,
-      bestFor
-    }
+    format
   };
 };
 
@@ -1334,7 +1397,8 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
     throw new Error("Inspiredesign workflow requires a non-empty brief.");
   }
   const urls = normalizeInspiredesignUrls(input.urls);
-  const briefExpansion = input.briefExpansion?.sourceBrief === brief
+  const normalizedBrief = normalizeInspiredesignBriefText(brief);
+  const briefExpansion = input.briefExpansion && normalizeInspiredesignBriefText(input.briefExpansion.sourceBrief) === normalizedBrief
     ? input.briefExpansion
     : expandInspiredesignBrief(brief);
   return {
