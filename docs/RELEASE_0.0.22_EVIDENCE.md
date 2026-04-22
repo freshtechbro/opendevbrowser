@@ -25,13 +25,13 @@ Tracks the `0.0.22` release cycle after the published `v0.0.21` release, includi
 - Stops rediscovering edited retired packs as managed lifecycle artifacts once cleanup no longer owns them.
 - Keeps the install and postinstall contract unchanged: every install redistributes bundled skills into supported global agent skill directories.
 
-## Current repo note
+## Historical repo note
 
 - Release-prep branch: `main`
 - Release tag target: `v0.0.22`
 - npm `latest`: `0.0.22` after local publish verification
 - GitHub release: `v0.0.22` is live with packaged extension assets
-- Local version authority is `package.json` at `0.0.22`; extension version owners stay synced via `npm run extension:sync`
+- Release-time version authority was `package.json` at `0.0.22`; the current repo version has since advanced to `0.0.24`.
 - `docs/RELEASE_0.0.21_EVIDENCE.md` remains historical release evidence
 
 ## Mandatory release gates
