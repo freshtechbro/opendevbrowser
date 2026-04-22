@@ -192,6 +192,29 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.implementationPlan.risksAndAmbiguities[0]).toContain("No live references were supplied");
   });
 
+  it("requires light and dark validation targets for multi-theme routes", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Design a cultural festival atlas with a themed system that shifts across contexts.",
+      briefExpansion: makeBriefExpansion({
+        format: makeBriefFormat({
+          id: "cultural-festival-atlas",
+          label: "Cultural festival atlas",
+          route: {
+            profile: "documentation",
+            themeStrategy: "multi-theme-system",
+            navigationModel: "sidebar",
+            layoutApproach: "festival-atlas-system"
+          }
+        })
+      }),
+      urls: [],
+      references: []
+    });
+
+    expect(packet.generationPlan.visualDirection.themeStrategy).toBe("multi-theme-system");
+    expect(packet.generationPlan.validationTargets.requiredThemes).toEqual(["light", "dark"]);
+  });
+
   it("builds a reference-rich packet with trimmed evidence, failures, and prototype guidance", () => {
     const packet = buildInspiredesignPacket({
       brief: "  Design a documentation hub that feels premium but remains implementation-aware.  ",

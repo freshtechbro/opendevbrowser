@@ -431,6 +431,48 @@ describe("workflow CLI commands", () => {
     });
   });
 
+  it("surfaces inspiredesign provider follow-up requirements before generic follow-through", async () => {
+    callDaemon.mockResolvedValue({
+      followthroughSummary: buildInspiredesignFollowthroughSummary(),
+      suggestedNextAction: buildInspiredesignNextStep(),
+      meta: {
+        primaryConstraintSummary: "Deep capture failed for 1 reference.",
+        primaryConstraint: {
+          guidance: {
+            recommendedNextCommands: [
+              "Retry deep capture for https://example.com/reference after restoring the required browser session state."
+            ]
+          }
+        }
+      }
+    });
+
+    const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Design system baseline",
+      "--url=https://example.com/reference"
+    ]));
+
+    expect(result).toEqual({
+      success: true,
+      message: "Inspiredesign workflow completed with provider follow-up required: Deep capture failed for 1 reference. Next step: Retry deep capture for https://example.com/reference after restoring the required browser session state.",
+      data: {
+        followthroughSummary: buildInspiredesignFollowthroughSummary(),
+        suggestedNextAction: buildInspiredesignNextStep(),
+        meta: {
+          primaryConstraintSummary: "Deep capture failed for 1 reference.",
+          primaryConstraint: {
+            guidance: {
+              recommendedNextCommands: [
+                "Retry deep capture for https://example.com/reference after restoring the required browser session state."
+              ]
+            }
+          }
+        }
+      }
+    });
+  });
+
   it.each([
     {
       name: "research",

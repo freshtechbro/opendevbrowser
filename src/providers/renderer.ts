@@ -41,6 +41,29 @@ const primaryConstraintSummaryFromMeta = (meta: Record<string, unknown>): string
     : null;
 };
 
+const prependPrimaryConstraint = (text: string, meta: Record<string, unknown>): string => {
+  const summary = primaryConstraintSummaryFromMeta(meta);
+  return summary ? `Primary constraint: ${summary} ${text}` : text;
+};
+
+const buildInspiredesignSummary = (args: {
+  brief: string;
+  referenceCount: number;
+  profile: string;
+  meta: Record<string, unknown>;
+}): string => {
+  const lines = [
+    `Brief: ${args.brief}`,
+    `References: ${args.referenceCount}`,
+    `Profile: ${args.profile}`
+  ];
+  const summary = primaryConstraintSummaryFromMeta(args.meta);
+  if (summary) {
+    lines.push(`Primary constraint: ${summary}`);
+  }
+  return lines.join("\n");
+};
+
 const compactResearchLines = (records: ResearchRecord[], meta: Record<string, unknown>): string[] => {
   if (records.length === 0) {
     const summary = primaryConstraintSummaryFromMeta(meta);
@@ -282,11 +305,13 @@ export const renderInspiredesign = (args: {
   response: Record<string, unknown>;
   files: Array<{ path: string; content: string | Record<string, unknown> }>;
 } => {
-  const summary = [
-    `Brief: ${args.brief}`,
-    `References: ${args.urls.length}`,
-    `Profile: ${args.generationPlan.visualDirection.profile}`
-  ].join("\n");
+  const summary = buildInspiredesignSummary({
+    brief: args.brief,
+    referenceCount: args.urls.length,
+    profile: args.generationPlan.visualDirection.profile,
+    meta: args.meta
+  });
+  const followthroughSummary = prependPrimaryConstraint(args.designAgentHandoff.summary, args.meta);
   const contextPayload = {
     brief: args.brief,
     advancedBriefMarkdown: args.advancedBriefMarkdown,
@@ -342,7 +367,7 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         summary,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
         meta: args.meta
@@ -364,7 +389,7 @@ export const renderInspiredesign = (args: {
         implementationPlan: args.implementationPlan,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
         evidence: args.evidence,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
         meta: args.meta
@@ -379,7 +404,7 @@ export const renderInspiredesign = (args: {
         markdown: args.designMarkdown,
         implementationPlanMarkdown: args.implementationPlanMarkdown,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
         meta: args.meta
@@ -392,7 +417,7 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         context: contextPayload,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
         meta: args.meta
@@ -404,7 +429,7 @@ export const renderInspiredesign = (args: {
   return {
     response: {
       mode: "path",
-      followthroughSummary: args.designAgentHandoff.summary,
+      followthroughSummary,
       suggestedNextAction: args.designAgentHandoff.nextStep,
       suggestedSteps,
       meta: args.meta

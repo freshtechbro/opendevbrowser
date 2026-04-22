@@ -84,6 +84,7 @@ export type InspiredesignBriefExpansion = {
 };
 
 const BRIEF_TEMPLATE = templateJson as InspiredesignBriefTemplate;
+export const INSPIREDESIGN_BRIEF_TEMPLATE_VERSION = BRIEF_TEMPLATE.version;
 
 export const normalizeInspiredesignBriefText = (value: string): string => value.trim().replace(/\s+/g, " ");
 
@@ -261,7 +262,7 @@ export const expandInspiredesignBrief = (brief: string): InspiredesignBriefExpan
   return {
     sourceBrief,
     advancedBrief: renderAdvancedBrief(sourceBrief, format),
-    templateVersion: BRIEF_TEMPLATE.version,
+    templateVersion: INSPIREDESIGN_BRIEF_TEMPLATE_VERSION,
     format: summarizeFormat(format)
   };
 };

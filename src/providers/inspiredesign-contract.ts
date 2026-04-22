@@ -436,9 +436,9 @@ const buildGenerationPlan = (
   plan.layoutStrategy.approach = format.route.layoutApproach;
   plan.layoutStrategy.navigationModel = format.route.navigationModel;
   plan.componentStrategy.interactionStates = ["default", "hover", "focus", "disabled", "loading"];
-  plan.validationTargets.requiredThemes = plan.visualDirection.themeStrategy === "light-dark-parity"
-    ? ["light", "dark"]
-    : ["light"];
+  plan.validationTargets.requiredThemes = plan.visualDirection.themeStrategy === "single-theme"
+    ? ["light"]
+    : ["light", "dark"];
   return plan;
 };
 

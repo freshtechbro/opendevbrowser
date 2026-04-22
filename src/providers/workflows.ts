@@ -23,9 +23,15 @@ import {
 import {
   normalizeInspiredesignBriefText,
   expandInspiredesignBrief,
+  INSPIREDESIGN_BRIEF_TEMPLATE_VERSION,
   type InspiredesignBriefExpansion,
   type InspiredesignBriefFormat
 } from "../inspiredesign/brief-expansion";
+import {
+  CANVAS_NAVIGATION_MODELS,
+  CANVAS_THEME_STRATEGIES,
+  CANVAS_VISUAL_DIRECTION_PROFILES
+} from "../canvas/types";
 import {
   buildProductVideoSuccessHandoff,
   buildResearchSuccessHandoff,
@@ -1236,6 +1242,27 @@ type InspiredesignCaptureOutcome = {
   captureFailure?: string;
 };
 
+const INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE =
+  "Deep capture requested, but browser capture is unavailable in this execution lane.";
+
+const isCanvasVisualDirectionProfile = (
+  value: string
+): value is InspiredesignBriefFormat["route"]["profile"] => {
+  return (CANVAS_VISUAL_DIRECTION_PROFILES as readonly string[]).includes(value);
+};
+
+const isCanvasThemeStrategy = (
+  value: string
+): value is InspiredesignBriefFormat["route"]["themeStrategy"] => {
+  return (CANVAS_THEME_STRATEGIES as readonly string[]).includes(value);
+};
+
+const isCanvasNavigationModel = (
+  value: string
+): value is InspiredesignBriefFormat["route"]["navigationModel"] => {
+  return (CANVAS_NAVIGATION_MODELS as readonly string[]).includes(value);
+};
+
 const serializeInspiredesignBriefExpansion = (
   expansion: InspiredesignBriefExpansion
 ): Record<string, JsonValue> => structuredClone(expansion) as Record<string, JsonValue>;
@@ -1263,18 +1290,22 @@ const parseInspiredesignBriefFormatRoute = (
   value: JsonValue | undefined
 ): InspiredesignBriefFormat["route"] | undefined => {
   if (!isJsonRecord(value)) return undefined;
-  if (
-    typeof value.profile !== "string"
-    || typeof value.themeStrategy !== "string"
-    || typeof value.navigationModel !== "string"
-    || typeof value.layoutApproach !== "string"
-  ) {
+  const profile = typeof value.profile === "string" && isCanvasVisualDirectionProfile(value.profile)
+    ? value.profile
+    : undefined;
+  const themeStrategy = typeof value.themeStrategy === "string" && isCanvasThemeStrategy(value.themeStrategy)
+    ? value.themeStrategy
+    : undefined;
+  const navigationModel = typeof value.navigationModel === "string" && isCanvasNavigationModel(value.navigationModel)
+    ? value.navigationModel
+    : undefined;
+  if (!profile || !themeStrategy || !navigationModel || typeof value.layoutApproach !== "string") {
     return undefined;
   }
   return {
-    profile: value.profile as InspiredesignBriefFormat["route"]["profile"],
-    themeStrategy: value.themeStrategy as InspiredesignBriefFormat["route"]["themeStrategy"],
-    navigationModel: value.navigationModel as InspiredesignBriefFormat["route"]["navigationModel"],
+    profile,
+    themeStrategy,
+    navigationModel,
     layoutApproach: value.layoutApproach
   };
 };
@@ -1391,6 +1422,24 @@ const normalizeInspiredesignUrls = (urls: string[] | undefined): string[] => {
   return [...new Set(normalized.map((url) => canonicalizeUrl(url)))];
 };
 
+const hasValidInspiredesignBriefRoute = (route: InspiredesignBriefFormat["route"]): boolean => {
+  return isCanvasVisualDirectionProfile(route.profile)
+    && isCanvasThemeStrategy(route.themeStrategy)
+    && isCanvasNavigationModel(route.navigationModel);
+};
+
+const shouldReuseInspiredesignBriefExpansion = (
+  briefExpansion: InspiredesignBriefExpansion | undefined,
+  normalizedBrief: string
+): briefExpansion is InspiredesignBriefExpansion => {
+  return Boolean(
+    briefExpansion
+    && normalizeInspiredesignBriefText(briefExpansion.sourceBrief) === normalizedBrief
+    && briefExpansion.templateVersion === INSPIREDESIGN_BRIEF_TEMPLATE_VERSION
+    && hasValidInspiredesignBriefRoute(briefExpansion.format.route)
+  );
+};
+
 const normalizeInspiredesignInput = (input: InspiredesignRunInput): InspiredesignResolvedInput => {
   const brief = input.brief.trim();
   if (!brief) {
@@ -1398,7 +1447,7 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
   }
   const urls = normalizeInspiredesignUrls(input.urls);
   const normalizedBrief = normalizeInspiredesignBriefText(brief);
-  const briefExpansion = input.briefExpansion && normalizeInspiredesignBriefText(input.briefExpansion.sourceBrief) === normalizedBrief
+  const briefExpansion = shouldReuseInspiredesignBriefExpansion(input.briefExpansion, normalizedBrief)
     ? input.briefExpansion
     : expandInspiredesignBrief(brief);
   return {
@@ -1507,7 +1556,10 @@ const captureInspiredesignReference = async (
     return { captureStatus: "off" };
   }
   if (!captureReference) {
-    return { captureStatus: "off" };
+    return {
+      captureStatus: "failed",
+      captureFailure: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE
+    };
   }
   try {
     const capture = await captureReference(url, {
@@ -1677,7 +1729,10 @@ const summarizeInspiredesignCaptureConstraint = (
   if (failedReferences.length === 0) {
     return undefined;
   }
-  const summary = `Deep capture failed for ${failedReferences.length} ${failedReferences.length === 1 ? "reference" : "references"}.`;
+  const unavailableOnly = failedReferences.every((reference) => reference.captureFailure === INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE);
+  const summary = unavailableOnly
+    ? `Deep capture was unavailable for ${failedReferences.length} ${failedReferences.length === 1 ? "reference" : "references"} in this execution lane.`
+    : `Deep capture failed for ${failedReferences.length} ${failedReferences.length === 1 ? "reference" : "references"}.`;
   const retryUrls = failedReferences
     .slice(0, 2)
     .map((reference) => `Retry deep capture for ${reference.url} after restoring the required browser session state.`);
@@ -1685,10 +1740,15 @@ const summarizeInspiredesignCaptureConstraint = (
     summary,
     guidance: {
       reason: summary,
-      recommendedNextCommands: [
-        "Rerun inspiredesign after configuring providers.cookieSource for the protected references you need to capture.",
-        ...retryUrls
-      ]
+      recommendedNextCommands: unavailableOnly
+        ? [
+          "Rerun inspiredesign from the CLI or tool wrapper so the workflow has browser capture access.",
+          ...retryUrls
+        ]
+        : [
+          "Rerun inspiredesign after configuring providers.cookieSource for the protected references you need to capture.",
+          ...retryUrls
+        ]
     }
   };
 };

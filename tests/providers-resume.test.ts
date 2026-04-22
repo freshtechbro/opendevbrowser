@@ -750,8 +750,9 @@ describe("provider runtime resume", () => {
           capture_mode: "deep"
         }),
         metrics: expect.objectContaining({
-          failed_captures: 0
-        })
+          failed_captures: 1
+        }),
+        primaryConstraintSummary: "Deep capture was unavailable for 1 reference in this execution lane."
       })
     });
     expect(inspiredesignContext?.suspendedIntent).toMatchObject({
@@ -768,9 +769,9 @@ describe("provider runtime resume", () => {
     expect(evidence.references[0]).toMatchObject({
       url: "https://example.com/inspiration",
       fetchStatus: "captured",
-      captureStatus: "off"
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane."
     });
-    expect(evidence.references[0]).not.toHaveProperty("captureFailure");
   });
 
   it("resumes workflow shopping from checkpoint state without replaying completed provider searches", async () => {
