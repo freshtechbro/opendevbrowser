@@ -1442,12 +1442,16 @@ const shouldReuseInspiredesignBriefExpansion = (
   briefExpansion: InspiredesignBriefExpansion | undefined,
   normalizedBrief: string
 ): briefExpansion is InspiredesignBriefExpansion => {
-  return Boolean(
-    briefExpansion
-    && normalizeInspiredesignBriefText(briefExpansion.sourceBrief) === normalizedBrief
-    && briefExpansion.templateVersion === INSPIREDESIGN_BRIEF_TEMPLATE_VERSION
-    && hasValidInspiredesignBriefRoute(briefExpansion.format.route)
-  );
+  if (!briefExpansion) {
+    return false;
+  }
+  if (normalizeInspiredesignBriefText(briefExpansion.sourceBrief) !== normalizedBrief) {
+    return false;
+  }
+  if (briefExpansion.templateVersion !== INSPIREDESIGN_BRIEF_TEMPLATE_VERSION) {
+    return false;
+  }
+  return hasValidInspiredesignBriefRoute(briefExpansion.format.route);
 };
 
 const normalizeInspiredesignInput = (input: InspiredesignRunInput): InspiredesignResolvedInput => {
@@ -1457,9 +1461,10 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
   }
   const urls = normalizeInspiredesignUrls(input.urls);
   const normalizedBrief = normalizeInspiredesignBriefText(brief);
-  const briefExpansion = shouldReuseInspiredesignBriefExpansion(input.briefExpansion, normalizedBrief)
-    ? input.briefExpansion
-    : expandInspiredesignBrief(brief);
+  const preferredFormatId = shouldReuseInspiredesignBriefExpansion(input.briefExpansion, normalizedBrief)
+    ? input.briefExpansion.format.id
+    : undefined;
+  const briefExpansion = expandInspiredesignBrief(brief, preferredFormatId);
   return {
     ...input,
     brief,
@@ -1562,6 +1567,19 @@ const buildUnavailableInspiredesignCaptureEvidence = (): InspiredesignCaptureEvi
   }
 });
 
+const PRE_ARTIFACT_CAPTURE_SKIP_MESSAGE =
+  "Skipped after deep capture failed before artifact capture started.";
+
+const buildFailedInspiredesignCaptureEvidence = (
+  detail: string
+): InspiredesignCaptureEvidence => ({
+  attempts: {
+    snapshot: { status: "failed", detail },
+    clone: { status: "skipped", detail: PRE_ARTIFACT_CAPTURE_SKIP_MESSAGE },
+    dom: { status: "skipped", detail: PRE_ARTIFACT_CAPTURE_SKIP_MESSAGE }
+  }
+});
+
 const describeInspiredesignCaptureAttempts = (
   key: InspiredesignCaptureAttemptKey,
   counts: Record<InspiredesignCaptureAttemptStatus, number>,
@@ -1643,9 +1661,13 @@ const captureInspiredesignReference = async (
       ...(capture ? { capture } : {})
     };
   } catch (error) {
+    const captureFailure = error instanceof Error && error.message.trim()
+      ? error.message
+      : "Deep capture failed.";
     return {
       captureStatus: "failed",
-      captureFailure: error instanceof Error ? error.message : "Deep capture failed."
+      captureFailure,
+      capture: buildFailedInspiredesignCaptureEvidence(captureFailure)
     };
   }
 };
@@ -1762,14 +1784,52 @@ const excerptFromInspiredesignRecord = (record: NormalizedRecord | undefined): s
   return toSnippet(content, 240);
 };
 
+const captureSnippet = (
+  value: string | undefined,
+  maxLength: number
+): string | undefined => {
+  const content = normalizePlainText(value);
+  if (!content) return undefined;
+  return toSnippet(content, maxLength);
+};
+
+const titleFromInspiredesignCapture = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): string | undefined => {
+  return captureSnippet(capture?.title, 120)
+    ?? captureSnippet(capture?.snapshot?.content, 120)
+    ?? captureSnippet(capture?.dom?.outerHTML, 120)
+    ?? captureSnippet(capture?.clone?.componentPreview, 120)
+    ?? captureSnippet(capture?.clone?.cssPreview, 120);
+};
+
+const excerptFromInspiredesignCapture = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): string | undefined => {
+  return captureSnippet(capture?.snapshot?.content, 240)
+    ?? captureSnippet(capture?.dom?.outerHTML, 240)
+    ?? captureSnippet(capture?.clone?.componentPreview, 240)
+    ?? captureSnippet(capture?.clone?.cssPreview, 240);
+};
+
+const isInspiredesignFetchRecovered = (
+  reference: InspiredesignReferenceEvidence
+): boolean => {
+  return reference.fetchStatus === "failed"
+    && reference.captureStatus === "captured"
+    && (Boolean(reference.title) || Boolean(reference.excerpt));
+};
+
 const buildInspiredesignReference = (
   url: string,
   result: ProviderAggregateResult,
   capture: InspiredesignCaptureOutcome
 ): InspiredesignReferenceEvidence => {
   const primary = getInspiredesignPrimaryRecord(result, url);
-  const title = primary?.title ?? capture.capture?.title;
-  const excerpt = excerptFromInspiredesignRecord(primary);
+  const normalizedCapture = normalizeInspiredesignCaptureEvidence(capture.capture);
+  const title = primary?.title ?? titleFromInspiredesignCapture(normalizedCapture);
+  const excerpt = excerptFromInspiredesignRecord(primary)
+    ?? excerptFromInspiredesignCapture(normalizedCapture);
   const fetchStatus: InspiredesignReferenceEvidence["fetchStatus"] = result.records.length > 0 ? "captured" : "failed";
   return {
     id: createHash("sha256").update(url).digest("hex").slice(0, 12),
@@ -1782,7 +1842,7 @@ const buildInspiredesignReference = (
       ? { fetchFailure: summarizeInspiredesignFetchFailure(result) }
       : {}),
     ...(capture.captureFailure ? { captureFailure: capture.captureFailure } : {}),
-    ...(capture.capture ? { capture: capture.capture } : {})
+    ...(normalizedCapture ? { capture: normalizedCapture } : {})
   };
 };
 
@@ -1837,7 +1897,9 @@ const buildInspiredesignMeta = (
       reference_count: references.length,
       fetched_references: references.filter((reference) => reference.fetchStatus === "captured").length,
       captured_references: references.filter((reference) => reference.captureStatus === "captured").length,
-      failed_fetches: references.filter((reference) => reference.fetchStatus === "failed").length,
+      failed_fetches: references.filter((reference) => (
+        reference.fetchStatus === "failed" && !isInspiredesignFetchRecovered(reference)
+      )).length,
       failed_captures: failedCaptures.length,
       ...(captureAttemptReport ? { capture_attempts: captureAttemptReport.counts } : {})
     },
@@ -2926,7 +2988,6 @@ export const runInspiredesignWorkflow = async (
     );
     const result = normalizeInspiredesignFetchResult(fetchResult);
     observeWorkflowSignals(runtime, result);
-    failures.push(...result.failures);
     const captureTimeoutMs = remainingTimeoutMs();
     const capture = await captureInspiredesignReference(
       url,
@@ -2935,7 +2996,11 @@ export const runInspiredesignWorkflow = async (
       options.captureReference,
       captureTimeoutMs
     );
-    references.push(buildInspiredesignReference(url, result, capture));
+    const reference = buildInspiredesignReference(url, result, capture);
+    references.push(reference);
+    if (!isInspiredesignFetchRecovered(reference)) {
+      failures.push(...result.failures);
+    }
     trace = appendWorkflowTrace(stepTrace, "execute", "reference_completed", {
       stepIndex: index,
       url,

@@ -148,6 +148,7 @@ npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" -
 Rules:
 - keep inspiredesign references public-first; any supplied `--url` now forces deep capture so the workflow can collect DOM/layout evidence
 - use repeated `--url` flags instead of packed URL strings
+- after a successful run, read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`
 - pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 
 ## Agent Sync Targets

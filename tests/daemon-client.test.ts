@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
+import { mkdtemp, readFile, rm, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, normalize } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { getCurrentDaemonFingerprint, resolveCurrentDaemonEntrypointPath } from "../src/cli/daemon";
+import * as daemonStatusModule from "../src/cli/daemon-status";
 import { DaemonClient, __test__ as daemonClientTest } from "../src/cli/daemon-client";
 
 const writeDaemonMetadata = async (root: string): Promise<void> => {
@@ -20,17 +21,36 @@ const writeDaemonMetadata = async (root: string): Promise<void> => {
   await writeFile(join(cacheRoot, "daemon.json"), JSON.stringify(payload), "utf-8");
 };
 
+const writeDaemonConfig = async (
+  root: string,
+  port: number,
+  token: string
+): Promise<void> => {
+  const configRoot = join(root, "config");
+  await mkdir(configRoot, { recursive: true });
+  process.env.OPENCODE_CONFIG_DIR = configRoot;
+  await writeFile(join(configRoot, "opendevbrowser.jsonc"), JSON.stringify({
+    daemonPort: port,
+    daemonToken: token,
+    relayPort: 0,
+    relayToken: false
+  }), "utf-8");
+};
+
 describe("daemon-client error parsing", () => {
   let tempRoot = "";
   let previousCacheDir: string | undefined;
+  let previousConfigDir: string | undefined;
   let fetchSpy: ReturnType<typeof vi.fn> | null = null;
 
   beforeEach(async () => {
     tempRoot = await mkdtemp(join(tmpdir(), "odb-daemon-client-"));
     previousCacheDir = process.env.OPENCODE_CACHE_DIR;
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR;
     process.env.OPENCODE_CACHE_DIR = tempRoot;
     daemonClientTest.resetCachedClientState();
     await writeDaemonMetadata(tempRoot);
+    await writeDaemonConfig(tempRoot, 12345, "test-token");
   });
 
   afterEach(async () => {
@@ -45,6 +65,11 @@ describe("daemon-client error parsing", () => {
       delete process.env.OPENCODE_CACHE_DIR;
     } else {
       process.env.OPENCODE_CACHE_DIR = previousCacheDir;
+    }
+    if (previousConfigDir === undefined) {
+      delete process.env.OPENCODE_CONFIG_DIR;
+    } else {
+      process.env.OPENCODE_CONFIG_DIR = previousConfigDir;
     }
   });
 
@@ -630,6 +655,176 @@ describe("daemon-client error parsing", () => {
       expect(fetchSpy.mock.calls[0]?.[0]).toBe("http://127.0.0.1:12345/command");
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("prefers the configured daemon connection when matching metadata points at another port", async () => {
+    await writeDaemonConfig(tempRoot, 23456, "configured-token");
+    const fetchCalls: string[] = [];
+
+    fetchSpy = vi.fn(async (input, options) => {
+      const url = String(input);
+      fetchCalls.push(url);
+      const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+      if (url === "http://127.0.0.1:23456/status") {
+        expect(authorization).toBe("Bearer configured-token");
+        return new Response(JSON.stringify({
+          ok: true,
+          pid: 4242,
+          fingerprint: getCurrentDaemonFingerprint(),
+          hub: { instanceId: "hub-current" },
+          relay: {
+            running: true,
+            url: "ws://127.0.0.1:8787",
+            port: 8787,
+            extensionConnected: false,
+            extensionHandshakeComplete: false,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: false,
+            pairingRequired: false,
+            instanceId: "relay-current",
+            epoch: 1,
+            health: { ok: true, reason: "ok" }
+          },
+          binding: null
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url === "http://127.0.0.1:23456/command") {
+        expect(authorization).toBe("Bearer configured-token");
+        return new Response(JSON.stringify({ ok: true, data: { ok: true, source: "configured" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const client = new DaemonClient({ autoRenew: false });
+    const result = await client.call("some.command");
+
+    expect(result).toEqual({ ok: true, source: "configured" });
+    expect(fetchCalls).toEqual([
+      "http://127.0.0.1:23456/status",
+      "http://127.0.0.1:23456/command"
+    ]);
+
+    const refreshedMetadata = JSON.parse(
+      await readFile(join(tempRoot, "opendevbrowser", "daemon.json"), "utf-8")
+    ) as { port: number; token: string; pid: number };
+    expect(refreshedMetadata).toMatchObject({
+      port: 23456,
+      token: "configured-token",
+      pid: 4242
+    });
+  });
+
+  it("falls back to a current metadata daemon when the configured daemon does not prove current quickly", async () => {
+    await writeDaemonConfig(tempRoot, 23456, "configured-token");
+    const fetchCalls: string[] = [];
+
+    fetchSpy = vi.fn(async (input, options) => {
+      const url = String(input);
+      fetchCalls.push(url);
+      const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+      if (url === "http://127.0.0.1:23456/status") {
+        expect(authorization).toBe("Bearer configured-token");
+        return new Response("stale", { status: 503 });
+      }
+      if (url === "http://127.0.0.1:12345/command") {
+        expect(authorization).toBe("Bearer test-token");
+        return new Response(JSON.stringify({ ok: true, data: { ok: true, source: "metadata" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    const client = new DaemonClient({ autoRenew: false });
+    const result = await client.call("some.command");
+
+    expect(result).toEqual({ ok: true, source: "metadata" });
+    expect(fetchCalls).toEqual([
+      "http://127.0.0.1:23456/status",
+      "http://127.0.0.1:12345/command"
+    ]);
+  });
+
+  it("waits for a configured daemon to come back during a concurrent restart window", async () => {
+    await rm(join(tempRoot, "opendevbrowser", "daemon.json"), { force: true });
+    await writeDaemonConfig(tempRoot, 23456, "configured-token");
+
+    const currentStatus = {
+      ok: true as const,
+      pid: 4242,
+      fingerprint: getCurrentDaemonFingerprint(),
+      hub: { instanceId: "hub-current" },
+      relay: {
+        running: true,
+        url: "ws://127.0.0.1:8787",
+        port: 8787,
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false,
+        instanceId: "relay-current",
+        epoch: 1,
+        health: { ok: true, reason: "ok" }
+      },
+      binding: null
+    };
+    const statusSpy = vi.spyOn(daemonStatusModule, "fetchDaemonStatus")
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(currentStatus);
+
+    fetchSpy = vi.fn(async (input, options) => {
+      const url = String(input);
+      const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+      if (url === "http://127.0.0.1:23456/command") {
+        expect(authorization).toBe("Bearer configured-token");
+        return new Response(JSON.stringify({ ok: true, data: { ok: true, source: "recovered" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      const result = await client.call("some.command");
+
+      expect(result).toEqual({ ok: true, source: "recovered" });
+      expect(statusSpy.mock.calls).toEqual([
+        [23456, "configured-token", { retryAttempts: 5, retryDelayMs: 250 }],
+        [23456, "configured-token", { timeoutMs: 2_000 }]
+      ]);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      const refreshedMetadata = JSON.parse(
+        await readFile(join(tempRoot, "opendevbrowser", "daemon.json"), "utf-8")
+      ) as { port: number; token: string; pid: number };
+      expect(refreshedMetadata).toMatchObject({
+        port: 23456,
+        token: "configured-token",
+        pid: 4242
+      });
+    } finally {
+      statusSpy.mockRestore();
     }
   });
 

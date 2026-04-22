@@ -11,7 +11,7 @@ describe("inspiredesign capture helper", () => {
     const manager = {
       launch: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
       goto: vi.fn().mockResolvedValue(undefined),
-      waitForLoad: vi.fn().mockRejectedValue(new Error("slow network")),
+      waitForLoad: vi.fn().mockRejectedValue(new Error("Navigation wait timed out after 5000ms")),
       snapshot: vi.fn().mockResolvedValue({
         content: "",
         refCount: 3,
@@ -63,6 +63,50 @@ describe("inspiredesign capture helper", () => {
       }
     });
     expect(manager.disconnect).toHaveBeenCalledWith("session-1", true);
+  });
+
+  it("rethrows non-timeout waitForLoad failures before capture begins", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-wait-error" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockRejectedValue(new Error("page crashed")),
+      snapshot: vi.fn(),
+      clonePage: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+
+    await expect(captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/reference",
+      {}
+    )).rejects.toThrow("page crashed");
+    expect(manager.snapshot).not.toHaveBeenCalled();
+    expect(manager.clonePage).not.toHaveBeenCalled();
+    expect(manager.disconnect).toHaveBeenCalledWith("session-wait-error", true);
+  });
+
+  it("rethrows non-Error waitForLoad failures before capture begins", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-wait-non-error" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockRejectedValue("page stalled"),
+      snapshot: vi.fn(),
+      clonePage: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+
+    await expect(captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/reference",
+      {}
+    )).rejects.toBe("page stalled");
+    expect(manager.snapshot).not.toHaveBeenCalled();
+    expect(manager.clonePage).not.toHaveBeenCalled();
+    expect(manager.disconnect).toHaveBeenCalledWith("session-wait-non-error", true);
   });
 
   it("clamps low timeouts to one millisecond and ignores rejected DOM captures", async () => {
@@ -645,6 +689,88 @@ describe("inspiredesign capture helper", () => {
     });
     expect(manager.clonePageHtmlWithOptions).not.toHaveBeenCalled();
     expect(manager.disconnect).toHaveBeenCalledWith("session-9c", true);
+  });
+
+  it("treats coded timeout errors as transport timeouts across capture lanes", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-9d" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        content: "capture content",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePage: vi.fn().mockRejectedValue(Object.assign(new Error("socket stalled"), { code: "ETIMEDOUT" })),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({ html: "<main>late</main>" }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    await expect(captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/transport-timeout-code",
+      { timeoutMs: 5000 }
+    )).resolves.toMatchObject({
+      snapshot: {
+        content: "capture content",
+        refCount: 1
+      },
+      attempts: {
+        snapshot: { status: "captured" },
+        clone: {
+          status: "failed",
+          detail: "socket stalled"
+        },
+        dom: {
+          status: "skipped",
+          detail: "Skipped after clone capture transport timeout."
+        }
+      }
+    });
+    expect(manager.clonePageHtmlWithOptions).not.toHaveBeenCalled();
+    expect(manager.disconnect).toHaveBeenCalledWith("session-9d", true);
+  });
+
+  it("falls back to generic snapshot failure text for non-Error capture faults", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-9e" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockRejectedValue("snapshot pipe broke"),
+      clonePage: vi.fn().mockResolvedValue({
+        component: "<section />",
+        css: ".x{}",
+        warnings: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    await expect(captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/non-error-snapshot",
+      { timeoutMs: 5000 }
+    )).resolves.toMatchObject({
+      clone: {
+        componentPreview: "<section />",
+        cssPreview: ".x{}"
+      },
+      attempts: {
+        snapshot: {
+          status: "failed",
+          detail: "Snapshot capture failed."
+        },
+        clone: {
+          status: "captured"
+        },
+        dom: {
+          status: "skipped",
+          detail: "DOM capture helper unavailable in this execution lane."
+        }
+      }
+    });
+    expect(manager.disconnect).toHaveBeenCalledWith("session-9e", true);
   });
 
   it("drops optional DOM capture when it exceeds the remaining timeout budget", async () => {

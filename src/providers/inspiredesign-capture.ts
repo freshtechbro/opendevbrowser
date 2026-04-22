@@ -119,8 +119,25 @@ const detailFromCaptureError = (error: unknown, fallback: string): string => {
   return error instanceof Error ? error.message : fallback;
 };
 
-const isTransportTimeoutMessage = (detail: string): boolean => {
-  return detail.startsWith("Request timed out after ");
+const isTransportTimeoutError = (
+  error: unknown,
+  detail: string
+): boolean => {
+  if (error instanceof Error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (error.name === "TimeoutError" || code === "ETIMEDOUT" || code === "ERR_HTTP_REQUEST_TIMEOUT") {
+      return true;
+    }
+  }
+  return /\btimed out after \d+ms\b/i.test(detail)
+    && !/timeout budget/i.test(detail);
+};
+
+const isIgnorableNetworkIdleWaitError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return /timed out|timeout/i.test(error.message);
 };
 
 const buildSkippedAfterTransportTimeoutAttempt = (
@@ -253,7 +270,7 @@ const captureSnapshotArtifact = async (
     const detail = detailFromCaptureError(error, "Snapshot capture failed.");
     return {
       attempt: buildCaptureAttempt("failed", detail),
-      ...(isTransportTimeoutMessage(detail) ? { transportTimedOut: true } : {})
+      ...(isTransportTimeoutError(error, detail) ? { transportTimedOut: true } : {})
     };
   }
 };
@@ -288,7 +305,7 @@ const captureCloneArtifact = async (
     const detail = detailFromCaptureError(error, "Clone capture failed.");
     return {
       attempt: buildCaptureAttempt("failed", detail),
-      ...(isTransportTimeoutMessage(detail) ? { transportTimedOut: true } : {})
+      ...(isTransportTimeoutError(error, detail) ? { transportTimedOut: true } : {})
     };
   }
 };
@@ -326,7 +343,7 @@ const captureDomArtifact = async (
     const detail = detailFromCaptureError(error, "DOM capture failed.");
     return {
       attempt: buildCaptureAttempt("failed", detail),
-      ...(isTransportTimeoutMessage(detail) ? { transportTimedOut: true } : {})
+      ...(isTransportTimeoutError(error, detail) ? { transportTimedOut: true } : {})
     };
   }
 };
@@ -428,11 +445,17 @@ export async function captureInspiredesignReferenceFromManager(
       "navigation"
     );
     const waitTimeoutMs = remainingTimeoutMs();
-    await withCaptureDeadline(
-      manager.waitForLoad(session.sessionId, "networkidle", waitTimeoutMs).catch(() => undefined),
-      waitTimeoutMs,
-      "network idle wait"
-    );
+    try {
+      await withCaptureDeadline(
+        manager.waitForLoad(session.sessionId, "networkidle", waitTimeoutMs),
+        waitTimeoutMs,
+        "network idle wait"
+      );
+    } catch (error) {
+      if (!isIgnorableNetworkIdleWaitError(error)) {
+        throw error;
+      }
+    }
     return await captureInspiredesignArtifacts(manager, session.sessionId, remainingTimeoutMs);
   } finally {
     await manager.disconnect(session.sessionId, true).catch(() => undefined);

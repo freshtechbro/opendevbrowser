@@ -70,6 +70,8 @@
 
 **Conclusion:** secondary risk seam. It can make mixed runs degrade more sharply, but it is not the best primary explanation for the current public-first report.
 
+**Follow-up note (2026-04-22):** URL-backed inspiredesign now intentionally treats deep capture as the default path, not an optional add-on. Cookie-source availability, session state, and deep-capture transport limits should therefore be treated as core constraints for any run that supplies `--url`, even when the primary product issue is still reference-quality classification.
+
 ## Root Cause
 
 The best evidence-backed framing is:

@@ -164,6 +164,15 @@ const getDefaultFormat = (): InspiredesignBriefFormatTemplate => {
   return defaultFormat;
 };
 
+const findFormatById = (
+  formatId: string | undefined
+): InspiredesignBriefFormatTemplate | undefined => {
+  if (!formatId) {
+    return undefined;
+  }
+  return BRIEF_TEMPLATE.formats.find((format) => format.id === formatId);
+};
+
 const scoreFormat = (sourceBrief: string, format: InspiredesignBriefFormatTemplate): number => {
   const requiredMatches = countMatches(sourceBrief, format.matchSignals.required ?? []);
   if ((format.matchSignals.required?.length ?? 0) > 0 && requiredMatches === 0) {
@@ -187,6 +196,17 @@ const chooseFormat = (sourceBrief: string): InspiredesignBriefFormatTemplate => 
     const score = scoreFormat(sourceBrief, format);
     return score > best.score ? { score, format } : best;
   }, seeded).format;
+};
+
+const resolveFormat = (
+  sourceBrief: string,
+  preferredFormatId: string | undefined
+): InspiredesignBriefFormatTemplate => {
+  const preferredFormat = findFormatById(preferredFormatId);
+  if (preferredFormat) {
+    return preferredFormat;
+  }
+  return chooseFormat(sourceBrief);
 };
 
 const buildReturnRequirements = (format: InspiredesignBriefFormatTemplate): string[] => (
@@ -256,9 +276,12 @@ const renderAdvancedBrief = (
   formatBulletList(format.bestFor)
 ].join("\n");
 
-export const expandInspiredesignBrief = (brief: string): InspiredesignBriefExpansion => {
+export const expandInspiredesignBrief = (
+  brief: string,
+  preferredFormatId?: string
+): InspiredesignBriefExpansion => {
   const sourceBrief = normalizeInspiredesignBriefText(brief);
-  const format = chooseFormat(sourceBrief);
+  const format = resolveFormat(sourceBrief, preferredFormatId);
   return {
     sourceBrief,
     advancedBrief: renderAdvancedBrief(sourceBrief, format),

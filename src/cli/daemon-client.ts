@@ -38,7 +38,9 @@ const DAEMON_STATUS_RETRY_OPTIONS: DaemonStatusFetchOptions = {
 };
 const DAEMON_RESTART_STATUS_TIMEOUT_MS = 5_000;
 const DAEMON_RESTART_READY_TIMEOUT_MS = 15_000;
+const DAEMON_RECOVERY_READY_TIMEOUT_MS = 2_000;
 const DAEMON_RESTART_POLL_DELAY_MS = 250;
+const DAEMON_CONFIG_PREFER_TIMEOUT_MS = 500;
 
 type DaemonResponse<T> = { ok?: boolean; data?: T; error?: string };
 
@@ -564,11 +566,18 @@ const restartDaemonConnection = async (connection: DaemonConnection): Promise<vo
   child.unref();
 };
 
-const waitForCurrentDaemonStatus = async (connection: DaemonConnection): Promise<DaemonStatusPayload | null> => {
-  const deadline = Date.now() + DAEMON_RESTART_READY_TIMEOUT_MS;
+const waitForCurrentDaemonStatus = async (
+  connection: DaemonConnection,
+  readyTimeoutMs = DAEMON_RESTART_READY_TIMEOUT_MS
+): Promise<DaemonStatusPayload | null> => {
+  const deadline = Date.now() + readyTimeoutMs;
   while (true) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      return null;
+    }
     const status = await fetchDaemonStatus(connection.port, connection.token, {
-      timeoutMs: DAEMON_RESTART_STATUS_TIMEOUT_MS
+      timeoutMs: Math.min(DAEMON_RESTART_STATUS_TIMEOUT_MS, remainingMs)
     });
     if (status?.ok && isCurrentDaemonFingerprint(status.fingerprint)) {
       return status;
@@ -576,7 +585,7 @@ const waitForCurrentDaemonStatus = async (connection: DaemonConnection): Promise
     if (Date.now() >= deadline) {
       return null;
     }
-    await sleep(DAEMON_RESTART_POLL_DELAY_MS);
+    await sleep(Math.min(DAEMON_RESTART_POLL_DELAY_MS, Math.max(0, deadline - Date.now())));
   }
 };
 
@@ -637,6 +646,14 @@ const resolveFreshDaemonConnection = async (): Promise<DaemonConnection> => {
     staleConnections.push(staleMetadata.connection);
   }
   if (staleConnections.length === 0) {
+    const recoveringStatus = await waitForCurrentDaemonStatus(
+      configuredConnection,
+      DAEMON_RECOVERY_READY_TIMEOUT_MS
+    );
+    if (recoveringStatus?.ok) {
+      persistResolvedDaemonStatus(configuredConnection, recoveringStatus);
+      return configuredConnection;
+    }
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
   }
   for (const staleConnection of staleConnections) {
@@ -654,7 +671,24 @@ const resolveFreshDaemonConnection = async (): Promise<DaemonConnection> => {
 const resolveDaemonConnection = async (): Promise<DaemonConnection> => {
   const metadata = readDaemonMetadata();
   if (metadata && isCurrentDaemonFingerprint(metadata.fingerprint)) {
-    return { port: metadata.port, token: metadata.token };
+    const metadataConnection = { port: metadata.port, token: metadata.token };
+    const configuredConnection = getConfiguredDaemonConnection();
+    if (!configuredConnection || sameDaemonConnection(metadataConnection, configuredConnection)) {
+      return metadataConnection;
+    }
+    const configuredStatus = await fetchDaemonStatus(
+      configuredConnection.port,
+      configuredConnection.token,
+      {
+        timeoutMs: DAEMON_CONFIG_PREFER_TIMEOUT_MS,
+        retryAttempts: 1
+      }
+    );
+    if (configuredStatus?.ok && isCurrentDaemonFingerprint(configuredStatus.fingerprint)) {
+      persistResolvedDaemonStatus(configuredConnection, configuredStatus);
+      return configuredConnection;
+    }
+    return metadataConnection;
   }
   return await resolveFreshDaemonConnection();
 };

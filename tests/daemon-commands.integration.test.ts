@@ -2002,6 +2002,26 @@ describe("daemon-commands integration", () => {
     );
   });
 
+  it("rejects invalid maxNodes for daemon export.clonePageHtml", async () => {
+    const core = makeCore();
+    const manager = core.manager as OpenDevBrowserCore["manager"] & {
+      status: ReturnType<typeof vi.fn>;
+      clonePageHtmlWithOptions: ReturnType<typeof vi.fn>;
+    };
+    manager.status = vi.fn(async () => ({ mode: "managed", activeTargetId: null })) as never;
+    manager.clonePageHtmlWithOptions = vi.fn() as never;
+
+    await expect(handleDaemonCommand(core, {
+      name: "export.clonePageHtml",
+      params: {
+        clientId: "client-1",
+        sessionId: "session-1",
+        maxNodes: 0
+      }
+    })).rejects.toThrow("Invalid maxNodes");
+    expect(manager.clonePageHtmlWithOptions).not.toHaveBeenCalled();
+  });
+
   it("threads browserFallbackPort into daemon shopping workflows", async () => {
     const core = makeCore();
     const browserFallbackPort = { resolve: vi.fn() };
