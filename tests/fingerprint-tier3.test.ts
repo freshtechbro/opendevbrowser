@@ -62,6 +62,39 @@ describe("fingerprint tier3 adaptive", () => {
     expect(second.state.canary.level).toBeGreaterThan(0);
   });
 
+  it("does not promote repeatedly while scores stay above the same threshold window", () => {
+    const adapter: Tier3Adapter = {
+      name: "stable-adapter",
+      evaluate: () => ({ score: 95, reason: "healthy" })
+    };
+
+    let state = createTier3RuntimeState(config, adapter);
+    state = evaluateTier3Adaptive(state, config, {
+      hasChallenge: false,
+      healthScore: 95,
+      challengeCount: 0,
+      rotationCount: 0
+    }, adapter, 1700000000000).state;
+
+    const promoted = evaluateTier3Adaptive(state, config, {
+      hasChallenge: false,
+      healthScore: 95,
+      challengeCount: 0,
+      rotationCount: 0
+    }, adapter, 1700000005000);
+
+    const steady = evaluateTier3Adaptive(promoted.state, config, {
+      hasChallenge: false,
+      healthScore: 95,
+      challengeCount: 0,
+      rotationCount: 0
+    }, adapter, 1700000010000);
+
+    expect(promoted.action).toBe("promote");
+    expect(steady.action).toBe("none");
+    expect(steady.state.canary.level).toBe(promoted.state.canary.level);
+  });
+
   it("rolls back when adapter forces rollback", () => {
     const adapter: Tier3Adapter = {
       name: "rollback-adapter",

@@ -16,8 +16,14 @@ import {
 } from "./renderer";
 import {
   buildInspiredesignPacket,
+  formatInspiredesignCaptureAttemptSummary,
+  hasInspiredesignCaptureArtifacts,
+  INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS,
+  type InspiredesignCaptureAttemptKey,
+  type InspiredesignCaptureAttemptStatus,
   type InspiredesignCaptureEvidence,
   type InspiredesignFollowthrough,
+  normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
 } from "./inspiredesign-contract";
 import {
@@ -1244,6 +1250,10 @@ type InspiredesignCaptureOutcome = {
 
 const INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE =
   "Deep capture requested, but browser capture is unavailable in this execution lane.";
+type InspiredesignCaptureAttemptCounts = Record<
+  InspiredesignCaptureAttemptKey,
+  Record<InspiredesignCaptureAttemptStatus, number>
+>;
 
 const isCanvasVisualDirectionProfile = (
   value: string
@@ -1538,11 +1548,63 @@ const buildInspiredesignFetchOptions = (
   envelope
 );
 
-const hasInspiredesignCaptureEvidence = (
-  capture: InspiredesignCaptureEvidence | null | undefined
-): capture is InspiredesignCaptureEvidence => {
-  if (!capture) return false;
-  return Boolean(capture.title || capture.snapshot || capture.dom || capture.clone);
+const buildEmptyInspiredesignCaptureAttemptCounts = (): InspiredesignCaptureAttemptCounts => ({
+  snapshot: { captured: 0, failed: 0, skipped: 0 },
+  clone: { captured: 0, failed: 0, skipped: 0 },
+  dom: { captured: 0, failed: 0, skipped: 0 }
+});
+
+const buildUnavailableInspiredesignCaptureEvidence = (): InspiredesignCaptureEvidence => ({
+  attempts: {
+    snapshot: { status: "skipped", detail: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE },
+    clone: { status: "skipped", detail: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE },
+    dom: { status: "skipped", detail: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE }
+  }
+});
+
+const describeInspiredesignCaptureAttempts = (
+  key: InspiredesignCaptureAttemptKey,
+  counts: Record<InspiredesignCaptureAttemptStatus, number>,
+  statuses: InspiredesignCaptureAttemptStatus[]
+): string | null => {
+  const parts = statuses
+    .filter((status) => counts[status] > 0)
+    .map((status) => `${status} ${counts[status]}`);
+  if (parts.length === 0) return null;
+  return `${key} (${parts.join(", ")})`;
+};
+
+const summarizeInspiredesignCaptureAttempts = (
+  references: InspiredesignReferenceEvidence[]
+): {
+  counts: InspiredesignCaptureAttemptCounts;
+  worked: string[];
+  didNotWork: string[];
+  summary: string;
+} | undefined => {
+  const counts = buildEmptyInspiredesignCaptureAttemptCounts();
+  let hasAttempts = false;
+  for (const reference of references) {
+    const attempts = normalizeInspiredesignCaptureEvidence(reference.capture)?.attempts;
+    if (!attempts) continue;
+    hasAttempts = true;
+    for (const key of INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS) {
+      counts[key][attempts[key].status] += 1;
+    }
+  }
+  if (!hasAttempts) return undefined;
+  const worked = INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS
+    .map((key) => describeInspiredesignCaptureAttempts(key, counts[key], ["captured"]))
+    .filter((value): value is string => value !== null);
+  const didNotWork = INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS
+    .map((key) => describeInspiredesignCaptureAttempts(key, counts[key], ["failed", "skipped"]))
+    .filter((value): value is string => value !== null);
+  return {
+    counts,
+    worked,
+    didNotWork,
+    summary: formatInspiredesignCaptureAttemptSummary({ worked, didNotWork })
+  };
 };
 
 const captureInspiredesignReference = async (
@@ -1558,25 +1620,27 @@ const captureInspiredesignReference = async (
   if (!captureReference) {
     return {
       captureStatus: "failed",
-      captureFailure: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE
+      captureFailure: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE,
+      capture: buildUnavailableInspiredesignCaptureEvidence()
     };
   }
   try {
-    const capture = await captureReference(url, {
+    const capture = normalizeInspiredesignCaptureEvidence(await captureReference(url, {
       timeoutMs,
       useCookies: workflowInput.useCookies,
       challengeAutomationMode: workflowInput.challengeAutomationMode,
       cookiePolicyOverride: workflowInput.cookiePolicyOverride
-    });
-    if (!hasInspiredesignCaptureEvidence(capture)) {
+    }));
+    if (!hasInspiredesignCaptureArtifacts(capture)) {
       return {
         captureStatus: "failed",
-        captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence."
+        captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence.",
+        ...(capture ? { capture } : {})
       };
     }
     return {
       captureStatus: "captured",
-      capture
+      ...(capture ? { capture } : {})
     };
   } catch (error) {
     return {
@@ -1761,6 +1825,7 @@ const buildInspiredesignMeta = (
   followthrough: InspiredesignFollowthrough
 ): Record<string, unknown> => {
   const failedCaptures = references.filter((reference) => reference.captureStatus === "failed");
+  const captureAttemptReport = summarizeInspiredesignCaptureAttempts(references);
   let reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
   let meta = withCamelCasePrimaryConstraintMeta(withReasonCodeDistributionMeta({
     selection: {
@@ -1773,7 +1838,8 @@ const buildInspiredesignMeta = (
       fetched_references: references.filter((reference) => reference.fetchStatus === "captured").length,
       captured_references: references.filter((reference) => reference.captureStatus === "captured").length,
       failed_fetches: references.filter((reference) => reference.fetchStatus === "failed").length,
-      failed_captures: failedCaptures.length
+      failed_captures: failedCaptures.length,
+      ...(captureAttemptReport ? { capture_attempts: captureAttemptReport.counts } : {})
     },
     alerts: buildWorkflowAlerts(runtime, failures)
   }, reasonCodeDistribution), failures);
@@ -1792,6 +1858,15 @@ const buildInspiredesignMeta = (
   return {
     ...meta,
     followthroughSummary: followthrough.summary,
+    ...(captureAttemptReport
+      ? {
+        captureAttemptSummary: captureAttemptReport.summary,
+        captureAttemptReport: {
+          worked: captureAttemptReport.worked,
+          didNotWork: captureAttemptReport.didNotWork
+        }
+      }
+      : {}),
     recommendedSkills: followthrough.recommendedSkills,
     deepCaptureRecommendation: followthrough.deepCaptureRecommendation,
     contractScope: followthrough.contractScope

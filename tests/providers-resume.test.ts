@@ -5,11 +5,21 @@ import type { ProviderAdapter, ProviderContext, ProviderSource, SessionChallenge
 
 type WorkflowKind = "research" | "shopping" | "product_video" | "inspiredesign";
 type InspiredesignResumeMeta = {
+  captureAttemptSummary?: string;
+  captureAttemptReport?: {
+    worked: string[];
+    didNotWork: string[];
+  };
   selection: {
     capture_mode: string;
   };
   metrics: {
     failed_captures: number;
+    capture_attempts?: {
+      snapshot: Record<string, number>;
+      clone: Record<string, number>;
+      dom: Record<string, number>;
+    };
   };
 };
 
@@ -19,6 +29,9 @@ type InspiredesignResumeEvidence = {
     fetchStatus: string;
     captureStatus: string;
     captureFailure?: string;
+    capture?: {
+      attempts?: Record<string, { status: string; detail?: string }>;
+    };
   }>;
 };
 
@@ -750,8 +763,14 @@ describe("provider runtime resume", () => {
           capture_mode: "deep"
         }),
         metrics: expect.objectContaining({
-          failed_captures: 1
+          failed_captures: 1,
+          capture_attempts: {
+            snapshot: { captured: 0, failed: 0, skipped: 1 },
+            clone: { captured: 0, failed: 0, skipped: 1 },
+            dom: { captured: 0, failed: 0, skipped: 1 }
+          }
         }),
+        captureAttemptSummary: "worked=none; did_not_work=snapshot (skipped 1), clone (skipped 1), dom (skipped 1)",
         primaryConstraintSummary: "Deep capture was unavailable for 1 reference in this execution lane."
       })
     });
@@ -770,7 +789,23 @@ describe("provider runtime resume", () => {
       url: "https://example.com/inspiration",
       fetchStatus: "captured",
       captureStatus: "failed",
-      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane."
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+      capture: {
+        attempts: {
+          snapshot: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          },
+          clone: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          },
+          dom: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          }
+        }
+      }
     });
   });
 

@@ -311,8 +311,19 @@ describe("workflow tools", () => {
 
     expect(response.ok).toBe(true);
     expect(deps.manager.launch).toHaveBeenCalledTimes(1);
-    expect(deps.manager.cookieImport).toHaveBeenCalledWith("session-1", cookieSource.value, false);
-    expect(deps.manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/reference"]);
+    expect(deps.manager.cookieImport).toHaveBeenCalledWith(
+      "session-1",
+      cookieSource.value,
+      false,
+      undefined,
+      expect.any(Number)
+    );
+    expect(deps.manager.cookieList).toHaveBeenCalledWith(
+      "session-1",
+      ["https://example.com/reference"],
+      undefined,
+      expect.any(Number)
+    );
     expect(deps.manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
   });
 

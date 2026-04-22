@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { join } from "path";
-import { getCurrentDaemonFingerprint } from "../src/cli/daemon";
+import { join, normalize } from "path";
+import { fileURLToPath, pathToFileURL } from "url";
+import { getCurrentDaemonFingerprint, resolveCurrentDaemonEntrypointPath } from "../src/cli/daemon";
 import { DaemonClient, __test__ as daemonClientTest } from "../src/cli/daemon-client";
 
 const writeDaemonMetadata = async (root: string): Promise<void> => {
@@ -630,5 +631,83 @@ describe("daemon-client error parsing", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("resolves the daemon entrypoint in ESM contexts without process.argv[1]", () => {
+    const originalArgv1 = process.argv[1];
+    process.argv[1] = "";
+
+    try {
+      const entryPath = resolveCurrentDaemonEntrypointPath();
+      expect(normalize(entryPath)).toBe(normalize(fileURLToPath(new URL("../src/cli/daemon.ts", import.meta.url))));
+      expect(() => getCurrentDaemonFingerprint()).not.toThrow();
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
+  });
+
+  it("prefers the built CLI entrypoint for daemon fingerprinting when argv is missing", () => {
+    const repoRoot = join(tmpdir(), "odb-daemon-fingerprint");
+    const entryPath = join(repoRoot, "dist", "cli", "index.js");
+    const moduleUrl = pathToFileURL(join(repoRoot, "dist", "cli", "daemon.js")).href;
+
+    expect(resolveCurrentDaemonEntrypointPath({
+      argv1: "",
+      moduleUrl,
+      entryExists: (path) => normalize(path) === normalize(entryPath)
+    })).toBe(entryPath);
+  });
+
+  it("changes the fingerprint when the active daemon module changes under the same built entrypoint", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "odb-daemon-fingerprint-"));
+    const cliDir = join(repoRoot, "dist", "cli");
+    const entryPath = join(cliDir, "index.js");
+    const modulePath = join(cliDir, "daemon.js");
+    await mkdir(cliDir, { recursive: true });
+    await writeFile(entryPath, "export const entry = true;\n", "utf-8");
+    await writeFile(modulePath, "export const daemon = 'one';\n", "utf-8");
+
+    const fingerprintA = getCurrentDaemonFingerprint({
+      argv1: "",
+      moduleUrl: pathToFileURL(modulePath).href,
+      entryExists: (path) => normalize(path) === normalize(entryPath)
+    });
+
+    await writeFile(modulePath, "export const daemon = 'two';\n", "utf-8");
+
+    const fingerprintB = getCurrentDaemonFingerprint({
+      argv1: "",
+      moduleUrl: pathToFileURL(modulePath).href,
+      entryExists: (path) => normalize(path) === normalize(entryPath)
+    });
+
+    expect(fingerprintB).not.toBe(fingerprintA);
+  });
+
+  it("derives a restart-safe CLI tuple from the built daemon-client module when argv is missing", () => {
+    const repoRoot = join(tmpdir(), "odb-daemon-client-restart");
+    const entryPath = join(repoRoot, "dist", "cli", "index.js");
+    const moduleUrl = pathToFileURL(join(repoRoot, "dist", "cli", "daemon-client.js")).href;
+
+    expect(daemonClientTest.resolveDaemonRestartCommand({
+      argv1: "",
+      execPath: "/usr/local/bin/node",
+      moduleUrl,
+      entryExists: (path) => normalize(path) === normalize(entryPath)
+    })).toEqual({
+      command: "/usr/local/bin/node",
+      args: [entryPath]
+    });
+  });
+
+  it("fails restart resolution instead of reusing a source-only daemon module path", () => {
+    const repoRoot = join(tmpdir(), "odb-daemon-client-source");
+
+    expect(() => daemonClientTest.resolveDaemonRestartCommand({
+      argv1: "",
+      execPath: "/usr/local/bin/node",
+      moduleUrl: pathToFileURL(join(repoRoot, "src", "cli", "daemon-client.ts")).href,
+      entryExists: () => false
+    })).toThrow("Daemon restart requires a stable CLI entrypoint.");
   });
 });

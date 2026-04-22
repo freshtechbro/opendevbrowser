@@ -6,6 +6,9 @@ import type {
 import type { JsonValue } from "../src/providers/types";
 import {
   buildInspiredesignPacket,
+  formatInspiredesignCaptureAttemptSummary,
+  hasInspiredesignCaptureArtifacts,
+  normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
 } from "../src/providers/inspiredesign-contract";
 import {
@@ -250,6 +253,11 @@ describe("inspiredesign packet + renderer", () => {
               componentPreview: "<section>Docs hero</section>",
               cssPreview: ".docs-hero { display: grid; }",
               warnings: []
+            },
+            attempts: {
+              snapshot: { status: "captured" },
+              clone: { status: "captured" },
+              dom: { status: "captured" }
             }
           }
         }),
@@ -293,7 +301,12 @@ describe("inspiredesign packet + renderer", () => {
         title: "Docs Home",
         snapshot: expect.any(Object),
         dom: expect.any(Object),
-        clone: expect.any(Object)
+        clone: expect.any(Object),
+        attempts: {
+          snapshot: { status: "captured" },
+          clone: { status: "captured" },
+          dom: { status: "captured" }
+        }
       })
     });
     expect(evidence.references[2]).toMatchObject({
@@ -467,7 +480,14 @@ describe("inspiredesign packet + renderer", () => {
         implementationPlanMarkdown: packet.implementationPlanMarkdown,
         prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
         evidence: packet.evidence,
-        meta: { requestId: "req-1" }
+        meta: {
+          requestId: "req-1",
+          captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
+          captureAttemptReport: {
+            worked: ["snapshot (captured 1)"],
+            didNotWork: ["clone (failed 1)", "dom (skipped 1)"]
+          }
+        }
       });
 
       expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designMarkdown)).toBe(true);
@@ -480,9 +500,17 @@ describe("inspiredesign packet + renderer", () => {
         expect(rendered.response).toMatchObject({
           mode,
           summary: expect.stringContaining("Brief: Design a premium product narrative landing page"),
+          captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
+          captureAttemptReport: {
+            worked: ["snapshot (captured 1)"],
+            didNotWork: ["clone (failed 1)", "dom (skipped 1)"]
+          },
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
         });
+        expect(rendered.response.summary).toEqual(expect.stringContaining(
+          "Capture: worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)"
+        ));
         expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[0]?.reason).toBe(
           INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief
         );
@@ -504,6 +532,7 @@ describe("inspiredesign packet + renderer", () => {
           prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
           canvasPlanRequest: packet.canvasPlanRequest,
           designAgentHandoff: packet.followthrough,
+          captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
         });
@@ -513,6 +542,7 @@ describe("inspiredesign packet + renderer", () => {
           markdown: packet.designMarkdown,
           implementationPlanMarkdown: packet.implementationPlanMarkdown,
           prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+          captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
         });
@@ -528,18 +558,89 @@ describe("inspiredesign packet + renderer", () => {
             canvasPlanRequest: packet.canvasPlanRequest,
             designAgentHandoff: packet.followthrough
           }),
+          captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
         });
       } else {
         expect(rendered.response).toMatchObject({
           mode: "path",
-          meta: { requestId: "req-1" },
+          meta: {
+            requestId: "req-1",
+            captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)"
+          },
+          captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
         });
       }
     }
+  });
+
+  it("prefers the provided capture attempt summary and derives a fallback from the report when needed", () => {
+    const brief = "Design a premium product narrative landing page";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://example.com/ref-1"],
+      references: [makeReference()]
+    });
+    const report = {
+      worked: ["snapshot (captured 1)"],
+      didNotWork: ["clone (failed 1)", "dom (skipped 1)"]
+    };
+
+    const providedSummary = renderInspiredesign({
+      mode: "compact",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: ["https://example.com/ref-1"],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      meta: {
+        requestId: "req-1",
+        captureAttemptSummary: "provided summary wins",
+        captureAttemptReport: report
+      }
+    });
+
+    expect(providedSummary.response).toMatchObject({
+      captureAttemptSummary: "provided summary wins"
+    });
+    expect(providedSummary.response.summary).toEqual(expect.stringContaining("Capture: provided summary wins"));
+
+    const derivedSummary = renderInspiredesign({
+      mode: "compact",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: ["https://example.com/ref-1"],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      meta: {
+        requestId: "req-2",
+        captureAttemptReport: report
+      }
+    });
+    const expectedSummary = formatInspiredesignCaptureAttemptSummary(report);
+
+    expect(derivedSummary.response).toMatchObject({
+      captureAttemptSummary: expectedSummary
+    });
+    expect(derivedSummary.response.summary).toEqual(expect.stringContaining(`Capture: ${expectedSummary}`));
   });
 
   it("omits the prototype guidance file when the packet does not include it", () => {
@@ -617,7 +718,12 @@ describe("inspiredesign packet + renderer", () => {
           excerpt: longExcerpt,
           captureStatus: "captured",
           capture: {
-            title: "Captured title only"
+            title: "Captured title only",
+            attempts: {
+              snapshot: { status: "captured" },
+              clone: { status: "failed", detail: "clone capture timeout" },
+              dom: { status: "skipped", detail: "DOM capture helper unavailable in this execution lane." }
+            }
           }
         })
       ]
@@ -632,9 +738,85 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.designMarkdown).toContain(`layout and hierarchy observations: ${expectedExcerpt}`);
     expect(packet.designMarkdown).not.toContain("Capture warnings:");
     expect(capture).toEqual({
-      title: "Captured title only"
+      title: "Captured title only",
+      attempts: {
+        snapshot: {
+          status: "failed",
+          detail: "Captured artifact was empty after normalization."
+        },
+        clone: { status: "failed", detail: "clone capture timeout" },
+        dom: { status: "skipped", detail: "DOM capture helper unavailable in this execution lane." }
+      }
     });
     expect("snapshot" in capture).toBe(false);
     expect("clone" in capture).toBe(false);
+  });
+
+  it("treats empty snapshot, DOM, and clone payloads as unusable capture artifacts", () => {
+    expect(hasInspiredesignCaptureArtifacts({
+      snapshot: {
+        content: "   ",
+        refCount: 1,
+        warnings: []
+      },
+      dom: {
+        outerHTML: "   ",
+        truncated: false
+      },
+      clone: {
+        componentPreview: "",
+        cssPreview: "   ",
+        warnings: []
+      }
+    })).toBe(false);
+
+    expect(hasInspiredesignCaptureArtifacts({
+      clone: {
+        componentPreview: "",
+        cssPreview: ".hero { display: grid; }",
+        warnings: []
+      }
+    })).toBe(true);
+  });
+
+  it("downgrades captured attempts when normalization drops the artifact payload", () => {
+    expect(normalizeInspiredesignCaptureEvidence({
+      title: "Captured title only",
+      snapshot: {
+        content: "   ",
+        refCount: 1,
+        warnings: []
+      },
+      dom: {
+        outerHTML: "",
+        truncated: false
+      },
+      clone: {
+        componentPreview: "",
+        cssPreview: "   ",
+        warnings: []
+      },
+      attempts: {
+        snapshot: { status: "captured" },
+        clone: { status: "captured" },
+        dom: { status: "captured" }
+      }
+    })).toEqual({
+      title: "Captured title only",
+      attempts: {
+        snapshot: {
+          status: "failed",
+          detail: "Captured artifact was empty after normalization."
+        },
+        clone: {
+          status: "failed",
+          detail: "Captured artifact was empty after normalization."
+        },
+        dom: {
+          status: "failed",
+          detail: "Captured artifact was empty after normalization."
+        }
+      }
+    });
   });
 });

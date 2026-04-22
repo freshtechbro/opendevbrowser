@@ -26,6 +26,23 @@ type JsonRecord = Record<string, JsonValue>;
 type FetchStatus = "captured" | "failed" | "skipped";
 type CaptureStatus = "off" | "captured" | "failed";
 
+export type InspiredesignCaptureAttemptStatus = "captured" | "failed" | "skipped";
+
+export type InspiredesignCaptureAttemptEvidence = {
+  status: InspiredesignCaptureAttemptStatus;
+  detail?: string;
+};
+
+export const INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS = ["snapshot", "clone", "dom"] as const;
+
+export type InspiredesignCaptureAttemptKey = typeof INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS[number];
+
+export type InspiredesignCaptureAttempts = {
+  snapshot: InspiredesignCaptureAttemptEvidence;
+  clone: InspiredesignCaptureAttemptEvidence;
+  dom: InspiredesignCaptureAttemptEvidence;
+};
+
 type DesignContractTemplate = {
   intent: JsonRecord;
   designLanguage: JsonRecord;
@@ -77,6 +94,167 @@ export type InspiredesignCaptureEvidence = {
     cssPreview: string;
     warnings: string[];
   };
+  attempts?: InspiredesignCaptureAttempts;
+};
+
+type CaptureAttemptSummaryReport = {
+  worked: string[];
+  didNotWork: string[];
+};
+
+const MALFORMED_CAPTURE_ATTEMPT_DETAIL = "Capture attempt metadata missing or malformed.";
+const NORMALIZED_CAPTURE_ATTEMPT_DETAIL = "Captured artifact was empty after normalization.";
+
+const isJsonRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const isInspiredesignCaptureAttemptStatus = (
+  value: unknown
+): value is InspiredesignCaptureAttemptStatus => {
+  return value === "captured" || value === "failed" || value === "skipped";
+};
+
+const hasUsableCaptureText = (value: string | undefined): boolean => {
+  return typeof value === "string" && value.trim().length > 0;
+};
+
+const hasUsableInspiredesignSnapshot = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): boolean => {
+  return hasUsableCaptureText(capture?.snapshot?.content);
+};
+
+const hasUsableInspiredesignDom = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): boolean => {
+  return hasUsableCaptureText(capture?.dom?.outerHTML);
+};
+
+const hasUsableInspiredesignClone = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): boolean => {
+  return hasUsableCaptureText(capture?.clone?.componentPreview)
+    || hasUsableCaptureText(capture?.clone?.cssPreview);
+};
+
+const hasUsableInspiredesignCaptureArtifact = (
+  capture: InspiredesignCaptureEvidence,
+  key: InspiredesignCaptureAttemptKey
+): boolean => {
+  switch (key) {
+    case "snapshot":
+      return hasUsableInspiredesignSnapshot(capture);
+    case "clone":
+      return hasUsableInspiredesignClone(capture);
+    case "dom":
+      return hasUsableInspiredesignDom(capture);
+  }
+};
+
+const reconcileInspiredesignCaptureAttemptEvidence = (
+  attempt: InspiredesignCaptureAttemptEvidence,
+  artifactPresent: boolean
+): InspiredesignCaptureAttemptEvidence => {
+  if (attempt.status !== "captured" || artifactPresent) {
+    return attempt;
+  }
+  return {
+    status: "failed",
+    detail: NORMALIZED_CAPTURE_ATTEMPT_DETAIL
+  };
+};
+
+const reconcileInspiredesignCaptureAttempts = (
+  capture: InspiredesignCaptureEvidence,
+  attempts: InspiredesignCaptureAttempts | undefined
+): InspiredesignCaptureAttempts | undefined => {
+  if (!attempts) {
+    return undefined;
+  }
+  return {
+    snapshot: reconcileInspiredesignCaptureAttemptEvidence(
+      attempts.snapshot,
+      hasUsableInspiredesignCaptureArtifact(capture, "snapshot")
+    ),
+    clone: reconcileInspiredesignCaptureAttemptEvidence(
+      attempts.clone,
+      hasUsableInspiredesignCaptureArtifact(capture, "clone")
+    ),
+    dom: reconcileInspiredesignCaptureAttemptEvidence(
+      attempts.dom,
+      hasUsableInspiredesignCaptureArtifact(capture, "dom")
+    )
+  };
+};
+
+export const hasInspiredesignCaptureArtifacts = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): capture is InspiredesignCaptureEvidence => {
+  return hasUsableInspiredesignSnapshot(capture)
+    || hasUsableInspiredesignDom(capture)
+    || hasUsableInspiredesignClone(capture);
+};
+
+export const normalizeInspiredesignCaptureAttemptEvidence = (
+  value: unknown,
+  fallbackDetail = MALFORMED_CAPTURE_ATTEMPT_DETAIL
+): InspiredesignCaptureAttemptEvidence => {
+  if (!isJsonRecord(value) || !isInspiredesignCaptureAttemptStatus(value.status)) {
+    return {
+      status: "skipped",
+      detail: fallbackDetail
+    };
+  }
+  return {
+    status: value.status,
+    ...(typeof value.detail === "string" && value.detail.trim().length > 0
+      ? { detail: value.detail.trim() }
+      : {})
+  };
+};
+
+export const normalizeInspiredesignCaptureAttempts = (
+  value: unknown
+): InspiredesignCaptureAttempts | undefined => {
+  if (!isJsonRecord(value)) {
+    return undefined;
+  }
+  return {
+    snapshot: normalizeInspiredesignCaptureAttemptEvidence(value.snapshot),
+    clone: normalizeInspiredesignCaptureAttemptEvidence(value.clone),
+    dom: normalizeInspiredesignCaptureAttemptEvidence(value.dom)
+  };
+};
+
+export const normalizeInspiredesignCaptureEvidence = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): InspiredesignCaptureEvidence | null | undefined => {
+  if (!capture) {
+    return capture;
+  }
+  const normalizedBase: InspiredesignCaptureEvidence = {
+    ...(capture.title ? { title: capture.title } : {}),
+    ...(hasUsableInspiredesignSnapshot(capture) && capture.snapshot ? { snapshot: capture.snapshot } : {}),
+    ...(hasUsableInspiredesignDom(capture) && capture.dom ? { dom: capture.dom } : {}),
+    ...(hasUsableInspiredesignClone(capture) && capture.clone ? { clone: capture.clone } : {})
+  };
+  const attempts = reconcileInspiredesignCaptureAttempts(
+    normalizedBase,
+    normalizeInspiredesignCaptureAttempts(capture.attempts)
+  );
+  return {
+    ...normalizedBase,
+    ...(attempts ? { attempts } : {})
+  };
+};
+
+export const formatInspiredesignCaptureAttemptSummary = (
+  report: CaptureAttemptSummaryReport
+): string => {
+  const worked = report.worked.length > 0 ? report.worked.join(", ") : "none";
+  const didNotWork = report.didNotWork.length > 0 ? report.didNotWork.join(", ") : "none";
+  return `worked=${worked}; did_not_work=${didNotWork}`;
 };
 
 export type InspiredesignReferenceEvidence = {
@@ -1060,12 +1238,14 @@ const buildEvidencePayload = (
 });
 
 const toCaptureEvidenceJson = (capture: InspiredesignCaptureEvidence | null | undefined): JsonValue => {
-  if (!capture) return null;
+  const normalized = normalizeInspiredesignCaptureEvidence(capture);
+  if (!normalized) return null;
   return {
-    ...(capture.title ? { title: capture.title } : {}),
-    ...(capture.snapshot ? { snapshot: capture.snapshot } : {}),
-    ...(capture.dom ? { dom: capture.dom } : {}),
-    ...(capture.clone ? { clone: capture.clone } : {})
+    ...(normalized.title ? { title: normalized.title } : {}),
+    ...(normalized.snapshot ? { snapshot: normalized.snapshot } : {}),
+    ...(normalized.dom ? { dom: normalized.dom } : {}),
+    ...(normalized.clone ? { clone: normalized.clone } : {}),
+    ...(normalized.attempts ? { attempts: normalized.attempts } : {})
   };
 };
 

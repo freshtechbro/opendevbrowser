@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
+import { fileURLToPath } from "url";
 import { generateSecureToken } from "../utils/crypto";
 import { createOpenDevBrowserCore } from "../core";
 import { loadGlobalConfig, resolveConfig, type OpenDevBrowserConfig } from "../config";
@@ -35,6 +36,12 @@ type DaemonOptions = {
   config?: OpenDevBrowserConfig;
   directory?: string;
   worktree?: string | null;
+};
+
+type ResolveDaemonEntrypointOptions = {
+  argv1?: string;
+  moduleUrl?: string;
+  entryExists?: (path: string) => boolean;
 };
 
 export function getCacheRoot(): string {
@@ -76,15 +83,23 @@ export function clearDaemonMetadata(): void {
   }
 }
 
-export function resolveCurrentDaemonEntrypointPath(): string {
-  const rawEntry = process.argv[1];
+export function resolveCurrentDaemonEntrypointPath(
+  options: ResolveDaemonEntrypointOptions = {}
+): string {
+  const rawEntry = options.argv1 ?? process.argv[1];
   if (typeof rawEntry === "string" && rawEntry.trim().length > 0) {
     return resolve(rawEntry);
   }
-  return resolve(__filename);
+  const moduleUrl = options.moduleUrl ?? import.meta.url;
+  const cliEntrypoint = resolve(fileURLToPath(new URL("./index.js", moduleUrl)));
+  const entryExists = options.entryExists ?? existsSync;
+  if (entryExists(cliEntrypoint)) {
+    return cliEntrypoint;
+  }
+  return resolve(fileURLToPath(moduleUrl));
 }
 
-function hashEntrypointContents(entryPath: string): string {
+function hashFileContents(entryPath: string): string {
   try {
     return createHash("sha256").update(readFileSync(entryPath)).digest("hex");
   } catch {
@@ -92,11 +107,22 @@ function hashEntrypointContents(entryPath: string): string {
   }
 }
 
-export function getCurrentDaemonFingerprint(): string {
-  const entryPath = resolveCurrentDaemonEntrypointPath();
-  const entryHash = hashEntrypointContents(entryPath);
+export function getCurrentDaemonFingerprint(options: ResolveDaemonEntrypointOptions = {}): string {
+  const entryPath = resolveCurrentDaemonEntrypointPath(options);
+  const modulePath = resolve(fileURLToPath(options.moduleUrl ?? import.meta.url));
+  const fingerprintParts = [
+    DAEMON_FINGERPRINT_VERSION,
+    process.execPath,
+    entryPath,
+    hashFileContents(entryPath)
+  ];
+
+  if (modulePath !== entryPath) {
+    fingerprintParts.push(modulePath, hashFileContents(modulePath));
+  }
+
   return createHash("sha256")
-    .update([DAEMON_FINGERPRINT_VERSION, process.execPath, entryPath, entryHash].join("\n"))
+    .update(fingerprintParts.join("\n"))
     .digest("hex");
 }
 

@@ -94,7 +94,8 @@ export function ensureCli() {
 
 function parseJsonFromStdout(stdout) {
   const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  for (const line of lines) {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
     try {
       return JSON.parse(line);
     } catch {

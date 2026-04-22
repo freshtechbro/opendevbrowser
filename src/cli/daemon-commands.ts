@@ -533,6 +533,19 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         optionalString(params.targetId)
       );
+    case "export.clonePageHtml":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      if (typeof core.manager.clonePageHtmlWithOptions !== "function") {
+        throw new Error("clonePageHtmlWithOptions unavailable in this execution lane.");
+      }
+      return core.manager.clonePageHtmlWithOptions(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.targetId),
+        {
+          ...(typeof params.maxNodes === "number" ? { maxNodes: params.maxNodes } : {}),
+          ...(typeof params.inlineStyles === "boolean" ? { inlineStyles: params.inlineStyles } : {})
+        }
+      );
     case "export.cloneComponent":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.cloneComponent(

@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { randomUUID } from "crypto";
+import { fileURLToPath } from "url";
 import {
   getCacheRoot,
   isCurrentDaemonFingerprint,
@@ -456,6 +457,7 @@ export async function callDaemon(command: string, params?: Record<string, unknow
 export const __test__ = {
   deriveTransportTimeoutMs,
   isTransportTimeoutError,
+  resolveDaemonRestartCommand,
   resetCachedClientState: (): void => {
     cachedClientState = undefined;
   }
@@ -464,6 +466,18 @@ export const __test__ = {
 type DaemonConnection = {
   port: number;
   token: string;
+};
+
+type DaemonRestartCommand = {
+  command: string;
+  args: string[];
+};
+
+type ResolveDaemonRestartCommandOptions = {
+  argv1?: string;
+  execPath?: string;
+  moduleUrl?: string;
+  entryExists?: (path: string) => boolean;
 };
 
 const sleep = async (delayMs: number): Promise<void> => {
@@ -509,9 +523,33 @@ const stopDaemonConnection = async (connection: DaemonConnection): Promise<void>
   }
 };
 
+function resolveDaemonRestartCommand(
+  options: ResolveDaemonRestartCommandOptions = {}
+): DaemonRestartCommand {
+  const execPath = options.execPath ?? process.execPath;
+  const moduleUrl = options.moduleUrl ?? import.meta.url;
+  const argv1 = options.argv1 ?? process.argv[1];
+  const entryPath = resolveCurrentDaemonEntrypointPath({
+    argv1,
+    moduleUrl,
+    entryExists: options.entryExists ?? existsSync
+  });
+  if (!(typeof argv1 === "string" && argv1.trim().length > 0)) {
+    const modulePath = resolve(fileURLToPath(moduleUrl));
+    if (entryPath === modulePath) {
+      throw createDisconnectedError("Daemon restart requires a stable CLI entrypoint. Start with `opendevbrowser serve`.");
+    }
+  }
+  return {
+    command: execPath,
+    args: [entryPath]
+  };
+}
+
 const restartDaemonConnection = async (connection: DaemonConnection): Promise<void> => {
-  const child = spawn(process.execPath, [
-    resolveCurrentDaemonEntrypointPath(),
+  const restart = resolveDaemonRestartCommand();
+  const child = spawn(restart.command, [
+    ...restart.args,
     "serve",
     "--port",
     String(connection.port),

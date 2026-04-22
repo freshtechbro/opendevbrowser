@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { join, resolve } from "path";
 
 const mocks = vi.hoisted(() => ({
   fetchWithTimeout: vi.fn(),
@@ -52,6 +53,9 @@ const createTimedResponse = (response: Response, timeoutMs: number) => ({
 });
 
 describe("daemon-client retry timeout propagation", () => {
+  const originalArgv1 = process.argv[1];
+  const restartEntrypoint = resolve(join("repo-fixture", "dist", "cli", "index.js"));
+
   beforeEach(() => {
     mocks.fetchWithTimeoutContext.mockReset();
     mocks.fetchWithTimeout.mockReset();
@@ -65,8 +69,15 @@ describe("daemon-client retry timeout propagation", () => {
     mocks.loadGlobalConfig.mockReset();
     mocks.fetchDaemonStatus.mockReset();
     mocks.spawn.mockReset();
+    process.argv[1] = restartEntrypoint;
 
     mocks.getCacheRoot.mockReturnValue("/tmp/odb-daemon-client");
+    mocks.resolveCurrentDaemonEntrypointPath.mockImplementation((options?: { argv1?: string }) => {
+      const rawEntry = options?.argv1 ?? process.argv[1];
+      return typeof rawEntry === "string" && rawEntry.trim().length > 0
+        ? resolve(rawEntry)
+        : restartEntrypoint;
+    });
     mocks.readDaemonMetadata.mockReturnValue({
       port: 8788,
       token: "stale-token",
@@ -76,7 +87,6 @@ describe("daemon-client retry timeout propagation", () => {
       fingerprint: "current-fingerprint"
     });
     mocks.isCurrentDaemonFingerprint.mockImplementation((fingerprint?: string) => fingerprint === "current-fingerprint");
-    mocks.resolveCurrentDaemonEntrypointPath.mockReturnValue("/repo/dist/cli/index.js");
     mocks.loadGlobalConfig.mockReturnValue({
       daemonPort: 8788,
       daemonToken: "fresh-token",
@@ -106,6 +116,10 @@ describe("daemon-client retry timeout propagation", () => {
     }));
     mocks.readResponseTextWithTimeout.mockImplementation(async (response: Response) => await response.text());
     mocks.readResponseJsonWithTimeout.mockImplementation(async (response: Response) => await response.json());
+  });
+
+  afterEach(() => {
+    process.argv[1] = originalArgv1;
   });
 
   it("preserves timeoutMs when retrying unauthorized requests", async () => {
@@ -201,7 +215,7 @@ describe("daemon-client retry timeout propagation", () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       process.execPath,
       [
-        "/repo/dist/cli/index.js",
+        restartEntrypoint,
         "serve",
         "--port",
         "8788",

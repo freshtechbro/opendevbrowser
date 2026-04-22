@@ -44,14 +44,15 @@ export function pushCanarySample(
   const samples = [...state.samples, sample].slice(-windowSize);
   const averageScore = average(samples.map((entry) => Math.max(0, Math.min(100, entry.score))));
   const minSamples = Math.max(1, policy.minSamples);
+  const hadEligibleWindow = state.samples.length >= minSamples;
 
   let action: Tier3CanaryAction = "none";
   let level = state.level;
   if (samples.length >= minSamples) {
-    if (averageScore >= policy.promoteThreshold) {
+    if (averageScore >= policy.promoteThreshold && (!hadEligibleWindow || state.averageScore < policy.promoteThreshold)) {
       level += 1;
       action = "promote";
-    } else if (averageScore <= policy.rollbackThreshold) {
+    } else if (averageScore <= policy.rollbackThreshold && (!hadEligibleWindow || state.averageScore > policy.rollbackThreshold)) {
       level = Math.max(0, level - 1);
       action = "rollback";
     }
