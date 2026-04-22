@@ -306,10 +306,11 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "inspiredesign_followthrough",
-    description: "After inspiredesign finishes, continue in Canvas with the emitted request template and load the canvas-contract design-agent lane before patching.",
+    description: "After inspiredesign finishes, read advanced-brief.md first, then continue in Canvas with the emitted request template and load the canvas-contract design-agent lane before patching.",
     details: [
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
+      { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
     ]

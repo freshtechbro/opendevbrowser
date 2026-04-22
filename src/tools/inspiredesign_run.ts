@@ -19,7 +19,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
     args: {
       brief: z.string().min(1).describe("Inspiredesign brief"),
       urls: z.array(z.string()).optional().describe("Inspiration URLs to analyze"),
-      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep"),
+      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep. Any URLs force deep."),
       includePrototypeGuidance: z.boolean().optional().describe("Include prototype guidance output"),
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),

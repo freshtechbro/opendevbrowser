@@ -525,8 +525,8 @@ Notes:
 - Any `--url` forces deep capture so inspiredesign can collect DOM/layout evidence. Without URLs, `--capture-mode` defaults to `off`.
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
-- Successful runs now emit `canvas-plan.request.json` and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
-- The follow-through path is explicit: load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
+- Successful runs now emit `advanced-brief.md`, `canvas-plan.request.json`, and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
+- The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
 
 Wrapper behavior:
 - Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
