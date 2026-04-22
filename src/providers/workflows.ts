@@ -1,7 +1,9 @@
 import { createHash } from "crypto";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
 import {
+  readProviderIssueHintFromRecord,
   summarizePrimaryProviderIssue,
+  type ProviderIssueHint,
   type ProviderNextStepGuidance
 } from "./constraint";
 import { enrichResearchRecords, type ResearchRecord } from "./enrichment";
@@ -1476,6 +1478,99 @@ const getInspiredesignPrimaryRecord = (
   return result.records.find((record) => record.url && canonicalizeUrl(record.url) === canonicalUrl) ?? result.records[0];
 };
 
+const summarizeInspiredesignIssueSnippet = (record: NormalizedRecord): string | undefined => {
+  const content = normalizePlainText(record.content);
+  if (!content) return undefined;
+  return toSnippet(content, 240);
+};
+
+const scoreInspiredesignIssueHint = (hint: ProviderIssueHint): number => {
+  if (hint.reasonCode === "token_required" || hint.reasonCode === "auth_required") return 3;
+  if (hint.reasonCode === "challenge_detected") return 2;
+  if (hint.constraint?.kind === "render_required") return 1;
+  return 0;
+};
+
+const toInspiredesignIssueFailure = (
+  record: NormalizedRecord,
+  hint: ProviderIssueHint
+): ProviderFailureEntry => {
+  const issueSnippet = summarizeInspiredesignIssueSnippet(record);
+  const details: Record<string, JsonValue> = {
+    reasonCode: hint.reasonCode,
+    ...(record.url ? { url: record.url } : {}),
+    ...(record.title ? { title: record.title } : {}),
+    ...(issueSnippet ? { message: issueSnippet } : {}),
+    ...(typeof record.attributes.providerShell === "string"
+      ? { providerShell: record.attributes.providerShell }
+      : {}),
+    ...(record.attributes.browserRequired === true ? { browserRequired: true } : {}),
+    ...(hint.blockerType ? { blockerType: hint.blockerType } : {}),
+    ...(hint.constraint ? { constraint: hint.constraint } : {})
+  };
+
+  return {
+    provider: record.provider,
+    source: record.source,
+    error: {
+      code: hint.reasonCode === "token_required" || hint.reasonCode === "auth_required"
+        ? "auth"
+        : "unavailable",
+      message: issueSnippet ?? record.title ?? "Fetched reference content was not usable inspiration evidence.",
+      retryable: false,
+      reasonCode: hint.reasonCode,
+      details
+    }
+  };
+};
+
+const normalizeInspiredesignFetchResult = (
+  result: ProviderAggregateResult
+): ProviderAggregateResult => {
+  if (result.records.length === 0) {
+    return result;
+  }
+
+  const usableRecords: NormalizedRecord[] = [];
+  const unusableRecords: Array<{ record: NormalizedRecord; hint: ProviderIssueHint }> = [];
+
+  for (const record of result.records) {
+    const hint = readProviderIssueHintFromRecord(record);
+    if (hint) {
+      unusableRecords.push({ record, hint });
+      continue;
+    }
+    usableRecords.push(record);
+  }
+
+  if (unusableRecords.length === 0) {
+    return result;
+  }
+
+  if (usableRecords.length > 0) {
+    return {
+      ...result,
+      records: usableRecords
+    };
+  }
+
+  const topUnusableRecord = unusableRecords
+    .slice()
+    .sort((left, right) => scoreInspiredesignIssueHint(right.hint) - scoreInspiredesignIssueHint(left.hint))[0];
+  const hasPrimaryIssue = Boolean(summarizePrimaryProviderIssue(result.failures));
+  const synthesizedFailure = !hasPrimaryIssue && topUnusableRecord
+    ? toInspiredesignIssueFailure(topUnusableRecord.record, topUnusableRecord.hint)
+    : undefined;
+
+  return {
+    ...result,
+    ok: false,
+    records: [],
+    failures: synthesizedFailure ? [...result.failures, synthesizedFailure] : result.failures,
+    ...(result.error ? {} : synthesizedFailure ? { error: synthesizedFailure.error } : {})
+  };
+};
+
 const summarizeInspiredesignFetchFailure = (result: ProviderAggregateResult): string | undefined => {
   return summarizePrimaryProviderIssue(result.failures)?.summary
     ?? result.error?.message;
@@ -2622,7 +2717,7 @@ export const runInspiredesignWorkflow = async (
       url
     });
     const fetchTimeoutMs = remainingTimeoutMs();
-    const result = await runtime.fetch(
+    const fetchResult = await runtime.fetch(
       { url },
       buildInspiredesignFetchOptions(
         workflowInput,
@@ -2630,6 +2725,7 @@ export const runInspiredesignWorkflow = async (
         fetchTimeoutMs
       )
     );
+    const result = normalizeInspiredesignFetchResult(fetchResult);
     observeWorkflowSignals(runtime, result);
     failures.push(...result.failures);
     const captureTimeoutMs = remainingTimeoutMs();

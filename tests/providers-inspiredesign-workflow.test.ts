@@ -641,6 +641,283 @@ describe("inspiredesign workflow", () => {
     expect(output.meta).not.toHaveProperty("primary_constraint");
   });
 
+  it("downgrades shell-only fetched references without breaking mixed-source success", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => {
+        if (input.url.includes("apple.com")) {
+          return makeAggregate({
+            records: [
+              normalizeRecord("web/default", "web", {
+                url: input.url,
+                title: "Apple",
+                content: "Premium product storytelling with careful whitespace and clear CTA hierarchy."
+              })
+            ]
+          });
+        }
+
+        return makeAggregate({
+          records: [
+            normalizeRecord("web/default", "web", {
+              url: input.url,
+              title: "Pinterest",
+              content: "JavaScript is required to view this page.",
+              attributes: {
+                providerShell: "social_js_required_shell",
+                browserRequired: true
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://www.apple.com", "https://www.pinterest.com/pin/example"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references).toMatchObject([
+      {
+        url: "https://www.apple.com",
+        fetchStatus: "captured",
+        captureStatus: "off"
+      },
+      {
+        url: "https://www.pinterest.com/pin/example",
+        fetchStatus: "failed",
+        captureStatus: "off",
+        fetchFailure: "Default requires a live browser-rendered page."
+      }
+    ]);
+    expect(meta.metrics).toMatchObject({
+      reference_count: 2,
+      fetched_references: 1,
+      failed_fetches: 1,
+      failed_captures: 0
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        env_limited: 1
+      },
+      primaryConstraintSummary: "Default requires a live browser-rendered page.",
+      primaryConstraint: expect.objectContaining({
+        reasonCode: "env_limited",
+        constraint: expect.objectContaining({
+          kind: "render_required",
+          evidenceCode: "social_js_required_shell"
+        })
+      })
+    });
+  });
+
+  it("keeps usable fetched records when a shell-only record is returned alongside them", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Pinterest shell",
+            content: "JavaScript is required to view this page.",
+            attributes: {
+              providerShell: "social_js_required_shell",
+              browserRequired: true
+            }
+          }),
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Recovered reference",
+            content: "Editorial product layout with calm navigation and clear calls to action."
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/recovered"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/recovered",
+      title: "Recovered reference",
+      fetchStatus: "captured",
+      captureStatus: "off"
+    });
+    expect(evidence.references[0]?.fetchFailure).toBeUndefined();
+    expect(output.meta).toMatchObject({
+      metrics: {
+        fetched_references: 1,
+        failed_fetches: 0
+      }
+    });
+    expect(output.meta).not.toHaveProperty("primaryConstraint");
+  });
+
+  it("reuses existing provider failures when shell-only fetches were already classified upstream", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        ok: false,
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Verification required",
+            content: "Complete the verification challenge to continue.",
+            attributes: {
+              providerShell: "social_verification_wall"
+            }
+          })
+        ],
+        failures: [
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "challenge detected",
+            reasonCode: "challenge_detected"
+          })
+        ],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 },
+        error: {
+          code: "unavailable",
+          message: "challenge detected",
+          retryable: false,
+          reasonCode: "challenge_detected"
+        }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/blocked"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/blocked",
+      fetchStatus: "failed",
+      captureStatus: "off",
+      fetchFailure: "Default hit an anti-bot challenge that requires manual completion."
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        challenge_detected: 1
+      },
+      primaryConstraintSummary: "Default hit an anti-bot challenge that requires manual completion."
+    });
+  });
+
+  it("keeps upstream failures for shell-only fetches without injecting a new top-level fetch error", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        ok: false,
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Pinterest shell",
+            content: "JavaScript is required to view this page.",
+            attributes: {
+              providerShell: "social_js_required_shell",
+              browserRequired: true
+            }
+          })
+        ],
+        failures: [
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "render follow-up required",
+            reasonCode: "env_limited",
+            details: {
+              providerShell: "social_js_required_shell",
+              browserRequired: true,
+              constraint: {
+                kind: "render_required",
+                evidenceCode: "social_js_required_shell"
+              }
+            }
+          })
+        ],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://www.pinterest.com/pin/example"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://www.pinterest.com/pin/example",
+      fetchStatus: "failed",
+      captureStatus: "off",
+      fetchFailure: "Default requires a live browser-rendered page."
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        env_limited: 1
+      },
+      primaryConstraintSummary: "Default requires a live browser-rendered page."
+    });
+  });
+
+  it("falls back to the aggregate fetch error message when no classified failures are available", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: false,
+        records: [],
+        failures: [],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 },
+        error: {
+          code: "unavailable",
+          message: "upstream timeout",
+          retryable: true
+        }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/timeout"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/timeout",
+      fetchStatus: "failed",
+      captureStatus: "off",
+      fetchFailure: "upstream timeout"
+    });
+    expect(output.meta).toMatchObject({
+      metrics: {
+        failed_fetches: 1,
+        failed_captures: 0
+      }
+    });
+    expect(output.meta).not.toHaveProperty("primaryConstraint");
+  });
+
   it("records unusable and non-error deep capture failures without aborting the workflow", async () => {
     const runtime = toRuntime({
       fetch: async (input: { url: string }) => makeAggregate({
