@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildInspiredesignFollowthroughSummary,
+  buildInspiredesignNextStep
+} from "../src/inspiredesign/handoff";
+import {
   buildWorkflowCompletionMessage,
   readSuggestedNextAction,
   readSuggestedStepCommand,
@@ -9,12 +13,12 @@ import {
 describe("workflow message helpers", () => {
   it("reads inspiredesign success follow-through summaries and next steps", () => {
     const data = {
-      followthroughSummary: "Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and note that any supplied reference URL already uses captureMode=deep.",
-      suggestedNextAction: "Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+      followthroughSummary: buildInspiredesignFollowthroughSummary(),
+      suggestedNextAction: buildInspiredesignNextStep()
     };
 
     expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
-      "Inspiredesign workflow completed. Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and note that any supplied reference URL already uses captureMode=deep. Next step: Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+      `Inspiredesign workflow completed. ${buildInspiredesignFollowthroughSummary()} Next step: ${buildInspiredesignNextStep()}`
     );
   });
 

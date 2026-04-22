@@ -8,7 +8,10 @@ import {
   workflowTestUtils,
   type ProviderExecutor
 } from "../src/providers/workflows";
-import type { InspiredesignBriefExpansion } from "../src/inspiredesign/brief-expansion";
+import type {
+  InspiredesignBriefExpansion,
+  InspiredesignBriefFormat
+} from "../src/inspiredesign/brief-expansion";
 import type { InspiredesignCaptureEvidence } from "../src/providers/inspiredesign-contract";
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type {
@@ -48,11 +51,7 @@ type InspiredesignWorkflowEvidence = {
   advancedBrief: string;
   briefExpansion: {
     templateVersion: string;
-    format: {
-      id: string;
-      label: string;
-      bestFor: string[];
-    };
+    format: InspiredesignBriefFormat;
   };
   references: Array<{
     url: string;
@@ -146,17 +145,52 @@ const makeCapture = (title: string): InspiredesignCaptureEvidence => ({
   }
 });
 
+const makeBriefFormat = (
+  overrides: Partial<InspiredesignBriefFormat> = {}
+): InspiredesignBriefFormat => ({
+  id: "premium-editorial-landing-page",
+  label: "Premium editorial landing page",
+  bestFor: ["launch pages", "docs homepages"],
+  businessFocus: ["premium SaaS marketing", "product launches"],
+  keywords: ["landing", "launch", "brand"],
+  archetype: "editorial brand campaign",
+  layoutArchetype: "full-bleed hero with narrative section cadence",
+  typographySystem: "display serif or refined grotesk headlines paired with restrained sans body copy",
+  surfaceTreatment: "bright print-like planes, disciplined image crops, and hairline dividers",
+  shapeLanguage: "sharp framing with selective soft corners only where interaction requires it",
+  componentGrammar: "hero composition, proof bands, narrative media strips, restrained CTA groups",
+  motionGrammar: "measured fades, staggered reveals, and restrained parallax",
+  paletteIntent: "bright neutral field with one confident accent and controlled contrast",
+  visualDensity: "airy",
+  designVariance: "balanced asymmetry",
+  responsiveCollapseRules: [
+    "Collapse split editorial compositions into a single text-first stack before line length becomes cramped."
+  ],
+  guardrails: [
+    "Prioritize one dominant hero idea and a clear narrative progression instead of dashboard-style clutter."
+  ],
+  antiPatterns: [
+    "No feature-card hero."
+  ],
+  deliverables: [
+    "Translate the references into a reusable design contract."
+  ],
+  route: {
+    profile: "product-story",
+    themeStrategy: "single-theme",
+    navigationModel: "global-header",
+    layoutApproach: "editorial-hero-sequence"
+  },
+  ...overrides
+});
+
 const makeBriefExpansion = (
   overrides: Partial<InspiredesignBriefExpansion> = {}
 ): InspiredesignBriefExpansion => ({
   sourceBrief: "Design a premium launch surface",
   advancedBrief: "Selected prompt format: Premium editorial landing page\n\nSource brief:\nDesign a premium launch surface\n\nPrompt objective:\nStudy the inspiration references and synthesize a premium editorial landing page system that translates the source brief into a reusable, brand-specific direction.",
   templateVersion: "inspiredesign-advanced-brief.v1",
-  format: {
-    id: "premium-editorial-landing-page",
-    label: "Premium editorial landing page",
-    bestFor: ["launch pages", "docs homepages"]
-  },
+  format: makeBriefFormat(),
   ...overrides
 });
 
@@ -195,6 +229,7 @@ describe("inspiredesign workflow", () => {
     });
     expect(meta.metrics.reference_count).toBe(0);
     expect(meta.artifact_manifest.files).toContain("design.md");
+    expect(meta.followthroughSummary).toEqual(expect.stringContaining("advanced-brief.md"));
     expect(meta.followthroughSummary).toEqual(expect.stringContaining("canvas-plan.request.json"));
     expect(meta.recommendedSkills).toEqual([
       'opendevbrowser-best-practices "quick start"',
@@ -347,6 +382,7 @@ describe("inspiredesign workflow", () => {
       fetchStatus: "captured",
       captureStatus: "captured"
     });
+    expect(meta.followthroughSummary).toContain("advanced-brief.md");
     expect(meta.selection.capture_mode).toBe("deep");
     expect(meta.selection.include_prototype_guidance).toBe(true);
     expect(meta.deepCaptureRecommendation).toContain("already uses captureMode=deep");
@@ -507,15 +543,37 @@ describe("inspiredesign workflow", () => {
     }));
     const runtime = toRuntime({ fetch });
     const output = await runInspiredesignWorkflow(runtime, buildWorkflowResumeEnvelope("inspiredesign", {
-      brief: "Design a premium launch surface",
+      brief: "  Design   a premium   launch surface  ",
       briefExpansion: makeBriefExpansion({
         advancedBrief: "Selected prompt format: Custom cached brief\n\nSource brief:\nDesign a premium launch surface",
         templateVersion: "custom-template.v1",
-        format: {
+        format: makeBriefFormat({
           id: "custom",
           label: "Custom cached brief",
-          bestFor: ["custom runs"]
-        }
+          bestFor: ["custom runs"],
+          businessFocus: ["custom runs"],
+          keywords: ["custom"],
+          archetype: "custom archetype",
+          layoutArchetype: "custom layout",
+          typographySystem: "custom type",
+          surfaceTreatment: "custom surface",
+          shapeLanguage: "custom shape",
+          componentGrammar: "custom components",
+          motionGrammar: "custom motion",
+          paletteIntent: "custom palette",
+          visualDensity: "airy",
+          designVariance: "balanced",
+          responsiveCollapseRules: ["Keep custom layout stable."],
+          guardrails: ["Keep custom route stable."],
+          antiPatterns: ["No stale override."],
+          deliverables: ["Return the custom route."],
+          route: {
+            profile: "control-room",
+            themeStrategy: "single-theme",
+            navigationModel: "contextual",
+            layoutApproach: "custom-layout"
+          }
+        })
       }),
       urls: ["https://example.com/cached"],
       mode: "context"
@@ -526,11 +584,33 @@ describe("inspiredesign workflow", () => {
     expect(context.advancedBriefMarkdown).toContain("Custom cached brief");
     expect(context.evidence.briefExpansion).toEqual({
       templateVersion: "custom-template.v1",
-      format: {
+      format: makeBriefFormat({
         id: "custom",
         label: "Custom cached brief",
-        bestFor: ["custom runs"]
-      }
+        bestFor: ["custom runs"],
+        businessFocus: ["custom runs"],
+        keywords: ["custom"],
+        archetype: "custom archetype",
+        layoutArchetype: "custom layout",
+        typographySystem: "custom type",
+        surfaceTreatment: "custom surface",
+        shapeLanguage: "custom shape",
+        componentGrammar: "custom components",
+        motionGrammar: "custom motion",
+        paletteIntent: "custom palette",
+        visualDensity: "airy",
+        designVariance: "balanced",
+        responsiveCollapseRules: ["Keep custom layout stable."],
+        guardrails: ["Keep custom route stable."],
+        antiPatterns: ["No stale override."],
+        deliverables: ["Return the custom route."],
+        route: {
+          profile: "control-room",
+          themeStrategy: "single-theme",
+          navigationModel: "contextual",
+          layoutApproach: "custom-layout"
+        }
+      })
     });
   });
 

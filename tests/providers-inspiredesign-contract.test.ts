@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { InspiredesignBriefExpansion } from "../src/inspiredesign/brief-expansion";
+import type {
+  InspiredesignBriefExpansion,
+  InspiredesignBriefFormat
+} from "../src/inspiredesign/brief-expansion";
 import type { JsonValue } from "../src/providers/types";
 import {
   buildInspiredesignPacket,
@@ -22,11 +25,7 @@ type InspiredesignEvidenceJson = {
   advancedBriefHash: string;
   briefExpansion: {
     templateVersion: string;
-    format: {
-      id: string;
-      label: string;
-      bestFor: string[];
-    };
+    format: InspiredesignBriefFormat;
   };
   urls: string[];
   referenceCount: number;
@@ -53,17 +52,52 @@ const makeReference = (
   ...overrides
 });
 
+const makeBriefFormat = (
+  overrides: Partial<InspiredesignBriefFormat> = {}
+): InspiredesignBriefFormat => ({
+  id: "premium-editorial-landing-page",
+  label: "Premium editorial landing page",
+  bestFor: ["launch pages", "docs homepages"],
+  businessFocus: ["premium SaaS marketing", "product launches"],
+  keywords: ["landing", "launch", "brand"],
+  archetype: "editorial brand campaign",
+  layoutArchetype: "full-bleed hero with narrative section cadence",
+  typographySystem: "display serif or refined grotesk headlines paired with restrained sans body copy",
+  surfaceTreatment: "bright print-like planes, disciplined image crops, and hairline dividers",
+  shapeLanguage: "sharp framing with selective soft corners only where interaction requires it",
+  componentGrammar: "hero composition, proof bands, narrative media strips, restrained CTA groups",
+  motionGrammar: "measured fades, staggered reveals, and restrained parallax",
+  paletteIntent: "bright neutral field with one confident accent and controlled contrast",
+  visualDensity: "airy",
+  designVariance: "balanced asymmetry",
+  responsiveCollapseRules: [
+    "Collapse split editorial compositions into a single text-first stack before line length becomes cramped."
+  ],
+  guardrails: [
+    "Prioritize one dominant hero idea and a clear narrative progression instead of dashboard-style clutter."
+  ],
+  antiPatterns: [
+    "No feature-card hero."
+  ],
+  deliverables: [
+    "Translate the references into a reusable design contract."
+  ],
+  route: {
+    profile: "product-story",
+    themeStrategy: "single-theme",
+    navigationModel: "global-header",
+    layoutApproach: "editorial-hero-sequence"
+  },
+  ...overrides
+});
+
 const makeBriefExpansion = (
   overrides: Partial<InspiredesignBriefExpansion> = {}
 ): InspiredesignBriefExpansion => ({
   sourceBrief: "Design a premium product narrative landing page",
   advancedBrief: "Selected prompt format: Premium editorial landing page\n\nSource brief:\nDesign a premium product narrative landing page\n\nPrompt objective:\nStudy the inspiration references and synthesize a premium editorial landing page system that translates the source brief into a reusable, brand-specific direction.",
   templateVersion: "inspiredesign-advanced-brief.v1",
-  format: {
-    id: "premium-editorial-landing-page",
-    label: "Premium editorial landing page",
-    bestFor: ["launch pages", "docs homepages"]
-  },
+  format: makeBriefFormat(),
   ...overrides
 });
 
@@ -74,11 +108,33 @@ describe("inspiredesign packet + renderer", () => {
       briefExpansion: makeBriefExpansion({
         sourceBrief: "Design a dark login experience for enterprise onboarding teams. Keep the flow calm and premium.",
         advancedBrief: "Selected prompt format: Mobile-first onboarding and activation flow\n\nSource brief:\nDesign a dark login experience for enterprise onboarding teams. Keep the flow calm and premium.\n\nPrompt objective:\nWork from the inspiration references and source brief to define a mobile-first onboarding and activation experience that moves a user from curiosity to a confident first action.",
-        format: {
+        format: makeBriefFormat({
           id: "mobile-first-onboarding-activation",
           label: "Mobile-first onboarding and activation flow",
-          bestFor: ["consumer apps"]
-        }
+          bestFor: ["consumer apps"],
+          businessFocus: ["consumer mobile apps"],
+          keywords: ["mobile", "onboarding", "activation"],
+          archetype: "trust-forward activation flow",
+          layoutArchetype: "screen-sequenced onboarding stack with clear first-action transition",
+          typographySystem: "high-legibility mobile sans with deliberate contrast between titles, helper copy, and CTA labels",
+          surfaceTreatment: "native-feeling surfaces, clean overlays, and quiet previews of the core product",
+          shapeLanguage: "soft, tap-friendly forms and decisive CTA containers",
+          componentGrammar: "value slides, progress moments, CTA stacks, trust cues, first-session empty states",
+          motionGrammar: "confident screen pacing, low-friction transitions, and gentle confirmation motion",
+          paletteIntent: "safe, modern mobile palette with one brand accent and generous clean space",
+          visualDensity: "balanced",
+          designVariance: "low-noise clarity",
+          responsiveCollapseRules: ["Treat mobile as the source layout and only expand supporting previews for larger breakpoints."],
+          guardrails: ["Keep the system simple, emotionally clear, and conversion-focused instead of overloaded with feature marketing."],
+          antiPatterns: ["No marketing landing page hero inside onboarding."],
+          deliverables: ["Return a reusable onboarding direction."],
+          route: {
+            profile: "auth-focused",
+            themeStrategy: "light-dark-parity",
+            navigationModel: "contextual",
+            layoutApproach: "stacked-mobile-flow"
+          }
+        })
       }),
       urls: [" https://example.com/login "],
       references: []
@@ -102,7 +158,13 @@ describe("inspiredesign packet + renderer", () => {
         format: {
           id: "mobile-first-onboarding-activation",
           label: "Mobile-first onboarding and activation flow",
-          bestFor: ["consumer apps"]
+          bestFor: ["consumer apps"],
+          route: {
+            profile: "auth-focused",
+            themeStrategy: "light-dark-parity",
+            navigationModel: "contextual",
+            layoutApproach: "stacked-mobile-flow"
+          }
         }
       },
       recommendedSkills: [...INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS],
@@ -126,6 +188,7 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.prototypeGuidanceMarkdown).toBeNull();
     expect(packet.advancedBriefMarkdown).toContain("Selected prompt format:");
     expect(packet.designMarkdown).toContain("No live inspiration source was provided. The system is derived entirely from the brief.");
+    expect(packet.designMarkdown).toContain("layout archetype:");
     expect(packet.implementationPlan.risksAndAmbiguities[0]).toContain("No live references were supplied");
   });
 
@@ -222,7 +285,7 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.designMarkdown).toContain("Prototype guidance Markdown for the first HTML pass");
   });
 
-  it("preserves advanced brief markdown and ignores generated prompt prose during profile selection", () => {
+  it("preserves advanced brief markdown and routes generation from the selected format metadata", () => {
     const brief = "Design a premium consumer landing page";
     const advancedBrief = [
       "Selected prompt format: Premium editorial landing page",
@@ -242,7 +305,34 @@ describe("inspiredesign packet + renderer", () => {
       brief,
       briefExpansion: makeBriefExpansion({
         sourceBrief: brief,
-        advancedBrief
+        advancedBrief,
+        format: makeBriefFormat({
+          id: "custom-ops-route",
+          label: "Custom ops route",
+          bestFor: ["operator surfaces"],
+          businessFocus: ["operations software"],
+          keywords: ["dashboard", "operator"],
+          archetype: "operational workspace shell",
+          layoutArchetype: "predictable desktop shell with fixed navigation zones and state-aware work panels",
+          typographySystem: "sharp grotesk UI type with monospaced numeric support for tables and diagnostics",
+          surfaceTreatment: "bright control-room surfaces with disciplined dividers and low-elevation panels",
+          shapeLanguage: "rectilinear structure with restrained radii and explicit separators",
+          componentGrammar: "sidebar, command toolbar, filter rail, data tables, detail drawers, empty states",
+          motionGrammar: "state-transition clarity, panel continuity, and zero decorative animation noise",
+          paletteIntent: "crisp neutral shell with one utility accent and clear semantic state colors",
+          visualDensity: "dense but breathable",
+          designVariance: "low-variance structure",
+          responsiveCollapseRules: ["Collapse secondary panes before compressing the primary work surface."],
+          guardrails: ["Favor predictable layout zones, strong state communication, and clean action paths over decorative UI noise."],
+          antiPatterns: ["No floating-window chaos."],
+          deliverables: ["Return a dashboard contract."],
+          route: {
+            profile: "ops-control",
+            themeStrategy: "single-theme",
+            navigationModel: "sidebar",
+            layoutApproach: "workspace-shell"
+          }
+        })
       }),
       urls: [],
       references: []
@@ -252,10 +342,10 @@ describe("inspiredesign packet + renderer", () => {
 
     expect(packet.advancedBriefMarkdown).toBe(advancedBrief);
     expect(evidence.advancedBrief).toBe(advancedBrief);
-    expect(packet.generationPlan.visualDirection.profile).toBe("product-story");
+    expect(packet.generationPlan.visualDirection.profile).toBe("ops-control");
   });
 
-  it("ignores skipped references when classifying profile and theme strategy", () => {
+  it("keeps the selected format route even when skipped references imply another profile", () => {
     const packet = buildInspiredesignPacket({
       brief: "Design a premium consumer landing page",
       briefExpansion: makeBriefExpansion(),
@@ -285,11 +375,33 @@ describe("inspiredesign packet + renderer", () => {
       briefExpansion: makeBriefExpansion({
         sourceBrief: brief,
         advancedBrief: "Selected prompt format: Cinematic product-story or photostudio direction\n\nSource brief:\nDesign a premium product narrative landing page",
-        format: {
+        format: makeBriefFormat({
           id: "cinematic-product-story",
           label: "Cinematic product-story or photostudio direction",
-          bestFor: ["showcase pages"]
-        }
+          bestFor: ["showcase pages"],
+          businessFocus: ["hardware launches"],
+          keywords: ["product story", "hardware", "showcase"],
+          archetype: "photostudio launch narrative",
+          layoutArchetype: "scene-based scroll story with full-bleed product reveals",
+          typographySystem: "restrained sans or condensed display with large scale contrast and minimal body copy",
+          surfaceTreatment: "dark or bright studio backdrops, high-contrast product planes, and controlled material highlights",
+          shapeLanguage: "large uninterrupted planes with almost no ornamental framing",
+          componentGrammar: "scene hero, proof interludes, spec reveals, testimonial or quote punctuations",
+          motionGrammar: "slow dissolves, glide transitions, and product-led reveal timing",
+          paletteIntent: "controlled studio palette that serves material realism instead of interface variety",
+          visualDensity: "sparse",
+          designVariance: "high cinematic contrast",
+          responsiveCollapseRules: ["Keep one scene per scroll beat on mobile instead of compressing multiple proof layers together."],
+          guardrails: ["Do not fall back to generic ecommerce grids, trust-badge clutter, or spec-dump layouts."],
+          antiPatterns: ["No marketplace product grid."],
+          deliverables: ["Return a premium product-led story."],
+          route: {
+            profile: "cinematic-minimal",
+            themeStrategy: "single-theme",
+            navigationModel: "immersive",
+            layoutApproach: "product-scene-scroll"
+          }
+        })
       }),
       urls,
       includePrototypeGuidance: true,
@@ -348,13 +460,16 @@ describe("inspiredesign packet + renderer", () => {
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
         });
-        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[0]?.command).toBe(
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[0]?.reason).toBe(
+          INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief
+        );
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[1]?.command).toBe(
           packet.followthrough.commandExamples.loadBestPractices
         );
-        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[2]?.reason).toBe(
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[3]?.reason).toBe(
           INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest
         );
-        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[2]?.command).toBe(
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[3]?.command).toBe(
           INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
         );
       } else if (mode === "json") {
@@ -411,11 +526,17 @@ describe("inspiredesign packet + renderer", () => {
       briefExpansion: makeBriefExpansion({
         sourceBrief: brief,
         advancedBrief: "Selected prompt format: Cinematic product-story or photostudio direction\n\nSource brief:\nDesign a product detail page",
-        format: {
+        format: makeBriefFormat({
           id: "cinematic-product-story",
           label: "Cinematic product-story or photostudio direction",
-          bestFor: ["product detail pages"]
-        }
+          bestFor: ["product detail pages"],
+          route: {
+            profile: "cinematic-minimal",
+            themeStrategy: "single-theme",
+            navigationModel: "immersive",
+            layoutApproach: "product-scene-scroll"
+          }
+        })
       }),
       urls: ["https://example.com/detail"],
       references: [
@@ -444,7 +565,7 @@ describe("inspiredesign packet + renderer", () => {
       meta: {}
     });
 
-    expect(packet.generationPlan.visualDirection.profile).toBe("documentation");
+    expect(packet.generationPlan.visualDirection.profile).toBe("cinematic-minimal");
     expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(false);
     expect(rendered.response).toMatchObject({
       mode: "json",
@@ -460,11 +581,9 @@ describe("inspiredesign packet + renderer", () => {
       briefExpansion: makeBriefExpansion({
         sourceBrief: "",
         advancedBrief: "Selected prompt format: Premium editorial landing page\n\nSource brief:\n",
-        format: {
-          id: "premium-editorial-landing-page",
-          label: "Premium editorial landing page",
+        format: makeBriefFormat({
           bestFor: ["launch pages"]
-        }
+        })
       }),
       urls: ["https://example.com/minimal"],
       references: [
