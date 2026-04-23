@@ -4,6 +4,7 @@ import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../cli/transport-timeouts";
 import { captureInspiredesignReferenceFromManager } from "../providers/inspiredesign-capture";
 import { resolveInspiredesignCaptureMode } from "../providers/inspiredesign-capture-mode";
 
@@ -41,7 +42,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
           captureMode,
           includePrototypeGuidance: args.includePrototypeGuidance,
           mode: args.mode ?? "compact",
-          timeoutMs: args.timeoutMs,
+          timeoutMs: args.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
           outputDir: args.outputDir,
           ttlHours: args.ttlHours,
           useCookies: args.useCookies,

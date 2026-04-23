@@ -36,11 +36,15 @@ const DAEMON_STATUS_RETRY_OPTIONS: DaemonStatusFetchOptions = {
   retryAttempts: 5,
   retryDelayMs: 250
 };
+const DAEMON_CONFIG_PREFER_OPTIONS: DaemonStatusFetchOptions = {
+  timeoutMs: 500,
+  retryAttempts: 3,
+  retryDelayMs: 250
+};
 const DAEMON_RESTART_STATUS_TIMEOUT_MS = 5_000;
+const DAEMON_RECOVERY_READY_TIMEOUT_MS = 5_000;
 const DAEMON_RESTART_READY_TIMEOUT_MS = 15_000;
-const DAEMON_RECOVERY_READY_TIMEOUT_MS = 2_000;
 const DAEMON_RESTART_POLL_DELAY_MS = 250;
-const DAEMON_CONFIG_PREFER_TIMEOUT_MS = 500;
 
 type DaemonResponse<T> = { ok?: boolean; data?: T; error?: string };
 
@@ -382,16 +386,23 @@ export class DaemonClient {
   }
 
   private async callRaw<T>(name: string, params: Record<string, unknown>, timeoutMs?: number): Promise<T> {
-    const connection = await resolveDaemonConnection();
+    const budget = createTimeoutBudget(timeoutMs);
+    const connection = await resolveDaemonConnection(budget);
 
     let timedResponse: TimedFetchResponse;
     try {
-      timedResponse = await openDaemonCommand(connection.port, connection.token, name, params, timeoutMs);
+      timedResponse = await openDaemonCommand(
+        connection.port,
+        connection.token,
+        name,
+        params,
+        readRemainingBudgetMs(budget)
+      );
     } catch (error) {
       if (isTransportTimeoutError(error)) {
         throw error;
       }
-      timedResponse = await retryWithRefreshedConnection(name, params, timeoutMs);
+      timedResponse = await retryWithRefreshedConnection(name, params, budget);
     }
 
     try {
@@ -399,7 +410,7 @@ export class DaemonClient {
         const message = await readDaemonErrorMessage(timedResponse);
         if (message.includes("Unauthorized") || timedResponse.response.status === 401) {
           timedResponse.dispose();
-          timedResponse = await retryWithRefreshedConnection(name, params, timeoutMs);
+          timedResponse = await retryWithRefreshedConnection(name, params, budget);
           if (!timedResponse.response.ok) {
             throw new CliError(await readDaemonErrorMessage(timedResponse), EXIT_EXECUTION);
           }
@@ -426,6 +437,56 @@ export class DaemonClient {
 
 const asPositiveNumber = (value: unknown): number | undefined => {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+};
+
+const createTransportTimeoutError = (timeoutMs: number): Error => {
+  return new Error(`Request timed out after ${timeoutMs}ms`);
+};
+
+const createTimeoutBudget = (timeoutMs?: number): TimeoutBudget | null => {
+  const resolved = asPositiveNumber(timeoutMs);
+  return resolved === undefined
+    ? null
+    : { timeoutMs: resolved, deadlineMs: Date.now() + resolved };
+};
+
+const readRemainingBudgetMs = (budget: TimeoutBudget | null): number | undefined => {
+  if (!budget) {
+    return undefined;
+  }
+  const remainingMs = budget.deadlineMs - Date.now();
+  if (remainingMs <= 0) {
+    throw createTransportTimeoutError(budget.timeoutMs);
+  }
+  return remainingMs;
+};
+
+const capTimeoutToBudget = (
+  timeoutMs: number,
+  budget: TimeoutBudget | null
+): number => {
+  const remainingMs = readRemainingBudgetMs(budget);
+  return remainingMs === undefined
+    ? timeoutMs
+    : Math.max(1, Math.min(timeoutMs, remainingMs));
+};
+
+const resolveReadyDeadlineMs = (
+  readyTimeoutMs: number,
+  budget: TimeoutBudget | null
+): number => {
+  const localDeadlineMs = Date.now() + readyTimeoutMs;
+  return budget ? Math.min(localDeadlineMs, budget.deadlineMs) : localDeadlineMs;
+};
+
+const hasBudgetTimedOut = (
+  budget: TimeoutBudget | null,
+  deadlineMs: number
+): boolean => {
+  if (!budget) {
+    return false;
+  }
+  return deadlineMs >= budget.deadlineMs && Date.now() >= budget.deadlineMs;
 };
 
 const deriveTransportTimeoutMs = (
@@ -475,11 +536,134 @@ type DaemonRestartCommand = {
   args: string[];
 };
 
+type TimeoutBudget = {
+  timeoutMs: number;
+  deadlineMs: number;
+};
+
 type ResolveDaemonRestartCommandOptions = {
   argv1?: string;
   execPath?: string;
+  execArgv?: string[];
   moduleUrl?: string;
   entryExists?: (path: string) => boolean;
+};
+
+const TYPESCRIPT_ENTRY_RE = /\.[cm]?ts$/i;
+const RESTART_LOADER_ARG_FLAGS = new Set(["--experimental-loader", "--import", "--loader", "--require", "-r"]);
+const RESTART_TYPESCRIPT_CONTEXT_ARG_FLAGS = new Set(["--experimental-strip-types", "--experimental-transform-types"]);
+const RESTART_DEBUG_ARG_FLAGS = new Set(["--inspect", "--inspect-brk", "--inspect-port", "--debug", "--debug-brk"]);
+
+const isInlineRestartArg = (arg: string, flags: Set<string>): boolean => {
+  for (const flag of flags) {
+    if (arg.startsWith(`${flag}=`)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const isRestartLoaderArg = (arg: string): boolean => {
+  return RESTART_LOADER_ARG_FLAGS.has(arg) || isInlineRestartArg(arg, RESTART_LOADER_ARG_FLAGS);
+};
+
+const isRestartTypeScriptContextArg = (arg: string): boolean => {
+  return RESTART_TYPESCRIPT_CONTEXT_ARG_FLAGS.has(arg)
+    || isInlineRestartArg(arg, RESTART_TYPESCRIPT_CONTEXT_ARG_FLAGS);
+};
+
+const isRestartDebugArg = (arg: string): boolean => {
+  return RESTART_DEBUG_ARG_FLAGS.has(arg) || isInlineRestartArg(arg, RESTART_DEBUG_ARG_FLAGS);
+};
+
+const resolveRestartSplitArgValue = (
+  arg: string,
+  value: string | undefined
+): string | null => {
+  if (arg.includes("=")) return null;
+  if (typeof value !== "string") return null;
+  return value.startsWith("-") ? null : value;
+};
+
+const resolveRestartExecArgv = (entryPath: string, execArgv: string[]): string[] => {
+  const preserved: string[] = [];
+  let hasLoaderContext = false;
+  for (let index = 0; index < execArgv.length; index += 1) {
+    const arg = execArgv[index];
+    if (!arg) {
+      continue;
+    }
+    if (isRestartDebugArg(arg)) {
+      const next = resolveRestartSplitArgValue(arg, execArgv[index + 1]);
+      if (RESTART_DEBUG_ARG_FLAGS.has(arg) && next) {
+        index += 1;
+      }
+      continue;
+    }
+    preserved.push(arg);
+    if (isRestartLoaderArg(arg) || isRestartTypeScriptContextArg(arg)) {
+      hasLoaderContext = true;
+    }
+    const value = resolveRestartSplitArgValue(arg, execArgv[index + 1]);
+    if (!value) continue;
+    preserved.push(value);
+    index += 1;
+  }
+  return TYPESCRIPT_ENTRY_RE.test(entryPath) && !hasLoaderContext ? [] : preserved;
+};
+
+const fetchCurrentDaemonStatus = async (
+  connection: DaemonConnection,
+  options: DaemonStatusFetchOptions,
+  budget: TimeoutBudget | null = null
+): Promise<DaemonStatusPayload | null> => {
+  const attempts = typeof options.retryAttempts === "number" && Number.isFinite(options.retryAttempts) && options.retryAttempts > 1
+    ? Math.floor(options.retryAttempts)
+    : 1;
+  const retryDelayMs = typeof options.retryDelayMs === "number" && Number.isFinite(options.retryDelayMs) && options.retryDelayMs > 0
+    ? options.retryDelayMs
+    : 0;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const status = await fetchDaemonStatus(connection.port, connection.token, {
+      timeoutMs: capTimeoutToBudget(options.timeoutMs ?? DAEMON_RESTART_STATUS_TIMEOUT_MS, budget)
+    });
+    if (status?.ok && isCurrentDaemonFingerprint(status.fingerprint)) {
+      return status;
+    }
+    if (attempt < attempts) {
+      await sleep(Math.min(retryDelayMs, readRemainingBudgetMs(budget) ?? retryDelayMs));
+    }
+  }
+
+  return null;
+};
+
+const fetchAnyDaemonStatus = async (
+  connection: DaemonConnection,
+  options: DaemonStatusFetchOptions,
+  budget: TimeoutBudget | null = null
+): Promise<DaemonStatusPayload | null> => {
+  const attempts = typeof options.retryAttempts === "number" && Number.isFinite(options.retryAttempts) && options.retryAttempts > 1
+    ? Math.floor(options.retryAttempts)
+    : 1;
+  const retryDelayMs = typeof options.retryDelayMs === "number" && Number.isFinite(options.retryDelayMs) && options.retryDelayMs > 0
+    ? options.retryDelayMs
+    : 0;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const status = await fetchDaemonStatus(connection.port, connection.token, {
+      timeoutMs: capTimeoutToBudget(options.timeoutMs ?? DAEMON_RESTART_STATUS_TIMEOUT_MS, budget)
+    });
+    if (status?.ok) {
+      return status;
+    }
+    if (attempt < attempts) {
+      await sleep(Math.min(retryDelayMs, readRemainingBudgetMs(budget) ?? retryDelayMs));
+    }
+  }
+
+  return null;
 };
 
 const sleep = async (delayMs: number): Promise<void> => {
@@ -514,12 +698,60 @@ const persistResolvedDaemonStatus = (
   }, status, config);
 };
 
-const stopDaemonConnection = async (connection: DaemonConnection): Promise<void> => {
+const persistCurrentConfiguredConnection = async (
+  configuredConnection: DaemonConnection,
+  status: DaemonStatusPayload,
+  staleMetadata: { connection: DaemonConnection } | null
+): Promise<DaemonConnection> => {
+  if (staleMetadata && !sameDaemonConnection(staleMetadata.connection, configuredConnection)) {
+    // Once the configured daemon has proven current, stale metadata cleanup must not block the caller.
+    void stopDaemonConnection(staleMetadata.connection).catch(() => undefined);
+  }
+  persistResolvedDaemonStatus(configuredConnection, status);
+  return configuredConnection;
+};
+
+type DaemonShutdownOutcome = "stopped" | DaemonStatusPayload;
+
+const resolveConfiguredPreferenceOptions = (
+  budget: TimeoutBudget | null
+): DaemonStatusFetchOptions | null => {
+  if (!budget) {
+    return DAEMON_CONFIG_PREFER_OPTIONS;
+  }
+  const remainingMs = readRemainingBudgetMs(budget);
+  if (remainingMs === undefined || remainingMs <= 1) {
+    return null;
+  }
+  const timeoutMs = Math.min(DAEMON_CONFIG_PREFER_OPTIONS.timeoutMs ?? remainingMs, remainingMs);
+  const retryDelayMs = Math.max(0, DAEMON_CONFIG_PREFER_OPTIONS.retryDelayMs ?? 0);
+  const maxAttempts = Math.max(1, DAEMON_CONFIG_PREFER_OPTIONS.retryAttempts ?? 1);
+  let retryAttempts = 1;
+  while (retryAttempts < maxAttempts) {
+    const nextAttempts = retryAttempts + 1;
+    const nextWorstCaseMs = (nextAttempts * timeoutMs) + ((nextAttempts - 1) * retryDelayMs);
+    if (nextWorstCaseMs > remainingMs) {
+      break;
+    }
+    retryAttempts = nextAttempts;
+  }
+  return {
+    timeoutMs,
+    retryAttempts,
+    retryDelayMs: retryAttempts > 1 ? retryDelayMs : 0
+  };
+};
+
+const stopDaemonConnection = async (
+  connection: DaemonConnection,
+  budget: TimeoutBudget | null = null
+): Promise<void> => {
+  const stopTimeoutMs = capTimeoutToBudget(DAEMON_RESTART_STATUS_TIMEOUT_MS, budget);
   try {
     await fetchWithTimeout(`http://127.0.0.1:${connection.port}/stop`, {
       method: "POST",
       headers: { Authorization: `Bearer ${connection.token}` }
-    }, DAEMON_RESTART_STATUS_TIMEOUT_MS);
+    }, stopTimeoutMs);
   } catch {
     // Best effort only. The restart probe below is the source of truth.
   }
@@ -529,6 +761,7 @@ function resolveDaemonRestartCommand(
   options: ResolveDaemonRestartCommandOptions = {}
 ): DaemonRestartCommand {
   const execPath = options.execPath ?? process.execPath;
+  const execArgv = options.execArgv ?? process.execArgv;
   const moduleUrl = options.moduleUrl ?? import.meta.url;
   const argv1 = options.argv1 ?? process.argv[1];
   const entryPath = resolveCurrentDaemonEntrypointPath({
@@ -542,9 +775,13 @@ function resolveDaemonRestartCommand(
       throw createDisconnectedError("Daemon restart requires a stable CLI entrypoint. Start with `opendevbrowser serve`.");
     }
   }
+  const restartExecArgv = resolveRestartExecArgv(entryPath, execArgv);
+  if (TYPESCRIPT_ENTRY_RE.test(entryPath) && restartExecArgv.length === 0) {
+    throw createDisconnectedError("Daemon restart requires the original loader context. Start with `opendevbrowser serve`.");
+  }
   return {
     command: execPath,
-    args: [entryPath]
+    args: [...restartExecArgv, entryPath]
   };
 }
 
@@ -568,12 +805,16 @@ const restartDaemonConnection = async (connection: DaemonConnection): Promise<vo
 
 const waitForCurrentDaemonStatus = async (
   connection: DaemonConnection,
-  readyTimeoutMs = DAEMON_RESTART_READY_TIMEOUT_MS
+  readyTimeoutMs = DAEMON_RESTART_READY_TIMEOUT_MS,
+  budget: TimeoutBudget | null = null
 ): Promise<DaemonStatusPayload | null> => {
-  const deadline = Date.now() + readyTimeoutMs;
+  const deadline = resolveReadyDeadlineMs(readyTimeoutMs, budget);
   while (true) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
+      if (hasBudgetTimedOut(budget, deadline)) {
+        throw createTransportTimeoutError(budget!.timeoutMs);
+      }
       return null;
     }
     const status = await fetchDaemonStatus(connection.port, connection.token, {
@@ -589,15 +830,42 @@ const waitForCurrentDaemonStatus = async (
   }
 };
 
+const waitForDaemonShutdown = async (
+  connection: DaemonConnection,
+  readyTimeoutMs = DAEMON_RECOVERY_READY_TIMEOUT_MS,
+  budget: TimeoutBudget | null = null
+): Promise<DaemonShutdownOutcome | null> => {
+  const deadline = resolveReadyDeadlineMs(readyTimeoutMs, budget);
+  while (true) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      if (hasBudgetTimedOut(budget, deadline)) {
+        throw createTransportTimeoutError(budget!.timeoutMs);
+      }
+      return null;
+    }
+    const status = await fetchDaemonStatus(connection.port, connection.token, {
+      timeoutMs: Math.min(DAEMON_RESTART_STATUS_TIMEOUT_MS, remainingMs)
+    });
+    if (!status?.ok) {
+      return "stopped";
+    }
+    if (isCurrentDaemonFingerprint(status.fingerprint)) {
+      return status;
+    }
+    if (Date.now() >= deadline) {
+      return null;
+    }
+    await sleep(Math.min(DAEMON_RESTART_POLL_DELAY_MS, Math.max(0, deadline - Date.now())));
+  }
+};
+
 const resolveMetadataConnection = async (
   metadataConnection: DaemonConnection,
-  configuredConnection: DaemonConnection
+  configuredConnection: DaemonConnection,
+  budget: TimeoutBudget | null = null
 ): Promise<{ connection: DaemonConnection; status: DaemonStatusPayload } | null> => {
-  const status = await fetchDaemonStatus(
-    metadataConnection.port,
-    metadataConnection.token,
-    DAEMON_STATUS_RETRY_OPTIONS
-  );
+  const status = await fetchAnyDaemonStatus(metadataConnection, DAEMON_STATUS_RETRY_OPTIONS, budget);
   if (!status?.ok) {
     return null;
   }
@@ -611,31 +879,44 @@ const resolveMetadataConnection = async (
   return { connection: metadataConnection, status };
 };
 
-const resolveFreshDaemonConnection = async (): Promise<DaemonConnection> => {
+const resolveFreshDaemonConnection = async (budget: TimeoutBudget | null = null): Promise<DaemonConnection> => {
   const configuredConnection = getConfiguredDaemonConnection();
   if (!configuredConnection) {
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
   }
 
-  const configuredStatus = await fetchDaemonStatus(
-    configuredConnection.port,
-    configuredConnection.token,
-    DAEMON_STATUS_RETRY_OPTIONS
-  );
-  if (configuredStatus?.ok && isCurrentDaemonFingerprint(configuredStatus.fingerprint)) {
-    persistResolvedDaemonStatus(configuredConnection, configuredStatus);
-    return configuredConnection;
-  }
+  const configuredStatus = await fetchAnyDaemonStatus(configuredConnection, DAEMON_STATUS_RETRY_OPTIONS, budget);
+
+  let currentConfiguredStatus =
+    configuredStatus?.ok && isCurrentDaemonFingerprint(configuredStatus.fingerprint)
+      ? configuredStatus
+      : null;
 
   const metadata = readDaemonMetadata();
   const metadataConnection = metadata
     ? { port: metadata.port, token: metadata.token }
     : null;
   const staleMetadata = metadataConnection
-    ? await resolveMetadataConnection(metadataConnection, configuredConnection)
+    ? await resolveMetadataConnection(metadataConnection, configuredConnection, budget)
     : null;
+  if (currentConfiguredStatus?.ok) {
+    return await persistCurrentConfiguredConnection(configuredConnection, currentConfiguredStatus, staleMetadata);
+  }
   if (staleMetadata?.status.ok && isCurrentDaemonFingerprint(staleMetadata.status.fingerprint)) {
+    if (configuredStatus?.ok) {
+      void stopDaemonConnection(configuredConnection, budget).catch(() => undefined);
+    }
     return staleMetadata.connection;
+  }
+  if (!configuredStatus?.ok && staleMetadata) {
+    currentConfiguredStatus = await waitForCurrentDaemonStatus(
+      configuredConnection,
+      DAEMON_RECOVERY_READY_TIMEOUT_MS,
+      budget
+    );
+    if (currentConfiguredStatus?.ok) {
+      return await persistCurrentConfiguredConnection(configuredConnection, currentConfiguredStatus, staleMetadata);
+    }
   }
 
   const staleConnections: DaemonConnection[] = [];
@@ -648,7 +929,8 @@ const resolveFreshDaemonConnection = async (): Promise<DaemonConnection> => {
   if (staleConnections.length === 0) {
     const recoveringStatus = await waitForCurrentDaemonStatus(
       configuredConnection,
-      DAEMON_RECOVERY_READY_TIMEOUT_MS
+      DAEMON_RECOVERY_READY_TIMEOUT_MS,
+      budget
     );
     if (recoveringStatus?.ok) {
       persistResolvedDaemonStatus(configuredConnection, recoveringStatus);
@@ -657,10 +939,20 @@ const resolveFreshDaemonConnection = async (): Promise<DaemonConnection> => {
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
   }
   for (const staleConnection of staleConnections) {
-    await stopDaemonConnection(staleConnection);
+    await stopDaemonConnection(staleConnection, budget);
+  }
+  if (configuredStatus?.ok) {
+    const shutdownOutcome = await waitForDaemonShutdown(configuredConnection, DAEMON_RECOVERY_READY_TIMEOUT_MS, budget);
+    if (!shutdownOutcome) {
+      throw createDisconnectedError("Daemon restart could not reclaim the configured port after fingerprint mismatch. Start with `opendevbrowser serve`.");
+    }
+    if (shutdownOutcome !== "stopped") {
+      persistResolvedDaemonStatus(configuredConnection, shutdownOutcome);
+      return configuredConnection;
+    }
   }
   await restartDaemonConnection(configuredConnection);
-  const refreshedStatus = await waitForCurrentDaemonStatus(configuredConnection);
+  const refreshedStatus = await waitForCurrentDaemonStatus(configuredConnection, DAEMON_RESTART_READY_TIMEOUT_MS, budget);
   if (!refreshedStatus?.ok) {
     throw createDisconnectedError("Daemon restart failed after fingerprint mismatch. Start with `opendevbrowser serve`.");
   }
@@ -668,7 +960,7 @@ const resolveFreshDaemonConnection = async (): Promise<DaemonConnection> => {
   return configuredConnection;
 };
 
-const resolveDaemonConnection = async (): Promise<DaemonConnection> => {
+const resolveDaemonConnection = async (budget: TimeoutBudget | null = null): Promise<DaemonConnection> => {
   const metadata = readDaemonMetadata();
   if (metadata && isCurrentDaemonFingerprint(metadata.fingerprint)) {
     const metadataConnection = { port: metadata.port, token: metadata.token };
@@ -676,30 +968,30 @@ const resolveDaemonConnection = async (): Promise<DaemonConnection> => {
     if (!configuredConnection || sameDaemonConnection(metadataConnection, configuredConnection)) {
       return metadataConnection;
     }
-    const configuredStatus = await fetchDaemonStatus(
-      configuredConnection.port,
-      configuredConnection.token,
-      {
-        timeoutMs: DAEMON_CONFIG_PREFER_TIMEOUT_MS,
-        retryAttempts: 1
-      }
-    );
-    if (configuredStatus?.ok && isCurrentDaemonFingerprint(configuredStatus.fingerprint)) {
-      persistResolvedDaemonStatus(configuredConnection, configuredStatus);
-      return configuredConnection;
+    const configuredOptions = resolveConfiguredPreferenceOptions(budget);
+    if (!configuredOptions) {
+      return metadataConnection;
+    }
+    const configuredStatus = await fetchCurrentDaemonStatus(configuredConnection, configuredOptions, budget);
+    if (configuredStatus?.ok) {
+      return await persistCurrentConfiguredConnection(
+        configuredConnection,
+        configuredStatus,
+        { connection: metadataConnection }
+      );
     }
     return metadataConnection;
   }
-  return await resolveFreshDaemonConnection();
+  return await resolveFreshDaemonConnection(budget);
 };
 
 const retryWithRefreshedConnection = async (
   name: string,
   params: Record<string, unknown>,
-  timeoutMs?: number
+  budget: TimeoutBudget | null
 ): Promise<TimedFetchResponse> => {
-  const connection = await resolveFreshDaemonConnection();
-  return await openDaemonCommand(connection.port, connection.token, name, params, timeoutMs);
+  const connection = await resolveFreshDaemonConnection(budget);
+  return await openDaemonCommand(connection.port, connection.token, name, params, readRemainingBudgetMs(budget));
 };
 
 const openDaemonCommand = async (

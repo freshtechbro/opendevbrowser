@@ -1827,7 +1827,7 @@ const buildInspiredesignReference = (
 ): InspiredesignReferenceEvidence => {
   const primary = getInspiredesignPrimaryRecord(result, url);
   const normalizedCapture = normalizeInspiredesignCaptureEvidence(capture.capture);
-  const title = primary?.title ?? titleFromInspiredesignCapture(normalizedCapture);
+  const title = normalizePlainText(primary?.title) || titleFromInspiredesignCapture(normalizedCapture);
   const excerpt = excerptFromInspiredesignRecord(primary)
     ?? excerptFromInspiredesignCapture(normalizedCapture);
   const fetchStatus: InspiredesignReferenceEvidence["fetchStatus"] = result.records.length > 0 ? "captured" : "failed";
@@ -1866,7 +1866,7 @@ const summarizeInspiredesignCaptureConstraint = (
       reason: summary,
       recommendedNextCommands: unavailableOnly
         ? [
-          "Rerun inspiredesign from the CLI or tool wrapper so the workflow has browser capture access.",
+          "Restore browser capture access for this execution lane, then rerun inspiredesign.",
           ...retryUrls
         ]
         : [
@@ -1875,6 +1875,17 @@ const summarizeInspiredesignCaptureConstraint = (
         ]
     }
   };
+};
+
+const summarizeInspiredesignFetchConstraint = (
+  references: InspiredesignReferenceEvidence[]
+): string | undefined => {
+  return references.find((reference) => (
+    reference.fetchStatus === "failed"
+    && !isInspiredesignFetchRecovered(reference)
+    && typeof reference.fetchFailure === "string"
+    && reference.fetchFailure.trim().length > 0
+  ))?.fetchFailure;
 };
 
 const buildInspiredesignMeta = (
@@ -1906,6 +1917,15 @@ const buildInspiredesignMeta = (
     alerts: buildWorkflowAlerts(runtime, failures)
   }, reasonCodeDistribution), failures);
   if (!meta.primaryConstraint) {
+    const fetchConstraint = summarizeInspiredesignFetchConstraint(references);
+    if (fetchConstraint) {
+      meta = {
+        ...meta,
+        primaryConstraintSummary: fetchConstraint
+      };
+    }
+  }
+  if (!meta.primaryConstraint && !meta.primaryConstraintSummary) {
     const captureConstraint = summarizeInspiredesignCaptureConstraint(references);
     if (captureConstraint) {
       reasonCodeDistribution = incrementReasonCodeDistribution(
@@ -2998,7 +3018,7 @@ export const runInspiredesignWorkflow = async (
     );
     const reference = buildInspiredesignReference(url, result, capture);
     references.push(reference);
-    if (!isInspiredesignFetchRecovered(reference)) {
+    if (reference.fetchStatus === "failed" && !isInspiredesignFetchRecovered(reference)) {
       failures.push(...result.failures);
     }
     trace = appendWorkflowTrace(stepTrace, "execute", "reference_completed", {

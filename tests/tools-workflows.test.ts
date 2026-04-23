@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
 import { PRODUCT_VIDEO_BRIEF_HELPER_PATH } from "../src/providers/workflow-handoff";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -339,6 +340,26 @@ describe("workflow tools", () => {
 
     expect(response.ok).toBe(true);
     expect(response.mode).toBe("compact");
+  });
+
+  it("uses the CLI default workflow timeout for inspiredesign tool runs", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      mode: "compact"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/reference" },
+      expect.objectContaining({ timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS })
+    );
+    expect(deps.manager.launch).toHaveBeenCalledWith(expect.any(Object), 30_000);
+    expect(deps.manager.snapshot.mock.calls[0]?.[5]).toEqual(expect.any(Number));
   });
 
   it("forwards challengeAutomationMode through workflow tools", async () => {

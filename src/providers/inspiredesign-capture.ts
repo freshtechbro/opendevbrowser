@@ -130,7 +130,7 @@ const isTransportTimeoutError = (
     }
   }
   return /\btimed out after \d+ms\b/i.test(detail)
-    && !/timeout budget/i.test(detail);
+    || /exceeded timeout budget\./i.test(detail);
 };
 
 const isIgnorableNetworkIdleWaitError = (error: unknown): boolean => {
