@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { join, resolve } from "path";
 
 const mocks = vi.hoisted(() => ({
   fetchWithTimeout: vi.fn(),
@@ -52,6 +53,10 @@ const createTimedResponse = (response: Response, timeoutMs: number) => ({
 });
 
 describe("daemon-client retry timeout propagation", () => {
+  const originalArgv1 = process.argv[1];
+  const originalExecArgv = [...process.execArgv];
+  const restartEntrypoint = resolve(join("repo-fixture", "dist", "cli", "index.js"));
+
   beforeEach(() => {
     mocks.fetchWithTimeoutContext.mockReset();
     mocks.fetchWithTimeout.mockReset();
@@ -65,8 +70,16 @@ describe("daemon-client retry timeout propagation", () => {
     mocks.loadGlobalConfig.mockReset();
     mocks.fetchDaemonStatus.mockReset();
     mocks.spawn.mockReset();
+    process.argv[1] = restartEntrypoint;
+    process.execArgv = [];
 
     mocks.getCacheRoot.mockReturnValue("/tmp/odb-daemon-client");
+    mocks.resolveCurrentDaemonEntrypointPath.mockImplementation((options?: { argv1?: string }) => {
+      const rawEntry = options?.argv1 ?? process.argv[1];
+      return typeof rawEntry === "string" && rawEntry.trim().length > 0
+        ? resolve(rawEntry)
+        : restartEntrypoint;
+    });
     mocks.readDaemonMetadata.mockReturnValue({
       port: 8788,
       token: "stale-token",
@@ -76,7 +89,6 @@ describe("daemon-client retry timeout propagation", () => {
       fingerprint: "current-fingerprint"
     });
     mocks.isCurrentDaemonFingerprint.mockImplementation((fingerprint?: string) => fingerprint === "current-fingerprint");
-    mocks.resolveCurrentDaemonEntrypointPath.mockReturnValue("/repo/dist/cli/index.js");
     mocks.loadGlobalConfig.mockReturnValue({
       daemonPort: 8788,
       daemonToken: "fresh-token",
@@ -108,6 +120,11 @@ describe("daemon-client retry timeout propagation", () => {
     mocks.readResponseJsonWithTimeout.mockImplementation(async (response: Response) => await response.json());
   });
 
+  afterEach(() => {
+    process.argv[1] = originalArgv1;
+    process.execArgv = [...originalExecArgv];
+  });
+
   it("preserves timeoutMs when retrying unauthorized requests", async () => {
     mocks.fetchWithTimeoutContext
       .mockResolvedValueOnce(createTimedResponse(new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
@@ -124,17 +141,87 @@ describe("daemon-client retry timeout propagation", () => {
 
     expect(result).toEqual({ ok: true });
     expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledTimes(2);
-    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBe(45_000);
-    expect(mocks.fetchWithTimeoutContext.mock.calls[1]?.[2]).toBe(45_000);
-    expect(mocks.fetchDaemonStatus).toHaveBeenCalledWith(
-      8788,
-      "fresh-token",
-      expect.objectContaining({ retryAttempts: 5, retryDelayMs: 250 })
+    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBeGreaterThanOrEqual(44_000);
+    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBeLessThanOrEqual(45_000);
+    expect(mocks.fetchWithTimeoutContext.mock.calls[1]?.[2]).toBeGreaterThanOrEqual(44_000);
+    expect(mocks.fetchWithTimeoutContext.mock.calls[1]?.[2]).toBeLessThanOrEqual(45_000);
+    expect(mocks.fetchDaemonStatus).toHaveBeenCalled();
+  });
+
+  it("keeps a budget-capped configured-daemon preference probe before using current metadata", async () => {
+    mocks.fetchWithTimeoutContext.mockResolvedValue(createTimedResponse(new Response(JSON.stringify({
+      ok: true,
+      data: { ok: true, source: "configured" }
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    }), 600));
+
+    const client = new DaemonClient({ autoRenew: false, clientId: "client-1" });
+    const result = await client.call<{ ok: boolean; source: string }>("desktop.status", {}, { timeoutMs: 600 });
+
+    expect(result).toEqual({ ok: true, source: "configured" });
+    expect(mocks.fetchDaemonStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchDaemonStatus).toHaveBeenCalledWith(8788, "fresh-token", { timeoutMs: 500 });
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/stop",
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer stale-token" }
+      }),
+      5_000
     );
+    expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/command",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer fresh-token"
+        }
+      }),
+      expect.any(Number)
+    );
+    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBeLessThanOrEqual(600);
+    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBeGreaterThan(0);
+  });
+
+  it("preserves configured-daemon preference retries when explicit timeout leaves room for them", async () => {
+    mocks.fetchDaemonStatus.mockResolvedValue(null);
+    mocks.fetchWithTimeoutContext.mockResolvedValue(createTimedResponse(new Response(JSON.stringify({
+      ok: true,
+      data: { ok: true, source: "metadata" }
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    }), 30_000));
+
+    const client = new DaemonClient({ autoRenew: false, clientId: "client-1" });
+    const result = await client.call<{ ok: boolean; source: string }>("desktop.status", {}, { timeoutMs: 30_000 });
+
+    expect(result).toEqual({ ok: true, source: "metadata" });
+    expect(mocks.fetchDaemonStatus.mock.calls).toEqual([
+      [8788, "fresh-token", { timeoutMs: 500 }],
+      [8788, "fresh-token", { timeoutMs: 500 }],
+      [8788, "fresh-token", { timeoutMs: 500 }]
+    ]);
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
+    expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/command",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer stale-token"
+        }
+      }),
+      expect.any(Number)
+    );
+    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBeLessThanOrEqual(30_000);
+    expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[2]).toBeGreaterThan(0);
   });
 
   it("restarts a healthy stale daemon before issuing the command", async () => {
-    const unref = vi.fn();
     mocks.readDaemonMetadata.mockReturnValue({
       port: 8788,
       token: "fresh-token",
@@ -166,6 +253,7 @@ describe("daemon-client retry timeout propagation", () => {
           epoch: 5
         }
       })
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         ok: true,
         pid: 654,
@@ -177,7 +265,6 @@ describe("daemon-client retry timeout propagation", () => {
           epoch: 6
         }
       });
-    mocks.spawn.mockReturnValue({ unref });
     mocks.fetchWithTimeoutContext.mockResolvedValue(createTimedResponse(new Response(JSON.stringify({
       ok: true,
       data: { ok: true }
@@ -194,25 +281,16 @@ describe("daemon-client retry timeout propagation", () => {
       "http://127.0.0.1:8788/stop",
       expect.objectContaining({
         method: "POST",
-        headers: expect.objectContaining({ Authorization: "Bearer fresh-token" })
+        headers: { Authorization: "Bearer fresh-token" }
       }),
       5_000
     );
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      process.execPath,
-      [
-        "/repo/dist/cli/index.js",
-        "serve",
-        "--port",
-        "8788",
-        "--token",
-        "fresh-token",
-        "--output-format",
-        "json"
-      ],
-      expect.objectContaining({ detached: true, stdio: "ignore" })
-    );
-    expect(unref).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchDaemonStatus.mock.calls[2]).toEqual([
+      8788,
+      "fresh-token",
+      { timeoutMs: 5_000 }
+    ]);
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
     expect(mocks.persistDaemonStatusMetadata).toHaveBeenCalledWith(
       expect.objectContaining({
         port: 8788,
@@ -232,7 +310,7 @@ describe("daemon-client retry timeout propagation", () => {
     expect(mocks.fetchWithTimeoutContext.mock.calls[0]?.[0]).toBe("http://127.0.0.1:8788/command");
   });
 
-  it("waits through a slow stale-daemon restart before issuing the command", async () => {
+  it("waits through the restarted daemon becoming current before issuing the command", async () => {
     vi.useFakeTimers();
     try {
       const unref = vi.fn();
@@ -269,9 +347,10 @@ describe("daemon-client retry timeout propagation", () => {
       mocks.fetchDaemonStatus
         .mockResolvedValueOnce(staleStatus)
         .mockResolvedValueOnce(staleStatus);
-      for (let attempt = 0; attempt < 21; attempt += 1) {
+      for (let attempt = 0; attempt < 19; attempt += 1) {
         mocks.fetchDaemonStatus.mockResolvedValueOnce(staleStatus);
       }
+      mocks.fetchDaemonStatus.mockResolvedValueOnce(null);
       mocks.fetchDaemonStatus.mockResolvedValueOnce(currentStatus);
       mocks.spawn.mockReturnValue({ unref });
       mocks.fetchWithTimeoutContext.mockResolvedValue(createTimedResponse(new Response(JSON.stringify({
@@ -288,6 +367,19 @@ describe("daemon-client retry timeout propagation", () => {
       await vi.advanceTimersByTimeAsync(5_250);
 
       await expect(resultPromise).resolves.toEqual({ ok: true });
+      expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+        "http://127.0.0.1:8788/stop",
+        expect.objectContaining({
+          method: "POST",
+          headers: { Authorization: "Bearer fresh-token" }
+        }),
+        5_000
+      );
+      expect(mocks.fetchDaemonStatus.mock.calls.at(-1)).toEqual([
+        8788,
+        "fresh-token",
+        { timeoutMs: 5_000 }
+      ]);
       expect(mocks.spawn).toHaveBeenCalledTimes(1);
       expect(unref).toHaveBeenCalledTimes(1);
       expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledTimes(1);
@@ -309,5 +401,110 @@ describe("daemon-client retry timeout propagation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("treats daemon recovery as part of the caller timeout budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const staleStatus = {
+        ok: true,
+        pid: 321,
+        fingerprint: "stale-fingerprint",
+        hub: { instanceId: "hub-1" },
+        relay: {
+          port: 8787,
+          instanceId: "relay-1",
+          epoch: 5
+        }
+      };
+      mocks.readDaemonMetadata.mockReturnValue({
+        port: 8788,
+        token: "fresh-token",
+        pid: 1,
+        relayPort: 8787,
+        startedAt: new Date().toISOString(),
+        fingerprint: "stale-fingerprint"
+      });
+      mocks.fetchDaemonStatus.mockResolvedValue(staleStatus);
+
+      const client = new DaemonClient({ autoRenew: false, clientId: "client-1" });
+      const resultPromise = client.call<{ ok: boolean }>("desktop.status", {}, { timeoutMs: 1_000 });
+      const assertion = expect(resultPromise).rejects.toThrow("Request timed out after 1000ms");
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await assertion;
+      expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+        "http://127.0.0.1:8788/stop",
+        expect.objectContaining({
+          method: "POST",
+          headers: { Authorization: "Bearer fresh-token" }
+        }),
+        1_000
+      );
+      expect(mocks.spawn).not.toHaveBeenCalled();
+      expect(mocks.fetchWithTimeoutContext).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts a stale-to-current port handoff without forcing a restart gap", async () => {
+    mocks.readDaemonMetadata.mockReturnValue(null);
+    mocks.fetchDaemonStatus
+      .mockResolvedValueOnce({
+        ok: true,
+        pid: 321,
+        hub: { instanceId: "hub-stale" },
+        fingerprint: "stale-fingerprint",
+        relay: {
+          port: 8787,
+          instanceId: "relay-stale",
+          epoch: 1
+        }
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        pid: 654,
+        hub: { instanceId: "hub-current" },
+        fingerprint: "current-fingerprint",
+        relay: {
+          port: 8787,
+          instanceId: "relay-current",
+          epoch: 2
+        }
+      });
+    mocks.fetchWithTimeoutContext.mockResolvedValue(createTimedResponse(new Response(JSON.stringify({
+      ok: true,
+      data: { ok: true, source: "configured" }
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    }), 30_000));
+
+    const client = new DaemonClient({ autoRenew: false, clientId: "client-1" });
+    const result = await client.call<{ ok: boolean; source: string }>("desktop.status", {}, { timeoutMs: 30_000 });
+
+    expect(result).toEqual({ ok: true, source: "configured" });
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/stop",
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer fresh-token" }
+      }),
+      5_000
+    );
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(mocks.fetchWithTimeoutContext).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/command",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer fresh-token"
+        }
+      }),
+      expect.any(Number)
+    );
   });
 });

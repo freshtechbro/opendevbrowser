@@ -533,6 +533,22 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         requireString(params.sessionId, "sessionId"),
         optionalString(params.targetId)
       );
+    case "export.clonePageHtml":
+      await authorizeSessionCommand(core, params, request.name, bindingId);
+      if (typeof core.manager.clonePageHtmlWithOptions !== "function") {
+        throw new Error("clonePageHtmlWithOptions unavailable in this execution lane.");
+      }
+      {
+        const maxNodes = optionalPositiveInteger(params.maxNodes, "maxNodes");
+      return core.manager.clonePageHtmlWithOptions(
+        requireString(params.sessionId, "sessionId"),
+        optionalString(params.targetId),
+        {
+            ...(typeof maxNodes === "number" ? { maxNodes } : {}),
+          ...(typeof params.inlineStyles === "boolean" ? { inlineStyles: params.inlineStyles } : {})
+        }
+      );
+      }
     case "export.cloneComponent":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.cloneComponent(
@@ -1687,6 +1703,16 @@ function optionalBoolean(value: unknown): boolean | undefined {
 
 function requireFiniteNumber(value: unknown, label: string): number {
   if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  throw new Error(`Invalid ${label}`);
+}
+
+function optionalPositiveInteger(value: unknown, label: string): number | undefined {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
     return value;
   }
   throw new Error(`Invalid ${label}`);

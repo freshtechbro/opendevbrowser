@@ -207,6 +207,7 @@ describe("cli help parity", () => {
     expect(inspiredesignEntry?.description).toContain("Shared inspiredesign follow-through commands");
     expect(INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices).toContain("opendevbrowser-best-practices");
     expect(INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent).toContain("opendevbrowser-design-agent");
+    expect(INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief).toContain("advanced-brief.md");
     expect(INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest).toContain("canvas-plan.request.json");
     expect(INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas).toContain("canvas.plan.set");
   });

@@ -13,6 +13,7 @@ import {
   buildSmokeReviewArgs,
   DAEMON_READY_TIMEOUT_MS,
   parseArgs,
+  runCli,
   startDaemon
 } from "../scripts/cli-smoke-test.mjs";
 
@@ -122,5 +123,26 @@ describe("cli-smoke-test startDaemon", () => {
     expect((error as Error).message).toContain("status=daemon not ready");
     expect((error as Error).message).toContain("stderr=boot log");
     expect(killSpy).toHaveBeenCalledWith(4321, "SIGTERM");
+  });
+});
+
+describe("cli-smoke-test runCli", () => {
+  beforeEach(() => {
+    spawnSyncMock.mockReset();
+  });
+
+  it("prefers the final JSON payload when stdout also contains JSON log lines", () => {
+    spawnSyncMock.mockReturnValue({
+      status: 0,
+      stdout: [
+        "{\"level\":\"info\",\"message\":\"launching\"}",
+        "{\"success\":true,\"sessionId\":\"session-1\"}"
+      ].join("\n"),
+      stderr: "",
+      error: undefined
+    });
+
+    const result = runCli(["status"], { env: { PATH: "/tmp" } });
+    expect(result.json).toEqual({ success: true, sessionId: "session-1" });
   });
 });

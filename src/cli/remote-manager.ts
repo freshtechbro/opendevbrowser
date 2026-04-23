@@ -1,4 +1,9 @@
-import type { BrowserManagerLike, SessionInspectorHandle } from "../browser/manager-types";
+import type {
+  BrowserCloneHtmlResult,
+  BrowserClonePageOptions,
+  BrowserManagerLike,
+  SessionInspectorHandle
+} from "../browser/manager-types";
 import type { ConnectOptions, LaunchOptions } from "../browser/browser-manager";
 import type { TargetInfo } from "../browser/target-manager";
 import type { ReactExport } from "../export/react-emitter";
@@ -36,8 +41,23 @@ export class RemoteManager implements BrowserManagerLike {
     this.client = client;
   }
 
-  launch(options: LaunchOptions): ReturnType<BrowserManagerLike["launch"]> {
-    return this.client.call<CallResult<"launch">>("session.launch", options as Record<string, unknown>);
+  private callWithOptionalTimeout<T>(
+    name: string,
+    params: Record<string, unknown>,
+    timeoutMs?: number
+  ): Promise<T> {
+    if (typeof timeoutMs === "number") {
+      return this.client.call<T>(name, params, { timeoutMs });
+    }
+    return this.client.call<T>(name, params);
+  }
+
+  launch(options: LaunchOptions, timeoutMs?: number): ReturnType<BrowserManagerLike["launch"]> {
+    return this.callWithOptionalTimeout<CallResult<"launch">>(
+      "session.launch",
+      options as Record<string, unknown>,
+      timeoutMs
+    );
   }
 
   connect(options: ConnectOptions): ReturnType<BrowserManagerLike["connect"]> {
@@ -71,26 +91,28 @@ export class RemoteManager implements BrowserManagerLike {
     sessionId: string,
     cookies: CookieImportRecord[],
     strict = true,
-    requestId?: string
+    requestId?: string,
+    timeoutMs?: number
   ): ReturnType<BrowserManagerLike["cookieImport"]> {
-    return this.client.call<CallResult<"cookieImport">>("session.cookieImport", {
+    return this.callWithOptionalTimeout<CallResult<"cookieImport">>("session.cookieImport", {
       sessionId,
       cookies,
       strict,
       requestId
-    });
+    }, timeoutMs);
   }
 
   cookieList(
     sessionId: string,
     urls?: string[],
-    requestId?: string
+    requestId?: string,
+    timeoutMs?: number
   ): ReturnType<BrowserManagerLike["cookieList"]> {
-    return this.client.call<CallResult<"cookieList">>("session.cookieList", {
+    return this.callWithOptionalTimeout<CallResult<"cookieList">>("session.cookieList", {
       sessionId,
       ...(urls && urls.length > 0 ? { urls } : {}),
       requestId
-    });
+    }, timeoutMs);
   }
 
   goto(
@@ -145,15 +167,16 @@ export class RemoteManager implements BrowserManagerLike {
     mode: "outline" | "actionables",
     maxChars: number,
     cursor?: string,
-    targetId?: string | null
+    targetId?: string | null,
+    timeoutMs?: number
   ): ReturnType<BrowserManagerLike["snapshot"]> {
-    return this.client.call<CallResult<"snapshot">>("nav.snapshot", {
+    return this.callWithOptionalTimeout<CallResult<"snapshot">>("nav.snapshot", {
       sessionId,
       mode,
       maxChars,
       cursor,
       ...(typeof targetId === "string" ? { targetId } : {})
-    });
+    }, timeoutMs);
   }
 
   click(sessionId: string, ref: string, targetId?: string | null): ReturnType<BrowserManagerLike["click"]> {
@@ -300,11 +323,25 @@ export class RemoteManager implements BrowserManagerLike {
     });
   }
 
-  clonePage(sessionId: string, targetId?: string | null): Promise<ReactExport> {
-    return this.client.call("export.clonePage", {
+  clonePage(sessionId: string, targetId?: string | null, timeoutMs?: number): Promise<ReactExport> {
+    return this.callWithOptionalTimeout<ReactExport>("export.clonePage", {
       sessionId,
       ...(typeof targetId === "string" ? { targetId } : {})
-    }) as Promise<ReactExport>;
+    }, timeoutMs);
+  }
+
+  clonePageHtmlWithOptions(
+    sessionId: string,
+    targetId?: string | null,
+    options?: BrowserClonePageOptions,
+    timeoutMs?: number
+  ): Promise<BrowserCloneHtmlResult> {
+    return this.callWithOptionalTimeout<BrowserCloneHtmlResult>("export.clonePageHtml", {
+      sessionId,
+      ...(typeof targetId === "string" ? { targetId } : {}),
+      ...(typeof options?.maxNodes === "number" ? { maxNodes: options.maxNodes } : {}),
+      ...(typeof options?.inlineStyles === "boolean" ? { inlineStyles: options.inlineStyles } : {})
+    }, timeoutMs);
   }
 
   cloneComponent(sessionId: string, ref: string, targetId?: string | null): Promise<ReactExport> {

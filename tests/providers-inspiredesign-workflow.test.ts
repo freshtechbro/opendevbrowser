@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,9 +8,14 @@ import {
   workflowTestUtils,
   type ProviderExecutor
 } from "../src/providers/workflows";
+import type {
+  InspiredesignBriefExpansion,
+  InspiredesignBriefFormat
+} from "../src/inspiredesign/brief-expansion";
 import type { InspiredesignCaptureEvidence } from "../src/providers/inspiredesign-contract";
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type {
+  JsonValue,
   ProviderAggregateResult,
   ProviderError,
   ProviderFailureEntry,
@@ -18,6 +23,11 @@ import type {
 } from "../src/providers/types";
 
 type InspiredesignWorkflowMeta = {
+  captureAttemptSummary?: string;
+  captureAttemptReport?: {
+    worked: string[];
+    didNotWork: string[];
+  };
   reasonCodeDistribution?: Record<string, number>;
   followthroughSummary?: string;
   recommendedSkills?: string[];
@@ -36,6 +46,11 @@ type InspiredesignWorkflowMeta = {
     captured_references: number;
     failed_fetches: number;
     failed_captures: number;
+    capture_attempts?: {
+      snapshot: Record<string, number>;
+      clone: Record<string, number>;
+      dom: Record<string, number>;
+    };
   };
   artifact_manifest: {
     files: string[];
@@ -43,16 +58,26 @@ type InspiredesignWorkflowMeta = {
 };
 
 type InspiredesignWorkflowEvidence = {
+  advancedBrief: string;
+  briefExpansion: {
+    templateVersion: string;
+    format: InspiredesignBriefFormat;
+  };
   references: Array<{
     url: string;
     fetchStatus: string;
     captureStatus: string;
     fetchFailure?: string;
     captureFailure?: string;
+    capture?: {
+      title?: string;
+      attempts?: Record<string, { status: string; detail?: string }>;
+    };
   }>;
 };
 
 type InspiredesignWorkflowContext = {
+  advancedBriefMarkdown: string;
   urls: string[];
   prototypeGuidanceMarkdown: string | null;
   evidence: InspiredesignWorkflowEvidence;
@@ -62,6 +87,13 @@ type InspiredesignWorkflowContext = {
     documentId: string;
   };
   designAgentHandoff: {
+    briefExpansion: {
+      templateVersion: string;
+      file: string;
+      format: {
+        label: string;
+      };
+    };
     contractScope: {
       emittedContract: string;
       omittedTemplateBlocks: string[];
@@ -127,6 +159,55 @@ const makeCapture = (title: string): InspiredesignCaptureEvidence => ({
   }
 });
 
+const makeBriefFormat = (
+  overrides: Partial<InspiredesignBriefFormat> = {}
+): InspiredesignBriefFormat => ({
+  id: "premium-editorial-landing-page",
+  label: "Premium editorial landing page",
+  bestFor: ["launch pages", "docs homepages"],
+  businessFocus: ["premium SaaS marketing", "product launches"],
+  keywords: ["landing", "launch", "brand"],
+  archetype: "editorial brand campaign",
+  layoutArchetype: "full-bleed hero with narrative section cadence",
+  typographySystem: "display serif or refined grotesk headlines paired with restrained sans body copy",
+  surfaceTreatment: "bright print-like planes, disciplined image crops, and hairline dividers",
+  shapeLanguage: "sharp framing with selective soft corners only where interaction requires it",
+  componentGrammar: "hero composition, proof bands, narrative media strips, restrained CTA groups",
+  motionGrammar: "measured fades, staggered reveals, and restrained parallax",
+  paletteIntent: "bright neutral field with one confident accent and controlled contrast",
+  visualDensity: "airy",
+  designVariance: "balanced asymmetry",
+  responsiveCollapseRules: [
+    "Collapse split editorial compositions into a single text-first stack before line length becomes cramped."
+  ],
+  guardrails: [
+    "Prioritize one dominant hero idea and a clear narrative progression instead of dashboard-style clutter."
+  ],
+  antiPatterns: [
+    "No feature-card hero."
+  ],
+  deliverables: [
+    "Translate the references into a reusable design contract."
+  ],
+  route: {
+    profile: "product-story",
+    themeStrategy: "single-theme",
+    navigationModel: "global-header",
+    layoutApproach: "editorial-hero-sequence"
+  },
+  ...overrides
+});
+
+const makeBriefExpansion = (
+  overrides: Partial<InspiredesignBriefExpansion> = {}
+): InspiredesignBriefExpansion => ({
+  sourceBrief: "Design a premium launch surface",
+  advancedBrief: "Selected prompt format: Premium editorial landing page\n\nSource brief:\nDesign a premium launch surface\n\nPrompt objective:\nStudy the inspiration references and synthesize a premium editorial landing page system that translates the source brief into a reusable, brand-specific direction.",
+  templateVersion: "inspiredesign-advanced-brief.v1",
+  format: makeBriefFormat(),
+  ...overrides
+});
+
 describe("inspiredesign workflow", () => {
   afterEach(() => {
     workflowTestUtils.resetProviderSignalState();
@@ -162,6 +243,7 @@ describe("inspiredesign workflow", () => {
     });
     expect(meta.metrics.reference_count).toBe(0);
     expect(meta.artifact_manifest.files).toContain("design.md");
+    expect(meta.followthroughSummary).toEqual(expect.stringContaining("advanced-brief.md"));
     expect(meta.followthroughSummary).toEqual(expect.stringContaining("canvas-plan.request.json"));
     expect(meta.recommendedSkills).toEqual([
       'opendevbrowser-best-practices "quick start"',
@@ -171,9 +253,71 @@ describe("inspiredesign workflow", () => {
       note: expect.stringContaining("design-contract.json is the narrowed canvas governance contract")
     }));
     expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "advanced-brief.md",
       "canvas-plan.request.json",
       "design-agent-handoff.json"
     ]));
+  });
+
+  it("emits URL-backed artifact files and capture telemetry together for workflow runs", async () => {
+    const outputDir = makeOutputDir();
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium launch surface",
+      urls: ["https://example.com/reference"],
+      outputDir,
+      mode: "context"
+    }, {
+      captureReference: async (url: string) => ({
+        ...makeCapture(`Captured ${url}`),
+        attempts: {
+          snapshot: { status: "captured" },
+          clone: { status: "captured" },
+          dom: {
+            status: "skipped",
+            detail: "DOM capture helper unavailable in this execution lane."
+          }
+        }
+      })
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const context = output.context as InspiredesignWorkflowContext;
+    const artifactPath = String(output.artifact_path);
+
+    expect(output).toMatchObject({
+      mode: "context",
+      artifact_path: expect.any(String)
+    });
+    expect(meta.selection).toEqual({
+      urls: ["https://example.com/reference"],
+      capture_mode: "deep",
+      include_prototype_guidance: false
+    });
+    expect(context.evidence.references[0]?.capture?.attempts).toEqual({
+      snapshot: { status: "captured" },
+      clone: { status: "captured" },
+      dom: { status: "skipped", detail: "DOM capture helper unavailable in this execution lane." }
+    });
+    expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "advanced-brief.md",
+      "canvas-plan.request.json",
+      "design-agent-handoff.json",
+      "evidence.json"
+    ]));
+    expect(readFileSync(join(artifactPath, "advanced-brief.md"), "utf8")).toContain("Selected prompt format:");
+    expect(readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")).toContain("\"canvasSessionId\"");
+    expect(readFileSync(join(artifactPath, "design-agent-handoff.json"), "utf8")).toContain("\"briefExpansion\"");
   });
 
   it("defaults to compact mode when inspiredesign input omits an explicit render mode", async () => {
@@ -184,6 +328,59 @@ describe("inspiredesign workflow", () => {
     });
 
     expect(output.mode).toBe("compact");
+  });
+
+  it("forces deep capture when urls are present without an explicit capture mode", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference"]
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(captureReference).toHaveBeenCalledTimes(1);
+    expect(meta.selection.capture_mode).toBe("deep");
+  });
+
+  it("overrides explicit off to deep capture when urls are present", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference"],
+      captureMode: "off"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(captureReference).toHaveBeenCalledTimes(1);
+    expect(meta.selection.capture_mode).toBe("deep");
   });
 
   it("parses valid inspiredesign envelopes and forwards every optional runtime override", async () => {
@@ -234,6 +431,7 @@ describe("inspiredesign workflow", () => {
     );
     expect(captureReference).toHaveBeenCalledTimes(1);
     expect(output.mode).toBe("context");
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
     expect(context.urls).toEqual(["https://example.com/reference"]);
     expect(context.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
     expect(context.canvasPlanRequest).toMatchObject({
@@ -242,21 +440,30 @@ describe("inspiredesign workflow", () => {
       documentId: "<document-id>"
     });
     expect(context.designAgentHandoff).toMatchObject({
+      briefExpansion: {
+        templateVersion: "inspiredesign-advanced-brief.v1",
+        file: "advanced-brief.md",
+        format: {
+          label: expect.any(String)
+        }
+      },
       contractScope: {
         emittedContract: "CanvasDesignGovernance",
         omittedTemplateBlocks: ["navigationModel", "asyncModel", "performanceModel"]
       }
     });
+    expect(context.evidence.advancedBrief).toContain("Prompt objective:");
     expect(context.evidence.references[0]).toMatchObject({
       fetchStatus: "captured",
       captureStatus: "captured"
     });
+    expect(meta.followthroughSummary).toContain("advanced-brief.md");
     expect(meta.selection.capture_mode).toBe("deep");
     expect(meta.selection.include_prototype_guidance).toBe(true);
-    expect(meta.deepCaptureRecommendation).toContain("captureMode=deep");
+    expect(meta.deepCaptureRecommendation).toContain("already uses captureMode=deep");
   });
 
-  it("defaults invalid envelope fields back to the compact off-capture path", async () => {
+  it("defaults invalid envelope render fields but still forces deep capture when urls are present", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       records: [
         normalizeRecord("web/default", "web", {
@@ -299,9 +506,160 @@ describe("inspiredesign workflow", () => {
     );
     expect(meta.selection).toEqual({
       urls: ["https://example.com/control"],
-      capture_mode: "off",
+      capture_mode: "deep",
       include_prototype_guidance: false
     });
+  });
+
+  it("ignores invalid envelope brief expansions and regenerates the advanced brief", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+    const invalidBriefExpansion: JsonValue = {
+      sourceBrief: "Design a docs workspace",
+      advancedBrief: "This stale brief expansion should be ignored.",
+      templateVersion: "invalid-template",
+      format: {
+        id: "invalid-format",
+        label: "Invalid format",
+        bestFor: ["valid", 42]
+      }
+    };
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      kind: "inspiredesign",
+      input: {
+        brief: "Design a docs workspace",
+        urls: ["https://example.com/reference"],
+        mode: "context",
+        briefExpansion: invalidBriefExpansion
+      }
+    } as never, {
+      captureReference
+    });
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("This stale brief expansion should be ignored.");
+    expect(context.evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
+    expect(context.evidence.briefExpansion.format.bestFor.every((entry) => typeof entry === "string")).toBe(true);
+  });
+
+  it("ignores cached envelope routes that use invalid enum values", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      kind: "inspiredesign",
+      input: {
+        brief: "Design a docs workspace",
+        urls: ["https://example.com/reference"],
+        mode: "context",
+        briefExpansion: {
+          sourceBrief: "Design a docs workspace",
+          advancedBrief: "Selected prompt format: Invalid cached brief",
+          templateVersion: "inspiredesign-advanced-brief.v1",
+          format: {
+            ...makeBriefFormat(),
+            id: "invalid-cached-route",
+            label: "Invalid cached brief",
+            route: {
+              profile: "not-a-profile",
+              themeStrategy: "single-theme",
+              navigationModel: "contextual",
+              layoutApproach: "custom-layout"
+            }
+          }
+        }
+      }
+    } as never, {
+      captureReference
+    });
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("Invalid cached brief");
+    expect(context.evidence.briefExpansion.format.id).not.toBe("invalid-cached-route");
+  });
+
+  it.each([
+    {
+      name: "theme strategy",
+      route: {
+        profile: "immersive-premium-storytelling",
+        themeStrategy: "not-a-theme",
+        navigationModel: "contextual",
+        layoutApproach: "custom-layout"
+      }
+    },
+    {
+      name: "navigation model",
+      route: {
+        profile: "immersive-premium-storytelling",
+        themeStrategy: "single-theme",
+        navigationModel: "not-a-navigation-model",
+        layoutApproach: "custom-layout"
+      }
+    }
+  ])("ignores cached envelope routes with invalid $name values", async ({ route }) => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Reference title",
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      kind: "inspiredesign",
+      input: {
+        brief: "Design a docs workspace",
+        urls: ["https://example.com/reference"],
+        mode: "context",
+        briefExpansion: {
+          sourceBrief: "Design a docs workspace",
+          advancedBrief: "Selected prompt format: Invalid cached brief",
+          templateVersion: "inspiredesign-advanced-brief.v1",
+          format: {
+            ...makeBriefFormat(),
+            id: "invalid-cached-route",
+            label: "Invalid cached brief",
+            route
+          }
+        }
+      }
+    } as never, {
+      captureReference
+    });
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("Invalid cached brief");
+    expect(context.evidence.briefExpansion.format.id).not.toBe("invalid-cached-route");
   });
 
   it("drops invalid string runtime overrides from inspiredesign envelopes", async () => {
@@ -356,6 +714,122 @@ describe("inspiredesign workflow", () => {
     );
   });
 
+  it("regenerates cached brief expansions whose format id is no longer in the current template", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Cached expansion reference",
+          content: "Cached expansion content"
+        })
+      ]
+    }));
+    const runtime = toRuntime({ fetch });
+    const output = await runInspiredesignWorkflow(runtime, buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "  Design   a premium   launch surface  ",
+      briefExpansion: makeBriefExpansion({
+        advancedBrief: "Selected prompt format: Custom cached brief\n\nSource brief:\nDesign a premium launch surface",
+        templateVersion: "inspiredesign-advanced-brief.v1",
+        format: makeBriefFormat({
+          id: "custom",
+          label: "Custom cached brief",
+          bestFor: ["custom runs"],
+          businessFocus: ["custom runs"],
+          keywords: ["custom"],
+          archetype: "custom archetype",
+          layoutArchetype: "custom layout",
+          typographySystem: "custom type",
+          surfaceTreatment: "custom surface",
+          shapeLanguage: "custom shape",
+          componentGrammar: "custom components",
+          motionGrammar: "custom motion",
+          paletteIntent: "custom palette",
+          visualDensity: "airy",
+          designVariance: "balanced",
+          responsiveCollapseRules: ["Keep custom layout stable."],
+          guardrails: ["Keep custom route stable."],
+          antiPatterns: ["No stale override."],
+          deliverables: ["Return the custom route."],
+          route: {
+            profile: "control-room",
+            themeStrategy: "single-theme",
+            navigationModel: "contextual",
+            layoutApproach: "custom-layout"
+          }
+        })
+      }),
+      urls: ["https://example.com/cached"],
+      mode: "context"
+    }));
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("Custom cached brief");
+    expect(context.evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
+    expect(context.evidence.briefExpansion.format.id).not.toBe("custom");
+  });
+
+  it("regenerates stale cached brief expansions when the template version is outdated", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Cached expansion reference",
+          content: "Cached expansion content"
+        })
+      ]
+    }));
+    const runtime = toRuntime({ fetch });
+    const output = await runInspiredesignWorkflow(runtime, buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "Design a premium launch surface",
+      briefExpansion: makeBriefExpansion({
+        advancedBrief: "Selected prompt format: Stale cached brief\n\nSource brief:\nDesign a premium launch surface",
+        templateVersion: "custom-template.v1"
+      }),
+      urls: ["https://example.com/cached"],
+      mode: "context"
+    }));
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("Stale cached brief");
+    expect(context.evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
+  });
+
+  it("rebuilds stale cached brief expansion metadata from the current template entry", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Cached expansion reference",
+          content: "Cached expansion content"
+        })
+      ]
+    }));
+    const runtime = toRuntime({ fetch });
+    const output = await runInspiredesignWorkflow(runtime, buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "Design a premium launch surface",
+      briefExpansion: makeBriefExpansion({
+        advancedBrief: "Selected prompt format: Stale cached brief\n\nSource brief:\nDesign a premium launch surface",
+        format: makeBriefFormat({
+          label: "Stale cached brief",
+          guardrails: ["Keep the stale label forever."]
+        })
+      }),
+      urls: ["https://example.com/cached"],
+      mode: "context"
+    }));
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("Stale cached brief");
+    expect(context.evidence.briefExpansion.format.label).not.toBe("Stale cached brief");
+    expect(context.evidence.briefExpansion.format.guardrails).not.toContain("Keep the stale label forever.");
+  });
+
   it("rejects invalid inspiredesign workflow envelopes", async () => {
     await expect(
       runInspiredesignWorkflow(toRuntime({}), {
@@ -404,7 +878,7 @@ describe("inspiredesign workflow", () => {
     ).rejects.toThrow("Inspiredesign workflow received an invalid URL: notaurl");
   });
 
-  it("records fetch failures and missing deep-capture callbacks in the evidence payload", async () => {
+  it("records fetch failures while surfacing missing deep-capture support truthfully", async () => {
     const runtime = toRuntime({
       fetch: async () => makeAggregate({
         ok: false,
@@ -435,15 +909,48 @@ describe("inspiredesign workflow", () => {
     });
 
     const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
 
     expect(evidence.references[0]).toMatchObject({
       url: "https://example.com/blocked",
       fetchStatus: "failed",
       captureStatus: "failed",
-      captureFailure: "Deep capture requested, but no browser capture callback was available."
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+      capture: {
+        attempts: {
+          snapshot: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          },
+          clone: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          },
+          dom: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          }
+        }
+      }
     });
     expect(evidence.references[0]?.fetchFailure).toEqual(expect.any(String));
-    expect(output.meta).toMatchObject({
+    expect(meta).toMatchObject({
+      selection: {
+        capture_mode: "deep"
+      },
+      metrics: {
+        failed_captures: 1,
+        capture_attempts: {
+          snapshot: { captured: 0, failed: 0, skipped: 1 },
+          clone: { captured: 0, failed: 0, skipped: 1 },
+          dom: { captured: 0, failed: 0, skipped: 1 }
+        }
+      },
+      captureAttemptSummary: "worked=none; did_not_work=snapshot (skipped 1), clone (skipped 1), dom (skipped 1)",
+      captureAttemptReport: {
+        worked: [],
+        didNotWork: ["snapshot (skipped 1)", "clone (skipped 1)", "dom (skipped 1)"]
+      },
       primaryConstraintSummary: expect.any(String),
       reasonCodeDistribution: {
         challenge_detected: 1
@@ -452,7 +959,431 @@ describe("inspiredesign workflow", () => {
         reasonCode: "challenge_detected"
       })
     });
+    expect(JSON.stringify(output)).toContain("Deep capture requested, but browser capture is unavailable in this execution lane.");
     expect(output.meta).not.toHaveProperty("primary_constraint");
+  });
+
+  it("classifies auth-wall inspiredesign references as session-required failures", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Sign in | LinkedIn",
+            content: "Please sign in to continue."
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium docs workspace",
+      urls: ["https://www.linkedin.com/company/example"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://www.linkedin.com/company/example",
+      fetchStatus: "failed",
+      captureStatus: "failed",
+      fetchFailure: "Default requires login or an existing session.",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane."
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        token_required: 1
+      },
+      primaryConstraint: expect.objectContaining({
+        reasonCode: "token_required"
+      })
+    });
+  });
+
+  it("downgrades shell-only fetched references without breaking mixed-source success", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => {
+        if (input.url.includes("apple.com")) {
+          return makeAggregate({
+            records: [
+              normalizeRecord("web/default", "web", {
+                url: input.url,
+                title: "Apple",
+                content: "Premium product storytelling with careful whitespace and clear CTA hierarchy."
+              })
+            ]
+          });
+        }
+
+        return makeAggregate({
+          records: [
+            normalizeRecord("web/default", "web", {
+              url: input.url,
+              title: "Pinterest",
+              content: "JavaScript is required to view this page.",
+              attributes: {
+                providerShell: "social_js_required_shell",
+                browserRequired: true
+              }
+            })
+          ]
+        });
+      }
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://www.apple.com", "https://www.pinterest.com/pin/example"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references).toMatchObject([
+      {
+        url: "https://www.apple.com",
+        fetchStatus: "captured",
+        captureStatus: "failed",
+        captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane."
+      },
+      {
+        url: "https://www.pinterest.com/pin/example",
+        fetchStatus: "failed",
+        captureStatus: "failed",
+        captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+        fetchFailure: "Default requires a live browser-rendered page."
+      }
+    ]);
+    expect(meta.metrics).toMatchObject({
+      reference_count: 2,
+      fetched_references: 1,
+      failed_fetches: 1,
+      failed_captures: 2
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        env_limited: 1
+      },
+      primaryConstraintSummary: "Default requires a live browser-rendered page.",
+      primaryConstraint: expect.objectContaining({
+        reasonCode: "env_limited",
+        constraint: expect.objectContaining({
+          kind: "render_required",
+          evidenceCode: "social_js_required_shell"
+        })
+      })
+    });
+  });
+
+  it("keeps usable fetched records when a shell-only record is returned alongside them", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Pinterest shell",
+            content: "JavaScript is required to view this page.",
+            attributes: {
+              providerShell: "social_js_required_shell",
+              browserRequired: true
+            }
+          }),
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Recovered reference",
+            content: "Editorial product layout with calm navigation and clear calls to action."
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/recovered"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/recovered",
+      title: "Recovered reference",
+      fetchStatus: "captured",
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane."
+    });
+    expect(evidence.references[0]?.fetchFailure).toBeUndefined();
+    expect(output.meta).toMatchObject({
+      metrics: {
+        fetched_references: 1,
+        failed_fetches: 0,
+        failed_captures: 1
+      },
+      primaryConstraintSummary: "Deep capture was unavailable for 1 reference in this execution lane."
+    });
+  });
+
+  it("reuses existing provider failures when shell-only fetches were already classified upstream", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        ok: false,
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Verification required",
+            content: "Complete the verification challenge to continue.",
+            attributes: {
+              providerShell: "social_verification_wall"
+            }
+          })
+        ],
+        failures: [
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "challenge detected",
+            reasonCode: "challenge_detected"
+          })
+        ],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 },
+        error: {
+          code: "unavailable",
+          message: "challenge detected",
+          retryable: false,
+          reasonCode: "challenge_detected"
+        }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/blocked"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/blocked",
+      fetchStatus: "failed",
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+      fetchFailure: "Default hit an anti-bot challenge that requires manual completion."
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        challenge_detected: 1
+      },
+      primaryConstraintSummary: "Default hit an anti-bot challenge that requires manual completion."
+    });
+  });
+
+  it("prioritizes auth-required inspiredesign issue hints and omits empty synthesized detail fields", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            content: "",
+            attributes: {
+              reasonCode: "auth_required"
+            }
+          }),
+          normalizeRecord("web/default", "web", {
+            url: "https://example.com/challenge",
+            title: "Verification required",
+            content: "Complete the verification challenge to continue.",
+            attributes: {
+              reasonCode: "challenge_detected"
+            }
+          }),
+          normalizeRecord("web/default", "web", {
+            url: "https://example.com/render",
+            title: "Rendered shell",
+            content: "",
+            attributes: {
+              constraint: {
+                kind: "render_required",
+                evidenceCode: "shell_requires_browser"
+              }
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a gated premium docs workspace",
+      urls: ["https://example.com/blocked"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/blocked",
+      fetchStatus: "failed",
+      captureStatus: "failed",
+      fetchFailure: expect.stringContaining("login")
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        auth_required: 1
+      },
+      primaryConstraint: expect.objectContaining({
+        reasonCode: "auth_required"
+      })
+    });
+    expect(output.meta).not.toHaveProperty("primaryConstraint.constraint");
+    expect(output.meta).not.toHaveProperty("primaryConstraint.blockerType");
+  });
+
+  it("classifies plain env-limited inspiredesign issue hints without auth or render metadata", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            content: "",
+            attributes: {
+              reasonCode: "env_limited",
+              constraint: {
+                kind: "session_required",
+                evidenceCode: "stale_session"
+              }
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a constrained premium docs workspace",
+      urls: ["https://example.com/env-limited"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        env_limited: 1
+      },
+      primaryConstraint: expect.objectContaining({
+        reasonCode: "env_limited"
+      })
+    });
+  });
+
+  it("keeps upstream failures for shell-only fetches without injecting a new top-level fetch error", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        ok: false,
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Pinterest shell",
+            content: "JavaScript is required to view this page.",
+            attributes: {
+              providerShell: "social_js_required_shell",
+              browserRequired: true
+            }
+          })
+        ],
+        failures: [
+          makeFailure("web/default", "web", {
+            code: "unavailable",
+            message: "render follow-up required",
+            reasonCode: "env_limited",
+            details: {
+              providerShell: "social_js_required_shell",
+              browserRequired: true,
+              constraint: {
+                kind: "render_required",
+                evidenceCode: "social_js_required_shell"
+              }
+            }
+          })
+        ],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://www.pinterest.com/pin/example"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://www.pinterest.com/pin/example",
+      fetchStatus: "failed",
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+      fetchFailure: "Default requires a live browser-rendered page."
+    });
+    expect(output.meta).toMatchObject({
+      reasonCodeDistribution: {
+        env_limited: 1
+      },
+      primaryConstraintSummary: "Default requires a live browser-rendered page."
+    });
+  });
+
+  it("falls back to the aggregate fetch error message when no classified failures are available", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: false,
+        records: [],
+        failures: [],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 },
+        error: {
+          code: "unavailable",
+          message: "upstream timeout",
+          retryable: true
+        }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/timeout"],
+      captureMode: "off",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/timeout",
+      fetchStatus: "failed",
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+      fetchFailure: "upstream timeout"
+    });
+    expect(output.meta).toMatchObject({
+      metrics: {
+        failed_fetches: 1,
+        failed_captures: 1
+      },
+      primaryConstraintSummary: "upstream timeout"
+    });
+    expect(output.meta).not.toHaveProperty("primaryConstraint");
   });
 
   it("records unusable and non-error deep capture failures without aborting the workflow", async () => {
@@ -485,6 +1416,7 @@ describe("inspiredesign workflow", () => {
     });
 
     const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
 
     expect(evidence.references[0]).toMatchObject({
       url: "https://example.com/empty",
@@ -494,8 +1426,740 @@ describe("inspiredesign workflow", () => {
     expect(evidence.references[1]).toMatchObject({
       url: "https://example.com/error",
       captureStatus: "failed",
-      captureFailure: "Deep capture failed."
+      captureFailure: "Deep capture failed.",
+      capture: {
+        attempts: {
+          snapshot: { status: "failed", detail: "Deep capture failed." },
+          clone: { status: "skipped", detail: "Skipped after deep capture failed before artifact capture started." },
+          dom: { status: "skipped", detail: "Skipped after deep capture failed before artifact capture started." }
+        }
+      }
     });
+    expect(meta).toMatchObject({
+      metrics: {
+        failed_captures: 2,
+        capture_attempts: {
+          snapshot: { captured: 0, failed: 1, skipped: 0 },
+          clone: { captured: 0, failed: 0, skipped: 1 },
+          dom: { captured: 0, failed: 0, skipped: 1 }
+        }
+      },
+      captureAttemptSummary: "worked=none; did_not_work=snapshot (failed 1), clone (skipped 1), dom (skipped 1)"
+    });
+  });
+
+  it("accepts deep capture evidence when only DOM content is returned", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      dom: {
+        outerHTML: "<main><section>Captured DOM</section></main>",
+        truncated: false
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/dom-only"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/dom-only",
+      fetchStatus: "captured",
+      captureStatus: "captured"
+    });
+    expect(evidence.references[0]?.capture).toMatchObject({
+      dom: {
+        outerHTML: "<main><section>Captured DOM</section></main>",
+        truncated: false
+      }
+    });
+  });
+
+  it("keeps snapshot evidence when other deep capture methods fail and reports the attempt outcomes", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      snapshot: {
+        content: "Captured actionables snapshot",
+        refCount: 5,
+        warnings: []
+      },
+      attempts: {
+        snapshot: { status: "captured" },
+        clone: { status: "failed", detail: "clone capture timeout" },
+        dom: { status: "failed", detail: "dom capture unavailable" }
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/snapshot-only"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/snapshot-only",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      capture: {
+        attempts: {
+          snapshot: { status: "captured" },
+          clone: { status: "failed", detail: "clone capture timeout" },
+          dom: { status: "failed", detail: "dom capture unavailable" }
+        }
+      }
+    });
+    expect(meta).toMatchObject({
+      metrics: {
+        captured_references: 1,
+        failed_captures: 0,
+        capture_attempts: {
+          snapshot: { captured: 1, failed: 0, skipped: 0 },
+          clone: { captured: 0, failed: 1, skipped: 0 },
+          dom: { captured: 0, failed: 1, skipped: 0 }
+        }
+      },
+      captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (failed 1)",
+      captureAttemptReport: {
+        worked: ["snapshot (captured 1)"],
+        didNotWork: ["clone (failed 1)", "dom (failed 1)"]
+      }
+    });
+    expect(meta.primaryConstraintSummary).toBeUndefined();
+    expect(output.captureAttemptSummary).toBe("worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (failed 1)");
+  });
+
+  it("keeps title-only deep capture as diagnostic evidence but reports the capture as failed", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      title: "Captured title only"
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a diagnostic-first landing page",
+      urls: ["https://example.com/title-only"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/title-only",
+      fetchStatus: "captured",
+      captureStatus: "failed",
+      captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence.",
+      capture: {
+        title: "Captured title only"
+      }
+    });
+    expect(meta.metrics.captured_references).toBe(0);
+    expect(meta.metrics.failed_captures).toBe(1);
+    expect(output.captureAttemptSummary).toBeUndefined();
+  });
+
+  it("falls back to deep-capture title when the fetched title is blank", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => makeCapture("Captured title only"));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a recovery-aware landing page",
+      urls: ["https://example.com/blank-title"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/blank-title",
+      title: "Captured title only",
+      fetchStatus: "captured",
+      captureStatus: "captured"
+    });
+  });
+
+  it("reports empty snapshot and clone deep capture attempts as failed without counting a capture success", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      attempts: {
+        snapshot: {
+          status: "failed",
+          detail: "Snapshot capture returned empty content."
+        },
+        clone: {
+          status: "failed",
+          detail: "Clone capture returned empty component and CSS previews."
+        },
+        dom: {
+          status: "skipped",
+          detail: "DOM capture helper unavailable in this execution lane."
+        }
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/empty-capture"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/empty-capture",
+      fetchStatus: "captured",
+      captureStatus: "failed",
+      captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence.",
+      capture: {
+        attempts: {
+          snapshot: {
+            status: "failed",
+            detail: "Snapshot capture returned empty content."
+          },
+          clone: {
+            status: "failed",
+            detail: "Clone capture returned empty component and CSS previews."
+          },
+          dom: {
+            status: "skipped",
+            detail: "DOM capture helper unavailable in this execution lane."
+          }
+        }
+      }
+    });
+    expect(meta).toMatchObject({
+      metrics: {
+        captured_references: 0,
+        failed_captures: 1,
+        capture_attempts: {
+          snapshot: { captured: 0, failed: 1, skipped: 0 },
+          clone: { captured: 0, failed: 1, skipped: 0 },
+          dom: { captured: 0, failed: 0, skipped: 1 }
+        }
+      },
+      captureAttemptSummary: "worked=none; did_not_work=snapshot (failed 1), clone (failed 1), dom (skipped 1)",
+      captureAttemptReport: {
+        worked: [],
+        didNotWork: ["snapshot (failed 1)", "clone (failed 1)", "dom (skipped 1)"]
+      }
+    });
+  });
+
+  it("downgrades captured attempt summaries when normalization drops empty artifacts", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      snapshot: {
+        content: "   ",
+        refCount: 1,
+        warnings: []
+      },
+      attempts: {
+        snapshot: { status: "captured" },
+        clone: { status: "skipped", detail: "Clone capture not requested." },
+        dom: { status: "skipped", detail: "DOM capture helper unavailable in this execution lane." }
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/normalized-empty-snapshot"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/normalized-empty-snapshot",
+      captureStatus: "failed",
+      captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence.",
+      capture: {
+        attempts: {
+          snapshot: {
+            status: "failed",
+            detail: "Captured artifact was empty after normalization."
+          },
+          clone: { status: "skipped", detail: "Clone capture not requested." },
+          dom: {
+            status: "skipped",
+            detail: "DOM capture helper unavailable in this execution lane."
+          }
+        }
+      }
+    });
+    expect(meta).toMatchObject({
+      metrics: {
+        captured_references: 0,
+        failed_captures: 1,
+        capture_attempts: {
+          snapshot: { captured: 0, failed: 1, skipped: 0 },
+          clone: { captured: 0, failed: 0, skipped: 1 },
+          dom: { captured: 0, failed: 0, skipped: 1 }
+        }
+      },
+      captureAttemptSummary: "worked=none; did_not_work=snapshot (failed 1), clone (skipped 1), dom (skipped 1)",
+      captureAttemptReport: {
+        worked: [],
+        didNotWork: ["snapshot (failed 1)", "clone (skipped 1)", "dom (skipped 1)"]
+      }
+    });
+    expect(output.captureAttemptSummary).toBe(
+      "worked=none; did_not_work=snapshot (failed 1), clone (skipped 1), dom (skipped 1)"
+    );
+  });
+
+  it("normalizes malformed deep capture attempt payloads before workflow aggregation", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      snapshot: {
+        content: "Captured actionables snapshot",
+        refCount: 3,
+        warnings: []
+      },
+      attempts: {
+        snapshot: { status: "captured" },
+        clone: { status: "broken", detail: 5 },
+        dom: undefined
+      }
+    } as InspiredesignCaptureEvidence));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a fault-tolerant review surface",
+      urls: ["https://example.com/malformed-attempts"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/malformed-attempts",
+      captureStatus: "captured",
+      capture: {
+        attempts: {
+          snapshot: { status: "captured" },
+          clone: {
+            status: "skipped",
+            detail: "Capture attempt metadata missing or malformed."
+          },
+          dom: {
+            status: "skipped",
+            detail: "Capture attempt metadata missing or malformed."
+          }
+        }
+      }
+    });
+    expect(meta).toMatchObject({
+      metrics: {
+        captured_references: 1,
+        capture_attempts: {
+          snapshot: { captured: 1, failed: 0, skipped: 0 },
+          clone: { captured: 0, failed: 0, skipped: 1 },
+          dom: { captured: 0, failed: 0, skipped: 1 }
+        }
+      },
+      captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (skipped 1), dom (skipped 1)",
+      captureAttemptReport: {
+        worked: ["snapshot (captured 1)"],
+        didNotWork: ["clone (skipped 1)", "dom (skipped 1)"]
+      }
+    });
+    expect(output.captureAttemptSummary).toBe("worked=snapshot (captured 1); did_not_work=clone (skipped 1), dom (skipped 1)");
+  });
+
+  it("accepts deep capture evidence when only clone output is returned", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      clone: {
+        componentPreview: "<section>Captured clone</section>",
+        cssPreview: ".hero { display: grid; }",
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/clone-only"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/clone-only",
+      fetchStatus: "captured",
+      captureStatus: "captured"
+    });
+    expect(evidence.references[0]?.capture).toMatchObject({
+      clone: {
+        componentPreview: "<section>Captured clone</section>",
+        cssPreview: ".hero { display: grid; }",
+        warnings: []
+      }
+    });
+  });
+
+  it("accepts deep capture evidence when clone CSS is present even if the component preview is empty", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      clone: {
+        componentPreview: "",
+        cssPreview: ".hero { display: grid; }",
+        warnings: []
+      },
+      attempts: {
+        snapshot: { status: "failed", detail: "Snapshot capture returned empty content." },
+        clone: { status: "captured" },
+        dom: { status: "skipped", detail: "DOM capture helper unavailable in this execution lane." }
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/clone-css-only"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/clone-css-only",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      capture: {
+        clone: {
+          cssPreview: ".hero { display: grid; }"
+        }
+      }
+    });
+  });
+
+  it("uses capture-backed reference evidence when fetch fails but deep capture succeeds", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: false,
+        records: [],
+        failures: [
+          makeFailure("web/default", "web", {
+            message: "shell only response",
+            reasonCode: "env_limited"
+          })
+        ],
+        error: {
+          code: "unavailable",
+          message: "shell only response",
+          retryable: false
+        }
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      snapshot: {
+        content: "Captured editorial hero with strong CTA and tiered proof blocks.",
+        refCount: 4,
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/recovered-by-capture"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const designContract = output.designContract as {
+      contentModel: {
+        supportingMessages: string[];
+      };
+    };
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/recovered-by-capture",
+      title: "Captured editorial hero with strong CTA and tiered proof blocks.",
+      excerpt: "Captured editorial hero with strong CTA and tiered proof blocks.",
+      fetchStatus: "failed",
+      captureStatus: "captured",
+      fetchFailure: expect.any(String)
+    });
+    expect(designContract.contentModel.supportingMessages).toEqual([
+      "Captured editorial hero with strong CTA and tiered proof blocks."
+    ]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        fetched_references: 0,
+        captured_references: 1,
+        failed_fetches: 0,
+        failed_captures: 0
+      }
+    });
+    expect(output.meta).not.toHaveProperty("primaryConstraintSummary");
+  });
+
+  it("ignores discarded shell failures when a usable inspiredesign record remains", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        ok: false,
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Pinterest shell",
+            content: "JavaScript is required to view this page.",
+            attributes: {
+              providerShell: "social_js_required_shell",
+              browserRequired: true
+            }
+          }),
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Recovered editorial layout",
+            content: "Editorial product layout with calm navigation and clear calls to action."
+          })
+        ],
+        failures: [
+          makeFailure("web/default", "web", {
+            message: "Default requires login or an existing session.",
+            reasonCode: "auth_required"
+          })
+        ],
+        error: {
+          code: "auth",
+          message: "Default requires login or an existing session.",
+          retryable: false,
+          reasonCode: "auth_required"
+        }
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      snapshot: {
+        content: "Recovered editorial layout with calm navigation and clear calls to action.",
+        refCount: 4,
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/recovered-mixed-failure"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/recovered-mixed-failure",
+      title: "Recovered editorial layout",
+      fetchStatus: "captured",
+      captureStatus: "captured"
+    });
+    expect(evidence.references[0]?.fetchFailure).toBeUndefined();
+    expect(output.meta).toMatchObject({
+      metrics: {
+        fetched_references: 1,
+        captured_references: 1,
+        failed_fetches: 0,
+        failed_captures: 0
+      }
+    });
+    expect(output.meta).not.toHaveProperty("primaryConstraintSummary");
+  });
+
+  it("suppresses fetch failures when deep capture recovers a fetch-failed inspiredesign reference", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: false,
+        records: [],
+        failures: [
+          makeFailure("web/default", "web", {
+            code: "auth",
+            message: "Default requires login or an existing session.",
+            reasonCode: "auth_required"
+          })
+        ],
+        error: {
+          code: "auth",
+          message: "Default requires login or an existing session.",
+          retryable: false,
+          reasonCode: "auth_required"
+        }
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      snapshot: {
+        content: "Recovered editorial layout with calm navigation and clear calls to action.",
+        refCount: 4,
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium consumer landing page",
+      urls: ["https://example.com/capture-recovered"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/capture-recovered",
+      title: "Recovered editorial layout with calm navigation and clear calls to action.",
+      fetchStatus: "failed",
+      captureStatus: "captured",
+      fetchFailure: "Default requires login or an existing session."
+    });
+    expect(output.meta).toMatchObject({
+      metrics: {
+        fetched_references: 0,
+        captured_references: 1,
+        failed_fetches: 0,
+        failed_captures: 0
+      },
+      reasonCodeDistribution: {}
+    });
+    expect(output.meta).not.toHaveProperty("primaryConstraintSummary");
   });
 
   it("preserves Error messages from deep capture failures", async () => {
@@ -530,7 +2194,14 @@ describe("inspiredesign workflow", () => {
       url: "https://example.com/error-object",
       fetchStatus: "captured",
       captureStatus: "failed",
-      captureFailure: "capture exploded"
+      captureFailure: "capture exploded",
+      capture: {
+        attempts: {
+          snapshot: { status: "failed", detail: "capture exploded" },
+          clone: { status: "skipped", detail: "Skipped after deep capture failed before artifact capture started." },
+          dom: { status: "skipped", detail: "Skipped after deep capture failed before artifact capture started." }
+        }
+      }
     });
     expect(output.meta).toMatchObject({
       primaryConstraintSummary: "Deep capture failed for 1 reference.",
@@ -538,6 +2209,11 @@ describe("inspiredesign workflow", () => {
         env_limited: 1
       },
       metrics: {
+        capture_attempts: {
+          snapshot: { captured: 0, failed: 1, skipped: 0 },
+          clone: { captured: 0, failed: 0, skipped: 1 },
+          dom: { captured: 0, failed: 0, skipped: 1 }
+        },
         reasonCodeDistribution: {
           env_limited: 1
         }
@@ -552,6 +2228,70 @@ describe("inspiredesign workflow", () => {
           ])
         })
       })
+    });
+    expect(output.followthroughSummary).toContain("Primary constraint: Deep capture failed for 1 reference.");
+  });
+
+  it("surfaces primary constraints in compact inspiredesign output", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/degraded"],
+      captureMode: "deep",
+      mode: "compact",
+      outputDir: makeOutputDir()
+    });
+
+    expect(output.summary).toContain("Primary constraint: Deep capture was unavailable for 1 reference in this execution lane.");
+    expect(output.followthroughSummary).toContain(
+      "Primary constraint: Deep capture was unavailable for 1 reference in this execution lane."
+    );
+  });
+
+  it("summarizes unavailable deep capture constraints across multiple references", async () => {
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: `Reference for ${input.url}`,
+            content: "Reference content"
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/one", "https://example.com/two"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    });
+
+    expect(output.meta).toMatchObject({
+      primaryConstraintSummary: "Deep capture was unavailable for 2 references in this execution lane.",
+      primaryConstraint: expect.objectContaining({
+        guidance: expect.objectContaining({
+          recommendedNextCommands: expect.arrayContaining([
+            "Restore browser capture access for this execution lane, then rerun inspiredesign."
+          ])
+        })
+      }),
+      metrics: {
+        failed_captures: 2
+      }
     });
   });
 

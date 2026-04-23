@@ -90,6 +90,7 @@ describe("CLI help surface", () => {
     expect(HELP_ONBOARDING_ENTRIES[6]?.details).toEqual([
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
+      { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
     ]);

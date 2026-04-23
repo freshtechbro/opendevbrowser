@@ -6957,6 +6957,16 @@ describe("BrowserManager", () => {
     expect(promoteWarnSpy.mock.calls.length).toBe(beforeWarnCalls);
     expect(promoteInfoSpy.mock.calls.length).toBe(beforeInfoCalls);
 
+    promoteBundle.page.emit("request", {
+      method: () => "GET",
+      url: () => "https://example.com/still-healthy",
+      resourceType: () => "xhr"
+    });
+    await promoteManager.debugTraceSnapshot(promoteLaunch.sessionId, {
+      sinceNetworkSeq: promoteTrace.channels.network.nextSeq
+    });
+    expect(promoteInfoSpy.mock.calls.length).toBe(beforeInfoCalls);
+
     const rollbackBundle = createBrowserBundle(nodes);
     launchPersistentContext.mockResolvedValueOnce(rollbackBundle.context);
     const rollbackConfig = {

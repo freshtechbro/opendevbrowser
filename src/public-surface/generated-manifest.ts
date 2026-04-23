@@ -594,10 +594,10 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
+          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
         ],
         "notes": [
-          "--capture-mode defaults to off; opt into deep only when live DOM or layout evidence is required.",
+          "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
           "Repeat --url for multiple references. There is no --urls alias."
         ],
         "groupId": "provider_workflows",
@@ -2536,7 +2536,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "name": "opendevbrowser_inspiredesign_run",
         "description": "Run the inspiredesign workflow directly.",
         "cliEquivalent": "inspiredesign",
-        "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
+        "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
       },
       {
         "name": "opendevbrowser_canvas",

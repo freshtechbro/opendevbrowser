@@ -1,6 +1,10 @@
 import { canonicalizeUrl } from "./web/crawler";
 import type { ResearchRecord } from "./enrichment";
-import type { InspiredesignFollowthrough, InspiredesignImplementationPlan } from "./inspiredesign-contract";
+import {
+  formatInspiredesignCaptureAttemptSummary,
+  type InspiredesignFollowthrough,
+  type InspiredesignImplementationPlan
+} from "./inspiredesign-contract";
 import type { CanvasDesignGovernance, CanvasGenerationPlan } from "../canvas/types";
 import {
   INSPIREDESIGN_HANDOFF_FILES,
@@ -39,6 +43,63 @@ const primaryConstraintSummaryFromMeta = (meta: Record<string, unknown>): string
   return typeof summary === "string" && summary.trim().length > 0
     ? summary.trim()
     : null;
+};
+
+const isStringArray = (value: unknown): value is string[] => (
+  Array.isArray(value) && value.every((item) => typeof item === "string")
+);
+
+const inspiredesignCaptureAttemptReportFromMeta = (
+  meta: Record<string, unknown>
+): { worked: string[]; didNotWork: string[] } | null => {
+  const report = meta.captureAttemptReport;
+  if (typeof report !== "object" || report === null || Array.isArray(report)) {
+    return null;
+  }
+  const candidate = report as Record<string, unknown>;
+  if (!isStringArray(candidate.worked) || !isStringArray(candidate.didNotWork)) {
+    return null;
+  }
+  return {
+    worked: candidate.worked,
+    didNotWork: candidate.didNotWork
+  };
+};
+
+const inspiredesignCaptureAttemptSummaryFromMeta = (meta: Record<string, unknown>): string | null => {
+  const summary = meta.captureAttemptSummary;
+  if (typeof summary === "string" && summary.trim().length > 0) {
+    return summary.trim();
+  }
+  const report = inspiredesignCaptureAttemptReportFromMeta(meta);
+  return report ? formatInspiredesignCaptureAttemptSummary(report) : null;
+};
+
+const prependPrimaryConstraint = (text: string, meta: Record<string, unknown>): string => {
+  const summary = primaryConstraintSummaryFromMeta(meta);
+  return summary ? `Primary constraint: ${summary} ${text}` : text;
+};
+
+const buildInspiredesignSummary = (args: {
+  brief: string;
+  referenceCount: number;
+  profile: string;
+  meta: Record<string, unknown>;
+}): string => {
+  const lines = [
+    `Brief: ${args.brief}`,
+    `References: ${args.referenceCount}`,
+    `Profile: ${args.profile}`
+  ];
+  const summary = primaryConstraintSummaryFromMeta(args.meta);
+  if (summary) {
+    lines.push(`Primary constraint: ${summary}`);
+  }
+  const captureSummary = inspiredesignCaptureAttemptSummaryFromMeta(args.meta);
+  if (captureSummary) {
+    lines.push(`Capture: ${captureSummary}`);
+  }
+  return lines.join("\n");
 };
 
 const compactResearchLines = (records: ResearchRecord[], meta: Record<string, unknown>): string[] => {
@@ -266,6 +327,7 @@ export const renderShopping = (args: {
 export const renderInspiredesign = (args: {
   mode: RenderMode;
   brief: string;
+  advancedBriefMarkdown: string;
   urls: string[];
   designContract: CanvasDesignGovernance;
   canvasPlanRequest: Record<string, unknown>;
@@ -281,13 +343,18 @@ export const renderInspiredesign = (args: {
   response: Record<string, unknown>;
   files: Array<{ path: string; content: string | Record<string, unknown> }>;
 } => {
-  const summary = [
-    `Brief: ${args.brief}`,
-    `References: ${args.urls.length}`,
-    `Profile: ${args.generationPlan.visualDirection.profile}`
-  ].join("\n");
+  const captureAttemptReport = inspiredesignCaptureAttemptReportFromMeta(args.meta);
+  const captureAttemptSummary = inspiredesignCaptureAttemptSummaryFromMeta(args.meta);
+  const summary = buildInspiredesignSummary({
+    brief: args.brief,
+    referenceCount: args.urls.length,
+    profile: args.generationPlan.visualDirection.profile,
+    meta: args.meta
+  });
+  const followthroughSummary = prependPrimaryConstraint(args.designAgentHandoff.summary, args.meta);
   const contextPayload = {
     brief: args.brief,
+    advancedBriefMarkdown: args.advancedBriefMarkdown,
     urls: args.urls,
     designContract: args.designContract,
     canvasPlanRequest: args.canvasPlanRequest,
@@ -301,6 +368,9 @@ export const renderInspiredesign = (args: {
     meta: args.meta
   };
   const suggestedSteps = [
+    {
+      reason: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief
+    },
     {
       reason: "Load the baseline workflow runbook before implementation.",
       command: args.designAgentHandoff.commandExamples.loadBestPractices
@@ -319,6 +389,7 @@ export const renderInspiredesign = (args: {
   ];
   const files: Array<{ path: string; content: string | Record<string, unknown> }> = [
     { path: INSPIREDESIGN_HANDOFF_FILES.designMarkdown, content: args.designMarkdown },
+    { path: INSPIREDESIGN_HANDOFF_FILES.advancedBrief, content: args.advancedBriefMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.designContract, content: args.designContract },
     { path: INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest, content: args.canvasPlanRequest },
     { path: INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff, content: args.designAgentHandoff },
@@ -330,15 +401,20 @@ export const renderInspiredesign = (args: {
   if (args.prototypeGuidanceMarkdown) {
     files.push({ path: INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance, content: args.prototypeGuidanceMarkdown });
   }
+  const captureAttemptFields = {
+    ...(captureAttemptSummary ? { captureAttemptSummary } : {}),
+    ...(captureAttemptReport ? { captureAttemptReport } : {})
+  };
 
   if (args.mode === "compact") {
     return {
       response: {
         mode: args.mode,
         summary,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
+        ...captureAttemptFields,
         meta: args.meta
       },
       files
@@ -349,6 +425,7 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         brief: args.brief,
+        advancedBriefMarkdown: args.advancedBriefMarkdown,
         urls: args.urls,
         canvasPlanRequest: args.canvasPlanRequest,
         designAgentHandoff: args.designAgentHandoff,
@@ -357,9 +434,10 @@ export const renderInspiredesign = (args: {
         implementationPlan: args.implementationPlan,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
         evidence: args.evidence,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
+        ...captureAttemptFields,
         meta: args.meta
       },
       files
@@ -372,9 +450,10 @@ export const renderInspiredesign = (args: {
         markdown: args.designMarkdown,
         implementationPlanMarkdown: args.implementationPlanMarkdown,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
+        ...captureAttemptFields,
         meta: args.meta
       },
       files
@@ -385,9 +464,10 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         context: contextPayload,
-        followthroughSummary: args.designAgentHandoff.summary,
+        followthroughSummary,
         suggestedNextAction: args.designAgentHandoff.nextStep,
         suggestedSteps,
+        ...captureAttemptFields,
         meta: args.meta
       },
       files
@@ -397,9 +477,10 @@ export const renderInspiredesign = (args: {
   return {
     response: {
       mode: "path",
-      followthroughSummary: args.designAgentHandoff.summary,
+      followthroughSummary,
       suggestedNextAction: args.designAgentHandoff.nextStep,
       suggestedSteps,
+      ...captureAttemptFields,
       meta: args.meta
     },
     files

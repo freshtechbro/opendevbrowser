@@ -4,7 +4,9 @@ import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../cli/transport-timeouts";
 import { captureInspiredesignReferenceFromManager } from "../providers/inspiredesign-capture";
+import { resolveInspiredesignCaptureMode } from "../providers/inspiredesign-capture-mode";
 
 const z = tool.schema;
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
@@ -18,7 +20,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
     args: {
       brief: z.string().min(1).describe("Inspiredesign brief"),
       urls: z.array(z.string()).optional().describe("Inspiration URLs to analyze"),
-      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep"),
+      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep. Any URLs force deep."),
       includePrototypeGuidance: z.boolean().optional().describe("Include prototype guidance output"),
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
@@ -32,7 +34,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
       try {
         const runtime = await resolveProviderRuntime(deps);
         const { runInspiredesignWorkflow } = await import("../providers");
-        const captureMode = args.captureMode ?? "off";
+        const captureMode = resolveInspiredesignCaptureMode(args.captureMode, args.urls);
         const cookieSource = deps.config.get().providers?.cookieSource;
         const result = await runInspiredesignWorkflow(runtime, {
           brief: args.brief,
@@ -40,7 +42,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
           captureMode,
           includePrototypeGuidance: args.includePrototypeGuidance,
           mode: args.mode ?? "compact",
-          timeoutMs: args.timeoutMs,
+          timeoutMs: args.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
           outputDir: args.outputDir,
           ttlHours: args.ttlHours,
           useCookies: args.useCookies,

@@ -504,7 +504,7 @@ Flags:
 
 ```bash
 npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing page from calm editorial references" --url https://stripe.com --url https://vercel.com
-npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --capture-mode deep --include-prototype-guidance --output-dir /tmp/inspiredesign
+npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign
 ```
 
 Flags:
@@ -522,11 +522,11 @@ Flags:
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
 Notes:
-- `--capture-mode` defaults to `off`; opt into `deep` only when live DOM/layout capture is required.
+- Any `--url` forces deep capture so inspiredesign can collect DOM/layout evidence. Without URLs, `--capture-mode` defaults to `off`.
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
-- Successful runs now emit `canvas-plan.request.json` and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
-- The follow-through path is explicit: load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
+- Successful runs now emit `advanced-brief.md`, `canvas-plan.request.json`, and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
+- The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
 
 Wrapper behavior:
 - Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).

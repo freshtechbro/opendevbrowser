@@ -1,7 +1,9 @@
 import { createHash } from "crypto";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
 import {
+  readProviderIssueHintFromRecord,
   summarizePrimaryProviderIssue,
+  type ProviderIssueHint,
   type ProviderNextStepGuidance
 } from "./constraint";
 import { enrichResearchRecords, type ResearchRecord } from "./enrichment";
@@ -14,10 +16,28 @@ import {
 } from "./renderer";
 import {
   buildInspiredesignPacket,
+  formatInspiredesignCaptureAttemptSummary,
+  hasInspiredesignCaptureArtifacts,
+  INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS,
+  type InspiredesignCaptureAttemptKey,
+  type InspiredesignCaptureAttemptStatus,
   type InspiredesignCaptureEvidence,
   type InspiredesignFollowthrough,
+  normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
 } from "./inspiredesign-contract";
+import {
+  normalizeInspiredesignBriefText,
+  expandInspiredesignBrief,
+  INSPIREDESIGN_BRIEF_TEMPLATE_VERSION,
+  type InspiredesignBriefExpansion,
+  type InspiredesignBriefFormat
+} from "../inspiredesign/brief-expansion";
+import {
+  CANVAS_NAVIGATION_MODELS,
+  CANVAS_THEME_STRATEGIES,
+  CANVAS_VISUAL_DIRECTION_PROFILES
+} from "../canvas/types";
 import {
   buildProductVideoSuccessHandoff,
   buildResearchSuccessHandoff,
@@ -75,6 +95,7 @@ import {
   type WorkflowResumeEnvelope,
   type WorkflowTraceEntry
 } from "./workflow-contracts";
+import { resolveInspiredesignCaptureMode } from "./inspiredesign-capture-mode";
 import type {
   BrowserFallbackMode,
   JsonValue,
@@ -142,6 +163,7 @@ export interface ShoppingRunInput {
 
 export interface InspiredesignRunInput {
   brief: string;
+  briefExpansion?: InspiredesignBriefExpansion;
   urls?: string[];
   captureMode?: InspiredesignCaptureMode;
   includePrototypeGuidance?: boolean;
@@ -1207,6 +1229,7 @@ const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | und
 
 type InspiredesignResolvedInput = Omit<InspiredesignRunInput, "brief" | "urls" | "captureMode"> & {
   brief: string;
+  briefExpansion: InspiredesignBriefExpansion;
   urls: string[];
   captureMode: InspiredesignCaptureMode;
 };
@@ -1215,14 +1238,48 @@ const INSPIREDESIGN_RENDER_MODES = new Set<RenderMode>(["compact", "json", "md",
 const INSPIREDESIGN_CAPTURE_MODES = new Set<InspiredesignCaptureMode>(["off", "deep"]);
 const INSPIREDESIGN_COOKIE_POLICIES = new Set<ProviderCookiePolicy>(["off", "auto", "required"]);
 
+const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
+  typeof value === "object" && value !== null && !Array.isArray(value)
+);
+
 type InspiredesignCaptureOutcome = {
   captureStatus: InspiredesignReferenceEvidence["captureStatus"];
   capture?: InspiredesignCaptureEvidence | null;
   captureFailure?: string;
 };
 
+const INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE =
+  "Deep capture requested, but browser capture is unavailable in this execution lane.";
+type InspiredesignCaptureAttemptCounts = Record<
+  InspiredesignCaptureAttemptKey,
+  Record<InspiredesignCaptureAttemptStatus, number>
+>;
+
+const isCanvasVisualDirectionProfile = (
+  value: string
+): value is InspiredesignBriefFormat["route"]["profile"] => {
+  return (CANVAS_VISUAL_DIRECTION_PROFILES as readonly string[]).includes(value);
+};
+
+const isCanvasThemeStrategy = (
+  value: string
+): value is InspiredesignBriefFormat["route"]["themeStrategy"] => {
+  return (CANVAS_THEME_STRATEGIES as readonly string[]).includes(value);
+};
+
+const isCanvasNavigationModel = (
+  value: string
+): value is InspiredesignBriefFormat["route"]["navigationModel"] => {
+  return (CANVAS_NAVIGATION_MODELS as readonly string[]).includes(value);
+};
+
+const serializeInspiredesignBriefExpansion = (
+  expansion: InspiredesignBriefExpansion
+): Record<string, JsonValue> => structuredClone(expansion) as Record<string, JsonValue>;
+
 const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Record<string, JsonValue> => ({
   brief: input.brief,
+  briefExpansion: serializeInspiredesignBriefExpansion(input.briefExpansion),
   urls: input.urls,
   captureMode: input.captureMode,
   mode: input.mode,
@@ -1235,27 +1292,133 @@ const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Reco
   ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
 });
 
-const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"]): InspiredesignRunInput => ({
-  brief: typeof input.brief === "string" ? input.brief : "",
-  mode: typeof input.mode === "string" && INSPIREDESIGN_RENDER_MODES.has(input.mode as RenderMode)
-    ? (input.mode as RenderMode)
-    : "compact",
-  ...(Array.isArray(input.urls) ? { urls: input.urls.filter((url): url is string => typeof url === "string") } : {}),
-  ...(typeof input.captureMode === "string" && INSPIREDESIGN_CAPTURE_MODES.has(input.captureMode as InspiredesignCaptureMode)
-    ? { captureMode: input.captureMode as InspiredesignCaptureMode }
-    : {}),
-  ...(typeof input.includePrototypeGuidance === "boolean" ? { includePrototypeGuidance: input.includePrototypeGuidance } : {}),
-  ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
-  ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
-  ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
-  ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
-  ...(isChallengeAutomationMode(input.challengeAutomationMode)
-    ? { challengeAutomationMode: input.challengeAutomationMode }
-    : {}),
-  ...(typeof input.cookiePolicyOverride === "string" && INSPIREDESIGN_COOKIE_POLICIES.has(input.cookiePolicyOverride as ProviderCookiePolicy)
-    ? { cookiePolicyOverride: input.cookiePolicyOverride as ProviderCookiePolicy }
-    : {})
-});
+const isStringArray = (value: JsonValue | undefined): value is string[] => (
+  Array.isArray(value) && value.every((entry) => typeof entry === "string")
+);
+
+const parseInspiredesignBriefFormatRoute = (
+  value: JsonValue | undefined
+): InspiredesignBriefFormat["route"] | undefined => {
+  if (!isJsonRecord(value)) return undefined;
+  const profile = typeof value.profile === "string" && isCanvasVisualDirectionProfile(value.profile)
+    ? value.profile
+    : undefined;
+  const themeStrategy = typeof value.themeStrategy === "string" && isCanvasThemeStrategy(value.themeStrategy)
+    ? value.themeStrategy
+    : undefined;
+  const navigationModel = typeof value.navigationModel === "string" && isCanvasNavigationModel(value.navigationModel)
+    ? value.navigationModel
+    : undefined;
+  if (!profile || !themeStrategy || !navigationModel || typeof value.layoutApproach !== "string") {
+    return undefined;
+  }
+  return {
+    profile,
+    themeStrategy,
+    navigationModel,
+    layoutApproach: value.layoutApproach
+  };
+};
+
+const parseInspiredesignBriefFormat = (
+  value: JsonValue | undefined
+): InspiredesignBriefFormat | undefined => {
+  if (!isJsonRecord(value)) return undefined;
+  const route = parseInspiredesignBriefFormatRoute(value.route);
+  if (
+    typeof value.id !== "string"
+    || typeof value.label !== "string"
+    || !isStringArray(value.bestFor)
+    || !isStringArray(value.businessFocus)
+    || !isStringArray(value.keywords)
+    || typeof value.archetype !== "string"
+    || typeof value.layoutArchetype !== "string"
+    || typeof value.typographySystem !== "string"
+    || typeof value.surfaceTreatment !== "string"
+    || typeof value.shapeLanguage !== "string"
+    || typeof value.componentGrammar !== "string"
+    || typeof value.motionGrammar !== "string"
+    || typeof value.paletteIntent !== "string"
+    || typeof value.visualDensity !== "string"
+    || typeof value.designVariance !== "string"
+    || !isStringArray(value.responsiveCollapseRules)
+    || !isStringArray(value.guardrails)
+    || !isStringArray(value.antiPatterns)
+    || !isStringArray(value.deliverables)
+    || !route
+  ) {
+    return undefined;
+  }
+  return {
+    id: value.id,
+    label: value.label,
+    bestFor: [...value.bestFor],
+    businessFocus: [...value.businessFocus],
+    keywords: [...value.keywords],
+    archetype: value.archetype,
+    layoutArchetype: value.layoutArchetype,
+    typographySystem: value.typographySystem,
+    surfaceTreatment: value.surfaceTreatment,
+    shapeLanguage: value.shapeLanguage,
+    componentGrammar: value.componentGrammar,
+    motionGrammar: value.motionGrammar,
+    paletteIntent: value.paletteIntent,
+    visualDensity: value.visualDensity,
+    designVariance: value.designVariance,
+    responsiveCollapseRules: [...value.responsiveCollapseRules],
+    guardrails: [...value.guardrails],
+    antiPatterns: [...value.antiPatterns],
+    deliverables: [...value.deliverables],
+    route
+  };
+};
+
+const parseInspiredesignBriefExpansion = (
+  value: JsonValue | undefined
+): InspiredesignBriefExpansion | undefined => {
+  if (!isJsonRecord(value)) return undefined;
+  const format = parseInspiredesignBriefFormat(value.format);
+  if (
+    typeof value.sourceBrief !== "string"
+    || typeof value.advancedBrief !== "string"
+    || typeof value.templateVersion !== "string"
+    || !format
+  ) {
+    return undefined;
+  }
+  return {
+    sourceBrief: value.sourceBrief,
+    advancedBrief: value.advancedBrief,
+    templateVersion: value.templateVersion,
+    format
+  };
+};
+
+const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"]): InspiredesignRunInput => {
+  const briefExpansion = parseInspiredesignBriefExpansion(input.briefExpansion);
+  return {
+    brief: typeof input.brief === "string" ? input.brief : "",
+    mode: typeof input.mode === "string" && INSPIREDESIGN_RENDER_MODES.has(input.mode as RenderMode)
+      ? (input.mode as RenderMode)
+      : "compact",
+    ...(briefExpansion ? { briefExpansion } : {}),
+    ...(Array.isArray(input.urls) ? { urls: input.urls.filter((url): url is string => typeof url === "string") } : {}),
+    ...(typeof input.captureMode === "string" && INSPIREDESIGN_CAPTURE_MODES.has(input.captureMode as InspiredesignCaptureMode)
+      ? { captureMode: input.captureMode as InspiredesignCaptureMode }
+      : {}),
+    ...(typeof input.includePrototypeGuidance === "boolean" ? { includePrototypeGuidance: input.includePrototypeGuidance } : {}),
+    ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
+    ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
+    ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
+    ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
+    ...(isChallengeAutomationMode(input.challengeAutomationMode)
+      ? { challengeAutomationMode: input.challengeAutomationMode }
+      : {}),
+    ...(typeof input.cookiePolicyOverride === "string" && INSPIREDESIGN_COOKIE_POLICIES.has(input.cookiePolicyOverride as ProviderCookiePolicy)
+      ? { cookiePolicyOverride: input.cookiePolicyOverride as ProviderCookiePolicy }
+      : {})
+  };
+};
 
 const normalizeInspiredesignUrls = (urls: string[] | undefined): string[] => {
   if (!urls || urls.length === 0) return [];
@@ -1269,16 +1432,45 @@ const normalizeInspiredesignUrls = (urls: string[] | undefined): string[] => {
   return [...new Set(normalized.map((url) => canonicalizeUrl(url)))];
 };
 
+const hasValidInspiredesignBriefRoute = (route: InspiredesignBriefFormat["route"]): boolean => {
+  return isCanvasVisualDirectionProfile(route.profile)
+    && isCanvasThemeStrategy(route.themeStrategy)
+    && isCanvasNavigationModel(route.navigationModel);
+};
+
+const shouldReuseInspiredesignBriefExpansion = (
+  briefExpansion: InspiredesignBriefExpansion | undefined,
+  normalizedBrief: string
+): briefExpansion is InspiredesignBriefExpansion => {
+  if (!briefExpansion) {
+    return false;
+  }
+  if (normalizeInspiredesignBriefText(briefExpansion.sourceBrief) !== normalizedBrief) {
+    return false;
+  }
+  if (briefExpansion.templateVersion !== INSPIREDESIGN_BRIEF_TEMPLATE_VERSION) {
+    return false;
+  }
+  return hasValidInspiredesignBriefRoute(briefExpansion.format.route);
+};
+
 const normalizeInspiredesignInput = (input: InspiredesignRunInput): InspiredesignResolvedInput => {
   const brief = input.brief.trim();
   if (!brief) {
     throw new Error("Inspiredesign workflow requires a non-empty brief.");
   }
+  const urls = normalizeInspiredesignUrls(input.urls);
+  const normalizedBrief = normalizeInspiredesignBriefText(brief);
+  const preferredFormatId = shouldReuseInspiredesignBriefExpansion(input.briefExpansion, normalizedBrief)
+    ? input.briefExpansion.format.id
+    : undefined;
+  const briefExpansion = expandInspiredesignBrief(brief, preferredFormatId);
   return {
     ...input,
     brief,
-    urls: normalizeInspiredesignUrls(input.urls),
-    captureMode: input.captureMode ?? "off",
+    briefExpansion,
+    urls,
+    captureMode: resolveInspiredesignCaptureMode(input.captureMode, urls),
     mode: input.mode ?? "compact"
   };
 };
@@ -1361,11 +1553,76 @@ const buildInspiredesignFetchOptions = (
   envelope
 );
 
-const hasInspiredesignCaptureEvidence = (
-  capture: InspiredesignCaptureEvidence | null | undefined
-): capture is InspiredesignCaptureEvidence => {
-  if (!capture) return false;
-  return Boolean(capture.title || capture.snapshot || capture.dom || capture.clone);
+const buildEmptyInspiredesignCaptureAttemptCounts = (): InspiredesignCaptureAttemptCounts => ({
+  snapshot: { captured: 0, failed: 0, skipped: 0 },
+  clone: { captured: 0, failed: 0, skipped: 0 },
+  dom: { captured: 0, failed: 0, skipped: 0 }
+});
+
+const buildUnavailableInspiredesignCaptureEvidence = (): InspiredesignCaptureEvidence => ({
+  attempts: {
+    snapshot: { status: "skipped", detail: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE },
+    clone: { status: "skipped", detail: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE },
+    dom: { status: "skipped", detail: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE }
+  }
+});
+
+const PRE_ARTIFACT_CAPTURE_SKIP_MESSAGE =
+  "Skipped after deep capture failed before artifact capture started.";
+
+const buildFailedInspiredesignCaptureEvidence = (
+  detail: string
+): InspiredesignCaptureEvidence => ({
+  attempts: {
+    snapshot: { status: "failed", detail },
+    clone: { status: "skipped", detail: PRE_ARTIFACT_CAPTURE_SKIP_MESSAGE },
+    dom: { status: "skipped", detail: PRE_ARTIFACT_CAPTURE_SKIP_MESSAGE }
+  }
+});
+
+const describeInspiredesignCaptureAttempts = (
+  key: InspiredesignCaptureAttemptKey,
+  counts: Record<InspiredesignCaptureAttemptStatus, number>,
+  statuses: InspiredesignCaptureAttemptStatus[]
+): string | null => {
+  const parts = statuses
+    .filter((status) => counts[status] > 0)
+    .map((status) => `${status} ${counts[status]}`);
+  if (parts.length === 0) return null;
+  return `${key} (${parts.join(", ")})`;
+};
+
+const summarizeInspiredesignCaptureAttempts = (
+  references: InspiredesignReferenceEvidence[]
+): {
+  counts: InspiredesignCaptureAttemptCounts;
+  worked: string[];
+  didNotWork: string[];
+  summary: string;
+} | undefined => {
+  const counts = buildEmptyInspiredesignCaptureAttemptCounts();
+  let hasAttempts = false;
+  for (const reference of references) {
+    const attempts = normalizeInspiredesignCaptureEvidence(reference.capture)?.attempts;
+    if (!attempts) continue;
+    hasAttempts = true;
+    for (const key of INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS) {
+      counts[key][attempts[key].status] += 1;
+    }
+  }
+  if (!hasAttempts) return undefined;
+  const worked = INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS
+    .map((key) => describeInspiredesignCaptureAttempts(key, counts[key], ["captured"]))
+    .filter((value): value is string => value !== null);
+  const didNotWork = INSPIREDESIGN_CAPTURE_ATTEMPT_KEYS
+    .map((key) => describeInspiredesignCaptureAttempts(key, counts[key], ["failed", "skipped"]))
+    .filter((value): value is string => value !== null);
+  return {
+    counts,
+    worked,
+    didNotWork,
+    summary: formatInspiredesignCaptureAttemptSummary({ worked, didNotWork })
+  };
 };
 
 const captureInspiredesignReference = async (
@@ -1381,30 +1638,36 @@ const captureInspiredesignReference = async (
   if (!captureReference) {
     return {
       captureStatus: "failed",
-      captureFailure: "Deep capture requested, but no browser capture callback was available."
+      captureFailure: INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE,
+      capture: buildUnavailableInspiredesignCaptureEvidence()
     };
   }
   try {
-    const capture = await captureReference(url, {
+    const capture = normalizeInspiredesignCaptureEvidence(await captureReference(url, {
       timeoutMs,
       useCookies: workflowInput.useCookies,
       challengeAutomationMode: workflowInput.challengeAutomationMode,
       cookiePolicyOverride: workflowInput.cookiePolicyOverride
-    });
-    if (!hasInspiredesignCaptureEvidence(capture)) {
+    }));
+    if (!hasInspiredesignCaptureArtifacts(capture)) {
       return {
         captureStatus: "failed",
-        captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence."
+        captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence.",
+        ...(capture ? { capture } : {})
       };
     }
     return {
       captureStatus: "captured",
-      capture
+      ...(capture ? { capture } : {})
     };
   } catch (error) {
+    const captureFailure = error instanceof Error && error.message.trim()
+      ? error.message
+      : "Deep capture failed.";
     return {
       captureStatus: "failed",
-      captureFailure: error instanceof Error ? error.message : "Deep capture failed."
+      captureFailure,
+      capture: buildFailedInspiredesignCaptureEvidence(captureFailure)
     };
   }
 };
@@ -1415,6 +1678,99 @@ const getInspiredesignPrimaryRecord = (
 ): NormalizedRecord | undefined => {
   const canonicalUrl = canonicalizeUrl(url);
   return result.records.find((record) => record.url && canonicalizeUrl(record.url) === canonicalUrl) ?? result.records[0];
+};
+
+const summarizeInspiredesignIssueSnippet = (record: NormalizedRecord): string | undefined => {
+  const content = normalizePlainText(record.content);
+  if (!content) return undefined;
+  return toSnippet(content, 240);
+};
+
+const scoreInspiredesignIssueHint = (hint: ProviderIssueHint): number => {
+  if (hint.reasonCode === "token_required" || hint.reasonCode === "auth_required") return 3;
+  if (hint.reasonCode === "challenge_detected") return 2;
+  if (hint.constraint?.kind === "render_required") return 1;
+  return 0;
+};
+
+const toInspiredesignIssueFailure = (
+  record: NormalizedRecord,
+  hint: ProviderIssueHint
+): ProviderFailureEntry => {
+  const issueSnippet = summarizeInspiredesignIssueSnippet(record);
+  const details: Record<string, JsonValue> = {
+    reasonCode: hint.reasonCode,
+    ...(record.url ? { url: record.url } : {}),
+    ...(record.title ? { title: record.title } : {}),
+    ...(issueSnippet ? { message: issueSnippet } : {}),
+    ...(typeof record.attributes.providerShell === "string"
+      ? { providerShell: record.attributes.providerShell }
+      : {}),
+    ...(record.attributes.browserRequired === true ? { browserRequired: true } : {}),
+    ...(hint.blockerType ? { blockerType: hint.blockerType } : {}),
+    ...(hint.constraint ? { constraint: hint.constraint } : {})
+  };
+
+  return {
+    provider: record.provider,
+    source: record.source,
+    error: {
+      code: hint.reasonCode === "token_required" || hint.reasonCode === "auth_required"
+        ? "auth"
+        : "unavailable",
+      message: issueSnippet ?? record.title ?? "Fetched reference content was not usable inspiration evidence.",
+      retryable: false,
+      reasonCode: hint.reasonCode,
+      details
+    }
+  };
+};
+
+const normalizeInspiredesignFetchResult = (
+  result: ProviderAggregateResult
+): ProviderAggregateResult => {
+  if (result.records.length === 0) {
+    return result;
+  }
+
+  const usableRecords: NormalizedRecord[] = [];
+  const unusableRecords: Array<{ record: NormalizedRecord; hint: ProviderIssueHint }> = [];
+
+  for (const record of result.records) {
+    const hint = readProviderIssueHintFromRecord(record);
+    if (hint) {
+      unusableRecords.push({ record, hint });
+      continue;
+    }
+    usableRecords.push(record);
+  }
+
+  if (unusableRecords.length === 0) {
+    return result;
+  }
+
+  if (usableRecords.length > 0) {
+    return {
+      ...result,
+      records: usableRecords
+    };
+  }
+
+  const topUnusableRecord = unusableRecords
+    .slice()
+    .sort((left, right) => scoreInspiredesignIssueHint(right.hint) - scoreInspiredesignIssueHint(left.hint))[0];
+  const hasPrimaryIssue = Boolean(summarizePrimaryProviderIssue(result.failures));
+  const synthesizedFailure = !hasPrimaryIssue && topUnusableRecord
+    ? toInspiredesignIssueFailure(topUnusableRecord.record, topUnusableRecord.hint)
+    : undefined;
+
+  return {
+    ...result,
+    ok: false,
+    records: [],
+    failures: synthesizedFailure ? [...result.failures, synthesizedFailure] : result.failures,
+    ...(result.error ? {} : synthesizedFailure ? { error: synthesizedFailure.error } : {})
+  };
 };
 
 const summarizeInspiredesignFetchFailure = (result: ProviderAggregateResult): string | undefined => {
@@ -1428,14 +1784,52 @@ const excerptFromInspiredesignRecord = (record: NormalizedRecord | undefined): s
   return toSnippet(content, 240);
 };
 
+const captureSnippet = (
+  value: string | undefined,
+  maxLength: number
+): string | undefined => {
+  const content = normalizePlainText(value);
+  if (!content) return undefined;
+  return toSnippet(content, maxLength);
+};
+
+const titleFromInspiredesignCapture = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): string | undefined => {
+  return captureSnippet(capture?.title, 120)
+    ?? captureSnippet(capture?.snapshot?.content, 120)
+    ?? captureSnippet(capture?.dom?.outerHTML, 120)
+    ?? captureSnippet(capture?.clone?.componentPreview, 120)
+    ?? captureSnippet(capture?.clone?.cssPreview, 120);
+};
+
+const excerptFromInspiredesignCapture = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): string | undefined => {
+  return captureSnippet(capture?.snapshot?.content, 240)
+    ?? captureSnippet(capture?.dom?.outerHTML, 240)
+    ?? captureSnippet(capture?.clone?.componentPreview, 240)
+    ?? captureSnippet(capture?.clone?.cssPreview, 240);
+};
+
+const isInspiredesignFetchRecovered = (
+  reference: InspiredesignReferenceEvidence
+): boolean => {
+  return reference.fetchStatus === "failed"
+    && reference.captureStatus === "captured"
+    && (Boolean(reference.title) || Boolean(reference.excerpt));
+};
+
 const buildInspiredesignReference = (
   url: string,
   result: ProviderAggregateResult,
   capture: InspiredesignCaptureOutcome
 ): InspiredesignReferenceEvidence => {
   const primary = getInspiredesignPrimaryRecord(result, url);
-  const title = primary?.title ?? capture.capture?.title;
-  const excerpt = excerptFromInspiredesignRecord(primary);
+  const normalizedCapture = normalizeInspiredesignCaptureEvidence(capture.capture);
+  const title = normalizePlainText(primary?.title) || titleFromInspiredesignCapture(normalizedCapture);
+  const excerpt = excerptFromInspiredesignRecord(primary)
+    ?? excerptFromInspiredesignCapture(normalizedCapture);
   const fetchStatus: InspiredesignReferenceEvidence["fetchStatus"] = result.records.length > 0 ? "captured" : "failed";
   return {
     id: createHash("sha256").update(url).digest("hex").slice(0, 12),
@@ -1448,7 +1842,7 @@ const buildInspiredesignReference = (
       ? { fetchFailure: summarizeInspiredesignFetchFailure(result) }
       : {}),
     ...(capture.captureFailure ? { captureFailure: capture.captureFailure } : {}),
-    ...(capture.capture ? { capture: capture.capture } : {})
+    ...(normalizedCapture ? { capture: normalizedCapture } : {})
   };
 };
 
@@ -1459,7 +1853,10 @@ const summarizeInspiredesignCaptureConstraint = (
   if (failedReferences.length === 0) {
     return undefined;
   }
-  const summary = `Deep capture failed for ${failedReferences.length} ${failedReferences.length === 1 ? "reference" : "references"}.`;
+  const unavailableOnly = failedReferences.every((reference) => reference.captureFailure === INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE);
+  const summary = unavailableOnly
+    ? `Deep capture was unavailable for ${failedReferences.length} ${failedReferences.length === 1 ? "reference" : "references"} in this execution lane.`
+    : `Deep capture failed for ${failedReferences.length} ${failedReferences.length === 1 ? "reference" : "references"}.`;
   const retryUrls = failedReferences
     .slice(0, 2)
     .map((reference) => `Retry deep capture for ${reference.url} after restoring the required browser session state.`);
@@ -1467,12 +1864,28 @@ const summarizeInspiredesignCaptureConstraint = (
     summary,
     guidance: {
       reason: summary,
-      recommendedNextCommands: [
-        "Rerun inspiredesign after configuring providers.cookieSource for the protected references you need to capture.",
-        ...retryUrls
-      ]
+      recommendedNextCommands: unavailableOnly
+        ? [
+          "Restore browser capture access for this execution lane, then rerun inspiredesign.",
+          ...retryUrls
+        ]
+        : [
+          "Rerun inspiredesign after configuring providers.cookieSource for the protected references you need to capture.",
+          ...retryUrls
+        ]
     }
   };
+};
+
+const summarizeInspiredesignFetchConstraint = (
+  references: InspiredesignReferenceEvidence[]
+): string | undefined => {
+  return references.find((reference) => (
+    reference.fetchStatus === "failed"
+    && !isInspiredesignFetchRecovered(reference)
+    && typeof reference.fetchFailure === "string"
+    && reference.fetchFailure.trim().length > 0
+  ))?.fetchFailure;
 };
 
 const buildInspiredesignMeta = (
@@ -1483,6 +1896,7 @@ const buildInspiredesignMeta = (
   followthrough: InspiredesignFollowthrough
 ): Record<string, unknown> => {
   const failedCaptures = references.filter((reference) => reference.captureStatus === "failed");
+  const captureAttemptReport = summarizeInspiredesignCaptureAttempts(references);
   let reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
   let meta = withCamelCasePrimaryConstraintMeta(withReasonCodeDistributionMeta({
     selection: {
@@ -1494,12 +1908,24 @@ const buildInspiredesignMeta = (
       reference_count: references.length,
       fetched_references: references.filter((reference) => reference.fetchStatus === "captured").length,
       captured_references: references.filter((reference) => reference.captureStatus === "captured").length,
-      failed_fetches: references.filter((reference) => reference.fetchStatus === "failed").length,
-      failed_captures: failedCaptures.length
+      failed_fetches: references.filter((reference) => (
+        reference.fetchStatus === "failed" && !isInspiredesignFetchRecovered(reference)
+      )).length,
+      failed_captures: failedCaptures.length,
+      ...(captureAttemptReport ? { capture_attempts: captureAttemptReport.counts } : {})
     },
     alerts: buildWorkflowAlerts(runtime, failures)
   }, reasonCodeDistribution), failures);
   if (!meta.primaryConstraint) {
+    const fetchConstraint = summarizeInspiredesignFetchConstraint(references);
+    if (fetchConstraint) {
+      meta = {
+        ...meta,
+        primaryConstraintSummary: fetchConstraint
+      };
+    }
+  }
+  if (!meta.primaryConstraint && !meta.primaryConstraintSummary) {
     const captureConstraint = summarizeInspiredesignCaptureConstraint(references);
     if (captureConstraint) {
       reasonCodeDistribution = incrementReasonCodeDistribution(
@@ -1514,6 +1940,15 @@ const buildInspiredesignMeta = (
   return {
     ...meta,
     followthroughSummary: followthrough.summary,
+    ...(captureAttemptReport
+      ? {
+        captureAttemptSummary: captureAttemptReport.summary,
+        captureAttemptReport: {
+          worked: captureAttemptReport.worked,
+          didNotWork: captureAttemptReport.didNotWork
+        }
+      }
+      : {}),
     recommendedSkills: followthrough.recommendedSkills,
     deepCaptureRecommendation: followthrough.deepCaptureRecommendation,
     contractScope: followthrough.contractScope
@@ -2563,7 +2998,7 @@ export const runInspiredesignWorkflow = async (
       url
     });
     const fetchTimeoutMs = remainingTimeoutMs();
-    const result = await runtime.fetch(
+    const fetchResult = await runtime.fetch(
       { url },
       buildInspiredesignFetchOptions(
         workflowInput,
@@ -2571,8 +3006,8 @@ export const runInspiredesignWorkflow = async (
         fetchTimeoutMs
       )
     );
+    const result = normalizeInspiredesignFetchResult(fetchResult);
     observeWorkflowSignals(runtime, result);
-    failures.push(...result.failures);
     const captureTimeoutMs = remainingTimeoutMs();
     const capture = await captureInspiredesignReference(
       url,
@@ -2581,7 +3016,11 @@ export const runInspiredesignWorkflow = async (
       options.captureReference,
       captureTimeoutMs
     );
-    references.push(buildInspiredesignReference(url, result, capture));
+    const reference = buildInspiredesignReference(url, result, capture);
+    references.push(reference);
+    if (reference.fetchStatus === "failed" && !isInspiredesignFetchRecovered(reference)) {
+      failures.push(...result.failures);
+    }
     trace = appendWorkflowTrace(stepTrace, "execute", "reference_completed", {
       stepIndex: index,
       url,
@@ -2592,6 +3031,7 @@ export const runInspiredesignWorkflow = async (
 
   const packet = buildInspiredesignPacket({
     brief: workflowInput.brief,
+    briefExpansion: workflowInput.briefExpansion,
     urls: workflowInput.urls,
     references,
     includePrototypeGuidance: workflowInput.includePrototypeGuidance
@@ -2600,6 +3040,7 @@ export const runInspiredesignWorkflow = async (
   const rendered = renderInspiredesign({
     mode: workflowInput.mode,
     brief: workflowInput.brief,
+    advancedBriefMarkdown: packet.advancedBriefMarkdown,
     urls: workflowInput.urls,
     designContract: packet.designContract,
     canvasPlanRequest: packet.canvasPlanRequest,

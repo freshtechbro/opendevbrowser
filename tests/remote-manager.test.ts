@@ -128,6 +128,148 @@ describe("RemoteManager.connectRelay", () => {
 });
 
 describe("RemoteManager browser lanes", () => {
+  it("forwards explicit transport timeouts for inspiredesign capture lanes", async () => {
+    const call = vi.fn()
+      .mockResolvedValueOnce({ sessionId: "session-1" })
+      .mockResolvedValueOnce({ count: 1, cookies: [] })
+      .mockResolvedValueOnce({ content: "snapshot", refCount: 3, warnings: [] })
+      .mockResolvedValueOnce({ component: "<main />", css: ".hero{}", warnings: [] })
+      .mockResolvedValueOnce({ html: "<main>clone</main>", warnings: [] });
+
+    const manager = new RemoteManager({ call } as never);
+
+    await manager.launch({
+      headless: true,
+      startUrl: "about:blank",
+      persistProfile: false,
+      noExtension: true
+    }, 1100);
+    await manager.cookieList("session-1", ["https://example.com"], undefined, 1200);
+    await manager.snapshot("session-1", "actionables", 12000, undefined, undefined, 1300);
+    await manager.clonePage("session-1", undefined, 1400);
+    await manager.clonePageHtmlWithOptions("session-1", undefined, {
+      maxNodes: 2500,
+      inlineStyles: false
+    }, 1500);
+
+    expect(call).toHaveBeenNthCalledWith(
+      1,
+      "session.launch",
+      {
+        headless: true,
+        startUrl: "about:blank",
+        persistProfile: false,
+        noExtension: true
+      },
+      { timeoutMs: 1100 }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      2,
+      "session.cookieList",
+      {
+        sessionId: "session-1",
+        urls: ["https://example.com"],
+        requestId: undefined
+      },
+      { timeoutMs: 1200 }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      3,
+      "nav.snapshot",
+      {
+        sessionId: "session-1",
+        mode: "actionables",
+        maxChars: 12000,
+        cursor: undefined
+      },
+      { timeoutMs: 1300 }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      4,
+      "export.clonePage",
+      {
+        sessionId: "session-1"
+      },
+      { timeoutMs: 1400 }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      5,
+      "export.clonePageHtml",
+      {
+        sessionId: "session-1",
+        maxNodes: 2500,
+        inlineStyles: false
+      },
+      { timeoutMs: 1500 }
+    );
+  });
+
+  it("does not inject capture transport timeouts when callers do not provide one", async () => {
+    const call = vi.fn()
+      .mockResolvedValueOnce({ sessionId: "session-2" })
+      .mockResolvedValueOnce({ count: 0, cookies: [] })
+      .mockResolvedValueOnce({ content: "snapshot", refCount: 1, warnings: [] })
+      .mockResolvedValueOnce({ component: "<main />", css: ".hero{}", warnings: [] })
+      .mockResolvedValueOnce({ html: "<main>clone</main>", warnings: [] });
+
+    const manager = new RemoteManager({ call } as never);
+
+    await manager.launch({
+      headless: true,
+      startUrl: "about:blank",
+      persistProfile: false,
+      noExtension: true
+    });
+    await manager.cookieList("session-2", ["https://example.com"]);
+    await manager.snapshot("session-2", "actionables", 12000);
+    await manager.clonePage("session-2");
+    await manager.clonePageHtmlWithOptions("session-2");
+
+    expect(call).toHaveBeenNthCalledWith(
+      1,
+      "session.launch",
+      {
+        headless: true,
+        startUrl: "about:blank",
+        persistProfile: false,
+        noExtension: true
+      }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      2,
+      "session.cookieList",
+      {
+        sessionId: "session-2",
+        urls: ["https://example.com"],
+        requestId: undefined
+      }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      3,
+      "nav.snapshot",
+      {
+        sessionId: "session-2",
+        mode: "actionables",
+        maxChars: 12000,
+        cursor: undefined
+      }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      4,
+      "export.clonePage",
+      {
+        sessionId: "session-2"
+      }
+    );
+    expect(call).toHaveBeenNthCalledWith(
+      5,
+      "export.clonePageHtml",
+      {
+        sessionId: "session-2"
+      }
+    );
+  });
+
   it("forwards screenshot options, upload, and dialog payloads", async () => {
     const call = vi.fn()
       .mockResolvedValueOnce({ base64: "image" })

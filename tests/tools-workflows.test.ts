@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
+import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
 import { PRODUCT_VIDEO_BRIEF_HELPER_PATH } from "../src/providers/workflow-handoff";
 
 vi.mock("@opencode-ai/plugin", async () => {
@@ -236,14 +237,13 @@ describe("workflow tools", () => {
     );
   });
 
-  it("executes inspiredesign tool with default capture-mode off", async () => {
+  it("executes inspiredesign tool with default capture-mode off when no urls are supplied", async () => {
     const deps = makeDeps();
     const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
     const tool = createInspiredesignRunTool(deps as never);
 
     const response = parse(await tool.execute({
       brief: "Design a premium docs website",
-      urls: ["https://example.com/reference"],
       mode: "json"
     } as never));
 
@@ -254,13 +254,10 @@ describe("workflow tools", () => {
       followthroughSummary: expect.stringContaining("OpenDevBrowser Canvas")
     }));
     expect(deps.manager.launch).not.toHaveBeenCalled();
-    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
-      { url: "https://example.com/reference" },
-      expect.any(Object)
-    );
+    expect(deps.providerRuntime.fetch).not.toHaveBeenCalled();
   });
 
-  it("executes inspiredesign deep capture through browser manager helpers", async () => {
+  it("forces inspiredesign deep capture through browser manager helpers when urls are supplied", async () => {
     const deps = makeDeps();
     const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
     const tool = createInspiredesignRunTool(deps as never);
@@ -268,7 +265,6 @@ describe("workflow tools", () => {
     const response = parse(await tool.execute({
       brief: "Design a premium docs website",
       urls: ["https://example.com/reference"],
-      captureMode: "deep",
       mode: "compact",
       timeoutMs: 45000
     } as never));
@@ -307,7 +303,7 @@ describe("workflow tools", () => {
     const response = parse(await tool.execute({
       brief: "Design a premium docs website",
       urls: ["https://example.com/reference"],
-      captureMode: "deep",
+      captureMode: "off",
       mode: "compact",
       useCookies: true,
       cookiePolicyOverride: "required",
@@ -315,8 +311,20 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
-    expect(deps.manager.cookieImport).toHaveBeenCalledWith("session-1", cookieSource.value, false);
-    expect(deps.manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/reference"]);
+    expect(deps.manager.launch).toHaveBeenCalledTimes(1);
+    expect(deps.manager.cookieImport).toHaveBeenCalledWith(
+      "session-1",
+      cookieSource.value,
+      false,
+      undefined,
+      expect.any(Number)
+    );
+    expect(deps.manager.cookieList).toHaveBeenCalledWith(
+      "session-1",
+      ["https://example.com/reference"],
+      undefined,
+      expect.any(Number)
+    );
     expect(deps.manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
   });
 
@@ -332,6 +340,26 @@ describe("workflow tools", () => {
 
     expect(response.ok).toBe(true);
     expect(response.mode).toBe("compact");
+  });
+
+  it("uses the CLI default workflow timeout for inspiredesign tool runs", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      urls: ["https://example.com/reference"],
+      mode: "compact"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/reference" },
+      expect.objectContaining({ timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS })
+    );
+    expect(deps.manager.launch).toHaveBeenCalledWith(expect.any(Object), 30_000);
+    expect(deps.manager.snapshot.mock.calls[0]?.[5]).toEqual(expect.any(Number));
   });
 
   it("forwards challengeAutomationMode through workflow tools", async () => {

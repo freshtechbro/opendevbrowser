@@ -6,6 +6,10 @@ import { runProductVideoCommand } from "../src/cli/commands/product-video";
 import { runResearchCommand } from "../src/cli/commands/research";
 import { runShoppingCommand } from "../src/cli/commands/shopping";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
+import {
+  buildInspiredesignFollowthroughSummary,
+  buildInspiredesignNextStep
+} from "../src/inspiredesign/handoff";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -356,7 +360,7 @@ describe("workflow CLI commands", () => {
     });
   });
 
-  it("defaults inspiredesign capture mode to off", async () => {
+  it("defaults inspiredesign capture mode to off when no urls are supplied", async () => {
     callDaemon.mockResolvedValue({ ok: true });
 
     await runInspiredesignCommand(makeArgs("inspiredesign", [
@@ -371,10 +375,45 @@ describe("workflow CLI commands", () => {
     }));
   });
 
+  it("forces inspiredesign capture mode to deep when urls are supplied", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Design system baseline",
+      "--url=https://example.com/reference"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      brief: "Design system baseline",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      mode: "compact"
+    }));
+  });
+
+  it("overrides explicit off capture mode to deep when urls are supplied", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Design system baseline",
+      "--url=https://example.com/reference",
+      "--capture-mode=off"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      brief: "Design system baseline",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      mode: "compact"
+    }));
+  });
+
   it("surfaces inspiredesign success follow-through guidance", async () => {
     callDaemon.mockResolvedValue({
-      followthroughSummary: "Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence.",
-      suggestedNextAction: "Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+      followthroughSummary: buildInspiredesignFollowthroughSummary(),
+      suggestedNextAction: buildInspiredesignNextStep()
     });
 
     const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
@@ -384,10 +423,52 @@ describe("workflow CLI commands", () => {
 
     expect(result).toEqual({
       success: true,
-      message: "Inspiredesign workflow completed. Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence. Next step: Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json.",
+      message: `Inspiredesign workflow completed. ${buildInspiredesignFollowthroughSummary()} Next step: ${buildInspiredesignNextStep()}`,
       data: {
-        followthroughSummary: "Continue in OpenDevBrowser Canvas with canvas-plan.request.json and design-agent-handoff.json, load opendevbrowser-best-practices \"quick start\" plus opendevbrowser-design-agent \"canvas-contract\" before implementation, and rerun with captureMode=deep only when you need richer evidence.",
-        suggestedNextAction: "Open a Canvas session, fill canvasSessionId, leaseId, and documentId in canvas-plan.request.json, submit canvas.plan.set, confirm planStatus=accepted, then patch only the governance blocks listed in design-agent-handoff.json."
+        followthroughSummary: buildInspiredesignFollowthroughSummary(),
+        suggestedNextAction: buildInspiredesignNextStep()
+      }
+    });
+  });
+
+  it("surfaces inspiredesign provider follow-up requirements before generic follow-through", async () => {
+    callDaemon.mockResolvedValue({
+      followthroughSummary: buildInspiredesignFollowthroughSummary(),
+      suggestedNextAction: buildInspiredesignNextStep(),
+      meta: {
+        primaryConstraintSummary: "Deep capture failed for 1 reference.",
+        primaryConstraint: {
+          guidance: {
+            recommendedNextCommands: [
+              "Retry deep capture for https://example.com/reference after restoring the required browser session state."
+            ]
+          }
+        }
+      }
+    });
+
+    const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Design system baseline",
+      "--url=https://example.com/reference"
+    ]));
+
+    expect(result).toEqual({
+      success: true,
+      message: "Inspiredesign workflow completed with provider follow-up required: Deep capture failed for 1 reference. Next step: Retry deep capture for https://example.com/reference after restoring the required browser session state.",
+      data: {
+        followthroughSummary: buildInspiredesignFollowthroughSummary(),
+        suggestedNextAction: buildInspiredesignNextStep(),
+        meta: {
+          primaryConstraintSummary: "Deep capture failed for 1 reference.",
+          primaryConstraint: {
+            guidance: {
+              recommendedNextCommands: [
+                "Retry deep capture for https://example.com/reference after restoring the required browser session state."
+              ]
+            }
+          }
+        }
       }
     });
   });

@@ -1890,6 +1890,7 @@ describe("daemon-commands integration", () => {
     manager.waitForLoad = vi.fn(async () => undefined) as never;
     manager.snapshot = vi.fn(async () => ({ content: "capture", refCount: 1, warnings: [] })) as never;
     manager.clonePage = vi.fn(async () => ({ component: "<section />", css: ".x{}", warnings: [] })) as never;
+    manager.clonePageHtmlWithOptions = vi.fn(async () => ({ html: "<section>capture</section>" })) as never;
     manager.disconnect = vi.fn(async () => undefined) as never;
     manager.setSessionChallengeAutomationMode = vi.fn() as never;
     const workflowSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
@@ -1940,8 +1941,13 @@ describe("daemon-commands integration", () => {
 
     expect(manager.cookieImport).toHaveBeenCalledWith("session-1", [
       { name: "sid", value: "abc", url: "https://example.com/capture" }
-    ], false);
-    expect(manager.cookieList).toHaveBeenCalledWith("session-1", ["https://example.com/capture"]);
+    ], false, undefined, expect.any(Number));
+    expect(manager.cookieList).toHaveBeenCalledWith(
+      "session-1",
+      ["https://example.com/capture"],
+      undefined,
+      expect.any(Number)
+    );
     expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-1", "browser");
     expect(manager.goto).toHaveBeenCalledWith(
       "session-1",
@@ -1951,6 +1957,69 @@ describe("daemon-commands integration", () => {
     );
     expect(manager.goto.mock.calls[0]?.[3]).toBeGreaterThan(0);
     expect(manager.goto.mock.calls[0]?.[3]).toBeLessThanOrEqual(1234);
+    expect(manager.clonePageHtmlWithOptions).toHaveBeenCalledWith(
+      "session-1",
+      undefined,
+      undefined,
+      expect.any(Number)
+    );
+  });
+
+  it("routes daemon export.clonePageHtml to the manager helper", async () => {
+    const core = makeCore();
+    const manager = core.manager as OpenDevBrowserCore["manager"] & {
+      status: ReturnType<typeof vi.fn>;
+      clonePageHtmlWithOptions: ReturnType<typeof vi.fn>;
+    };
+    manager.status = vi.fn(async () => ({ mode: "managed", activeTargetId: null })) as never;
+    manager.clonePageHtmlWithOptions = vi.fn(async () => ({
+      html: "<main>captured</main>",
+      warnings: ["trimmed"]
+    })) as never;
+
+    const response = await handleDaemonCommand(core, {
+      name: "export.clonePageHtml",
+      params: {
+        clientId: "client-1",
+        sessionId: "session-1",
+        targetId: "target-1",
+        maxNodes: 2500,
+        inlineStyles: false
+      }
+    });
+
+    expect(response).toEqual({
+      html: "<main>captured</main>",
+      warnings: ["trimmed"]
+    });
+    expect(manager.clonePageHtmlWithOptions).toHaveBeenCalledWith(
+      "session-1",
+      "target-1",
+      {
+        maxNodes: 2500,
+        inlineStyles: false
+      }
+    );
+  });
+
+  it("rejects invalid maxNodes for daemon export.clonePageHtml", async () => {
+    const core = makeCore();
+    const manager = core.manager as OpenDevBrowserCore["manager"] & {
+      status: ReturnType<typeof vi.fn>;
+      clonePageHtmlWithOptions: ReturnType<typeof vi.fn>;
+    };
+    manager.status = vi.fn(async () => ({ mode: "managed", activeTargetId: null })) as never;
+    manager.clonePageHtmlWithOptions = vi.fn() as never;
+
+    await expect(handleDaemonCommand(core, {
+      name: "export.clonePageHtml",
+      params: {
+        clientId: "client-1",
+        sessionId: "session-1",
+        maxNodes: 0
+      }
+    })).rejects.toThrow("Invalid maxNodes");
+    expect(manager.clonePageHtmlWithOptions).not.toHaveBeenCalled();
   });
 
   it("threads browserFallbackPort into daemon shopping workflows", async () => {

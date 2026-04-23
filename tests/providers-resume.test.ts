@@ -4,6 +4,36 @@ import { normalizeRecord } from "../src/providers/normalize";
 import type { ProviderAdapter, ProviderContext, ProviderSource, SessionChallengeSummary } from "../src/providers/types";
 
 type WorkflowKind = "research" | "shopping" | "product_video" | "inspiredesign";
+type InspiredesignResumeMeta = {
+  captureAttemptSummary?: string;
+  captureAttemptReport?: {
+    worked: string[];
+    didNotWork: string[];
+  };
+  selection: {
+    capture_mode: string;
+  };
+  metrics: {
+    failed_captures: number;
+    capture_attempts?: {
+      snapshot: Record<string, number>;
+      clone: Record<string, number>;
+      dom: Record<string, number>;
+    };
+  };
+};
+
+type InspiredesignResumeEvidence = {
+  references: Array<{
+    url: string;
+    fetchStatus: string;
+    captureStatus: string;
+    captureFailure?: string;
+    capture?: {
+      attempts?: Record<string, { status: string; detail?: string }>;
+    };
+  }>;
+};
 
 const makeProvider = (
   id: string,
@@ -693,7 +723,7 @@ describe("provider runtime resume", () => {
     ]));
   });
 
-  it("replays workflow inspiredesign intents through the shared runtime", async () => {
+  it("replays workflow inspiredesign intents through the shared runtime without synthetic capture failures", async () => {
     let inspiredesignContext: ProviderContext | undefined;
     const runtime = new ProviderRuntime({
       providers: [
@@ -727,6 +757,21 @@ describe("provider runtime resume", () => {
         intent: expect.objectContaining({
           task: "Create a reusable design contract"
         })
+      }),
+      meta: expect.objectContaining({
+        selection: expect.objectContaining({
+          capture_mode: "deep"
+        }),
+        metrics: expect.objectContaining({
+          failed_captures: 1,
+          capture_attempts: {
+            snapshot: { captured: 0, failed: 0, skipped: 1 },
+            clone: { captured: 0, failed: 0, skipped: 1 },
+            dom: { captured: 0, failed: 0, skipped: 1 }
+          }
+        }),
+        captureAttemptSummary: "worked=none; did_not_work=snapshot (skipped 1), clone (skipped 1), dom (skipped 1)",
+        primaryConstraintSummary: "Deep capture was unavailable for 1 reference in this execution lane."
       })
     });
     expect(inspiredesignContext?.suspendedIntent).toMatchObject({
@@ -734,6 +779,31 @@ describe("provider runtime resume", () => {
       input: {
         workflow: {
           kind: "inspiredesign"
+        }
+      }
+    });
+    const evidence = output.evidence as InspiredesignResumeEvidence;
+    const meta = output.meta as InspiredesignResumeMeta;
+    expect(meta.selection.capture_mode).toBe("deep");
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/inspiration",
+      fetchStatus: "captured",
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+      capture: {
+        attempts: {
+          snapshot: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          },
+          clone: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          },
+          dom: {
+            status: "skipped",
+            detail: "Deep capture requested, but browser capture is unavailable in this execution lane."
+          }
         }
       }
     });
