@@ -1,6 +1,6 @@
 {
   "name": "opendevbrowser",
-  "version": "0.0.24",
+  "version": "0.0.25",
   "description": "Browser automation runtime with snapshot-refs-actions, browser replay screencasts, public read-only desktop observation, and browser-scoped computer-use orchestration",
   "type": "module",
   "main": "dist/index.js",
