@@ -110,7 +110,7 @@ Tracks the `0.0.26` release cycle for the post-`0.0.25` review fixes, daemon lif
   - Total files: `982`
 
 - [x] `opendevbrowser-extension.zip`
-  - SHA-256: `a49b1b651f62bbb713db3a50d359b6a6284a0c269e6a5cea268c41ac95fad4d6`
+  - SHA-256: `5c30b065251e9c32df9db34d40c0d113a924a202f0052d6b90bf16e1960c6575`
   - Package size: `174915` bytes.
 
 ## Repo sanity checks
@@ -122,22 +122,43 @@ Tracks the `0.0.26` release cycle for the post-`0.0.25` review fixes, daemon lif
 
 ## External release workflow evidence
 
-- [ ] npm publish verification
+- [x] npm publish verification
   - Pre-publish `npm view opendevbrowser version`: `0.0.25`
   - Local npm auth: `npm whoami` returned `bishopdotun`
-- [ ] Registry consumer smoke JSON
-  - Pending until npm publish.
-- [ ] GitHub release URL
-  - Pending until PR merge or release cut.
-- [ ] GitHub release asset verification
-  - Pending until GitHub release upload.
-- [ ] Chrome Web Store upload status
-  - Blocked in this shell: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, and `CWS_EXTENSION_ID` are not present.
-- [ ] Chrome Web Store publish or submit-for-review status
-  - Blocked until Chrome Web Store credentials are available.
+  - Publish command: `npm publish --access public`
+  - Result: published `opendevbrowser@0.0.26`.
+  - Post-publish `npm view opendevbrowser version`: `0.0.26`
+  - Registry dist shasum: `b4b7ad44bb4271f2a4b5ca9e1bcda21cf81d8b09`
+  - Registry dist integrity: `sha512-yKAQNPhY8WZU04Gt2CIk1cHW2ULpBAb+q9z+SVyb0acPGd8yKdF7JdV9y5xpFhTw7Vc8jISRXVGT/9CpJkOaPw==`
+- [x] Registry consumer smoke JSON
+  - Command: `node scripts/registry-consumer-smoke.mjs --version 0.0.26 --output artifacts/release/v0.0.26/registry-consumer-smoke.json`
+  - Result: passed with `success=true`, `installAttempts=1`, `versionMatches=true`, `helpAliasMatches=true`, `extensionDirExists=true`, and `skillsDirExists=true`.
+  - Consumer graph: `opendevbrowser=0.0.26`, `@opencode-ai/plugin=1.14.22`, `ws=8.20.0`, `zod=3.25.76`.
+- [x] GitHub release URL
+  - Release: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.26`
+  - Target commit: `1bb6c57b2088cd26ead55022f6484ab18c8e0930`
+  - Published at: `2026-04-24T11:53:56Z`
+- [x] GitHub release asset verification
+  - `opendevbrowser-extension.zip`: uploaded, size `174915`, digest `sha256:5c30b065251e9c32df9db34d40c0d113a924a202f0052d6b90bf16e1960c6575`.
+  - `opendevbrowser-extension.zip.sha256`: uploaded, size `95`, digest `sha256:d1c784ebba4bb122ed22bccf114f6e954474b00bbf284ff05f9ace068dbf38e1`.
+- [x] Chrome Web Store upload status
+  - API publish remains blocked in this shell: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, and `CWS_EXTENSION_ID` are not present.
+  - Repository secret check: `gh secret list --repo freshtechbro/opendevbrowser` lists only `PRIVATE_REPO_DISPATCH_TOKEN`; no `CWS_*` secrets are configured.
+  - Direct script attempt: `node scripts/chrome-store-publish.mjs --zip opendevbrowser-extension.zip --publish` exited before upload with `CWS_EXTENSION_ID is required`.
+  - Manual dashboard upload: completed through Chrome Web Store Developer Dashboard for item `mfajibjdacmecipgcpnagccbieabglhk`.
+  - Uploaded file: `/Users/bishopdotun/Documents/DevProjects/opendevbrowser/opendevbrowser-extension.zip`.
+  - Uploaded file SHA-256: `5c30b065251e9c32df9db34d40c0d113a924a202f0052d6b90bf16e1960c6575`.
+- [x] Chrome Web Store publish or submit-for-review status
+  - Store item URL: `https://chromewebstore.google.com/detail/mfajibjdacmecipgcpnagccbieabglhk`
+  - Developer dashboard URL: `https://chrome.google.com/webstore/devconsole/ca194bec-a1d3-46ce-90f0-1c2fd8ab9a71/mfajibjdacmecipgcpnagccbieabglhk/edit/package`
+  - Manual submission result: Chrome Web Store confirmed, `Your extension was submitted for review`.
+  - Dashboard status after submission: `Pending review`.
+  - Draft package version after upload: `0.0.26`.
+  - Published package version remains `0.0.24` until Chrome Web Store review passes.
+  - Submission option: dashboard checkbox `Publish OpenDevBrowser Relay automatically after it has passed review` was checked during submission.
 
 ## Notes
 
 - `0.0.25` is already published to npm and is the baseline for this follow-up fix release.
 - CLI smoke and onboarding smoke share the default relay port. The release evidence uses sequential runs to avoid a false relay-port collision.
-- Keep this ledger active until npm publish, GitHub release assets, and Chrome Web Store status are completed or blocked with final evidence.
+- npm and GitHub release lanes are complete for `0.0.26`; Chrome Web Store `0.0.26` is submitted and pending review with automatic publish enabled after approval.
