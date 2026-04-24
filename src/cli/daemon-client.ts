@@ -4,6 +4,8 @@ import { join, resolve } from "path";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import {
+  DAEMON_STOP_DEBUG_ENV,
+  createDaemonStopHeaders,
   getCacheRoot,
   isCurrentDaemonFingerprint,
   readDaemonMetadata,
@@ -100,6 +102,14 @@ type CallOptions = {
 };
 
 let cachedClientState: CachedClientState | null | undefined;
+
+const logDaemonStopDebug = (message: string, details?: Record<string, unknown>): void => {
+  if (process.env[DAEMON_STOP_DEBUG_ENV] !== "1") {
+    return;
+  }
+  const suffix = details ? ` ${JSON.stringify(details)}` : "";
+  console.error(`[daemon-stop-debug] ${message}${suffix}`);
+};
 
 const getClientStateFilePath = (): string => {
   const cacheRoot = getCacheRoot();
@@ -252,7 +262,7 @@ export class DaemonClient {
         this.maybeTrackLease(name, params, result);
         return result;
       }
-      if (!options.requireBinding && isBindingRequiredError(error)) {
+      if (isBindingRequiredError(error)) {
         if (this.binding) {
           this.clearBinding();
         }
@@ -387,7 +397,9 @@ export class DaemonClient {
 
   private async callRaw<T>(name: string, params: Record<string, unknown>, timeoutMs?: number): Promise<T> {
     const budget = createTimeoutBudget(timeoutMs);
-    const connection = await resolveDaemonConnection(budget);
+    const connection = await resolveDaemonConnection(budget, {
+      preferConfiguredRecovery: requiresConfiguredRecovery(name)
+    });
 
     let timedResponse: TimedFetchResponse;
     try {
@@ -541,6 +553,10 @@ type TimeoutBudget = {
   deadlineMs: number;
 };
 
+type ResolveDaemonConnectionOptions = {
+  preferConfiguredRecovery?: boolean;
+};
+
 type ResolveDaemonRestartCommandOptions = {
   argv1?: string;
   execPath?: string;
@@ -673,6 +689,10 @@ const sleep = async (delayMs: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 };
 
+const requiresConfiguredRecovery = (name: string): boolean => {
+  return name === "canvas.execute";
+};
+
 const getConfiguredDaemonConnection = (): DaemonConnection | null => {
   const config = loadGlobalConfig();
   if (!(config.daemonPort > 0 && config.daemonToken)) {
@@ -705,13 +725,14 @@ const persistCurrentConfiguredConnection = async (
 ): Promise<DaemonConnection> => {
   if (staleMetadata && !sameDaemonConnection(staleMetadata.connection, configuredConnection)) {
     // Once the configured daemon has proven current, stale metadata cleanup must not block the caller.
-    void stopDaemonConnection(staleMetadata.connection).catch(() => undefined);
+    void stopDaemonConnection(staleMetadata.connection, null, "persistCurrentConfiguredConnection.staleMetadata").catch(() => undefined);
   }
   persistResolvedDaemonStatus(configuredConnection, status);
   return configuredConnection;
 };
 
 type DaemonShutdownOutcome = "stopped" | DaemonStatusPayload;
+type DaemonStopOutcome = "stopped" | "fingerprint_rejected" | "unreachable";
 
 const resolveConfiguredPreferenceOptions = (
   budget: TimeoutBudget | null
@@ -744,16 +765,29 @@ const resolveConfiguredPreferenceOptions = (
 
 const stopDaemonConnection = async (
   connection: DaemonConnection,
-  budget: TimeoutBudget | null = null
-): Promise<void> => {
+  budget: TimeoutBudget | null = null,
+  reason = "unknown"
+): Promise<DaemonStopOutcome> => {
   const stopTimeoutMs = capTimeoutToBudget(DAEMON_RESTART_STATUS_TIMEOUT_MS, budget);
+  logDaemonStopDebug("client.stop.request", { reason, port: connection.port });
   try {
-    await fetchWithTimeout(`http://127.0.0.1:${connection.port}/stop`, {
+    const response = await fetchWithTimeout(`http://127.0.0.1:${connection.port}/stop`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${connection.token}` }
+      headers: createDaemonStopHeaders(connection.token, reason)
     }, stopTimeoutMs);
+    if (response.status === 409) {
+      logDaemonStopDebug("client.stop.fingerprintRejected", { reason, port: connection.port });
+      return "fingerprint_rejected";
+    }
+    if (!response.ok) {
+      logDaemonStopDebug("client.stop.rejected", { reason, port: connection.port, status: response.status });
+      return "unreachable";
+    }
+    logDaemonStopDebug("client.stop.complete", { reason, port: connection.port });
+    return "stopped";
   } catch {
-    // Best effort only. The restart probe below is the source of truth.
+    logDaemonStopDebug("client.stop.error", { reason, port: connection.port });
+    return "unreachable";
   }
 };
 
@@ -879,7 +913,10 @@ const resolveMetadataConnection = async (
   return { connection: metadataConnection, status };
 };
 
-const resolveFreshDaemonConnection = async (budget: TimeoutBudget | null = null): Promise<DaemonConnection> => {
+const resolveFreshDaemonConnection = async (
+  budget: TimeoutBudget | null = null,
+  options: ResolveDaemonConnectionOptions = {}
+): Promise<DaemonConnection> => {
   const configuredConnection = getConfiguredDaemonConnection();
   if (!configuredConnection) {
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
@@ -902,9 +939,26 @@ const resolveFreshDaemonConnection = async (budget: TimeoutBudget | null = null)
   if (currentConfiguredStatus?.ok) {
     return await persistCurrentConfiguredConnection(configuredConnection, currentConfiguredStatus, staleMetadata);
   }
-  if (staleMetadata?.status.ok && isCurrentDaemonFingerprint(staleMetadata.status.fingerprint)) {
+  if (options.preferConfiguredRecovery && staleMetadata) {
+    currentConfiguredStatus = await waitForCurrentDaemonStatus(
+      configuredConnection,
+      DAEMON_RECOVERY_READY_TIMEOUT_MS,
+      budget
+    );
+    if (currentConfiguredStatus?.ok) {
+      return await persistCurrentConfiguredConnection(configuredConnection, currentConfiguredStatus, staleMetadata);
+    }
+    if (!configuredStatus?.ok) {
+      throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
+    }
+  }
+  if (
+    !options.preferConfiguredRecovery
+    && staleMetadata?.status.ok
+    && isCurrentDaemonFingerprint(staleMetadata.status.fingerprint)
+  ) {
     if (configuredStatus?.ok) {
-      void stopDaemonConnection(configuredConnection, budget).catch(() => undefined);
+      void stopDaemonConnection(configuredConnection, budget, "resolveFreshDaemonConnection.configuredCurrentMetadataPreferred").catch(() => undefined);
     }
     return staleMetadata.connection;
   }
@@ -917,14 +971,12 @@ const resolveFreshDaemonConnection = async (budget: TimeoutBudget | null = null)
     if (currentConfiguredStatus?.ok) {
       return await persistCurrentConfiguredConnection(configuredConnection, currentConfiguredStatus, staleMetadata);
     }
+    throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
   }
 
-  const staleConnections: DaemonConnection[] = [];
+  const staleConnections: Array<{ connection: DaemonConnection; status: DaemonStatusPayload }> = [];
   if (configuredStatus?.ok) {
-    staleConnections.push(configuredConnection);
-  }
-  if (staleMetadata && !sameDaemonConnection(staleMetadata.connection, configuredConnection)) {
-    staleConnections.push(staleMetadata.connection);
+    staleConnections.push({ connection: configuredConnection, status: configuredStatus });
   }
   if (staleConnections.length === 0) {
     const recoveringStatus = await waitForCurrentDaemonStatus(
@@ -939,7 +991,16 @@ const resolveFreshDaemonConnection = async (budget: TimeoutBudget | null = null)
     throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
   }
   for (const staleConnection of staleConnections) {
-    await stopDaemonConnection(staleConnection, budget);
+    const stopOutcome = await stopDaemonConnection(
+      staleConnection.connection,
+      budget,
+      "resolveFreshDaemonConnection.staleConnections"
+    );
+    if (stopOutcome === "fingerprint_rejected") {
+      throw createDisconnectedError(
+        `Daemon on 127.0.0.1:${staleConnection.connection.port} pid=${staleConnection.status.pid} is protected by a different opendevbrowser build. Start with \`opendevbrowser serve\`.`
+      );
+    }
   }
   if (configuredStatus?.ok) {
     const shutdownOutcome = await waitForDaemonShutdown(configuredConnection, DAEMON_RECOVERY_READY_TIMEOUT_MS, budget);
@@ -960,7 +1021,10 @@ const resolveFreshDaemonConnection = async (budget: TimeoutBudget | null = null)
   return configuredConnection;
 };
 
-const resolveDaemonConnection = async (budget: TimeoutBudget | null = null): Promise<DaemonConnection> => {
+const resolveDaemonConnection = async (
+  budget: TimeoutBudget | null = null,
+  options: ResolveDaemonConnectionOptions = {}
+): Promise<DaemonConnection> => {
   const metadata = readDaemonMetadata();
   if (metadata && isCurrentDaemonFingerprint(metadata.fingerprint)) {
     const metadataConnection = { port: metadata.port, token: metadata.token };
@@ -970,6 +1034,9 @@ const resolveDaemonConnection = async (budget: TimeoutBudget | null = null): Pro
     }
     const configuredOptions = resolveConfiguredPreferenceOptions(budget);
     if (!configuredOptions) {
+      if (options.preferConfiguredRecovery) {
+        return await resolveFreshDaemonConnection(budget, options);
+      }
       return metadataConnection;
     }
     const configuredStatus = await fetchCurrentDaemonStatus(configuredConnection, configuredOptions, budget);
@@ -980,9 +1047,12 @@ const resolveDaemonConnection = async (budget: TimeoutBudget | null = null): Pro
         { connection: metadataConnection }
       );
     }
+    if (options.preferConfiguredRecovery) {
+      return await resolveFreshDaemonConnection(budget, options);
+    }
     return metadataConnection;
   }
-  return await resolveFreshDaemonConnection(budget);
+  return await resolveFreshDaemonConnection(budget, options);
 };
 
 const retryWithRefreshedConnection = async (
@@ -990,7 +1060,9 @@ const retryWithRefreshedConnection = async (
   params: Record<string, unknown>,
   budget: TimeoutBudget | null
 ): Promise<TimedFetchResponse> => {
-  const connection = await resolveFreshDaemonConnection(budget);
+  const connection = await resolveFreshDaemonConnection(budget, {
+    preferConfiguredRecovery: requiresConfiguredRecovery(name)
+  });
   return await openDaemonCommand(connection.port, connection.token, name, params, readRemainingBudgetMs(budget));
 };
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "crypto";
 import { mkdtemp, readFile, rm, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join, normalize } from "path";
@@ -918,6 +919,175 @@ describe("daemon-client error parsing", () => {
     ]);
   });
 
+  it("waits for the configured daemon instead of hopping to current metadata for canvas.execute", async () => {
+    await writeDaemonConfig(tempRoot, 23456, "configured-token");
+    vi.useFakeTimers();
+
+    const currentStatus = {
+      ok: true as const,
+      pid: 4242,
+      fingerprint: getCurrentDaemonFingerprint(),
+      hub: { instanceId: "hub-current" },
+      relay: {
+        running: true,
+        url: "ws://127.0.0.1:8787",
+        port: 8787,
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false,
+        instanceId: "relay-current",
+        epoch: 1,
+        health: { ok: true, reason: "ok" }
+      },
+      binding: null
+    };
+
+    let configuredAttempts = 0;
+    const statusSpy = vi.spyOn(daemonStatusModule, "fetchDaemonStatus")
+      .mockImplementation(async (port, _token, options) => {
+        if (port === 12345) {
+          expect(options).toEqual(expect.objectContaining({ timeoutMs: expect.any(Number) }));
+          return currentStatus;
+        }
+        if (port === 23456) {
+          configuredAttempts += 1;
+          expect(options).toEqual(expect.objectContaining({ timeoutMs: expect.any(Number) }));
+          return configuredAttempts < 10 ? null : currentStatus;
+        }
+        throw new Error(`Unexpected status probe: ${port}`);
+      });
+
+    fetchSpy = vi.fn(async (input, options) => {
+      const url = String(input);
+      const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+      if (url === "http://127.0.0.1:12345/stop") {
+        expect(authorization).toBe("Bearer test-token");
+        return new Response("", { status: 200 });
+      }
+      if (url === "http://127.0.0.1:23456/command") {
+        expect(authorization).toBe("Bearer configured-token");
+        return new Response(JSON.stringify({ ok: true, data: { ok: true, source: "configured" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url === "http://127.0.0.1:12345/command") {
+        throw new Error("canvas.execute must not hop to metadata");
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      const resultPromise = client.call("canvas.execute", {
+        command: "document.load",
+        params: { canvasSessionId: "canvas-1", leaseId: "lease-1" }
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      const result = await resultPromise;
+
+      expect(result).toEqual({ ok: true, source: "configured" });
+      expect(fetchSpy.mock.calls.map(([input]) => String(input))).toContain("http://127.0.0.1:23456/command");
+      expect(fetchSpy.mock.calls.map(([input]) => String(input))).not.toContain("http://127.0.0.1:12345/command");
+    } finally {
+      vi.useRealTimers();
+      statusSpy.mockRestore();
+    }
+  });
+
+  it("rejects canvas.execute when the configured daemon is stale and fingerprint-protected", async () => {
+    await writeDaemonConfig(tempRoot, 23456, "configured-token");
+    vi.useFakeTimers();
+
+    const currentMetadataStatus = {
+      ok: true as const,
+      pid: 9999,
+      fingerprint: getCurrentDaemonFingerprint(),
+      hub: { instanceId: "hub-current" },
+      relay: {
+        running: true,
+        url: "ws://127.0.0.1:8787",
+        port: 8787,
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false,
+        instanceId: "relay-current",
+        epoch: 1,
+        health: { ok: true, reason: "ok" }
+      },
+      binding: null
+    };
+    const staleConfiguredStatus = {
+      ...currentMetadataStatus,
+      pid: 4242,
+      fingerprint: "foreign-current-fingerprint",
+      hub: { instanceId: "hub-foreign" },
+      relay: {
+        ...currentMetadataStatus.relay,
+        instanceId: "relay-foreign"
+      }
+    };
+    let configuredChecks = 0;
+    const statusSpy = vi.spyOn(daemonStatusModule, "fetchDaemonStatus")
+      .mockImplementation(async (port, _token, options) => {
+        expect(options).toEqual(expect.objectContaining({ timeoutMs: expect.any(Number) }));
+        if (port === 12345) {
+          return currentMetadataStatus;
+        }
+        if (port === 23456) {
+          configuredChecks += 1;
+          return staleConfiguredStatus;
+        }
+        throw new Error(`Unexpected status probe: ${port}`);
+      });
+
+    fetchSpy = vi.fn(async (input, options) => {
+      const url = String(input);
+      const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+      if (url === "http://127.0.0.1:23456/stop") {
+        expect(authorization).toBe("Bearer configured-token");
+        return new Response(JSON.stringify({ ok: false, error: "Stale daemon stop request." }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url === "http://127.0.0.1:12345/command") {
+        throw new Error("canvas.execute must not hop to metadata");
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      const resultPromise = expect(client.call("canvas.execute", {
+        command: "document.load",
+        params: { canvasSessionId: "canvas-1", leaseId: "lease-1" }
+      })).rejects.toThrow("protected by a different opendevbrowser build");
+      await vi.advanceTimersByTimeAsync(6_000);
+      await resultPromise;
+
+      expect(configuredChecks).toBeGreaterThan(3);
+      expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([
+        "http://127.0.0.1:23456/stop"
+      ]);
+    } finally {
+      vi.useRealTimers();
+      statusSpy.mockRestore();
+    }
+  });
+
   it("stops a stale configured daemon while falling back to a current metadata daemon", async () => {
     await writeDaemonConfig(tempRoot, 23456, "configured-token");
     await writeFile(join(tempRoot, "opendevbrowser", "daemon.json"), JSON.stringify({
@@ -1115,6 +1285,13 @@ describe("daemon-client error parsing", () => {
     fetchSpy = vi.fn(async (input, options) => {
       const url = String(input);
       const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+      if (url === "http://127.0.0.1:12345/stop") {
+        expect(authorization).toBe("Bearer test-token");
+        return new Response(JSON.stringify({ ok: false, error: "Stale daemon stop request." }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       if (url === "http://127.0.0.1:23456/command") {
         expect(authorization).toBe("Bearer configured-token");
         return new Response(JSON.stringify({ ok: true, data: { ok: true, source: "configured" } }), {
@@ -1392,6 +1569,62 @@ describe("daemon-client error parsing", () => {
     }
   });
 
+  it("rejects a responsive mismatched daemon when fingerprint-gated stop is rejected", async () => {
+    await rm(join(tempRoot, "opendevbrowser", "daemon.json"), { force: true });
+    await writeDaemonConfig(tempRoot, 23456, "configured-token");
+
+    const staleStatus = {
+      ok: true as const,
+      pid: 1111,
+      fingerprint: "foreign-current-fingerprint",
+      hub: { instanceId: "hub-foreign" },
+      relay: {
+        running: true,
+        url: "ws://127.0.0.1:8787",
+        port: 8787,
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false,
+        instanceId: "relay-foreign",
+        epoch: 1,
+        health: { ok: true, reason: "ok" }
+      },
+      binding: null
+    };
+    const statusSpy = vi.spyOn(daemonStatusModule, "fetchDaemonStatus")
+      .mockResolvedValueOnce(staleStatus);
+
+    fetchSpy = vi.fn(async (input, options) => {
+      const url = String(input);
+      const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+      if (url === "http://127.0.0.1:23456/stop") {
+        expect(authorization).toBe("Bearer configured-token");
+        return new Response(JSON.stringify({ ok: false, error: "Stale daemon stop request." }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as ReturnType<typeof vi.fn>;
+
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const client = new DaemonClient({ autoRenew: false });
+      await expect(client.call("some.command")).rejects.toThrow("protected by a different opendevbrowser build");
+      expect(statusSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([
+        "http://127.0.0.1:23456/stop"
+      ]);
+    } finally {
+      statusSpy.mockRestore();
+    }
+  });
+
   it("waits past the old concurrent-restart window for a configured daemon to recover", async () => {
     await rm(join(tempRoot, "opendevbrowser", "daemon.json"), { force: true });
     await writeDaemonConfig(tempRoot, 23456, "configured-token");
@@ -1568,6 +1801,68 @@ describe("daemon-client error parsing", () => {
     });
 
     expect(fingerprintB).not.toBe(fingerprintA);
+  });
+
+  it("keeps the fingerprint stable across built tool and cli bundles when a shared dist fingerprint exists", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "odb-daemon-fingerprint-shared-"));
+    const distDir = join(repoRoot, "dist");
+    const cliDir = join(distDir, "cli");
+    await mkdir(cliDir, { recursive: true });
+    await writeFile(join(cliDir, "index.js"), "export const cli = 'bundle';\n", "utf-8");
+    await writeFile(join(distDir, "index.js"), "export const tool = 'bundle';\n", "utf-8");
+    await writeFile(join(distDir, "daemon-fingerprint.json"), JSON.stringify({
+      fingerprint: "shared-dist-fingerprint"
+    }), "utf-8");
+
+    const cliFingerprint = getCurrentDaemonFingerprint({
+      moduleUrl: pathToFileURL(join(cliDir, "index.js")).href
+    });
+    const toolFingerprint = getCurrentDaemonFingerprint({
+      moduleUrl: pathToFileURL(join(distDir, "index.js")).href
+    });
+
+    expect(toolFingerprint).toBe(cliFingerprint);
+  });
+
+  it("derives built fingerprints without the local node executable path", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "odb-daemon-fingerprint-execpath-"));
+    const distDir = join(repoRoot, "dist");
+    const cliDir = join(distDir, "cli");
+    await mkdir(cliDir, { recursive: true });
+    await writeFile(join(cliDir, "index.js"), "export const cli = 'bundle';\n", "utf-8");
+    await writeFile(join(distDir, "daemon-fingerprint.json"), JSON.stringify({
+      fingerprint: "shared-dist-fingerprint"
+    }), "utf-8");
+
+    const expectedFingerprint = createHash("sha256")
+      .update("v1\nshared-dist-fingerprint")
+      .digest("hex");
+
+    expect(getCurrentDaemonFingerprint({
+      moduleUrl: pathToFileURL(join(cliDir, "index.js")).href
+    })).toBe(expectedFingerprint);
+  });
+
+  it("ignores a shared dist fingerprint when a source-mode module sits beside the built bundle", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "odb-daemon-fingerprint-source-"));
+    const srcCliDir = join(repoRoot, "src", "cli");
+    const distDir = join(repoRoot, "dist");
+    await mkdir(srcCliDir, { recursive: true });
+    await mkdir(join(distDir, "cli"), { recursive: true });
+    await writeFile(join(srcCliDir, "daemon.ts"), "export const daemon = 'source';\n", "utf-8");
+    await writeFile(join(distDir, "cli", "index.js"), "export const cli = 'bundle';\n", "utf-8");
+    await writeFile(join(distDir, "daemon-fingerprint.json"), JSON.stringify({
+      fingerprint: "shared-dist-fingerprint"
+    }), "utf-8");
+
+    const sourceFingerprint = getCurrentDaemonFingerprint({
+      moduleUrl: pathToFileURL(join(srcCliDir, "daemon.ts")).href
+    });
+    const distFingerprint = getCurrentDaemonFingerprint({
+      moduleUrl: pathToFileURL(join(distDir, "cli", "index.js")).href
+    });
+
+    expect(sourceFingerprint).not.toBe(distFingerprint);
   });
 
   it("derives a restart-safe CLI tuple from the built daemon-client module when argv is missing", () => {

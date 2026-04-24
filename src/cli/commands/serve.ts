@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import type { ParsedArgs } from "../args";
 import {
-  getCurrentDaemonFingerprint,
+  createDaemonStopHeaders,
+  isCurrentDaemonFingerprint,
   readDaemonMetadata,
   startDaemon
 } from "../daemon";
@@ -23,6 +24,11 @@ type DaemonHandle = {
   stop: () => Promise<void>;
 };
 
+type ExistingDaemon = {
+  token: string;
+  status: DaemonStatusPayload;
+};
+
 type ServeProcessSnapshot = {
   pid: number;
   uid: number | null;
@@ -31,7 +37,15 @@ type ServeProcessSnapshot = {
 
 let daemonHandle: DaemonHandle | null = null;
 const PS_MAX_BUFFER = 8 * 1024 * 1024;
+const DAEMON_SHUTDOWN_POLL_ATTEMPTS = 10;
+const DAEMON_SHUTDOWN_POLL_DELAY_MS = 100;
+const DAEMON_SHUTDOWN_STATUS_TIMEOUT_MS = 250;
+const DAEMON_STOP_TIMEOUT_MS = 1000;
+const MIN_PORT = 1;
+const MAX_PORT = 65535;
 const SERVE_COMMAND_PATTERN = /(?:^|\s)(?:\S*[\\/])?(?:opendevbrowser|dist[\\/]+cli[\\/]+index\.js)(?=\s|$).*?\bserve\b/;
+const SERVE_PORT_SPLIT_PATTERN = /(?:^|\s)--port\s+(\d+)(?=\s|$)/;
+const SERVE_PORT_EQUALS_PATTERN = /(?:^|\s)--port=(\d+)(?=\s|$)/;
 const SERVE_STOP_PATTERN = /(?:^|\s)--stop(?:\s|$)/;
 const CURRENT_UID = typeof process.getuid === "function" ? process.getuid() : null;
 const CURRENT_EXECUTABLE = process.execPath;
@@ -49,7 +63,7 @@ function resolveTokenCandidates(
 async function resolveExistingDaemon(
   port: number,
   tokens: string[]
-): Promise<{ token: string; status: DaemonStatusPayload } | null> {
+): Promise<ExistingDaemon | null> {
   for (const token of tokens) {
     const status = await fetchDaemonStatus(port, token);
     if (status?.ok) {
@@ -61,36 +75,6 @@ async function resolveExistingDaemon(
 
 function isPositivePid(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
-}
-
-function rememberStalePid(staleDaemonPids: Set<number>, pid: unknown): void {
-  if (isPositivePid(pid)) {
-    staleDaemonPids.add(pid);
-  }
-}
-
-async function stopDaemonOnPort(port: number, token: string): Promise<boolean> {
-  try {
-    const response = await fetchWithTimeout(`http://127.0.0.1:${port}/stop`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function stopStaleDaemon(
-  port: number,
-  daemon: { token: string; status: DaemonStatusPayload },
-  staleDaemonPids: Set<number>
-): Promise<void> {
-  rememberStalePid(staleDaemonPids, daemon.status.pid);
-  const stopped = await stopDaemonOnPort(port, daemon.token);
-  if (!stopped && isPositivePid(daemon.status.pid)) {
-    terminateProcess(daemon.status.pid);
-  }
 }
 
 function parseServeArgs(rawArgs: string[]): ServeArgs {
@@ -106,7 +90,7 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       if (!value) {
         throw createUsageError("Missing value for --port");
       }
-      parsed.port = parseNumberFlag(value, "--port", { min: 1, max: 65535 });
+      parsed.port = parseNumberFlag(value, "--port", { min: MIN_PORT, max: MAX_PORT });
       i += 1;
       continue;
     }
@@ -115,7 +99,7 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       if (!value) {
         throw createUsageError("Missing value for --port");
       }
-      parsed.port = parseNumberFlag(value, "--port", { min: 1, max: 65535 });
+      parsed.port = parseNumberFlag(value, "--port", { min: MIN_PORT, max: MAX_PORT });
       continue;
     }
     if (arg === "--token") {
@@ -167,6 +151,16 @@ function parseServeProcessSnapshot(line: string): ServeProcessSnapshot | null {
   };
 }
 
+function parseServeCommandPort(command: string): number | null {
+  const rawPort = command.match(SERVE_PORT_EQUALS_PATTERN)?.[1]
+    ?? command.match(SERVE_PORT_SPLIT_PATTERN)?.[1];
+  if (!rawPort) {
+    return null;
+  }
+  const port = Number.parseInt(rawPort, 10);
+  return Number.isInteger(port) && port >= MIN_PORT && port <= MAX_PORT ? port : null;
+}
+
 function listServeProcessSnapshots(): ServeProcessSnapshot[] {
   const result = spawnSync("ps", ["-axww", "-o", "pid=,uid=,command="], {
     encoding: "utf-8",
@@ -194,6 +188,11 @@ function isCurrentExecutableServeProcess(snapshot: ServeProcessSnapshot): boolea
   return !SERVE_STOP_PATTERN.test(snapshot.command);
 }
 
+function isRequestedPortServeProcess(snapshot: ServeProcessSnapshot, requestedPort: number): boolean {
+  return isCurrentExecutableServeProcess(snapshot)
+    && parseServeCommandPort(snapshot.command) === requestedPort;
+}
+
 function terminateProcess(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || pid === process.ppid) {
     return false;
@@ -211,9 +210,9 @@ function terminateProcess(pid: number): boolean {
   return true;
 }
 
-function cleanupCompetingServeProcesses(keepPid?: number): number[] {
+function cleanupCompetingServeProcesses(requestedPort: number, keepPid?: number): number[] {
   const candidates = listServeProcessSnapshots().filter((snapshot) => {
-    if (!isCurrentExecutableServeProcess(snapshot)) {
+    if (!isRequestedPortServeProcess(snapshot, requestedPort)) {
       return false;
     }
     if (snapshot.pid === process.pid || snapshot.pid === process.ppid) {
@@ -238,6 +237,96 @@ function cleanupCompetingServeProcesses(keepPid?: number): number[] {
   return clearedPids;
 }
 
+function terminateServeProcessByPid(pid?: number): boolean {
+  if (!isPositivePid(pid)) {
+    return false;
+  }
+  const snapshot = listServeProcessSnapshots().find((item) => item.pid === pid);
+  return snapshot ? isCurrentExecutableServeProcess(snapshot) && terminateProcess(pid) : false;
+}
+
+function buildStaleStopMessage(metadata: NonNullable<ReturnType<typeof readDaemonMetadata>>): string {
+  const pid = isPositivePid(metadata.pid) ? ` pid=${metadata.pid}` : "";
+  return `Daemon rejected stale stop request for 127.0.0.1:${metadata.port}${pid}. Run \`opendevbrowser status --daemon\` to inspect the active daemon, then restart from the current install if needed.`;
+}
+
+function buildProtectedMismatchMessage(port: number, status: DaemonStatusPayload): string {
+  return `Daemon on 127.0.0.1:${port} pid=${status.pid} is protected by a different opendevbrowser build. Run \`opendevbrowser status --daemon\` to inspect it, then restart from the current install.`;
+}
+
+async function waitForDaemonShutdown(port: number, token: string): Promise<boolean> {
+  for (let attempt = 0; attempt < DAEMON_SHUTDOWN_POLL_ATTEMPTS; attempt += 1) {
+    const status = await fetchDaemonStatus(port, token, { timeoutMs: DAEMON_SHUTDOWN_STATUS_TIMEOUT_MS });
+    if (!status?.ok) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, DAEMON_SHUTDOWN_POLL_DELAY_MS));
+  }
+  return false;
+}
+
+async function stopMismatchedDaemon(port: number, daemon: ExistingDaemon): Promise<string | null> {
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(`http://127.0.0.1:${port}/stop`, {
+      method: "POST",
+      headers: createDaemonStopHeaders(daemon.token, "serve.upgrade")
+    }, DAEMON_STOP_TIMEOUT_MS);
+  } catch (error) {
+    const status = await fetchDaemonStatus(port, daemon.token, {
+      timeoutMs: DAEMON_SHUTDOWN_STATUS_TIMEOUT_MS
+    });
+    if (!status?.ok) {
+      return null;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return `Failed to stop mismatched daemon on 127.0.0.1:${port}: ${message}.`;
+  }
+  if (response.status === 409) {
+    return buildProtectedMismatchMessage(port, daemon.status);
+  }
+  if (!response.ok) {
+    return `Failed to stop mismatched daemon on 127.0.0.1:${port}: stop returned ${response.status}.`;
+  }
+  if (await waitForDaemonShutdown(port, daemon.token)) {
+    return null;
+  }
+  if (terminateServeProcessByPid(daemon.status.pid)) {
+    return null;
+  }
+  return `Timed out waiting for mismatched daemon on 127.0.0.1:${port} to stop.`;
+}
+
+async function prepareExistingDaemon(port: number, daemon: ExistingDaemon): Promise<string | null> {
+  if (isCurrentDaemonFingerprint(daemon.status.fingerprint)) {
+    return null;
+  }
+  return await stopMismatchedDaemon(port, daemon);
+}
+
+function buildAlreadyRunningResult(
+  port: number,
+  status: DaemonStatusPayload,
+  fallbackRelayPort: number,
+  clearedCount: number
+) {
+  const relayPort = status.relay.port ?? fallbackRelayPort;
+  const staleNote = clearedCount > 0 ? `\nCleared ${clearedCount} stale daemon process${clearedCount === 1 ? "" : "es"}.` : "";
+  return {
+    success: true,
+    message: `Daemon already running on 127.0.0.1:${port} (pid=${status.pid}, relay ${relayPort}).${staleNote}`,
+    data: {
+      port,
+      pid: status.pid,
+      relayPort,
+      alreadyRunning: true,
+      staleDaemonsCleared: clearedCount,
+      relay: status.relay
+    },
+    exitCode: null
+  };
+}
+
 export async function runServe(args: ParsedArgs) {
   const serveArgs = parseServeArgs(args.rawArgs);
 
@@ -255,8 +344,11 @@ export async function runServe(args: ParsedArgs) {
     try {
       const response = await fetchWithTimeout(`http://127.0.0.1:${metadata.port}/stop`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${metadata.token}` }
+        headers: createDaemonStopHeaders(metadata.token, "serve.stop")
       });
+      if (response.status === 409) {
+        return { success: false, message: buildStaleStopMessage(metadata), exitCode: EXIT_EXECUTION };
+      }
       if (!response.ok) {
         throw new Error(`Stop failed (${response.status})`);
       }
@@ -272,35 +364,25 @@ export async function runServe(args: ParsedArgs) {
   const metadata = readDaemonMetadata();
   const metadataToken = metadata?.port === requestedPort ? metadata.token : undefined;
   const tokenCandidates = resolveTokenCandidates(serveArgs.token, metadataToken, config.daemonToken);
-  const currentFingerprint = getCurrentDaemonFingerprint();
-
   const existingDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
-  const staleDaemonPids = new Set(cleanupCompetingServeProcesses(existingDaemon?.status.pid));
+  const staleDaemonPids = new Set<number>();
   const staleCleared = () => staleDaemonPids.size;
-  let replacedStaleFingerprint = false;
 
   if (existingDaemon) {
-    const fingerprintMatches = existingDaemon.status.fingerprint === currentFingerprint;
-    if (fingerprintMatches) {
-      const relayPort = existingDaemon.status.relay.port ?? config.relayPort;
-      const clearedCount = staleCleared();
-      const staleNote = clearedCount > 0 ? `\nCleared ${clearedCount} stale daemon process${clearedCount === 1 ? "" : "es"}.` : "";
-      return {
-        success: true,
-        message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${existingDaemon.status.pid}, relay ${relayPort}).${staleNote}`,
-        data: {
-          port: requestedPort,
-          pid: existingDaemon.status.pid,
-          relayPort,
-          alreadyRunning: true,
-          staleDaemonsCleared: clearedCount,
-          relay: existingDaemon.status.relay
-        },
-        exitCode: null
-      };
+    const mismatchMessage = await prepareExistingDaemon(requestedPort, existingDaemon);
+    if (mismatchMessage) {
+      return { success: false, message: mismatchMessage, exitCode: EXIT_EXECUTION };
     }
-    await stopStaleDaemon(requestedPort, existingDaemon, staleDaemonPids);
-    replacedStaleFingerprint = true;
+    if (isCurrentDaemonFingerprint(existingDaemon.status.fingerprint)) {
+      for (const pid of cleanupCompetingServeProcesses(requestedPort, existingDaemon.status.pid)) {
+        staleDaemonPids.add(pid);
+      }
+      return buildAlreadyRunningResult(requestedPort, existingDaemon.status, config.relayPort, staleCleared());
+    }
+  }
+
+  for (const pid of cleanupCompetingServeProcesses(requestedPort)) {
+    staleDaemonPids.add(pid);
   }
 
   let nativeStatus = getNativeStatusSnapshot();
@@ -349,34 +431,17 @@ export async function runServe(args: ParsedArgs) {
       }
       const runningDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
       if (runningDaemon) {
-        const fingerprintMatches = runningDaemon.status.fingerprint === currentFingerprint;
-        if (fingerprintMatches) {
-          const relayPort = runningDaemon.status.relay.port ?? config.relayPort;
-          const clearedCount = staleCleared();
-          const staleNote = clearedCount > 0 ? `\nCleared ${clearedCount} stale daemon process${clearedCount === 1 ? "" : "es"}.` : "";
-          return {
-            success: true,
-            message: `Daemon already running on 127.0.0.1:${requestedPort} (pid=${runningDaemon.status.pid}, relay ${relayPort}).${staleNote}`,
-            data: {
-              port: requestedPort,
-              pid: runningDaemon.status.pid,
-              relayPort,
-              alreadyRunning: true,
-              staleDaemonsCleared: clearedCount,
-              relay: runningDaemon.status.relay
-            },
-            exitCode: null
-          };
+        const mismatchMessage = await prepareExistingDaemon(requestedPort, runningDaemon);
+        if (mismatchMessage) {
+          return { success: false, message: mismatchMessage, exitCode: EXIT_EXECUTION };
         }
-        await stopStaleDaemon(requestedPort, runningDaemon, staleDaemonPids);
-        replacedStaleFingerprint = true;
-        if (attempt === 0) {
-          continue;
+        if (isCurrentDaemonFingerprint(runningDaemon.status.fingerprint)) {
+          return buildAlreadyRunningResult(requestedPort, runningDaemon.status, config.relayPort, staleCleared());
         }
       }
       if (attempt === 0) {
         let clearedNewPid = false;
-        for (const pid of cleanupCompetingServeProcesses()) {
+        for (const pid of cleanupCompetingServeProcesses(requestedPort)) {
           const previousSize = staleDaemonPids.size;
           staleDaemonPids.add(pid);
           if (staleDaemonPids.size > previousSize) {
@@ -413,10 +478,9 @@ export async function runServe(args: ParsedArgs) {
   const baseMessage = `Daemon running on 127.0.0.1:${state.port} (relay ${state.relayPort})`;
   const clearedCount = staleCleared();
   const staleNote = clearedCount > 0 ? `\nCleared ${clearedCount} stale daemon process${clearedCount === 1 ? "" : "es"}.` : "";
-  const fingerprintNote = replacedStaleFingerprint ? "\nReplaced stale daemon fingerprint." : "";
   const message = nativeMessage
-    ? `${baseMessage}\n${nativeMessage}${fingerprintNote}${staleNote}`
-    : `${baseMessage}${fingerprintNote}${staleNote}`;
+    ? `${baseMessage}\n${nativeMessage}${staleNote}`
+    : `${baseMessage}${staleNote}`;
 
   return {
     success: true,

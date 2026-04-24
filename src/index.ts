@@ -1,13 +1,20 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { createOpenDevBrowserCore } from "./core";
 import { ScriptRunner } from "./browser/script-runner";
-import { getCurrentDaemonFingerprint, readDaemonMetadata, startDaemon } from "./cli/daemon";
+import {
+  createDaemonStopHeaders,
+  isCurrentDaemonFingerprint,
+  readDaemonMetadata,
+  startDaemon
+} from "./cli/daemon";
 import { DaemonClient } from "./cli/daemon-client";
 import { RemoteManager } from "./cli/remote-manager";
 import { RemoteCanvasManager } from "./cli/remote-canvas-manager";
 import { RemoteDesktopRuntime } from "./cli/remote-desktop-runtime";
 import { RemoteRelay } from "./cli/remote-relay";
-import { fetchDaemonStatusFromMetadata } from "./cli/daemon-status";
+import { fetchDaemonStatus, fetchDaemonStatusFromMetadata, type DaemonStatusPayload } from "./cli/daemon-status";
+import { DEFAULT_DAEMON_STATUS_FETCH_OPTIONS } from "./cli/daemon-status-policy";
+import { fetchWithTimeout } from "./cli/utils/http";
 import {
   buildSkillNudgeMessage,
   clearSkillNudge,
@@ -122,6 +129,88 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     toolDeps.browserFallbackPort = browserFallbackPort;
   };
 
+  const readEnsureHubBudgetMs = (deadlineMs: number): number | null => {
+    const remainingMs = deadlineMs - Date.now();
+    return remainingMs > 0 ? remainingMs : null;
+  };
+
+  const stopTimeoutMs = (deadlineMs: number): number => {
+    return Math.max(1, Math.min(500, readEnsureHubBudgetMs(deadlineMs) ?? 1));
+  };
+
+  const resolveHubStopConnection = (
+    currentConfig: { daemonPort: number; daemonToken: string },
+    status: DaemonStatusPayload
+  ) => {
+    const metadata = readDaemonMetadata();
+    if (metadata?.pid === status.pid) {
+      return { port: metadata.port, token: metadata.token };
+    }
+    return { port: currentConfig.daemonPort, token: currentConfig.daemonToken };
+  };
+
+  const isConfiguredHubConnection = (
+    currentConfig: { daemonPort: number; daemonToken: string },
+    connection: { port: number; token: string }
+  ): boolean => {
+    return connection.port === currentConfig.daemonPort && connection.token === currentConfig.daemonToken;
+  };
+
+  const waitForHubDaemonShutdown = async (
+    connection: { port: number; token: string },
+    deadlineMs: number
+  ): Promise<boolean> => {
+    while (readEnsureHubBudgetMs(deadlineMs)) {
+      const status = await fetchDaemonStatus(connection.port, connection.token, {
+        timeoutMs: stopTimeoutMs(deadlineMs)
+      });
+      if (!status?.ok) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(100, stopTimeoutMs(deadlineMs))));
+    }
+    return false;
+  };
+
+  const stopMismatchedHubDaemon = async (
+    currentConfig: ReturnType<typeof configStore.get>,
+    status: DaemonStatusPayload,
+    deadlineMs: number
+  ): Promise<void> => {
+    const connection = resolveHubStopConnection(currentConfig, status);
+    const configuredConnection = isConfiguredHubConnection(currentConfig, connection);
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(`http://127.0.0.1:${connection.port}/stop`, {
+        method: "POST",
+        headers: createDaemonStopHeaders(connection.token, "plugin.ensureHub.upgrade")
+      }, stopTimeoutMs(deadlineMs));
+    } catch (error) {
+      if (!configuredConnection) {
+        return;
+      }
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+    if (response.status === 409) {
+      if (!configuredConnection) {
+        return;
+      }
+      throw new Error(`Hub daemon on 127.0.0.1:${connection.port} pid=${status.pid} is protected by a different opendevbrowser build.`);
+    }
+    if (!response.ok) {
+      if (!configuredConnection) {
+        return;
+      }
+      throw new Error(`Hub daemon stop failed with status ${response.status}.`);
+    }
+    if (!(await waitForHubDaemonShutdown(connection, deadlineMs))) {
+      if (!configuredConnection) {
+        return;
+      }
+      throw new Error(`Timed out waiting for hub daemon on 127.0.0.1:${connection.port} to stop.`);
+    }
+  };
+
   const ensureHub = async (): Promise<void> => {
     const currentConfig = configStore.get();
     if (!isHubEnabled(currentConfig)) {
@@ -134,36 +223,48 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
     const deadline = Date.now() + 2000;
     let attempt = 0;
     let lastError: Error | null = null;
-    const currentFingerprint = getCurrentDaemonFingerprint();
-
     while (attempt < 2 && Date.now() < deadline) {
       attempt += 1;
-      const status = await fetchDaemonStatusFromMetadata(currentConfig);
-      if (status?.ok && status.fingerprint === currentFingerprint) {
-        bindRemote();
-        await relay?.refresh?.();
-        return;
+      const statusTimeoutMs = readEnsureHubBudgetMs(deadline);
+      if (!statusTimeoutMs) {
+        break;
       }
+      const status = await fetchDaemonStatusFromMetadata(currentConfig, {
+        ...DEFAULT_DAEMON_STATUS_FETCH_OPTIONS,
+        timeoutMs: statusTimeoutMs
+      });
       if (status?.ok) {
-        const metadata = readDaemonMetadata();
-        const daemonPort = metadata?.port ?? currentConfig.daemonPort;
-        const daemonToken = metadata?.token ?? currentConfig.daemonToken;
-        if (daemonPort > 0 && daemonToken) {
-          try {
-            await fetch(`http://127.0.0.1:${daemonPort}/stop`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${daemonToken}` }
-            });
-          } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error));
-          }
+        if (isCurrentDaemonFingerprint(status.fingerprint)) {
+          bindRemote();
+          await relay?.refresh?.();
+          return;
         }
+        await stopMismatchedHubDaemon(currentConfig, status, deadline);
+      }
+      if (!readEnsureHubBudgetMs(deadline)) {
+        break;
       }
       try {
         const { stop } = await startDaemon({ config: currentConfig, directory, worktree });
         hubStop = stop;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+      }
+      const refreshedTimeoutMs = readEnsureHubBudgetMs(deadline);
+      if (!refreshedTimeoutMs) {
+        break;
+      }
+      const refreshedStatus = await fetchDaemonStatusFromMetadata(currentConfig, {
+        ...DEFAULT_DAEMON_STATUS_FETCH_OPTIONS,
+        timeoutMs: refreshedTimeoutMs
+      });
+      if (refreshedStatus?.ok) {
+        if (isCurrentDaemonFingerprint(refreshedStatus.fingerprint)) {
+          bindRemote();
+          await relay?.refresh?.();
+          return;
+        }
+        await stopMismatchedHubDaemon(currentConfig, refreshedStatus, deadline);
       }
       if (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -180,7 +281,6 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
 
   const hubEnabled = isHubEnabled(config);
   if (hubEnabled) {
-    bindRemote();
     try {
       await ensureHub();
     } catch (error) {

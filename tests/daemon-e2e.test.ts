@@ -5,7 +5,7 @@ import { join } from "path";
 import http from "http";
 import type { AddressInfo } from "net";
 import type { OpenDevBrowserConfig } from "../src/config";
-import { startDaemon } from "../src/cli/daemon";
+import { createDaemonStopHeaders, startDaemon } from "../src/cli/daemon";
 import { DaemonClient } from "../src/cli/daemon-client";
 import { fetchDaemonStatusFromMetadata } from "../src/cli/daemon-status";
 
@@ -48,6 +48,13 @@ const fetchStatus = async (port: number, token: string): Promise<Record<string, 
     throw new Error(`Status request failed: ${response.status}`);
   }
   return await response.json() as Record<string, unknown>;
+};
+
+const postStop = async (port: number, headers: Record<string, string>): Promise<Response> => {
+  return await fetch(`http://127.0.0.1:${port}/stop`, {
+    method: "POST",
+    headers
+  });
 };
 
 describe("daemon e2e", () => {
@@ -134,6 +141,40 @@ describe("daemon e2e", () => {
       hub: { instanceId: expect.any(String) },
       relay: expect.any(Object)
     }));
+  });
+
+  it("rejects stale stop requests that only know the daemon token", async () => {
+    daemonPort = await getAvailablePort();
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig(),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    const response = await postStop(daemonPort, { Authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(409);
+    const status = await fetchStatus(daemonPort, token);
+    expect(status.ok).toBe(true);
+  });
+
+  it("allows current clients to stop the daemon with a matching fingerprint", async () => {
+    daemonPort = await getAvailablePort();
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig(),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    const response = await postStop(daemonPort, createDaemonStopHeaders(token, "test.current"));
+
+    expect(response.status).toBe(200);
   });
 
   it("recovers daemon status when metadata is missing", async () => {
@@ -265,7 +306,8 @@ describe("daemon e2e", () => {
     });
     daemonStop = stop;
 
-    await fetchDaemonStatusFromMetadata();
+    const config = makeConfig({ daemonPort, daemonToken: token });
+    await fetchDaemonStatusFromMetadata(config);
     const metadataPath = join(tempRoot, "opendevbrowser", "daemon.json");
     const first = JSON.parse(await readFile(metadataPath, "utf-8")) as { relayInstanceId?: string };
 
@@ -281,7 +323,7 @@ describe("daemon e2e", () => {
     });
     daemonStop = stop2;
 
-    await fetchDaemonStatusFromMetadata();
+    await fetchDaemonStatusFromMetadata(config);
     const second = JSON.parse(await readFile(metadataPath, "utf-8")) as { relayInstanceId?: string };
 
     expect(first.relayInstanceId).toBeTruthy();

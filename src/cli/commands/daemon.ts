@@ -1,7 +1,8 @@
 import type { ParsedArgs } from "../args";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { fetchDaemonStatusFromMetadata } from "../daemon-status";
-import { readDaemonMetadata } from "../daemon";
+import { DEFAULT_DAEMON_STATUS_FETCH_OPTIONS } from "../daemon-status-policy";
+import { createDaemonStopHeaders, readDaemonMetadata } from "../daemon";
 import { fetchWithTimeout } from "../utils/http";
 import {
   getAutostartStatus,
@@ -20,6 +21,14 @@ type DaemonResult = {
   status?: Awaited<ReturnType<typeof fetchDaemonStatusFromMetadata>>;
 };
 
+type StopDaemonResult = {
+  outcome: "stopped" | "not_running" | "fingerprint_rejected" | "failed";
+  pid?: number;
+  port?: number;
+  status?: number;
+  error?: string;
+};
+
 const parseDaemonArgs = (rawArgs: string[]): { subcommand: DaemonSubcommand } => {
   const subcommand = rawArgs[0];
   if (subcommand === "install" || subcommand === "uninstall" || subcommand === "status") {
@@ -28,20 +37,47 @@ const parseDaemonArgs = (rawArgs: string[]): { subcommand: DaemonSubcommand } =>
   throw createUsageError("Usage: opendevbrowser daemon <install|uninstall|status>");
 };
 
-const stopDaemonIfRunning = async (): Promise<boolean> => {
+const stopDaemonIfRunning = async (): Promise<StopDaemonResult> => {
   const metadata = readDaemonMetadata();
   if (!metadata) {
-    return false;
+    return { outcome: "not_running" };
   }
   try {
     const response = await fetchWithTimeout(`http://127.0.0.1:${metadata.port}/stop`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${metadata.token}` }
+      headers: createDaemonStopHeaders(metadata.token, "daemon.uninstall")
     });
-    return response.ok;
-  } catch {
+    if (response.status === 409) {
+      return { outcome: "fingerprint_rejected", pid: metadata.pid, port: metadata.port };
+    }
+    return response.ok
+      ? { outcome: "stopped", pid: metadata.pid, port: metadata.port }
+      : { outcome: "failed", pid: metadata.pid, port: metadata.port, status: response.status };
+  } catch (error) {
+    return {
+      outcome: "failed",
+      pid: metadata.pid,
+      port: metadata.port,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+};
+
+const buildStopFailureMessage = (stop: StopDaemonResult): string => {
+  const target = stop.port ? `127.0.0.1:${stop.port}` : "recorded daemon";
+  const pid = stop.pid ? ` pid=${stop.pid}` : "";
+  if (stop.outcome === "fingerprint_rejected") {
+    return `Daemon autostart removed, but the running daemon at ${target}${pid} rejected the stop request as stale. Run \`opendevbrowser status --daemon\` to inspect it and restart from the current install if needed.`;
+  }
+  const reason = stop.error ?? (stop.status ? `HTTP ${stop.status}` : "unknown error");
+  return `Daemon autostart removed, but stopping ${target}${pid} failed (${reason}).`;
+};
+
+const shouldFailUninstallStop = (stop: StopDaemonResult): boolean => {
+  if (stop.outcome === "stopped" || stop.outcome === "not_running") {
     return false;
   }
+  return true;
 };
 
 const formatReason = (reason?: ReturnType<typeof getAutostartStatus>["reason"]): string => {
@@ -132,7 +168,15 @@ export async function runDaemonCommand(args: ParsedArgs) {
         exitCode: EXIT_EXECUTION
       };
     }
-    await stopDaemonIfRunning();
+    const stop = await stopDaemonIfRunning();
+    if (shouldFailUninstallStop(stop)) {
+      return {
+        success: false,
+        message: buildStopFailureMessage(stop),
+        data: { ...result, stop },
+        exitCode: EXIT_EXECUTION
+      };
+    }
     return {
       success: true,
       message: `Daemon autostart removed (${result.platform}).`,
@@ -141,7 +185,7 @@ export async function runDaemonCommand(args: ParsedArgs) {
   }
 
   const autostart = getAutostartStatus();
-  const daemonStatus = await fetchDaemonStatusFromMetadata();
+  const daemonStatus = await fetchDaemonStatusFromMetadata(undefined, DEFAULT_DAEMON_STATUS_FETCH_OPTIONS);
   const running = Boolean(daemonStatus);
   const message = buildStatusMessage(autostart, running);
   const data: DaemonResult = {

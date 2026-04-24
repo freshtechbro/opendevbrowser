@@ -6,6 +6,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { fetchDaemonStatusFromMetadata } from "../cli/daemon-status";
+import { DEFAULT_DAEMON_STATUS_FETCH_OPTIONS } from "../cli/daemon-status-policy";
 import { isHubEnabled } from "../utils/hub-enabled";
 
 const z = tool.schema;
@@ -66,7 +67,7 @@ export function createStatusTool(deps: ToolDeps): ToolDefinition {
         let sessionStatus: { mode: string; activeTargetId: string | null; url?: string; title?: string } | null = null;
 
         if (hubEnabled) {
-          const daemonStatus = await fetchDaemonStatusFromMetadata();
+          const daemonStatus = await fetchDaemonStatusFromMetadata(config, DEFAULT_DAEMON_STATUS_FETCH_OPTIONS);
           if (!daemonStatus) {
             return failure("Daemon not running. Start with `npx opendevbrowser serve`.", "status_failed");
           }

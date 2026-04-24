@@ -11,43 +11,81 @@ const rootDir = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const pkgPath = join(rootDir, "package.json");
 const manifestPath = join(rootDir, "extension", "manifest.json");
 const extensionPackagePath = join(rootDir, "extension", "package.json");
+const packageLockPath = join(rootDir, "package-lock.json");
 
-const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-const extensionPackage = JSON.parse(readFileSync(extensionPackagePath, "utf-8"));
-
-const pkgVersion = String(pkg.version ?? "");
-const manifestVersion = String(manifest.version ?? "");
-const extensionPackageVersion = String(extensionPackage.version ?? "");
-
-if (!pkgVersion) {
-  console.error("package.json version is missing.");
-  process.exit(1);
+function readJson(filePath) {
+  return JSON.parse(readFileSync(filePath, "utf-8"));
 }
 
-if (!manifestVersion) {
-  console.error("extension/manifest.json version is missing.");
-  process.exit(1);
+export function readVersionAlignment(repoRoot = rootDir) {
+  const pkg = readJson(join(repoRoot, "package.json"));
+  const manifest = readJson(join(repoRoot, "extension", "manifest.json"));
+  const extensionPackage = readJson(join(repoRoot, "extension", "package.json"));
+  const packageLock = readJson(join(repoRoot, "package-lock.json"));
+  return {
+    packageJson: String(pkg.version ?? ""),
+    manifest: String(manifest.version ?? ""),
+    extensionPackage: String(extensionPackage.version ?? ""),
+    packageLock: String(packageLock.version ?? ""),
+    packageLockRoot: String(packageLock.packages?.[""]?.version ?? "")
+  };
 }
 
-if (!extensionPackageVersion) {
-  console.error("extension/package.json version is missing.");
-  process.exit(1);
+export function verifyVersionAlignment(repoRoot = rootDir) {
+  const versions = readVersionAlignment(repoRoot);
+  const pkgVersion = versions.packageJson;
+  if (!pkgVersion) {
+    throw new Error("package.json version is missing.");
+  }
+
+  if (!versions.manifest) {
+    throw new Error("extension/manifest.json version is missing.");
+  }
+
+  if (!versions.extensionPackage) {
+    throw new Error("extension/package.json version is missing.");
+  }
+
+  if (!versions.packageLock) {
+    throw new Error("package-lock.json version is missing.");
+  }
+
+  if (!versions.packageLockRoot) {
+    throw new Error("package-lock.json root package version is missing.");
+  }
+
+  if (pkgVersion !== versions.manifest) {
+    throw new Error(`Version mismatch: package.json=${pkgVersion} manifest.json=${versions.manifest}`);
+  }
+
+  if (pkgVersion !== versions.extensionPackage) {
+    throw new Error(`Version mismatch: package.json=${pkgVersion} extension/package.json=${versions.extensionPackage}`);
+  }
+
+  if (versions.manifest !== versions.extensionPackage) {
+    throw new Error(`Version mismatch: extension/manifest.json=${versions.manifest} extension/package.json=${versions.extensionPackage}`);
+  }
+
+  if (pkgVersion !== versions.packageLock) {
+    throw new Error(`Version mismatch: package.json=${pkgVersion} package-lock.json=${versions.packageLock}`);
+  }
+
+  if (pkgVersion !== versions.packageLockRoot) {
+    throw new Error(`Version mismatch: package.json=${pkgVersion} package-lock.json#packages[\"\"]=${versions.packageLockRoot}`);
+  }
+
+  return pkgVersion;
 }
 
-if (pkgVersion !== manifestVersion) {
-  console.error(`Version mismatch: package.json=${pkgVersion} manifest.json=${manifestVersion}`);
-  process.exit(1);
-}
+const isEntrypoint = process.argv[1] === fileURLToPath(import.meta.url);
 
-if (pkgVersion !== extensionPackageVersion) {
-  console.error(`Version mismatch: package.json=${pkgVersion} extension/package.json=${extensionPackageVersion}`);
-  process.exit(1);
+if (isEntrypoint) {
+  try {
+    const version = verifyVersionAlignment();
+    console.log(`Version check passed: ${version}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  }
 }
-
-if (manifestVersion !== extensionPackageVersion) {
-  console.error(`Version mismatch: extension/manifest.json=${manifestVersion} extension/package.json=${extensionPackageVersion}`);
-  process.exit(1);
-}
-
-console.log(`Version check passed: ${pkgVersion}`);

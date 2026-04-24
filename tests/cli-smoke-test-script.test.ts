@@ -67,6 +67,7 @@ describe("cli-smoke-test startDaemon", () => {
 
     await expect(pending).resolves.toMatchObject({ pid: 4321 });
     expect(spawnSyncMock).toHaveBeenCalledTimes(4);
+    expect(spawnSyncMock.mock.calls[0]?.[1]?.[1]).toContain(JSON.stringify(process.execPath));
     expect(killSpy).toHaveBeenCalledTimes(2);
     expect(killSpy.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
   });

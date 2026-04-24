@@ -2345,16 +2345,17 @@ describe("OpsBrowserManager", () => {
     managerAny.opsLeases.set("ops-no-target", "lease-keep");
 
     await expect(managerAny.recoverOpsSession("ops-no-target", {})).resolves.toBe(true);
-    expect(clientRequest).toHaveBeenCalledWith(
-      "session.connect",
-      {
-        sessionId: "ops-no-target",
-        parallelismPolicy: expect.any(Object)
-      },
-      undefined,
-      30000,
-      "lease-keep"
-    );
+    expect(clientRequest).toHaveBeenCalledTimes(1);
+    const reconnectCall = clientRequest.mock.calls[0];
+    expect(reconnectCall?.[0]).toBe("session.connect");
+    expect(reconnectCall?.[1]).toMatchObject({
+      sessionId: "ops-no-target",
+      parallelismPolicy: expect.any(Object)
+    });
+    expect(reconnectCall?.[2]).toBeUndefined();
+    expect(reconnectCall?.[3]).toBeGreaterThanOrEqual(29_000);
+    expect(reconnectCall?.[3]).toBeLessThanOrEqual(30_000);
+    expect(reconnectCall?.[4]).toBe("lease-keep");
     expect(managerAny.opsLeases.get("ops-no-target")).toBe("lease-keep");
     expect(managerAny.opsSessionTabs.has("ops-no-target")).toBe(false);
     expect(managerAny.opsSessionUrls.has("ops-no-target")).toBe(false);

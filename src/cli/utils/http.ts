@@ -52,7 +52,10 @@ const createTimedSignal = (
 
 const cancelResponseBody = (response: Response): void => {
   try {
-    void response.body?.cancel?.();
+    const cancelResult = response.body?.cancel?.();
+    if (cancelResult instanceof Promise) {
+      void cancelResult.catch(() => {});
+    }
   } catch {
     // Best effort only.
   }

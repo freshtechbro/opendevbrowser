@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   startDaemon: vi.fn(),
   readDaemonMetadata: vi.fn(),
   getCurrentDaemonFingerprint: vi.fn(),
+  isCurrentDaemonFingerprint: vi.fn(),
+  createDaemonStopHeaders: vi.fn(),
   fetchDaemonStatus: vi.fn(),
   loadGlobalConfig: vi.fn(),
   fetchWithTimeout: vi.fn(),
@@ -18,7 +20,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/cli/daemon", () => ({
   startDaemon: mocks.startDaemon,
   readDaemonMetadata: mocks.readDaemonMetadata,
-  getCurrentDaemonFingerprint: mocks.getCurrentDaemonFingerprint
+  getCurrentDaemonFingerprint: mocks.getCurrentDaemonFingerprint,
+  isCurrentDaemonFingerprint: mocks.isCurrentDaemonFingerprint,
+  createDaemonStopHeaders: mocks.createDaemonStopHeaders
 }));
 
 vi.mock("../src/config", () => ({
@@ -80,7 +84,7 @@ const makeConfig = (nativeExtensionId?: string): OpenDevBrowserConfig => ({
 });
 
 const CURRENT_UID = typeof process.getuid === "function" ? process.getuid() : 501;
-const DEFAULT_SERVE_COMMAND = `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --output-format json`;
+const DEFAULT_SERVE_COMMAND = `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --port 8788 --output-format json`;
 
 const makePsLine = (
   pid: number,
@@ -97,6 +101,13 @@ describe("serve command", () => {
     vi.resetAllMocks();
     mocks.readDaemonMetadata.mockReturnValue(null);
     mocks.getCurrentDaemonFingerprint.mockReturnValue("current-fingerprint");
+    mocks.isCurrentDaemonFingerprint.mockImplementation((fingerprint: string | null | undefined) => {
+      return fingerprint === "current-fingerprint";
+    });
+    mocks.createDaemonStopHeaders.mockImplementation((token: string, reason: string) => ({
+      Authorization: `Bearer ${token}`,
+      "x-test-stop-reason": reason
+    }));
     mocks.fetchDaemonStatus.mockResolvedValue(null);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true });
     mocks.getNativeStatusSnapshot.mockReturnValue({
@@ -114,6 +125,59 @@ describe("serve command", () => {
       state: { port: 8788, pid: 1234, relayPort: 8787 },
       stop: vi.fn()
     });
+  });
+
+  it("tags explicit stop requests for debug attribution", async () => {
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "current-fingerprint"
+    });
+
+    const result = await runServe(makeArgs(["--stop"]));
+
+    expect(result.success).toBe(true);
+    expect(mocks.createDaemonStopHeaders).toHaveBeenCalledWith("daemon-token", "serve.stop");
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/stop",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer daemon-token",
+          "x-test-stop-reason": "serve.stop"
+        }
+      }
+    );
+  });
+
+  it("reports stale fingerprint stop rejections with daemon details", async () => {
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "stale-fingerprint"
+    });
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: false, status: 409 });
+    mocks.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: makePsLine(8080)
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs(["--stop"]));
+
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(2);
+    expect(result.message).toContain("rejected stale stop request");
+    expect(result.message).toContain("127.0.0.1:8788 pid=8080");
+    expect(result.message).toContain("opendevbrowser status --daemon");
+    expect(killSpy).not.toHaveBeenCalled();
+    killSpy.mockRestore();
   });
 
   it("does not attempt native install when host is already installed", async () => {
@@ -179,6 +243,143 @@ describe("serve command", () => {
     });
     expect(mocks.startDaemon).not.toHaveBeenCalled();
     expect(mocks.getNativeStatusSnapshot).not.toHaveBeenCalled();
+    expect(killSpy).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+  });
+
+  it("stops a responsive daemon with mismatched fingerprint before starting current daemon", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString()
+    });
+    mocks.fetchDaemonStatus
+      .mockResolvedValueOnce({
+        ok: true,
+        pid: 8080,
+        fingerprint: "stale-fingerprint",
+        hub: { instanceId: "hub-1" },
+        relay: {
+          extensionConnected: false,
+          extensionHandshakeComplete: false,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          pairingRequired: false,
+          port: 8787,
+          tokenConfigured: true,
+          health: { status: "ok", reason: "ready" }
+        },
+        binding: null
+      })
+      .mockResolvedValueOnce(null);
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Daemon running on 127.0.0.1:8788 (relay 8787)");
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/stop",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer daemon-token",
+          "x-test-stop-reason": "serve.upgrade"
+        }
+      },
+      1000
+    );
+    expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
+  });
+
+  it("starts current daemon when mismatched daemon exits before stop", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString()
+    });
+    mocks.fetchDaemonStatus
+      .mockResolvedValueOnce({
+        ok: true,
+        pid: 8080,
+        fingerprint: "stale-fingerprint",
+        hub: { instanceId: "hub-1" },
+        relay: {
+          extensionConnected: false,
+          extensionHandshakeComplete: false,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          pairingRequired: false,
+          port: 8787,
+          tokenConfigured: true,
+          health: { status: "ok", reason: "ready" }
+        },
+        binding: null
+      })
+      .mockResolvedValueOnce(null);
+    mocks.fetchWithTimeout.mockRejectedValueOnce(new Error("socket closed"));
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Daemon running on 127.0.0.1:8788 (relay 8787)");
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/stop",
+      expect.objectContaining({ method: "POST" }),
+      1000
+    );
+    expect(mocks.fetchDaemonStatus).toHaveBeenNthCalledWith(2, 8788, "daemon-token", {
+      timeoutMs: 250
+    });
+    expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
+  });
+
+  it("refuses to reuse a fingerprint-protected mismatched daemon", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString()
+    });
+    mocks.fetchDaemonStatus.mockResolvedValueOnce({
+      ok: true,
+      pid: 8080,
+      fingerprint: "stale-fingerprint",
+      hub: { instanceId: "hub-1" },
+      relay: {
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false,
+        port: 8787,
+        tokenConfigured: true,
+        health: { status: "ok", reason: "ready" }
+      },
+      binding: null
+    });
+    mocks.fetchWithTimeout.mockResolvedValueOnce({ ok: false, status: 409 });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(2);
+    expect(result.message).toContain("protected by a different opendevbrowser build");
+    expect(mocks.startDaemon).not.toHaveBeenCalled();
     expect(killSpy).not.toHaveBeenCalled();
     killSpy.mockRestore();
   });
@@ -418,7 +619,7 @@ describe("serve command", () => {
     expect(result.message).toContain("opendevbrowser status --daemon");
   });
 
-  it("reuses the healthy requested-port daemon while evicting competing same-executable daemons", async () => {
+  it("reuses the healthy requested-port daemon while evicting only same-port competitors", async () => {
     const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     mocks.loadGlobalConfig.mockReturnValue(config);
     mocks.readDaemonMetadata.mockReturnValue({
@@ -460,19 +661,19 @@ describe("serve command", () => {
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("Daemon already running on 127.0.0.1:8788 (pid=8080, relay 8787).");
-    expect(result.message).toContain("Cleared 2 stale daemon processes.");
+    expect(result.message).toContain("Cleared 1 stale daemon process.");
     expect(result.data).toMatchObject({
       port: 8788,
       pid: 8080,
       relayPort: 8787,
       alreadyRunning: true,
-      staleDaemonsCleared: 2
+      staleDaemonsCleared: 1
     });
     expect(mocks.startDaemon).not.toHaveBeenCalled();
     expect(killSpy).toHaveBeenCalledWith(9999, "SIGTERM");
     expect(killSpy).toHaveBeenCalledWith(9999, "SIGKILL");
-    expect(killSpy).toHaveBeenCalledWith(2222, "SIGTERM");
-    expect(killSpy).toHaveBeenCalledWith(2222, "SIGKILL");
+    expect(killSpy).not.toHaveBeenCalledWith(2222, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalledWith(2222, "SIGKILL");
     expect(killSpy).not.toHaveBeenCalledWith(8080, "SIGTERM");
     killSpy.mockRestore();
   });
@@ -520,7 +721,7 @@ describe("serve command", () => {
       status: 0,
       stdout: [
         makePsLine(8888),
-        makePsLine(9999, { command: `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --port 8788 --output-format json` }),
+        makePsLine(9999, { command: `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --port=8788 --output-format json` }),
         makePsLine(2222, { command: `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --port 9999 --output-format json` })
       ].join("")
     });
@@ -529,14 +730,14 @@ describe("serve command", () => {
     const result = await runServe(makeArgs([]));
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("Cleared 3 stale daemon processes.");
+    expect(result.message).toContain("Cleared 2 stale daemon processes.");
     expect(mocks.startDaemon).toHaveBeenCalledTimes(1);
     expect(killSpy).toHaveBeenCalledWith(8888, "SIGTERM");
     expect(killSpy).toHaveBeenCalledWith(8888, "SIGKILL");
     expect(killSpy).toHaveBeenCalledWith(9999, "SIGTERM");
     expect(killSpy).toHaveBeenCalledWith(9999, "SIGKILL");
-    expect(killSpy).toHaveBeenCalledWith(2222, "SIGTERM");
-    expect(killSpy).toHaveBeenCalledWith(2222, "SIGKILL");
+    expect(killSpy).not.toHaveBeenCalledWith(2222, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalledWith(2222, "SIGKILL");
     expect(killSpy).not.toHaveBeenCalledWith(7777, "SIGTERM");
     expect(killSpy.mock.invocationCallOrder[0]).toBeLessThan(mocks.startDaemon.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER);
     killSpy.mockRestore();
@@ -607,7 +808,7 @@ describe("serve command", () => {
     killSpy.mockRestore();
   });
 
-  it("replaces a healthy daemon when fingerprint does not match", async () => {
+  it("stops a healthy daemon when fingerprint does not match", async () => {
     const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     mocks.loadGlobalConfig.mockReturnValue(config);
     mocks.readDaemonMetadata.mockReturnValue({
@@ -618,41 +819,39 @@ describe("serve command", () => {
       startedAt: new Date().toISOString(),
       fingerprint: "stale-fingerprint"
     });
-    mocks.fetchDaemonStatus.mockResolvedValue({
-      ok: true,
-      pid: 8080,
-      fingerprint: "stale-fingerprint",
-      hub: { instanceId: "hub-1" },
-      relay: {
-        extensionConnected: false,
-        extensionHandshakeComplete: false,
-        cdpConnected: false,
-        annotationConnected: false,
-        opsConnected: false,
-        pairingRequired: false,
-        port: 8787,
-        tokenConfigured: true,
-        health: { status: "ok", reason: "ready" }
-      },
-      binding: null
-    });
+    mocks.fetchDaemonStatus
+      .mockResolvedValueOnce({
+        ok: true,
+        pid: 8080,
+        fingerprint: "stale-fingerprint",
+        hub: { instanceId: "hub-1" },
+        relay: {
+          extensionConnected: false,
+          extensionHandshakeComplete: false,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          pairingRequired: false,
+          port: 8787,
+          tokenConfigured: true,
+          health: { status: "ok", reason: "ready" }
+        },
+        binding: null
+      })
+      .mockResolvedValueOnce(null);
     const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
 
     const result = await runServe(makeArgs([]));
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("Daemon running on 127.0.0.1:8788 (relay 8787)");
-    expect(result.message).toContain("Replaced stale daemon fingerprint.");
-    expect(result.message).toContain("Cleared 1 stale daemon process.");
+    expect(result.message).toBe("Daemon running on 127.0.0.1:8788 (relay 8787)");
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       "http://127.0.0.1:8788/stop",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({ Authorization: "Bearer daemon-token" })
-      })
+      expect.objectContaining({ method: "POST" }),
+      1000
     );
     expect(mocks.startDaemon).toHaveBeenCalledTimes(1);
-    expect(killSpy).not.toHaveBeenCalledWith(8080, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalled();
     killSpy.mockRestore();
   });
 
@@ -677,7 +876,7 @@ describe("serve command", () => {
     killSpy.mockRestore();
   });
 
-  it("evicts same-executable daemon processes on other ports before starting a new daemon", async () => {
+  it("does not evict same-executable daemon processes on other or unknown ports", async () => {
     const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     mocks.loadGlobalConfig.mockReturnValue(config);
     mocks.readDaemonMetadata.mockReturnValue({
@@ -697,9 +896,14 @@ describe("serve command", () => {
     });
     mocks.spawnSync.mockReturnValue({
       status: 0,
-      stdout: makePsLine(7777, {
-        command: `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --output-format json`
-      })
+      stdout: [
+        makePsLine(7777, {
+          command: `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --port 8788 --output-format json`
+        }),
+        makePsLine(8888, {
+          command: `${process.execPath} /repo/node_modules/.bin/opendevbrowser serve --output-format json`
+        })
+      ].join("")
     });
     mocks.startDaemon.mockResolvedValueOnce({
       state: { port: 9999, pid: 1234, relayPort: 8787 },
@@ -711,10 +915,9 @@ describe("serve command", () => {
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("Daemon running on 127.0.0.1:9999 (relay 8787)");
-    expect(result.message).toContain("Cleared 1 stale daemon process.");
+    expect(result.data?.staleDaemonsCleared).toBe(0);
     expect(mocks.startDaemon).toHaveBeenCalledWith({ port: 9999, token: undefined, config });
-    expect(killSpy).toHaveBeenCalledWith(7777, "SIGTERM");
-    expect(killSpy).toHaveBeenCalledWith(7777, "SIGKILL");
+    expect(killSpy).not.toHaveBeenCalled();
     killSpy.mockRestore();
   });
 });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
+import { CliError, EXIT_DISCONNECTED } from "../src/cli/errors";
 
 const mocks = vi.hoisted(() => ({
   fetchDaemonStatusFromMetadata: vi.fn(),
@@ -109,5 +110,45 @@ describe("status command", () => {
     );
     expect(result.message).toContain("opendevbrowser native install bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     expect(result.message).toContain("opendevbrowser serve");
+  });
+
+  it("classifies a missing daemon as disconnected", async () => {
+    mocks.fetchDaemonStatusFromMetadata.mockResolvedValue(null);
+    mocks.getNativeStatusSnapshot.mockReturnValue(mismatchStatus);
+
+    await expect(runStatus(makeArgs(["--daemon"]))).rejects.toMatchObject<CliError>({
+      message: "Daemon not running. Start with `opendevbrowser serve`.",
+      exitCode: EXIT_DISCONNECTED
+    });
+  });
+
+  it("surfaces daemon fingerprint mismatch in status output", async () => {
+    mocks.fetchDaemonStatusFromMetadata.mockResolvedValue({
+      ok: true,
+      pid: 1234,
+      fingerprintCurrent: false,
+      relay: {
+        port: 8787,
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        canvasConnected: false,
+        pairingRequired: false,
+        health: { reason: "extension_disconnected" }
+      },
+      binding: null
+    });
+    mocks.getNativeStatusSnapshot.mockReturnValue({
+      ...mismatchStatus,
+      mismatch: false
+    });
+
+    const result = await runStatus(makeArgs(["--daemon"]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Daemon fingerprint: mismatch with current build");
+    expect(result.data).toMatchObject({ fingerprintCurrent: false });
   });
 });

@@ -20,7 +20,7 @@ const DAEMON_LOG_DIR_PREFIX = "opendevbrowser-daemon-";
 const DAEMON_STDOUT_LOG = "daemon.stdout.log";
 const DAEMON_STDERR_LOG = "daemon.stderr.log";
 const DEFAULT_BACKGROUND_SHELL = process.env.SHELL || "/bin/sh";
-const BACKGROUND_NODE_COMMAND = "node";
+const BACKGROUND_NODE_COMMAND = JSON.stringify(process.execPath);
 
 function isValidPid(value) {
   return Number.isInteger(value) && value > 0;
