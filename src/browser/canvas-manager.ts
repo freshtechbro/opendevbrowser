@@ -3285,6 +3285,10 @@ export class CanvasManager implements CanvasManagerLike {
       return;
     }
     if (event.event === "canvas_session_closed" || event.event === "canvas_session_expired") {
+      const eventLeaseId = optionalString(payload.leaseId);
+      if (eventLeaseId !== session.leaseId) {
+        return;
+      }
       this.completeFeedbackSubscriptions(session, event.event === "canvas_session_closed" ? "session_closed" : "document_unloaded");
       this.sessionSyncManager.removeSession(session.canvasSessionId);
       this.codeSyncManager.disposeSession(session.canvasSessionId);

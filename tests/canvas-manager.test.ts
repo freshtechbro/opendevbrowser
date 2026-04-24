@@ -2871,7 +2871,7 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
     await internal.handleCanvasEvent({
       event: "canvas_session_closed",
       canvasSessionId: opened.canvasSessionId,
-      payload: { reason: "target_closed" }
+      payload: { leaseId: opened.leaseId, reason: "target_closed" }
     });
 
     expect(internal.sessions.has(opened.canvasSessionId)).toBe(false);
@@ -6010,6 +6010,30 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
     expect(await manager.execute("canvas.session.status", {
       canvasSessionId,
       clientId: "client-observer"
+    })).toMatchObject({
+      leaseId: reclaimed.leaseId,
+      leaseHolderClientId: "client-reclaimer"
+    });
+
+    await (manager as unknown as {
+      handleCanvasEvent: (event: { event: string; canvasSessionId: string; payload: Record<string, unknown> }) => Promise<void>;
+    }).handleCanvasEvent({
+      event: "canvas_session_closed",
+      canvasSessionId,
+      payload: { reason: "client_disconnected" }
+    });
+
+    await (manager as unknown as {
+      handleCanvasEvent: (event: { event: string; canvasSessionId: string; payload: Record<string, unknown> }) => Promise<void>;
+    }).handleCanvasEvent({
+      event: "canvas_session_closed",
+      canvasSessionId,
+      payload: { leaseId: originalLeaseId, reason: "client_disconnected" }
+    });
+
+    expect(await manager.execute("canvas.session.status", {
+      canvasSessionId,
+      clientId: "client-reclaimer"
     })).toMatchObject({
       leaseId: reclaimed.leaseId,
       leaseHolderClientId: "client-reclaimer"

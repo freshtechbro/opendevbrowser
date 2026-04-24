@@ -937,7 +937,7 @@ export class CanvasRuntime {
       clientId: session.ownerClientId,
       canvasSessionId: session.id,
       event: "canvas_session_expired",
-      payload: { reason }
+      payload: { reason, leaseId: session.leaseId }
     });
   }
 

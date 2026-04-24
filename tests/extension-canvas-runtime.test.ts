@@ -619,7 +619,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_event",
       canvasSessionId: "canvas_expire",
       event: "canvas_session_expired",
-      payload: expect.objectContaining({ reason: "client_disconnected" })
+      payload: expect.objectContaining({ leaseId: "lease-expire", reason: "client_disconnected" })
     }));
   });
 

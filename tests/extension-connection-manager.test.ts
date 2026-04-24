@@ -1012,7 +1012,7 @@ describe("ConnectionManager", () => {
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ pairingToken: null, tokenEpoch: null });
   });
 
-  it("clears stored relay identity when instance mismatches on reconnect", async () => {
+  it("persists the new relay identity after a healthy instance mismatch", async () => {
     const mock = createChromeMock({ relayInstanceId: "old-relay", relayEpoch: 1, pairingToken: "token" });
     globalThis.chrome = mock.chrome;
     const { ConnectionManager } = await import("../extension/src/services/ConnectionManager");
@@ -1030,6 +1030,12 @@ describe("ConnectionManager", () => {
     );
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ relayInstanceId: null, relayEpoch: null });
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ pairingToken: null, tokenEpoch: null });
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({
+      relayInstanceId: "test-relay",
+      relayEpoch: null
+    });
+    expect(relay.disconnect).not.toHaveBeenCalled();
+    expect(manager.getStatus()).toBe("connected");
   });
 
   it("reports missing active tab errors", async () => {

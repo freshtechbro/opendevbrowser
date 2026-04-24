@@ -637,6 +637,9 @@ export class ConnectionManager {
       if (!handshakeHealthy) {
         return;
       }
+      if (mismatch) {
+        this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
+      }
       logInfo("Relay WebSocket connected.");
       this.setStatus("connected");
       this.startHeartbeat();
