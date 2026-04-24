@@ -25,16 +25,59 @@ describe("sync-extension-version", () => {
     writeJson(path.join(repoRoot, "package.json"), { name: "opendevbrowser", version: "0.0.17" });
     writeJson(path.join(repoRoot, "extension", "manifest.json"), { version: "0.0.16" });
     writeJson(path.join(repoRoot, "extension", "package.json"), { name: "opendevbrowser-extension", version: "0.0.15" });
+    writeJson(path.join(repoRoot, "package-lock.json"), {
+      name: "opendevbrowser",
+      version: "0.0.14",
+      lockfileVersion: 3,
+      packages: {
+        "": {
+          name: "opendevbrowser",
+          version: "0.0.13"
+        }
+      }
+    });
 
     const result = syncExtensionVersion(repoRoot);
 
     expect(result.version).toBe("0.0.17");
-    expect(result.changedFiles).toEqual(["extension/manifest.json", "extension/package.json"]);
+    expect(result.changedFiles).toEqual([
+      "extension/manifest.json",
+      "extension/package.json",
+      "package-lock.json"
+    ]);
 
     const manifest = JSON.parse(readFileSync(path.join(repoRoot, "extension", "manifest.json"), "utf8"));
     const extensionPackage = JSON.parse(readFileSync(path.join(repoRoot, "extension", "package.json"), "utf8"));
+    const packageLock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
 
     expect(manifest.version).toBe("0.0.17");
     expect(extensionPackage.version).toBe("0.0.17");
+    expect(packageLock.version).toBe("0.0.17");
+    expect(packageLock.packages[""].version).toBe("0.0.17");
+  });
+
+  it("repairs a missing root lockfile package version without rewriting aligned top-level metadata", () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), "odb-sync-version-"));
+    tempDirs.push(repoRoot);
+
+    mkdirSync(path.join(repoRoot, "extension"), { recursive: true });
+    writeJson(path.join(repoRoot, "package.json"), { name: "opendevbrowser", version: "0.0.17" });
+    writeJson(path.join(repoRoot, "extension", "manifest.json"), { version: "0.0.17" });
+    writeJson(path.join(repoRoot, "extension", "package.json"), { name: "opendevbrowser-extension", version: "0.0.17" });
+    writeJson(path.join(repoRoot, "package-lock.json"), {
+      name: "opendevbrowser",
+      version: "0.0.17",
+      lockfileVersion: 3,
+      packages: {}
+    });
+
+    const result = syncExtensionVersion(repoRoot);
+
+    expect(result.version).toBe("0.0.17");
+    expect(result.changedFiles).toEqual(["package-lock.json"]);
+
+    const packageLock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
+    expect(packageLock.version).toBe("0.0.17");
+    expect(packageLock.packages[""].version).toBe("0.0.17");
   });
 });

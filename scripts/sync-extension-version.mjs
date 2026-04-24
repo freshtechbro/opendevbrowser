@@ -28,10 +28,34 @@ function syncVersionFile(filePath, version) {
   return true;
 }
 
+function syncPackageLockVersion(filePath, version) {
+  const json = readJson(filePath);
+  let changed = false;
+  if (json.version !== version) {
+    json.version = version;
+    changed = true;
+  }
+  if (json.packages?.[""]?.version !== version) {
+    json.packages = {
+      ...json.packages,
+      "": {
+        ...json.packages?.[""],
+        version
+      }
+    };
+    changed = true;
+  }
+  if (changed) {
+    writeJson(filePath, json);
+  }
+  return changed;
+}
+
 export function syncExtensionVersion(repoRoot = rootDir) {
   const packageJsonPath = join(repoRoot, "package.json");
   const manifestPath = join(repoRoot, "extension", "manifest.json");
   const extensionPackagePath = join(repoRoot, "extension", "package.json");
+  const packageLockPath = join(repoRoot, "package-lock.json");
 
   const pkg = readJson(packageJsonPath);
   const version = String(pkg.version ?? "");
@@ -45,6 +69,9 @@ export function syncExtensionVersion(repoRoot = rootDir) {
   }
   if (syncVersionFile(extensionPackagePath, version)) {
     changedFiles.push("extension/package.json");
+  }
+  if (syncPackageLockVersion(packageLockPath, version)) {
+    changedFiles.push("package-lock.json");
   }
 
   return {
