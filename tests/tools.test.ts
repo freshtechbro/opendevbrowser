@@ -688,16 +688,22 @@ describe("tools", () => {
     expect(deps.manager.status).toHaveBeenCalled();
   });
 
-  it("continues tool execution when ensureHub fails", async () => {
+  it("fails closed when ensureHub fails", async () => {
     const deps = createDeps();
     const ensureHub = vi.fn().mockRejectedValue(new Error("hub down"));
     const { createTools } = await import("../src/tools");
     const tools = createTools({ ...deps, ensureHub } as never);
 
     const statusResult = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
-    expect(statusResult.ok).toBe(true);
+    expect(statusResult).toMatchObject({
+      ok: false,
+      error: {
+        message: "hub down",
+        code: "hub_unavailable"
+      }
+    });
     expect(ensureHub).toHaveBeenCalledTimes(1);
-    expect(deps.manager.status).toHaveBeenCalled();
+    expect(deps.manager.status).not.toHaveBeenCalled();
   });
 
   it("does not wrap local skill tools with ensureHub", async () => {
@@ -2193,8 +2199,9 @@ describe("tools", () => {
       },
       binding: null
     };
+    const fetchDaemonStatusFromMetadata = vi.fn().mockResolvedValue(daemonStatus);
     vi.doMock("../src/cli/daemon-status", () => ({
-      fetchDaemonStatusFromMetadata: vi.fn().mockResolvedValue(daemonStatus)
+      fetchDaemonStatusFromMetadata
     }));
     const { createTools } = await import("../src/tools");
     const tools = createTools(deps as never);
@@ -2203,6 +2210,10 @@ describe("tools", () => {
     expect(result.ok).toBe(true);
     expect(result.hubEnabled).toBe(true);
     expect(result.daemon).toEqual(daemonStatus);
+    expect(fetchDaemonStatusFromMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({ relayToken: "token", relayPort: 8787 }),
+      expect.objectContaining({ timeoutMs: 5_000, retryAttempts: 5, retryDelayMs: 250 })
+    );
 
     vi.doUnmock("../src/cli/daemon-status");
   });
@@ -2244,8 +2255,9 @@ describe("tools", () => {
       },
       binding: null
     };
+    const fetchDaemonStatusFromMetadata = vi.fn().mockResolvedValue(daemonStatus);
     vi.doMock("../src/cli/daemon-status", () => ({
-      fetchDaemonStatusFromMetadata: vi.fn().mockResolvedValue(daemonStatus)
+      fetchDaemonStatusFromMetadata
     }));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -2258,6 +2270,10 @@ describe("tools", () => {
     const result = parse(await tools.opendevbrowser_status.execute({ sessionId: "s1" } as never));
     expect(result.mode).toBe("managed");
     expect(result.updateHint).toContain("Update available");
+    expect(fetchDaemonStatusFromMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({ relayToken: "token", relayPort: 8787, checkForUpdates: true }),
+      expect.objectContaining({ timeoutMs: 5_000, retryAttempts: 5, retryDelayMs: 250 })
+    );
 
     vi.doUnmock("../src/cli/daemon-status");
   });

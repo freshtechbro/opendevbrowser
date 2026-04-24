@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../args";
-import { createUsageError } from "../errors";
+import { createDisconnectedError, createUsageError } from "../errors";
 import { fetchDaemonStatusFromMetadata } from "../daemon-status";
+import { DEFAULT_DAEMON_STATUS_FETCH_OPTIONS } from "../daemon-status-policy";
 import { runSessionStatus } from "./session/status";
 import { assessNativeStatus, getNativeStatusSnapshot } from "./native";
 
@@ -8,12 +9,6 @@ type StatusArgs = {
   sessionId?: string;
   daemon: boolean;
 };
-
-const DAEMON_STATUS_READ_OPTIONS = {
-  timeoutMs: 5_000,
-  retryAttempts: 5,
-  retryDelayMs: 250
-} as const;
 
 const parseStatusArgs = (rawArgs: string[]): StatusArgs => {
   const parsed: StatusArgs = { daemon: false };
@@ -59,16 +54,20 @@ export async function runStatus(args: ParsedArgs) {
     };
   }
 
-  const daemonStatus = await fetchDaemonStatusFromMetadata(undefined, DAEMON_STATUS_READ_OPTIONS);
+  const daemonStatus = await fetchDaemonStatusFromMetadata(undefined, DEFAULT_DAEMON_STATUS_FETCH_OPTIONS);
   if (!daemonStatus) {
-    throw createUsageError("Daemon not running. Start with `opendevbrowser serve`.");
+    throw createDisconnectedError("Daemon not running. Start with `opendevbrowser serve`.");
   }
 
   const nativeStatus = getNativeStatusSnapshot();
   const nativeAssessment = assessNativeStatus(nativeStatus);
+  const fingerprintLine = daemonStatus.fingerprintCurrent === false
+    ? "Daemon fingerprint: mismatch with current build"
+    : "Daemon fingerprint: current";
 
   const baseLines = [
     `Daemon OK (pid=${daemonStatus.pid})`,
+    fingerprintLine,
     `Relay: port=${daemonStatus.relay.port ?? "n/a"} ext=${daemonStatus.relay.extensionConnected ? "on" : "off"} ` +
       `handshake=${daemonStatus.relay.extensionHandshakeComplete ? "on" : "off"} ` +
       `cdp=${daemonStatus.relay.cdpConnected ? "on" : "off"} ` +
@@ -84,7 +83,7 @@ export async function runStatus(args: ParsedArgs) {
     "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, annotate=annotation channel, ops=ops clients, canvas=canvas clients, pairing=token required, health=relay status"
   ];
   if (!nativeAssessment.success) {
-    baseLines.splice(3, 0, `Native detail: ${nativeAssessment.message}`);
+    baseLines.splice(4, 0, `Native detail: ${nativeAssessment.message}`);
   }
   const baseMessage = baseLines.join("\n");
 

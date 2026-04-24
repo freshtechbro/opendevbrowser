@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { createHash, timingSafeEqual } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { homedir } from "os";
-import { join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { generateSecureToken } from "../utils/crypto";
 import { createOpenDevBrowserCore } from "../core";
@@ -11,6 +11,11 @@ import { handleDaemonCommand, type DaemonCommandRequest } from "./daemon-command
 import { clearBinding, getBindingDiagnostics, getHubInstanceId } from "./daemon-state";
 
 const DEFAULT_DAEMON_PORT = 8788;
+export const DAEMON_STOP_DEBUG_ENV = "OPDEVBROWSER_DEBUG_DAEMON_STOP";
+const DAEMON_FINGERPRINT_FILE = "daemon-fingerprint.json";
+export const DAEMON_STOP_REASON_HEADER = "x-opendevbrowser-stop-reason";
+export const DAEMON_STOP_CLIENT_PID_HEADER = "x-opendevbrowser-stop-client-pid";
+export const DAEMON_STOP_FINGERPRINT_HEADER = "x-opendevbrowser-stop-fingerprint";
 
 const RECOVERABLE_PLAYWRIGHT_TRANSPORT_ERRORS = [
   "Cannot find context with specified id",
@@ -107,19 +112,45 @@ function hashFileContents(entryPath: string): string {
   }
 }
 
+function resolveDaemonFingerprintDistRoot(modulePath: string): string | null {
+  let currentDir = dirname(modulePath);
+  while (true) {
+    if (basename(currentDir) === "dist") {
+      return currentDir;
+    }
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
+  }
+  return null;
+}
+
+function readDaemonFingerprintArtifact(modulePath: string): string | null {
+  const distRoot = resolveDaemonFingerprintDistRoot(modulePath);
+  if (distRoot === null) {
+    return null;
+  }
+  try {
+    const content = readFileSync(join(distRoot, DAEMON_FINGERPRINT_FILE), "utf-8");
+    const payload = JSON.parse(content) as { fingerprint?: unknown };
+    if (typeof payload.fingerprint === "string" && payload.fingerprint.trim().length > 0) {
+      return payload.fingerprint.trim();
+    }
+  } catch {
+    // Fall back to the local module hash below.
+  }
+  return null;
+}
+
 export function getCurrentDaemonFingerprint(options: ResolveDaemonEntrypointOptions = {}): string {
-  const entryPath = resolveCurrentDaemonEntrypointPath(options);
   const modulePath = resolve(fileURLToPath(options.moduleUrl ?? import.meta.url));
+  const sharedFingerprint = readDaemonFingerprintArtifact(modulePath);
   const fingerprintParts = [
     DAEMON_FINGERPRINT_VERSION,
-    process.execPath,
-    entryPath,
-    hashFileContents(entryPath)
+    sharedFingerprint ?? hashFileContents(modulePath)
   ];
-
-  if (modulePath !== entryPath) {
-    fingerprintParts.push(modulePath, hashFileContents(modulePath));
-  }
 
   return createHash("sha256")
     .update(fingerprintParts.join("\n"))
@@ -128,6 +159,18 @@ export function getCurrentDaemonFingerprint(options: ResolveDaemonEntrypointOpti
 
 export function isCurrentDaemonFingerprint(fingerprint?: string | null): boolean {
   return typeof fingerprint === "string" && fingerprint === getCurrentDaemonFingerprint();
+}
+
+export function createDaemonStopHeaders(token: string, reason: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    [DAEMON_STOP_FINGERPRINT_HEADER]: getCurrentDaemonFingerprint(),
+    [DAEMON_STOP_REASON_HEADER]: reason
+  };
+  if (process.env[DAEMON_STOP_DEBUG_ENV] === "1") {
+    headers[DAEMON_STOP_CLIENT_PID_HEADER] = String(process.pid);
+  }
+  return headers;
 }
 
 export function resolveDaemonFingerprint(...candidates: Array<string | null | undefined>): string {
@@ -176,6 +219,22 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
     "Cache-Control": "no-store"
   });
   response.end(JSON.stringify(payload));
+}
+
+function logDaemonStopDebug(message: string, details?: Record<string, unknown>): void {
+  if (process.env[DAEMON_STOP_DEBUG_ENV] !== "1") {
+    return;
+  }
+  const suffix = details ? ` ${JSON.stringify(details)}` : "";
+  console.error(`[daemon-stop-debug] ${message}${suffix}`);
+}
+
+function readSingleHeader(request: IncomingMessage, name: string): string | null {
+  const value = request.headers[name];
+  if (typeof value === "string") {
+    return value;
+  }
+  return null;
 }
 
 const isDaemonCommandRequest = (value: Record<string, unknown>): value is DaemonCommandRequest => {
@@ -237,8 +296,20 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
     }
 
     if (request.method === "POST" && url.pathname === "/stop") {
+      const stopFingerprint = readSingleHeader(request, DAEMON_STOP_FINGERPRINT_HEADER);
+      logDaemonStopDebug("http.stop", {
+        remoteAddress: request.socket.remoteAddress ?? null,
+        remotePort: request.socket.remotePort ?? null,
+        reason: readSingleHeader(request, DAEMON_STOP_REASON_HEADER),
+        clientPid: readSingleHeader(request, DAEMON_STOP_CLIENT_PID_HEADER),
+        fingerprintMatches: stopFingerprint === fingerprint
+      });
+      if (stopFingerprint !== fingerprint) {
+        sendJson(response, 409, { ok: false, error: "Stale daemon stop request." });
+        return;
+      }
       sendJson(response, 200, { ok: true });
-      await stop();
+      await stop("http.stop");
       return;
     }
 
@@ -298,7 +369,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
       return;
     }
     console.error(error);
-    void stop().finally(() => {
+    void stop("uncaughtException").finally(() => {
       process.exitCode = 1;
     });
   };
@@ -308,16 +379,17 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
       return;
     }
     console.error(reason);
-    void stop().finally(() => {
+    void stop("unhandledRejection").finally(() => {
       process.exitCode = 1;
     });
   };
 
-  const stop = async () => {
+  const stop = async (reason = "unknown") => {
     if (stopping) {
       return;
     }
     stopping = true;
+    logDaemonStopDebug("stop.begin", { reason });
     clearDaemonMetadata();
     clearBinding();
     process.off("SIGINT", sigintHandler);
@@ -328,13 +400,14 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
+    logDaemonStopDebug("stop.complete", { reason });
   };
 
   const sigintHandler = () => {
-    stop().catch(() => {});
+    void stop("SIGINT").catch(() => {});
   };
   const sigtermHandler = () => {
-    stop().catch(() => {});
+    void stop("SIGTERM").catch(() => {});
   };
 
   process.on("SIGINT", sigintHandler);

@@ -20,6 +20,12 @@ const installAutostart = vi.fn();
 const uninstallAutostart = vi.fn();
 const getAutostartStatus = vi.fn();
 const fetchDaemonStatusFromMetadata = vi.fn(async () => null);
+const readDaemonMetadata = vi.fn(() => null);
+const createDaemonStopHeaders = vi.fn((token: string, reason: string) => ({
+  Authorization: `Bearer ${token}`,
+  "x-test-stop-reason": reason
+}));
+const fetchWithTimeout = vi.fn(async () => ({ ok: true }));
 const STABLE_DAEMON_INSTALL_GUIDANCE =
   "Run opendevbrowser daemon install from a stable installation path.";
 const isTransientAutostartInstallError = vi.fn((error: unknown) => {
@@ -40,11 +46,12 @@ vi.mock("../src/cli/daemon-status", () => ({
 }));
 
 vi.mock("../src/cli/daemon", () => ({
-  readDaemonMetadata: vi.fn(() => null)
+  createDaemonStopHeaders,
+  readDaemonMetadata
 }));
 
 vi.mock("../src/cli/utils/http", () => ({
-  fetchWithTimeout: vi.fn(async () => ({ ok: true }))
+  fetchWithTimeout
 }));
 
 const buildArgs = (rawArgs: string[]): ParsedArgs => ({
@@ -74,6 +81,12 @@ describe("daemon command", () => {
     }));
     getAutostartStatus.mockReturnValue(makeAutostartStatus());
     fetchDaemonStatusFromMetadata.mockResolvedValue(null);
+    readDaemonMetadata.mockReturnValue(null);
+    createDaemonStopHeaders.mockImplementation((token: string, reason: string) => ({
+      Authorization: `Bearer ${token}`,
+      "x-test-stop-reason": reason
+    }));
+    fetchWithTimeout.mockResolvedValue({ ok: true });
   });
 
   it("installs autostart", async () => {
@@ -113,6 +126,61 @@ describe("daemon command", () => {
     expect(uninstallAutostart).toHaveBeenCalledTimes(1);
   });
 
+  it("tags uninstall stop requests for debug attribution", async () => {
+    readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "current-fingerprint"
+    });
+
+    const { runDaemonCommand } = await import("../src/cli/commands/daemon");
+    const result = await runDaemonCommand(buildArgs(["uninstall"]));
+
+    expect(result.success).toBe(true);
+    expect(createDaemonStopHeaders).toHaveBeenCalledWith("daemon-token", "daemon.uninstall");
+    expect(fetchWithTimeout).toHaveBeenCalledWith(
+      "http://127.0.0.1:8788/stop",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer daemon-token",
+          "x-test-stop-reason": "daemon.uninstall"
+        }
+      }
+    );
+  });
+
+  it("reports stale fingerprint stop rejections during uninstall", async () => {
+    readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "stale-fingerprint"
+    });
+    fetchWithTimeout.mockResolvedValue({ ok: false, status: 409 });
+
+    const { runDaemonCommand } = await import("../src/cli/commands/daemon");
+    const result = await runDaemonCommand(buildArgs(["uninstall"]));
+
+    expect(result.success).toBe(false);
+    expect(resolveExitCode(result)).toBe(2);
+    expect(result.message).toContain("rejected the stop request as stale");
+    expect(result.message).toContain("127.0.0.1:8788 pid=8080");
+    expect(result.message).toContain("opendevbrowser status --daemon");
+    expect(result.data).toMatchObject({
+      stop: {
+        outcome: "fingerprint_rejected",
+        pid: 8080,
+        port: 8788
+      }
+    });
+  });
+
   it("returns healthy running status with nested autostart data", async () => {
     fetchDaemonStatusFromMetadata.mockResolvedValue({ pid: 1234, port: 0 });
 
@@ -124,6 +192,10 @@ describe("daemon command", () => {
     expect(result.message).toContain("healthy");
     expect((result.data as { autostart: AutostartStatus }).autostart.health).toBe("healthy");
     expect((result.data as { status: { pid: number } }).status.pid).toBe(1234);
+    expect(fetchDaemonStatusFromMetadata).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ timeoutMs: 5_000, retryAttempts: 5, retryDelayMs: 250 })
+    );
   });
 
   it("keeps status successful when autostart is missing but daemon is running", async () => {

@@ -70,6 +70,7 @@ import { createInspiredesignRunTool } from "./inspiredesign_run";
 import { createCanvasTool } from "./canvas";
 import { createSkillListTool } from "./skill_list";
 import { createSkillLoadTool } from "./skill_load";
+import { failure, serializeError } from "./response";
 import onboardingMetadata from "../cli/onboarding-metadata.json";
 export type { ToolSurfaceEntry } from "../public-surface/source";
 export { TOOL_SURFACE_ENTRIES } from "../public-surface/generated-manifest";
@@ -84,8 +85,9 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
       execute: async (args, context) => {
         try {
           await deps.ensureHub?.();
-        } catch {
-          // Fall through to tool execution; tool-level error handling will surface issues.
+        } catch (error) {
+          const serialized = serializeError(error);
+          return failure(serialized.message, serialized.code ?? "hub_unavailable", serialized.details);
         }
         return definition.execute(args, context);
       }

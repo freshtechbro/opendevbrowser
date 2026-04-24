@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   persistDaemonStatusMetadata: vi.fn(),
   getCacheRoot: vi.fn(() => "/tmp/odb-daemon-client"),
   isCurrentDaemonFingerprint: vi.fn(),
+  createDaemonStopHeaders: vi.fn((token: string) => ({
+    Authorization: `Bearer ${token}`,
+    "x-opendevbrowser-stop-fingerprint": "current-fingerprint"
+  })),
   resolveCurrentDaemonEntrypointPath: vi.fn(),
   loadGlobalConfig: vi.fn(),
   fetchDaemonStatus: vi.fn(),
@@ -24,6 +28,8 @@ vi.mock("../src/cli/utils/http", () => ({
 }));
 
 vi.mock("../src/cli/daemon", () => ({
+  DAEMON_STOP_DEBUG_ENV: "OPDEVBROWSER_DEBUG_DAEMON_STOP",
+  createDaemonStopHeaders: mocks.createDaemonStopHeaders,
   readDaemonMetadata: mocks.readDaemonMetadata,
   getCacheRoot: mocks.getCacheRoot,
   isCurrentDaemonFingerprint: mocks.isCurrentDaemonFingerprint,
@@ -66,6 +72,7 @@ describe("daemon-client retry timeout propagation", () => {
     mocks.persistDaemonStatusMetadata.mockReset();
     mocks.getCacheRoot.mockReset();
     mocks.isCurrentDaemonFingerprint.mockReset();
+    mocks.createDaemonStopHeaders.mockReset();
     mocks.resolveCurrentDaemonEntrypointPath.mockReset();
     mocks.loadGlobalConfig.mockReset();
     mocks.fetchDaemonStatus.mockReset();
@@ -74,6 +81,10 @@ describe("daemon-client retry timeout propagation", () => {
     process.execArgv = [];
 
     mocks.getCacheRoot.mockReturnValue("/tmp/odb-daemon-client");
+    mocks.createDaemonStopHeaders.mockImplementation((token: string) => ({
+      Authorization: `Bearer ${token}`,
+      "x-opendevbrowser-stop-fingerprint": "current-fingerprint"
+    }));
     mocks.resolveCurrentDaemonEntrypointPath.mockImplementation((options?: { argv1?: string }) => {
       const rawEntry = options?.argv1 ?? process.argv[1];
       return typeof rawEntry === "string" && rawEntry.trim().length > 0
@@ -167,7 +178,10 @@ describe("daemon-client retry timeout propagation", () => {
       "http://127.0.0.1:8788/stop",
       expect.objectContaining({
         method: "POST",
-        headers: { Authorization: "Bearer stale-token" }
+        headers: {
+          Authorization: "Bearer stale-token",
+          "x-opendevbrowser-stop-fingerprint": "current-fingerprint"
+        }
       }),
       5_000
     );
@@ -281,7 +295,10 @@ describe("daemon-client retry timeout propagation", () => {
       "http://127.0.0.1:8788/stop",
       expect.objectContaining({
         method: "POST",
-        headers: { Authorization: "Bearer fresh-token" }
+        headers: {
+          Authorization: "Bearer fresh-token",
+          "x-opendevbrowser-stop-fingerprint": "current-fingerprint"
+        }
       }),
       5_000
     );
@@ -371,7 +388,10 @@ describe("daemon-client retry timeout propagation", () => {
         "http://127.0.0.1:8788/stop",
         expect.objectContaining({
           method: "POST",
-          headers: { Authorization: "Bearer fresh-token" }
+          headers: {
+            Authorization: "Bearer fresh-token",
+            "x-opendevbrowser-stop-fingerprint": "current-fingerprint"
+          }
         }),
         5_000
       );
@@ -438,7 +458,10 @@ describe("daemon-client retry timeout propagation", () => {
         "http://127.0.0.1:8788/stop",
         expect.objectContaining({
           method: "POST",
-          headers: { Authorization: "Bearer fresh-token" }
+          headers: {
+            Authorization: "Bearer fresh-token",
+            "x-opendevbrowser-stop-fingerprint": "current-fingerprint"
+          }
         }),
         1_000
       );
@@ -490,7 +513,10 @@ describe("daemon-client retry timeout propagation", () => {
       "http://127.0.0.1:8788/stop",
       expect.objectContaining({
         method: "POST",
-        headers: { Authorization: "Bearer fresh-token" }
+        headers: {
+          Authorization: "Bearer fresh-token",
+          "x-opendevbrowser-stop-fingerprint": "current-fingerprint"
+        }
       }),
       5_000
     );
