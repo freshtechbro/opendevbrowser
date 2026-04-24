@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -57,6 +57,7 @@ export type AutostartDeps = {
   homedir?: () => string;
   existsSync?: typeof existsSync;
   mkdirSync?: typeof mkdirSync;
+  statSync?: typeof statSync;
   writeFileSync?: typeof writeFileSync;
   unlinkSync?: typeof unlinkSync;
   execFileSync?: typeof execFileSync;
@@ -82,6 +83,7 @@ const defaultDeps = (): ResolvedAutostartDeps => ({
   homedir,
   existsSync,
   mkdirSync,
+  statSync,
   writeFileSync,
   unlinkSync,
   execFileSync,
@@ -96,6 +98,16 @@ const formatCommand = (programArguments: string[]): string => {
 
 const resolveMacWorkingDirectory = (home: string): string => {
   return join(home, ".cache", "opendevbrowser");
+};
+
+const pathIsDirectory = (path: string, deps: Pick<ResolvedAutostartDeps, "existsSync" | "statSync">): boolean => {
+  if (!deps.existsSync(path)) return false;
+
+  try {
+    return deps.statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 };
 
 const resolveCliPathFromModule = (moduleUrl: string, exists: typeof existsSync): string => {
@@ -416,6 +428,18 @@ const classifyMacAutostartStatus = (
   }
 
   if (parsed.workingDirectory !== expectedWorkingDirectory) {
+    return createMacAutostartStatus(entrypoint, location, {
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      command: parsed.command,
+      workingDirectory: parsed.workingDirectory,
+      expectedWorkingDirectory,
+      reason: "working_directory_mismatch"
+    });
+  }
+
+  if (!pathIsDirectory(expectedWorkingDirectory, deps)) {
     return createMacAutostartStatus(entrypoint, location, {
       installed: true,
       health: "needs_repair",

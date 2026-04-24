@@ -43,14 +43,22 @@ const createDarwinStatusFixture = (
     plistExists?: boolean;
     programArguments?: string[];
     workingDirectory?: string | null;
+    workingDirectoryState?: "directory" | "file" | "missing";
   } = {}
 ) => {
   const { cliPath, root, transientEntrypointRoots } = createCliFixture({
     transient: options.currentCliTransient
   });
   const home = join(root, "home");
+  const expectedWorkingDirectory = join(home, ".cache", "opendevbrowser");
   const plistPath = join(home, "Library", "LaunchAgents", "com.opendevbrowser.daemon.plist");
   mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
+  if (options.workingDirectoryState === "file") {
+    mkdirSync(join(expectedWorkingDirectory, ".."), { recursive: true });
+    writeFileSync(expectedWorkingDirectory, "not a directory", "utf-8");
+  } else if (options.workingDirectoryState !== "missing") {
+    mkdirSync(expectedWorkingDirectory, { recursive: true });
+  }
   if (options.plistExists !== false) {
     writeFileSync(plistPath, "plist", "utf-8");
   }
@@ -65,7 +73,7 @@ const createDarwinStatusFixture = (
       : {
         ProgramArguments: options.programArguments ?? [entrypoint.nodePath, ...entrypoint.args],
         ...(options.workingDirectory !== null
-          ? { WorkingDirectory: options.workingDirectory ?? join(home, ".cache", "opendevbrowser") }
+          ? { WorkingDirectory: options.workingDirectory ?? expectedWorkingDirectory }
           : {})
       };
     return JSON.stringify(payload);
@@ -321,6 +329,52 @@ describe("getAutostartStatus", () => {
       reason: "working_directory_mismatch",
       workingDirectory: "/",
       expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+  });
+
+  it("repairs macOS plists whose configured working directory was deleted", () => {
+    const { deps } = createDarwinStatusFixture({ workingDirectoryState: "missing" });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "working_directory_mismatch",
+      workingDirectory: expect.stringContaining("opendevbrowser"),
+      expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+  });
+
+  it("repairs macOS plists whose configured working directory is a file", () => {
+    const { deps } = createDarwinStatusFixture({ workingDirectoryState: "file" });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "working_directory_mismatch",
+      workingDirectory: expect.stringContaining("opendevbrowser"),
+      expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+  });
+
+  it("reports program argument repair before deleted working directory repair", () => {
+    const { deps, entrypoint } = createDarwinStatusFixture({ workingDirectoryState: "missing" });
+    const status = getAutostartStatus({
+      ...deps,
+      execFileSync: vi.fn(() => JSON.stringify({
+        ProgramArguments: [entrypoint.nodePath, "/missing/opendevbrowser.js", "serve"],
+        WorkingDirectory: join(deps.homedir(), ".cache", "opendevbrowser")
+      }))
+    });
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "missing_cli_path"
     });
   });
 
