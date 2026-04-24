@@ -27,6 +27,7 @@ export type AutostartReason =
   | "missing_node_path"
   | "missing_cli_path"
   | "transient_cli_path"
+  | "working_directory_mismatch"
   | "entrypoint_mismatch"
   | "unsupported_platform";
 
@@ -40,6 +41,8 @@ export type AutostartStatus = {
   taskName?: string;
   command?: string;
   expectedCommand?: string;
+  workingDirectory?: string;
+  expectedWorkingDirectory?: string;
   label?: string;
   reason?: AutostartReason;
 };
@@ -64,7 +67,7 @@ type ResolvedAutostartDeps = Required<Omit<AutostartDeps, "transientEntrypointRo
   & Pick<AutostartDeps, "transientEntrypointRoots">;
 
 type MacLaunchAgentParseResult =
-  | { ok: true; command: string; programArguments: string[] }
+  | { ok: true; command: string; programArguments: string[]; workingDirectory?: string }
   | { ok: false; reason: "missing_program_arguments" | "malformed_plist" };
 
 type WindowsTaskActionParseResult =
@@ -89,6 +92,10 @@ const NPX_CACHE_SEGMENT_PATTERN = /[\\/]_npx(?:[\\/]|$)/;
 
 const formatCommand = (programArguments: string[]): string => {
   return programArguments.map((value) => `"${value}"`).join(" ");
+};
+
+const resolveMacWorkingDirectory = (home: string): string => {
+  return join(home, ".cache", "opendevbrowser");
 };
 
 const resolveCliPathFromModule = (moduleUrl: string, exists: typeof existsSync): string => {
@@ -170,11 +177,12 @@ export const getLaunchAgentPath = (home = homedir()): string => {
 
 export const buildLaunchAgentPlist = (
   entrypoint: CliEntrypoint,
-  options: { label?: string; stdoutPath?: string; stderrPath?: string } = {}
+  options: { label?: string; stdoutPath?: string; stderrPath?: string; workingDirectory?: string } = {}
 ): string => {
   const label = options.label ?? MAC_LABEL;
   const stdoutPath = options.stdoutPath ?? join(homedir(), "Library", "Logs", "opendevbrowser-daemon.log");
   const stderrPath = options.stderrPath ?? join(homedir(), "Library", "Logs", "opendevbrowser-daemon.err.log");
+  const workingDirectory = options.workingDirectory ?? resolveMacWorkingDirectory(homedir());
   const programArgs = [entrypoint.nodePath, ...entrypoint.args]
     .map((value) => `      <string>${value}</string>`)
     .join("\n");
@@ -194,6 +202,8 @@ export const buildLaunchAgentPlist = (
     "  <true/>",
     "  <key>KeepAlive</key>",
     "  <true/>",
+    "  <key>WorkingDirectory</key>",
+    `  <string>${workingDirectory}</string>`,
     "  <key>StandardOutPath</key>",
     `  <string>${stdoutPath}</string>`,
     "  <key>StandardErrorPath</key>",
@@ -337,8 +347,11 @@ const readMacLaunchAgentProgramArguments = (
 ): MacLaunchAgentParseResult => {
   try {
     const text = deps.execFileSync("plutil", ["-convert", "json", "-o", "-", plistPath], { encoding: "utf-8" }) as string;
-    const parsed = JSON.parse(text) as { ProgramArguments?: unknown };
+    const parsed = JSON.parse(text) as { ProgramArguments?: unknown; WorkingDirectory?: unknown };
     const programArguments = parsed?.ProgramArguments;
+    const workingDirectory = typeof parsed?.WorkingDirectory === "string"
+      ? parsed.WorkingDirectory
+      : undefined;
     if (
       !Array.isArray(programArguments)
       || programArguments.length < 2
@@ -350,7 +363,8 @@ const readMacLaunchAgentProgramArguments = (
     return {
       ok: true,
       command: formatCommand(commandArgs),
-      programArguments: commandArgs
+      programArguments: commandArgs,
+      ...(workingDirectory ? { workingDirectory } : {})
     };
   } catch {
     return { ok: false, reason: "malformed_plist" };
@@ -372,11 +386,13 @@ const classifyMacAutostartStatus = (
   }
 
   const parsed = readMacLaunchAgentProgramArguments(location, deps);
+  const expectedWorkingDirectory = resolveMacWorkingDirectory(deps.homedir());
   if (!parsed.ok) {
     return createMacAutostartStatus(entrypoint, location, {
       installed: true,
       health: "malformed",
       needsRepair: true,
+      expectedWorkingDirectory,
       reason: parsed.reason
     });
   }
@@ -393,7 +409,21 @@ const classifyMacAutostartStatus = (
       health: "needs_repair",
       needsRepair: true,
       command: parsed.command,
+      workingDirectory: parsed.workingDirectory,
+      expectedWorkingDirectory,
       reason: actualStatus.reason
+    });
+  }
+
+  if (parsed.workingDirectory !== expectedWorkingDirectory) {
+    return createMacAutostartStatus(entrypoint, location, {
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      command: parsed.command,
+      workingDirectory: parsed.workingDirectory,
+      expectedWorkingDirectory,
+      reason: "working_directory_mismatch"
     });
   }
 
@@ -402,7 +432,9 @@ const classifyMacAutostartStatus = (
       installed: true,
       health: "healthy",
       needsRepair: false,
-      command: parsed.command
+      command: parsed.command,
+      workingDirectory: parsed.workingDirectory,
+      expectedWorkingDirectory
     });
   }
 
@@ -413,6 +445,8 @@ const classifyMacAutostartStatus = (
       health: "needs_repair",
       needsRepair: true,
       command: parsed.command,
+      workingDirectory: parsed.workingDirectory,
+      expectedWorkingDirectory,
       reason: mismatchReason
     });
   }
@@ -421,7 +455,9 @@ const classifyMacAutostartStatus = (
     installed: true,
     health: "healthy",
     needsRepair: false,
-    command: parsed.command
+    command: parsed.command,
+    workingDirectory: parsed.workingDirectory,
+    expectedWorkingDirectory
   });
 };
 
@@ -459,12 +495,14 @@ const installMacAutostart = (deps: AutostartDeps = {}): AutostartInstallResult =
   const plistPath = getLaunchAgentPath(home);
   const stdoutPath = join(home, "Library", "Logs", "opendevbrowser-daemon.log");
   const stderrPath = join(home, "Library", "Logs", "opendevbrowser-daemon.err.log");
+  const workingDirectory = resolveMacWorkingDirectory(home);
   const logsDir = dirname(stdoutPath);
   resolved.mkdirSync(dirname(plistPath), { recursive: true });
   resolved.mkdirSync(logsDir, { recursive: true });
+  resolved.mkdirSync(workingDirectory, { recursive: true });
   resolved.writeFileSync(
     plistPath,
-    buildLaunchAgentPlist(entrypoint, { stdoutPath, stderrPath }),
+    buildLaunchAgentPlist(entrypoint, { stdoutPath, stderrPath, workingDirectory }),
     { encoding: "utf-8" }
   );
 
@@ -478,7 +516,9 @@ const installMacAutostart = (deps: AutostartDeps = {}): AutostartInstallResult =
     installed: true,
     health: "healthy",
     needsRepair: false,
-    command: entrypoint.command
+    command: entrypoint.command,
+    workingDirectory,
+    expectedWorkingDirectory: workingDirectory
   });
 };
 

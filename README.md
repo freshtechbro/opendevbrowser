@@ -119,7 +119,7 @@ Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if yo
 
 See [docs/FIRST_RUN_ONBOARDING.md](docs/FIRST_RUN_ONBOARDING.md) for the full onboarding checklist, [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for runtime inventory, and [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the live CLI and tool surface.
 
-Successful installs reconcile daemon auto-start on supported platforms so the relay is available on login. If the current CLI entrypoint lives under a transient temp-root path such as a first-run `/tmp` or `/private/tmp` workspace, OpenDevBrowser refuses to persist that path as auto-start. Rerun `opendevbrowser daemon install`, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, from a stable install location if you want login auto-start; remove it later with `opendevbrowser daemon uninstall`.
+Successful installs reconcile daemon auto-start on supported platforms so the relay is available on login. macOS LaunchAgents persist a stable `WorkingDirectory` under `~/.cache/opendevbrowser` so launchd does not start the daemon from `/`. If the current CLI entrypoint lives under a transient temp-root path such as a first-run `/tmp` or `/private/tmp` workspace, OpenDevBrowser refuses to persist that path as auto-start. Rerun `opendevbrowser daemon install`, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, from a stable install location if you want login auto-start; remove it later with `opendevbrowser daemon uninstall`.
 
 Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. `npx opendevbrowser` manages global or project-local targets according to the selected skills mode, and package installation (`npm install -g`, local tarball install, or equivalent) best-effort syncs the canonical bundled packs into the managed global targets during package `postinstall`. See [docs/CLI.md](docs/CLI.md) for exact target paths.
 
@@ -240,7 +240,8 @@ npx opendevbrowser click --session-id <session-id> --ref r12
 `opendevbrowser serve` includes stale-daemon preflight cleanup by default, so orphan daemon processes are terminated automatically
 before startup while preserving the active daemon on the requested port.
 If you are running from a temporary onboarding workspace, rerun `opendevbrowser daemon install` from a stable install location
-before expecting auto-start to survive login.
+before expecting auto-start to survive login. macOS auto-start also writes `WorkingDirectory=~/.cache/opendevbrowser`
+so launchd does not start the daemon from `/`.
 
 For single-shot scripts:
 

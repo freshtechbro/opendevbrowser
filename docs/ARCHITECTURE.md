@@ -44,7 +44,7 @@ Frontend architecture and generation flow are documented in `docs/FRONTEND.md`.
 
 The CLI installer reconciles daemon auto-start after every successful install
 (macOS LaunchAgent, Windows Task Scheduler). Existing per-user entries are rechecked and repaired when they are missing or stale on
-supported platforms, and when the macOS LaunchAgent is malformed; unsupported platforms are skipped and continue without auto-start. If the current CLI entrypoint is running from a
+supported platforms, and when the macOS LaunchAgent is malformed or lacks the stable `~/.cache/opendevbrowser` working directory; unsupported platforms are skipped and continue without auto-start. If the current CLI entrypoint is running from a
 transient temp-root path, install-time reconciliation refuses to persist it and surfaces guidance to rerun `daemon install` from a
 stable install location. `getAutostartStatus()` remains the canonical source of auto-start truth for both install reconciliation
 and `daemon status`, and a stable persisted auto-start entry remains authoritative even when the current invocation is transient.
