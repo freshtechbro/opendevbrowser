@@ -91,7 +91,14 @@ const SKIPPED_AFTER_TRANSPORT_TIMEOUT_SUFFIX = "transport timeout.";
 
 const createRemainingCaptureTimeout = (timeoutMs: number): (() => number) => {
   const startedAtMs = Date.now();
-  return () => Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAtMs));
+  let firstRead = true;
+  return () => {
+    if (firstRead) {
+      firstRead = false;
+      return timeoutMs;
+    }
+    return Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAtMs));
+  };
 };
 
 const clampInspiredesignCaptureTimeout = (timeoutMs?: number): number => {

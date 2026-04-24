@@ -1224,7 +1224,14 @@ const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | und
     return () => undefined;
   }
   const startedAtMs = Date.now();
-  return () => Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAtMs));
+  let firstRead = true;
+  return () => {
+    if (firstRead) {
+      firstRead = false;
+      return timeoutMs;
+    }
+    return Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAtMs));
+  };
 };
 
 type InspiredesignResolvedInput = Omit<InspiredesignRunInput, "brief" | "urls" | "captureMode"> & {

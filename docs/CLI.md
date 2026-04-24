@@ -61,7 +61,7 @@ export CLAUDECODE_HOME="$ISOLATED_ROOT/claudecode-home"
 export AMP_CLI_HOME="$ISOLATED_ROOT/ampcli-home"
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.25.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.26.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -510,7 +510,7 @@ npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard desig
 Flags:
 - `--brief` (required)
 - `--url` (repeatable inspiration URL input)
-- `--capture-mode` (`off|deep`)
+- `--capture-mode` (`off|deep`; `off` is ignored when any `--url` is provided)
 - `--include-prototype-guidance` (`true|false`; bare flag means `true`)
 - `--mode` (`compact|json|md|context|path`)
 - `--timeout-ms`
@@ -1738,7 +1738,7 @@ npm run test -- tests/providers-performance-gate.test.ts
 
 These commands are release guards, not the live release-proof lane. Use the direct-run harness commands above for release evidence.
 
-Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.21_EVIDENCE.md`.
+Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.26_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
 ---

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import path from "node:path";
 import {
   CANVAS_LIVE_TIMEOUTS_MS,
@@ -13,6 +14,10 @@ import {
   writeJson
 } from "./live-direct-utils.mjs";
 
+const DAEMON_RECOVERY_TIMEOUT_MS = 45_000;
+const DAEMON_RECOVERY_POLL_MS = 1_000;
+const EXTENSION_RECONNECT_GRACE_MS = 30_000;
+
 function readDaemonStatus() {
   return runCli(["status", "--daemon"], {
     allowFailure: true,
@@ -20,11 +25,137 @@ function readDaemonStatus() {
   });
 }
 
+function startDetachedDaemon() {
+  const cliPath = path.join(ROOT, "dist", "cli", "index.js");
+  const child = spawn(process.execPath, [cliPath, "serve", "--output-format", "json"], {
+    cwd: ROOT,
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+}
+
+export function isCurrentDaemonStatus(status) {
+  return status?.status === 0 && status.json?.data?.fingerprintCurrent !== false;
+}
+
+export function daemonStatusDetail(status) {
+  if (status?.status !== 0) {
+    return status?.detail ?? "daemon_status_unavailable";
+  }
+  return status.json?.data?.fingerprintCurrent === false
+    ? "daemon_fingerprint_mismatch"
+    : null;
+}
+
+export function detailSuggestsDaemonLoss(detail) {
+  return /daemon not running/i.test(String(detail ?? ""));
+}
+
+export function classifyInitialDaemonStep({
+  initialDaemonOk,
+  initialDaemonRecovered,
+  releaseGate,
+  detail
+}) {
+  return {
+    status: initialDaemonOk && !(releaseGate && initialDaemonRecovered) ? "pass" : "fail",
+    detail: initialDaemonOk
+      ? (initialDaemonRecovered ? "daemon_recovered_before_run" : null)
+      : detail
+  };
+}
+
+export function classifyDaemonLossStep(step, releaseGate) {
+  if (!releaseGate || !detailSuggestsDaemonLoss(step.detail)) {
+    return step;
+  }
+  return {
+    ...step,
+    status: "fail",
+    data: {
+      ...(step.data ?? {}),
+      releaseGateDaemonLoss: true
+    }
+  };
+}
+
+export function buildScenarioDaemonRecoveryStep(scenario, scenarioDaemonStatus) {
+  if (scenarioDaemonStatus.currentStatus && !isCurrentDaemonStatus(scenarioDaemonStatus.currentStatus)) {
+    return {
+      id: scenario.id,
+      status: "fail",
+      detail: daemonStatusDetail(scenarioDaemonStatus.currentStatus),
+      data: {
+        currentDaemonStatus: scenarioDaemonStatus.currentStatus.status,
+        recoveredBeforeScenario: scenarioDaemonStatus.recovered
+      }
+    };
+  }
+  if (!scenarioDaemonStatus.recovered) {
+    return null;
+  }
+  return {
+    id: scenario.id,
+    status: "fail",
+    detail: "daemon_recovered_before_scenario",
+    data: {
+      recoveredBeforeScenario: true,
+      initialProbeDetail: scenarioDaemonStatus.initialStatus.detail ?? null
+    }
+  };
+}
+
+export async function recoverDaemonStatus({
+  statusReader = readDaemonStatus,
+  daemonStarter = startDetachedDaemon,
+  recoverTimeoutMs = DAEMON_RECOVERY_TIMEOUT_MS,
+  pollMs = DAEMON_RECOVERY_POLL_MS
+} = {}) {
+  let currentStatus = statusReader();
+  if (currentStatus.status === 0) {
+    return currentStatus;
+  }
+
+  daemonStarter();
+  const deadline = Date.now() + recoverTimeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    currentStatus = statusReader();
+    if (currentStatus.status === 0) {
+      return currentStatus;
+    }
+  }
+
+  return currentStatus;
+}
+
+export async function resolveInitialDaemonStatus({
+  statusReader = readDaemonStatus,
+  recoverStatus = recoverDaemonStatus
+} = {}) {
+  const initialStatus = statusReader();
+  if (initialStatus.status === 0) {
+    return {
+      initialStatus,
+      currentStatus: initialStatus,
+      recovered: false
+    };
+  }
+
+  const currentStatus = await recoverStatus({ statusReader });
+  return {
+    initialStatus,
+    currentStatus,
+    recovered: currentStatus.status === 0
+  };
+}
+
 export async function waitForExtensionReconnect({
   scenario,
   initialExtensionReady,
   statusReader = readDaemonStatus,
-  reconnectGraceMs = 8_000,
+  reconnectGraceMs = EXTENSION_RECONNECT_GRACE_MS,
   pollMs = 1_000
 }) {
   let currentDaemonStatus = statusReader();
@@ -107,13 +238,6 @@ export function buildScenarioCases() {
     { id: "feature.canvas.managed_headed", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "managed-headed"], timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.managedHeaded },
     { id: "feature.canvas.extension", script: "scripts/canvas-live-workflow.mjs", args: ["--surface", "extension"], requiresExtension: true, timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.extension },
     {
-      id: "feature.canvas.cdp",
-      script: "scripts/canvas-live-workflow.mjs",
-      args: ["--surface", "cdp"],
-      requiresExtension: true,
-      timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.cdp
-    },
-    {
       id: "feature.annotate.relay",
       script: "scripts/annotate-live-probe.mjs",
       args: ["--transport", "relay"],
@@ -127,6 +251,13 @@ export function buildScenarioCases() {
       args: ["--transport", "direct"],
       supportsReleaseGate: true,
       timeoutMs: 180_000
+    },
+    {
+      id: "feature.canvas.cdp",
+      script: "scripts/canvas-live-workflow.mjs",
+      args: ["--surface", "cdp"],
+      requiresExtension: true,
+      timeoutMs: CANVAS_LIVE_TIMEOUTS_MS.cdp
     },
     { id: "feature.cli.smoke", script: "scripts/cli-smoke-test.mjs", timeoutMs: 240_000 }
   ];
@@ -146,7 +277,7 @@ export function classifyScenarioPreflight({
   currentDaemonStatus
 }) {
   const relay = currentDaemonStatus.json?.data?.relay ?? null;
-  const currentDaemonOk = currentDaemonStatus.status === 0;
+  const currentDaemonOk = isCurrentDaemonStatus(currentDaemonStatus);
   const currentExtensionReady = relay?.extensionHandshakeComplete === true;
 
   if (!scenario.requiresExtension) {
@@ -172,13 +303,15 @@ export function classifyScenarioPreflight({
   return null;
 }
 
-function resolveChildStep(scenario, child) {
+export function resolveChildStep(scenario, child) {
   const summary = child.json?.summary ?? null;
-  const childStatus = summary?.status
-    ?? child.json?.status
-    ?? (child.status === 0 && child.json?.ok !== false ? "pass" : "fail");
+  const childOk = child.status === 0 && child.json?.ok !== false;
+  const summaryStatus = summary?.status ?? child.json?.status ?? null;
+  const childStatus = childOk ? (summaryStatus ?? "pass") : "fail";
   const artifactPath = child.json?.artifactPath ?? summary?.artifactPath ?? null;
-  const detail = summary?.detail ?? child.json?.detail ?? (childStatus === "pass" ? null : child.detail);
+  const detail = childOk
+    ? (summary?.detail ?? child.json?.detail ?? (childStatus === "pass" ? null : child.detail))
+    : (child.detail ?? summary?.detail ?? child.json?.detail ?? `child exited with status ${child.status}`);
 
   return {
     id: scenario.id,
@@ -187,8 +320,8 @@ function resolveChildStep(scenario, child) {
     data: {
       artifactPath,
       childStatus: child.status,
-      childOk: child.status === 0 && child.json?.ok !== false,
-      summaryStatus: summary?.status ?? child.json?.status ?? null,
+      childOk,
+      summaryStatus,
       stepCount: Array.isArray(summary?.steps) ? summary.steps.length : null
     }
   };
@@ -205,15 +338,29 @@ async function main() {
     steps: []
   };
 
-  const initialDaemonStatus = readDaemonStatus();
+  const {
+    initialStatus: initialDaemonProbe,
+    currentStatus: initialDaemonStatus,
+    recovered: initialDaemonRecovered
+  } = await resolveInitialDaemonStatus();
   const initialRelay = initialDaemonStatus.json?.data?.relay ?? null;
-  const initialDaemonOk = initialDaemonStatus.status === 0;
+  const initialDaemonOk = isCurrentDaemonStatus(initialDaemonStatus);
   const initialExtensionReady = initialRelay?.extensionHandshakeComplete === true;
+  const initialDaemonStep = classifyInitialDaemonStep({
+    initialDaemonOk,
+    initialDaemonRecovered,
+    releaseGate: options.releaseGate,
+    detail: daemonStatusDetail(initialDaemonStatus)
+  });
   pushStep(report, {
     id: "infra.daemon_status",
-    status: initialDaemonOk ? "pass" : "fail",
-    detail: initialDaemonOk ? null : initialDaemonStatus.detail,
-    data: initialDaemonStatus.json?.data ?? null
+    status: initialDaemonStep.status,
+    detail: initialDaemonStep.detail,
+    data: {
+      ...(initialDaemonStatus.json?.data ?? {}),
+      recoveredBeforeRun: initialDaemonRecovered,
+      initialProbeDetail: initialDaemonProbe.status === 0 ? null : initialDaemonProbe.detail
+    }
   }, { prefix: "[live-direct]", logProgress: !options.quiet });
   if (!initialDaemonOk) {
     finalizeReport(report, { strictGate: options.releaseGate });
@@ -232,9 +379,21 @@ async function main() {
     const scriptPath = path.join(ROOT, scenario.script);
     let step;
     try {
+      const scenarioDaemonStatus = await resolveInitialDaemonStatus();
+      const recoveryStep = options.releaseGate
+        ? buildScenarioDaemonRecoveryStep(scenario, scenarioDaemonStatus)
+        : null;
+      if (recoveryStep) {
+        step = recoveryStep;
+        pushStep(report, step, { prefix: "[live-direct]", logProgress: !options.quiet });
+        continue;
+      }
       const currentDaemonStatus = await waitForExtensionReconnect({
         scenario,
-        initialExtensionReady
+        initialExtensionReady,
+        statusReader: () => scenarioDaemonStatus.currentStatus.status === 0
+          ? readDaemonStatus()
+          : scenarioDaemonStatus.currentStatus
       });
       const preflightStep = classifyScenarioPreflight({
         scenario,
@@ -270,6 +429,40 @@ async function main() {
         }
       );
       step = resolveChildStep(scenario, child);
+      step = classifyDaemonLossStep(step, options.releaseGate);
+      if (!options.releaseGate && detailSuggestsDaemonLoss(step.detail)) {
+        const recoveredAfterFailure = await recoverDaemonStatus();
+        const retryStatus = await waitForExtensionReconnect({
+          scenario,
+          initialExtensionReady
+        });
+        const retryPreflight = classifyScenarioPreflight({
+          scenario,
+          initialDaemonOk,
+          initialExtensionReady,
+          currentDaemonStatus: retryStatus
+        });
+        if (recoveredAfterFailure.status === 0 && !retryPreflight) {
+          const retryChild = runNode(
+            [
+              scriptPath,
+              ...buildChildArgs(scenario, options.releaseGate)
+            ],
+            {
+              allowFailure: true,
+              timeoutMs: scenario.timeoutMs ?? 900_000
+            }
+          );
+          const retryStep = resolveChildStep(scenario, retryChild);
+          step = {
+            ...retryStep,
+            data: {
+              ...retryStep.data,
+              recoveredDaemonAfterFailure: true
+            }
+          };
+        }
+      }
     } catch (error) {
       step = {
         id: scenario.id,
