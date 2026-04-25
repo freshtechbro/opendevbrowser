@@ -39,6 +39,16 @@ describe("inspiredesign brief expansion", () => {
     expect(result.advancedBrief).toContain("No coupon language.");
   });
 
+  it("routes fashion design studio briefs away from the generic creative-tool studio format", async () => {
+    const { expandInspiredesignBrief } = await loadBriefExpansion();
+    const result = expandInspiredesignBrief("Create a modern premium fashion design studio landing page.");
+
+    expect(result.format.id).toBe("maison-campaign-world");
+    expect(result.format.businessFocus).toContain("fashion design studios");
+    expect(result.advancedBrief).toContain("Selected prompt format: Maison campaign world");
+    expect(result.advancedBrief).not.toContain("creative software");
+  });
+
   it("keeps the source brief grounded inside the expanded brief and exposes richer contract sections", async () => {
     const { expandInspiredesignBrief } = await loadBriefExpansion();
     const result = expandInspiredesignBrief("Refresh the existing product without losing its identity.");

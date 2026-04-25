@@ -283,6 +283,7 @@ export type InspiredesignTokenStrategy = {
 export type InspiredesignImplementationPlan = {
   architectureRecommendation: string;
   tokenStrategy: InspiredesignTokenStrategy;
+  referenceImplementationNotes: string[];
   componentBuildPlan: Array<{
     name: string;
     purpose: string;
@@ -321,6 +322,7 @@ export type InspiredesignImplementationContext = {
   navigationModel: JsonRecord;
   asyncModel: JsonRecord;
   performanceModel: JsonRecord;
+  referenceSynthesis: JsonRecord;
 };
 
 export type InspiredesignFollowthrough = {
@@ -582,6 +584,79 @@ const clipText = (value: string, maxLength: number): string => {
   return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 };
 
+type InspiredesignReferenceSynthesis = {
+  lines: string[];
+  summary: string;
+};
+
+const REFERENCE_SIGNAL_CLIP_LENGTH = 180;
+const REFERENCE_SIGNAL_LIMIT = 5;
+const REFERENCE_SUMMARY_CLIP_LENGTH = 220;
+const GENERATION_PLAN_REFERENCE_CLIP_LENGTH = 600;
+
+const textFromHtml = (html: string | undefined): string | undefined => {
+  if (!html) return undefined;
+  return trimText(html.replace(/<[^>]+>/g, " "));
+};
+
+const trimOptionalText = (value: string | undefined): string | undefined => {
+  const text = value ? trimText(value) : "";
+  return text.length > 0 ? text : undefined;
+};
+
+const pushReferenceSignal = (signals: string[], value: string | undefined): void => {
+  const text = trimOptionalText(value);
+  if (text && !signals.includes(text)) {
+    signals.push(text);
+  }
+};
+
+const referenceSignals = (reference: InspiredesignReferenceEvidence): string[] => {
+  const signals: string[] = [];
+  pushReferenceSignal(signals, reference.title);
+  pushReferenceSignal(signals, reference.excerpt);
+  pushReferenceSignal(signals, reference.capture?.snapshot?.content);
+  pushReferenceSignal(signals, reference.capture?.clone?.componentPreview);
+  pushReferenceSignal(signals, reference.capture?.clone?.cssPreview);
+  pushReferenceSignal(signals, textFromHtml(reference.capture?.dom?.outerHTML));
+  return signals
+    .map((signal) => clipText(signal, REFERENCE_SIGNAL_CLIP_LENGTH))
+    .slice(0, REFERENCE_SIGNAL_LIMIT);
+};
+
+const buildReferenceSynthesis = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignReferenceSynthesis => {
+  const lines = references
+    .map((reference, index) => {
+      const signals = referenceSignals(reference);
+      if (signals.length === 0) return "";
+      return `Source ${index + 1} ${reference.title ?? reference.url}: ${signals.join(" | ")}`;
+    })
+    .filter((line) => line.length > 0);
+  return {
+    lines,
+    summary: lines.length > 0
+      ? lines.map((line) => clipText(line, REFERENCE_SUMMARY_CLIP_LENGTH)).join(" ")
+      : "No live reference cues were captured."
+  };
+};
+
+const appendReferenceSynthesis = (
+  advancedBrief: string,
+  synthesis: InspiredesignReferenceSynthesis
+): string => {
+  if (synthesis.lines.length === 0) {
+    return advancedBrief;
+  }
+  return [
+    advancedBrief,
+    "",
+    "Reference-specific synthesis:",
+    formatBulletList(synthesis.lines)
+  ].join("\n");
+};
+
 const cloneTemplate = <T>(value: T): T => structuredClone(value);
 
 const referenceFingerprint = (value: string): string => {
@@ -604,15 +679,27 @@ const buildSupportingMessages = (references: InspiredesignReferenceEvidence[]): 
 
 const buildGenerationPlan = (
   brief: string,
-  format: InspiredesignBriefFormat
+  format: InspiredesignBriefFormat,
+  synthesis: InspiredesignReferenceSynthesis
 ): CanvasGenerationPlan => {
   const plan = cloneTemplate(BASE_GENERATION_PLAN);
   const profile = format.route.profile;
-  plan.targetOutcome.summary = summarizeBrief(brief);
+  plan.targetOutcome.summary = clipText(
+    `${summarizeBrief(brief)} Reference cues: ${synthesis.summary}`,
+    GENERATION_PLAN_REFERENCE_CLIP_LENGTH
+  );
   plan.visualDirection.profile = profile;
   plan.visualDirection.themeStrategy = format.route.themeStrategy;
   plan.layoutStrategy.approach = format.route.layoutApproach;
   plan.layoutStrategy.navigationModel = format.route.navigationModel;
+  plan.contentStrategy.source = clipText(
+    `advanced-brief.md, design.md, evidence.json. ${synthesis.summary}`,
+    GENERATION_PLAN_REFERENCE_CLIP_LENGTH
+  );
+  plan.componentStrategy.mode = clipText(
+    `reuse-first, adapted from captured references. ${synthesis.summary}`,
+    GENERATION_PLAN_REFERENCE_CLIP_LENGTH
+  );
   plan.componentStrategy.interactionStates = ["default", "hover", "focus", "disabled", "loading"];
   plan.validationTargets.requiredThemes = plan.visualDirection.themeStrategy === "single-theme"
     ? ["light"]
@@ -861,9 +948,23 @@ const buildBriefExpansionMetadata = (
   format: cloneInspiredesignBriefFormat(briefExpansion.format)
 });
 
+const buildRequiredReferenceArtifacts = (includePrototypeGuidance: boolean): string[] => {
+  const files = [
+    INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
+    INSPIREDESIGN_HANDOFF_FILES.designMarkdown,
+    INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown,
+    INSPIREDESIGN_HANDOFF_FILES.evidence
+  ];
+  return includePrototypeGuidance
+    ? [...files, INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance]
+    : files;
+};
+
 const buildFollowthrough = (
   generationPlan: CanvasGenerationPlan,
-  briefExpansion: InspiredesignBriefExpansion
+  briefExpansion: InspiredesignBriefExpansion,
+  synthesis: InspiredesignReferenceSynthesis,
+  includePrototypeGuidance: boolean
 ): InspiredesignFollowthrough => ({
   summary: buildInspiredesignFollowthroughSummary(),
   nextStep: buildInspiredesignNextStep(),
@@ -875,7 +976,11 @@ const buildFollowthrough = (
   implementationContext: {
     navigationModel: buildNavigationModelBlock(generationPlan.layoutStrategy.navigationModel),
     asyncModel: buildAsyncModelBlock(),
-    performanceModel: buildPerformanceModelBlock()
+    performanceModel: buildPerformanceModelBlock(),
+    referenceSynthesis: {
+      requiredArtifacts: buildRequiredReferenceArtifacts(includePrototypeGuidance),
+      cues: synthesis.lines
+    }
   }
 });
 
@@ -963,10 +1068,14 @@ const buildComponentBuildPlan = (profile: CanvasVisualDirectionProfile) => {
 const buildImplementationPlan = (
   profile: CanvasVisualDirectionProfile,
   format: InspiredesignBriefFormat,
-  references: InspiredesignReferenceEvidence[]
+  references: InspiredesignReferenceEvidence[],
+  synthesis: InspiredesignReferenceSynthesis
 ): InspiredesignImplementationPlan => ({
   architectureRecommendation: `Implement the surface as a ${format.archetype} using token-first components and shared semantic CSS variables, then compose page sections from those primitives before adding any page-specific polish.`,
   tokenStrategy: buildTokenStrategy(profile),
+  referenceImplementationNotes: synthesis.lines.length > 0
+    ? synthesis.lines
+    : ["No live reference cues were captured; keep implementation anchored to the source brief and selected prompt format."],
   componentBuildPlan: buildComponentBuildPlan(profile),
   pageAssemblyPlan: [
     `Start with the ${format.layoutArchetype} and the primary navigation pattern.`,
@@ -1163,35 +1272,45 @@ const renderImplementationMarkdown = (implementationPlan: InspiredesignImplement
     "",
     formatRecordList(implementationPlan.tokenStrategy.typography),
     "",
-    "## 5.3 Component Build Plan",
+    "## 5.3 Reference Implementation Notes",
+    formatBulletList(implementationPlan.referenceImplementationNotes),
+    "",
+    "## 5.4 Component Build Plan",
     implementationPlan.componentBuildPlan.map((component, index) => (
       `${index + 1}. ${component.name}: ${component.purpose}`
     )).join("\n"),
     "",
-    "## 5.4 Page Assembly Plan",
+    "## 5.5 Page Assembly Plan",
     formatBulletList(implementationPlan.pageAssemblyPlan),
     "",
-    "## 5.5 State and Interaction Plan",
+    "## 5.6 State and Interaction Plan",
     formatBulletList(implementationPlan.stateAndInteractionPlan),
     "",
-    "## 5.6 Accessibility Implementation Checklist",
+    "## 5.7 Accessibility Implementation Checklist",
     formatBulletList(implementationPlan.accessibilityChecklist),
     "",
-    "## 5.7 Responsive Implementation Checklist",
+    "## 5.8 Responsive Implementation Checklist",
     formatBulletList(implementationPlan.responsiveChecklist),
     "",
-    "## 5.8 Risks and Ambiguities",
+    "## 5.9 Risks and Ambiguities",
     formatBulletList(implementationPlan.risksAndAmbiguities),
     "",
-    "## 5.9 Recommended Build Sequence",
+    "## 5.10 Recommended Build Sequence",
     implementationPlan.buildSequence.map((step, index) => `${index + 1}. ${step}`).join("\n")
   ].join("\n");
 };
 
-const renderPrototypeGuidance = (profile: CanvasVisualDirectionProfile): string => {
+const renderPrototypeGuidance = (
+  profile: CanvasVisualDirectionProfile,
+  synthesis: InspiredesignReferenceSynthesis
+): string => {
   return [
     "# 6. Optional Prototype Plan",
     "",
+    "## 6.1 Reference Anchors",
+    formatBulletList(synthesis.lines.length > 0 ? synthesis.lines : ["No live reference cues were captured."]),
+    "",
+    "## 6.2 Prototype Structure",
     "- page structure: establish the shell, hero or primary action zone, proof sections, and footer in that order.",
     `- section order: ${PROFILE_CONFIG[profile].pagePatterns.join(" -> ")}`,
     "- component composition: reuse button, card, input, and navigation primitives before page-specific wrappers.",
@@ -1221,13 +1340,14 @@ const renderDeliverablesSummary = (includePrototypeGuidance: boolean): string =>
 const buildEvidencePayload = (
   brief: string,
   briefExpansion: InspiredesignBriefExpansion,
+  advancedBriefMarkdown: string,
   urls: string[],
   references: InspiredesignReferenceEvidence[]
 ): JsonRecord => ({
   brief,
   briefHash: referenceFingerprint(brief),
-  advancedBrief: briefExpansion.advancedBrief,
-  advancedBriefHash: referenceFingerprint(briefExpansion.advancedBrief),
+  advancedBrief: advancedBriefMarkdown,
+  advancedBriefHash: referenceFingerprint(advancedBriefMarkdown),
   briefExpansion: {
     templateVersion: briefExpansion.templateVersion,
     format: cloneInspiredesignBriefFormat(briefExpansion.format)
@@ -1264,23 +1384,30 @@ const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): Jso
 export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): InspiredesignPacket => {
   const brief = trimText(input.brief);
   const selectedFormat = cloneInspiredesignBriefFormat(input.briefExpansion.format);
-  const advancedBriefMarkdown = input.briefExpansion.advancedBrief;
+  const includePrototypeGuidance = input.includePrototypeGuidance ?? false;
   const urls = [...new Set(input.urls.map((url) => trimText(url)).filter(Boolean))];
   const references = input.references.map((reference) => ({
     ...reference,
     title: reference.title ? trimText(reference.title) : undefined,
     excerpt: reference.excerpt ? trimText(reference.excerpt) : undefined
   }));
-  const generationPlan = buildGenerationPlan(brief, selectedFormat);
+  const synthesis = buildReferenceSynthesis(references);
+  const advancedBriefMarkdown = appendReferenceSynthesis(input.briefExpansion.advancedBrief, synthesis);
+  const generationPlan = buildGenerationPlan(brief, selectedFormat, synthesis);
   const profile = generationPlan.visualDirection.profile;
   const canvasPlanRequest = buildCanvasPlanRequest(brief, generationPlan);
   const designContract = buildDesignContract(brief, urls, references, generationPlan, selectedFormat);
-  const followthrough = buildFollowthrough(generationPlan, input.briefExpansion);
-  const implementationPlan = buildImplementationPlan(profile, selectedFormat, references);
+  const followthrough = buildFollowthrough(
+    generationPlan,
+    input.briefExpansion,
+    synthesis,
+    includePrototypeGuidance
+  );
+  const implementationPlan = buildImplementationPlan(profile, selectedFormat, references, synthesis);
   const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan, selectedFormat);
   const implementationPlanMarkdown = renderImplementationMarkdown(implementationPlan);
-  const prototypeGuidanceMarkdown = input.includePrototypeGuidance
-    ? renderPrototypeGuidance(profile)
+  const prototypeGuidanceMarkdown = includePrototypeGuidance
+    ? renderPrototypeGuidance(profile, synthesis)
     : null;
   const designMarkdown = [
     "# 1. Executive Summary",
@@ -1301,6 +1428,12 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       : "- No live inspiration source was provided. The system is derived entirely from the brief.",
     "",
     "# 3. Unified Design Direction",
+    "",
+    "## 3.1 Reference-Specific Build Rules",
+    "",
+    formatBulletList(synthesis.lines.length > 0 ? synthesis.lines : ["No live reference cues were captured."]),
+    "",
+    "## 3.2 System Direction",
     "",
     formatBulletList([
       `visual personality: ${PROFILE_CONFIG[profile].visualPersonality}`,
@@ -1337,6 +1470,6 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     implementationPlan,
     implementationPlanMarkdown,
     prototypeGuidanceMarkdown,
-    evidence: buildEvidencePayload(brief, input.briefExpansion, urls, references)
+    evidence: buildEvidencePayload(brief, input.briefExpansion, advancedBriefMarkdown, urls, references)
   };
 };

@@ -85,6 +85,11 @@ type InspiredesignWorkflowContext = {
     canvasSessionId: string;
     leaseId: string;
     documentId: string;
+    generationPlan: {
+      targetOutcome: { summary: string };
+      contentStrategy: { source: string };
+      componentStrategy: { mode: string };
+    };
   };
   designAgentHandoff: {
     briefExpansion: {
@@ -97,6 +102,11 @@ type InspiredesignWorkflowContext = {
     contractScope: {
       emittedContract: string;
       omittedTemplateBlocks: string[];
+    };
+    implementationContext: {
+      referenceSynthesis: {
+        cues: string[];
+      };
     };
   };
 };
@@ -276,10 +286,11 @@ describe("inspiredesign workflow", () => {
       brief: "Design a premium launch surface",
       urls: ["https://example.com/reference"],
       outputDir,
-      mode: "context"
+      mode: "context",
+      includePrototypeGuidance: true
     }, {
       captureReference: async (url: string) => ({
-        ...makeCapture(`Captured ${url}`),
+        ...makeCapture(`Atelier Luma Studio limestone hero brass CTA rail staggered project index from ${url}`),
         attempts: {
           snapshot: { status: "captured" },
           clone: { status: "captured" },
@@ -302,7 +313,7 @@ describe("inspiredesign workflow", () => {
     expect(meta.selection).toEqual({
       urls: ["https://example.com/reference"],
       capture_mode: "deep",
-      include_prototype_guidance: false
+      include_prototype_guidance: true
     });
     expect(context.evidence.references[0]?.capture?.attempts).toEqual({
       snapshot: { status: "captured" },
@@ -313,11 +324,27 @@ describe("inspiredesign workflow", () => {
       "advanced-brief.md",
       "canvas-plan.request.json",
       "design-agent-handoff.json",
+      "prototype-guidance.md",
       "evidence.json"
     ]));
-    expect(readFileSync(join(artifactPath, "advanced-brief.md"), "utf8")).toContain("Selected prompt format:");
-    expect(readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")).toContain("\"canvasSessionId\"");
-    expect(readFileSync(join(artifactPath, "design-agent-handoff.json"), "utf8")).toContain("\"briefExpansion\"");
+    expect(context.canvasPlanRequest.generationPlan.targetOutcome.summary).toContain("Atelier Luma Studio");
+    expect(context.canvasPlanRequest.generationPlan.contentStrategy.source).toContain("limestone hero");
+    expect(context.canvasPlanRequest.generationPlan.componentStrategy.mode).toContain("brass CTA rail");
+    expect(context.designAgentHandoff.implementationContext.referenceSynthesis.cues[0]).toContain("staggered project index");
+    for (const fileName of [
+      "advanced-brief.md",
+      "design.md",
+      "implementation-plan.md",
+      "prototype-guidance.md",
+      "canvas-plan.request.json",
+      "design-agent-handoff.json"
+    ]) {
+      const content = readFileSync(join(artifactPath, fileName), "utf8");
+      expect(content).toContain("Atelier Luma Studio");
+      expect(content).toContain("limestone hero");
+      expect(content).toContain("brass CTA rail");
+      expect(content).toContain("staggered project index");
+    }
   });
 
   it("defaults to compact mode when inspiredesign input omits an explicit render mode", async () => {

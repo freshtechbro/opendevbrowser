@@ -473,17 +473,22 @@
       "label": "Maison campaign world",
       "bestFor": [
         "luxury fashion",
+        "fashion design studios",
         "fragrance launches",
         "jewelry campaigns",
         "premium hospitality brands"
       ],
       "businessFocus": [
         "fashion maisons",
+        "fashion design studios",
         "luxury accessories",
         "fragrance campaigns",
         "high-end hospitality identity"
       ],
       "keywords": [
+        "fashion",
+        "fashion design",
+        "fashion studio",
         "maison",
         "atelier",
         "collection",
@@ -495,6 +500,9 @@
       ],
       "matchSignals": {
         "positive": [
+          "fashion",
+          "fashion design",
+          "fashion studio",
           "maison",
           "atelier",
           "collection",
@@ -1139,7 +1147,13 @@
         "excluded": [
           "villa",
           "festival",
-          "fragrance"
+          "fragrance",
+          "fashion",
+          "fashion design",
+          "maison",
+          "couture",
+          "collection",
+          "campaign"
         ],
         "tieBreaker": 3
       },

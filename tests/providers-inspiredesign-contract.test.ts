@@ -321,6 +321,122 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.designMarkdown).toContain("Prototype guidance Markdown for the first HTML pass");
   });
 
+  it("threads reference-specific cues through every Canvas handoff artifact", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a launch page inspired by an architectural lighting studio.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a launch page inspired by an architectural lighting studio."
+      }),
+      urls: ["https://example.com/lighting-studio"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "lighting-studio",
+          url: "https://example.com/lighting-studio",
+          title: "Atelier Luma Studio",
+          excerpt: "Monochrome gallery rhythm with a limestone hero, brass CTA rail, and calm project index.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Full-bleed limestone hero, brass CTA rail, staggered project index, atelier footer.",
+              refCount: 7,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "<section class=\"limestone-hero\"><nav>brass CTA rail</nav><article>staggered project index</article></section>",
+              cssPreview: ".limestone-hero { background: #d8d0bf; letter-spacing: .04em; }",
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+
+    const canvasPlan = JSON.stringify(packet.canvasPlanRequest);
+    const handoff = JSON.stringify(packet.followthrough);
+
+    for (const artifact of [
+      packet.advancedBriefMarkdown,
+      packet.designMarkdown,
+      packet.implementationPlanMarkdown,
+      packet.prototypeGuidanceMarkdown ?? "",
+      canvasPlan,
+      handoff
+    ]) {
+      expect(artifact).toContain("Atelier Luma Studio");
+      expect(artifact).toContain("limestone hero");
+      expect(artifact).toContain("brass CTA rail");
+      expect(artifact).toContain("staggered project index");
+    }
+  });
+
+  it("threads DOM-only capture cues when fetch and clone signals are unavailable", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create an editorial fashion studio landing page.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create an editorial fashion studio landing page."
+      }),
+      urls: ["https://example.com/archive-studio"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "archive-studio",
+          url: "https://example.com/archive-studio",
+          fetchStatus: "failed",
+          captureStatus: "captured",
+          capture: {
+            dom: {
+              outerHTML: "<main><h1>Archive fashion grid</h1><p>Charcoal runway index with ivory margins and garment detail captions.</p></main>",
+              truncated: false
+            }
+          }
+        })
+      ]
+    });
+
+    const artifacts = [
+      packet.advancedBriefMarkdown,
+      packet.designMarkdown,
+      packet.implementationPlanMarkdown,
+      packet.prototypeGuidanceMarkdown ?? "",
+      JSON.stringify(packet.canvasPlanRequest),
+      JSON.stringify(packet.followthrough)
+    ];
+
+    for (const artifact of artifacts) {
+      expect(artifact).toContain("Archive fashion grid");
+      expect(artifact).toContain("Charcoal runway index");
+      expect(artifact).toContain("garment detail captions");
+    }
+  });
+
+  it("clips long reference cues before writing generation-plan summaries", () => {
+    const longCue = `${"Opening marble runway cadence ".repeat(40)}terminal marker`;
+    const packet = buildInspiredesignPacket({
+      brief: "Create a luxury collection page.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a luxury collection page."
+      }),
+      urls: ["https://example.com/collection"],
+      references: [
+        makeReference({
+          id: "collection",
+          url: "https://example.com/collection",
+          title: "Collection reference",
+          excerpt: longCue
+        })
+      ]
+    });
+
+    const { targetOutcome, contentStrategy, componentStrategy } = packet.canvasPlanRequest.generationPlan;
+
+    for (const value of [targetOutcome.summary, contentStrategy.source, componentStrategy.mode]) {
+      expect(value.length).toBeLessThanOrEqual(600);
+      expect(value).toContain("Opening marble runway cadence");
+      expect(value).not.toContain("terminal marker");
+    }
+  });
+
   it("preserves advanced brief markdown and routes generation from the selected format metadata", () => {
     const brief = "Design a premium consumer landing page";
     const advancedBrief = [
@@ -690,6 +806,14 @@ describe("inspiredesign packet + renderer", () => {
     });
 
     expect(packet.generationPlan.visualDirection.profile).toBe("cinematic-minimal");
+    expect(packet.followthrough.implementationContext.referenceSynthesis).toMatchObject({
+      requiredArtifacts: [
+        INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
+        INSPIREDESIGN_HANDOFF_FILES.designMarkdown,
+        INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown,
+        INSPIREDESIGN_HANDOFF_FILES.evidence
+      ]
+    });
     expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(false);
     expect(rendered.response).toMatchObject({
       mode: "json",
