@@ -31,7 +31,7 @@ First-contact note:
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
-- `update` - Clear cached plugin to trigger reinstall.
+- `update` - Repair cached plugin pins.
 - `uninstall` - Remove plugin from config.
 - `help` - Show help.
 - `version` - Show version.

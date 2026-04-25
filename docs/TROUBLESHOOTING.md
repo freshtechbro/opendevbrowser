@@ -297,7 +297,7 @@ When validating local fixes in OpenCode, verify both plugin registration and res
 - Confirm OpenDevBrowser is loaded from your intended local path (for example a repo symlink) and not a stale cache copy.
 
 If OpenCode is still resolving an old cached install:
-- Clear plugin cache: `rm -rf ~/.cache/opencode/node_modules/opendevbrowser`
+- Repair the OpenCode package cache: `npx opendevbrowser --update`
 - Restart OpenCode and re-run `opencode debug config`.
 
 ## Relay binding busy

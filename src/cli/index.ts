@@ -269,7 +269,7 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "update",
-      description: "Clear cached plugin and refresh managed skill packs",
+      description: "Repair cached plugin pins and refresh managed skill packs",
       run: () => buildUpdateCommandResult(args, runUpdate(), {
         resolveUpdateSkillModes,
         hasInstalledConfig,

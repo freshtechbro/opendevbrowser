@@ -740,7 +740,7 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | `npx opendevbrowser --with-config` | Also create opendevbrowser.jsonc |
 | `npx opendevbrowser --full` | Full install (config + extension assets) |
 | `npm install -g opendevbrowser` | Install persistent global CLI |
-| `npx opendevbrowser --update` | Clear cache, trigger reinstall |
+| `npx opendevbrowser --update` | Repair cached plugin pins |
 | `npx opendevbrowser --uninstall` | Remove from config |
 | `npx opendevbrowser --version` | Show version |
 
@@ -806,11 +806,7 @@ OpenDevBrowser is **secure by default** with defense-in-depth protections:
 ## Updating
 
 ```bash
-# Option 1: Clear cache (recommended)
-rm -rf ~/.cache/opencode/node_modules/opendevbrowser
-# Then restart OpenCode
-
-# Option 2: Use CLI
+# Repair OpenCode's cached package and manifest pin, then restart OpenCode
 npx opendevbrowser --update
 ```
 
