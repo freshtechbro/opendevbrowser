@@ -4,6 +4,7 @@ import { auditZombiePaths, isZombieDuplicatePath } from "../scripts/audit-zombie
 describe("audit-zombie-files", () => {
   it("flags known duplicate naming patterns", () => {
     expect(isZombieDuplicatePath("src/snapshot/AGENTS 2.md")).toBe(true);
+    expect(isZombieDuplicatePath("opendevbrowser-extension 3.zip")).toBe(true);
     expect(isZombieDuplicatePath("docs/CLI copy.md")).toBe(true);
     expect(isZombieDuplicatePath("docs/CLI-copy.md")).toBe(true);
     expect(isZombieDuplicatePath("docs/notes.bak")).toBe(true);
@@ -14,6 +15,7 @@ describe("audit-zombie-files", () => {
   it("does not flag canonical files that include copy in non-basename segments", () => {
     expect(isZombieDuplicatePath("scripts/copy-extension-assets.mjs")).toBe(false);
     expect(isZombieDuplicatePath("src/cli/index.ts")).toBe(false);
+    expect(isZombieDuplicatePath("docs/RELEASE_0.0.26_EVIDENCE.md")).toBe(false);
     expect(isZombieDuplicatePath("docs/CLI.md")).toBe(false);
   });
 
