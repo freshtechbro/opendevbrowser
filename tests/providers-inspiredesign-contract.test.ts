@@ -69,6 +69,8 @@ type InspiredesignEvidenceJson = {
     typographyPosture: string[];
     imageryPosture: string[];
     interactionDensity: string;
+    interactionMoments: string[];
+    materialEffects: string[];
     referenceInfluence: string[];
     patternsToBorrow: string[];
     patternsToReject: string[];
@@ -501,7 +503,7 @@ describe("inspiredesign packet + renderer", () => {
           captureStatus: "captured",
           capture: {
             snapshot: {
-              content: "Immersive worship hero, service pathways, giving CTA, impact stories, event rhythm.",
+              content: "Immersive worship hero, magnetic cursor CTA, frosted glass overlay, service pathways, giving CTA, impact stories, event rhythm.",
               refCount: 9,
               warnings: []
             },
@@ -547,6 +549,16 @@ describe("inspiredesign packet + renderer", () => {
         typographyPosture: expect.arrayContaining([expect.stringContaining("headlines")]),
         imageryPosture: expect.arrayContaining([expect.stringContaining("imagery")]),
         interactionDensity: expect.stringContaining("public-page CTAs"),
+        interactionMoments: expect.arrayContaining([
+          expect.stringContaining("Microinteractions"),
+          expect.stringContaining("Cursor effects"),
+          expect.stringContaining("Animation choreography")
+        ]),
+        materialEffects: expect.arrayContaining([
+          expect.stringContaining("parallax"),
+          expect.stringContaining("Glassmorphism"),
+          expect.stringContaining("Reduced-motion material fallback")
+        ]),
         referenceInfluence: expect.arrayContaining([expect.stringContaining("worship hero")]),
         patternsToBorrow: expect.arrayContaining([expect.stringContaining("service pathways")]),
         patternsToReject: expect.arrayContaining(["No feature-card hero."])
@@ -571,8 +583,14 @@ describe("inspiredesign packet + renderer", () => {
       premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
       motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
+      materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
       referenceInfluence: expect.arrayContaining([expect.stringContaining("worship hero")])
     });
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Microinteractions");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Cursor effects");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("parallax");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Glassmorphism");
     expect(validateGenerationPlan(packet.canvasPlanRequest.generationPlan)).toMatchObject({
       ok: true
     });
@@ -603,6 +621,9 @@ describe("inspiredesign packet + renderer", () => {
     expect(evidence.references).toHaveLength(1);
     expect(evidence.referencePatternBoard?.references).toEqual([]);
     expect(evidence.designVectors?.sourcePriority).toBe("brief-only");
+    expect(evidence.designVectors?.interactionMoments.join(" ")).not.toContain("Cursor effects");
+    expect(evidence.designVectors?.materialEffects.join(" ")).not.toContain("Glassmorphism");
+    expect(evidence.designVectors?.materialEffects.join(" ")).not.toContain("parallax");
     expect(JSON.stringify(packet.generationPlan)).not.toContain("admin dashboard analytics");
     expect(JSON.stringify(packet.designContract.contentModel)).not.toContain("admin dashboard analytics");
     expect(packet.designMarkdown).not.toContain("admin dashboard analytics");
@@ -643,6 +664,7 @@ describe("inspiredesign packet + renderer", () => {
       packet.generationPlan.componentStrategy.mode,
       packet.canvasPlanRequest.generationPlan.contentStrategy.source,
       packet.implementationPlanMarkdown,
+      packet.designMarkdown,
       packet.prototypeGuidanceMarkdown ?? ""
     ].join(" ");
 
@@ -651,9 +673,19 @@ describe("inspiredesign packet + renderer", () => {
     expect(pageGuidance).toContain("section scroll reveal");
     expect(pageGuidance).toContain("CTA/focus feedback");
     expect(pageGuidance).toContain("prefers-reduced-motion");
+    expect(pageGuidance).toContain("Microinteractions");
+    expect(pageGuidance).toContain("hover");
+    expect(pageGuidance).toContain("Cursor effects");
+    expect(pageGuidance).toContain("Animation choreography");
+    expect(pageGuidance).toContain("parallax");
+    expect(pageGuidance).toContain("Glassmorphism");
     expect(pageGuidance).toContain("content-rich");
     expect(pageGuidance).toContain("Capture desktop and mobile browser proof");
     expect(pageGuidance).toContain("reduced-motion");
+    expect(packet.generationPlan.targetOutcome.summary).toContain("Reference cues:");
+    expect(packet.generationPlan.componentStrategy.mode.indexOf("captured references")).toBeLessThan(
+      packet.generationPlan.componentStrategy.mode.indexOf("microinteractions")
+    );
   });
 
   it("lets public reference evidence override stale dashboard route defaults", () => {

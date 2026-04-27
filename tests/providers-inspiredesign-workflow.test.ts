@@ -80,6 +80,8 @@ type InspiredesignWorkflowEvidence = {
     premiumPosture: string[];
     motionPosture: string[];
     sectionArchitecture: string[];
+    interactionMoments: string[];
+    materialEffects: string[];
     referenceInfluence: string[];
   };
   references: Array<{
@@ -369,6 +371,8 @@ describe("inspiredesign workflow", () => {
       premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
       motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
+      materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
       referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
     });
     expect("referencePatternBoard" in context.canvasPlanRequest.generationPlan).toBe(false);
@@ -376,6 +380,8 @@ describe("inspiredesign workflow", () => {
       premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
       motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
+      materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
       referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
     });
     expect(context.designAgentHandoff.implementationContext.referencePatternBoard).toEqual(
@@ -418,6 +424,8 @@ describe("inspiredesign workflow", () => {
       premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
       motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
+      materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
       referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
     });
     expect(handoff.implementationContext.designVectors).toEqual(evidence.designVectors);

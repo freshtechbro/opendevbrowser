@@ -61,6 +61,8 @@ export type InspiredesignDesignVectors = {
   typographyPosture: string[];
   imageryPosture: string[];
   interactionDensity: string;
+  interactionMoments: string[];
+  materialEffects: string[];
   referenceInfluence: string[];
   patternsToBorrow: string[];
   patternsToReject: string[];
@@ -301,6 +303,20 @@ const hasBoardPublicLandingEvidence = (board: InspiredesignReferencePatternBoard
   board.references.some(hasReferencePublicLandingEvidence)
 );
 
+const boardEvidenceText = (board: InspiredesignReferencePatternBoard): string => (
+  board.references.map((reference) => [
+    reference.layoutRecipe,
+    ...reference.contentHierarchy,
+    ...reference.componentFamilies,
+    ...reference.motionPosture,
+    ...reference.patternsToBorrow
+  ].join(" ")).join(" ").toLowerCase()
+);
+
+const hasEvidenceCue = (text: string, matches: readonly string[]): boolean => (
+  matches.some((match) => text.includes(match))
+);
+
 const deriveReferenceEntry = (
   reference: ReferenceInput,
   format: InspiredesignBriefFormat
@@ -388,6 +404,54 @@ const buildImageryPosture = (
   return [format.surfaceTreatment, "Use dominant atmospheric imagery as the visual anchor."];
 };
 
+const buildInteractionMoments = (
+  format: InspiredesignBriefFormat,
+  board: InspiredesignReferencePatternBoard
+): string[] => {
+  const evidenceText = boardEvidenceText(board);
+  const publicLanding = hasBoardPublicLandingEvidence(board);
+  const referenceBacked = board.references.length > 0;
+  const cursorScope = publicLanding
+    ? "hero CTA, media reveals, and primary navigation moments"
+    : "high-value actions and selected command surfaces";
+  const moments = [
+    "Microinteractions: define hover effects, visible focus rings, pressed states, loading states, and confirmation feedback for every primary action.",
+    `Animation choreography: sequence ${format.motionGrammar}, hover feedback, active feedback, and page transitions through one timing system.`
+  ];
+  const cursorBacked = hasEvidenceCue(evidenceText, ["cursor", "magnetic", "follow-cursor", "pointer"]);
+  const cursorPolicy = cursorBacked
+    ? `Cursor effects: reference evidence supports premium pointer affordances for ${cursorScope}; keep default cursor behavior for reading surfaces.`
+    : `Cursor effects policy: consider magnetic or follow-cursor affordances only when reference evidence supports ${cursorScope}.`;
+  return referenceBacked ? [...moments, cursorPolicy] : moments;
+};
+
+const buildMaterialEffects = (board: InspiredesignReferencePatternBoard): string[] => {
+  if (board.references.length === 0) {
+    return [
+      "Material effects: define elevation, shadows, surface contrast, and reduced-motion-safe depth from the brief.",
+      "Reduced-motion material fallback: preserve hierarchy and CTA clarity without transform-based depth."
+    ];
+  }
+  const evidenceText = boardEvidenceText(board);
+  const publicLanding = hasBoardPublicLandingEvidence(board);
+  const glassScope = publicLanding
+    ? "navigation overlays, hero scrims, and atmospheric CTA surfaces"
+    : "focused overlays, inspectors, or state containers";
+  const parallaxBacked = hasEvidenceCue(evidenceText, ["parallax", "depth", "layered", "immersive", "full-bleed"]);
+  const glassBacked = hasEvidenceCue(evidenceText, ["glass", "frosted", "blur", "translucent", "scrim", "overlay"]);
+  const parallax = parallaxBacked
+    ? "Depth language: reference evidence supports restrained parallax, layered shadows, and atmospheric depth where it reinforces hierarchy."
+    : "Depth language policy: use parallax only when reference evidence supports layered depth; otherwise use spacing, scale, and shadow hierarchy.";
+  const glass = glassBacked
+    ? `Glassmorphism/translucency: reference evidence supports frosted or translucent surfaces for ${glassScope}; never use glass as generic decoration.`
+    : `Glassmorphism/translucency policy: use frosted or translucent surfaces only when reference evidence supports ${glassScope}.`;
+  return [
+    parallax,
+    glass,
+    "Reduced-motion material fallback: remove parallax and cursor-follow transforms while preserving hierarchy, depth, and CTA clarity."
+  ];
+};
+
 const buildSectionArchitecture = (
   format: InspiredesignBriefFormat,
   board: InspiredesignReferencePatternBoard
@@ -462,6 +526,8 @@ export const buildInspiredesignDesignVectors = (
     typographyPosture: [format.typographySystem],
     imageryPosture: buildImageryPosture(format, board),
     interactionDensity: buildInteractionDensity(format, board),
+    interactionMoments: buildInteractionMoments(format, board),
+    materialEffects: buildMaterialEffects(board),
     referenceInfluence: influence,
     patternsToBorrow: board.references.flatMap((entry) => entry.patternsToBorrow).slice(0, 8),
     patternsToReject: board.references.flatMap((entry) => entry.patternsToReject).slice(0, 8),

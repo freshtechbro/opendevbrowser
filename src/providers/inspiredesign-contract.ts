@@ -664,7 +664,9 @@ const renderReferenceFirstAdvancedBrief = (
       `surfaceIntent: ${vectors.surfaceIntent}`,
       `premiumPosture: ${vectors.premiumPosture.join(" ")}`,
       `motionPosture: ${vectors.motionPosture.join(" ")}`,
-      `sectionArchitecture: ${vectors.sectionArchitecture.join(" ")}`
+      `sectionArchitecture: ${vectors.sectionArchitecture.join(" ")}`,
+      `interactionMoments: ${vectors.interactionMoments.join(" ")}`,
+      `materialEffects: ${vectors.materialEffects.join(" ")}`
     ]),
     "",
     "Fixed format guardrails:",
@@ -702,7 +704,9 @@ const buildSupportingMessages = (references: InspiredesignReferenceEvidence[]): 
 const summarizeDesignVectors = (designVectors: InspiredesignDesignVectors): string => [
   `direction: ${designVectors.directionLabel}`,
   `sections: ${designVectors.sectionArchitecture.join(" ")}`,
-  `motion: ${designVectors.motionPosture.join(" ")}`
+  `motion: ${designVectors.motionPosture.slice(0, 1).join(" ")}`,
+  `interactions: ${designVectors.interactionMoments.slice(0, 1).join(" ")}`,
+  `materials: ${designVectors.materialEffects.slice(0, 1).join(" ")}`
 ].join(" ");
 
 const isReferenceFirstPublicLanding = (designVectors: InspiredesignDesignVectors): boolean => {
@@ -749,7 +753,7 @@ const buildGenerationPlan = ({
   const profile = format.route.profile;
   const vectorSummary = summarizeDesignVectors(designVectors);
   plan.targetOutcome.summary = clipText(
-    `${summarizeBrief(brief)} ${vectorSummary} Reference cues: ${synthesis.summary}`,
+    `${summarizeBrief(brief)} Reference cues: ${synthesis.summary} ${vectorSummary}`,
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.visualDirection.profile = profile;
@@ -757,11 +761,11 @@ const buildGenerationPlan = ({
   plan.layoutStrategy.approach = format.route.layoutApproach;
   plan.layoutStrategy.navigationModel = format.route.navigationModel;
   plan.contentStrategy.source = clipText(
-    `${INSPIREDESIGN_HANDOFF_FILES.evidence}, ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief}, ${INSPIREDESIGN_HANDOFF_FILES.designMarkdown}. Use reference pattern board and design vectors. ${vectorSummary} ${synthesis.summary}`,
+    `${INSPIREDESIGN_HANDOFF_FILES.evidence}, ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief}, ${INSPIREDESIGN_HANDOFF_FILES.designMarkdown}. Use reference pattern board and design vectors from evidence/handoff artifacts. ${synthesis.summary} ${vectorSummary}`,
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.componentStrategy.mode = clipText(
-    `reuse-first, adapted from captured references. Include hero entrance reveal, section scroll reveal, CTA/focus feedback, and prefers-reduced-motion behavior. Capture desktop and mobile browser proof for responsive layout, reduced-motion behavior, focus states, and primary CTA visibility. ${synthesis.summary}`,
+    `reuse-first, adapted from captured references: ${synthesis.summary}. Include hero entrance reveal, section scroll reveal, CTA/focus feedback, microinteractions, hover effects, evidence-gated cursor effects, material depth, parallax constraints, glass/translucency policy, and prefers-reduced-motion behavior. Capture desktop and mobile browser proof for responsive layout, reduced-motion behavior, focus states, and primary CTA visibility.`,
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.componentStrategy.interactionStates = ["default", "hover", "focus", "disabled", "loading"];
@@ -906,11 +910,20 @@ const buildIconSystemBlock = (): JsonRecord => ({
   ]
 });
 
-const buildMotionSystemBlock = (format: InspiredesignBriefFormat): JsonRecord => {
+const buildMotionSystemBlock = (
+  format: InspiredesignBriefFormat,
+  designVectors: InspiredesignDesignVectors
+): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.motionSystem);
   return {
     ...block,
     grammar: format.motionGrammar,
+    posture: [...designVectors.motionPosture],
+    interactionMoments: [...designVectors.interactionMoments],
+    materialEffects: [...designVectors.materialEffects],
+    parallaxPolicy: "Use parallax only as a restrained hierarchy cue and remove transform-based depth for reduced-motion users.",
+    hoverPolicy: "Hover effects must clarify clickability without becoming the only visible affordance.",
+    cursorPolicy: "Cursor effects are allowed only on premium hero or CTA moments and must not interfere with reading or form controls.",
     durations: {
       quick: "120ms",
       standard: "180ms",
@@ -1105,7 +1118,7 @@ const buildDesignContract = ({
   colorSystem: buildColorSystemBlock(plan.visualDirection.profile, format),
   surfaceSystem: buildSurfaceSystemBlock(format),
   iconSystem: buildIconSystemBlock(),
-  motionSystem: buildMotionSystemBlock(format),
+  motionSystem: buildMotionSystemBlock(format, plan.designVectors),
   responsiveSystem: buildResponsiveSystemBlock(format),
   accessibilityPolicy: buildAccessibilityBlock(),
   libraryPolicy: buildLibraryPolicyBlock(),
@@ -1201,6 +1214,8 @@ const buildImplementationPlan = ({
   stateAndInteractionPlan: [
     `Use ${format.motionGrammar} while keeping hover, focus, loading, success, and error states visually distinct.`,
     ...designVectors.motionPosture,
+    ...designVectors.interactionMoments,
+    ...designVectors.materialEffects,
     "Implement hero entrance reveal, section scroll reveal, and CTA/focus feedback as the minimum motion system for landing pages.",
     "Use @media (prefers-reduced-motion: reduce) to preserve hierarchy without motion.",
     "Preserve layout during loading and keep transient confirmations out of the main flow.",
@@ -1457,10 +1472,12 @@ const renderPrototypeGuidance = (
     `- section architecture: ${designVectors.sectionArchitecture.join(" ")}`,
     `- section order: ${PROFILE_CONFIG[profile].pagePatterns.join(" -> ")}`,
     "- component composition: reuse button, card, input, and navigation primitives before page-specific wrappers.",
-    "- interaction expectations: implement hero entrance reveal, section scroll reveal, CTA/focus feedback, visible focus, and prefers-reduced-motion behavior.",
+    `- interaction expectations: ${designVectors.interactionMoments.join(" ")}`,
+    `- motion expectations: ${designVectors.motionPosture.join(" ")}`,
+    `- material and depth expectations: ${designVectors.materialEffects.join(" ")}`,
     "- browser proof: capture desktop and mobile browser screenshots, verify reduced-motion behavior, inspect focus states, and confirm the primary CTA remains visible without overlap.",
     "- HTML skeleton guidance: start with one main landmark, one primary CTA group, and semantic sections for hero, story, proof, pathways, impact, events, visit, CTA, and footer.",
-    "- styling approach: define CSS variables first, then map components to semantic tokens rather than raw values.",
+    "- styling approach: define CSS variables for timing, easing, elevation, translucency, backdrop blur, cursor effects, hover effects, and parallax distance before mapping components to semantic tokens.",
     "- first prototype should include vs omit: include shell, hero, CTA, proof, story, pathway, impact, event, visit, final CTA, and footer sections; omit analytics, app-shell widgets, and empty card grids."
   ].join("\n");
 };
@@ -1638,7 +1655,9 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       `direction: ${designVectors.directionLabel}`,
       `premium posture: ${designVectors.premiumPosture.join(" ")}`,
       `motion posture: ${designVectors.motionPosture.join(" ")}`,
-      `section architecture: ${designVectors.sectionArchitecture.join(" ")}`
+      `section architecture: ${designVectors.sectionArchitecture.join(" ")}`,
+      `interaction moments: ${designVectors.interactionMoments.join(" ")}`,
+      `material effects: ${designVectors.materialEffects.join(" ")}`
     ]),
     "",
     "## 3.4 System Direction",
