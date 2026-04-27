@@ -98,6 +98,25 @@ const countMatches = (brief: string, keywords: readonly string[]): number => {
   );
 };
 
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const removeNegativeSignal = (brief: string, keyword: string): string => {
+  const escaped = escapeRegExp(keyword.toLowerCase());
+  const modifiers = "(?:[a-z0-9-]+\\s+){0,3}";
+  return brief
+    .replace(new RegExp(`\\b(?:not|no|without|avoid|exclude|excluding)\\s+(?:an?\\s+|the\\s+)?${modifiers}${escaped}\\b(?:\\s+[a-z0-9-]+){0,2}`, "g"), " ")
+    .replace(new RegExp(`\\b${escaped}\\s+(?:is\\s+)?(?:not|excluded|forbidden)\\b`, "g"), " ");
+};
+
+const positiveSignalText = (brief: string, formats: readonly InspiredesignBriefFormatTemplate[]): string => {
+  const keywords = formats.flatMap((format) => [
+    ...format.matchSignals.positive,
+    ...(format.matchSignals.required ?? []),
+    ...(format.matchSignals.excluded ?? [])
+  ]);
+  return [...new Set(keywords)].reduce(removeNegativeSignal, brief.toLowerCase());
+};
+
 const cloneStringList = (items: readonly string[]): string[] => [...items];
 
 const cloneRoute = (route: InspiredesignBriefFormatRoute): InspiredesignBriefFormatRoute => ({
@@ -174,12 +193,13 @@ const findFormatById = (
 };
 
 const scoreFormat = (sourceBrief: string, format: InspiredesignBriefFormatTemplate): number => {
-  const requiredMatches = countMatches(sourceBrief, format.matchSignals.required ?? []);
+  const brief = positiveSignalText(sourceBrief, BRIEF_TEMPLATE.formats);
+  const requiredMatches = countMatches(brief, format.matchSignals.required ?? []);
   if ((format.matchSignals.required?.length ?? 0) > 0 && requiredMatches === 0) {
     return Number.NEGATIVE_INFINITY;
   }
-  const excludedMatches = countMatches(sourceBrief, format.matchSignals.excluded ?? []);
-  const positiveMatches = countMatches(sourceBrief, format.matchSignals.positive);
+  const excludedMatches = countMatches(brief, format.matchSignals.excluded ?? []);
+  const positiveMatches = countMatches(brief, format.matchSignals.positive);
   return (positiveMatches * 4)
     + (requiredMatches * 6)
     - (excludedMatches * 8)

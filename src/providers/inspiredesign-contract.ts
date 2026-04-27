@@ -20,6 +20,14 @@ import {
   type InspiredesignBriefExpansion,
   type InspiredesignBriefFormat
 } from "../inspiredesign/brief-expansion";
+import {
+  buildInspiredesignDesignVectors,
+  buildInspiredesignReferencePatternBoard,
+  getInspiredesignReferenceSignals,
+  hasInspiredesignUsableReferenceEvidence,
+  type InspiredesignDesignVectors,
+  type InspiredesignReferencePatternBoard
+} from "../inspiredesign/reference-pattern-board";
 import type { JsonValue } from "./types";
 
 type JsonRecord = Record<string, JsonValue>;
@@ -62,7 +70,9 @@ type CanvasPlanRequestTemplate = {
   canvasSessionId: string;
   leaseId: string;
   documentId: string;
-  generationPlan: CanvasGenerationPlan;
+  generationPlan: CanvasGenerationPlan & {
+    designVectors?: JsonRecord;
+  };
 };
 
 type ProfileConfig = {
@@ -298,10 +308,15 @@ export type InspiredesignImplementationPlan = {
   buildSequence: string[];
 };
 
+type InspiredesignGenerationPlan = CanvasGenerationPlan & {
+  referencePatternBoard: InspiredesignReferencePatternBoard;
+  designVectors: InspiredesignDesignVectors;
+};
+
 export type InspiredesignPacket = {
   advancedBriefMarkdown: string;
   designContract: CanvasDesignGovernance;
-  generationPlan: CanvasGenerationPlan;
+  generationPlan: InspiredesignGenerationPlan;
   canvasPlanRequest: CanvasPlanRequestTemplate;
   followthrough: InspiredesignFollowthrough;
   designMarkdown: string;
@@ -323,6 +338,8 @@ export type InspiredesignImplementationContext = {
   asyncModel: JsonRecord;
   performanceModel: JsonRecord;
   referenceSynthesis: JsonRecord;
+  referencePatternBoard: InspiredesignReferencePatternBoard;
+  designVectors: InspiredesignDesignVectors;
 };
 
 export type InspiredesignFollowthrough = {
@@ -353,7 +370,9 @@ export type BuildInspiredesignPacketInput = {
 };
 
 const BASE_CONTRACT_TEMPLATE: DesignContractTemplate = designContractTemplateJson;
-const BASE_PLAN_REQUEST_TEMPLATE = generationPlanTemplateJson as CanvasPlanRequestTemplate;
+const BASE_PLAN_REQUEST_TEMPLATE = generationPlanTemplateJson as Omit<CanvasPlanRequestTemplate, "generationPlan"> & {
+  generationPlan: CanvasGenerationPlan;
+};
 const BASE_GENERATION_PLAN: CanvasGenerationPlan = BASE_PLAN_REQUEST_TEMPLATE.generationPlan;
 
 const PROFILE_CONFIG: Record<CanvasVisualDirectionProfile, ProfileConfig> = {
@@ -589,47 +608,16 @@ type InspiredesignReferenceSynthesis = {
   summary: string;
 };
 
-const REFERENCE_SIGNAL_CLIP_LENGTH = 180;
-const REFERENCE_SIGNAL_LIMIT = 5;
 const REFERENCE_SUMMARY_CLIP_LENGTH = 220;
 const GENERATION_PLAN_REFERENCE_CLIP_LENGTH = 600;
-
-const textFromHtml = (html: string | undefined): string | undefined => {
-  if (!html) return undefined;
-  return trimText(html.replace(/<[^>]+>/g, " "));
-};
-
-const trimOptionalText = (value: string | undefined): string | undefined => {
-  const text = value ? trimText(value) : "";
-  return text.length > 0 ? text : undefined;
-};
-
-const pushReferenceSignal = (signals: string[], value: string | undefined): void => {
-  const text = trimOptionalText(value);
-  if (text && !signals.includes(text)) {
-    signals.push(text);
-  }
-};
-
-const referenceSignals = (reference: InspiredesignReferenceEvidence): string[] => {
-  const signals: string[] = [];
-  pushReferenceSignal(signals, reference.title);
-  pushReferenceSignal(signals, reference.excerpt);
-  pushReferenceSignal(signals, reference.capture?.snapshot?.content);
-  pushReferenceSignal(signals, reference.capture?.clone?.componentPreview);
-  pushReferenceSignal(signals, reference.capture?.clone?.cssPreview);
-  pushReferenceSignal(signals, textFromHtml(reference.capture?.dom?.outerHTML));
-  return signals
-    .map((signal) => clipText(signal, REFERENCE_SIGNAL_CLIP_LENGTH))
-    .slice(0, REFERENCE_SIGNAL_LIMIT);
-};
 
 const buildReferenceSynthesis = (
   references: InspiredesignReferenceEvidence[]
 ): InspiredesignReferenceSynthesis => {
   const lines = references
+    .filter(hasInspiredesignUsableReferenceEvidence)
     .map((reference, index) => {
-      const signals = referenceSignals(reference);
+      const signals = getInspiredesignReferenceSignals(reference);
       if (signals.length === 0) return "";
       return `Source ${index + 1} ${reference.title ?? reference.url}: ${signals.join(" | ")}`;
     })
@@ -642,19 +630,53 @@ const buildReferenceSynthesis = (
   };
 };
 
-const appendReferenceSynthesis = (
-  advancedBrief: string,
-  synthesis: InspiredesignReferenceSynthesis
+const renderReferenceFirstAdvancedBrief = (
+  briefExpansion: InspiredesignBriefExpansion,
+  board: InspiredesignReferencePatternBoard,
+  vectors: InspiredesignDesignVectors,
+  references: InspiredesignReferenceEvidence[]
 ): string => {
-  if (synthesis.lines.length === 0) {
-    return advancedBrief;
+  if (board.references.length === 0) {
+    if (references.length > 0) {
+      return [
+        "Reference evidence unavailable:",
+        "URL references were attempted, but no usable creative evidence was captured. Treat this as a capture gap, not a design direction.",
+        "",
+        formatBulletList(references.map((reference) => renderUnavailableReference(reference))),
+        "",
+        briefExpansion.advancedBrief
+      ].join("\n");
+    }
+    return briefExpansion.advancedBrief;
   }
   return [
-    advancedBrief,
+    "Reference pattern board:",
+    "URL reference evidence is the creative source of truth when references are supplied.",
     "",
-    "Reference-specific synthesis:",
-    formatBulletList(synthesis.lines)
+    "Reference evidence analysis:",
+    formatBulletList(board.references.map((reference) => (
+      `${reference.name}: ${reference.layoutRecipe}`
+    ))),
+    "",
+    "Design vectors:",
+    formatBulletList([
+      `directionLabel: ${vectors.directionLabel}`,
+      `surfaceIntent: ${vectors.surfaceIntent}`,
+      `premiumPosture: ${vectors.premiumPosture.join(" ")}`,
+      `motionPosture: ${vectors.motionPosture.join(" ")}`,
+      `sectionArchitecture: ${vectors.sectionArchitecture.join(" ")}`
+    ]),
+    "",
+    "Fixed format guardrails:",
+    "Selected prompt format supplies route defaults and guardrails, not the creative source of truth.",
+    "",
+    briefExpansion.advancedBrief
   ].join("\n");
+};
+
+const renderUnavailableReference = (reference: InspiredesignReferenceEvidence): string => {
+  const reason = reference.fetchFailure ?? reference.captureFailure ?? "no usable creative evidence captured";
+  return `${reference.url}: fetch=${reference.fetchStatus}, capture=${reference.captureStatus}, reason=${clipText(reason, 160)}`;
 };
 
 const cloneTemplate = <T>(value: T): T => structuredClone(value);
@@ -677,15 +699,57 @@ const buildSupportingMessages = (references: InspiredesignReferenceEvidence[]): 
   return messages.slice(0, 3);
 };
 
-const buildGenerationPlan = (
-  brief: string,
+const summarizeDesignVectors = (designVectors: InspiredesignDesignVectors): string => [
+  `direction: ${designVectors.directionLabel}`,
+  `sections: ${designVectors.sectionArchitecture.join(" ")}`,
+  `motion: ${designVectors.motionPosture.join(" ")}`
+].join(" ");
+
+const isReferenceFirstPublicLanding = (designVectors: InspiredesignDesignVectors): boolean => {
+  return designVectors.sourcePriority === "reference-evidence-first"
+    && designVectors.surfaceIntent.toLowerCase().includes("public landing page");
+};
+
+const buildEvidenceDerivedFormat = (
   format: InspiredesignBriefFormat,
-  synthesis: InspiredesignReferenceSynthesis
-): CanvasGenerationPlan => {
+  designVectors: InspiredesignDesignVectors
+): InspiredesignBriefFormat => {
+  const clone = cloneInspiredesignBriefFormat(format);
+  if (!isReferenceFirstPublicLanding(designVectors)) return clone;
+  return {
+    ...clone,
+    archetype: "reference-led public landing page",
+    layoutArchetype: "full-bleed hero with narrative section cadence",
+    componentGrammar: "hero composition, proof bands, narrative pathways, event sections, visit CTA, and footer",
+    route: {
+      ...clone.route,
+      profile: "product-story",
+      navigationModel: "global-header",
+      layoutApproach: "reference-led-landing-page"
+    }
+  };
+};
+
+type BuildGenerationPlanInput = {
+  brief: string;
+  format: InspiredesignBriefFormat;
+  synthesis: InspiredesignReferenceSynthesis;
+  referencePatternBoard: InspiredesignReferencePatternBoard;
+  designVectors: InspiredesignDesignVectors;
+};
+
+const buildGenerationPlan = ({
+  brief,
+  format,
+  synthesis,
+  referencePatternBoard,
+  designVectors
+}: BuildGenerationPlanInput): InspiredesignGenerationPlan => {
   const plan = cloneTemplate(BASE_GENERATION_PLAN);
   const profile = format.route.profile;
+  const vectorSummary = summarizeDesignVectors(designVectors);
   plan.targetOutcome.summary = clipText(
-    `${summarizeBrief(brief)} Reference cues: ${synthesis.summary}`,
+    `${summarizeBrief(brief)} ${vectorSummary} Reference cues: ${synthesis.summary}`,
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.visualDirection.profile = profile;
@@ -693,18 +757,22 @@ const buildGenerationPlan = (
   plan.layoutStrategy.approach = format.route.layoutApproach;
   plan.layoutStrategy.navigationModel = format.route.navigationModel;
   plan.contentStrategy.source = clipText(
-    `advanced-brief.md, design.md, evidence.json. ${synthesis.summary}`,
+    `${INSPIREDESIGN_HANDOFF_FILES.evidence}, ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief}, ${INSPIREDESIGN_HANDOFF_FILES.designMarkdown}. Use reference pattern board and design vectors. ${vectorSummary} ${synthesis.summary}`,
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.componentStrategy.mode = clipText(
-    `reuse-first, adapted from captured references. ${synthesis.summary}`,
+    `reuse-first, adapted from captured references. Include hero entrance reveal, section scroll reveal, CTA/focus feedback, and prefers-reduced-motion behavior. Capture desktop and mobile browser proof for responsive layout, reduced-motion behavior, focus states, and primary CTA visibility. ${synthesis.summary}`,
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.componentStrategy.interactionStates = ["default", "hover", "focus", "disabled", "loading"];
   plan.validationTargets.requiredThemes = plan.visualDirection.themeStrategy === "single-theme"
     ? ["light"]
     : ["light", "dark"];
-  return plan;
+  return {
+    ...plan,
+    referencePatternBoard,
+    designVectors
+  };
 };
 
 const buildIntentBlock = (
@@ -882,7 +950,7 @@ const buildLibraryPolicyBlock = (): JsonRecord => ({
 
 const buildRuntimeBudgetsBlock = (plan: CanvasGenerationPlan): JsonRecord => ({
   maxHeroActions: 2,
-  maxPrimarySections: 8,
+  maxPrimarySections: plan.layoutStrategy.navigationModel === "global-header" ? 12 : 8,
   maxInteractionLatencyMs: plan.validationTargets.maxInteractionLatencyMs,
   previewBudgetMs: 1500,
   notes: [
@@ -926,11 +994,24 @@ const buildPerformanceModelBlock = (): JsonRecord => {
 
 const buildCanvasPlanRequest = (
   brief: string,
-  generationPlan: CanvasGenerationPlan
+  generationPlan: InspiredesignGenerationPlan
 ): CanvasPlanRequestTemplate => ({
   ...cloneTemplate(BASE_PLAN_REQUEST_TEMPLATE),
   requestId: `req_plan_${referenceFingerprint(brief).slice(0, 12)}`,
-  generationPlan
+  generationPlan: toCanvasGenerationPlan(generationPlan)
+});
+
+const toCanvasGenerationPlan = (plan: InspiredesignGenerationPlan): CanvasPlanRequestTemplate["generationPlan"] => cloneTemplate({
+  targetOutcome: plan.targetOutcome,
+  visualDirection: plan.visualDirection,
+  layoutStrategy: plan.layoutStrategy,
+  contentStrategy: plan.contentStrategy,
+  componentStrategy: plan.componentStrategy,
+  motionPosture: plan.motionPosture,
+  responsivePosture: plan.responsivePosture,
+  accessibilityPosture: plan.accessibilityPosture,
+  validationTargets: plan.validationTargets,
+  designVectors: plan.designVectors as JsonRecord
 });
 
 const buildContractScope = (): InspiredesignContractScope => ({
@@ -950,22 +1031,36 @@ const buildBriefExpansionMetadata = (
 
 const buildRequiredReferenceArtifacts = (includePrototypeGuidance: boolean): string[] => {
   const files = [
+    INSPIREDESIGN_HANDOFF_FILES.evidence,
     INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
     INSPIREDESIGN_HANDOFF_FILES.designMarkdown,
-    INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown,
-    INSPIREDESIGN_HANDOFF_FILES.evidence
+    INSPIREDESIGN_HANDOFF_FILES.generationPlan,
+    INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
+    INSPIREDESIGN_HANDOFF_FILES.designContract,
+    INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown
   ];
   return includePrototypeGuidance
     ? [...files, INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance]
     : files;
 };
 
-const buildFollowthrough = (
-  generationPlan: CanvasGenerationPlan,
-  briefExpansion: InspiredesignBriefExpansion,
-  synthesis: InspiredesignReferenceSynthesis,
-  includePrototypeGuidance: boolean
-): InspiredesignFollowthrough => ({
+type BuildFollowthroughInput = {
+  generationPlan: InspiredesignGenerationPlan;
+  briefExpansion: InspiredesignBriefExpansion;
+  synthesis: InspiredesignReferenceSynthesis;
+  includePrototypeGuidance: boolean;
+  referencePatternBoard: InspiredesignReferencePatternBoard;
+  designVectors: InspiredesignDesignVectors;
+};
+
+const buildFollowthrough = ({
+  generationPlan,
+  briefExpansion,
+  synthesis,
+  includePrototypeGuidance,
+  referencePatternBoard,
+  designVectors
+}: BuildFollowthroughInput): InspiredesignFollowthrough => ({
   summary: buildInspiredesignFollowthroughSummary(),
   nextStep: buildInspiredesignNextStep(),
   briefExpansion: buildBriefExpansionMetadata(briefExpansion),
@@ -980,21 +1075,31 @@ const buildFollowthrough = (
     referenceSynthesis: {
       requiredArtifacts: buildRequiredReferenceArtifacts(includePrototypeGuidance),
       cues: synthesis.lines
-    }
+    },
+    referencePatternBoard,
+    designVectors
   }
 });
 
-const buildDesignContract = (
-  brief: string,
-  urls: string[],
-  references: InspiredesignReferenceEvidence[],
-  plan: CanvasGenerationPlan,
-  format: InspiredesignBriefFormat
-): CanvasDesignGovernance => ({
+type BuildDesignContractInput = {
+  brief: string;
+  urls: string[];
+  references: InspiredesignReferenceEvidence[];
+  plan: InspiredesignGenerationPlan;
+  format: InspiredesignBriefFormat;
+};
+
+const buildDesignContract = ({
+  brief,
+  urls,
+  references,
+  plan,
+  format
+}: BuildDesignContractInput): CanvasDesignGovernance => ({
   intent: buildIntentBlock(brief, urls, references, format),
-  generationPlan: plan,
+  generationPlan: toCanvasGenerationPlan(plan),
   designLanguage: buildDesignLanguageBlock(plan.visualDirection.profile, format),
-  contentModel: buildContentModelBlock(brief, references),
+  contentModel: buildContentModelBlock(brief, references.filter(hasInspiredesignUsableReferenceEvidence)),
   layoutSystem: buildLayoutSystemBlock(plan, format),
   typographySystem: buildTypographySystemBlock(format),
   colorSystem: buildColorSystemBlock(plan.visualDirection.profile, format),
@@ -1065,12 +1170,21 @@ const buildComponentBuildPlan = (profile: CanvasVisualDirectionProfile) => {
   }));
 };
 
-const buildImplementationPlan = (
-  profile: CanvasVisualDirectionProfile,
-  format: InspiredesignBriefFormat,
-  references: InspiredesignReferenceEvidence[],
-  synthesis: InspiredesignReferenceSynthesis
-): InspiredesignImplementationPlan => ({
+type BuildImplementationPlanInput = {
+  profile: CanvasVisualDirectionProfile;
+  format: InspiredesignBriefFormat;
+  references: InspiredesignReferenceEvidence[];
+  synthesis: InspiredesignReferenceSynthesis;
+  designVectors: InspiredesignDesignVectors;
+};
+
+const buildImplementationPlan = ({
+  profile,
+  format,
+  references,
+  synthesis,
+  designVectors
+}: BuildImplementationPlanInput): InspiredesignImplementationPlan => ({
   architectureRecommendation: `Implement the surface as a ${format.archetype} using token-first components and shared semantic CSS variables, then compose page sections from those primitives before adding any page-specific polish.`,
   tokenStrategy: buildTokenStrategy(profile),
   referenceImplementationNotes: synthesis.lines.length > 0
@@ -1079,11 +1193,16 @@ const buildImplementationPlan = (
   componentBuildPlan: buildComponentBuildPlan(profile),
   pageAssemblyPlan: [
     `Start with the ${format.layoutArchetype} and the primary navigation pattern.`,
+    ...designVectors.sectionArchitecture,
+    "Make each major section content-rich with a concrete headline, supporting copy, proof detail, and a clear role in the journey.",
     "Compose the hero or primary decision section before supporting sections.",
     "Add proof, utility, and footer sections only after the top-level hierarchy is stable."
   ],
   stateAndInteractionPlan: [
     `Use ${format.motionGrammar} while keeping hover, focus, loading, success, and error states visually distinct.`,
+    ...designVectors.motionPosture,
+    "Implement hero entrance reveal, section scroll reveal, and CTA/focus feedback as the minimum motion system for landing pages.",
+    "Use @media (prefers-reduced-motion: reduce) to preserve hierarchy without motion.",
     "Preserve layout during loading and keep transient confirmations out of the main flow.",
     "Use reduced-motion-safe transitions for reveals and CTA feedback."
   ],
@@ -1101,15 +1220,18 @@ const buildImplementationPlan = (
   risksAndAmbiguities: [
     references.length === 0
       ? "No live references were supplied, so visual cues are derived entirely from the written brief."
-      : "Live references were reduced into reusable patterns; unique brand assets should still be recreated, not copied.",
-    "Any missing interaction states must be validated during visual QA."
+      : synthesis.lines.length > 0
+        ? "Live references were reduced into reusable patterns; unique brand assets should still be recreated, not copied."
+        : "Reference URLs were attempted, but no usable creative evidence was captured; keep implementation anchored to the source brief and selected prompt format.",
+    "Any missing interaction states must be validated during visual QA.",
+    "Capture desktop and mobile browser proof before handoff, including reduced-motion behavior and primary CTA visibility."
   ],
   buildSequence: [
     "Define semantic tokens and typography.",
     "Build the shell, navigation, and primary CTA components.",
     "Implement section-level patterns and proof blocks.",
     "Add loading, empty, and error states.",
-    "Run accessibility, responsive, and browser QA before final polish."
+    "Capture desktop and mobile browser proof for responsive layout, reduced-motion behavior, focus states, and primary CTA visibility before final polish."
   ]
 });
 
@@ -1121,8 +1243,7 @@ const formatRecordList = (record: Record<string, string | number>): string => {
 
 const referenceContribution = (reference: InspiredesignReferenceEvidence): string => {
   if (reference.captureStatus === "captured") return "Live hierarchy and component evidence captured from the page.";
-  if (reference.fetchStatus === "captured") return "Content and structural cues inferred from fetched page data.";
-  return "Only operator brief context was available for this reference.";
+  return "Content and structural cues inferred from fetched page data.";
 };
 
 const referenceMotionNote = (reference: InspiredesignReferenceEvidence): string => {
@@ -1131,6 +1252,15 @@ const referenceMotionNote = (reference: InspiredesignReferenceEvidence): string 
   }
   if (reference.captureStatus === "captured") return "Motion should remain subtle until validated against the live capture.";
   return "Motion is inferred from the brief rather than directly observed.";
+};
+
+const referenceLayoutObservation = (
+  reference: InspiredesignReferenceEvidence,
+  excerpt: string
+): string => {
+  if (!reference.capture?.snapshot && !reference.capture?.clone && !reference.capture?.dom) return excerpt;
+  const signals = getInspiredesignReferenceSignals(reference);
+  return signals.find((signal) => signal !== reference.title) ?? signals[0] ?? excerpt;
 };
 
 const renderReferenceMarkdown = (reference: InspiredesignReferenceEvidence, index: number): string => {
@@ -1142,12 +1272,23 @@ const renderReferenceMarkdown = (reference: InspiredesignReferenceEvidence, inde
     `- notable UI patterns: ${reference.capture?.snapshot ? "Primary hierarchy and actionables were captured from the live page." : "Patterns inferred from brief and fetched content."}`,
     `- typography observations: ${reference.title ? "Headline density and copy hierarchy were inferred from the fetched title and excerpt." : "Typography is inferred."}`,
     `- color and theme observations: ${reference.captureStatus === "captured" ? "Color posture should be validated against the captured page before cloning brand treatment." : "Color posture remains a synthesis decision."}`,
-    `- layout and hierarchy observations: ${reference.capture?.snapshot ? clipText(reference.capture.snapshot.content, 180) : excerpt}`,
+    `- layout and hierarchy observations: ${referenceLayoutObservation(reference, excerpt)}`,
     `- component patterns: ${reference.capture?.clone ? "Buttons, cards, or layout wrappers can be inferred from the captured clone preview." : "Component families were inferred from available reference text."}`,
     `- motion/interaction observations: ${referenceMotionNote(reference)}`,
     `- accessibility/responsiveness notes: ${reference.captureStatus === "captured" ? "Validate focus order, CTA prominence, and stacked layouts during build QA." : "Accessibility and responsiveness are inferred from system defaults."}`,
     `- what should be adopted, adapted, or avoided: adopt layout hierarchy, adapt it to the new brand tokens, avoid copying proprietary copy or visual assets directly.`
   ].join("\n");
+};
+
+const renderInspirationAnalysis = (
+  references: InspiredesignReferenceEvidence[],
+  usableReferences: InspiredesignReferenceEvidence[]
+): string => {
+  if (usableReferences.length > 0) return usableReferences.map(renderReferenceMarkdown).join("\n\n");
+  if (references.length > 0) {
+    return "- Reference URLs were attempted, but no usable creative evidence was captured. See evidence.json for fetch/capture status.";
+  }
+  return "- No live inspiration source was provided. The system is derived entirely from the brief.";
 };
 
 const renderGovernanceMarkdown = (
@@ -1302,7 +1443,8 @@ const renderImplementationMarkdown = (implementationPlan: InspiredesignImplement
 
 const renderPrototypeGuidance = (
   profile: CanvasVisualDirectionProfile,
-  synthesis: InspiredesignReferenceSynthesis
+  synthesis: InspiredesignReferenceSynthesis,
+  designVectors: InspiredesignDesignVectors
 ): string => {
   return [
     "# 6. Optional Prototype Plan",
@@ -1311,13 +1453,15 @@ const renderPrototypeGuidance = (
     formatBulletList(synthesis.lines.length > 0 ? synthesis.lines : ["No live reference cues were captured."]),
     "",
     "## 6.2 Prototype Structure",
-    "- page structure: establish the shell, hero or primary action zone, proof sections, and footer in that order.",
+    "- page structure: for public landing pages, build 8 to 12 content-rich sections unless the brief explicitly asks for a microsite.",
+    `- section architecture: ${designVectors.sectionArchitecture.join(" ")}`,
     `- section order: ${PROFILE_CONFIG[profile].pagePatterns.join(" -> ")}`,
     "- component composition: reuse button, card, input, and navigation primitives before page-specific wrappers.",
-    "- interaction expectations: provide visible focus, compact hover feedback, and reduced-motion-safe entry transitions.",
-    "- HTML skeleton guidance: start with one main landmark, one primary CTA group, and semantic sections for proof or detail bands.",
+    "- interaction expectations: implement hero entrance reveal, section scroll reveal, CTA/focus feedback, visible focus, and prefers-reduced-motion behavior.",
+    "- browser proof: capture desktop and mobile browser screenshots, verify reduced-motion behavior, inspect focus states, and confirm the primary CTA remains visible without overlap.",
+    "- HTML skeleton guidance: start with one main landmark, one primary CTA group, and semantic sections for hero, story, proof, pathways, impact, events, visit, CTA, and footer.",
     "- styling approach: define CSS variables first, then map components to semantic tokens rather than raw values.",
-    "- first prototype should include vs omit: include shell, hero, CTA, one proof section, and one form or action cluster; omit analytics, heavy animation, and tertiary content until hierarchy is proven."
+    "- first prototype should include vs omit: include shell, hero, CTA, proof, story, pathway, impact, event, visit, final CTA, and footer sections; omit analytics, app-shell widgets, and empty card grids."
   ].join("\n");
 };
 
@@ -1337,13 +1481,25 @@ const renderDeliverablesSummary = (includePrototypeGuidance: boolean): string =>
   return formatBulletList(deliverables);
 };
 
-const buildEvidencePayload = (
-  brief: string,
-  briefExpansion: InspiredesignBriefExpansion,
-  advancedBriefMarkdown: string,
-  urls: string[],
-  references: InspiredesignReferenceEvidence[]
-): JsonRecord => ({
+type BuildEvidencePayloadInput = {
+  brief: string;
+  briefExpansion: InspiredesignBriefExpansion;
+  advancedBriefMarkdown: string;
+  urls: string[];
+  references: InspiredesignReferenceEvidence[];
+  referencePatternBoard: InspiredesignReferencePatternBoard;
+  designVectors: InspiredesignDesignVectors;
+};
+
+const buildEvidencePayload = ({
+  brief,
+  briefExpansion,
+  advancedBriefMarkdown,
+  urls,
+  references,
+  referencePatternBoard,
+  designVectors
+}: BuildEvidencePayloadInput): JsonRecord => ({
   brief,
   briefHash: referenceFingerprint(brief),
   advancedBrief: advancedBriefMarkdown,
@@ -1354,17 +1510,18 @@ const buildEvidencePayload = (
   },
   urls,
   referenceCount: references.length,
-  references: references.map((reference) => toReferenceEvidenceJson(reference))
+  references: references.map((reference) => toReferenceEvidenceJson(reference)),
+  referencePatternBoard: referencePatternBoard as JsonRecord,
+  designVectors: designVectors as JsonRecord
 });
 
-const toCaptureEvidenceJson = (capture: InspiredesignCaptureEvidence | null | undefined): JsonValue => {
-  const normalized = normalizeInspiredesignCaptureEvidence(capture);
+const toCaptureEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonValue => {
+  const normalized = normalizeInspiredesignCaptureEvidence(reference.capture);
   if (!normalized) return null;
+  const signals = getInspiredesignReferenceSignals(reference);
   return {
     ...(normalized.title ? { title: normalized.title } : {}),
-    ...(normalized.snapshot ? { snapshot: normalized.snapshot } : {}),
-    ...(normalized.dom ? { dom: normalized.dom } : {}),
-    ...(normalized.clone ? { clone: normalized.clone } : {}),
+    ...(signals.length > 0 ? { signals } : {}),
     ...(normalized.attempts ? { attempts: normalized.attempts } : {})
   };
 };
@@ -1378,7 +1535,7 @@ const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): Jso
   captureStatus: reference.captureStatus,
   ...(reference.fetchFailure ? { fetchFailure: reference.fetchFailure } : {}),
   ...(reference.captureFailure ? { captureFailure: reference.captureFailure } : {}),
-  capture: toCaptureEvidenceJson(reference.capture)
+  capture: toCaptureEvidenceJson(reference)
 });
 
 export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): InspiredesignPacket => {
@@ -1391,30 +1548,67 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     title: reference.title ? trimText(reference.title) : undefined,
     excerpt: reference.excerpt ? trimText(reference.excerpt) : undefined
   }));
-  const synthesis = buildReferenceSynthesis(references);
-  const advancedBriefMarkdown = appendReferenceSynthesis(input.briefExpansion.advancedBrief, synthesis);
-  const generationPlan = buildGenerationPlan(brief, selectedFormat, synthesis);
+  const usableReferences = references.filter(hasInspiredesignUsableReferenceEvidence);
+  const synthesis = buildReferenceSynthesis(usableReferences);
+  const referencePatternBoard = buildInspiredesignReferencePatternBoard(
+    referenceFingerprint(brief),
+    selectedFormat,
+    references
+  );
+  const designVectors = buildInspiredesignDesignVectors(selectedFormat, referencePatternBoard);
+  const effectiveFormat = buildEvidenceDerivedFormat(selectedFormat, designVectors);
+  const effectiveBriefExpansion: InspiredesignBriefExpansion = {
+    ...input.briefExpansion,
+    format: effectiveFormat
+  };
+  const advancedBriefMarkdown = renderReferenceFirstAdvancedBrief(
+    input.briefExpansion,
+    referencePatternBoard,
+    designVectors,
+    references
+  );
+  const generationPlan = buildGenerationPlan({
+    brief,
+    format: effectiveFormat,
+    synthesis,
+    referencePatternBoard,
+    designVectors
+  });
   const profile = generationPlan.visualDirection.profile;
   const canvasPlanRequest = buildCanvasPlanRequest(brief, generationPlan);
-  const designContract = buildDesignContract(brief, urls, references, generationPlan, selectedFormat);
-  const followthrough = buildFollowthrough(
+  const designContract = buildDesignContract({
+    brief,
+    urls,
+    references,
+    plan: generationPlan,
+    format: effectiveFormat
+  });
+  const followthrough = buildFollowthrough({
     generationPlan,
-    input.briefExpansion,
+    briefExpansion: effectiveBriefExpansion,
     synthesis,
-    includePrototypeGuidance
-  );
-  const implementationPlan = buildImplementationPlan(profile, selectedFormat, references, synthesis);
-  const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan, selectedFormat);
+    includePrototypeGuidance,
+    referencePatternBoard,
+    designVectors
+  });
+  const implementationPlan = buildImplementationPlan({
+    profile,
+    format: effectiveFormat,
+    references,
+    synthesis,
+    designVectors
+  });
+  const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan, effectiveFormat);
   const implementationPlanMarkdown = renderImplementationMarkdown(implementationPlan);
   const prototypeGuidanceMarkdown = includePrototypeGuidance
-    ? renderPrototypeGuidance(profile, synthesis)
+    ? renderPrototypeGuidance(profile, synthesis, designVectors)
     : null;
   const designMarkdown = [
     "# 1. Executive Summary",
     "",
     formatBulletList([
       `Analyzed brief plus ${references.length || 0} inspiration reference(s).`,
-      `Chosen design direction: ${selectedFormat.archetype}.`,
+      `Chosen design direction: ${designVectors.surfaceIntent}.`,
       `Route profile: ${PROFILE_CONFIG[profile].direction}.`,
       `Prompt format: ${selectedFormat.label} (${input.briefExpansion.templateVersion}).`,
       "Final outcome: a reusable design contract, engineering plan, and optional prototype guidance.",
@@ -1423,9 +1617,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     "# 2. Inspiration Analysis",
     "",
-    references.length > 0
-      ? references.map(renderReferenceMarkdown).join("\n\n")
-      : "- No live inspiration source was provided. The system is derived entirely from the brief.",
+    renderInspirationAnalysis(references, usableReferences),
     "",
     "# 3. Unified Design Direction",
     "",
@@ -1433,14 +1625,30 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     formatBulletList(synthesis.lines.length > 0 ? synthesis.lines : ["No live reference cues were captured."]),
     "",
-    "## 3.2 System Direction",
+    "## 3.2 Reference Pattern Board",
+    "",
+    formatBulletList(referencePatternBoard.synthesis.sharedStrengths.length > 0
+      ? referencePatternBoard.synthesis.sharedStrengths
+      : ["No live reference cues were captured."]),
+    "",
+    "## 3.3 Design Vectors",
+    "",
+    formatBulletList([
+      `source priority: ${designVectors.sourcePriority}`,
+      `direction: ${designVectors.directionLabel}`,
+      `premium posture: ${designVectors.premiumPosture.join(" ")}`,
+      `motion posture: ${designVectors.motionPosture.join(" ")}`,
+      `section architecture: ${designVectors.sectionArchitecture.join(" ")}`
+    ]),
+    "",
+    "## 3.4 System Direction",
     "",
     formatBulletList([
       `visual personality: ${PROFILE_CONFIG[profile].visualPersonality}`,
       `tone: ${PROFILE_CONFIG[profile].brandTone}`,
-      `layout archetype: ${selectedFormat.layoutArchetype}`,
-      `typography system: ${selectedFormat.typographySystem}`,
-      `motion grammar: ${selectedFormat.motionGrammar}`,
+      `layout archetype: ${effectiveFormat.layoutArchetype}`,
+      `typography system: ${effectiveFormat.typographySystem}`,
+      `motion grammar: ${effectiveFormat.motionGrammar}`,
       `UX principles: ${PROFILE_CONFIG[profile].hierarchyPrinciples.join(" ")}`,
       `interaction philosophy: ${PROFILE_CONFIG[profile].interactionPhilosophy}`,
       "branding posture: preserve the intent of the references without cloning brand-only assets.",
@@ -1470,6 +1678,14 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     implementationPlan,
     implementationPlanMarkdown,
     prototypeGuidanceMarkdown,
-    evidence: buildEvidencePayload(brief, input.briefExpansion, advancedBriefMarkdown, urls, references)
+    evidence: buildEvidencePayload({
+      brief,
+      briefExpansion: effectiveBriefExpansion,
+      advancedBriefMarkdown,
+      urls,
+      references,
+      referencePatternBoard,
+      designVectors
+    })
   };
 };

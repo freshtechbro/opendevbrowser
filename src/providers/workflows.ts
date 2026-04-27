@@ -1827,6 +1827,20 @@ const isInspiredesignFetchRecovered = (
     && (Boolean(reference.title) || Boolean(reference.excerpt));
 };
 
+type InspiredesignRecoveredFetchTelemetry = {
+  url: string;
+  fetchFailure?: string;
+};
+
+const summarizeInspiredesignRecoveredFetches = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignRecoveredFetchTelemetry[] => references
+  .filter(isInspiredesignFetchRecovered)
+  .map((reference) => ({
+    url: reference.url,
+    ...(reference.fetchFailure ? { fetchFailure: reference.fetchFailure } : {})
+  }));
+
 const buildInspiredesignReference = (
   url: string,
   result: ProviderAggregateResult,
@@ -1904,6 +1918,7 @@ const buildInspiredesignMeta = (
 ): Record<string, unknown> => {
   const failedCaptures = references.filter((reference) => reference.captureStatus === "failed");
   const captureAttemptReport = summarizeInspiredesignCaptureAttempts(references);
+  const recoveredFetches = summarizeInspiredesignRecoveredFetches(references);
   let reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
   let meta = withCamelCasePrimaryConstraintMeta(withReasonCodeDistributionMeta({
     selection: {
@@ -1919,6 +1934,12 @@ const buildInspiredesignMeta = (
         reference.fetchStatus === "failed" && !isInspiredesignFetchRecovered(reference)
       )).length,
       failed_captures: failedCaptures.length,
+      ...(recoveredFetches.length > 0
+        ? {
+          recovered_fetches: recoveredFetches.length,
+          recovered_fetch_details: recoveredFetches
+        }
+        : {}),
       ...(captureAttemptReport ? { capture_attempts: captureAttemptReport.counts } : {})
     },
     alerts: buildWorkflowAlerts(runtime, failures)
