@@ -49,6 +49,41 @@ describe("inspiredesign brief expansion", () => {
     expect(result.advancedBrief).not.toContain("creative software");
   });
 
+  it("does not route negative dashboard wording to a dashboard or app shell", async () => {
+    const { expandInspiredesignBrief } = await loadBriefExpansion();
+    const result = expandInspiredesignBrief(
+      "Create a premium public church landing page from a Hillsong-style homepage reference. This is not a dashboard, not an app shell, and not an internal analytics tool."
+    );
+
+    expect(result.format.id).not.toBe("b2b-dashboard-app-shell");
+    expect(result.format.route.profile).not.toBe("ops-control");
+    expect(result.format.route.navigationModel).not.toBe("sidebar");
+    expect(result.advancedBrief).toContain("Selected prompt format: Premium editorial landing page");
+    expect(result.advancedBrief).not.toContain("Selected prompt format: B2B dashboard or app shell");
+  });
+
+  it("removes negated dashboard phrases with modifiers before scoring", async () => {
+    const { expandInspiredesignBrief } = await loadBriefExpansion();
+    const result = expandInspiredesignBrief(
+      "Create a public church website for a global congregation. Not a SaaS dashboard, not a dashboard or internal analytics tool, and not a data-heavy operator workspace."
+    );
+
+    expect(result.format.id).not.toBe("b2b-dashboard-app-shell");
+    expect(result.format.route.profile).not.toBe("ops-control");
+    expect(result.format.route.navigationModel).not.toBe("sidebar");
+  });
+
+  it("still routes positive SaaS dashboard briefs to the dashboard format", async () => {
+    const { expandInspiredesignBrief } = await loadBriefExpansion();
+    const result = expandInspiredesignBrief(
+      "Design a SaaS dashboard for internal analytics teams managing operator workflows."
+    );
+
+    expect(result.format.id).toBe("b2b-dashboard-app-shell");
+    expect(result.format.route.profile).toBe("ops-control");
+    expect(result.format.route.navigationModel).toBe("sidebar");
+  });
+
   it("keeps the source brief grounded inside the expanded brief and exposes richer contract sections", async () => {
     const { expandInspiredesignBrief } = await loadBriefExpansion();
     const result = expandInspiredesignBrief("Refresh the existing product without losing its identity.");

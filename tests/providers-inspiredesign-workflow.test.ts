@@ -46,6 +46,11 @@ type InspiredesignWorkflowMeta = {
     captured_references: number;
     failed_fetches: number;
     failed_captures: number;
+    recovered_fetches?: number;
+    recovered_fetch_details?: Array<{
+      url: string;
+      fetchFailure?: string;
+    }>;
     capture_attempts?: {
       snapshot: Record<string, number>;
       clone: Record<string, number>;
@@ -63,6 +68,20 @@ type InspiredesignWorkflowEvidence = {
     templateVersion: string;
     format: InspiredesignBriefFormat;
   };
+  referencePatternBoard?: {
+    references: Array<{
+      id: string;
+      capturedVia: string[];
+      layoutRecipe: string;
+    }>;
+  };
+  designVectors?: {
+    sourcePriority: string;
+    premiumPosture: string[];
+    motionPosture: string[];
+    sectionArchitecture: string[];
+    referenceInfluence: string[];
+  };
   references: Array<{
     url: string;
     fetchStatus: string;
@@ -71,6 +90,7 @@ type InspiredesignWorkflowEvidence = {
     captureFailure?: string;
     capture?: {
       title?: string;
+      signals?: string[];
       attempts?: Record<string, { status: string; detail?: string }>;
     };
   }>;
@@ -89,6 +109,8 @@ type InspiredesignWorkflowContext = {
       targetOutcome: { summary: string };
       contentStrategy: { source: string };
       componentStrategy: { mode: string };
+      referencePatternBoard?: InspiredesignWorkflowEvidence["referencePatternBoard"];
+      designVectors?: InspiredesignWorkflowEvidence["designVectors"];
     };
   };
   designAgentHandoff: {
@@ -107,6 +129,8 @@ type InspiredesignWorkflowContext = {
       referenceSynthesis: {
         cues: string[];
       };
+      referencePatternBoard?: InspiredesignWorkflowEvidence["referencePatternBoard"];
+      designVectors?: InspiredesignWorkflowEvidence["designVectors"];
     };
   };
 };
@@ -331,6 +355,35 @@ describe("inspiredesign workflow", () => {
     expect(context.canvasPlanRequest.generationPlan.contentStrategy.source).toContain("limestone hero");
     expect(context.canvasPlanRequest.generationPlan.componentStrategy.mode).toContain("brass CTA rail");
     expect(context.designAgentHandoff.implementationContext.referenceSynthesis.cues[0]).toContain("staggered project index");
+    expect(context.advancedBriefMarkdown.indexOf("Reference pattern board:")).toBe(0);
+    expect(context.advancedBriefMarkdown.indexOf("Atelier Luma Studio")).toBeLessThan(
+      context.advancedBriefMarkdown.indexOf("Selected prompt format:")
+    );
+    expect(context.evidence.referencePatternBoard?.references[0]).toMatchObject({
+      id: expect.any(String),
+      capturedVia: ["fetch", "snapshot", "clone"],
+      layoutRecipe: expect.stringContaining("Atelier Luma Studio")
+    });
+    expect(context.evidence.designVectors).toMatchObject({
+      sourcePriority: "reference-evidence-first",
+      premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
+      motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
+      sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
+    });
+    expect("referencePatternBoard" in context.canvasPlanRequest.generationPlan).toBe(false);
+    expect(context.canvasPlanRequest.generationPlan.designVectors).toMatchObject({
+      premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
+      motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
+      sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
+    });
+    expect(context.designAgentHandoff.implementationContext.referencePatternBoard).toEqual(
+      context.evidence.referencePatternBoard
+    );
+    expect(context.designAgentHandoff.implementationContext.designVectors).toEqual(
+      context.evidence.designVectors
+    );
     for (const fileName of [
       "advanced-brief.md",
       "design.md",
@@ -345,6 +398,29 @@ describe("inspiredesign workflow", () => {
       expect(content).toContain("brass CTA rail");
       expect(content).toContain("staggered project index");
     }
+    const generationPlan = JSON.parse(
+      readFileSync(join(artifactPath, "generation-plan.json"), "utf8")
+    ) as InspiredesignWorkflowContext["canvasPlanRequest"]["generationPlan"];
+    const canvasRequest = JSON.parse(
+      readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")
+    ) as InspiredesignWorkflowContext["canvasPlanRequest"];
+    const handoff = JSON.parse(
+      readFileSync(join(artifactPath, "design-agent-handoff.json"), "utf8")
+    ) as InspiredesignWorkflowContext["designAgentHandoff"];
+    const evidence = JSON.parse(
+      readFileSync(join(artifactPath, "evidence.json"), "utf8")
+    ) as InspiredesignWorkflowEvidence;
+
+    expect(generationPlan.referencePatternBoard).toEqual(evidence.referencePatternBoard);
+    expect(generationPlan.designVectors).toEqual(evidence.designVectors);
+    expect("referencePatternBoard" in canvasRequest.generationPlan).toBe(false);
+    expect(canvasRequest.generationPlan.designVectors).toMatchObject({
+      premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
+      motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
+      sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
+    });
+    expect(handoff.implementationContext.designVectors).toEqual(evidence.designVectors);
   });
 
   it("defaults to compact mode when inspiredesign input omits an explicit render mode", async () => {
@@ -1512,11 +1588,9 @@ describe("inspiredesign workflow", () => {
       captureStatus: "captured"
     });
     expect(evidence.references[0]?.capture).toMatchObject({
-      dom: {
-        outerHTML: "<main><section>Captured DOM</section></main>",
-        truncated: false
-      }
+      signals: expect.arrayContaining(["Captured DOM"])
     });
+    expect(JSON.stringify(evidence.references[0]?.capture)).not.toContain("<main>");
   });
 
   it("keeps snapshot evidence when other deep capture methods fail and reports the attempt outcomes", async () => {
@@ -1936,12 +2010,10 @@ describe("inspiredesign workflow", () => {
       captureStatus: "captured"
     });
     expect(evidence.references[0]?.capture).toMatchObject({
-      clone: {
-        componentPreview: "<section>Captured clone</section>",
-        cssPreview: ".hero { display: grid; }",
-        warnings: []
-      }
+      signals: expect.arrayContaining(["Captured clone"])
     });
+    expect(JSON.stringify(evidence.references[0]?.capture)).not.toContain("<section>");
+    expect(JSON.stringify(evidence.references[0]?.capture)).not.toContain(".hero");
   });
 
   it("accepts deep capture evidence when clone CSS is present even if the component preview is empty", async () => {
@@ -1986,11 +2058,10 @@ describe("inspiredesign workflow", () => {
       fetchStatus: "captured",
       captureStatus: "captured",
       capture: {
-        clone: {
-          cssPreview: ".hero { display: grid; }"
-        }
+        signals: expect.arrayContaining(["Reference title", "Reference content"])
       }
     });
+    expect(JSON.stringify(evidence.references[0]?.capture)).not.toContain(".hero");
   });
 
   it("uses capture-backed reference evidence when fetch fails but deep capture succeeds", async () => {
@@ -2182,7 +2253,14 @@ describe("inspiredesign workflow", () => {
         fetched_references: 0,
         captured_references: 1,
         failed_fetches: 0,
-        failed_captures: 0
+        failed_captures: 0,
+        recovered_fetches: 1,
+        recovered_fetch_details: [
+          {
+            url: "https://example.com/capture-recovered",
+            fetchFailure: "Default requires login or an existing session."
+          }
+        ]
       },
       reasonCodeDistribution: {}
     });
