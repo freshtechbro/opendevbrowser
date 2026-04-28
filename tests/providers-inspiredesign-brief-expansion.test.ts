@@ -62,6 +62,18 @@ describe("inspiredesign brief expansion", () => {
     expect(result.advancedBrief).not.toContain("Selected prompt format: B2B dashboard or app shell");
   });
 
+  it("routes public AI consulting landing briefs away from research atlas documentation", async () => {
+    const { expandInspiredesignBrief } = await loadBriefExpansion();
+    const result = expandInspiredesignBrief(
+      "Create a premium public BCG-style AI consulting landing page for enterprise AI advisory services, transformation, client proof, case studies, and a clear CTA."
+    );
+
+    expect(result.format.id).toBe("premium-editorial-landing-page");
+    expect(result.format.id).not.toBe("luminous-research-atlas");
+    expect(result.format.route.profile).toBe("product-story");
+    expect(result.format.route.navigationModel).toBe("global-header");
+  });
+
   it("removes negated dashboard phrases with modifiers before scoring", async () => {
     const { expandInspiredesignBrief } = await loadBriefExpansion();
     const result = expandInspiredesignBrief(

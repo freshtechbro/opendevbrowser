@@ -111,6 +111,8 @@ type InspiredesignWorkflowContext = {
       targetOutcome: { summary: string };
       contentStrategy: { source: string };
       componentStrategy: { mode: string };
+      interactionMoments?: string[];
+      materialEffects?: string[];
       referencePatternBoard?: InspiredesignWorkflowEvidence["referencePatternBoard"];
       designVectors?: InspiredesignWorkflowEvidence["designVectors"];
     };
@@ -419,7 +421,11 @@ describe("inspiredesign workflow", () => {
 
     expect(generationPlan.referencePatternBoard).toEqual(evidence.referencePatternBoard);
     expect(generationPlan.designVectors).toEqual(evidence.designVectors);
+    expect(generationPlan.interactionMoments).toEqual(evidence.designVectors?.interactionMoments);
+    expect(generationPlan.materialEffects).toEqual(evidence.designVectors?.materialEffects);
     expect("referencePatternBoard" in canvasRequest.generationPlan).toBe(false);
+    expect(canvasRequest.generationPlan.interactionMoments).toEqual(evidence.designVectors?.interactionMoments);
+    expect(canvasRequest.generationPlan.materialEffects).toEqual(evidence.designVectors?.materialEffects);
     expect(canvasRequest.generationPlan.designVectors).toMatchObject({
       premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
       motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),

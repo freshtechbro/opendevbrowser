@@ -77,6 +77,11 @@ type InspiredesignEvidenceJson = {
   };
 };
 
+type PlanMotionMaterialFields = {
+  interactionMoments?: string[];
+  materialEffects?: string[];
+};
+
 const makeReference = (
   overrides: Partial<InspiredesignReferenceEvidence> = {}
 ): InspiredesignReferenceEvidence => ({
@@ -587,12 +592,24 @@ describe("inspiredesign packet + renderer", () => {
       materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
       referenceInfluence: expect.arrayContaining([expect.stringContaining("worship hero")])
     });
+    expect(packet.generationPlan as PlanMotionMaterialFields).toMatchObject({
+      interactionMoments: packet.generationPlan.designVectors.interactionMoments,
+      materialEffects: packet.generationPlan.designVectors.materialEffects
+    });
+    expect(packet.canvasPlanRequest.generationPlan as PlanMotionMaterialFields).toMatchObject({
+      interactionMoments: packet.generationPlan.designVectors.interactionMoments,
+      materialEffects: packet.generationPlan.designVectors.materialEffects
+    });
     expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Microinteractions");
     expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Cursor effects");
     expect(JSON.stringify(packet.designContract.motionSystem)).toContain("parallax");
     expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Glassmorphism");
     expect(validateGenerationPlan(packet.canvasPlanRequest.generationPlan)).toMatchObject({
-      ok: true
+      ok: true,
+      plan: {
+        interactionMoments: packet.generationPlan.designVectors.interactionMoments,
+        materialEffects: packet.generationPlan.designVectors.materialEffects
+      }
     });
   });
 
@@ -932,7 +949,7 @@ describe("inspiredesign packet + renderer", () => {
             layoutApproach: "documentation-hub"
           }
         }),
-        expected: "documentation zones",
+        expected: "text-light overview sequence",
         rejected: "landing-page sections",
         maxPrimarySections: 8
       },
@@ -1003,8 +1020,85 @@ describe("inspiredesign packet + renderer", () => {
     });
 
     expect(packet.generationPlan.designVectors.interactionDensity).toContain(
-      "scan-friendly navigation"
+      "visual overview"
     );
+  });
+
+  it("turns stale research atlas routing into a text-light public consulting landing direction", () => {
+    const documentationFormat = makeBriefFormat({
+      id: "luminous-research-atlas",
+      label: "Luminous research atlas",
+      archetype: "annotated evidence atlas",
+      layoutArchetype: "bright scroll atlas with chaptered evidence bands and annotation rails",
+      componentGrammar: "evidence chapters, methodology blocks, chart plates, callout annotations, citation modules",
+      antiPatterns: [
+        "No feature-card hero.",
+        "Do not bury the conversion CTA.",
+        "Use dense data tables."
+      ],
+      route: {
+        profile: "documentation",
+        themeStrategy: "single-theme",
+        navigationModel: "contextual",
+        layoutApproach: "annotated-atlas-scroll"
+      }
+    });
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public AI consulting landing page for enterprise advisory services.",
+      briefExpansion: makeBriefExpansion({ format: documentationFormat }),
+      urls: ["https://www.bcg.com/capabilities/artificial-intelligence"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "bcg-ai",
+          url: "https://www.bcg.com/capabilities/artificial-intelligence",
+          title: "Artificial Intelligence Consulting and Strategy | BCG",
+          excerpt: "AI consulting services, agentic AI, generative AI, responsible AI, client case studies, industries, and business transformation.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "BCG AI consulting services help companies deliver ROI from AI with agentic AI, generative AI, responsible AI, client case studies, industries, and transformation pathways.",
+              refCount: 10,
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const guidance = JSON.stringify({
+      generationPlan: packet.generationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementation: packet.implementationPlanMarkdown,
+      prototype: packet.prototypeGuidanceMarkdown
+    });
+
+    expect(packet.generationPlan.visualDirection.profile).toBe("product-story");
+    expect(packet.generationPlan.layoutStrategy.navigationModel).toBe("global-header");
+    expect(packet.generationPlan.designVectors.surfaceIntent).toBe("reference-led public landing page");
+    expect(packet.generationPlan.designVectors.sectionArchitecture).toEqual(
+      expect.arrayContaining([expect.stringContaining("8 to 12")])
+    );
+    expect(packet.followthrough.briefExpansion.format.componentGrammar).not.toContain("event sections");
+    expect(packet.followthrough.briefExpansion.format.componentGrammar).not.toContain("visit CTA");
+    expect(packet.designMarkdown).toContain("Don't use feature-card hero.");
+    expect(packet.designMarkdown).toContain("Don't bury the conversion CTA.");
+    expect(packet.designMarkdown).toContain("Don't use dense data tables.");
+    expect(packet.designMarkdown).not.toContain("Don't no");
+    expect(packet.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
+    for (const forbidden of [
+      "documentation zones",
+      "citation modules",
+      "annotation rails",
+      "methodology blocks",
+      "reference depth",
+      "event sections",
+      "visit CTA",
+      "events",
+      "event, visit",
+      "visit"
+    ]) {
+      expect(guidance).not.toContain(forbidden);
+    }
   });
 
   it("synthesizes noisy captured church evidence into semantic pattern board cues", () => {
