@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-25T21:19:39.014Z",
+  "generatedAt": "2026-04-28T03:51:39.553Z",
   "cli": {
     "groups": [
       {
@@ -1778,7 +1778,7 @@
       },
       {
         "name": "--dy",
-        "kind": "boolean"
+        "kind": "value"
       },
       {
         "name": "--key",
@@ -2134,6 +2134,7 @@
       "--since-network-seq",
       "--since-exception-seq",
       "--max",
+      "--dy",
       "--target-id",
       "--window-id",
       "--tab-id",

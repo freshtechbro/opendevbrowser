@@ -107,6 +107,10 @@ const makeCore = (overrides: {
     dialog: vi.fn(),
     consolePoll: vi.fn(),
     networkPoll: vi.fn(),
+    snapshot: vi.fn(),
+    scroll: vi.fn(),
+    domGetHtml: vi.fn(),
+    domGetText: vi.fn(),
     withPage: vi.fn(async (
       _sessionId: string,
       _targetId: string | null,
@@ -352,6 +356,72 @@ describe("daemon-commands integration", () => {
       reason: "capture-window"
     });
     expect(core.desktopRuntime.accessibilitySnapshot).toHaveBeenCalledWith("accessibility", "window-1");
+  });
+
+  it("rejects invalid daemon numeric bounds before manager calls", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: null });
+    const sessionParams = { sessionId: "session-1", clientId: "client-1" };
+
+    await expect(handleDaemonCommand(core, {
+      name: "nav.snapshot",
+      params: { ...sessionParams, maxChars: 0 }
+    })).rejects.toThrow("Invalid maxChars");
+    await expect(handleDaemonCommand(core, {
+      name: "dom.getHtml",
+      params: { ...sessionParams, ref: "r1", maxChars: 0 }
+    })).rejects.toThrow("Invalid maxChars");
+    await expect(handleDaemonCommand(core, {
+      name: "dom.getText",
+      params: { ...sessionParams, ref: "r1", maxChars: -1 }
+    })).rejects.toThrow("Invalid maxChars");
+    await expect(handleDaemonCommand(core, {
+      name: "devtools.consolePoll",
+      params: { ...sessionParams, sinceSeq: -1 }
+    })).rejects.toThrow("Invalid sinceSeq");
+    await expect(handleDaemonCommand(core, {
+      name: "devtools.networkPoll",
+      params: { ...sessionParams, max: 0 }
+    })).rejects.toThrow("Invalid max");
+
+    expect(core.manager.snapshot).not.toHaveBeenCalled();
+    expect(core.manager.domGetHtml).not.toHaveBeenCalled();
+    expect(core.manager.domGetText).not.toHaveBeenCalled();
+    expect(core.manager.consolePoll).not.toHaveBeenCalled();
+    expect(core.manager.networkPoll).not.toHaveBeenCalled();
+  });
+
+  it("accepts daemon numeric boundary values", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: null });
+    const sessionParams = { sessionId: "session-1", clientId: "client-1" };
+
+    await handleDaemonCommand(core, {
+      name: "nav.snapshot",
+      params: { ...sessionParams, maxChars: 1 }
+    });
+    await handleDaemonCommand(core, {
+      name: "dom.getHtml",
+      params: { ...sessionParams, ref: "r1", maxChars: 1 }
+    });
+    await handleDaemonCommand(core, {
+      name: "dom.getText",
+      params: { ...sessionParams, ref: "r1", maxChars: 1 }
+    });
+    await handleDaemonCommand(core, {
+      name: "devtools.consolePoll",
+      params: { ...sessionParams, sinceSeq: 0, max: 1 }
+    });
+    await handleDaemonCommand(core, {
+      name: "devtools.networkPoll",
+      params: { ...sessionParams, sinceSeq: 0, max: 1 }
+    });
+
+    expect(core.manager.snapshot).toHaveBeenCalledWith("session-1", "outline", 1, undefined, undefined);
+    expect(core.manager.domGetHtml).toHaveBeenCalledWith("session-1", "r1", 1, undefined);
+    expect(core.manager.domGetText).toHaveBeenCalledWith("session-1", "r1", 1, undefined);
+    expect(core.manager.consolePoll).toHaveBeenCalledWith("session-1", 0, 1);
+    expect(core.manager.networkPoll).toHaveBeenCalledWith("session-1", 0, 1);
   });
 
   it("routes screencast start and stop through session authorization", async () => {

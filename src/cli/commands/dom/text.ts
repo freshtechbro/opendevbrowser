@@ -32,12 +32,12 @@ function parseDomTextArgs(rawArgs: string[]): { sessionId?: string; ref?: string
     if (arg === "--max-chars") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --max-chars");
-      parsed.maxChars = parseNumberFlag(value, "--max-chars");
+      parsed.maxChars = parseNumberFlag(value, "--max-chars", { min: 1 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--max-chars=")) {
-      parsed.maxChars = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max-chars");
+      parsed.maxChars = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max-chars", { min: 1 });
       continue;
     }
   }

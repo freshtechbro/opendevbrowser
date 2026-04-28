@@ -21,23 +21,23 @@ function parseConsolePollArgs(rawArgs: string[]): { sessionId?: string; sinceSeq
     if (arg === "--since-seq") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --since-seq");
-      parsed.sinceSeq = parseNumberFlag(value, "--since-seq");
+      parsed.sinceSeq = parseNumberFlag(value, "--since-seq", { min: 0 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--since-seq=")) {
-      parsed.sinceSeq = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--since-seq");
+      parsed.sinceSeq = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--since-seq", { min: 0 });
       continue;
     }
     if (arg === "--max") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --max");
-      parsed.max = parseNumberFlag(value, "--max");
+      parsed.max = parseNumberFlag(value, "--max", { min: 1 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--max=")) {
-      parsed.max = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max");
+      parsed.max = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max", { min: 1 });
       continue;
     }
   }

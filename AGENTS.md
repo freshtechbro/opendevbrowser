@@ -107,7 +107,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   ├── relay/        # Extension relay server, protocol types
 │   ├── skills/       # SkillLoader for skill pack discovery
 │   ├── snapshot/     # AX-tree snapshots, ref management
-│   ├── tools/        # 65 opendevbrowser_* tool definitions
+│   ├── tools/        # opendevbrowser_* tool definitions
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
@@ -136,7 +136,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 | Config schema | `src/config.ts` | Zod schema, defaults |
 | DI wiring | `src/core/bootstrap.ts` | Creates ToolDeps, wires managers |
 | Desktop observation | `src/desktop/` | Read-only surface capture; `desktop.*` config; see `desktop/AGENTS.md` |
-| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical 72 CLI + 65 tools + 59 `/ops` + 35 `/canvas` + `/cdp` map |
+| Full command/tool/channel inventory | `docs/SURFACE_REFERENCE.md` | Canonical CLI/tool/channel map generated from public-surface sources |
 
 ## Commands
 
@@ -223,7 +223,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
     opendevbrowser_launch: createLaunchTool(deps),
     opendevbrowser_canvas: createCanvasTool(deps),
     opendevbrowser_snapshot: createSnapshotTool(deps),
-    // ... 65 tools
+    // ... remaining tools
   };
 }
 ```

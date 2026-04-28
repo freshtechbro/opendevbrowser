@@ -105,6 +105,13 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("session-inspector");
   });
 
+  it("accepts scroll dy in equals form", () => {
+    const parsed = parseArgs(["node", "cli", "scroll", "--session-id=s1", "--dy=-240"]);
+
+    expect(parsed.command).toBe("scroll");
+    expect(parsed.rawArgs).toEqual(["--session-id=s1", "--dy=-240"]);
+  });
+
   it("accepts screencast and desktop commands", () => {
     const screencastStart = parseArgs([
       "node",

@@ -47,11 +47,25 @@ const VALID_NUMERIC_CASES: Array<{
     payload: { sessionId: "s1", sinceSeq: 2, max: 50 }
   },
   {
+    command: "console-poll",
+    rawArgs: ["--session-id", "s1", "--since-seq=0", "--max=1"],
+    run: runConsolePoll,
+    method: "devtools.consolePoll",
+    payload: { sessionId: "s1", sinceSeq: 0, max: 1 }
+  },
+  {
     command: "network-poll",
     rawArgs: ["--session-id", "s1", "--since-seq=2", "--max", "50"],
     run: runNetworkPoll,
     method: "devtools.networkPoll",
     payload: { sessionId: "s1", sinceSeq: 2, max: 50 }
+  },
+  {
+    command: "network-poll",
+    rawArgs: ["--session-id", "s1", "--since-seq", "0", "--max", "1"],
+    run: runNetworkPoll,
+    method: "devtools.networkPoll",
+    payload: { sessionId: "s1", sinceSeq: 0, max: 1 }
   },
   {
     command: "dom-html",
@@ -61,11 +75,25 @@ const VALID_NUMERIC_CASES: Array<{
     payload: { sessionId: "s1", ref: "r1", maxChars: 2000 }
   },
   {
+    command: "dom-html",
+    rawArgs: ["--session-id", "s1", "--ref", "r1", "--max-chars=1"],
+    run: runDomHtml,
+    method: "dom.getHtml",
+    payload: { sessionId: "s1", ref: "r1", maxChars: 1 }
+  },
+  {
     command: "dom-text",
     rawArgs: ["--session-id", "s1", "--ref", "r1", "--max-chars=2000"],
     run: runDomText,
     method: "dom.getText",
     payload: { sessionId: "s1", ref: "r1", maxChars: 2000 }
+  },
+  {
+    command: "dom-text",
+    rawArgs: ["--session-id", "s1", "--ref", "r1", "--max-chars", "1"],
+    run: runDomText,
+    method: "dom.getText",
+    payload: { sessionId: "s1", ref: "r1", maxChars: 1 }
   },
   {
     command: "scroll",
@@ -80,6 +108,14 @@ const VALID_NUMERIC_CASES: Array<{
     run: runSnapshot,
     method: "nav.snapshot",
     payload: { sessionId: "s1", mode: undefined, maxChars: 4000, cursor: undefined },
+    options: { timeoutMs: 30000 }
+  },
+  {
+    command: "snapshot",
+    rawArgs: ["--session-id", "s1", "--max-chars=1"],
+    run: runSnapshot,
+    method: "nav.snapshot",
+    payload: { sessionId: "s1", mode: undefined, maxChars: 1, cursor: undefined },
     options: { timeoutMs: 30000 }
   }
 ];
@@ -104,8 +140,20 @@ const INVALID_NUMERIC_CASES: Array<{
   },
   {
     command: "console-poll",
+    flag: "--since-seq",
+    rawArgs: ["--session-id", "s1", "--since-seq=-1"],
+    run: runConsolePoll
+  },
+  {
+    command: "console-poll",
     flag: "--max",
     rawArgs: ["--session-id", "s1", "--max=oops"],
+    run: runConsolePoll
+  },
+  {
+    command: "console-poll",
+    flag: "--max",
+    rawArgs: ["--session-id", "s1", "--max=0"],
     run: runConsolePoll
   },
   {
@@ -122,8 +170,20 @@ const INVALID_NUMERIC_CASES: Array<{
   },
   {
     command: "network-poll",
+    flag: "--since-seq",
+    rawArgs: ["--session-id", "s1", "--since-seq=-1"],
+    run: runNetworkPoll
+  },
+  {
+    command: "network-poll",
     flag: "--max",
     rawArgs: ["--session-id", "s1", "--max", "oops"],
+    run: runNetworkPoll
+  },
+  {
+    command: "network-poll",
+    flag: "--max",
+    rawArgs: ["--session-id", "s1", "--max", "0"],
     run: runNetworkPoll
   },
   {
@@ -139,9 +199,21 @@ const INVALID_NUMERIC_CASES: Array<{
     run: runDomHtml
   },
   {
+    command: "dom-html",
+    flag: "--max-chars",
+    rawArgs: ["--session-id", "s1", "--ref", "r1", "--max-chars=0"],
+    run: runDomHtml
+  },
+  {
     command: "dom-text",
     flag: "--max-chars",
     rawArgs: ["--session-id", "s1", "--ref", "r1", "--max-chars=oops"],
+    run: runDomText
+  },
+  {
+    command: "dom-text",
+    flag: "--max-chars",
+    rawArgs: ["--session-id", "s1", "--ref", "r1", "--max-chars=-1"],
     run: runDomText
   },
   {
@@ -160,6 +232,12 @@ const INVALID_NUMERIC_CASES: Array<{
     command: "snapshot",
     flag: "--max-chars",
     rawArgs: ["--session-id", "s1", "--max-chars=oops"],
+    run: runSnapshot
+  },
+  {
+    command: "snapshot",
+    flag: "--max-chars",
+    rawArgs: ["--session-id", "s1", "--max-chars=0"],
     run: runSnapshot
   }
 ];

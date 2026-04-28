@@ -53,6 +53,7 @@ export const VALID_EQUALS_FLAGS = [
   "--since-network-seq",
   "--since-exception-seq",
   "--max",
+  "--dy",
   "--target-id",
   "--window-id",
   "--tab-id",

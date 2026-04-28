@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-25T21:19:39.014Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-28T03:51:39.553Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-25T21:19:39.014Z",
+  "generatedAt": "2026-04-28T03:51:39.553Z",
   "cli": {
     "groups": [
       {
@@ -1795,7 +1795,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "--dy",
-        "kind": "boolean"
+        "kind": "value"
       },
       {
         "name": "--key",
@@ -2151,6 +2151,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       "--since-network-seq",
       "--since-exception-seq",
       "--max",
+      "--dy",
       "--target-id",
       "--window-id",
       "--tab-id",
