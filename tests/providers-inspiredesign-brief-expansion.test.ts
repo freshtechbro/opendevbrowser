@@ -104,6 +104,9 @@ describe("inspiredesign brief expansion", () => {
     expect(result.advancedBrief).toContain("Source brief:");
     expect(result.advancedBrief).toContain("Refresh the existing product without losing its identity.");
     expect(result.advancedBrief).toContain("Business focus:");
+    expect(result.format.focusAreas).toEqual(expect.arrayContaining(["hierarchy"]));
+    expect(result.advancedBrief).toContain("Focus areas:");
+    expect(result.advancedBrief).toContain("what to simplify");
     expect(result.advancedBrief).toContain("Responsive collapse rules:");
     expect(result.advancedBrief).toContain("Treat missing details as open constraints");
   });

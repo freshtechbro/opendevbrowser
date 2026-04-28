@@ -259,6 +259,7 @@ type CanvasSession = {
   repoRoot: string;
   documentRepoPath: string | null;
   leaseId: string;
+  legacyLifecycleEventsTrusted: boolean;
   mode: CanvasSessionMode;
   usesCanvasRelay: boolean;
   store: CanvasDocumentStore;
@@ -493,6 +494,7 @@ export class CanvasManager implements CanvasManagerLike {
       repoRoot,
       documentRepoPath: repoPath ?? null,
       leaseId,
+      legacyLifecycleEventsTrusted: true,
       mode,
       usesCanvasRelay: false,
       store: new CanvasDocumentStore(document),
@@ -535,6 +537,9 @@ export class CanvasManager implements CanvasManagerLike {
       attachMode
     );
     session.leaseId = attached.leaseId;
+    if (attachMode === "lease_reclaim") {
+      session.legacyLifecycleEventsTrusted = false;
+    }
     return {
       clientId: attached.clientId,
       attachMode: attached.attachMode,
@@ -3264,8 +3269,16 @@ export class CanvasManager implements CanvasManagerLike {
     if (!session) {
       return;
     }
+    const isLifecycleEvent = event.event === "canvas_session_closed" || event.event === "canvas_session_expired";
     const payload = isRecord(event.payload) ? event.payload : null;
     if (!payload) {
+      if (isLifecycleEvent && event.payload === undefined && session.legacyLifecycleEventsTrusted) {
+        this.completeFeedbackSubscriptions(session, event.event === "canvas_session_closed" ? "session_closed" : "document_unloaded");
+        this.sessionSyncManager.removeSession(session.canvasSessionId);
+        this.codeSyncManager.disposeSession(session.canvasSessionId);
+        this.sessions.delete(session.canvasSessionId);
+        this.disconnectCanvasClientIfIdle();
+      }
       return;
     }
     if (event.event === "canvas_target_closed") {
@@ -3284,7 +3297,7 @@ export class CanvasManager implements CanvasManagerLike {
       }
       return;
     }
-    if (event.event === "canvas_session_closed" || event.event === "canvas_session_expired") {
+    if (isLifecycleEvent) {
       const eventLeaseId = optionalString(payload.leaseId);
       if (eventLeaseId !== session.leaseId) {
         return;

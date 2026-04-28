@@ -16,6 +16,21 @@ describe("parseNumberFlag", () => {
   it("rejects out-of-range values", () => {
     expect(() => parseNumberFlag("0", "--timeout-ms", { min: 1 })).toThrow("Invalid --timeout-ms");
   });
+
+  it("rejects empty values", () => {
+    expect(() => parseNumberFlag("", "--timeout-ms")).toThrow("Invalid --timeout-ms");
+    expect(() => parseNumberFlag("   ", "--timeout-ms")).toThrow("Invalid --timeout-ms");
+  });
+
+  it("rejects non-decimal numeric spellings", () => {
+    for (const value of ["1e3", "0x10", "+10", " 10 "]) {
+      expect(() => parseNumberFlag(value, "--timeout-ms", { min: 1 })).toThrow("Invalid --timeout-ms");
+    }
+  });
+
+  it("accepts negative decimal integers when no lower bound is set", () => {
+    expect(parseNumberFlag("-240", "--dy")).toBe(-240);
+  });
 });
 
 describe("parseArgs", () => {
@@ -98,6 +113,28 @@ describe("parseArgs", () => {
       "--max=20"
     ]);
     expect(parsed.command).toBe("session-inspector");
+  });
+
+  it("accepts scroll dy in equals form", () => {
+    const parsed = parseArgs(["node", "cli", "scroll", "--session-id=s1", "--dy=-240"]);
+
+    expect(parsed.command).toBe("scroll");
+    expect(parsed.rawArgs).toEqual(["--session-id=s1", "--dy=-240"]);
+  });
+
+  it("accepts scroll dy in space-separated signed form", () => {
+    const parsed = parseArgs(["node", "cli", "scroll", "--session-id", "s1", "--dy", "-240"]);
+
+    expect(parsed.command).toBe("scroll");
+    expect(parsed.rawArgs).toEqual(["--session-id", "s1", "--dy", "-240"]);
+  });
+
+  it("rejects unknown flags after a value flag", () => {
+    expect(() => parseArgs(["node", "cli", "snapshot", "--session-id", "--bad-flag"])).toThrow("Unknown flag: --bad-flag");
+  });
+
+  it("rejects unknown single-dash flags after non-signed value flags", () => {
+    expect(() => parseArgs(["node", "cli", "snapshot", "--session-id", "-bad-flag"])).toThrow("Unknown flag: -bad-flag");
   });
 
   it("accepts screencast and desktop commands", () => {

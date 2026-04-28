@@ -1,7 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
-import { parseOptionalStringFlag } from "../../utils/parse";
+import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
 function parseDomHtmlArgs(rawArgs: string[]): { sessionId?: string; ref?: string; maxChars?: number } {
   const parsed: { sessionId?: string; ref?: string; maxChars?: number } = {};
@@ -32,12 +32,12 @@ function parseDomHtmlArgs(rawArgs: string[]): { sessionId?: string; ref?: string
     if (arg === "--max-chars") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --max-chars");
-      parsed.maxChars = Number(value);
+      parsed.maxChars = parseNumberFlag(value, "--max-chars", { min: 1 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--max-chars=")) {
-      parsed.maxChars = Number(arg.split("=", 2)[1]);
+      parsed.maxChars = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max-chars", { min: 1 });
       continue;
     }
   }

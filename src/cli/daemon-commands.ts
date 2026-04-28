@@ -341,7 +341,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return core.manager.snapshot(
         requireString(params.sessionId, "sessionId"),
         requireSnapshotMode(params.mode),
-        optionalNumber(params.maxChars, "maxChars") ?? 16000,
+        optionalPositiveInteger(params.maxChars, "maxChars") ?? 16000,
           optionalString(params.cursor),
           targetId
       );
@@ -352,7 +352,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         manager: core.manager,
         sessionId: requireString(params.sessionId, "sessionId"),
         targetId: optionalString(params.targetId),
-        maxChars: optionalNumber(params.maxChars, "maxChars") ?? core.config.snapshot.maxChars,
+        maxChars: optionalPositiveInteger(params.maxChars, "maxChars") ?? core.config.snapshot.maxChars,
         cursor: optionalString(params.cursor)
       });
     case "nav.reviewDesktop":
@@ -480,7 +480,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return core.manager.domGetHtml(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars, "maxChars") ?? 8000,
+        optionalPositiveInteger(params.maxChars, "maxChars") ?? 8000,
         optionalString(params.targetId)
       );
     case "dom.getText":
@@ -488,7 +488,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return core.manager.domGetText(
         requireString(params.sessionId, "sessionId"),
         requireString(params.ref, "ref"),
-        optionalNumber(params.maxChars, "maxChars") ?? 8000,
+        optionalPositiveInteger(params.maxChars, "maxChars") ?? 8000,
         optionalString(params.targetId)
       );
     case "dom.getAttr":
@@ -612,15 +612,15 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.consolePoll(
         requireString(params.sessionId, "sessionId"),
-        optionalNumber(params.sinceSeq, "sinceSeq"),
-        optionalNumber(params.max, "max") ?? 50
+        optionalNonNegativeInteger(params.sinceSeq, "sinceSeq"),
+        optionalPositiveInteger(params.max, "max") ?? 50
       );
     case "devtools.networkPoll":
       await authorizeSessionCommand(core, params, request.name, bindingId);
       return core.manager.networkPoll(
         requireString(params.sessionId, "sessionId"),
-        optionalNumber(params.sinceSeq, "sinceSeq"),
-        optionalNumber(params.max, "max") ?? 50
+        optionalNonNegativeInteger(params.sinceSeq, "sinceSeq"),
+        optionalPositiveInteger(params.max, "max") ?? 50
       );
     case "devtools.debugTraceSnapshot": {
       await authorizeSessionCommand(core, params, request.name, bindingId);
@@ -1713,6 +1713,16 @@ function optionalPositiveInteger(value: unknown, label: string): number | undefi
     return undefined;
   }
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  throw new Error(`Invalid ${label}`);
+}
+
+function optionalNonNegativeInteger(value: unknown, label: string): number | undefined {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
     return value;
   }
   throw new Error(`Invalid ${label}`);

@@ -2878,6 +2878,72 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
     expect(canvasClientDisconnectMock).toHaveBeenCalledTimes(1);
   });
 
+  it("cleans up legacy canvas lifecycle events without payload", async () => {
+    const browserManager = {
+      status: vi.fn().mockResolvedValue({
+        mode: "extension",
+        activeTargetId: "tab-preview",
+        url: "https://example.com/app",
+        title: "App"
+      })
+    };
+
+    canvasClientRequestMock.mockImplementation(async (command: string) => {
+      if (command === "canvas.tab.open") {
+        return { targetId: "tab-ext-legacy", previewState: "focused" };
+      }
+      return { ok: true };
+    });
+
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: browserManager as never,
+      config,
+      relay: {
+        status: () => ({
+          running: true,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: true,
+          pairingRequired: false,
+          instanceId: "relay-1",
+          epoch: 1,
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: true,
+            pairingRequired: false
+          }
+        }),
+        getCdpUrl: () => null,
+        getCanvasUrl: () => "ws://127.0.0.1:8787/canvas"
+      }
+    });
+
+    const opened = await manager.execute("canvas.session.open", {
+      browserSessionId: "browser-extension"
+    }) as { canvasSessionId: string; leaseId: string };
+    const internal = manager as unknown as {
+      sessions: Map<string, unknown>;
+      handleCanvasEvent: (event: { event: string; canvasSessionId?: string; payload?: unknown }) => Promise<void>;
+    };
+
+    await internal.handleCanvasEvent({
+      event: "canvas_session_expired",
+      canvasSessionId: opened.canvasSessionId
+    });
+
+    expect(internal.sessions.has(opened.canvasSessionId)).toBe(false);
+  });
+
   it("covers repo-backed sessions and non-browser guard paths", async () => {
     const document = createDefaultCanvasDocument("dc_repo_backed");
     document.title = "Repo Backed Document";
@@ -6029,6 +6095,13 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       event: "canvas_session_closed",
       canvasSessionId,
       payload: { leaseId: originalLeaseId, reason: "client_disconnected" }
+    });
+
+    await (manager as unknown as {
+      handleCanvasEvent: (event: { event: string; canvasSessionId: string; payload?: Record<string, unknown> }) => Promise<void>;
+    }).handleCanvasEvent({
+      event: "canvas_session_closed",
+      canvasSessionId
     });
 
     expect(await manager.execute("canvas.session.status", {

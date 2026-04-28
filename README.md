@@ -275,7 +275,7 @@ Start every surface check from generated help when you need the current public l
 
 ## Recent Features
 
-### v0.0.21 (Current release cycle)
+### v0.0.21
 
 - **Workflow success handoffs are now first-class across the main workflow lanes** with explicit follow-through metadata for research, shopping, product-video, and Inspire Design instead of generic success text.
 - **Macro execution reports blocker truthfully** because `macro-resolve --execute` now preserves blocked execution wording when runtime blocker metadata survives the run.

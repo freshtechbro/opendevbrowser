@@ -11,7 +11,7 @@ export const INSPIREDESIGN_HANDOFF_FILES = {
   prototypeGuidance: "prototype-guidance.md"
 } as const;
 
-export const INSPIREDESIGN_HANDOFF_SKILLS = {
+const INSPIREDESIGN_HANDOFF_SKILLS = {
   bestPractices: {
     name: "opendevbrowser-best-practices",
     topic: "quick start"

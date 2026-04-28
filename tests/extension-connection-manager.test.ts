@@ -1029,6 +1029,10 @@ describe("ConnectionManager", () => {
     });
     expect(relay.disconnect).toHaveBeenCalled();
     expect(manager.getStatus()).toBe("disconnected");
+    expect(manager.getLastError()).toEqual({
+      code: "relay_connect_failed",
+      message: "Relay identity changed. Open the popup and reconnect to pair with the current daemon."
+    });
   });
 
   it("reports missing active tab errors", async () => {

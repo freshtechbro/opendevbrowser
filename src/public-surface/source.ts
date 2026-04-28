@@ -33,7 +33,7 @@ export const VALID_FLAGS = [
 ] as const;
 
 export type PublicSurfaceFlagName = (typeof VALID_FLAGS)[number];
-export type PublicSurfaceFlagKind = "boolean" | "value";
+type PublicSurfaceFlagKind = "boolean" | "value";
 
 export interface PublicSurfaceFlag {
   name: PublicSurfaceFlagName;
@@ -53,6 +53,7 @@ export const VALID_EQUALS_FLAGS = [
   "--since-network-seq",
   "--since-exception-seq",
   "--max",
+  "--dy",
   "--target-id",
   "--window-id",
   "--tab-id",
@@ -118,7 +119,7 @@ export const VALID_EQUALS_FLAGS = [
   "--ttl-hours"
 ] as const;
 
-export interface PublicSurfaceCliCommandDefinition {
+interface PublicSurfaceCliCommandDefinition {
   name: string;
   description: string;
   usage: string;

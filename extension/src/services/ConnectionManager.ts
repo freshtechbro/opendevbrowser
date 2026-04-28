@@ -653,6 +653,9 @@ export class ConnectionManager {
       if (this.relay === relay) {
         this.relay = null;
       }
+      if (error instanceof ConnectionError) {
+        throw error;
+      }
       throw new ConnectionError("relay_connect_failed", "Relay connection failed. Start the daemon and retry.");
     }
   }

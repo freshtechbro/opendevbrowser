@@ -24,7 +24,7 @@ src/
 ├── integrations/         # External integration adapters (for example Figma)
 ├── macros/               # Macro registry, execution, provider expansion
 ├── public-surface/       # Generated CLI/tool inventory metadata
-├── tools/                # 65 tool definitions (see tools/AGENTS.md)
+├── tools/                # Tool definitions (see tools/AGENTS.md)
 ├── snapshot/             # AX-tree capture, RefStore
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
@@ -61,7 +61,7 @@ src/
 | `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
 | `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
 | `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |
-| `tools/` | 65 tool definitions (thin wrappers). See `tools/AGENTS.md` |
+| `tools/` | Tool definitions (thin wrappers). See `tools/AGENTS.md` |
 | `utils/` | Shared utilities |
 
 ## Manager Pattern

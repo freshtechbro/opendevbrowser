@@ -136,9 +136,11 @@ Fatal errors are emitted even when `--quiet` is set. For JSON output, fatal erro
 The CLI validates common flags early and returns a usage error (`exitCode: 1`) when inputs are invalid.
 
 - Conflicting flags are rejected (examples: `--global` + `--local`, `--skills-global` + `--skills-local`).
-- Numeric flags must be positive integers:
+- Positive integer flags must use plain decimal digits:
   - `--port`, `--cdp-port`
-  - `--wait-timeout-ms`, `--timeout-ms`
+  - `--wait-timeout-ms`, `--timeout-ms`, `--max`, `--max-chars`
+- Non-negative cursor flags allow `0` and use plain decimal digits: `--since-seq`, `--since-console-seq`, `--since-network-seq`, `--since-exception-seq`.
+- Signed movement flags use plain decimal integers and may be negative: `--dy`.
 
 ---
 

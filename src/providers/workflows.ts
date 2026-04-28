@@ -26,6 +26,7 @@ import {
   normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
 } from "../inspiredesign/contract";
+import { hasInspiredesignUsableReferenceEvidence } from "../inspiredesign/reference-pattern-board";
 import {
   normalizeInspiredesignBriefText,
   expandInspiredesignBrief,
@@ -1827,7 +1828,7 @@ const isInspiredesignFetchRecovered = (
 ): boolean => {
   return reference.fetchStatus === "failed"
     && reference.captureStatus === "captured"
-    && (Boolean(reference.title) || Boolean(reference.excerpt));
+    && hasInspiredesignUsableReferenceEvidence(reference);
 };
 
 type InspiredesignRecoveredFetchTelemetry = {

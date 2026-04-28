@@ -105,6 +105,18 @@ function parseTransport(args: string[]): TransportMode {
 
 const VALID_FLAG_SET = new Set<string>(VALID_FLAGS);
 const VALID_EQUALS_FLAG_SET = new Set<string>(VALID_EQUALS_FLAGS);
+const SIGNED_VALUE_FLAG_SET = new Set<string>(["--dy"]);
+const SIGNED_INTEGER_VALUE = /^-\d+$/;
+
+function shouldSkipValueToken(flag: string, value: string | undefined): boolean {
+  if (!VALID_EQUALS_FLAG_SET.has(flag) || value === undefined) {
+    return false;
+  }
+  if (!value.startsWith("-")) {
+    return true;
+  }
+  return SIGNED_VALUE_FLAG_SET.has(flag) && SIGNED_INTEGER_VALUE.test(value);
+}
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let args = expandShortFlags(argv.slice(2));
@@ -209,7 +221,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     mode = "global";
   }
 
-  for (const arg of args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
     if (arg.startsWith("--") && !VALID_FLAG_SET.has(arg)) {
       if (arg.includes("=")) {
         const baseFlag = arg.split("=", 2)[0] ?? "";
@@ -221,6 +234,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     if (arg.startsWith("-") && !arg.startsWith("--") && !SHORT_FLAGS[arg]) {
       throw createUsageError(`Unknown flag: ${arg}`);
+    }
+    if (shouldSkipValueToken(arg, args[index + 1])) {
+      index += 1;
     }
   }
 

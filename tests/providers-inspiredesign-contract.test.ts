@@ -1077,6 +1077,9 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.generationPlan.designVectors.surfaceIntent).toBe("reference-led public landing page");
     expect(packet.advancedBriefMarkdown).toContain("Selected prompt format: Reference-led public landing page");
     expect(packet.advancedBriefMarkdown).toContain("layout approach: reference-led-landing-page");
+    expect(packet.advancedBriefMarkdown).toContain("Focus areas:");
+    expect(packet.advancedBriefMarkdown).toContain("Treat missing details as open constraints");
+    expect(packet.advancedBriefMarkdown).toContain("Keep the direction premium, specific, and implementable");
     expect(packet.generationPlan.designVectors.sectionArchitecture).toEqual(
       expect.arrayContaining([expect.stringContaining("8 to 12")])
     );
@@ -1106,6 +1109,87 @@ describe("inspiredesign packet + renderer", () => {
       expect(guidance).not.toContain(forbidden);
       expect(packet.advancedBriefMarkdown).not.toContain(forbidden);
     }
+  });
+
+  it("does not promote a generic service reference into a public landing route", () => {
+    const dashboardFormat = makeBriefFormat({
+      id: "b2b-dashboard-app-shell",
+      label: "B2B dashboard or app shell",
+      archetype: "operator dashboard",
+      layoutArchetype: "workspace shell",
+      route: {
+        profile: "ops-control",
+        themeStrategy: "single-theme",
+        navigationModel: "sidebar",
+        layoutApproach: "workspace-shell"
+      }
+    });
+    const packet = buildInspiredesignPacket({
+      brief: "Design an internal operator dashboard for service health teams.",
+      briefExpansion: makeBriefExpansion({ format: dashboardFormat }),
+      urls: ["https://example.com/service-status"],
+      references: [
+        makeReference({
+          id: "service-status",
+          url: "https://example.com/service-status",
+          title: "Service health status",
+          excerpt: "Service status history and response time charts for operators.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Service response time, operational queues, and internal status details.",
+              refCount: 4,
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+
+    expect(packet.generationPlan.designVectors.surfaceIntent).toBe("operator dashboard");
+    expect(packet.generationPlan.visualDirection.profile).toBe("ops-control");
+    expect(packet.generationPlan.layoutStrategy.navigationModel).toBe("sidebar");
+    expect(packet.advancedBriefMarkdown).not.toContain("Selected prompt format: Reference-led public landing page");
+  });
+
+  it("does not promote service event operations evidence into a public landing route", () => {
+    const dashboardFormat = makeBriefFormat({
+      id: "b2b-dashboard-app-shell",
+      label: "B2B dashboard or app shell",
+      archetype: "operator dashboard",
+      layoutArchetype: "workspace shell",
+      route: {
+        profile: "ops-control",
+        themeStrategy: "single-theme",
+        navigationModel: "sidebar",
+        layoutApproach: "workspace-shell"
+      }
+    });
+    const packet = buildInspiredesignPacket({
+      brief: "Design an internal operator dashboard for service event response teams.",
+      briefExpansion: makeBriefExpansion({ format: dashboardFormat }),
+      urls: ["https://example.com/service-events"],
+      references: [
+        makeReference({
+          id: "service-events",
+          url: "https://example.com/service-events",
+          title: "Service events console",
+          excerpt: "Service events history, response queues, operator status, and incident charts.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Service events timeline, response time panels, incident queues, and internal operator charts.",
+              refCount: 5,
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+
+    expect(packet.generationPlan.designVectors.surfaceIntent).toBe("operator dashboard");
+    expect(packet.generationPlan.visualDirection.profile).toBe("ops-control");
+    expect(packet.advancedBriefMarkdown).not.toContain("Selected prompt format: Reference-led public landing page");
   });
 
   it("synthesizes noisy captured church evidence into semantic pattern board cues", () => {

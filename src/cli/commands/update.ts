@@ -1,11 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { randomUUID } from "crypto";
 
 const PLUGIN_NAME = "opendevbrowser";
 const CACHE_MANIFEST = "package.json";
 const CACHE_LOCKFILE = "package-lock.json";
 const CACHE_UPDATE_LOCK = ".opendevbrowser-update.lock";
+const CACHE_LOCK_STALE_MS = 30 * 60 * 1000;
 const DEPENDENCY_SECTIONS = [
   "dependencies",
   "devDependencies",
@@ -16,6 +18,15 @@ const DEPENDENCY_SECTIONS = [
 type DependencySection = typeof DEPENDENCY_SECTIONS[number];
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
+type CacheMutationLock = {
+  pid: number;
+  createdAt: number;
+  token?: string;
+};
+type HeldCacheMutationLock = {
+  fd: number;
+  token: string;
+};
 
 export interface UpdateResult {
   success: boolean;
@@ -130,10 +141,9 @@ function writeManifestAtomic(manifestPath: string, cacheDir: string, manifest: J
 function withCacheMutationLock<T>(cacheDir: string, action: () => T): T {
   const lockPath = path.join(cacheDir, CACHE_UPDATE_LOCK);
   assertNoSymlinkCachePath(lockPath, cacheDir);
-  let fd: number | null = null;
+  let lock: HeldCacheMutationLock | null = null;
   try {
-    fd = fs.openSync(lockPath, "wx");
-    fs.writeFileSync(fd, `${process.pid}\n`, "utf8");
+    lock = openCacheMutationLock(lockPath);
     return action();
   } catch (error) {
     if (isExistingPathError(error)) {
@@ -141,10 +151,113 @@ function withCacheMutationLock<T>(cacheDir: string, action: () => T): T {
     }
     throw error;
   } finally {
-    if (fd !== null) {
-      fs.closeSync(fd);
-      fs.rmSync(lockPath, { force: true });
+    if (lock !== null) {
+      fs.closeSync(lock.fd);
+      removeOwnedCacheMutationLock(lockPath, lock.token);
     }
+  }
+}
+
+function openCacheMutationLock(lockPath: string): HeldCacheMutationLock {
+  try {
+    return writeCacheMutationLock(lockPath);
+  } catch (error) {
+    if (!isExistingPathError(error) || !isStaleCacheMutationLock(lockPath)) {
+      throw error;
+    }
+    removeStaleCacheMutationLock(lockPath);
+    return writeCacheMutationLock(lockPath);
+  }
+}
+
+function writeCacheMutationLock(lockPath: string): HeldCacheMutationLock {
+  const fd = fs.openSync(lockPath, "wx");
+  const token = randomUUID();
+  try {
+    const lock: CacheMutationLock = { pid: process.pid, createdAt: Date.now(), token };
+    fs.writeFileSync(fd, `${JSON.stringify(lock)}\n`, "utf8");
+    return { fd, token };
+  } catch (error) {
+    fs.closeSync(fd);
+    fs.rmSync(lockPath, { force: true });
+    throw error;
+  }
+}
+
+function isStaleCacheMutationLock(lockPath: string): boolean {
+  const lock = readCacheMutationLock(lockPath);
+  if (!lock) {
+    return isLegacyCacheMutationLockStale(lockPath);
+  }
+  if (Date.now() - lock.createdAt < CACHE_LOCK_STALE_MS) {
+    return false;
+  }
+  return !isProcessRunning(lock.pid);
+}
+
+function isLegacyCacheMutationLockStale(lockPath: string): boolean {
+  try {
+    const pid = readLegacyCacheMutationLockPid(lockPath);
+    if (pid !== null && isProcessRunning(pid)) {
+      return false;
+    }
+    return Date.now() - fs.statSync(lockPath).mtimeMs >= CACHE_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function readLegacyCacheMutationLockPid(lockPath: string): number | null {
+  const raw = fs.readFileSync(lockPath, "utf8").trim();
+  if (!/^\d+$/.test(raw)) {
+    return null;
+  }
+  const pid = Number(raw);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+function readCacheMutationLock(lockPath: string): CacheMutationLock | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(lockPath, "utf8")) as Partial<CacheMutationLock>;
+    const { pid, createdAt, token } = parsed;
+    const hasToken = token === undefined || (typeof token === "string" && token.length > 0);
+    if (typeof pid === "number" && typeof createdAt === "number" && hasToken
+      && Number.isInteger(pid) && Number.isFinite(createdAt)) {
+      return token === undefined ? { pid, createdAt } : { pid, createdAt, token };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+}
+
+function createExistingLockError(): NodeJS.ErrnoException {
+  const error = new Error("cache update lock changed before stale cleanup") as NodeJS.ErrnoException;
+  error.code = "EEXIST";
+  return error;
+}
+
+function removeStaleCacheMutationLock(lockPath: string): void {
+  const content = fs.readFileSync(lockPath, "utf8");
+  if (!isStaleCacheMutationLock(lockPath) || fs.readFileSync(lockPath, "utf8") !== content) {
+    throw createExistingLockError();
+  }
+  fs.rmSync(lockPath, { force: true });
+}
+
+function removeOwnedCacheMutationLock(lockPath: string, token: string): void {
+  const lock = readCacheMutationLock(lockPath);
+  if (lock?.token === token) {
+    fs.rmSync(lockPath, { force: true });
   }
 }
 

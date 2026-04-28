@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
+import { parseNumberFlag } from "../../utils/parse";
 
 function parseNetworkPollArgs(rawArgs: string[]): { sessionId?: string; sinceSeq?: number; max?: number } {
   const parsed: { sessionId?: string; sinceSeq?: number; max?: number } = {};
@@ -20,23 +21,23 @@ function parseNetworkPollArgs(rawArgs: string[]): { sessionId?: string; sinceSeq
     if (arg === "--since-seq") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --since-seq");
-      parsed.sinceSeq = Number(value);
+      parsed.sinceSeq = parseNumberFlag(value, "--since-seq", { min: 0 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--since-seq=")) {
-      parsed.sinceSeq = Number(arg.split("=", 2)[1]);
+      parsed.sinceSeq = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--since-seq", { min: 0 });
       continue;
     }
     if (arg === "--max") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --max");
-      parsed.max = Number(value);
+      parsed.max = parseNumberFlag(value, "--max", { min: 1 });
       i += 1;
       continue;
     }
     if (arg?.startsWith("--max=")) {
-      parsed.max = Number(arg.split("=", 2)[1]);
+      parsed.max = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max", { min: 1 });
       continue;
     }
   }
