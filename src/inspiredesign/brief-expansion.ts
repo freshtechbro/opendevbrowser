@@ -69,6 +69,7 @@ export type InspiredesignBriefFormat = {
   paletteIntent: string;
   visualDensity: string;
   designVariance: string;
+  focusAreas?: string[];
   responsiveCollapseRules: string[];
   guardrails: string[];
   antiPatterns: string[];
@@ -85,6 +86,8 @@ export type InspiredesignBriefExpansion = {
 
 const BRIEF_TEMPLATE = templateJson as InspiredesignBriefTemplate;
 export const INSPIREDESIGN_BRIEF_TEMPLATE_VERSION = BRIEF_TEMPLATE.version;
+export const INSPIREDESIGN_BRIEF_COMMON_RULES = [...BRIEF_TEMPLATE.commonRules];
+export const INSPIREDESIGN_BRIEF_OUTPUT_REQUIREMENTS = [...BRIEF_TEMPLATE.outputRequirements];
 
 export const normalizeInspiredesignBriefText = (value: string): string => value.trim().replace(/\s+/g, " ");
 
@@ -144,6 +147,7 @@ export const cloneInspiredesignBriefFormat = (
   paletteIntent: format.paletteIntent,
   visualDensity: format.visualDensity,
   designVariance: format.designVariance,
+  focusAreas: cloneStringList(format.focusAreas ?? []),
   responsiveCollapseRules: cloneStringList(format.responsiveCollapseRules),
   guardrails: cloneStringList(format.guardrails),
   antiPatterns: cloneStringList(format.antiPatterns),
@@ -167,6 +171,7 @@ const summarizeFormat = (format: InspiredesignBriefFormatTemplate): Inspiredesig
   paletteIntent: format.paletteIntent,
   visualDensity: format.visualDensity,
   designVariance: format.designVariance,
+  focusAreas: cloneStringList(format.focusAreas),
   responsiveCollapseRules: cloneStringList(format.responsiveCollapseRules),
   guardrails: cloneStringList(format.guardrails),
   antiPatterns: cloneStringList(format.antiPatterns),

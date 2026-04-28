@@ -16,6 +16,8 @@ import {
   buildInspiredesignNextStep
 } from "./handoff";
 import {
+  INSPIREDESIGN_BRIEF_COMMON_RULES,
+  INSPIREDESIGN_BRIEF_OUTPUT_REQUIREMENTS,
   cloneInspiredesignBriefFormat,
   type InspiredesignBriefExpansion,
   type InspiredesignBriefFormat
@@ -721,14 +723,17 @@ const renderEvidenceDerivedAdvancedBrief = (
   "Responsive collapse rules:",
   formatBulletList(format.responsiveCollapseRules),
   "",
+  "Focus areas:",
+  formatBulletList(format.focusAreas ?? []),
+  "",
   "Execution rules:",
-  formatBulletList(format.guardrails),
+  formatBulletList([...INSPIREDESIGN_BRIEF_COMMON_RULES, ...format.guardrails]),
   "",
   "Anti-patterns:",
   formatBulletList(format.antiPatterns),
   "",
   "Return:",
-  formatBulletList(format.deliverables),
+  formatBulletList([...INSPIREDESIGN_BRIEF_OUTPUT_REQUIREMENTS, ...format.deliverables]),
   "",
   "Best fit use cases:",
   formatBulletList(format.bestFor)

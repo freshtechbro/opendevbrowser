@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import * as fs from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runUpdate } from "../src/cli/commands/update";
 
 interface CacheManifest {
@@ -34,6 +35,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.doUnmock("fs");
+  vi.restoreAllMocks();
   if (previousCacheDir === undefined) {
     delete process.env.OPENCODE_CACHE_DIR;
   } else {
@@ -108,7 +111,11 @@ describe("runUpdate", () => {
     writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
     mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
     writeFileSync(makePath("package-lock.json"), "{\"lockfileVersion\":3}\n", "utf8");
-    writeFileSync(makePath(".opendevbrowser-update.lock"), "locked\n", "utf8");
+    writeFileSync(
+      makePath(".opendevbrowser-update.lock"),
+      `${JSON.stringify({ pid: process.pid, createdAt: Date.now() })}\n`,
+      "utf8"
+    );
 
     const result = runUpdate();
 
@@ -118,6 +125,106 @@ describe("runUpdate", () => {
     expect(readManifest()).toEqual({ dependencies: { opendevbrowser: "0.0.24" } });
     expect(existsSync(makePath("node_modules", "opendevbrowser"))).toBe(true);
     expect(existsSync(makePath("package-lock.json"))).toBe(true);
+  });
+
+  it("repairs stale update locks from dead processes", () => {
+    writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
+    writeFileSync(
+      makePath(".opendevbrowser-update.lock"),
+      `${JSON.stringify({ pid: 99999999, createdAt: 0 })}\n`,
+      "utf8"
+    );
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(true);
+    expect(result.cleared).toBe(true);
+    expect(existsSync(makePath(".opendevbrowser-update.lock"))).toBe(false);
+    expect(readManifest()).toEqual({});
+  });
+
+  it("repairs stale legacy update lockfiles", () => {
+    writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
+    writeFileSync(makePath(".opendevbrowser-update.lock"), "locked\n", "utf8");
+    utimesSync(makePath(".opendevbrowser-update.lock"), new Date(0), new Date(0));
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(true);
+    expect(result.cleared).toBe(true);
+    expect(existsSync(makePath(".opendevbrowser-update.lock"))).toBe(false);
+    expect(readManifest()).toEqual({});
+  });
+
+  it("preserves active legacy PID lockfiles even when old", () => {
+    writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
+    mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
+    writeFileSync(makePath(".opendevbrowser-update.lock"), `${process.pid}\n`, "utf8");
+    utimesSync(makePath(".opendevbrowser-update.lock"), new Date(0), new Date(0));
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.cleared).toBe(false);
+    expect(result.message).toContain("another update is already running");
+    expect(readManifest()).toEqual({ dependencies: { opendevbrowser: "0.0.24" } });
+    expect(existsSync(makePath("node_modules", "opendevbrowser"))).toBe(true);
+  });
+
+  it("does not remove a replacement lock owned by another process", async () => {
+    writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
+    mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
+    const actualFs = await vi.importActual<typeof import("fs")>("fs");
+    vi.resetModules();
+    vi.doMock("fs", () => ({
+      ...actualFs,
+      rmSync: (targetPath: fs.PathLike, options?: fs.RmOptions) => {
+      if (targetPath === makePath("node_modules", "opendevbrowser")) {
+        writeFileSync(
+          makePath(".opendevbrowser-update.lock"),
+          `${JSON.stringify({ pid: 99999998, createdAt: Date.now(), token: "foreign" })}\n`,
+          "utf8"
+        );
+        throw new Error("simulated mutation failure");
+      }
+        if (options === undefined) {
+          return actualFs.rmSync(targetPath);
+        }
+        return actualFs.rmSync(targetPath, options);
+      }
+    }));
+    const { runUpdate: runUpdateWithMockedFs } = await import("../src/cli/commands/update");
+
+    const result = runUpdateWithMockedFs();
+
+    expect(result.success).toBe(false);
+    expect(readFileSync(makePath(".opendevbrowser-update.lock"), "utf8")).toContain("foreign");
+  });
+
+  it("removes a newly created lock when writing lock metadata fails", async () => {
+    writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
+    const actualFs = await vi.importActual<typeof import("fs")>("fs");
+    vi.resetModules();
+    vi.doMock("fs", () => ({
+      ...actualFs,
+      writeFileSync: (
+        file: fs.PathOrFileDescriptor,
+        data: string | NodeJS.ArrayBufferView,
+        options?: fs.WriteFileOptions
+      ) => {
+        if (typeof file === "number") {
+          throw new Error("simulated lock write failure");
+        }
+        return actualFs.writeFileSync(file, data, options);
+      }
+    }));
+    const { runUpdate: runUpdateWithMockedFs } = await import("../src/cli/commands/update");
+
+    const result = runUpdateWithMockedFs();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("simulated lock write failure");
+    expect(existsSync(makePath(".opendevbrowser-update.lock"))).toBe(false);
   });
 
   it("reports no-op when no cache entries exist", () => {

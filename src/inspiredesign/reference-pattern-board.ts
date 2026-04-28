@@ -128,13 +128,6 @@ const PUBLIC_LANDING_TEXT_MARKERS = [
   "landing page",
   "homepage",
   "home page",
-  "website",
-  "full-bleed",
-  "hero",
-  "story",
-  "stories",
-  "services",
-  "service",
   "consulting",
   "advisory",
   "bcg",
@@ -148,13 +141,23 @@ const PUBLIC_LANDING_TEXT_MARKERS = [
   "industries",
   "worship",
   "locations",
-  "online",
-  "events",
-  "cta",
   "gallery",
   "atelier",
-  "fashion",
-  "studio"
+  "fashion"
+] as const;
+
+const PUBLIC_LANDING_SUPPORT_MARKERS = [
+  "online",
+  "events",
+  "studio",
+  "website",
+  "full-bleed",
+  "hero",
+  "story",
+  "stories",
+  "services",
+  "service",
+  "cta",
 ] as const;
 
 const isDiagnosticText = (value: string): boolean => {
@@ -164,7 +167,11 @@ const isDiagnosticText = (value: string): boolean => {
 
 const hasPublicLandingSignal = (value: string): boolean => {
   const lower = value.toLowerCase();
-  return PUBLIC_LANDING_TEXT_MARKERS.some((marker) => lower.includes(marker));
+  const strongCount = PUBLIC_LANDING_TEXT_MARKERS.filter((marker) => lower.includes(marker)).length;
+  const supportCount = PUBLIC_LANDING_SUPPORT_MARKERS.filter((marker) => lower.includes(marker)).length;
+  const visualLandingCombo = lower.includes("hero")
+    && (lower.includes("full-bleed") || lower.includes("cta") || lower.includes("website"));
+  return visualLandingCombo || strongCount >= 2 || (strongCount >= 1 && strongCount + supportCount >= 2);
 };
 
 const pushSignal = (signals: string[], value: string | undefined): void => {
