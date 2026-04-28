@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 export const ZOMBIE_BASENAME_PATTERNS = [
-  /\s2\.[^/]+$/i,
+  /\s[2-9]\.[^/]+$/i,
   /\s\([0-9]+\)\.[^/]+$/i,
   /\s-copy\.[^/]+$/i,
   /\scopy\.[^/]+$/i,

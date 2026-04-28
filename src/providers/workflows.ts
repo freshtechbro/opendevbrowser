@@ -25,7 +25,7 @@ import {
   type InspiredesignFollowthrough,
   normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
-} from "./inspiredesign-contract";
+} from "../inspiredesign/contract";
 import {
   normalizeInspiredesignBriefText,
   expandInspiredesignBrief,
@@ -44,7 +44,7 @@ import {
   buildShoppingSuccessHandoff,
   type WorkflowSuccessHandoff
 } from "./workflow-handoff";
-import type { InspiredesignCaptureOptions } from "./inspiredesign-capture";
+import type { InspiredesignCaptureOptions } from "../inspiredesign/capture";
 import {
   LOOKS_LIKE_URL_RE,
   asNumber,
@@ -95,7 +95,7 @@ import {
   type WorkflowResumeEnvelope,
   type WorkflowTraceEntry
 } from "./workflow-contracts";
-import { resolveInspiredesignCaptureMode } from "./inspiredesign-capture-mode";
+import { resolveInspiredesignCaptureMode } from "../inspiredesign/capture-mode";
 import type {
   BrowserFallbackMode,
   JsonValue,
@@ -115,16 +115,19 @@ import type {
   InspiredesignCaptureMode
 } from "./types";
 
-export interface ProviderExecutor {
-  search: (
-    input: ProviderCallResultByOperation["search"],
-    options?: ProviderRunOptions
-  ) => Promise<ProviderAggregateResult>;
+export interface ReferenceRetrievalPort {
   fetch: (
     input: ProviderCallResultByOperation["fetch"],
     options?: ProviderRunOptions
   ) => Promise<ProviderAggregateResult>;
   getAntiBotSnapshots?: (providerIds?: string[]) => ProviderAntiBotSnapshot[];
+}
+
+export interface ProviderExecutor extends ReferenceRetrievalPort {
+  search: (
+    input: ProviderCallResultByOperation["search"],
+    options?: ProviderRunOptions
+  ) => Promise<ProviderAggregateResult>;
 }
 
 export interface ResearchRunInput {
@@ -382,7 +385,7 @@ const buildAlerts = (): Array<Record<string, JsonValue>> => {
 };
 
 const getRuntimeAntiBotSnapshots = (
-  runtime: ProviderExecutor,
+  runtime: ReferenceRetrievalPort,
   providerIds?: string[]
 ): ProviderAntiBotSnapshot[] => {
   if (typeof runtime.getAntiBotSnapshots !== "function") {
@@ -463,7 +466,7 @@ const buildTranscriptAlertsFromFailures = (
 };
 
 const buildWorkflowAlerts = (
-  runtime: ProviderExecutor,
+  runtime: ReferenceRetrievalPort,
   failures: ProviderFailureEntry[],
   providerIds?: string[]
 ): Array<Record<string, JsonValue>> => {
@@ -489,7 +492,7 @@ const getDegradedProviders = (): Set<string> => {
 };
 
 const getRuntimeDegradedProviders = (
-  runtime: ProviderExecutor,
+  runtime: ReferenceRetrievalPort,
   providerIds?: string[]
 ): Set<string> => {
   const snapshots = getRuntimeAntiBotSnapshots(runtime, providerIds);
@@ -515,7 +518,7 @@ const toProviderSource = (providerId: string): ProviderSource | null => {
 };
 
 const observeWorkflowSignals = (
-  runtime: ProviderExecutor,
+  runtime: ReferenceRetrievalPort,
   result: ProviderAggregateResult
 ): void => {
   if (typeof runtime.getAntiBotSnapshots === "function") {
@@ -1827,6 +1830,20 @@ const isInspiredesignFetchRecovered = (
     && (Boolean(reference.title) || Boolean(reference.excerpt));
 };
 
+type InspiredesignRecoveredFetchTelemetry = {
+  url: string;
+  fetchFailure?: string;
+};
+
+const summarizeInspiredesignRecoveredFetches = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignRecoveredFetchTelemetry[] => references
+  .filter(isInspiredesignFetchRecovered)
+  .map((reference) => ({
+    url: reference.url,
+    ...(reference.fetchFailure ? { fetchFailure: reference.fetchFailure } : {})
+  }));
+
 const buildInspiredesignReference = (
   url: string,
   result: ProviderAggregateResult,
@@ -1896,7 +1913,7 @@ const summarizeInspiredesignFetchConstraint = (
 };
 
 const buildInspiredesignMeta = (
-  runtime: ProviderExecutor,
+  runtime: ReferenceRetrievalPort,
   workflowInput: InspiredesignResolvedInput,
   references: InspiredesignReferenceEvidence[],
   failures: ProviderFailureEntry[],
@@ -1904,6 +1921,7 @@ const buildInspiredesignMeta = (
 ): Record<string, unknown> => {
   const failedCaptures = references.filter((reference) => reference.captureStatus === "failed");
   const captureAttemptReport = summarizeInspiredesignCaptureAttempts(references);
+  const recoveredFetches = summarizeInspiredesignRecoveredFetches(references);
   let reasonCodeDistribution = summarizeReasonCodeDistribution(failures);
   let meta = withCamelCasePrimaryConstraintMeta(withReasonCodeDistributionMeta({
     selection: {
@@ -1919,6 +1937,12 @@ const buildInspiredesignMeta = (
         reference.fetchStatus === "failed" && !isInspiredesignFetchRecovered(reference)
       )).length,
       failed_captures: failedCaptures.length,
+      ...(recoveredFetches.length > 0
+        ? {
+          recovered_fetches: recoveredFetches.length,
+          recovered_fetch_details: recoveredFetches
+        }
+        : {}),
       ...(captureAttemptReport ? { capture_attempts: captureAttemptReport.counts } : {})
     },
     alerts: buildWorkflowAlerts(runtime, failures)
@@ -2982,7 +3006,7 @@ export const runShoppingWorkflow = async (
 };
 
 export const runInspiredesignWorkflow = async (
-  runtime: ProviderExecutor,
+  runtime: ReferenceRetrievalPort,
   input: InspiredesignRunInput | WorkflowResumeEnvelope,
   options: InspiredesignWorkflowOptions = {}
 ): Promise<Record<string, unknown>> => {

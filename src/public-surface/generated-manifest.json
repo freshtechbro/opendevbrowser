@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-20T16:29:04.426Z",
+  "generatedAt": "2026-04-25T21:19:39.014Z",
   "cli": {
     "groups": [
       {
@@ -198,7 +198,7 @@
       },
       {
         "name": "update",
-        "description": "Clear cached plugin and refresh managed skill packs",
+        "description": "Repair cached plugin pins and refresh managed skill packs",
         "usage": "npx opendevbrowser update [--global|--local] [--skills-global|--skills-local|--no-skills]",
         "flags": [
           "--global",

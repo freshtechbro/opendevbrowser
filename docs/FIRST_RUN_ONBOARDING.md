@@ -148,7 +148,7 @@ Expected:
 - extracted assets now include `manifest.json`, `popup.html`, `canvas.html`, `dist/`, and `icons/`
 - `OPENCODE_CONFIG_DIR` isolates config lookup only; it does not relocate the extracted extension asset directory
 - because this guide uses a temp `WORKDIR`, install-time daemon auto-start reconciliation may warn instead of persisting a background entry
-- if persistent login auto-start is desired after onboarding, rerun `opendevbrowser daemon install` from a stable install location outside the temp workspace
+- if persistent login auto-start is desired after onboarding, rerun `opendevbrowser daemon install` from a stable install location outside the temp workspace; macOS should persist `WorkingDirectory=~/.cache/opendevbrowser`
 
 ## 3c) Stable auto-start follow-up
 
@@ -171,6 +171,7 @@ Expected from a stable install location:
 - `autostart.health="healthy"`
 - `autostart.needsRepair=false`
 - `command` points at the intended persistent CLI path
+- on macOS, `autostart.workingDirectory` matches `autostart.expectedWorkingDirectory`
 
 ## 4) Start daemon
 

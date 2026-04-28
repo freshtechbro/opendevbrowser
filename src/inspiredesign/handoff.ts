@@ -45,7 +45,7 @@ export const INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS = [
 ] as const;
 
 export const INSPIREDESIGN_HANDOFF_GUIDANCE = {
-  reviewAdvancedBrief: `${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} is the authoritative prompt route for the selected format, profile defaults, layout posture, motion grammar, and anti-patterns. Read it before touching Canvas or implementation files.`,
+  reviewAdvancedBrief: `${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} is the authoritative reference-first brief. When URL references exist, captured evidence leads the creative direction; selected format, profile defaults, layout posture, motion grammar, and anti-patterns are route guardrails only. Read it before touching Canvas or implementation files.`,
   prepareCanvasPlanRequest: `Fill canvasSessionId, leaseId, and documentId in ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} before running ${INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas}.`,
   deepCaptureRecommendation: "Any inspiredesign run with reference URLs already uses captureMode=deep. Rerun with the same URLs only when you need refreshed DOM/layout evidence, restored session state, or capture-specific debugging."
 } as const;

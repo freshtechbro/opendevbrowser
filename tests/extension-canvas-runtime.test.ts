@@ -129,6 +129,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-open",
       clientId: "client-1",
+      leaseId: "lease-1",
       command: "canvas.tab.open",
       payload: {
         previewMode: "focused",
@@ -244,6 +245,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-sync",
       clientId: "client-1",
+      leaseId: "lease-1",
       command: "canvas.tab.sync",
       payload: {
         targetId: "tab-1",
@@ -298,6 +300,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-open",
       clientId: "client-1",
+      leaseId: "lease-close",
       command: "canvas.tab.open",
       payload: {
         previewMode: "background",
@@ -317,6 +320,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-close",
       clientId: "client-1",
+      leaseId: "lease-close",
       command: "canvas.tab.close",
       payload: { targetId: "tab-1" }
     });
@@ -362,6 +366,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-open-keepalive",
       clientId: "client-1",
+      leaseId: "lease-keepalive",
       command: "canvas.tab.open",
       payload: {
         previewMode: "focused",
@@ -392,6 +397,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-close-keepalive",
       clientId: "client-1",
+      leaseId: "lease-keepalive",
       command: "canvas.tab.close",
       payload: { targetId: "tab-1" }
     });
@@ -512,6 +518,25 @@ describe("CanvasRuntime", () => {
 
     runtime.handleMessage({
       type: "canvas_request",
+      requestId: "req-select-reclaim-missing-lease",
+      clientId: "client-1",
+      canvasSessionId: "canvas_reclaim",
+      command: "canvas.overlay.select",
+      payload: {
+        targetId: "tab-1",
+        mountId,
+        nodeId: "node_card"
+      }
+    });
+    await flushMicrotasks();
+
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: "canvas_error",
+      requestId: "req-select-reclaim-missing-lease"
+    }));
+
+    runtime.handleMessage({
+      type: "canvas_request",
       requestId: "req-select-reclaim",
       clientId: "client-2",
       canvasSessionId: "canvas_reclaim",
@@ -619,7 +644,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_event",
       canvasSessionId: "canvas_expire",
       event: "canvas_session_expired",
-      payload: expect.objectContaining({ reason: "client_disconnected" })
+      payload: expect.objectContaining({ leaseId: "lease-expire", reason: "client_disconnected" })
     }));
   });
 
@@ -778,6 +803,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-open-overlay",
       clientId: "client-1",
+      leaseId: "lease-overlay",
       command: "canvas.tab.open",
       payload: {
         previewMode: "focused",
@@ -805,6 +831,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-mount-overlay",
       clientId: "client-1",
+      leaseId: "lease-overlay",
       command: "canvas.overlay.mount",
       payload: {
         targetId: "tab-1",
@@ -837,6 +864,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-select-overlay",
       clientId: "client-1",
+      leaseId: "lease-overlay",
       command: "canvas.overlay.select",
       payload: {
         targetId: "tab-1",
@@ -872,6 +900,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-unmount-overlay",
       clientId: "client-1",
+      leaseId: "lease-overlay",
       command: "canvas.overlay.unmount",
       payload: {
         targetId: "tab-1",
@@ -1100,6 +1129,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-open-editor",
       clientId: "client-1",
+      leaseId: "lease-editor",
       command: "canvas.tab.open",
       payload: {
         previewMode: "focused",
@@ -1170,6 +1200,7 @@ describe("CanvasRuntime", () => {
       type: "canvas_request",
       requestId: "req-sync-editor",
       clientId: "client-1",
+      leaseId: "lease-editor",
       command: "canvas.tab.sync",
       payload: {
         targetId: "tab-1",

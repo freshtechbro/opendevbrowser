@@ -10,7 +10,7 @@ import {
 } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
-import { resolveInspiredesignCaptureMode } from "../../providers/inspiredesign-capture-mode";
+import { resolveInspiredesignCaptureMode } from "../../inspiredesign/capture-mode";
 
 type InspiredesignCommandArgs = {
   brief?: string;

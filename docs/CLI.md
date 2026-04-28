@@ -219,7 +219,7 @@ npx opendevbrowser --no-skills
 
 On successful installs, the CLI reconciles daemon auto-start on supported platforms (macOS/Windows) so the relay is available on
 login. Existing installs are rechecked and repaired when the per-user auto-start entry is missing or stale on macOS and Windows,
-and when the macOS LaunchAgent is malformed. If the current CLI entrypoint lives under a transient temp-root path (for example a
+and when the macOS LaunchAgent is malformed or missing its stable non-root working directory. If the current CLI entrypoint lives under a transient temp-root path (for example a
 first-run `/tmp` or `/private/tmp` `npx` workspace), OpenDevBrowser refuses to persist that path as auto-start. Plugin install
 still succeeds, but auto-start repair warns and you must rerun `opendevbrowser daemon install` from a stable install location, or
 `npx --no-install opendevbrowser daemon install` from a persistent local package install. You can remove auto-start later with
@@ -234,7 +234,9 @@ npx opendevbrowser --update
 npx opendevbrowser -u
 ```
 
-This removes cached files from `~/.cache/opencode/node_modules/opendevbrowser/`. OpenCode will download the latest version on next run.
+This removes cached files from `~/.cache/opencode/node_modules/opendevbrowser/`, removes stale `opendevbrowser`
+dependency pins from `~/.cache/opencode/package.json`, and deletes the OpenCode cache lockfile when present. OpenCode
+will download the latest version on next run.
 
 ### Uninstall
 
@@ -338,7 +340,8 @@ npx opendevbrowser serve --stop
 ### Daemon auto-start
 
 Install or remove OS-level auto-start for the daemon. This persists an absolute `node + cli + serve` entrypoint (no PATH
-reliance) only when the current CLI path is stable. Temporary `npx` caches and temp onboarding workdirs are rejected instead of
+reliance) only when the current CLI path is stable. On macOS it also persists a `WorkingDirectory` under
+`~/.cache/opendevbrowser` so launchd never starts the daemon from `/`. Temporary `npx` caches and temp onboarding workdirs are rejected instead of
 being written to LaunchAgent or Task Scheduler state, and all commands return machine-readable output with `--output-format json`.
 
 ```bash
@@ -351,11 +354,11 @@ npx --no-install opendevbrowser daemon install
 ```
 
 Behavior:
-- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute `node + cli + serve` entrypoint.
+- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute `node + cli + serve` entrypoint plus `WorkingDirectory=~/.cache/opendevbrowser`.
 - Windows: per-user Task Scheduler logon task targeting an absolute `node + cli + serve` entrypoint; status inspects the persisted scheduled-task action from Task Scheduler XML instead of task presence alone.
 - `daemon status --output-format json` keeps top-level `installed` and `running`, adds nested `autostart` on supported platforms, and includes `status` only when the daemon is running.
-- `autostart` is the canonical detail object and includes `health`, `needsRepair`, `reason`, `command`, and `expectedCommand`.
-- `autostart.reason` can be `transient_cli_path` when an existing LaunchAgent or Task Scheduler action points at a temp-root CLI path that should be repaired.
+- `autostart` is the canonical detail object and includes `health`, `needsRepair`, `reason`, `command`, `expectedCommand`, and macOS working-directory fields when applicable.
+- `autostart.reason` can be `transient_cli_path` when an existing LaunchAgent or Task Scheduler action points at a temp-root CLI path that should be repaired; macOS can also report `working_directory_mismatch` when an older LaunchAgent would start from `/` or another unsafe directory.
 - when the current invocation is transient, a stable persisted auto-start entry can still report `health="healthy"`; `expectedCommand` is omitted instead of advertising the transient current path as the repair target.
 - `daemon status` returns exit code `0` when the daemon is reachable even if auto-start is missing, stale, or malformed, and `10` when the daemon is not running.
 - Successful plugin installs surface auto-start reconciliation through `autostartAction`; `autostartError` is included only when repair fails.
@@ -384,7 +387,8 @@ npx opendevbrowser serve --stop
 ```
 
 If you are running from a first-run temp workspace or transient `npx` cache, rerun `opendevbrowser daemon install` from a stable
-install location before expecting login auto-start to persist.
+install location before expecting login auto-start to persist. On macOS, `daemon status --output-format json` should show matching
+`autostart.workingDirectory` and `autostart.expectedWorkingDirectory`.
 
 ### Native messaging host
 

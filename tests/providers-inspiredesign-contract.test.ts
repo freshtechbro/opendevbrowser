@@ -10,7 +10,8 @@ import {
   hasInspiredesignCaptureArtifacts,
   normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
-} from "../src/providers/inspiredesign-contract";
+} from "../src/inspiredesign/contract";
+import { validateGenerationPlan } from "../src/canvas/document-store";
 import {
   INSPIREDESIGN_HANDOFF_COMMANDS,
   INSPIREDESIGN_HANDOFF_FILES,
@@ -43,6 +44,42 @@ type InspiredesignEvidenceJson = {
     captureFailure?: string;
     capture: JsonValue;
   }>;
+  referencePatternBoard?: {
+    references: Array<{
+      id: string;
+      capturedVia: string[];
+      layoutRecipe: string;
+      patternsToBorrow: string[];
+      patternsToReject: string[];
+    }>;
+    synthesis: {
+      dominantDirection: string;
+      sharedStrengths: string[];
+      contractDeltas: string[];
+    };
+  };
+  designVectors?: {
+    sourcePriority: string;
+    directionLabel: string;
+    surfaceIntent: string;
+    compositionModel: string[];
+    premiumPosture: string[];
+    motionPosture: string[];
+    sectionArchitecture: string[];
+    typographyPosture: string[];
+    imageryPosture: string[];
+    interactionDensity: string;
+    interactionMoments: string[];
+    materialEffects: string[];
+    referenceInfluence: string[];
+    patternsToBorrow: string[];
+    patternsToReject: string[];
+  };
+};
+
+type PlanMotionMaterialFields = {
+  interactionMoments?: string[];
+  materialEffects?: string[];
 };
 
 const makeReference = (
@@ -150,7 +187,24 @@ describe("inspiredesign packet + renderer", () => {
       canvasSessionId: "<canvas-session-id>",
       leaseId: "<lease-id>",
       documentId: "<document-id>",
-      generationPlan: packet.generationPlan
+      generationPlan: {
+        targetOutcome: packet.generationPlan.targetOutcome,
+        visualDirection: packet.generationPlan.visualDirection,
+        layoutStrategy: packet.generationPlan.layoutStrategy,
+        contentStrategy: packet.generationPlan.contentStrategy,
+        componentStrategy: packet.generationPlan.componentStrategy,
+        motionPosture: packet.generationPlan.motionPosture,
+        responsivePosture: packet.generationPlan.responsivePosture,
+        accessibilityPosture: packet.generationPlan.accessibilityPosture,
+        validationTargets: packet.generationPlan.validationTargets
+      }
+    });
+    expect("referencePatternBoard" in packet.canvasPlanRequest.generationPlan).toBe(false);
+    expect(packet.canvasPlanRequest.generationPlan.designVectors).toMatchObject({
+      premiumPosture: expect.arrayContaining([expect.stringContaining("Premium typography")]),
+      motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
+      sectionArchitecture: expect.arrayContaining([expect.stringContaining("screen sequence")]),
+      referenceInfluence: expect.arrayContaining([expect.stringContaining("trust-forward")])
     });
     expect(packet.followthrough).toMatchObject({
       summary: buildInspiredesignFollowthroughSummary(),
@@ -282,7 +336,7 @@ describe("inspiredesign packet + renderer", () => {
     const evidence = packet.evidence as InspiredesignEvidenceJson;
 
     expect(packet.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
-    expect(packet.advancedBriefMarkdown).toContain("Premium editorial landing page");
+    expect(packet.advancedBriefMarkdown).toContain("Reference-led public landing page");
     expect(packet.designContract.intent.referenceCount).toBe(3);
     expect(evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
     expect(evidence.advancedBrief).toContain("Prompt objective:");
@@ -299,9 +353,11 @@ describe("inspiredesign packet + renderer", () => {
       captureStatus: "captured",
       capture: expect.objectContaining({
         title: "Docs Home",
-        snapshot: expect.any(Object),
-        dom: expect.any(Object),
-        clone: expect.any(Object),
+        signals: expect.arrayContaining([
+          "Docs Home",
+          "Rich product documentation with deep navigation and strong hero clarity.",
+          "Hero, sidebar navigation, feature cards"
+        ]),
         attempts: {
           snapshot: { status: "captured" },
           clone: { status: "captured" },
@@ -309,6 +365,10 @@ describe("inspiredesign packet + renderer", () => {
         }
       })
     });
+    const captureText = JSON.stringify(evidence.references[0]?.capture);
+    expect(captureText).not.toContain("<main>docs</main>");
+    expect(captureText).not.toContain("<section>Docs hero</section>");
+    expect(captureText).not.toContain(".docs-hero");
     expect(evidence.references[2]).toMatchObject({
       fetchStatus: "skipped",
       captureStatus: "failed",
@@ -317,8 +377,1024 @@ describe("inspiredesign packet + renderer", () => {
     });
     expect(packet.designMarkdown).toContain("### Source 1: Docs Home");
     expect(packet.designMarkdown).toContain("Capture warnings: network idle timeout");
-    expect(packet.designMarkdown).toContain("Only operator brief context was available for this reference.");
+    expect(packet.designMarkdown).not.toContain("Only operator brief context was available for this reference.");
+    expect(packet.designMarkdown).not.toContain("Browser capture unavailable");
     expect(packet.designMarkdown).toContain("Prototype guidance Markdown for the first HTML pass");
+  });
+
+  it("threads reference-specific cues through every Canvas handoff artifact", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a launch page inspired by an architectural lighting studio.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a launch page inspired by an architectural lighting studio."
+      }),
+      urls: ["https://example.com/lighting-studio"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "lighting-studio",
+          url: "https://example.com/lighting-studio",
+          title: "Atelier Luma Studio",
+          excerpt: "Monochrome gallery rhythm with a limestone hero, brass CTA rail, and calm project index.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Full-bleed limestone hero, brass CTA rail, staggered project index, atelier footer.",
+              refCount: 7,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "<section class=\"limestone-hero\"><nav>brass CTA rail</nav><article>staggered project index</article></section>",
+              cssPreview: ".limestone-hero { background: #d8d0bf; letter-spacing: .04em; }",
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+
+    const canvasPlan = JSON.stringify(packet.canvasPlanRequest);
+    const handoff = JSON.stringify(packet.followthrough);
+
+    for (const artifact of [
+      packet.advancedBriefMarkdown,
+      packet.designMarkdown,
+      packet.implementationPlanMarkdown,
+      packet.prototypeGuidanceMarkdown ?? "",
+      canvasPlan,
+      handoff
+    ]) {
+      expect(artifact).toContain("Atelier Luma Studio");
+      expect(artifact).toContain("limestone hero");
+      expect(artifact).toContain("brass CTA rail");
+      expect(artifact).toContain("staggered project index");
+    }
+  });
+
+  it("finalizes advanced briefs from reference evidence before fixed route guardrails", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a launch page inspired by an architectural lighting studio.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a launch page inspired by an architectural lighting studio."
+      }),
+      urls: ["https://example.com/lighting-studio"],
+      references: [
+        makeReference({
+          id: "lighting-studio",
+          url: "https://example.com/lighting-studio",
+          title: "Atelier Luma Studio",
+          excerpt: "Monochrome gallery rhythm with a limestone hero, brass CTA rail, and calm project index.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Full-bleed limestone hero, brass CTA rail, staggered project index, atelier footer.",
+              refCount: 7,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "<section class=\"limestone-hero\"><nav>brass CTA rail</nav><article>staggered project index</article></section>",
+              cssPreview: ".limestone-hero { background: #d8d0bf; letter-spacing: .04em; }",
+              warnings: []
+            },
+            dom: {
+              outerHTML: "<main><h1>Atelier Luma Studio</h1><p>limestone hero and brass CTA rail</p></main>",
+              truncated: false
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const analysisIndex = packet.advancedBriefMarkdown.indexOf("Reference pattern board:");
+    const formatIndex = packet.advancedBriefMarkdown.indexOf("Selected prompt format:");
+
+    expect(analysisIndex).toBe(0);
+    expect(formatIndex).toBeGreaterThan(analysisIndex);
+    expect(packet.advancedBriefMarkdown).toContain(
+      "URL reference evidence is the creative source of truth when references are supplied."
+    );
+    expect(packet.advancedBriefMarkdown).toContain(
+      "Selected prompt format supplies route defaults and guardrails, not the creative source of truth."
+    );
+    expect(packet.advancedBriefMarkdown.indexOf("limestone hero")).toBeLessThan(formatIndex);
+    expect(packet.advancedBriefMarkdown.indexOf("brass CTA rail")).toBeLessThan(formatIndex);
+    expect(evidence.referencePatternBoard?.references[0]).toMatchObject({
+      id: "lighting-studio",
+      capturedVia: ["fetch", "snapshot", "clone", "dom"],
+      layoutRecipe: expect.stringContaining("limestone hero"),
+      patternsToBorrow: expect.arrayContaining([expect.stringContaining("brass CTA rail")]),
+      patternsToReject: expect.arrayContaining(["No feature-card hero."])
+    });
+    expect(evidence.referencePatternBoard?.synthesis.contractDeltas).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Selected prompt format supplies route defaults")
+      ])
+    );
+  });
+
+  it("threads pattern boards and design vectors through generated JSON artifacts", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church landing page inspired by a global ministry homepage.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church landing page inspired by a global ministry homepage."
+      }),
+      urls: ["https://example.com/global-church"],
+      references: [
+        makeReference({
+          id: "global-church",
+          url: "https://example.com/global-church",
+          title: "Global Church Home",
+          excerpt: "Worship-led public homepage with immersive hero, service pathways, giving CTA, and stories of impact.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Immersive worship hero, magnetic cursor CTA, frosted glass overlay, service pathways, giving CTA, impact stories, event rhythm.",
+              refCount: 9,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "<main><section>worship hero</section><section>service pathways</section></main>",
+              cssPreview: ".hero { min-height: 100vh; } .reveal { transition: opacity 480ms; }",
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    for (const value of [
+      evidence.referencePatternBoard,
+      packet.followthrough.implementationContext.referencePatternBoard,
+      packet.generationPlan.referencePatternBoard
+    ]) {
+      expect(value).toMatchObject({
+        references: [
+          expect.objectContaining({
+            id: "global-church",
+            layoutRecipe: expect.stringContaining("Immersive worship hero")
+          })
+        ]
+      });
+    }
+
+    for (const value of [
+      evidence.designVectors,
+      packet.followthrough.implementationContext.designVectors,
+      packet.generationPlan.designVectors
+    ]) {
+      expect(value).toMatchObject({
+        sourcePriority: "reference-evidence-first",
+        directionLabel: expect.stringContaining("worship hero"),
+        surfaceIntent: "reference-led public landing page",
+        compositionModel: expect.arrayContaining([expect.stringContaining("worship hero")]),
+        premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
+        motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
+        sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+        typographyPosture: expect.arrayContaining([expect.stringContaining("headlines")]),
+        imageryPosture: expect.arrayContaining([expect.stringContaining("imagery")]),
+        interactionDensity: expect.stringContaining("public-page CTAs"),
+        interactionMoments: expect.arrayContaining([
+          expect.stringContaining("Microinteractions"),
+          expect.stringContaining("Cursor effects"),
+          expect.stringContaining("Animation choreography")
+        ]),
+        materialEffects: expect.arrayContaining([
+          expect.stringContaining("parallax"),
+          expect.stringContaining("Glassmorphism"),
+          expect.stringContaining("Reduced-motion material fallback")
+        ]),
+        referenceInfluence: expect.arrayContaining([expect.stringContaining("worship hero")]),
+        patternsToBorrow: expect.arrayContaining([expect.stringContaining("service pathways")]),
+        patternsToReject: expect.arrayContaining(["No feature-card hero."])
+      });
+    }
+    expect(packet.generationPlan.contentStrategy.source).toMatch(/^evidence\.json, advanced-brief\.md, design\.md\./);
+    expect(packet.canvasPlanRequest.generationPlan.contentStrategy.source).toMatch(/^evidence\.json, advanced-brief\.md, design\.md\./);
+    expect(packet.followthrough.implementationContext.referenceSynthesis.requiredArtifacts.slice(0, 3)).toEqual([
+      "evidence.json",
+      "advanced-brief.md",
+      "design.md"
+    ]);
+    expect(packet.followthrough.implementationContext.referenceSynthesis.requiredArtifacts).toEqual(
+      expect.arrayContaining([
+        "generation-plan.json",
+        "canvas-plan.request.json",
+        "design-contract.json"
+      ])
+    );
+    expect("referencePatternBoard" in packet.canvasPlanRequest.generationPlan).toBe(false);
+    expect(packet.canvasPlanRequest.generationPlan.designVectors).toMatchObject({
+      premiumPosture: expect.arrayContaining([expect.stringContaining("premium")]),
+      motionPosture: expect.arrayContaining([expect.stringContaining("reveal")]),
+      sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
+      interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
+      materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
+      referenceInfluence: expect.arrayContaining([expect.stringContaining("worship hero")])
+    });
+    expect(packet.generationPlan as PlanMotionMaterialFields).toMatchObject({
+      interactionMoments: packet.generationPlan.designVectors.interactionMoments,
+      materialEffects: packet.generationPlan.designVectors.materialEffects
+    });
+    expect(packet.canvasPlanRequest.generationPlan as PlanMotionMaterialFields).toMatchObject({
+      interactionMoments: packet.generationPlan.designVectors.interactionMoments,
+      materialEffects: packet.generationPlan.designVectors.materialEffects
+    });
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Microinteractions");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Cursor effects");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("parallax");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Glassmorphism");
+    expect(validateGenerationPlan(packet.canvasPlanRequest.generationPlan)).toMatchObject({
+      ok: true,
+      plan: {
+        interactionMoments: packet.generationPlan.designVectors.interactionMoments,
+        materialEffects: packet.generationPlan.designVectors.materialEffects
+      }
+    });
+  });
+
+  it("keeps blocked diagnostic references out of creative synthesis", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church website for a global congregation.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church website for a global congregation."
+      }),
+      urls: ["https://example.com/blocked-dashboard"],
+      references: [
+        makeReference({
+          id: "blocked-dashboard",
+          url: "https://example.com/blocked-dashboard",
+          fetchStatus: "failed",
+          captureStatus: "failed",
+          title: "Sign in",
+          excerpt: "Authentication required for admin dashboard analytics.",
+          fetchFailure: "Authentication required",
+          captureFailure: "Challenge page blocked capture."
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.references).toHaveLength(1);
+    expect(evidence.referencePatternBoard?.references).toEqual([]);
+    expect(evidence.designVectors?.sourcePriority).toBe("brief-only");
+    expect(evidence.designVectors?.interactionMoments.join(" ")).not.toContain("Cursor effects");
+    expect(evidence.designVectors?.materialEffects.join(" ")).not.toContain("Glassmorphism");
+    expect(evidence.designVectors?.materialEffects.join(" ")).not.toContain("parallax");
+    expect(JSON.stringify(packet.generationPlan)).not.toContain("admin dashboard analytics");
+    expect(JSON.stringify(packet.designContract.contentModel)).not.toContain("admin dashboard analytics");
+    expect(packet.designMarkdown).not.toContain("admin dashboard analytics");
+    expect(packet.advancedBriefMarkdown).not.toContain(
+      "URL reference evidence is the creative source of truth when references are supplied."
+    );
+    expect(packet.advancedBriefMarkdown).not.toContain("admin dashboard analytics");
+  });
+
+  it("turns landing-page vectors into rich section and motion guidance", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church landing page inspired by a global ministry homepage.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church landing page inspired by a global ministry homepage."
+      }),
+      urls: ["https://example.com/global-church"],
+      references: [
+        makeReference({
+          id: "global-church",
+          url: "https://example.com/global-church",
+          title: "Global Church Home",
+          excerpt: "Worship-led homepage with service pathways and story-led impact.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Worship hero, find a church pathway, regional navigation, impact stories.",
+              refCount: 8,
+              warnings: []
+            }
+          }
+        })
+      ],
+      includePrototypeGuidance: true
+    });
+    const pageGuidance = [
+      packet.generationPlan.targetOutcome.summary,
+      packet.generationPlan.contentStrategy.source,
+      packet.generationPlan.componentStrategy.mode,
+      packet.canvasPlanRequest.generationPlan.contentStrategy.source,
+      packet.implementationPlanMarkdown,
+      packet.designMarkdown,
+      packet.prototypeGuidanceMarkdown ?? ""
+    ].join(" ");
+
+    expect(pageGuidance).toContain("8 to 12");
+    expect(pageGuidance).toContain("hero entrance reveal");
+    expect(pageGuidance).toContain("section scroll reveal");
+    expect(pageGuidance).toContain("CTA/focus feedback");
+    expect(pageGuidance).toContain("prefers-reduced-motion");
+    expect(pageGuidance).toContain("Microinteractions");
+    expect(pageGuidance).toContain("hover");
+    expect(pageGuidance).toContain("Cursor effects");
+    expect(pageGuidance).toContain("Animation choreography");
+    expect(pageGuidance).toContain("parallax");
+    expect(pageGuidance).toContain("Glassmorphism");
+    expect(pageGuidance).toContain("content-rich");
+    expect(pageGuidance).toContain("Capture desktop and mobile browser proof");
+    expect(pageGuidance).toContain("reduced-motion");
+    expect(packet.generationPlan.targetOutcome.summary).toContain("Reference cues:");
+    expect(packet.generationPlan.componentStrategy.mode.indexOf("captured references")).toBeLessThan(
+      packet.generationPlan.componentStrategy.mode.indexOf("microinteractions")
+    );
+  });
+
+  it("lets public reference evidence override stale dashboard route defaults", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church landing page inspired by a global ministry homepage.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church landing page inspired by a global ministry homepage.",
+        format: makeBriefFormat({
+          id: "stale-dashboard-route",
+          label: "Stale dashboard route",
+          archetype: "B2B dashboard or app shell",
+          layoutArchetype: "sidebar workspace shell",
+          componentGrammar: "dashboard panels, filters, charts, command surface",
+          route: {
+            profile: "control-room",
+            themeStrategy: "multi-theme-system",
+            navigationModel: "sidebar",
+            layoutApproach: "workspace-dashboard-grid"
+          }
+        })
+      }),
+      urls: ["https://example.com/global-church"],
+      references: [
+        makeReference({
+          id: "global-church",
+          url: "https://example.com/global-church",
+          title: "Global Church Home",
+          excerpt: "Find a church, church locations, worship music, global regions, stories, conferences, and online participation.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Full-bleed worship hero, find a church pathway, church locations, regional navigation, stories, events, and online service CTA.",
+              refCount: 12,
+              warnings: []
+            }
+          }
+        })
+      ],
+      includePrototypeGuidance: true
+    });
+    const artifacts = JSON.stringify({
+      plan: packet.generationPlan,
+      canvas: packet.canvasPlanRequest,
+      design: packet.designMarkdown,
+      implementation: packet.implementationPlanMarkdown,
+      prototype: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence
+    });
+
+    expect(packet.generationPlan.visualDirection.profile).toBe("product-story");
+    expect(packet.canvasPlanRequest.generationPlan.layoutStrategy.navigationModel).toBe("global-header");
+    expect(packet.generationPlan.designVectors.sourcePriority).toBe("reference-evidence-first");
+    expect(packet.generationPlan.designVectors.surfaceIntent).toContain("public landing page");
+    expect(packet.generationPlan.designVectors.sectionArchitecture.join(" ")).toContain("8 to 12");
+    expect(artifacts).toContain("location-first church discovery");
+    expect(artifacts).not.toContain("workspace shell zones");
+    expect(artifacts).not.toContain("command surfaces");
+    expect(artifacts).not.toContain("dashboard panels");
+  });
+
+  it("filters browser and challenge blocker phrases from creative synthesis", () => {
+    const references = [
+      ["javascript", "JavaScript is required to view this page."],
+      ["captcha", "CAPTCHA verification required before continuing."],
+      ["challenge", "Complete the verification challenge to continue."],
+      ["cookies", "Please enable cookies to view this website."]
+    ].map(([id, excerpt]) => makeReference({
+      id,
+      url: `https://example.com/${id}`,
+      title: "Blocked reference",
+      excerpt,
+      captureStatus: "captured",
+      capture: {
+        snapshot: {
+          content: excerpt,
+          refCount: 1,
+          warnings: []
+        }
+      }
+    }));
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church website for a global congregation.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church website for a global congregation."
+      }),
+      urls: references.map((reference) => reference.url),
+      references
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const guidance = JSON.stringify({
+      board: evidence.referencePatternBoard,
+      vectors: evidence.designVectors,
+      generationPlan: packet.generationPlan
+    });
+
+    expect(evidence.referencePatternBoard?.references).toEqual([]);
+    expect(evidence.designVectors?.sourcePriority).toBe("brief-only");
+    expect(guidance).not.toContain("JavaScript is required");
+    expect(guidance).not.toContain("CAPTCHA");
+    expect(guidance).not.toContain("verification challenge");
+    expect(guidance).not.toContain("enable cookies");
+  });
+
+  it("does not treat fetch-only sign-in pages as creative evidence", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church landing page for a global congregation.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church landing page for a global congregation."
+      }),
+      urls: ["https://example.com/sign-in"],
+      references: [
+        makeReference({
+          id: "sign-in",
+          url: "https://example.com/sign-in",
+          title: "Sign in",
+          excerpt: "Authentication required before viewing this dashboard.",
+          captureStatus: "off"
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const guidance = JSON.stringify({
+      board: packet.generationPlan.referencePatternBoard,
+      vectors: packet.generationPlan.designVectors,
+      design: packet.designMarkdown
+    });
+
+    expect(evidence.referencePatternBoard?.references).toEqual([]);
+    expect(evidence.designVectors?.sourcePriority).toBe("brief-only");
+    expect(guidance).not.toContain("Authentication required");
+    expect(guidance).not.toContain("viewing this dashboard");
+  });
+
+  it("makes all-failed URL evidence explicit without treating it as creative direction", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church website for a global congregation.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church website for a global congregation."
+      }),
+      urls: ["https://example.com/protected"],
+      references: [
+        makeReference({
+          id: "protected",
+          url: "https://example.com/protected",
+          fetchStatus: "failed",
+          captureStatus: "failed",
+          title: "Sign in",
+          excerpt: "Authentication required for admin dashboard analytics.",
+          fetchFailure: "Authentication required",
+          captureFailure: "Challenge page blocked capture."
+        })
+      ]
+    });
+
+    expect(packet.advancedBriefMarkdown.indexOf("Reference evidence unavailable:")).toBe(0);
+    expect(packet.advancedBriefMarkdown).toContain(
+      "https://example.com/protected: fetch=failed, capture=failed, reason=Authentication required"
+    );
+    expect(packet.advancedBriefMarkdown).toContain("Selected prompt format: Premium editorial landing page");
+    expect(packet.advancedBriefMarkdown).not.toContain("admin dashboard analytics");
+    expect(packet.implementationPlan.risksAndAmbiguities[0]).toContain(
+      "Reference URLs were attempted, but no usable creative evidence was captured"
+    );
+    expect(packet.implementationPlan.risksAndAmbiguities[0]).not.toContain(
+      "Live references were reduced into reusable patterns"
+    );
+    expect(packet.implementationPlanMarkdown).not.toContain("Live references were reduced into reusable patterns");
+    expect(packet.designMarkdown).not.toContain("Live references were reduced into reusable patterns");
+  });
+
+  it("uses only usable references for mixed reference pattern boards", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church landing page inspired by a ministry homepage.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church landing page inspired by a ministry homepage."
+      }),
+      urls: ["https://example.com/church", "https://example.com/blocked"],
+      references: [
+        makeReference({
+          id: "church",
+          url: "https://example.com/church",
+          title: "Global Church Home",
+          excerpt: "Worship-led homepage with service pathways and story-led impact.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Worship hero, find a church pathway, regional navigation, impact stories.",
+              refCount: 8,
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "blocked",
+          url: "https://example.com/blocked",
+          fetchStatus: "failed",
+          captureStatus: "failed",
+          title: "Admin dashboard",
+          excerpt: "Authentication required for analytics control room.",
+          fetchFailure: "Authentication required",
+          captureFailure: "Challenge page blocked capture."
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.referencePatternBoard?.references).toHaveLength(1);
+    expect(evidence.referencePatternBoard?.references[0]?.id).toBe("church");
+    expect(evidence.referencePatternBoard?.references[0]?.layoutRecipe).toContain("church discovery");
+    expect(JSON.stringify(evidence.referencePatternBoard)).not.toContain("analytics control room");
+    expect(evidence.designVectors?.sourcePriority).toBe("reference-evidence-first");
+  });
+
+  it("keeps section architecture route-aware and aligned with runtime budgets", () => {
+    const cases = [
+      {
+        label: "landing",
+        format: makeBriefFormat(),
+        expected: "8 to 12",
+        rejected: "workspace shell zones",
+        maxPrimarySections: 12
+      },
+      {
+        label: "dashboard",
+        format: makeBriefFormat({
+          route: {
+            profile: "ops-control",
+            themeStrategy: "single-theme",
+            navigationModel: "sidebar",
+            layoutApproach: "workspace-shell"
+          }
+        }),
+        expected: "workspace shell zones",
+        rejected: "landing-page sections",
+        maxPrimarySections: 8
+      },
+      {
+        label: "docs",
+        format: makeBriefFormat({
+          route: {
+            profile: "documentation",
+            themeStrategy: "multi-theme-system",
+            navigationModel: "sidebar",
+            layoutApproach: "documentation-hub"
+          }
+        }),
+        expected: "text-light overview sequence",
+        rejected: "landing-page sections",
+        maxPrimarySections: 8
+      },
+      {
+        label: "onboarding",
+        format: makeBriefFormat({
+          route: {
+            profile: "auth-focused",
+            themeStrategy: "light-dark-parity",
+            navigationModel: "contextual",
+            layoutApproach: "stacked-mobile-flow"
+          }
+        }),
+        expected: "screen sequence",
+        rejected: "landing-page sections",
+        maxPrimarySections: 8
+      },
+      {
+        label: "immersive",
+        format: makeBriefFormat({
+          route: {
+            profile: "cinematic-minimal",
+            themeStrategy: "single-theme",
+            navigationModel: "immersive",
+            layoutApproach: "product-scene-scroll"
+          }
+        }),
+        expected: "scene beats",
+        rejected: "landing-page sections",
+        maxPrimarySections: 8
+      }
+    ];
+
+    for (const { label, format, expected, rejected, maxPrimarySections } of cases) {
+      const packet = buildInspiredesignPacket({
+        brief: `Design a ${label} experience.`,
+        briefExpansion: makeBriefExpansion({ format }),
+        urls: [],
+        references: []
+      });
+      const architecture = packet.generationPlan.designVectors.sectionArchitecture.join(" ");
+
+      expect(architecture).toContain(expected);
+      expect(architecture).not.toContain(rejected);
+      expect(packet.designContract.runtimeBudgets).toMatchObject({ maxPrimarySections });
+      if (format.route.navigationModel === "sidebar") {
+        expect(packet.generationPlan.designVectors.interactionDensity).not.toContain("public-page CTAs");
+        expect(packet.generationPlan.designVectors.interactionDensity).toContain("command surfaces");
+      }
+    }
+  });
+
+  it("uses documentation interaction density when documentation is not a sidebar shell", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Design a public documentation landing page.",
+      briefExpansion: makeBriefExpansion({
+        format: makeBriefFormat({
+          route: {
+            profile: "documentation",
+            themeStrategy: "multi-theme-system",
+            navigationModel: "global-header",
+            layoutApproach: "documentation-homepage"
+          }
+        })
+      }),
+      urls: [],
+      references: []
+    });
+
+    expect(packet.generationPlan.designVectors.interactionDensity).toContain(
+      "visual overview"
+    );
+  });
+
+  it("turns stale research atlas routing into a text-light public consulting landing direction", () => {
+    const documentationFormat = makeBriefFormat({
+      id: "luminous-research-atlas",
+      label: "Luminous research atlas",
+      archetype: "annotated evidence atlas",
+      layoutArchetype: "bright scroll atlas with chaptered evidence bands and annotation rails",
+      componentGrammar: "evidence chapters, methodology blocks, chart plates, callout annotations, citation modules",
+      antiPatterns: [
+        "No feature-card hero.",
+        "Do not bury the conversion CTA.",
+        "Use dense data tables."
+      ],
+      route: {
+        profile: "documentation",
+        themeStrategy: "single-theme",
+        navigationModel: "contextual",
+        layoutApproach: "annotated-atlas-scroll"
+      }
+    });
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public AI consulting landing page for enterprise advisory services.",
+      briefExpansion: makeBriefExpansion({ format: documentationFormat }),
+      urls: ["https://www.bcg.com/capabilities/artificial-intelligence"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "bcg-ai",
+          url: "https://www.bcg.com/capabilities/artificial-intelligence",
+          title: "Artificial Intelligence Consulting and Strategy | BCG",
+          excerpt: "AI consulting services, agentic AI, generative AI, responsible AI, client case studies, industries, and business transformation.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "BCG AI consulting services help companies deliver ROI from AI with agentic AI, generative AI, responsible AI, client case studies, industries, and transformation pathways.",
+              refCount: 10,
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const guidance = JSON.stringify({
+      generationPlan: packet.generationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementation: packet.implementationPlanMarkdown,
+      prototype: packet.prototypeGuidanceMarkdown
+    });
+
+    expect(packet.generationPlan.visualDirection.profile).toBe("product-story");
+    expect(packet.generationPlan.layoutStrategy.navigationModel).toBe("global-header");
+    expect(packet.generationPlan.designVectors.surfaceIntent).toBe("reference-led public landing page");
+    expect(packet.advancedBriefMarkdown).toContain("Selected prompt format: Reference-led public landing page");
+    expect(packet.advancedBriefMarkdown).toContain("layout approach: reference-led-landing-page");
+    expect(packet.generationPlan.designVectors.sectionArchitecture).toEqual(
+      expect.arrayContaining([expect.stringContaining("8 to 12")])
+    );
+    expect(packet.followthrough.briefExpansion.format.componentGrammar).not.toContain("event sections");
+    expect(packet.followthrough.briefExpansion.format.componentGrammar).not.toContain("visit CTA");
+    expect(packet.designMarkdown).toContain("Don't use feature-card hero.");
+    expect(packet.designMarkdown).toContain("Don't bury the conversion CTA.");
+    expect(packet.designMarkdown).toContain("Don't use dense data tables.");
+    expect(packet.designMarkdown).not.toContain("Don't no");
+    expect(packet.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
+    for (const forbidden of [
+      "documentation zones",
+      "citation modules",
+      "annotation rails",
+      "methodology blocks",
+      "reference depth",
+      "event sections",
+      "visit CTA",
+      "events",
+      "event, visit",
+      "visit",
+      "documentation zones",
+      "citation modules",
+      "annotation rails",
+      "methodology blocks"
+    ]) {
+      expect(guidance).not.toContain(forbidden);
+      expect(packet.advancedBriefMarkdown).not.toContain(forbidden);
+    }
+  });
+
+  it("synthesizes noisy captured church evidence into semantic pattern board cues", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public church landing page inspired by a global ministry homepage.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public church landing page inspired by a global ministry homepage."
+      }),
+      urls: ["https://example.com/global-church"],
+      references: [
+        makeReference({
+          id: "global-church",
+          url: "https://example.com/global-church",
+          title: "Hillsong Church - Welcome Home - Hillsong",
+          excerpt: "Check our Church Locations, Listen to Hillsong Music and Exclusive Content from the Hillsong Team",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "[r1] link \"Hillsong Logo CHURCH\"\n[r2] combobox value=\"EN\"\n[r3] button \"USE MY CURRENT LOCATION\"\n[r4] button \"FIND A CHURCH\"\n[r9] link \"ASIA PACIFIC\"\n[r10] link \"EUROPE\"\n[r11] link \"NORTH AMERICA\"\n[r18] link \"MUSIC\"\n[r19] link \"CONFERENCE\"\n[r21] link \"BLOG\"",
+              refCount: 12,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "import \"./opendevbrowser.css\"; export default function OpenDevBrowserComponent() { return <div dangerouslySetInnerHTML={{ __html: \"...\" }} /> }",
+              cssPreview: ".opendevbrowser-root { align-content: normal; background-color: rgba(0, 0, 0, 0); font-family: Arial; }",
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const entry = evidence.referencePatternBoard?.references[0];
+    const vectors = evidence.designVectors;
+    const boardText = JSON.stringify({
+      entry,
+      vectors
+    });
+
+    expect(entry?.layoutRecipe).toContain("church discovery");
+    expect(entry?.layoutRecipe).toContain("worship and music");
+    expect(entry?.patternsToBorrow).toEqual(expect.arrayContaining([
+      "location-first church discovery with regional pathways",
+      "worship and music content as atmosphere and ministry proof",
+      "global region navigation with online participation path"
+    ]));
+    expect(vectors?.directionLabel).toContain("church discovery");
+    expect(vectors?.referenceInfluence).toEqual(expect.arrayContaining([
+      "location-first church discovery with regional pathways"
+    ]));
+    expect(packet.designMarkdown).toContain("Hillsong Church");
+    expect(packet.designMarkdown).not.toContain("[r1]");
+    expect(packet.designMarkdown).not.toContain("value=");
+    expect(packet.designMarkdown).not.toContain("opendevbrowser-root");
+    expect(boardText).not.toContain("[r1]");
+    expect(boardText).not.toContain("opendevbrowser-root");
+    expect(boardText).not.toContain("dangerouslySetInnerHTML");
+    expect(boardText).not.toContain("align-content");
+  });
+
+  it("does not turn raw CSS previews into creative guidance", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public landing page inspired by a minimal hero reference.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public landing page inspired by a minimal hero reference."
+      }),
+      urls: ["https://example.com/minimal"],
+      references: [
+        makeReference({
+          id: "minimal",
+          url: "https://example.com/minimal",
+          title: "Minimal Hero Reference",
+          captureStatus: "captured",
+          capture: {
+            clone: {
+              componentPreview: "",
+              cssPreview: ".hero { min-height: 100vh; color: red; transition: opacity 480ms; }",
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const guidanceText = JSON.stringify({
+      board: packet.generationPlan.referencePatternBoard,
+      vectors: packet.generationPlan.designVectors,
+      advancedBrief: packet.advancedBriefMarkdown,
+      designMarkdown: packet.designMarkdown
+    });
+
+    expect(guidanceText).toContain("Minimal Hero Reference");
+    expect(packet.generationPlan.referencePatternBoard.references[0]?.capturedVia).not.toContain("clone");
+    expect(guidanceText).not.toContain(".hero");
+    expect(guidanceText).not.toContain("min-height");
+    expect(guidanceText).not.toContain("transition: opacity");
+  });
+
+  it("does not treat CSS-only clone captures as usable creative evidence", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public landing page inspired by a minimal hero reference.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public landing page inspired by a minimal hero reference."
+      }),
+      urls: ["https://example.com/css-only"],
+      references: [
+        makeReference({
+          id: "css-only",
+          url: "https://example.com/css-only",
+          fetchStatus: "failed",
+          captureStatus: "captured",
+          capture: {
+            clone: {
+              componentPreview: "",
+              cssPreview: ".hero { min-height: 100vh; color: red; transition: opacity 480ms; }",
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.referencePatternBoard?.references).toEqual([]);
+    expect(evidence.designVectors?.sourcePriority).toBe("brief-only");
+  });
+
+  it("threads DOM-only capture cues when fetch and clone signals are unavailable", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create an editorial fashion studio landing page.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create an editorial fashion studio landing page."
+      }),
+      urls: ["https://example.com/archive-studio"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "archive-studio",
+          url: "https://example.com/archive-studio",
+          fetchStatus: "failed",
+          captureStatus: "captured",
+          capture: {
+            dom: {
+              outerHTML: "<main><h1>Archive fashion grid</h1><p>Charcoal runway index with ivory margins and garment detail captions.</p></main>",
+              truncated: false
+            }
+          }
+        })
+      ]
+    });
+
+    const artifacts = [
+      packet.advancedBriefMarkdown,
+      packet.designMarkdown,
+      packet.implementationPlanMarkdown,
+      packet.prototypeGuidanceMarkdown ?? "",
+      JSON.stringify(packet.canvasPlanRequest),
+      JSON.stringify(packet.followthrough)
+    ];
+
+    for (const artifact of artifacts) {
+      expect(artifact).toContain("Archive fashion grid");
+      expect(artifact).toContain("Charcoal runway index");
+      expect(artifact).toContain("garment detail captions");
+    }
+  });
+
+  it("uses clean DOM cues after duplicate and empty cleaned signals", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create an editorial studio landing page.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create an editorial studio landing page."
+      }),
+      urls: ["https://example.com/deduped"],
+      references: [
+        makeReference({
+          id: "deduped",
+          url: "https://example.com/deduped",
+          title: "Ivory editorial hero",
+          excerpt: "Ivory editorial hero",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "[r1] link ; {}",
+              refCount: 1,
+              warnings: []
+            },
+            dom: {
+              outerHTML: "<main><h1>Obsidian gallery rhythm</h1><p>Ivory margin system with calm project sequencing.</p></main>",
+              truncated: false
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const artifacts = JSON.stringify({
+      board: evidence.referencePatternBoard,
+      vectors: evidence.designVectors,
+      plan: packet.generationPlan,
+      design: packet.designMarkdown,
+      handoff: packet.followthrough
+    });
+
+    expect(evidence.designVectors?.sourcePriority).toBe("reference-evidence-first");
+    expect(artifacts).toContain("Obsidian gallery rhythm");
+    expect(artifacts).toContain("Ivory margin system");
+    expect(artifacts).not.toContain("[r1]");
+    expect(artifacts).not.toContain("; {}");
+  });
+
+  it("uses later DOM cues when earlier evidence is diagnostic or code-like", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create an editorial studio landing page.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create an editorial studio landing page."
+      }),
+      urls: ["https://example.com/studio"],
+      references: [
+        makeReference({
+          id: "studio",
+          url: "https://example.com/studio",
+          title: "Sign in",
+          excerpt: "Authentication required before viewing this dashboard.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "CAPTCHA verification required before continuing.",
+              refCount: 1,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "import \"./opendevbrowser.css\"; export default function Component() { return <div dangerouslySetInnerHTML={{ __html: \"...\" }} /> }",
+              cssPreview: ".opendevbrowser-root { align-content: normal; color: red; }",
+              warnings: []
+            },
+            dom: {
+              outerHTML: "<main><h1>Obsidian gallery rhythm</h1><p>Ivory margin system with calm project sequencing.</p></main>",
+              truncated: false
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const artifacts = JSON.stringify({
+      board: evidence.referencePatternBoard,
+      vectors: evidence.designVectors,
+      plan: packet.generationPlan,
+      design: packet.designMarkdown,
+      handoff: packet.followthrough
+    });
+
+    expect(evidence.designVectors?.sourcePriority).toBe("reference-evidence-first");
+    expect(evidence.referencePatternBoard?.references[0]?.layoutRecipe).toContain(
+      "Obsidian gallery rhythm"
+    );
+    expect(artifacts).toContain("Ivory margin system");
+    expect(artifacts).not.toContain("Authentication required");
+    expect(artifacts).not.toContain("CAPTCHA");
+    expect(artifacts).not.toContain("dangerouslySetInnerHTML");
+    expect(artifacts).not.toContain("opendevbrowser-root");
+    expect(artifacts).not.toContain("align-content");
+  });
+
+  it("clips long reference cues before writing generation-plan summaries", () => {
+    const longCue = `${"Opening marble runway cadence ".repeat(40)}terminal marker`;
+    const packet = buildInspiredesignPacket({
+      brief: "Create a luxury collection page.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a luxury collection page."
+      }),
+      urls: ["https://example.com/collection"],
+      references: [
+        makeReference({
+          id: "collection",
+          url: "https://example.com/collection",
+          title: "Collection reference",
+          excerpt: longCue
+        })
+      ]
+    });
+
+    const { targetOutcome, contentStrategy, componentStrategy } = packet.canvasPlanRequest.generationPlan;
+
+    for (const value of [targetOutcome.summary, contentStrategy.source, componentStrategy.mode]) {
+      expect(value.length).toBeLessThanOrEqual(600);
+      expect(value).toContain("Opening marble runway cadence");
+      expect(value).not.toContain("terminal marker");
+    }
   });
 
   it("preserves advanced brief markdown and routes generation from the selected format metadata", () => {
@@ -376,8 +1452,8 @@ describe("inspiredesign packet + renderer", () => {
 
     const evidence = packet.evidence as InspiredesignEvidenceJson;
 
-    expect(packet.advancedBriefMarkdown).toBe(advancedBrief);
-    expect(evidence.advancedBrief).toBe(advancedBrief);
+    expect(packet.advancedBriefMarkdown).toContain(advancedBrief);
+    expect(evidence.advancedBrief).toContain(advancedBrief);
     expect(packet.generationPlan.visualDirection.profile).toBe("ops-control");
   });
 
@@ -690,6 +1766,17 @@ describe("inspiredesign packet + renderer", () => {
     });
 
     expect(packet.generationPlan.visualDirection.profile).toBe("cinematic-minimal");
+    expect(packet.followthrough.implementationContext.referenceSynthesis).toMatchObject({
+      requiredArtifacts: [
+        INSPIREDESIGN_HANDOFF_FILES.evidence,
+        INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
+        INSPIREDESIGN_HANDOFF_FILES.designMarkdown,
+        INSPIREDESIGN_HANDOFF_FILES.generationPlan,
+        INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
+        INSPIREDESIGN_HANDOFF_FILES.designContract,
+        INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown
+      ]
+    });
     expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(false);
     expect(rendered.response).toMatchObject({
       mode: "json",
@@ -739,6 +1826,11 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.designMarkdown).not.toContain("Capture warnings:");
     expect(capture).toEqual({
       title: "Captured title only",
+      signals: expect.arrayContaining([
+        "Minimal capture",
+        "Captured title only",
+        expect.stringContaining("Quiet editorial cards with disciplined spacing")
+      ]),
       attempts: {
         snapshot: {
           status: "failed",

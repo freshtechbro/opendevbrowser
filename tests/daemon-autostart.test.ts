@@ -42,14 +42,23 @@ const createDarwinStatusFixture = (
     parseFailure?: boolean;
     plistExists?: boolean;
     programArguments?: string[];
+    workingDirectory?: string | null;
+    workingDirectoryState?: "directory" | "file" | "missing";
   } = {}
 ) => {
   const { cliPath, root, transientEntrypointRoots } = createCliFixture({
     transient: options.currentCliTransient
   });
   const home = join(root, "home");
+  const expectedWorkingDirectory = join(home, ".cache", "opendevbrowser");
   const plistPath = join(home, "Library", "LaunchAgents", "com.opendevbrowser.daemon.plist");
   mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
+  if (options.workingDirectoryState === "file") {
+    mkdirSync(join(expectedWorkingDirectory, ".."), { recursive: true });
+    writeFileSync(expectedWorkingDirectory, "not a directory", "utf-8");
+  } else if (options.workingDirectoryState !== "missing") {
+    mkdirSync(expectedWorkingDirectory, { recursive: true });
+  }
   if (options.plistExists !== false) {
     writeFileSync(plistPath, "plist", "utf-8");
   }
@@ -61,7 +70,12 @@ const createDarwinStatusFixture = (
     }
     const payload = options.omitProgramArguments
       ? {}
-      : { ProgramArguments: options.programArguments ?? [entrypoint.nodePath, ...entrypoint.args] };
+      : {
+        ProgramArguments: options.programArguments ?? [entrypoint.nodePath, ...entrypoint.args],
+        ...(options.workingDirectory !== null
+          ? { WorkingDirectory: options.workingDirectory ?? expectedWorkingDirectory }
+          : {})
+      };
     return JSON.stringify(payload);
   });
 
@@ -237,6 +251,31 @@ describe("daemon autostart helpers", () => {
     expect(plist).toContain("/node");
     expect(plist).toContain("/cli/index.js");
     expect(plist).toContain("serve");
+    expect(plist).toContain("<key>WorkingDirectory</key>");
+  });
+
+  it("escapes launch agent plist string values", () => {
+    const entry = {
+      nodePath: "/node&bin",
+      cliPath: "/cli/<index>.js",
+      args: ["/cli/<index>.js", "serve"],
+      command: "\"/node&bin\" \"/cli/<index>.js\" serve",
+      source: "argv1" as const,
+      isTransient: false
+    };
+
+    const plist = buildLaunchAgentPlist(entry, {
+      label: "com.test.&<daemon>",
+      stdoutPath: "/tmp/out&log",
+      stderrPath: "/tmp/err<log>",
+      workingDirectory: "/tmp/work&dir"
+    });
+
+    expect(plist).toContain("com.test.&amp;&lt;daemon&gt;");
+    expect(plist).toContain("/node&amp;bin");
+    expect(plist).toContain("/cli/&lt;index&gt;.js");
+    expect(plist).toContain("/tmp/work&amp;dir");
+    expect(plist).toContain("/tmp/err&lt;log&gt;");
   });
 
   it("builds Windows task args", () => {
@@ -283,7 +322,83 @@ describe("getAutostartStatus", () => {
       health: "healthy",
       needsRepair: false,
       command: entrypoint.command,
-      expectedCommand: entrypoint.command
+      expectedCommand: entrypoint.command,
+      workingDirectory: expect.stringContaining("opendevbrowser"),
+      expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+  });
+
+  it("repairs macOS plists missing a working directory", () => {
+    const { deps } = createDarwinStatusFixture({ workingDirectory: null });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "working_directory_mismatch",
+      expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+    expect(status.workingDirectory).toBeUndefined();
+  });
+
+  it("repairs macOS plists with the wrong working directory", () => {
+    const { deps } = createDarwinStatusFixture({ workingDirectory: "/" });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "working_directory_mismatch",
+      workingDirectory: "/",
+      expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+  });
+
+  it("repairs macOS plists whose configured working directory was deleted", () => {
+    const { deps } = createDarwinStatusFixture({ workingDirectoryState: "missing" });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "working_directory_mismatch",
+      workingDirectory: expect.stringContaining("opendevbrowser"),
+      expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+  });
+
+  it("repairs macOS plists whose configured working directory is a file", () => {
+    const { deps } = createDarwinStatusFixture({ workingDirectoryState: "file" });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "working_directory_mismatch",
+      workingDirectory: expect.stringContaining("opendevbrowser"),
+      expectedWorkingDirectory: expect.stringContaining("opendevbrowser")
+    });
+  });
+
+  it("reports program argument repair before deleted working directory repair", () => {
+    const { deps, entrypoint } = createDarwinStatusFixture({ workingDirectoryState: "missing" });
+    const status = getAutostartStatus({
+      ...deps,
+      execFileSync: vi.fn(() => JSON.stringify({
+        ProgramArguments: [entrypoint.nodePath, "/missing/opendevbrowser.js", "serve"],
+        WorkingDirectory: join(deps.homedir(), ".cache", "opendevbrowser")
+      }))
+    });
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "missing_cli_path"
     });
   });
 
@@ -391,7 +506,8 @@ describe("getAutostartStatus", () => {
     const status = getAutostartStatus({
       ...current.deps,
       execFileSync: vi.fn(() => JSON.stringify({
-        ProgramArguments: [stableEntrypoint.nodePath, stableEntrypoint.cliPath, "serve"]
+        ProgramArguments: [stableEntrypoint.nodePath, stableEntrypoint.cliPath, "serve"],
+        WorkingDirectory: join(current.deps.homedir(), ".cache", "opendevbrowser")
       }))
     });
 
@@ -583,12 +699,13 @@ describe("installAutostart", () => {
     });
     expect(mkdirSyncMock).toHaveBeenNthCalledWith(1, join(home, "Library", "LaunchAgents"), { recursive: true });
     expect(mkdirSyncMock).toHaveBeenNthCalledWith(2, logsDir, { recursive: true });
+    expect(mkdirSyncMock).toHaveBeenNthCalledWith(3, join(home, ".cache", "opendevbrowser"), { recursive: true });
     expect(writeFileSyncMock).toHaveBeenCalledWith(
       plistPath,
-      expect.stringContaining("opendevbrowser-daemon.log"),
+      expect.stringContaining("<key>WorkingDirectory</key>"),
       { encoding: "utf-8" }
     );
-    expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeGreaterThan(mkdirSyncMock.mock.invocationCallOrder[1]);
+    expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeGreaterThan(mkdirSyncMock.mock.invocationCallOrder[2]);
     expect(execFileSyncMock.mock.calls).toEqual([
       ["launchctl", ["bootout", "gui/501", plistPath], { stdio: "ignore" }],
       ["launchctl", ["bootstrap", "gui/501", plistPath], { stdio: "ignore" }],

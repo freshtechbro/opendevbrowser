@@ -919,7 +919,9 @@ describe("daemon-client error parsing", () => {
     ]);
   });
 
-  it("waits for the configured daemon instead of hopping to current metadata for canvas.execute", async () => {
+  it.each(["canvas.execute", "inspiredesign.run"])(
+    "waits for the configured daemon instead of hopping to current metadata for %s",
+    async (commandName) => {
     await writeDaemonConfig(tempRoot, 23456, "configured-token");
     vi.useFakeTimers();
 
@@ -976,7 +978,7 @@ describe("daemon-client error parsing", () => {
         });
       }
       if (url === "http://127.0.0.1:12345/command") {
-        throw new Error("canvas.execute must not hop to metadata");
+        throw new Error(`${commandName} must not hop to metadata`);
       }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as ReturnType<typeof vi.fn>;
@@ -985,10 +987,12 @@ describe("daemon-client error parsing", () => {
 
     try {
       const client = new DaemonClient({ autoRenew: false });
-      const resultPromise = client.call("canvas.execute", {
-        command: "document.load",
-        params: { canvasSessionId: "canvas-1", leaseId: "lease-1" }
-      });
+      const resultPromise = client.call(commandName, commandName === "canvas.execute"
+        ? {
+            command: "document.load",
+            params: { canvasSessionId: "canvas-1", leaseId: "lease-1" }
+          }
+        : { brief: "Build a compact design brief." });
       await vi.advanceTimersByTimeAsync(3_000);
       const result = await resultPromise;
 

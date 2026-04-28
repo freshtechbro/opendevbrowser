@@ -356,6 +356,9 @@ export type CanvasGenerationPlan = {
   responsivePosture: CanvasGenerationPlanResponsivePosture;
   accessibilityPosture: CanvasGenerationPlanAccessibilityPosture;
   validationTargets: CanvasGenerationPlanValidationTargets;
+  interactionMoments?: string[];
+  materialEffects?: string[];
+  designVectors?: Record<string, unknown>;
 };
 
 export type CanvasGenerationPlanValidationResult =
