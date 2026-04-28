@@ -33,12 +33,12 @@ function parseSnapshotArgs(rawArgs: string[]): { sessionId?: string; mode?: stri
     if (arg === "--max-chars") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --max-chars");
-      parsed.maxChars = Number(value);
+      parsed.maxChars = parseNumberFlag(value, "--max-chars");
       i += 1;
       continue;
     }
     if (arg?.startsWith("--max-chars=")) {
-      parsed.maxChars = Number(arg.split("=", 2)[1]);
+      parsed.maxChars = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max-chars");
       continue;
     }
     if (arg === "--cursor") {

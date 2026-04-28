@@ -1,7 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
-import { parseOptionalStringFlag } from "../../utils/parse";
+import { parseNumberFlag, parseOptionalStringFlag } from "../../utils/parse";
 
 function parseScrollArgs(rawArgs: string[]): { sessionId?: string; ref?: string; dy?: number } {
   const parsed: { sessionId?: string; ref?: string; dy?: number } = {};
@@ -32,12 +32,12 @@ function parseScrollArgs(rawArgs: string[]): { sessionId?: string; ref?: string;
     if (arg === "--dy") {
       const value = rawArgs[i + 1];
       if (!value) throw createUsageError("Missing value for --dy");
-      parsed.dy = Number(value);
+      parsed.dy = parseNumberFlag(value, "--dy");
       i += 1;
       continue;
     }
     if (arg?.startsWith("--dy=")) {
-      parsed.dy = Number(arg.split("=", 2)[1]);
+      parsed.dy = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--dy");
       continue;
     }
   }

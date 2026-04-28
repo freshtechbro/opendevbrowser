@@ -7,6 +7,9 @@ type NumberFlagOptions = {
 };
 
 export function parseNumberFlag(value: string, flag: string, options: NumberFlagOptions = {}): number {
+  if (value.trim() === "") {
+    throw createUsageError(`Invalid ${flag}: ${value}`);
+  }
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     throw createUsageError(`Invalid ${flag}: ${value}`);

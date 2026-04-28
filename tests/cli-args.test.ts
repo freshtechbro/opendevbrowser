@@ -16,6 +16,11 @@ describe("parseNumberFlag", () => {
   it("rejects out-of-range values", () => {
     expect(() => parseNumberFlag("0", "--timeout-ms", { min: 1 })).toThrow("Invalid --timeout-ms");
   });
+
+  it("rejects empty values", () => {
+    expect(() => parseNumberFlag("", "--timeout-ms")).toThrow("Invalid --timeout-ms");
+    expect(() => parseNumberFlag("   ", "--timeout-ms")).toThrow("Invalid --timeout-ms");
+  });
 });
 
 describe("parseArgs", () => {
