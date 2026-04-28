@@ -109,20 +109,30 @@ Tracks the `0.0.27` release cycle for the PR #41 and PR #42 consolidated review 
 - [x] `npm run extension:pack`
   - Result: passed on `codex/release-0-0-27`, produced `opendevbrowser-extension.zip`.
   - SHA-256: `8ca2540f3d497e77a6bb649900edff78322b8181fa53b9aaf3dcfdbedd523ed5`.
-- [ ] First-time global install dry run
-  - Status: deferred until post-merge publish verification, when `0.0.27` is available from npm.
+- [x] First-time registry consumer install smoke
+  - Result: passed after publish with `node scripts/registry-consumer-smoke.mjs --version 0.0.27 --output artifacts/release/v0.0.27/registry-consumer-smoke.json`.
+  - Checks: `versionMatches=true`, `helpAliasMatches=true`, `extensionDirExists=true`, `skillsDirExists=true`.
 - [ ] Strict live provider gates
   - Status: deferred for tag-driven publish because the standard public release workflow default is `run_release_live_gates=false`.
 
 ## External release workflow evidence
 
-- [ ] Public Release workflow URL
-- [ ] npm publish verification
-- [ ] Registry consumer smoke JSON
-- [ ] GitHub release URL
-- [ ] GitHub release asset verification
+- [x] Public Release workflow URL
+  - URL: `https://github.com/freshtechbro/opendevbrowser/actions/runs/25056123043`.
+  - Result: failed only at `Publish npm package` because repository secret `NPM_TOKEN` was not configured; release quality gates and packaging steps passed.
+- [x] npm publish verification
+  - Result: local authenticated publish completed with `npm publish opendevbrowser-0.0.27.tgz --access public`.
+  - Registry verification: `npm view opendevbrowser version dist-tags --json` returned `version=0.0.27` and `latest=0.0.27`.
+- [x] Registry consumer smoke JSON
+  - Path: `artifacts/release/v0.0.27/registry-consumer-smoke.json`.
+  - Result: `success=true`, `helpLineCount=796`, installed package graph `opendevbrowser=0.0.27`.
+- [x] GitHub release URL
+  - URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.27`.
+- [x] GitHub release asset verification
+  - Assets: `opendevbrowser-extension.zip`, `opendevbrowser-extension.zip.sha256`.
 
 ## Notes
 
 - Strict live provider release gates are deferred for this publish unless explicitly enabled in the workflow dispatch or tag path. The standard tag-driven release path runs `run_release_live_gates=false`, matching the runbook default.
 - GitHub Actions reported Node 20 deprecation annotations in PR checks. These are workflow-environment warnings, not failed repository checks.
+- The repository currently lacks `NPM_TOKEN`; configure it before the next tag-driven release to avoid manual npm publication.
