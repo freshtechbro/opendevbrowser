@@ -127,10 +127,25 @@ const PUBLIC_LANDING_TEXT_MARKERS = [
   "church",
   "landing page",
   "homepage",
+  "home page",
+  "website",
   "full-bleed",
   "hero",
   "story",
   "stories",
+  "services",
+  "service",
+  "consulting",
+  "advisory",
+  "bcg",
+  "ai consulting",
+  "enterprise ai",
+  "transformation",
+  "client services",
+  "business services",
+  "case studies",
+  "clients",
+  "industries",
   "worship",
   "locations",
   "online",
@@ -242,6 +257,10 @@ const REFERENCE_PATTERN_RULES: readonly ReferencePatternRule[] = [
   {
     summary: "full-bleed hero with restrained CTA rail",
     matches: ["full-bleed", "hero", "cta rail", "primary cta"]
+  },
+  {
+    summary: "premium consulting public landing page with service narrative, client proof, and conversion CTAs",
+    matches: ["consulting", "advisory", "bcg", "enterprise ai", "transformation", "client services", "case studies", "industries"]
   }
 ];
 
@@ -282,7 +301,7 @@ const deriveComponentFamilies = (
   isPublicLanding: boolean
 ): string[] => {
   const base = isPublicLanding
-    ? "hero composition, proof bands, narrative pathways, event sections, visit CTA, and footer"
+    ? "hero composition, proof bands, narrative pathways, service or story sections, conversion CTA, and footer"
     : format.componentGrammar;
   return [base, ...patterns.slice(0, 3)];
 };
@@ -383,7 +402,7 @@ const buildInteractionDensity = (
     return "medium-to-high; prioritize command surfaces, state clarity, and durable workspace controls.";
   }
   if (format.route.profile === "documentation") {
-    return "medium; prioritize scan-friendly navigation, examples, and low-friction reference jumps.";
+    return "low-to-medium; prioritize visual overview, proof scanning, and a small number of clear action paths.";
   }
   if (format.route.profile === "auth-focused") {
     return "low; prioritize one confident first action with clear feedback and trust cues.";
@@ -459,13 +478,13 @@ const buildSectionArchitecture = (
   if (hasBoardPublicLandingEvidence(board)) {
     return [
       "Use 8 to 12 primary landing-page sections unless the user explicitly asks for a microsite.",
-      "Build a clear sequence from hero, proof, story, pathways, impact, events, CTA, and footer."
+      "Build a clear sequence from hero, proof, story, service pathways, impact, conversion CTA, and footer."
     ];
   }
   if (format.route.profile === "documentation") {
     return [
-      "Use documentation zones for overview, navigation, examples, reference depth, and next-step handoff.",
-      "Keep the information architecture scan-friendly without marketing-section sprawl."
+      "Use a text-light overview sequence for purpose, proof, examples, action paths, and footer.",
+      "Keep long-form reference depth, citation modules, annotation rails, and methodology blocks out of the primary visual route."
     ];
   }
   if (format.route.profile === "auth-focused") {
@@ -488,7 +507,7 @@ const buildSectionArchitecture = (
   }
   return [
     "Use 8 to 12 primary landing-page sections unless the user explicitly asks for a microsite.",
-    "Build a clear sequence from hero, proof, story, pathways, impact, events, CTA, and footer."
+    "Build a clear sequence from hero, proof, story, service pathways, impact, conversion CTA, and footer."
   ];
 };
 

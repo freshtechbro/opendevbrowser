@@ -311,6 +311,8 @@ export type InspiredesignImplementationPlan = {
 type InspiredesignGenerationPlan = CanvasGenerationPlan & {
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
+  interactionMoments: string[];
+  materialEffects: string[];
 };
 
 export type InspiredesignPacket = {
@@ -569,15 +571,15 @@ const PROFILE_CONFIG: Record<CanvasVisualDirectionProfile, ProfileConfig> = {
     }
   },
   "documentation": {
-    direction: "reference-first documentation",
-    visualPersonality: "legible, calm, highly structured",
-    brandTone: "expert and accessible",
-    hierarchyPrinciples: ["Make scanning effortless.", "Keep code, steps, and warnings visually distinct."],
-    interactionPhilosophy: "Light motion, sticky wayfinding, strong anchor visibility.",
+    direction: "text-light knowledge story",
+    visualPersonality: "legible, calm, visually led",
+    brandTone: "expert, concise, and accessible",
+    hierarchyPrinciples: ["Make scanning effortless.", "Use visual proof before long explanatory text."],
+    interactionPhilosophy: "Light motion, clear wayfinding, strong anchor visibility.",
     navigationModel: "sidebar",
-    layoutApproach: "docs-shell",
-    pagePatterns: ["Docs shell", "Procedure section", "Reference table block"],
-    componentSequence: ["Sidebar", "Search", "Anchored headings", "Code blocks", "Callouts"],
+    layoutApproach: "knowledge-story-shell",
+    pagePatterns: ["Insight overview", "Visual proof band", "Action path"],
+    componentSequence: ["Navigation", "Search", "Anchored headings", "Proof bands", "Callouts"],
     colors: {
       primary: "#1D4ED8",
       accent: "#0F766E",
@@ -724,7 +726,7 @@ const buildEvidenceDerivedFormat = (
     ...clone,
     archetype: "reference-led public landing page",
     layoutArchetype: "full-bleed hero with narrative section cadence",
-    componentGrammar: "hero composition, proof bands, narrative pathways, event sections, visit CTA, and footer",
+    componentGrammar: "hero composition, proof bands, narrative pathways, service or story sections, conversion CTA, and footer",
     route: {
       ...clone.route,
       profile: "product-story",
@@ -775,7 +777,9 @@ const buildGenerationPlan = ({
   return {
     ...plan,
     referencePatternBoard,
-    designVectors
+    designVectors,
+    interactionMoments: [...designVectors.interactionMoments],
+    materialEffects: [...designVectors.materialEffects]
   };
 };
 
@@ -1024,6 +1028,8 @@ const toCanvasGenerationPlan = (plan: InspiredesignGenerationPlan): CanvasPlanRe
   responsivePosture: plan.responsivePosture,
   accessibilityPosture: plan.accessibilityPosture,
   validationTargets: plan.validationTargets,
+  interactionMoments: [...plan.interactionMoments],
+  materialEffects: [...plan.materialEffects],
   designVectors: plan.designVectors as JsonRecord
 });
 
@@ -1252,6 +1258,15 @@ const buildImplementationPlan = ({
 
 const formatBulletList = (items: string[]): string => items.map((item) => `- ${item}`).join("\n");
 
+const renderAntiPatternRule = (rule: string): string => {
+  const cleanRule = rule.replace(/\.$/, "").trim();
+  const withoutNo = cleanRule.replace(/^no\s+/i, "");
+  if (withoutNo !== cleanRule) return `Don't use ${withoutNo.charAt(0).toLowerCase()}${withoutNo.slice(1)}.`;
+  const withoutDoNot = cleanRule.replace(/^do not\s+/i, "");
+  if (withoutDoNot !== cleanRule) return `Don't ${withoutDoNot.charAt(0).toLowerCase()}${withoutDoNot.slice(1)}.`;
+  return `Don't ${cleanRule.charAt(0).toLowerCase()}${cleanRule.slice(1)}.`;
+};
+
 const formatRecordList = (record: Record<string, string | number>): string => {
   return Object.entries(record).map(([key, value]) => `- \`${key}\`: ${value}`).join("\n");
 };
@@ -1404,7 +1419,7 @@ const renderGovernanceMarkdown = (
       "Do encode repeated visual rules into semantic tokens.",
       "Don't copy proprietary logos, screenshots, or brand-only illustrations.",
       "Don't hide important actions inside ambiguous hover-only affordances.",
-      ...format.antiPatterns.map((rule) => `Don't ${rule.replace(/\.$/, "").toLowerCase()}.`)
+      ...format.antiPatterns.map(renderAntiPatternRule)
     ]),
     "",
     "## 4.15 Acceptance Criteria",
@@ -1476,9 +1491,9 @@ const renderPrototypeGuidance = (
     `- motion expectations: ${designVectors.motionPosture.join(" ")}`,
     `- material and depth expectations: ${designVectors.materialEffects.join(" ")}`,
     "- browser proof: capture desktop and mobile browser screenshots, verify reduced-motion behavior, inspect focus states, and confirm the primary CTA remains visible without overlap.",
-    "- HTML skeleton guidance: start with one main landmark, one primary CTA group, and semantic sections for hero, story, proof, pathways, impact, events, visit, CTA, and footer.",
+    "- HTML skeleton guidance: start with one main landmark, one primary CTA group, and semantic sections that follow the design vector section architecture instead of fixed industry-specific defaults.",
     "- styling approach: define CSS variables for timing, easing, elevation, translucency, backdrop blur, cursor effects, hover effects, and parallax distance before mapping components to semantic tokens.",
-    "- first prototype should include vs omit: include shell, hero, CTA, proof, story, pathway, impact, event, visit, final CTA, and footer sections; omit analytics, app-shell widgets, and empty card grids."
+    "- first prototype should include vs omit: include shell, primary hero or decision section, CTA group, proof or detail sections, section patterns named in the design vectors, final CTA, and footer; omit analytics, app-shell widgets, empty card grids, and any section not supported by the brief or reference evidence."
   ].join("\n");
 };
 

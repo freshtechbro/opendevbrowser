@@ -17,12 +17,15 @@
       "bestFor": [
         "product homepages",
         "docs homepages",
+        "consulting service homepages",
         "launch pages",
         "rebrands"
       ],
       "businessFocus": [
         "premium SaaS marketing",
         "product launches",
+        "AI consulting services",
+        "enterprise advisory landing pages",
         "docs-first brands",
         "brand refresh surfaces"
       ],
@@ -34,6 +37,11 @@
         "editorial",
         "hero",
         "marketing",
+        "consulting",
+        "advisory",
+        "enterprise AI",
+        "services",
+        "case studies",
         "docs"
       ],
       "matchSignals": {
@@ -47,6 +55,16 @@
           "editorial",
           "hero",
           "marketing",
+          "consulting",
+          "advisory",
+          "ai consulting",
+          "enterprise ai",
+          "business services",
+          "client services",
+          "case studies",
+          "transformation",
+          "services",
+          "cta",
           "docs"
         ],
         "excluded": [
@@ -54,7 +72,7 @@
           "admin",
           "onboarding"
         ],
-        "tieBreaker": 1
+        "tieBreaker": 2
       },
       "lead": "Study the inspiration references and synthesize a premium editorial landing page system that translates the source brief into a reusable, brand-specific direction.",
       "archetype": "editorial brand campaign",
@@ -747,7 +765,7 @@
     },
     {
       "id": "luminous-research-atlas",
-      "label": "Luminous research atlas",
+      "label": "Luminous insight landing page",
       "bestFor": [
         "AI labs",
         "think tanks",
@@ -757,15 +775,14 @@
       "businessFocus": [
         "research organizations",
         "evidence-led storytelling",
-        "atlas and observatory products",
-        "methodology-rich publications"
+        "insight-led public landing pages",
+        "visual research narratives"
       ],
       "keywords": [
         "atlas",
         "observatory",
-        "methodology",
+        "insight",
         "evidence",
-        "report",
         "research",
         "index",
         "publication"
@@ -774,9 +791,8 @@
         "positive": [
           "atlas",
           "observatory",
-          "methodology",
+          "insight",
           "evidence",
-          "report",
           "research",
           "map",
           "model",
@@ -786,37 +802,43 @@
         "excluded": [
           "checkout",
           "festival",
-          "villa"
+          "villa",
+          "consulting",
+          "advisory",
+          "bcg",
+          "services",
+          "landing page",
+          "homepage"
         ],
-        "tieBreaker": 3
+        "tieBreaker": 1
       },
-      "lead": "Study the inspiration references and synthesize a luminous research atlas that turns evidence, methodology, and narrative into a premium, readable system.",
-      "archetype": "annotated evidence atlas",
-      "layoutArchetype": "bright scroll atlas with chaptered evidence bands and annotation rails",
+      "lead": "Study the inspiration references and synthesize a luminous insight landing page that turns research-backed ideas into a premium, text-light public story.",
+      "archetype": "luminous insight landing page",
+      "layoutArchetype": "full-bleed insight story with visual proof bands",
       "typographySystem": "precise sans for data and narrative paired with restrained serif emphasis",
-      "surfaceTreatment": "ivory research planes, layered evidence visuals, and quiet annotation rails",
-      "shapeLanguage": "clean modules, chart frames, citation bars, and highlighted note rails",
-      "componentGrammar": "evidence chapters, methodology blocks, chart plates, callout annotations, citation modules",
-      "motionGrammar": "zoom-and-highlight transitions, subtle annotation reveals, and calm data emphasis",
+      "surfaceTreatment": "ivory research planes, layered evidence visuals, and generous image-led whitespace",
+      "shapeLanguage": "clean modules, visual proof frames, and quiet emphasis bands",
+      "componentGrammar": "hero composition, insight proof bands, visual story panels, outcome moments, restrained CTA groups",
+      "motionGrammar": "calm reveal transitions, proof-panel emphasis, and restrained visual depth",
       "paletteIntent": "bright ivory base with measured accent coding for evidence groups",
       "visualDensity": "balanced",
       "designVariance": "structured expressiveness",
       "focusAreas": [
         "evidence hierarchy",
-        "methodology framing",
-        "annotation rails",
-        "chart grammar",
-        "citation treatment",
+        "insight framing",
+        "visual proof bands",
+        "chart restraint",
+        "public story cadence",
         "scroll-story beats",
         "proof sequencing"
       ],
       "responsiveCollapseRules": [
-        "Collapse annotation rails beneath the primary evidence block before reducing chart legibility.",
-        "Keep citations attached to the relevant section on mobile instead of moving them to a distant appendix treatment."
+        "Collapse visual proof bands into a single readable story stack before reducing chart legibility.",
+        "Keep evidence labels visually close to the relevant section without turning mobile into an appendix."
       ],
       "guardrails": [
-        "Keep the surface bright, exact, and evidence-first rather than dashboard-like or cyber-styled.",
-        "Use motion only to clarify how the user should read charts, maps, and methodology layers."
+        "Keep the surface bright, exact, and evidence-led without becoming a documentation hub.",
+        "Use motion to clarify priority, proof, and action rather than to explain long-form methodology."
       ],
       "antiPatterns": [
         "No cyber glow.",
@@ -825,14 +847,14 @@
         "No unexplained iconography."
       ],
       "deliverables": [
-        "Define the evidence hierarchy, chart grammar, annotation system, citation treatment, and scroll-story beats.",
-        "Return a premium research contract detailed enough for publication surfaces and Canvas-ready implementation."
+        "Define the evidence hierarchy, visual proof rhythm, insight story cadence, and conversion path.",
+        "Return a premium insight landing contract detailed enough for a visually led Canvas-ready implementation."
       ],
       "route": {
-        "profile": "documentation",
+        "profile": "product-story",
         "themeStrategy": "single-theme",
-        "navigationModel": "contextual",
-        "layoutApproach": "annotated-atlas-scroll"
+        "navigationModel": "global-header",
+        "layoutApproach": "insight-led-landing-page"
       }
     },
     {

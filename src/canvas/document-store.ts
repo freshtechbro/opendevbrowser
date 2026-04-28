@@ -1412,6 +1412,43 @@ function requirePlanEnumArray<T extends string>(
   return normalized;
 }
 
+function optionalPlanStringArray(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  issues: CanvasGenerationPlanIssue[]
+): string[] | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    pushGenerationPlanIssue(issues, {
+      path,
+      code: "invalid_type",
+      message: `${path} must include only non-empty strings.`,
+      expected: "string[]",
+      received: clone(value)
+    });
+    return undefined;
+  }
+  const strings = value
+    .map((entry) => typeof entry === "string" ? entry.trim() : "")
+    .filter(Boolean);
+  const normalized = uniqueStrings(strings);
+  if (strings.length !== value.length || normalized.length === 0) {
+    pushGenerationPlanIssue(issues, {
+      path,
+      code: "invalid_type",
+      message: `${path} must include only non-empty strings.`,
+      expected: "string[]",
+      received: clone(value)
+    });
+    return undefined;
+  }
+  return normalized;
+}
+
 function requirePositiveNumber(
   record: Record<string, unknown>,
   key: string,
@@ -1619,6 +1656,8 @@ export function validateGenerationPlan(plan: unknown): CanvasGenerationPlanValid
   const maxInteractionLatencyMs = validationTargets
     ? requirePositiveNumber(validationTargets, "maxInteractionLatencyMs", "validationTargets.maxInteractionLatencyMs", issues)
     : null;
+  const interactionMoments = optionalPlanStringArray(plan, "interactionMoments", "interactionMoments", issues);
+  const materialEffects = optionalPlanStringArray(plan, "materialEffects", "materialEffects", issues);
 
   if (issues.length > 0 || missing.length > 0) {
     return {
@@ -1669,7 +1708,9 @@ export function validateGenerationPlan(plan: unknown): CanvasGenerationPlanValid
         requiredThemes: requiredThemes as CanvasGenerationPlan["validationTargets"]["requiredThemes"],
         browserValidation: browserValidation as CanvasGenerationPlan["validationTargets"]["browserValidation"],
         maxInteractionLatencyMs: maxInteractionLatencyMs as number
-      }
+      },
+      ...(interactionMoments ? { interactionMoments } : {}),
+      ...(materialEffects ? { materialEffects } : {})
     }
   };
 }
