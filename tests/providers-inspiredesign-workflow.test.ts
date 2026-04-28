@@ -1502,6 +1502,57 @@ describe("inspiredesign workflow", () => {
     expect(output.meta).not.toHaveProperty("primaryConstraint");
   });
 
+  it("does not mark failed fetches as recovered when deep capture only returns code evidence", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: false,
+        records: [],
+        failures: [makeFailure("web/default", "web", {
+          code: "unavailable",
+          message: "Default requires a live browser-rendered page."
+        })],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 },
+        error: {
+          code: "unavailable",
+          message: "Default requires a live browser-rendered page.",
+          retryable: false
+        }
+      })
+    });
+    const captureReference = vi.fn(async (): Promise<InspiredesignCaptureEvidence> => ({
+      clone: {
+        cssPreview: ".hero { display: grid; }",
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a resilient workflow surface",
+      urls: ["https://example.com/code-only"],
+      captureMode: "deep",
+      mode: "json",
+      outputDir: makeOutputDir()
+    }, {
+      captureReference
+    });
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      url: "https://example.com/code-only",
+      fetchStatus: "failed",
+      captureStatus: "captured",
+      fetchFailure: "Default requires a live browser-rendered page."
+    });
+    expect(evidence.references[0]?.capture?.signals).toBeUndefined();
+    expect(meta.metrics).toMatchObject({
+      failed_fetches: 1,
+      failed_captures: 0
+    });
+    expect(meta.metrics.recovered_fetches).toBeUndefined();
+    expect(meta.primaryConstraintSummary).toBe("Default requires a live browser-rendered page.");
+  });
+
   it("records unusable and non-error deep capture failures without aborting the workflow", async () => {
     const runtime = toRuntime({
       fetch: async (input: { url: string }) => makeAggregate({
