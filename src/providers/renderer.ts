@@ -4,7 +4,7 @@ import {
   formatInspiredesignCaptureAttemptSummary,
   type InspiredesignFollowthrough,
   type InspiredesignImplementationPlan
-} from "./inspiredesign-contract";
+} from "../inspiredesign/contract";
 import type { CanvasDesignGovernance, CanvasGenerationPlan } from "../canvas/types";
 import {
   INSPIREDESIGN_HANDOFF_FILES,

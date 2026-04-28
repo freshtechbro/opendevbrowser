@@ -1,14 +1,14 @@
 import type { BrowserManagerLike } from "../browser/manager-types";
 import { redactSensitive } from "../core/logging";
 import type { ChallengeAutomationMode } from "../challenges/types";
-import { readCookiesFromSource } from "./cookie-source";
-import type { ProviderCookiePolicy, ProviderCookieSourceConfig } from "./types";
+import { readCookiesFromSource } from "../providers/cookie-source";
+import type { ProviderCookiePolicy, ProviderCookieSourceConfig } from "../providers/types";
 import type {
   InspiredesignCaptureAttemptEvidence,
   InspiredesignCaptureAttemptStatus,
   InspiredesignCaptureAttempts,
   InspiredesignCaptureEvidence
-} from "./inspiredesign-contract";
+} from "./contract";
 
 type InspiredesignCaptureManagerBase = Pick<
   BrowserManagerLike,

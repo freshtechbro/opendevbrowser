@@ -558,7 +558,7 @@
         "src/cli/commands/macro-resolve.ts",
         "src/cli/commands/inspiredesign.ts",
         "src/tools/inspiredesign_run.ts",
-        "src/providers/inspiredesign-contract.ts"
+        "src/inspiredesign/contract.ts"
       ],
       "targetedRerunCommands": [
         "node scripts/provider-direct-runs.mjs --smoke --out artifacts/skill-runtime-audit/lanes/provider-direct.json",

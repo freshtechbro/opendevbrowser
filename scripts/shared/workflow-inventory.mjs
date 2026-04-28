@@ -117,7 +117,7 @@ const CLI_FAMILY_DEFINITIONS = [
       "src/cli/commands/shopping.ts",
       "src/cli/commands/product-video.ts",
       "src/cli/commands/inspiredesign.ts",
-      "src/providers/inspiredesign-contract.ts",
+      "src/inspiredesign/contract.ts",
       "src/providers/workflows.ts"
     ],
     scenarioIds: [
@@ -391,7 +391,7 @@ export const VALIDATION_SCENARIOS = [
     ownerFiles: [
       "src/cli/commands/inspiredesign.ts",
       "src/tools/inspiredesign_run.ts",
-      "src/providers/inspiredesign-contract.ts",
+      "src/inspiredesign/contract.ts",
       "src/providers/workflows.ts"
     ]
   },

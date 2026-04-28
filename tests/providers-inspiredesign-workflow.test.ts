@@ -6,13 +6,13 @@ import { normalizeRecord } from "../src/providers/normalize";
 import {
   runInspiredesignWorkflow,
   workflowTestUtils,
-  type ProviderExecutor
+  type ReferenceRetrievalPort
 } from "../src/providers/workflows";
 import type {
   InspiredesignBriefExpansion,
   InspiredesignBriefFormat
 } from "../src/inspiredesign/brief-expansion";
-import type { InspiredesignCaptureEvidence } from "../src/providers/inspiredesign-contract";
+import type { InspiredesignCaptureEvidence } from "../src/inspiredesign/contract";
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type {
   JsonValue,
@@ -175,10 +175,9 @@ const makeAggregate = (overrides: Partial<ProviderAggregateResult> = {}): Provid
 });
 
 const toRuntime = (handlers: {
-  fetch?: ProviderExecutor["fetch"];
-  getAntiBotSnapshots?: ProviderExecutor["getAntiBotSnapshots"];
-}): ProviderExecutor => ({
-  search: async () => makeAggregate(),
+  fetch?: ReferenceRetrievalPort["fetch"];
+  getAntiBotSnapshots?: ReferenceRetrievalPort["getAntiBotSnapshots"];
+}): ReferenceRetrievalPort => ({
   fetch: handlers.fetch ?? (async () => makeAggregate()),
   ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
 });

@@ -14,12 +14,12 @@ import {
   INSPIREDESIGN_HANDOFF_FILES,
   buildInspiredesignFollowthroughSummary,
   buildInspiredesignNextStep
-} from "../inspiredesign/handoff";
+} from "./handoff";
 import {
   cloneInspiredesignBriefFormat,
   type InspiredesignBriefExpansion,
   type InspiredesignBriefFormat
-} from "../inspiredesign/brief-expansion";
+} from "./brief-expansion";
 import {
   buildInspiredesignDesignVectors,
   buildInspiredesignReferencePatternBoard,
@@ -27,8 +27,8 @@ import {
   hasInspiredesignUsableReferenceEvidence,
   type InspiredesignDesignVectors,
   type InspiredesignReferencePatternBoard
-} from "../inspiredesign/reference-pattern-board";
-import type { JsonValue } from "./types";
+} from "./reference-pattern-board";
+import type { JsonValue } from "../providers/types";
 
 type JsonRecord = Record<string, JsonValue>;
 type FetchStatus = "captured" | "failed" | "skipped";

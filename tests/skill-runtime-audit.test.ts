@@ -335,7 +335,7 @@ describe("skill runtime audit status modeling", () => {
     expect(providersWorkflows?.sourceSeams).toEqual(expect.arrayContaining([
       "src/cli/commands/inspiredesign.ts",
       "src/tools/inspiredesign_run.ts",
-      "src/providers/inspiredesign-contract.ts"
+      "src/inspiredesign/contract.ts"
     ]));
     expect(replayDesktopFamily).toEqual({
       id: "browser-replay-desktop-observation",

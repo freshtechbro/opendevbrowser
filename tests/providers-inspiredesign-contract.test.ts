@@ -10,7 +10,7 @@ import {
   hasInspiredesignCaptureArtifacts,
   normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
-} from "../src/providers/inspiredesign-contract";
+} from "../src/inspiredesign/contract";
 import { validateGenerationPlan } from "../src/canvas/document-store";
 import {
   INSPIREDESIGN_HANDOFF_COMMANDS,

@@ -7,7 +7,7 @@ import {
 } from "../browser/session-inspector";
 import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import { captureInspiredesignReferenceFromManager } from "../providers/inspiredesign-capture";
+import { captureInspiredesignReferenceFromManager } from "../inspiredesign/capture";
 import {
   runInspiredesignWorkflow,
   runProductVideoWorkflow,

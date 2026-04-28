@@ -1,4 +1,4 @@
-import type { InspiredesignCaptureMode } from "./types";
+import type { InspiredesignCaptureMode } from "../providers/types";
 
 const hasInspiredesignUrls = (urls?: readonly string[]): boolean => {
   return Array.isArray(urls) && urls.some((url) => url.trim().length > 0);

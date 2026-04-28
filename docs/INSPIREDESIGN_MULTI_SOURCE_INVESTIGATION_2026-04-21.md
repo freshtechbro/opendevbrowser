@@ -65,8 +65,8 @@
 **Findings:** deep capture launches a fresh headless session per URL and only honors configured cookie sources. Active session cookies are not reused automatically.
 
 **Evidence:**
-- [src/providers/inspiredesign-capture.ts:39](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/providers/inspiredesign-capture.ts#L39)
-- [src/providers/inspiredesign-capture.ts:170](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/providers/inspiredesign-capture.ts#L170)
+- [src/inspiredesign/capture.ts:39](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/inspiredesign/capture.ts#L39)
+- [src/inspiredesign/capture.ts:170](/Users/bishopdotun/Documents/DevProjects/opendevbrowser/src/inspiredesign/capture.ts#L170)
 
 **Conclusion:** secondary risk seam. It can make mixed runs degrade more sharply, but it is not the best primary explanation for the current public-first report.
 

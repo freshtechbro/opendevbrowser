@@ -5,8 +5,8 @@ import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../cli/transport-timeouts";
-import { captureInspiredesignReferenceFromManager } from "../providers/inspiredesign-capture";
-import { resolveInspiredesignCaptureMode } from "../providers/inspiredesign-capture-mode";
+import { captureInspiredesignReferenceFromManager } from "../inspiredesign/capture";
+import { resolveInspiredesignCaptureMode } from "../inspiredesign/capture-mode";
 
 const z = tool.schema;
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);

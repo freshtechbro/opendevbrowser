@@ -25,7 +25,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockRejectedValue(new Error("disconnect failed"))
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     const result = await captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/reference",
@@ -75,7 +75,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
@@ -97,7 +97,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
@@ -128,7 +128,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     const result = await captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/hero",
@@ -174,7 +174,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     const result = await captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/dom",
@@ -225,7 +225,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     const result = await captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/empty-html",
@@ -272,7 +272,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
@@ -316,7 +316,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     await captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/challenge",
@@ -353,7 +353,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
@@ -395,7 +395,7 @@ describe("inspiredesign capture helper", () => {
       type: "inline" as const,
       value: [{ name: "sid", value: "abc", url: "https://example.com/imported" }]
     };
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
     await captureInspiredesignReferenceFromManager(
       manager as never,
@@ -449,7 +449,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
@@ -496,7 +496,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
@@ -555,7 +555,7 @@ describe("inspiredesign capture helper", () => {
     };
 
     try {
-      const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+      const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
       const capturePromise = captureInspiredesignReferenceFromManager(
         manager as never,
         "https://example.com/timeout-clone",
@@ -594,7 +594,7 @@ describe("inspiredesign capture helper", () => {
     };
 
     try {
-      const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+      const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
       const capturePromise = captureInspiredesignReferenceFromManager(
         manager as never,
         "https://example.com/timeout-launch",
@@ -624,7 +624,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/transport-timeout-snapshot",
@@ -665,7 +665,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/transport-timeout-clone",
@@ -706,7 +706,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/transport-timeout-code",
@@ -750,7 +750,7 @@ describe("inspiredesign capture helper", () => {
     };
 
     try {
-      const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+      const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
       const capturePromise = captureInspiredesignReferenceFromManager(
         manager as never,
         "https://example.com/snapshot-budget-timeout",
@@ -801,7 +801,7 @@ describe("inspiredesign capture helper", () => {
     };
 
     try {
-      const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+      const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
       const capturePromise = captureInspiredesignReferenceFromManager(
         manager as never,
         "https://example.com/clone-budget-timeout",
@@ -848,7 +848,7 @@ describe("inspiredesign capture helper", () => {
       disconnect: vi.fn().mockResolvedValue(undefined)
     };
 
-    const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
     await expect(captureInspiredesignReferenceFromManager(
       manager as never,
       "https://example.com/non-error-snapshot",
@@ -902,7 +902,7 @@ describe("inspiredesign capture helper", () => {
     };
 
     try {
-      const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+      const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
       const capturePromise = captureInspiredesignReferenceFromManager(
         manager as never,
         "https://example.com/timeout-dom",
@@ -962,7 +962,7 @@ describe("inspiredesign capture helper", () => {
     };
 
     try {
-      const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+      const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
 
       await captureInspiredesignReferenceFromManager(
         manager as never,
@@ -995,7 +995,7 @@ describe("inspiredesign capture helper", () => {
     };
 
     try {
-      const { captureInspiredesignReferenceFromManager } = await import("../src/providers/inspiredesign-capture");
+      const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
       const capturePromise = captureInspiredesignReferenceFromManager(
         manager as never,
         "https://example.com/timeout-cookie-check",
