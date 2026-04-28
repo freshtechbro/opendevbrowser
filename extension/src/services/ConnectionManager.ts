@@ -627,18 +627,20 @@ export class ConnectionManager {
         ? ack.payload.epoch
         : null;
       const mismatch = await this.reconcileRelayIdentity(ack);
+      if (mismatch) {
+        relay.disconnect();
+        throw new ConnectionError(
+          "relay_connect_failed",
+          "Relay identity changed. Open the popup and reconnect to pair with the current daemon."
+        );
+      }
       this.relayInstanceId = ack.payload.instanceId;
       this.relayEpoch = relayEpoch;
       this.persistRelayPort(ack.payload.relayPort);
-      if (!mismatch) {
-        this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
-      }
+      this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
       const handshakeHealthy = await this.verifyHandshakeHealth(relay, "connect");
       if (!handshakeHealthy) {
         return;
-      }
-      if (mismatch) {
-        this.persistRelayIdentity(ack.payload.relayPort, this.relayInstanceId, this.relayEpoch);
       }
       logInfo("Relay WebSocket connected.");
       this.setStatus("connected");

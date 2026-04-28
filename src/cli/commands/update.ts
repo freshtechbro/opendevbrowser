@@ -5,6 +5,7 @@ import * as os from "os";
 const PLUGIN_NAME = "opendevbrowser";
 const CACHE_MANIFEST = "package.json";
 const CACHE_LOCKFILE = "package-lock.json";
+const CACHE_UPDATE_LOCK = ".opendevbrowser-update.lock";
 const DEPENDENCY_SECTIONS = [
   "dependencies",
   "devDependencies",
@@ -41,6 +42,10 @@ function isMissingPathError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
+function isExistingPathError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
 function assertNoSymlinkCachePath(targetPath: string, cacheDir: string): void {
   assertCacheChild(targetPath, cacheDir);
   const resolvedCache = path.resolve(cacheDir);
@@ -56,6 +61,24 @@ function assertNoSymlinkCachePath(targetPath: string, cacheDir: string): void {
       }
       throw error;
     }
+  }
+}
+
+function cacheDirectoryExists(cacheDir: string): boolean {
+  try {
+    const stat = fs.lstatSync(cacheDir);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Security: refusing to modify symlinked cache path: ${cacheDir}`);
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(`${cacheDir} must be a directory`);
+    }
+    return true;
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -82,6 +105,46 @@ function cacheFileExists(targetPath: string, cacheDir: string): boolean {
       return false;
     }
     throw error;
+  }
+}
+
+function writeManifestAtomic(manifestPath: string, cacheDir: string, manifest: JsonObject): void {
+  const tempPath = `${manifestPath}.${process.pid}.tmp`;
+  assertNoSymlinkCachePath(tempPath, cacheDir);
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(tempPath, "wx");
+    fs.writeFileSync(fd, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tempPath, manifestPath);
+  } catch (error) {
+    if (fd !== null) {
+      fs.closeSync(fd);
+    }
+    fs.rmSync(tempPath, { force: true });
+    throw error;
+  }
+}
+
+function withCacheMutationLock<T>(cacheDir: string, action: () => T): T {
+  const lockPath = path.join(cacheDir, CACHE_UPDATE_LOCK);
+  assertNoSymlinkCachePath(lockPath, cacheDir);
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(lockPath, "wx");
+    fs.writeFileSync(fd, `${process.pid}\n`, "utf8");
+    return action();
+  } catch (error) {
+    if (isExistingPathError(error)) {
+      throw new Error("another update is already running for this OpenCode cache");
+    }
+    throw error;
+  } finally {
+    if (fd !== null) {
+      fs.closeSync(fd);
+      fs.rmSync(lockPath, { force: true });
+    }
   }
 }
 
@@ -123,7 +186,7 @@ function removeManifestPin(cacheDir: string): boolean {
     .map((section) => removeDependencyPin(manifest, section))
     .some(Boolean);
   if (removed) {
-    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    writeManifestAtomic(manifestPath, cacheDir, manifest);
   }
   return removed;
 }
@@ -135,15 +198,26 @@ export function runUpdate(): UpdateResult {
   const lockfilePath = path.join(cacheDir, CACHE_LOCKFILE);
 
   try {
+    if (!cacheDirectoryExists(cacheDir)) {
+      return {
+        success: true,
+        message: "No cached plugin found. OpenCode will install the latest version on next run.",
+        cleared: false
+      };
+    }
+
     preflightCacheMutationPaths(cacheDir, [
       path.join(cacheDir, CACHE_MANIFEST),
       pluginCacheDir,
-      lockfilePath
+      lockfilePath,
+      path.join(cacheDir, CACHE_UPDATE_LOCK)
     ]);
-    const manifestPinRemoved = removeManifestPin(cacheDir);
-    const packageRemoved = removePathIfExists(pluginCacheDir, cacheDir);
-    const lockfileRemoved = removePathIfExists(lockfilePath, cacheDir);
-    const cleared = packageRemoved || manifestPinRemoved || lockfileRemoved;
+    const cleared = withCacheMutationLock(cacheDir, () => {
+      const manifestPinRemoved = removeManifestPin(cacheDir);
+      const packageRemoved = removePathIfExists(pluginCacheDir, cacheDir);
+      const lockfileRemoved = removePathIfExists(lockfilePath, cacheDir);
+      return packageRemoved || manifestPinRemoved || lockfileRemoved;
+    });
 
     if (!cleared) {
       return {

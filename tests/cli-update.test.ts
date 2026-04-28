@@ -90,6 +90,36 @@ describe("runUpdate", () => {
     expect(readManifest()).toEqual({});
   });
 
+  it("repairs lockfile-only cache state", () => {
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(makePath("package-lock.json"), "{\"lockfileVersion\":3}\n", "utf8");
+
+    const result = runUpdate();
+
+    expect(result).toEqual({
+      success: true,
+      message: "Cache repaired. OpenCode will install the latest version on next run.",
+      cleared: true
+    });
+    expect(existsSync(makePath("package-lock.json"))).toBe(false);
+  });
+
+  it("refuses to mutate cache state while another update lock is held", () => {
+    writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
+    mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
+    writeFileSync(makePath("package-lock.json"), "{\"lockfileVersion\":3}\n", "utf8");
+    writeFileSync(makePath(".opendevbrowser-update.lock"), "locked\n", "utf8");
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.cleared).toBe(false);
+    expect(result.message).toContain("another update is already running");
+    expect(readManifest()).toEqual({ dependencies: { opendevbrowser: "0.0.24" } });
+    expect(existsSync(makePath("node_modules", "opendevbrowser"))).toBe(true);
+    expect(existsSync(makePath("package-lock.json"))).toBe(true);
+  });
+
   it("reports no-op when no cache entries exist", () => {
     mkdirSync(cacheDir, { recursive: true });
 
