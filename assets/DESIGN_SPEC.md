@@ -90,7 +90,6 @@ Quality: High contrast, scalable, transparent background (unless specified solid
 ### 1. Primary Logo (Wordmark)
 
 **Files:**
-- `assets/logo-primary.svg` (source)
 - `assets/logo-primary.png` (512px)
 - `assets/logo-dark.png` (for dark backgrounds)
 - `assets/logo-light.png` (for light backgrounds)
@@ -136,7 +135,6 @@ VARIATIONS NEEDED:
 - `assets/icon-256.png` — Large icon
 - `assets/icon-512.png` — App Store
 - `assets/icon-1024.png` — App Store retina
-- `assets/icon-source.svg` — Master vector file
 
 **Visual Concept:**
 The "Browser Node" as a standalone app icon, optimized for various sizes while maintaining recognizability.
@@ -383,7 +381,6 @@ Before generating any asset, verify the prompt contains:
 
 ```
 assets/
-├── logo-primary.svg              # Main wordmark logo (vector)
 ├── logo-primary.png              # Main logo raster (512px)
 ├── logo-dark.png                 # For dark backgrounds
 ├── logo-light.png                # For light backgrounds
@@ -394,7 +391,6 @@ assets/
 ├── icon-256.png                  # Large icon
 ├── icon-512.png                  # App Store
 ├── icon-1024.png                 # App Store retina
-├── icon-source.svg               # Master icon file
 ├── favicon.ico                   # Multi-resolution favicon
 ├── favicon-16x16.png
 ├── favicon-32x32.png
@@ -460,10 +456,11 @@ assets/
 12. **Hero Image** — 1920×1080px, dramatic composition
 
 ### Phase 4: Implementation
-13. Export all sizes from masters
-14. Replace existing assets in codebase
-15. Update README, extension manifest, documentation
-16. Create brand guidelines document
+13. Export all sizes from the approved source artwork outside this repository
+14. Replace checked-in raster assets in `assets/`
+15. Run `npm run extension:build` to sync extension icons
+16. Update README, extension manifest, documentation
+17. Create brand guidelines document
 
 ---
 

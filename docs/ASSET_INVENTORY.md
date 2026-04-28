@@ -10,6 +10,7 @@ This inventory reflects the current `assets/` tree used by README, extension pac
 - Source directory: `assets/`
 - Private website sync target: `opendevbrowser-website-deploy/frontend/public/brand/` via `npm run sync:assets --prefix frontend` (private repo)
 - Extension sync target: `extension/icons/` via `npm run extension:build` (`scripts/copy-extension-assets.mjs`)
+- Raster icons are checked-in release assets. There is no in-repo raster icon generator; update source artwork externally, replace the checked-in files, then rerun the validation commands below.
 - Design reference: `assets/DESIGN_SPEC.md`
 
 ## Generated first-contact discovery assets
