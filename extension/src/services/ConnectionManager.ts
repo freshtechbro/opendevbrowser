@@ -1005,7 +1005,6 @@ export class ConnectionManager {
       this.relayNotice = instanceMismatch
         ? "Relay instance changed. Re-establishing a clean daemon-extension handshake."
         : "Relay restarted. Re-establishing a clean daemon-extension handshake.";
-      this.refreshHandshake();
       return true;
     }
 

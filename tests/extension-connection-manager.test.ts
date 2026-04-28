@@ -1020,14 +1020,7 @@ describe("ConnectionManager", () => {
 
     await manager.connect();
     const relay = relayInstances[0];
-    expect(relay.sendHandshake).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          tabId: 1,
-          url: "https://example.com"
-        })
-      })
-    );
+    expect(relay.sendHandshake).not.toHaveBeenCalled();
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ relayInstanceId: null, relayEpoch: null });
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({ pairingToken: null, tokenEpoch: null });
     expect(globalThis.chrome.storage.local.set).not.toHaveBeenCalledWith({
