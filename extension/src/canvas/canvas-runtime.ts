@@ -649,7 +649,7 @@ export class CanvasRuntime {
     const existing = this.sessions.get(canvasSessionId);
     if (existing) {
       this.overlaySessions.delete(existing.id);
-      if (existing.ownerClientId !== clientId || (requestedLeaseId && existing.leaseId !== requestedLeaseId)) {
+      if (!requestedLeaseId || existing.ownerClientId !== clientId || existing.leaseId !== requestedLeaseId) {
         throw new Error("Canvas session ownership mismatch.");
       }
       if (existing.designTabTargetId && existing.designTabTargetId !== formatTargetId(tabId)) {
@@ -719,7 +719,7 @@ export class CanvasRuntime {
     const requestedLeaseId = optionalString(message.leaseId);
     const existing = this.overlaySessions.get(sessionId);
     if (existing) {
-      if (existing.ownerClientId !== clientId || (requestedLeaseId && existing.leaseId !== requestedLeaseId)) {
+      if (!requestedLeaseId || existing.ownerClientId !== clientId || existing.leaseId !== requestedLeaseId) {
         throw new Error("Canvas session ownership mismatch.");
       }
       if (record.document !== undefined) {
@@ -753,14 +753,14 @@ export class CanvasRuntime {
     const payload = record ?? (isRecord(message.payload) ? message.payload : {});
     const session = resolveSessionForMessage(this.sessions, message, payload);
     const clientId = requireString(message.clientId, "clientId");
-    const leaseId = optionalString(message.leaseId);
+    const leaseId = requireMessageLeaseId(message);
     if (session.ownerClientId !== clientId) {
-      if (!leaseId || session.leaseId !== leaseId) {
+      if (session.leaseId !== leaseId) {
         throw new Error("Canvas session ownership mismatch.");
       }
       session.ownerClientId = clientId;
     }
-    if (leaseId && session.leaseId !== leaseId) {
+    if (session.leaseId !== leaseId) {
       throw new Error("Canvas session ownership mismatch.");
     }
     return session;
@@ -1526,6 +1526,14 @@ function requireString(value: unknown, label: string): string {
 
 function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function requireMessageLeaseId(message: CanvasRequest): string {
+  const leaseId = optionalString(message.leaseId);
+  if (!leaseId) {
+    throw new Error("Missing leaseId");
+  }
+  return leaseId;
 }
 
 function optionalNumber(value: unknown): number | null {

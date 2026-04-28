@@ -187,6 +187,13 @@ export const getLaunchAgentPath = (home = homedir()): string => {
   return join(home, "Library", "LaunchAgents", `${MAC_LABEL}.plist`);
 };
 
+const escapePlistString = (value: string): string => value
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&apos;");
+
 export const buildLaunchAgentPlist = (
   entrypoint: CliEntrypoint,
   options: { label?: string; stdoutPath?: string; stderrPath?: string; workingDirectory?: string } = {}
@@ -196,7 +203,7 @@ export const buildLaunchAgentPlist = (
   const stderrPath = options.stderrPath ?? join(homedir(), "Library", "Logs", "opendevbrowser-daemon.err.log");
   const workingDirectory = options.workingDirectory ?? resolveMacWorkingDirectory(homedir());
   const programArgs = [entrypoint.nodePath, ...entrypoint.args]
-    .map((value) => `      <string>${value}</string>`)
+    .map((value) => `      <string>${escapePlistString(value)}</string>`)
     .join("\n");
 
   return [
@@ -205,7 +212,7 @@ export const buildLaunchAgentPlist = (
     "<plist version=\"1.0\">",
     "<dict>",
     `  <key>Label</key>`,
-    `  <string>${label}</string>`,
+    `  <string>${escapePlistString(label)}</string>`,
     "  <key>ProgramArguments</key>",
     "  <array>",
     programArgs,
@@ -215,11 +222,11 @@ export const buildLaunchAgentPlist = (
     "  <key>KeepAlive</key>",
     "  <true/>",
     "  <key>WorkingDirectory</key>",
-    `  <string>${workingDirectory}</string>`,
+    `  <string>${escapePlistString(workingDirectory)}</string>`,
     "  <key>StandardOutPath</key>",
-    `  <string>${stdoutPath}</string>`,
+    `  <string>${escapePlistString(stdoutPath)}</string>`,
     "  <key>StandardErrorPath</key>",
-    `  <string>${stderrPath}</string>`,
+    `  <string>${escapePlistString(stderrPath)}</string>`,
     "</dict>",
     "</plist>",
     ""

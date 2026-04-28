@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -111,5 +111,66 @@ describe("runUpdate", () => {
     expect(result.success).toBe(false);
     expect(result.cleared).toBe(false);
     expect(result.message).toContain("Failed to clear cache:");
+  });
+
+  it("does not delete package cache before validating a malformed manifest", () => {
+    mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
+    writeFileSync(makePath("package.json"), "{bad-json}", "utf8");
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.cleared).toBe(false);
+    expect(existsSync(makePath("node_modules", "opendevbrowser"))).toBe(true);
+  });
+
+  it("refuses to rewrite symlinked cache manifests", () => {
+    const outsideManifest = join(cacheDir, "..", "outside-package.json");
+    writeFileSync(outsideManifest, JSON.stringify({ dependencies: { opendevbrowser: "0.0.24" } }), "utf8");
+    symlinkSync(outsideManifest, makePath("package.json"));
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.cleared).toBe(false);
+    expect(result.message).toContain("refusing to modify symlinked cache path");
+    expect(readFileSync(outsideManifest, "utf8")).toContain("opendevbrowser");
+  });
+
+  it("refuses to mutate a symlinked cache root", () => {
+    const realCache = makePath("real-cache");
+    const linkedCache = makePath("linked-cache");
+    mkdirSync(realCache, { recursive: true });
+    symlinkSync(realCache, linkedCache);
+    process.env.OPENCODE_CACHE_DIR = linkedCache;
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("refusing to modify symlinked cache path");
+  });
+
+  it("refuses to delete through a symlinked node_modules parent", () => {
+    const outsideModules = join(cacheDir, "..", "outside-node-modules");
+    mkdirSync(outsideModules, { recursive: true });
+    symlinkSync(outsideModules, makePath("node_modules"));
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("refusing to modify symlinked cache path");
+  });
+
+  it("preflights symlinked cache paths before rewriting stale manifest pins", () => {
+    const outsideModules = join(cacheDir, "..", "outside-node-modules-with-manifest");
+    mkdirSync(outsideModules, { recursive: true });
+    symlinkSync(outsideModules, makePath("node_modules"));
+    writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("refusing to modify symlinked cache path");
+    expect(readManifest()).toEqual({ dependencies: { opendevbrowser: "0.0.24" } });
   });
 });

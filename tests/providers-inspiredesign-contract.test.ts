@@ -336,7 +336,7 @@ describe("inspiredesign packet + renderer", () => {
     const evidence = packet.evidence as InspiredesignEvidenceJson;
 
     expect(packet.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
-    expect(packet.advancedBriefMarkdown).toContain("Premium editorial landing page");
+    expect(packet.advancedBriefMarkdown).toContain("Reference-led public landing page");
     expect(packet.designContract.intent.referenceCount).toBe(3);
     expect(evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
     expect(evidence.advancedBrief).toContain("Prompt objective:");
@@ -1075,6 +1075,8 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.generationPlan.visualDirection.profile).toBe("product-story");
     expect(packet.generationPlan.layoutStrategy.navigationModel).toBe("global-header");
     expect(packet.generationPlan.designVectors.surfaceIntent).toBe("reference-led public landing page");
+    expect(packet.advancedBriefMarkdown).toContain("Selected prompt format: Reference-led public landing page");
+    expect(packet.advancedBriefMarkdown).toContain("layout approach: reference-led-landing-page");
     expect(packet.generationPlan.designVectors.sectionArchitecture).toEqual(
       expect.arrayContaining([expect.stringContaining("8 to 12")])
     );
@@ -1095,9 +1097,14 @@ describe("inspiredesign packet + renderer", () => {
       "visit CTA",
       "events",
       "event, visit",
-      "visit"
+      "visit",
+      "documentation zones",
+      "citation modules",
+      "annotation rails",
+      "methodology blocks"
     ]) {
       expect(guidance).not.toContain(forbidden);
+      expect(packet.advancedBriefMarkdown).not.toContain(forbidden);
     }
   });
 

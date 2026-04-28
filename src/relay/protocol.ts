@@ -339,13 +339,28 @@ export type CanvasEventType =
   | "canvas_code_sync_failed"
   | "canvas_client_disconnected";
 
-export type CanvasEvent = {
+export type CanvasSessionLifecycleEventPayload = {
+  leaseId: string;
+  reason?: string;
+};
+
+export type CanvasSessionLifecycleEvent = {
+  type: "canvas_event";
+  clientId?: string;
+  canvasSessionId: string;
+  event: "canvas_session_closed" | "canvas_session_expired";
+  payload: CanvasSessionLifecycleEventPayload;
+};
+
+export type CanvasNonLifecycleEvent = {
   type: "canvas_event";
   clientId?: string;
   canvasSessionId?: string;
-  event: CanvasEventType;
+  event: Exclude<CanvasEventType, CanvasSessionLifecycleEvent["event"]>;
   payload?: unknown;
 };
+
+export type CanvasEvent = CanvasSessionLifecycleEvent | CanvasNonLifecycleEvent;
 
 export type CanvasChunk = {
   type: "canvas_chunk";

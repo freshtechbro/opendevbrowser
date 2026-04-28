@@ -1449,6 +1449,29 @@ function optionalPlanStringArray(
   return normalized;
 }
 
+function optionalPlanRecord(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  issues: CanvasGenerationPlanIssue[]
+): Record<string, unknown> | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (isRecord(value)) {
+    return clone(value);
+  }
+  pushGenerationPlanIssue(issues, {
+    path,
+    code: "invalid_type",
+    message: `${path} must be an object.`,
+    expected: "object",
+    received: clone(value)
+  });
+  return undefined;
+}
+
 function requirePositiveNumber(
   record: Record<string, unknown>,
   key: string,
@@ -1658,6 +1681,7 @@ export function validateGenerationPlan(plan: unknown): CanvasGenerationPlanValid
     : null;
   const interactionMoments = optionalPlanStringArray(plan, "interactionMoments", "interactionMoments", issues);
   const materialEffects = optionalPlanStringArray(plan, "materialEffects", "materialEffects", issues);
+  const designVectors = optionalPlanRecord(plan, "designVectors", "designVectors", issues);
 
   if (issues.length > 0 || missing.length > 0) {
     return {
@@ -1710,7 +1734,8 @@ export function validateGenerationPlan(plan: unknown): CanvasGenerationPlanValid
         maxInteractionLatencyMs: maxInteractionLatencyMs as number
       },
       ...(interactionMoments ? { interactionMoments } : {}),
-      ...(materialEffects ? { materialEffects } : {})
+      ...(materialEffects ? { materialEffects } : {}),
+      ...(designVectors ? { designVectors } : {})
     }
   };
 }

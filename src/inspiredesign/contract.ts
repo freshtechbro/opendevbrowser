@@ -678,6 +678,62 @@ const renderReferenceFirstAdvancedBrief = (
   ].join("\n");
 };
 
+const renderEvidenceDerivedAdvancedBrief = (
+  briefExpansion: InspiredesignBriefExpansion,
+  format: InspiredesignBriefFormat
+): string => [
+  `Selected prompt format: ${format.label}`,
+  "",
+  "Source brief:",
+  briefExpansion.sourceBrief,
+  "",
+  "Prompt objective:",
+  `Use the reference evidence and source brief to define a ${format.archetype}.`,
+  "",
+  "Business focus:",
+  formatBulletList(format.businessFocus),
+  "",
+  "Keywords:",
+  formatBulletList(format.keywords),
+  "",
+  "Route defaults:",
+  formatBulletList([
+    `profile: ${format.route.profile}`,
+    `theme strategy: ${format.route.themeStrategy}`,
+    `navigation model: ${format.route.navigationModel}`,
+    `layout approach: ${format.route.layoutApproach}`
+  ]),
+  "",
+  "Design direction:",
+  formatBulletList([
+    `archetype: ${format.archetype}`,
+    `layout archetype: ${format.layoutArchetype}`,
+    `typography system: ${format.typographySystem}`,
+    `surface treatment: ${format.surfaceTreatment}`,
+    `shape language: ${format.shapeLanguage}`,
+    `component grammar: ${format.componentGrammar}`,
+    `motion grammar: ${format.motionGrammar}`,
+    `palette intent: ${format.paletteIntent}`,
+    `visual density: ${format.visualDensity}`,
+    `design variance: ${format.designVariance}`
+  ]),
+  "",
+  "Responsive collapse rules:",
+  formatBulletList(format.responsiveCollapseRules),
+  "",
+  "Execution rules:",
+  formatBulletList(format.guardrails),
+  "",
+  "Anti-patterns:",
+  formatBulletList(format.antiPatterns),
+  "",
+  "Return:",
+  formatBulletList(format.deliverables),
+  "",
+  "Best fit use cases:",
+  formatBulletList(format.bestFor)
+].join("\n");
+
 const renderUnavailableReference = (reference: InspiredesignReferenceEvidence): string => {
   const reason = reference.fetchFailure ?? reference.captureFailure ?? "no usable creative evidence captured";
   return `${reference.url}: fetch=${reference.fetchStatus}, capture=${reference.captureStatus}, reason=${clipText(reason, 160)}`;
@@ -724,6 +780,7 @@ const buildEvidenceDerivedFormat = (
   if (!isReferenceFirstPublicLanding(designVectors)) return clone;
   return {
     ...clone,
+    label: "Reference-led public landing page",
     archetype: "reference-led public landing page",
     layoutArchetype: "full-bleed hero with narrative section cadence",
     componentGrammar: "hero composition, proof bands, narrative pathways, service or story sections, conversion CTA, and footer",
@@ -1591,10 +1648,13 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   const effectiveFormat = buildEvidenceDerivedFormat(selectedFormat, designVectors);
   const effectiveBriefExpansion: InspiredesignBriefExpansion = {
     ...input.briefExpansion,
+    advancedBrief: isReferenceFirstPublicLanding(designVectors)
+      ? renderEvidenceDerivedAdvancedBrief(input.briefExpansion, effectiveFormat)
+      : input.briefExpansion.advancedBrief,
     format: effectiveFormat
   };
   const advancedBriefMarkdown = renderReferenceFirstAdvancedBrief(
-    input.briefExpansion,
+    effectiveBriefExpansion,
     referencePatternBoard,
     designVectors,
     references

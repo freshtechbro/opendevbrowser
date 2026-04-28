@@ -358,6 +358,7 @@ export type CanvasGenerationPlan = {
   validationTargets: CanvasGenerationPlanValidationTargets;
   interactionMoments?: string[];
   materialEffects?: string[];
+  designVectors?: Record<string, unknown>;
 };
 
 export type CanvasGenerationPlanValidationResult =

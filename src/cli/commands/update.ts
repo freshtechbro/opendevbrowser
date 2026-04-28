@@ -37,14 +37,58 @@ function assertCacheChild(targetPath: string, cacheDir: string): void {
   }
 }
 
-function removePathIfExists(targetPath: string, cacheDir: string): boolean {
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function assertNoSymlinkCachePath(targetPath: string, cacheDir: string): void {
   assertCacheChild(targetPath, cacheDir);
+  const resolvedCache = path.resolve(cacheDir);
+  const relativeSegments = path.relative(resolvedCache, path.resolve(targetPath)).split(path.sep).filter(Boolean);
+  for (const candidate of [resolvedCache, ...relativeSegments.map((_, index) => path.join(resolvedCache, ...relativeSegments.slice(0, index + 1)))]) {
+    try {
+      if (fs.lstatSync(candidate).isSymbolicLink()) {
+        throw new Error(`Security: refusing to modify symlinked cache path: ${candidate}`);
+      }
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+function removePathIfExists(targetPath: string, cacheDir: string): boolean {
+  assertNoSymlinkCachePath(targetPath, cacheDir);
   if (!fs.existsSync(targetPath)) {
     return false;
   }
 
   fs.rmSync(targetPath, { recursive: true, force: true });
   return true;
+}
+
+function cacheFileExists(targetPath: string, cacheDir: string): boolean {
+  assertNoSymlinkCachePath(targetPath, cacheDir);
+  try {
+    const stat = fs.lstatSync(targetPath);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Security: refusing to modify symlinked cache manifest: ${targetPath}`);
+    }
+    return stat.isFile();
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function preflightCacheMutationPaths(cacheDir: string, paths: readonly string[]): void {
+  for (const targetPath of paths) {
+    assertNoSymlinkCachePath(targetPath, cacheDir);
+  }
 }
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
@@ -66,8 +110,7 @@ function removeDependencyPin(manifest: JsonObject, section: DependencySection): 
 
 function removeManifestPin(cacheDir: string): boolean {
   const manifestPath = path.join(cacheDir, CACHE_MANIFEST);
-  assertCacheChild(manifestPath, cacheDir);
-  if (!fs.existsSync(manifestPath)) {
+  if (!cacheFileExists(manifestPath, cacheDir)) {
     return false;
   }
 
@@ -92,8 +135,13 @@ export function runUpdate(): UpdateResult {
   const lockfilePath = path.join(cacheDir, CACHE_LOCKFILE);
 
   try {
-    const packageRemoved = removePathIfExists(pluginCacheDir, cacheDir);
+    preflightCacheMutationPaths(cacheDir, [
+      path.join(cacheDir, CACHE_MANIFEST),
+      pluginCacheDir,
+      lockfilePath
+    ]);
     const manifestPinRemoved = removeManifestPin(cacheDir);
+    const packageRemoved = removePathIfExists(pluginCacheDir, cacheDir);
     const lockfileRemoved = removePathIfExists(lockfilePath, cacheDir);
     const cleared = packageRemoved || manifestPinRemoved || lockfileRemoved;
 

@@ -254,6 +254,30 @@ describe("daemon autostart helpers", () => {
     expect(plist).toContain("<key>WorkingDirectory</key>");
   });
 
+  it("escapes launch agent plist string values", () => {
+    const entry = {
+      nodePath: "/node&bin",
+      cliPath: "/cli/<index>.js",
+      args: ["/cli/<index>.js", "serve"],
+      command: "\"/node&bin\" \"/cli/<index>.js\" serve",
+      source: "argv1" as const,
+      isTransient: false
+    };
+
+    const plist = buildLaunchAgentPlist(entry, {
+      label: "com.test.&<daemon>",
+      stdoutPath: "/tmp/out&log",
+      stderrPath: "/tmp/err<log>",
+      workingDirectory: "/tmp/work&dir"
+    });
+
+    expect(plist).toContain("com.test.&amp;&lt;daemon&gt;");
+    expect(plist).toContain("/node&amp;bin");
+    expect(plist).toContain("/cli/&lt;index&gt;.js");
+    expect(plist).toContain("/tmp/work&amp;dir");
+    expect(plist).toContain("/tmp/err&lt;log&gt;");
+  });
+
   it("builds Windows task args", () => {
     const entry = {
       nodePath: "C:\\node.exe",

@@ -79,26 +79,36 @@ describe("canvas document store", () => {
     expect(validateGenerationPlan({
       ...validPlan,
       interactionMoments: ["Hero reveal", "Hero reveal", "CTA hover"],
-      materialEffects: ["Glass nav", " Parallax depth "]
+      materialEffects: ["Glass nav", " Parallax depth "],
+      designVectors: {
+        surfaceIntent: "reference-led public landing page",
+        motionPosture: ["Staggered editorial reveal"]
+      }
     })).toMatchObject({
       ok: true,
       plan: {
         interactionMoments: ["Hero reveal", "CTA hover"],
-        materialEffects: ["Glass nav", "Parallax depth"]
+        materialEffects: ["Glass nav", "Parallax depth"],
+        designVectors: {
+          surfaceIntent: "reference-led public landing page",
+          motionPosture: ["Staggered editorial reveal"]
+        }
       }
     });
   });
 
-  it("rejects invalid optional generation plan motion and material arrays", () => {
+  it("rejects invalid optional generation plan motion, material, and vector fields", () => {
     expect(validateGenerationPlan({
       ...validPlan,
       interactionMoments: ["Hero reveal", "", 42],
-      materialEffects: "glass nav"
+      materialEffects: "glass nav",
+      designVectors: ["not", "a", "record"]
     })).toMatchObject({
       ok: false,
       issues: expect.arrayContaining([
         expect.objectContaining({ path: "interactionMoments", code: "invalid_type" }),
-        expect.objectContaining({ path: "materialEffects", code: "invalid_type" })
+        expect.objectContaining({ path: "materialEffects", code: "invalid_type" }),
+        expect.objectContaining({ path: "designVectors", code: "invalid_type" })
       ])
     });
   });

@@ -432,8 +432,8 @@ Envelope contract:
 
 Canvas event types:
 - `canvas_session_created`
-- `canvas_session_closed`
-- `canvas_session_expired`
+- `canvas_session_closed` (`payload.leaseId` required)
+- `canvas_session_expired` (`payload.leaseId` required)
 - `canvas_target_closed`
 - `canvas_document_snapshot`
 - `canvas_document_update`
