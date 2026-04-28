@@ -34,7 +34,8 @@ Generated help is the canonical first-contact discovery surface and must keep th
 
 ## Version-scoped evidence
 
-- `<public-repo-root>/docs/RELEASE_0.0.26_EVIDENCE.md` - current release evidence ledger for the active ship cycle
+- `<public-repo-root>/docs/RELEASE_0.0.27_EVIDENCE.md` - current release evidence ledger for the active ship cycle
+- `<public-repo-root>/docs/RELEASE_0.0.26_EVIDENCE.md` - historical v0.0.26 release evidence ledger
 - `<public-repo-root>/docs/RELEASE_0.0.21_EVIDENCE.md` - historical v0.0.21 release evidence ledger
 - `<public-repo-root>/docs/RELEASE_0.0.20_EVIDENCE.md` - historical v0.0.20 release evidence ledger
 - `<public-repo-root>/docs/RELEASE_0.0.18_EVIDENCE.md` - historical `v0.0.18` release evidence ledger with the post-release npm parity audit

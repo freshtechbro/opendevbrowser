@@ -1,6 +1,6 @@
 # v0.0.26 Release Evidence
 
-Status: active release ledger
+Status: historical release ledger
 Target release date: 2026-04-24
 Last updated: 2026-04-24
 

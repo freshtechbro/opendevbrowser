@@ -459,7 +459,7 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - **Parity gate** via `tests/parity-matrix.test.ts` (contract coverage for CLI/tool/runtime surface checks + mode coverage).
 - **Provider performance gate** via `tests/providers-performance-gate.test.ts` (deterministic fixture SLO checks).
 - **Strict live release gates** via `node scripts/provider-direct-runs.mjs --release-gate` and `node scripts/live-regression-direct.mjs --release-gate` (active live release proof layer).
-- **Release checklist** in `docs/RELEASE_RUNBOOK.md` with evidence tracking in the current version-scoped release ledger (for this cycle: `docs/RELEASE_0.0.26_EVIDENCE.md`).
+- **Release checklist** in `docs/RELEASE_RUNBOOK.md` with evidence tracking in the current version-scoped release ledger (for this cycle: `docs/RELEASE_0.0.27_EVIDENCE.md`).
 - **Benchmark fixture manifest** in `docs/benchmarks/provider-fixtures.md`.
 - **First-run onboarding checklist** in `docs/FIRST_RUN_ONBOARDING.md`.
 
