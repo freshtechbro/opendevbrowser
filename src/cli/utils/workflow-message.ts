@@ -65,7 +65,7 @@ const readFailures = (data: unknown): FailureShape[] => {
     : [];
 };
 
-const readFollowthroughSummary = (data: unknown): string | null => {
+export const readFollowthroughSummary = (data: unknown): string | null => {
   const record = asRecord(data);
   return readNonEmptyString(record?.followthroughSummary)
     ?? readNonEmptyString(readMeta(data)?.followthroughSummary);
@@ -122,6 +122,10 @@ export const readSuggestedStepReason = (data: unknown): string | null => {
   return null;
 };
 
+export const readWorkflowGuidanceNextStep = (data: unknown): string | null => (
+  readSuggestedNextAction(data) ?? readSuggestedStepCommand(data) ?? readSuggestedStepReason(data)
+);
+
 export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unknown): string => {
   const explicitSummary = readPrimarySummary(data);
   if (explicitSummary) {
@@ -141,7 +145,7 @@ export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unkn
   if (followthroughSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed. ${followthroughSummary}`,
-      readSuggestedNextAction(data) ?? readSuggestedStepCommand(data) ?? readSuggestedStepReason(data)
+      readWorkflowGuidanceNextStep(data)
     );
   }
   return `${workflowLabel} completed.`;

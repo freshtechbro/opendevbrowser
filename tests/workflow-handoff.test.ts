@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildInspiredesignSuccessHandoff,
   PRODUCT_VIDEO_BRIEF_HELPER_PATH,
   buildMacroResolveSuccessHandoff,
   buildProductVideoSuccessHandoff,
   buildResearchSuccessHandoff,
   buildShoppingSuccessHandoff
 } from "../src/providers/workflow-handoff";
+import {
+  buildCanvasCommandGuidance,
+  getCanvasRequiredNextCommands
+} from "../src/canvas/guidance";
+import { INSPIREDESIGN_HANDOFF_COMMANDS, INSPIREDESIGN_HANDOFF_GUIDANCE } from "../src/inspiredesign/handoff";
 
 describe("workflow handoff builders", () => {
   it("builds research rerun guidance with explicit source and timebox flags", () => {
@@ -85,5 +91,64 @@ describe("workflow handoff builders", () => {
     expect(handoff.suggestedNextAction).toContain("macro-resolve --expression");
     expect(handoff.suggestedSteps[1]?.command).toContain("macro-resolve --expression");
     expect(handoff.suggestedSteps[2]?.command).toContain("--challenge-automation-mode browser");
+  });
+
+  it("builds inspiredesign handoff steps from the shared workflow seam", () => {
+    const handoff = buildInspiredesignSuccessHandoff({
+      summary: "Read the generated artifacts before continuing.",
+      nextStep: "Continue in Canvas after loading skills.",
+      commandExamples: INSPIREDESIGN_HANDOFF_COMMANDS,
+      deepCaptureRecommendation: "Rerun only when reference evidence must be refreshed."
+    });
+
+    expect(handoff.followthroughSummary).toBe("Read the generated artifacts before continuing.");
+    expect(handoff.suggestedNextAction).toBe("Continue in Canvas after loading skills.");
+    expect(handoff.suggestedSteps).toEqual([
+      { reason: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
+      {
+        reason: "Load the baseline workflow runbook before implementation.",
+        command: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices
+      },
+      {
+        reason: "Load the Canvas contract lane before patching.",
+        command: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent
+      },
+      {
+        reason: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest,
+        command: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
+      },
+      { reason: "Rerun only when reference evidence must be refreshed." }
+    ]);
+  });
+
+  it.each([
+    ["missing", "canvas.plan.set", ["canvas.plan.set"]],
+    ["submitted", "canvas.document.patch", ["canvas.plan.set"]],
+    ["invalid", "canvas.document.patch", ["canvas.plan.set"]],
+    ["accepted", "canvas.document.patch", ["canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"]],
+    ["accepted", "canvas.session.open", ["canvas.document.patch", "canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"]]
+  ])("builds canvas guidance for %s plan status and %s", (planStatus, command, expectedCommands) => {
+    expect(buildCanvasCommandGuidance({
+      planStatus,
+      command: command as Parameters<typeof buildCanvasCommandGuidance>[0]["command"]
+    }).recommendedNextCommands).toEqual(expectedCommands);
+  });
+
+  it.each([
+    ["plan_required", ["canvas.plan.set"]],
+    ["generation_plan_invalid", ["canvas.plan.set", "canvas.plan.get"]],
+    ["revision_conflict", ["canvas.document.load"]],
+    ["policy_violation", ["canvas.plan.get", "canvas.document.load"]],
+    ["unsupported_target", ["canvas.session.status"]],
+    ["lease_reclaim_required", ["canvas.session.status"]]
+  ] as const)("returns canvas blocker commands for %s", (code, expectedCommands) => {
+    expect(getCanvasRequiredNextCommands(code)).toEqual(expectedCommands);
+  });
+
+  it("clones canvas guidance command arrays", () => {
+    const commands = getCanvasRequiredNextCommands("plan_required");
+    commands.push("canvas.document.patch");
+
+    expect(getCanvasRequiredNextCommands("plan_required")).toEqual(["canvas.plan.set"]);
   });
 });

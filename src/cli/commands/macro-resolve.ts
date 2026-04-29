@@ -3,6 +3,11 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
 import { parseNumberFlag } from "../utils/parse";
+import {
+  buildNextStepMessage,
+  readFollowthroughSummary,
+  readWorkflowGuidanceNextStep
+} from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 
 type MacroResolveArgs = {
@@ -37,39 +42,17 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   return value as Record<string, unknown>;
 };
 
-const readNonEmptyString = (value: unknown): string | null => (
-  typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : null
-);
-
 const hasExecutionBlocker = (result: unknown): boolean => {
   const execution = asRecord(asRecord(result)?.execution);
   const meta = asRecord(execution?.meta);
   return asRecord(meta?.blocker) !== null;
 };
 
-const readMacroResolveSummary = (result: unknown): string | null => (
-  readNonEmptyString(asRecord(result)?.followthroughSummary)
-);
-
-const readMacroResolveNextStep = (result: unknown): string | null => {
-  const record = asRecord(result);
-  const explicit = readNonEmptyString(record?.suggestedNextAction);
-  if (explicit) {
-    return explicit;
-  }
-  const [firstStep] = Array.isArray(record?.suggestedSteps)
-    ? record.suggestedSteps.filter((step): step is Record<string, unknown> => Boolean(step) && typeof step === "object")
-    : [];
-  return readNonEmptyString(firstStep?.command) ?? readNonEmptyString(firstStep?.reason);
-};
-
 const buildMacroResolveMessage = (execute: boolean, result: unknown): string => {
-  const summary = readMacroResolveSummary(result);
-  const nextStep = readMacroResolveNextStep(result);
+  const summary = readFollowthroughSummary(result);
+  const nextStep = readWorkflowGuidanceNextStep(result);
   if (summary) {
-    return nextStep ? `${summary} Next step: ${nextStep}` : summary;
+    return buildNextStepMessage(summary, nextStep);
   }
   if (!execute) {
     return "Macro resolved.";

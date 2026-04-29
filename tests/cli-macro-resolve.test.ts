@@ -131,6 +131,32 @@ describe("macro-resolve CLI command", () => {
     expect(executionMeta).not.toHaveProperty("blocker");
   });
 
+  it("uses the shared runnable next-step reader when explicit macro next action is absent", async () => {
+    callDaemon.mockResolvedValue({
+      runtime: "macros",
+      followthroughSummary: "Review the resolved macro before rerunning.",
+      suggestedSteps: [
+        {
+          command: "npx opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute <provider>",
+          reason: "Placeholder command should not be presented as the next step."
+        },
+        {
+          command: "npx opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --output-format json",
+          reason: "Runnable command should be used as the next step."
+        }
+      ],
+      resolution: { action: { source: "community", operation: "search", input: { query: "openai" } } }
+    });
+
+    const result = await runMacroResolve(makeArgs([
+      "--expression=@community.search(\"openai\")"
+    ]));
+
+    expect(result.message).toBe(
+      "Review the resolved macro before rerunning. Next step: npx opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --output-format json"
+    );
+  });
+
   it("buffers transport timeout above the workflow payload timeout", async () => {
     callDaemon.mockResolvedValue({
       runtime: "macros",

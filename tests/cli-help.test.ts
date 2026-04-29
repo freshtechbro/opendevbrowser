@@ -184,6 +184,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("docs/WORKFLOW_SURFACE_MAP.md");
     expect(output).toContain("src/tools/index.ts");
     expect(output).toContain("src/cli/help.ts");
+    expect(output).toContain("src/providers/workflow-handoff.ts");
     expect(output).toContain("src/inspiredesign/handoff.ts");
     expect(output).toContain("src/public-surface/generated-manifest.ts");
     expect(output).toContain(COMMAND_HELP_DETAILS.inspiredesign.examples[0]);

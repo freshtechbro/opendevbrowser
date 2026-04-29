@@ -23,6 +23,7 @@ import {
   buildInspiredesignNextStep
 } from "../src/inspiredesign/handoff";
 import { renderInspiredesign } from "../src/providers/renderer";
+import { buildInspiredesignSuccessHandoff } from "../src/providers/workflow-handoff";
 
 type InspiredesignEvidenceJson = {
   brief: string;
@@ -2157,6 +2158,12 @@ describe("inspiredesign packet + renderer", () => {
         expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[3]?.command).toBe(
           INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
         );
+        expect(rendered.response.suggestedSteps).toEqual(buildInspiredesignSuccessHandoff({
+          summary: packet.followthrough.summary,
+          nextStep: packet.followthrough.nextStep,
+          commandExamples: packet.followthrough.commandExamples,
+          deepCaptureRecommendation: packet.followthrough.deepCaptureRecommendation
+        }).suggestedSteps);
       } else if (mode === "json") {
         expect(rendered.response).toMatchObject({
           mode,

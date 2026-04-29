@@ -5,9 +5,11 @@ import {
 } from "../src/inspiredesign/handoff";
 import {
   buildWorkflowCompletionMessage,
+  readFollowthroughSummary,
   readSuggestedNextAction,
   readSuggestedStepCommand,
-  readSuggestedStepReason
+  readSuggestedStepReason,
+  readWorkflowGuidanceNextStep
 } from "../src/cli/utils/workflow-message";
 
 describe("workflow message helpers", () => {
@@ -120,5 +122,23 @@ describe("workflow message helpers", () => {
     expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
       "Product video workflow completed. Review the current pack, then rerun only if the assets are still too thin. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/3\" --provider-hint shopping/amazon --output-format json"
     );
+  });
+
+  it("exports follow-through summary reading from top-level and meta fields", () => {
+    expect(readFollowthroughSummary({ followthroughSummary: "Review artifacts." })).toBe("Review artifacts.");
+    expect(readFollowthroughSummary({
+      meta: {
+        followthroughSummary: "Review workflow metadata."
+      }
+    })).toBe("Review workflow metadata.");
+  });
+
+  it("exports shared next-step reading with placeholder command skipping", () => {
+    expect(readWorkflowGuidanceNextStep({
+      suggestedSteps: [
+        { reason: "Generate notes.", command: "./helper <pack>/manifest.json" },
+        { reason: "Rerun with concrete input.", command: "npx opendevbrowser research run --topic \"motion\" --output-format json" }
+      ]
+    })).toBe("npx opendevbrowser research run --topic \"motion\" --output-format json");
   });
 });

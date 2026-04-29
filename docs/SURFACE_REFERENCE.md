@@ -405,6 +405,7 @@ Extension runtime subset (internal relay helpers, not public agent commands):
 
 Behavior notes:
 - `canvas.session.open` creates a session and lease; `canvas.session.attach` joins an existing session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
+- Canvas guidance is centrally constructed with shared next-step advisory builders while preserving Canvas-native fields: `guidance.recommendedNextCommands`, `guidance.reason`, and blocker `requiredNextCommands`.
 - `canvas.session.open` and `canvas.capabilities.get` return the authoritative operator handshake, including `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `warningClasses`, `mutationPolicy.allowedBeforePlan`, and `guidance.recommendedNextCommands`.
 - `canvas.plan.set` is the mutation gate. On success it returns accepted state plus next-step guidance; on failure it throws `generation_plan_invalid` with `details.missingFields` and `details.issues`. `canvas.plan.get` remains useful for diagnostics after that failure or after attach, but it is not required on the success path.
 - `canvas.document.patch` supports governance completion through `governance.update` patch batches in addition to scene/node operations.

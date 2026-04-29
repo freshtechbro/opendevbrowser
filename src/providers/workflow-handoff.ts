@@ -1,3 +1,5 @@
+import { INSPIREDESIGN_HANDOFF_GUIDANCE } from "../inspiredesign/handoff";
+
 export type WorkflowSuccessStep = {
   reason: string;
   command?: string;
@@ -13,7 +15,7 @@ export const PRODUCT_VIDEO_BRIEF_HELPER_PATH = "./skills/opendevbrowser-product-
 
 const PRODUCT_VIDEO_BRIEF_HELPER_COMMAND = `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`;
 
-const createSuccessHandoff = (
+export const createSuccessHandoff = (
   followthroughSummary: string,
   suggestedNextAction: string,
   suggestedSteps: WorkflowSuccessStep[]
@@ -87,6 +89,17 @@ type MacroResolveHandoffInput = {
   defaultProvider?: string;
   execute: boolean;
   blocked: boolean;
+};
+
+type InspiredesignSuccessHandoffInput = {
+  summary: string;
+  nextStep: string;
+  commandExamples: {
+    loadBestPractices: string;
+    loadDesignAgent: string;
+    continueInCanvas: string;
+  };
+  deepCaptureRecommendation: string;
 };
 
 const buildMacroResolveArgs = (
@@ -206,3 +219,26 @@ export const buildMacroResolveSuccessHandoff = (input: MacroResolveHandoffInput)
     ]
   );
 };
+
+export const buildInspiredesignSuccessHandoff = (
+  input: InspiredesignSuccessHandoffInput
+): WorkflowSuccessHandoff => createSuccessHandoff(
+  input.summary,
+  input.nextStep,
+  [
+    { reason: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
+    {
+      reason: "Load the baseline workflow runbook before implementation.",
+      command: input.commandExamples.loadBestPractices
+    },
+    {
+      reason: "Load the Canvas contract lane before patching.",
+      command: input.commandExamples.loadDesignAgent
+    },
+    {
+      reason: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest,
+      command: input.commandExamples.continueInCanvas
+    },
+    { reason: input.deepCaptureRecommendation }
+  ]
+);

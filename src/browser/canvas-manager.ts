@@ -119,75 +119,14 @@ import { materializeFigmaAssets } from "../integrations/figma/assets";
 import { normalizeFigmaImportRequest } from "../integrations/figma/url";
 import { mapFigmaImportToCanvas } from "../integrations/figma/mappers";
 import { mapFigmaVariablesToTokenStore } from "../integrations/figma/variables";
+import {
+  buildCanvasCommandGuidance,
+  getCanvasRequiredNextCommands,
+  type CanvasGuidanceCommand,
+  type CanvasNextStepGuidance
+} from "../canvas/guidance";
 
 type CanvasCommandParams = Record<string, unknown>;
-
-type CanvasStepGuidance = {
-  recommendedNextCommands: string[];
-  reason: string;
-};
-
-type CanvasGuidanceCommand =
-  | "canvas.session.open"
-  | "canvas.capabilities.get"
-  | "canvas.plan.set"
-  | "canvas.plan.get"
-  | "canvas.document.load"
-  | "canvas.document.patch"
-  | "canvas.preview.render"
-  | "canvas.preview.refresh"
-  | "canvas.feedback.poll"
-  | "canvas.document.save"
-  | "canvas.document.export";
-
-const PREPLAN_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.plan.set"],
-  reason: "Handshake is complete. Submit a complete generationPlan before mutation."
-};
-
-const INVALID_PLAN_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.plan.set"],
-  reason: "generationPlan is invalid. Submit a supported plan before mutation."
-};
-
-const PLAN_ACCEPTED_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.document.patch", "canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"],
-  reason: "generationPlan is accepted. Patch the document, render the preview, inspect feedback, and save when the iteration is stable."
-};
-
-const PATCH_APPLIED_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"],
-  reason: "The patch is applied. Render the preview, review feedback, and save when the surface is ready."
-};
-
-const PREVIEW_READY_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.feedback.poll", "canvas.document.patch", "canvas.document.save"],
-  reason: "Preview output is available. Poll feedback, patch again if needed, and save when the runtime matches the contract."
-};
-
-const FEEDBACK_LOOP_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.document.patch", "canvas.preview.render", "canvas.document.save"],
-  reason: "Feedback is available. Patch the document to address issues, rerender, and save when blockers are cleared."
-};
-
-const PERSISTED_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.document.export", "canvas.session.status", "canvas.document.patch"],
-  reason: "The document is persisted. Export deliverables, inspect session state, or keep iterating with another patch."
-};
-
-const EXPORTED_CANVAS_GUIDANCE: CanvasStepGuidance = {
-  recommendedNextCommands: ["canvas.session.status", "canvas.document.patch"],
-  reason: "Artifacts are exported. Inspect session state or continue patching if another iteration is required."
-};
-
-const CANVAS_GUIDANCE_BY_COMMAND: Partial<Record<CanvasGuidanceCommand, CanvasStepGuidance>> = {
-  "canvas.document.patch": PATCH_APPLIED_CANVAS_GUIDANCE,
-  "canvas.preview.render": PREVIEW_READY_CANVAS_GUIDANCE,
-  "canvas.preview.refresh": PREVIEW_READY_CANVAS_GUIDANCE,
-  "canvas.feedback.poll": FEEDBACK_LOOP_CANVAS_GUIDANCE,
-  "canvas.document.save": PERSISTED_CANVAS_GUIDANCE,
-  "canvas.document.export": EXPORTED_CANVAS_GUIDANCE
-};
 
 export const PUBLIC_CANVAS_COMMANDS = [
   "canvas.session.open",
@@ -2451,15 +2390,11 @@ export class CanvasManager implements CanvasManagerLike {
     };
   }
 
-  private buildCanvasGuidance(session: CanvasSession, command: CanvasGuidanceCommand): CanvasStepGuidance {
-    if (session.planStatus === "invalid") {
-      return cloneCanvasGuidance(INVALID_PLAN_CANVAS_GUIDANCE);
-    }
-    if (session.planStatus !== "accepted") {
-      return cloneCanvasGuidance(PREPLAN_CANVAS_GUIDANCE);
-    }
-    const guidance = CANVAS_GUIDANCE_BY_COMMAND[command] ?? PLAN_ACCEPTED_CANVAS_GUIDANCE;
-    return cloneCanvasGuidance(guidance);
+  private buildCanvasGuidance(session: CanvasSession, command: CanvasGuidanceCommand): CanvasNextStepGuidance {
+    return buildCanvasCommandGuidance({
+      planStatus: session.planStatus,
+      command
+    });
   }
 
   private buildSessionSummary(session: CanvasSession): CanvasSessionSummary {
@@ -2719,7 +2654,7 @@ export class CanvasManager implements CanvasManagerLike {
     const blocker: CanvasBlocker = {
       code: "plan_required",
       blockingCommand: command,
-      requiredNextCommands: ["canvas.plan.set"],
+      requiredNextCommands: getCanvasRequiredNextCommands("plan_required"),
       latestRevision: session.store.getRevision(),
       message: "generationPlan must be accepted before mutation."
     };
@@ -2735,7 +2670,7 @@ export class CanvasManager implements CanvasManagerLike {
     const blocker: CanvasBlocker = {
       code: "generation_plan_invalid",
       blockingCommand: command,
-      requiredNextCommands: ["canvas.plan.set", "canvas.plan.get"],
+      requiredNextCommands: getCanvasRequiredNextCommands("generation_plan_invalid"),
       latestRevision: session.store.getRevision(),
       message: this.describeGenerationPlanFailure(missingFields, issues)
     };
@@ -2754,7 +2689,7 @@ export class CanvasManager implements CanvasManagerLike {
     const blocker: CanvasBlocker = {
       code: "revision_conflict",
       blockingCommand: command,
-      requiredNextCommands: ["canvas.document.load"],
+      requiredNextCommands: getCanvasRequiredNextCommands("revision_conflict"),
       latestRevision: session.store.getRevision(),
       message: "The canvas document revision changed before this patch batch was applied."
     };
@@ -2770,7 +2705,7 @@ export class CanvasManager implements CanvasManagerLike {
     const blocker: CanvasBlocker = {
       code: "policy_violation",
       blockingCommand: command,
-      requiredNextCommands: ["canvas.plan.get", "canvas.document.load"],
+      requiredNextCommands: getCanvasRequiredNextCommands("policy_violation"),
       latestRevision: session.store.getRevision(),
       message: `Required save governance blocks are missing: ${missingBlocks.join(", ")}.`
     };
@@ -2789,7 +2724,7 @@ export class CanvasManager implements CanvasManagerLike {
     const blocker: CanvasBlocker = {
       code: "unsupported_target",
       blockingCommand: command,
-      requiredNextCommands: ["canvas.session.status"],
+      requiredNextCommands: getCanvasRequiredNextCommands("unsupported_target"),
       latestRevision: session.store.getRevision(),
       message: `Canvas target is unavailable: ${targetId}.`
     };
@@ -2807,7 +2742,7 @@ export class CanvasManager implements CanvasManagerLike {
     const blocker: CanvasBlocker = {
       code: "lease_reclaim_required",
       blockingCommand: "canvas.session.status",
-      requiredNextCommands: ["canvas.session.status"],
+      requiredNextCommands: getCanvasRequiredNextCommands("lease_reclaim_required"),
       latestRevision: session.store.getRevision(),
       message: "The canvas lease was reclaimed or replaced."
     };
@@ -2874,14 +2809,14 @@ export class CanvasManager implements CanvasManagerLike {
       ? {
         code: "generation_plan_invalid",
         blockingCommand: "canvas.feedback.poll",
-        requiredNextCommands: ["canvas.plan.set", "canvas.plan.get"],
+        requiredNextCommands: getCanvasRequiredNextCommands("generation_plan_invalid"),
         latestRevision: session.store.getRevision(),
         message: this.describeGenerationPlanFailure([], session.planIssues)
       } satisfies CanvasBlocker
       : {
         code: "plan_required",
         blockingCommand: "canvas.feedback.poll",
-        requiredNextCommands: ["canvas.plan.set"],
+        requiredNextCommands: getCanvasRequiredNextCommands("plan_required"),
         latestRevision: session.store.getRevision(),
         message: "generationPlan must be accepted before the live design loop is ready."
       } satisfies CanvasBlocker;
@@ -4957,11 +4892,4 @@ function isAlreadyClosedCanvasTargetError(error: unknown): boolean {
 function attachDetails(error: Error, details: Record<string, unknown>): Error {
   Object.assign(error, details);
   return error;
-}
-
-function cloneCanvasGuidance(guidance: CanvasStepGuidance): CanvasStepGuidance {
-  return {
-    recommendedNextCommands: [...guidance.recommendedNextCommands],
-    reason: guidance.reason
-  };
 }

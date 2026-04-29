@@ -192,6 +192,7 @@ describe("cli help parity", () => {
     expect(labels).toContain("opendevbrowser help");
     expect(labels).toContain("src/cli/help.ts");
     expect(labels).toContain("src/cli/onboarding-metadata.json");
+    expect(labels).toContain("src/providers/workflow-handoff.ts");
     expect(labels).toContain("src/inspiredesign/handoff.ts");
     expect(labels).toContain("src/public-surface/generated-manifest.ts");
     expect(labels).toContain("docs/WORKFLOW_SURFACE_MAP.md");

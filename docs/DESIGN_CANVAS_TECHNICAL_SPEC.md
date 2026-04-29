@@ -73,6 +73,9 @@ Use this runtime-backed sequence when an agent needs next-step guidance instead 
 6. `canvas.feedback.poll`
 7. `canvas.document.save` or `canvas.document.export`
 
+Canvas guidance is centrally constructed with shared next-step advisory builders, but the public Canvas response stays Canvas-shaped:
+`guidance.recommendedNextCommands`, `guidance.reason`, and blocker `requiredNextCommands`.
+
 `canvas.plan.get` and `canvas.capabilities.get` remain useful when an invalid plan response needs to be re-read after failure or attach, but they are not required after a successful `canvas.plan.set`.
 
 ## Plan-state semantics

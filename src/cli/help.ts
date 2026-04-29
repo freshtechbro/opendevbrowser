@@ -345,6 +345,7 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
 
 export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "src/cli/onboarding-metadata.json", description: "Canonical first-contact onboarding metadata shared by help, nudges, and proof lanes." },
+  { label: "src/providers/workflow-handoff.ts", description: "Central next-step advisory builders for workflow follow-through." },
   { label: "src/inspiredesign/handoff.ts", description: "Shared inspiredesign follow-through commands, artifact names, and Canvas continuation guidance." },
   { label: "src/public-surface/source.ts", description: "Authoritative command, usage, flag, and tool surface metadata." },
   { label: "src/public-surface/generated-manifest.ts", description: "Checked-in generated public-surface snapshot consumed by help and parity tests." },
