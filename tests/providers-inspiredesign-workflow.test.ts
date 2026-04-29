@@ -13,6 +13,10 @@ import type {
   InspiredesignBriefFormat
 } from "../src/inspiredesign/brief-expansion";
 import type { InspiredesignCaptureEvidence } from "../src/inspiredesign/contract";
+import {
+  INSPIREDESIGN_ARTIFACT_GUIDE,
+  INSPIREDESIGN_CONTRACT_SECTION_GUIDE
+} from "../src/inspiredesign/handoff";
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type {
   JsonValue,
@@ -99,6 +103,13 @@ type InspiredesignWorkflowEvidence = {
   }>;
 };
 
+type InspiredesignWorkflowGuide = Record<string, {
+  purpose: string;
+  expectedContents: string[];
+  howToUse: string[];
+  mustNot: string[];
+}>;
+
 type InspiredesignWorkflowContext = {
   advancedBriefMarkdown: string;
   urls: string[];
@@ -119,6 +130,8 @@ type InspiredesignWorkflowContext = {
     };
   };
   designAgentHandoff: {
+    artifactGuide: InspiredesignWorkflowGuide;
+    contractSectionGuide: InspiredesignWorkflowGuide;
     briefExpansion: {
       templateVersion: string;
       file: string;
@@ -358,6 +371,20 @@ describe("inspiredesign workflow", () => {
     expect(context.canvasPlanRequest.generationPlan.targetOutcome.summary).toContain("Atelier Luma Studio");
     expect(context.canvasPlanRequest.generationPlan.contentStrategy.source).toContain("limestone hero");
     expect(context.canvasPlanRequest.generationPlan.componentStrategy.mode).toContain("brass CTA rail");
+    expect(context.designAgentHandoff.artifactGuide).toEqual(INSPIREDESIGN_ARTIFACT_GUIDE);
+    expect(context.designAgentHandoff.contractSectionGuide).toEqual(INSPIREDESIGN_CONTRACT_SECTION_GUIDE);
+    expect(context.designAgentHandoff.artifactGuide["design-agent-handoff.json"]?.purpose).toContain(
+      "Downstream index"
+    );
+    expect(context.designAgentHandoff.artifactGuide["canvas-plan.request.json"]?.mustNot).toEqual(
+      expect.arrayContaining([expect.stringContaining("handoff-only fields")])
+    );
+    expect(context.designAgentHandoff.contractSectionGuide.generationPlan?.purpose).toContain(
+      "Mutation-safe subset"
+    );
+    expect(context.designAgentHandoff.contractSectionGuide.motionSystem?.mustNot).toEqual(
+      expect.arrayContaining([expect.stringContaining("runtime libraries")])
+    );
     expect(context.designAgentHandoff.implementationContext.referenceSynthesis.cues[0]).toContain("staggered project index");
     expect(context.advancedBriefMarkdown.indexOf("Reference pattern board:")).toBe(0);
     expect(context.advancedBriefMarkdown.indexOf("Atelier Luma Studio")).toBeLessThan(
@@ -430,6 +457,14 @@ describe("inspiredesign workflow", () => {
       readFileSync(join(artifactPath, "evidence.json"), "utf8")
     ) as InspiredesignWorkflowEvidence;
 
+    expect(handoff.artifactGuide).toEqual(INSPIREDESIGN_ARTIFACT_GUIDE);
+    expect(handoff.contractSectionGuide).toEqual(INSPIREDESIGN_CONTRACT_SECTION_GUIDE);
+    expect(handoff.artifactGuide["design-agent-handoff.json"]?.expectedContents).toEqual(
+      expect.arrayContaining(["artifact and section guides"])
+    );
+    expect(handoff.contractSectionGuide.generationPlan?.mustNot).toEqual(
+      expect.arrayContaining([expect.stringContaining("handoff-only guide fields")])
+    );
     expect(generationPlan.referencePatternBoard).toEqual(evidence.referencePatternBoard);
     expect(generationPlan.designVectors).toEqual(evidence.designVectors);
     expect(generationPlan.designVectors?.advancedMotionAdvisory).toEqual(
@@ -437,6 +472,8 @@ describe("inspiredesign workflow", () => {
     );
     expect(generationPlan.interactionMoments).toEqual(evidence.designVectors?.interactionMoments);
     expect(generationPlan.materialEffects).toEqual(evidence.designVectors?.materialEffects);
+    expect(JSON.stringify(canvasRequest)).not.toContain("artifactGuide");
+    expect(JSON.stringify(canvasRequest)).not.toContain("contractSectionGuide");
     expect("referencePatternBoard" in canvasRequest.generationPlan).toBe(false);
     expect("advancedMotionAdvisory" in canvasRequest.generationPlan).toBe(false);
     expect(canvasRequest.generationPlan.interactionMoments).toEqual(evidence.designVectors?.interactionMoments);

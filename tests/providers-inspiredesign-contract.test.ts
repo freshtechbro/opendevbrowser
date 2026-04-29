@@ -13,6 +13,8 @@ import {
 } from "../src/inspiredesign/contract";
 import { validateGenerationPlan } from "../src/canvas/document-store";
 import {
+  INSPIREDESIGN_ARTIFACT_GUIDE,
+  INSPIREDESIGN_CONTRACT_SECTION_GUIDE,
   INSPIREDESIGN_HANDOFF_COMMANDS,
   INSPIREDESIGN_HANDOFF_FILES,
   INSPIREDESIGN_HANDOFF_GUIDANCE,
@@ -210,6 +212,34 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.followthrough).toMatchObject({
       summary: buildInspiredesignFollowthroughSummary(),
       nextStep: buildInspiredesignNextStep(),
+      artifactGuide: {
+        "advanced-brief.md": expect.objectContaining({
+          purpose: expect.stringContaining("reference-first brief"),
+          expectedContents: expect.arrayContaining(["Selected prompt format"]),
+          howToUse: expect.arrayContaining(["Read first"]),
+          mustNot: expect.arrayContaining([expect.stringContaining("captured references")])
+        }),
+        "canvas-plan.request.json": expect.objectContaining({
+          howToUse: expect.arrayContaining([expect.stringContaining("canvas.plan.set")]),
+          mustNot: expect.arrayContaining([expect.stringContaining("handoff-only fields")])
+        }),
+        "design-agent-handoff.json": expect.objectContaining({
+          expectedContents: expect.arrayContaining(["artifact and section guides"])
+        })
+      },
+      contractSectionGuide: {
+        generationPlan: expect.objectContaining({
+          purpose: expect.stringContaining("Mutation-safe subset"),
+          mustNot: expect.arrayContaining([expect.stringContaining("handoff-only guide fields")])
+        }),
+        motionSystem: expect.objectContaining({
+          howToUse: expect.arrayContaining([expect.stringContaining("shader")]),
+          mustNot: expect.arrayContaining([expect.stringContaining("runtime libraries")])
+        }),
+        navigationModel: expect.objectContaining({
+          mustNot: expect.arrayContaining([expect.stringContaining("Canvas governance")])
+        })
+      },
       briefExpansion: {
         templateVersion: "inspiredesign-advanced-brief.v1",
         file: "advanced-brief.md",
@@ -243,6 +273,8 @@ describe("inspiredesign packet + renderer", () => {
         performanceModel: expect.any(Object)
       })
     });
+    expect(packet.followthrough.artifactGuide).toEqual(INSPIREDESIGN_ARTIFACT_GUIDE);
+    expect(packet.followthrough.contractSectionGuide).toEqual(INSPIREDESIGN_CONTRACT_SECTION_GUIDE);
     expect(packet.prototypeGuidanceMarkdown).toBeNull();
     expect(packet.advancedBriefMarkdown).toContain("Selected prompt format:");
     expect(packet.designMarkdown).toContain("No live inspiration source was provided. The system is derived entirely from the brief.");

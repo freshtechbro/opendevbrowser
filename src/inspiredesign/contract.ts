@@ -8,12 +8,16 @@ import type {
   CanvasVisualDirectionProfile
 } from "../canvas/types";
 import {
+  INSPIREDESIGN_ARTIFACT_GUIDE,
+  INSPIREDESIGN_CONTRACT_SECTION_GUIDE,
   INSPIREDESIGN_HANDOFF_COMMANDS,
   INSPIREDESIGN_HANDOFF_GUIDANCE,
   INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS,
   INSPIREDESIGN_HANDOFF_FILES,
   buildInspiredesignFollowthroughSummary,
-  buildInspiredesignNextStep
+  buildInspiredesignNextStep,
+  type InspiredesignArtifactGuide,
+  type InspiredesignContractSectionGuide
 } from "./handoff";
 import {
   INSPIREDESIGN_BRIEF_COMMON_RULES,
@@ -349,6 +353,8 @@ export type InspiredesignImplementationContext = {
 export type InspiredesignFollowthrough = {
   summary: string;
   nextStep: string;
+  artifactGuide: InspiredesignArtifactGuide;
+  contractSectionGuide: InspiredesignContractSectionGuide;
   briefExpansion: {
     templateVersion: string;
     file: string;
@@ -1148,6 +1154,8 @@ const buildFollowthrough = ({
 }: BuildFollowthroughInput): InspiredesignFollowthrough => ({
   summary: buildInspiredesignFollowthroughSummary(),
   nextStep: buildInspiredesignNextStep(),
+  artifactGuide: INSPIREDESIGN_ARTIFACT_GUIDE,
+  contractSectionGuide: INSPIREDESIGN_CONTRACT_SECTION_GUIDE,
   briefExpansion: buildBriefExpansionMetadata(briefExpansion),
   recommendedSkills: [...INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS],
   commandExamples: { ...INSPIREDESIGN_HANDOFF_COMMANDS },
