@@ -36,7 +36,7 @@ Required top-level areas:
 
 Canvas design contracts may record shader-like, WebGL-style, Spline-style, or spatial motion ideas as advisory cues in `generationPlan.designVectors` and `motionSystem`. Those cues describe desired hierarchy, timing, depth, or transition intent only.
 
-Advisory motion cues do not add runtime support, authorize new dependencies, or change the accepted `CanvasGenerationPlan` field set. `libraryPolicy.motion` and `libraryPolicy.threeD` stay empty unless a separate runtime implementation explicitly approves those lanes. The default canvas projection must still be implementable with the currently approved primitives.
+Advisory motion cues do not add runtime support, authorize new dependencies, or change the accepted `CanvasGenerationPlan` field set. `libraryPolicy.motion` and `libraryPolicy.threeD` stay empty unless a separate runtime implementation explicitly approves those lanes. Canvas mutation and save/export validation reject non-empty `libraryPolicy.motion` or `libraryPolicy.threeD` runtime authorizations. The default canvas projection must still be implementable with the currently approved primitives.
 
 ## Public canvas command families
 

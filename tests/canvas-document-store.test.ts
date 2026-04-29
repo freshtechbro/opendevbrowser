@@ -34,6 +34,29 @@ const validPlan = {
   }
 };
 
+function createFullyGovernedDocument(documentId: string): CanvasDocument {
+  const document = createDefaultCanvasDocument(documentId);
+  Object.assign(document.designGovernance, {
+    generationPlan: structuredClone(validPlan),
+    intent: { summary: "Governed document" },
+    designLanguage: { profile: "clean-room" },
+    contentModel: { requiredStates: ["default", "loading", "empty", "error"] },
+    layoutSystem: { grid: { columns: 12 } },
+    typographySystem: { hierarchy: { display: "display-01" }, fontPolicy: "Local Sans" },
+    colorSystem: { roles: { primary: "#0055ff" } },
+    surfaceSystem: { panels: { elevation: "medium" } },
+    iconSystem: { primary: "tabler" },
+    motionSystem: { reducedMotion: "respect-user-preference" },
+    responsiveSystem: { breakpoints: { mobile: 390, tablet: 1024, desktop: 1440 } },
+    accessibilityPolicy: { reducedMotion: "respect-user-preference" },
+    libraryPolicy: structuredClone(CANVAS_PROJECT_DEFAULTS.libraryPolicy),
+    runtimeBudgets: structuredClone(CANVAS_PROJECT_DEFAULTS.runtimeBudgets)
+  });
+  document.viewports = [{ id: "desktop" }, { id: "tablet" }, { id: "mobile" }] as CanvasDocument["viewports"];
+  document.themes = [{ id: "light" }] as CanvasDocument["themes"];
+  return document;
+}
+
 describe("canvas document store", () => {
   it("validates generation plan completeness", () => {
     expect(validateGenerationPlan(validPlan)).toMatchObject({
@@ -83,7 +106,11 @@ describe("canvas document store", () => {
       designVectors: {
         surfaceIntent: "reference-led public landing page",
         motionPosture: ["Staggered editorial reveal"],
-        advancedMotionAdvisory: ["Advisory shader-style gradients"]
+        advancedMotionAdvisory: [
+          "Advisory shader-style gradients",
+          "Advisory WebGL-style particle field",
+          "Advisory Spline-style scene depth"
+        ]
       }
     })).toMatchObject({
       ok: true,
@@ -93,7 +120,11 @@ describe("canvas document store", () => {
         designVectors: {
           surfaceIntent: "reference-led public landing page",
           motionPosture: ["Staggered editorial reveal"],
-          advancedMotionAdvisory: ["Advisory shader-style gradients"]
+          advancedMotionAdvisory: [
+            "Advisory shader-style gradients",
+            "Advisory WebGL-style particle field",
+            "Advisory Spline-style scene depth"
+          ]
         }
       }
     });
@@ -3543,6 +3574,70 @@ describe("canvas document store", () => {
     expect(store.getDocumentId()).toBe("dc_reloaded");
     expect(store.getRevision()).toBe(1);
     expect(store.getDocument().designGovernance.generationPlan).toEqual(validPlan);
+  });
+
+  it("allows advisory advanced motion metadata while blocking unsupported runtime lanes", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_advanced_motion_policy"));
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    store.applyPatches(2, [{
+      op: "governance.update",
+      block: "motionSystem",
+      changes: {
+        advancedMotionAdvisory: [
+          "Advisory shader-style gradients",
+          "Advisory WebGL-style particle field",
+          "Advisory Spline-style scene depth"
+        ]
+      }
+    }]);
+
+    expect(store.getDocument().designGovernance.motionSystem).toMatchObject({
+      advancedMotionAdvisory: [
+        "Advisory shader-style gradients",
+        "Advisory WebGL-style particle field",
+        "Advisory Spline-style scene depth"
+      ]
+    });
+
+    expect(() => store.applyPatches(3, [{
+      op: "governance.update",
+      block: "libraryPolicy",
+      changes: { motion: ["framer-motion"] }
+    }])).toThrow("libraryPolicy.motion must stay empty");
+    expect(store.getRevision()).toBe(3);
+
+    expect(() => store.applyPatches(3, [{
+      op: "governance.update",
+      block: "libraryPolicy",
+      changes: { threeD: ["spline"] }
+    }])).toThrow("libraryPolicy.threeD must stay empty");
+    expect(store.getRevision()).toBe(3);
+  });
+
+  it("blocks save validation for persisted unsupported advanced motion runtime lanes", () => {
+    const document = createFullyGovernedDocument("dc_advanced_motion_runtime_violation");
+    document.designGovernance.libraryPolicy = {
+      ...structuredClone(CANVAS_PROJECT_DEFAULTS.libraryPolicy),
+      motion: ["framer-motion"]
+    };
+
+    expect(buildGovernanceBlockStates(document).libraryPolicy.status).toBe("invalid");
+    expect(missingRequiredSaveBlocks(document)).toContain("libraryPolicy");
+
+    const validation = validateCanvasSave(document);
+    expect(validation.missingBlocks).toContain("libraryPolicy");
+    expect(validation.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "library-policy-violation",
+        details: {
+          runtimeLaneViolations: [{
+            category: "motion",
+            entries: ["framer-motion"]
+          }]
+        }
+      })
+    ]));
   });
 
 });

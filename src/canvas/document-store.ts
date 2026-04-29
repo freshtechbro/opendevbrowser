@@ -106,6 +106,10 @@ const APPROVED_LIBRARY_ENTRIES: Record<keyof CanvasLibraryPolicy, ReadonlySet<st
   threeD: new Set(PROJECT_DEFAULT_LIBRARY_POLICY.threeD)
 };
 
+const UNSUPPORTED_RUNTIME_LIBRARY_POLICY_KEYS = ["motion", "threeD"] as const;
+
+type UnsupportedRuntimeLibraryPolicyKey = typeof UNSUPPORTED_RUNTIME_LIBRARY_POLICY_KEYS[number];
+
 const PROJECT_DEFAULT_RUNTIME_BUDGETS = {
   defaultLivePreviewLimit: 2,
   maxPinnedFullPreviewExtra: 1,
@@ -1797,6 +1801,8 @@ export function buildGovernanceBlockStates(document: CanvasDocument): Record<Can
     if (isNonEmptyRecord(block)) {
       if (key === "generationPlan") {
         status = assessGenerationPlan(block).status === "invalid" ? "invalid" : "present";
+      } else if (key === "libraryPolicy" && hasUnsupportedRuntimeLanePolicy(document)) {
+        status = "invalid";
       } else {
         const inheritedDefault = OPTIONAL_INHERITED_KEYS.has(key) ? inheritedDefaultForGovernanceKey(key) : null;
         status = inheritedDefault && stableStringify(block) === stableStringify(inheritedDefault)
@@ -1909,7 +1915,13 @@ export function evaluateCanvasWarnings(
     warnings.push(buildWarning("responsive-mismatch", "Viewport coverage is incomplete for desktop, tablet, and mobile previews.", { auditId: "CANVAS-02" }));
   }
   if (hasDisallowedLibrary(document)) {
-    warnings.push(buildWarning("library-policy-violation", "Library policy references a non-approved canvas library.", { auditId: "CANVAS-04", severity: "error" }));
+    const runtimeLaneViolations = runtimeLanePolicyViolations(resolveCanvasLibraryPolicy(document));
+    const details = runtimeLaneViolations.length > 0 ? { runtimeLaneViolations } : undefined;
+    warnings.push(buildWarning("library-policy-violation", "Library policy references a non-approved canvas library.", {
+      auditId: "CANVAS-04",
+      severity: "error",
+      ...(details ? { details } : {})
+    }));
   }
   if (hasIconPolicyViolation(document)) {
     warnings.push(buildWarning("icon-policy-violation", "Icon policy references a non-approved icon family.", { auditId: "CANVAS-04", severity: "error" }));
@@ -1971,9 +1983,12 @@ export function evaluateCanvasWarnings(
 
 export function missingRequiredSaveBlocks(document: CanvasDocument): CanvasGovernanceBlockKey[] {
   const states = buildGovernanceBlockStates(document);
-  return REQUIRED_BEFORE_SAVE_KEYS.filter((key) => key === "generationPlan"
-    ? states[key].status === "missing" || states[key].status === "invalid"
-    : states[key].status === "missing");
+  return REQUIRED_BEFORE_SAVE_KEYS.filter((key) => {
+    if (key === "generationPlan" || key === "libraryPolicy") {
+      return states[key].status === "missing" || states[key].status === "invalid";
+    }
+    return states[key].status === "missing";
+  });
 }
 
 export function validateCanvasSave(document: CanvasDocument): {
@@ -2024,6 +2039,27 @@ function hasDisallowedLibrary(document: CanvasDocument): boolean {
   const policy = resolveCanvasLibraryPolicy(document);
   return (Object.entries(policy) as Array<[keyof CanvasLibraryPolicy, string[]]>)
     .some(([category, entries]) => entries.some((entry) => !APPROVED_LIBRARY_ENTRIES[category].has(entry)));
+}
+
+function runtimeLanePolicyViolations(
+  policy: CanvasLibraryPolicy
+): Array<{ category: UnsupportedRuntimeLibraryPolicyKey; entries: string[] }> {
+  return UNSUPPORTED_RUNTIME_LIBRARY_POLICY_KEYS
+    .map((category) => ({ category, entries: policy[category] }))
+    .filter((violation) => violation.entries.length > 0);
+}
+
+function hasUnsupportedRuntimeLanePolicy(document: CanvasDocument): boolean {
+  return runtimeLanePolicyViolations(resolveCanvasLibraryPolicy(document)).length > 0;
+}
+
+function assertNoUnsupportedRuntimeLanePolicy(document: CanvasDocument): void {
+  const violations = runtimeLanePolicyViolations(resolveCanvasLibraryPolicy(document));
+  if (violations.length === 0) {
+    return;
+  }
+  const paths = violations.map(({ category }) => `libraryPolicy.${category}`).join(", ");
+  throw new Error(`${paths} must stay empty. Put shader, WebGL, Spline, and advanced motion cues in motionSystem or generationPlan.designVectors as advisory metadata only.`);
 }
 
 function hasIconPolicyViolation(document: CanvasDocument): boolean {
@@ -2437,6 +2473,7 @@ export class CanvasDocumentStore {
 
   private replaceDocument(document: CanvasDocument, revision: number, origin: string): void {
     const nextDocument = normalizeCanvasDocument(document);
+    assertNoUnsupportedRuntimeLanePolicy(nextDocument);
     nextDocument.updatedAt = nowIso();
     this.ydoc.transact(() => {
       clearYMap(this.root);
