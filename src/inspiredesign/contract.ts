@@ -2,6 +2,8 @@ import { createHash } from "crypto";
 import generationPlanTemplateJson from "../../skills/opendevbrowser-design-agent/assets/templates/canvas-generation-plan.design.v1.json";
 import designContractTemplateJson from "../../skills/opendevbrowser-design-agent/assets/templates/design-contract.v1.json";
 import type {
+  CanvasAsset,
+  CanvasComponentInventoryItem,
   CanvasDesignGovernance,
   CanvasGenerationPlan,
   CanvasNavigationModel,
@@ -317,6 +319,7 @@ export type InspiredesignImplementationPlan = {
 type InspiredesignGenerationPlan = CanvasGenerationPlan & {
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
+  targetAnalysis: InspiredesignTargetAnalysis;
   interactionMoments: string[];
   materialEffects: string[];
 };
@@ -348,6 +351,64 @@ export type InspiredesignImplementationContext = {
   referenceSynthesis: JsonRecord;
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
+  targetAnalysis: InspiredesignTargetAnalysis;
+};
+
+type InspiredesignTargetKind = "page" | "component" | "asset";
+
+type InspiredesignEvidenceBuckets = {
+  anatomy: string[];
+  propsSlots: string[];
+  stateMatrix: string[];
+  tokens: string[];
+  assets: string[];
+  accessibility: string[];
+  motion: string[];
+  previewFixtures: string[];
+};
+
+type InspiredesignComponentInventoryEvidence = Pick<
+  CanvasComponentInventoryItem,
+  "id" | "name" | "componentName" | "description" | "sourceFamily" | "origin"
+> & {
+  variants: CanvasComponentInventoryItem["variants"];
+  props: CanvasComponentInventoryItem["props"];
+  slots: CanvasComponentInventoryItem["slots"];
+  events: CanvasComponentInventoryItem["events"];
+  content: CanvasComponentInventoryItem["content"];
+  metadata: JsonRecord;
+};
+
+type InspiredesignAssetEvidence = Pick<
+  CanvasAsset,
+  "id" | "sourceType" | "kind" | "url" | "status"
+> & {
+  provenanceNotes: string[];
+  usageNotes: string[];
+  metadata: JsonRecord;
+};
+
+type InspiredesignTargetAnalysis = {
+  primaryKind: InspiredesignTargetKind;
+  kinds: InspiredesignTargetKind[];
+  confidence: number;
+  triggeringSignals: string[];
+  evidenceBuckets: InspiredesignEvidenceBuckets;
+  page?: {
+    canvasType: "CanvasPage";
+    assemblyFocus: string[];
+    implementationNotes: string[];
+  };
+  component?: {
+    canvasType: "CanvasComponentInventoryItem";
+    inventoryItems: InspiredesignComponentInventoryEvidence[];
+    prototypeGuidance: string[];
+  };
+  asset?: {
+    canvasType: "CanvasAsset";
+    assets: InspiredesignAssetEvidence[];
+    prototypeGuidance: string[];
+  };
 };
 
 export type InspiredesignFollowthrough = {
@@ -806,12 +867,340 @@ const buildEvidenceDerivedFormat = (
   };
 };
 
+const TARGET_KIND_ORDER: InspiredesignTargetKind[] = ["page", "component", "asset"];
+
+type TargetSignalBucket = {
+  intent: string[];
+  supporting: string[];
+  incidental: string[];
+};
+
+type TargetEligibility = {
+  kind: InspiredesignTargetKind;
+  eligible: boolean;
+  confidence: number;
+  triggeringSignals: string[];
+};
+
+type TargetDecisionReason =
+  | "no_non_page_gate"
+  | "non_page_did_not_beat_page"
+  | "page_first_brief_target"
+  | "page_tie_break"
+  | "non_page_selected";
+
+type TargetDecision = {
+  primaryKind: InspiredesignTargetKind;
+  reason: TargetDecisionReason;
+};
+
+const TARGET_CONFIDENCE = {
+  defaultPage: 0.55,
+  pageIntentStep: 0.05,
+  nonPageBase: 0.55,
+  intentStep: 0.08,
+  supportingStep: 0.05,
+  maxPage: 0.7,
+  maxNonPage: 0.95
+} as const;
+
+const TARGET_SIGNAL_PROFILES: Record<InspiredesignTargetKind, TargetSignalBucket> = {
+  page: {
+    intent: ["page", "landing page", "website", "homepage", "dashboard", "workspace", "screen", "flow", "surface", "microsite"],
+    supporting: ["section", "sections", "navigation", "footer", "hero section", "conversion flow"],
+    incidental: ["card", "cards", "button", "buttons", "image", "images", "media", "hero", "cta", "background"]
+  },
+  component: {
+    intent: ["component", "component family", "reusable component", "component prototype", "hero component", "card component", "storybook"],
+    supporting: ["prop", "props", "slot", "slots", "variant", "variants", "state matrix", "hover", "focus", "disabled", "loading", "error", "fixture", "fixtures", "arg", "args"],
+    incidental: ["card", "cards", "button", "buttons", "form", "modal", "drawer", "navbar", "hero", "input", "tabs", "cta"]
+  },
+  asset: {
+    intent: ["asset", "asset pack", "visual asset", "icon pack", "logo pack", "illustration set", "artwork set"],
+    supporting: ["responsive variant", "responsive variants", "responsive artwork", "provenance", "usage rules", "alt text", "replacement rules", "tokenized usage", "source asset", "source assets"],
+    incidental: ["icon", "icons", "illustration", "illustrations", "logo", "logos", "media", "image", "images", "background", "texture", "sprite", "artwork"]
+  }
+};
+
+const buildTargetCorpus = (
+  brief: string,
+  references: InspiredesignReferenceEvidence[],
+  synthesis: InspiredesignReferenceSynthesis
+): string => [
+  brief,
+  synthesis.lines.join(" "),
+  ...references
+    .filter(hasInspiredesignUsableReferenceEvidence)
+    .flatMap((reference) => getInspiredesignReferenceSignals(reference))
+].join(" ").toLowerCase();
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const matchesTargetSignal = (corpus: string, signal: string): boolean => {
+  const pattern = escapeRegex(signal.toLowerCase()).replace(/\s+/g, "\\s+");
+  return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`).test(corpus);
+};
+
+const findTargetSignalIndex = (corpus: string, signal: string): number | null => {
+  const pattern = escapeRegex(signal.toLowerCase()).replace(/\s+/g, "\\s+");
+  return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`).exec(corpus)?.index ?? null;
+};
+
+const findFirstBriefTargetKind = (brief: string): InspiredesignTargetKind | null => {
+  const corpus = brief.toLowerCase();
+  const hits = TARGET_KIND_ORDER.flatMap((kind) => (
+    TARGET_SIGNAL_PROFILES[kind].intent
+      .map((signal) => findTargetSignalIndex(corpus, signal))
+      .filter((index): index is number => index !== null)
+      .map((index) => ({ kind, index }))
+  ));
+  return hits.sort((left, right) => left.index - right.index)[0]?.kind ?? null;
+};
+
+const collectTargetSignals = (corpus: string): Record<InspiredesignTargetKind, TargetSignalBucket> => {
+  const collect = (kind: InspiredesignTargetKind): TargetSignalBucket => {
+    const profile = TARGET_SIGNAL_PROFILES[kind];
+    return {
+      intent: profile.intent.filter((signal) => matchesTargetSignal(corpus, signal)),
+      supporting: profile.supporting.filter((signal) => matchesTargetSignal(corpus, signal)),
+      incidental: profile.incidental.filter((signal) => matchesTargetSignal(corpus, signal))
+    };
+  };
+  return {
+    page: collect("page"),
+    component: collect("component"),
+    asset: collect("asset")
+  };
+};
+
+const clampTargetConfidence = (value: number, max: number): number => Math.min(max, Number(value.toFixed(2)));
+
+const buildPageConfidence = (signals: TargetSignalBucket): number => {
+  return clampTargetConfidence(
+    TARGET_CONFIDENCE.defaultPage + (signals.intent.length * TARGET_CONFIDENCE.pageIntentStep),
+    TARGET_CONFIDENCE.maxPage
+  );
+};
+
+const buildTargetEligibility = (
+  kind: InspiredesignTargetKind,
+  briefSignals: TargetSignalBucket,
+  supportSignals: TargetSignalBucket
+): TargetEligibility => {
+  const eligible = briefSignals.intent.length > 0 && supportSignals.supporting.length > 0;
+  const confidence = eligible
+    ? clampTargetConfidence(
+      TARGET_CONFIDENCE.nonPageBase
+        + (briefSignals.intent.length * TARGET_CONFIDENCE.intentStep)
+        + (supportSignals.supporting.length * TARGET_CONFIDENCE.supportingStep),
+      TARGET_CONFIDENCE.maxNonPage
+    )
+    : 0;
+  return {
+    kind,
+    eligible,
+    confidence,
+    triggeringSignals: [
+      ...briefSignals.intent.map((signal) => `${kind} intent: ${signal}`),
+      ...supportSignals.supporting.map((signal) => `${kind} support: ${signal}`)
+    ]
+  };
+};
+
+const choosePrimaryTargetKind = (
+  pageConfidence: number,
+  pageSignals: TargetSignalBucket,
+  firstBriefTargetKind: InspiredesignTargetKind | null,
+  component: TargetEligibility,
+  asset: TargetEligibility
+): TargetDecision => {
+  const eligibleTargets = [component, asset].filter((target) => target.eligible);
+  if (eligibleTargets.length === 0) return { primaryKind: "page", reason: "no_non_page_gate" };
+  if (firstBriefTargetKind === "page" && pageSignals.intent.length > 0) {
+    return { primaryKind: "page", reason: "page_first_brief_target" };
+  }
+  const [first, second] = eligibleTargets.sort((left, right) => right.confidence - left.confidence);
+  if (!first || first.confidence <= pageConfidence) {
+    return { primaryKind: "page", reason: "non_page_did_not_beat_page" };
+  }
+  if (second && first.confidence === second.confidence && pageSignals.intent.length > 0) {
+    return { primaryKind: "page", reason: "page_tie_break" };
+  }
+  return { primaryKind: first.kind, reason: "non_page_selected" };
+};
+
+const chooseTargetKinds = (
+  primaryKind: InspiredesignTargetKind,
+  component: TargetEligibility,
+  asset: TargetEligibility
+): InspiredesignTargetKind[] => {
+  if (primaryKind === "page") return ["page"];
+  const eligible = new Set([component, asset].filter((target) => target.eligible).map((target) => target.kind));
+  const secondaryKinds = TARGET_KIND_ORDER.filter((kind) => kind !== primaryKind && eligible.has(kind));
+  return [primaryKind, ...secondaryKinds];
+};
+
+const buildTriggeringSignals = (
+  decision: TargetDecision,
+  signals: Record<InspiredesignTargetKind, TargetSignalBucket>,
+  component: TargetEligibility,
+  asset: TargetEligibility
+): string[] => {
+  const pageSignals = signals.page.intent.map((signal) => `page intent: ${signal}`);
+  const eligibleTargets = [component, asset].filter((target) => target.eligible);
+  const targetIntents = eligibleTargets
+    .flatMap((target) => target.triggeringSignals.filter((signal) => signal.includes(" intent: ")));
+  const targetSupport = eligibleTargets
+    .flatMap((target) => target.triggeringSignals.filter((signal) => signal.includes(" support: ")));
+  const defaultSignal = decision.primaryKind === "page" ? [buildPageDecisionSignal(decision.reason)] : [];
+  return [...pageSignals, ...targetIntents, ...targetSupport, ...defaultSignal].slice(0, 12);
+};
+
+const buildPageDecisionSignal = (reason: TargetDecisionReason): string => {
+  if (reason === "no_non_page_gate") return "page default: non-page targets did not clear brief intent plus support gates";
+  if (reason === "non_page_did_not_beat_page") return "page default: non-page targets did not beat page confidence";
+  if (reason === "page_first_brief_target") return "page default: page was the first explicit target in the brief";
+  if (reason === "page_tie_break") return "page default: page intent won a tied non-page confidence score";
+  return "page default: page selected";
+};
+
+const getTargetConfidence = (
+  primaryKind: InspiredesignTargetKind,
+  pageConfidence: number,
+  component: TargetEligibility,
+  asset: TargetEligibility
+): number => {
+  if (primaryKind === "component") return component.confidence;
+  if (primaryKind === "asset") return asset.confidence;
+  return pageConfidence;
+};
+
+const buildTargetEvidenceBuckets = (
+  primaryKind: InspiredesignTargetKind,
+  format: InspiredesignBriefFormat,
+  designVectors: InspiredesignDesignVectors
+): InspiredesignEvidenceBuckets => ({
+  anatomy: [`Map ${primaryKind} anatomy before styling: root, content hierarchy, interaction zones, and supporting regions.`],
+  propsSlots: [`Define props/slots from ${format.componentGrammar}; separate data props, content slots, and visual variant controls.`],
+  stateMatrix: ["Cover default, hover, focus, active, disabled, loading, empty, error, success, and selected where relevant."],
+  tokens: [`Resolve typography, color, spacing, radius, shadow, motion, and z-index through semantic tokens for ${format.paletteIntent}.`],
+  assets: [`Inventory source assets, derived assets, usage rights, responsive variants, and replacement notes for ${primaryKind} prototypes.`],
+  accessibility: ["Validate keyboard order, visible focus, accessible names, ARIA pattern fit, contrast, and WCAG 2.2 states."],
+  motion: [`Use ${format.motionGrammar}; include reduced-motion alternatives for ${designVectors.motionPosture.join(" ") || "all transitions"}.`],
+  previewFixtures: [`Build isolated preview fixtures for ${primaryKind} default, responsive, reduced-motion, and failure states.`]
+});
+
+const buildComponentTargetAnalysis = (
+  briefHash: string,
+  format: InspiredesignBriefFormat
+): InspiredesignTargetAnalysis["component"] => ({
+  canvasType: "CanvasComponentInventoryItem",
+  inventoryItems: [{
+    id: `component_${briefHash}`,
+    name: `${format.label} Component`,
+    componentName: `${format.route.profile.replace(/-/g, "")}PrototypeComponent`,
+    description: `Reusable component prototype derived from ${format.componentGrammar}.`,
+    sourceFamily: "framework_component",
+    origin: "code_sync",
+    variants: [{
+      id: "default",
+      name: "Default",
+      selector: { interaction: "default" },
+      description: "Default preview fixture.",
+      metadata: {}
+    }],
+    props: [
+      { name: "variant", type: "string", required: false, description: "Visual variant key.", metadata: {} },
+      { name: "state", type: "string", required: false, description: "Interaction state fixture.", metadata: {} }
+    ],
+    slots: [
+      { name: "media", description: "Optional visual or icon slot.", allowedKinds: ["asset", "image", "icon"], metadata: {} },
+      { name: "content", description: "Primary text or rich content slot.", allowedKinds: ["text", "rich-text"], metadata: {} }
+    ],
+    events: [{ name: "onPrimaryAction", description: "Primary interaction callback.", payloadShape: {}, metadata: {} }],
+    content: { acceptsText: true, acceptsRichText: true, slotNames: ["media", "content"], metadata: {} },
+    metadata: { targetKind: "component" }
+  }],
+  prototypeGuidance: [
+    "Component prototype target: document anatomy, props/slots, variant rules, and interaction state fixtures before page composition.",
+    "Use Storybook-style args and interaction checks when converting this guidance into executable component previews."
+  ]
+});
+
+const buildAssetTargetAnalysis = (briefHash: string): InspiredesignTargetAnalysis["asset"] => ({
+  canvasType: "CanvasAsset",
+  assets: [{
+    id: `asset_${briefHash}`,
+    sourceType: "page-derived",
+    kind: "visual-asset",
+    url: null,
+    status: "needs-production-source",
+    provenanceNotes: ["Derived from brief/reference evidence; recreate rather than copy proprietary source assets."],
+    usageNotes: ["Define responsive variants, token usage, alt text, and replacement rules before implementation."],
+    metadata: { targetKind: "asset" }
+  }],
+  prototypeGuidance: [
+    "Asset prototype target: catalog provenance, variants, token usage, responsive behavior, and replacement rules.",
+    "Pair each visual asset with preview fixtures for default, high contrast, and reduced-motion contexts when relevant."
+  ]
+});
+
+const buildPageTargetAnalysis = (
+  format: InspiredesignBriefFormat,
+  designVectors: InspiredesignDesignVectors
+): InspiredesignTargetAnalysis["page"] => ({
+  canvasType: "CanvasPage",
+  assemblyFocus: [
+    format.layoutArchetype,
+    ...designVectors.sectionArchitecture
+  ],
+  implementationNotes: [
+    "Page prototype target: validate section order, navigation model, CTA visibility, responsive collapse, and reduced-motion behavior.",
+    "Use component primitives before page-specific wrappers."
+  ]
+});
+
+const buildTargetAnalysis = (
+  brief: string,
+  format: InspiredesignBriefFormat,
+  references: InspiredesignReferenceEvidence[],
+  synthesis: InspiredesignReferenceSynthesis,
+  designVectors: InspiredesignDesignVectors
+): InspiredesignTargetAnalysis => {
+  const briefSignals = collectTargetSignals(brief.toLowerCase());
+  const supportSignals = collectTargetSignals(buildTargetCorpus(brief, references, synthesis));
+  const pageConfidence = buildPageConfidence(briefSignals.page);
+  const component = buildTargetEligibility("component", briefSignals.component, supportSignals.component);
+  const asset = buildTargetEligibility("asset", briefSignals.asset, supportSignals.asset);
+  const decision = choosePrimaryTargetKind(
+    pageConfidence,
+    briefSignals.page,
+    findFirstBriefTargetKind(brief),
+    component,
+    asset
+  );
+  const primaryKind = decision.primaryKind;
+  const kinds = chooseTargetKinds(primaryKind, component, asset);
+  const briefHash = referenceFingerprint(brief);
+  return {
+    primaryKind,
+    kinds,
+    confidence: getTargetConfidence(primaryKind, pageConfidence, component, asset),
+    triggeringSignals: buildTriggeringSignals(decision, briefSignals, component, asset),
+    evidenceBuckets: buildTargetEvidenceBuckets(primaryKind, format, designVectors),
+    ...(kinds.includes("page") ? { page: buildPageTargetAnalysis(format, designVectors) } : {}),
+    ...(kinds.includes("component") ? { component: buildComponentTargetAnalysis(briefHash, format) } : {}),
+    ...(kinds.includes("asset") ? { asset: buildAssetTargetAnalysis(briefHash) } : {})
+  };
+};
+
 type BuildGenerationPlanInput = {
   brief: string;
   format: InspiredesignBriefFormat;
   synthesis: InspiredesignReferenceSynthesis;
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
+  targetAnalysis: InspiredesignTargetAnalysis;
 };
 
 const buildGenerationPlan = ({
@@ -819,7 +1208,8 @@ const buildGenerationPlan = ({
   format,
   synthesis,
   referencePatternBoard,
-  designVectors
+  designVectors,
+  targetAnalysis
 }: BuildGenerationPlanInput): InspiredesignGenerationPlan => {
   const plan = cloneTemplate(BASE_GENERATION_PLAN);
   const profile = format.route.profile;
@@ -848,6 +1238,7 @@ const buildGenerationPlan = ({
     ...plan,
     referencePatternBoard,
     designVectors,
+    targetAnalysis,
     interactionMoments: [...designVectors.interactionMoments],
     materialEffects: [...designVectors.materialEffects]
   };
@@ -1142,6 +1533,7 @@ type BuildFollowthroughInput = {
   includePrototypeGuidance: boolean;
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
+  targetAnalysis: InspiredesignTargetAnalysis;
 };
 
 const buildFollowthrough = ({
@@ -1150,7 +1542,8 @@ const buildFollowthrough = ({
   synthesis,
   includePrototypeGuidance,
   referencePatternBoard,
-  designVectors
+  designVectors,
+  targetAnalysis
 }: BuildFollowthroughInput): InspiredesignFollowthrough => ({
   summary: buildInspiredesignFollowthroughSummary(),
   nextStep: buildInspiredesignNextStep(),
@@ -1170,7 +1563,8 @@ const buildFollowthrough = ({
       cues: synthesis.lines
     },
     referencePatternBoard,
-    designVectors
+    designVectors,
+    targetAnalysis
   }
 });
 
@@ -1546,10 +1940,37 @@ const renderImplementationMarkdown = (implementationPlan: InspiredesignImplement
   ].join("\n");
 };
 
+const renderTargetAnalysisGuidance = (targetAnalysis: InspiredesignTargetAnalysis): string => {
+  const targetGuidance = [
+    ...(targetAnalysis.page?.implementationNotes ?? []),
+    ...(targetAnalysis.component?.prototypeGuidance ?? []),
+    ...(targetAnalysis.asset?.prototypeGuidance ?? [])
+  ];
+  return [
+    "## 6.3 Target Analysis",
+    formatBulletList([
+      `primary target: ${targetAnalysis.primaryKind}`,
+      `target kinds: ${targetAnalysis.kinds.join(", ")}`,
+      `confidence: ${targetAnalysis.confidence.toFixed(2)}`,
+      `triggering signals: ${targetAnalysis.triggeringSignals.join("; ")}`,
+      ...targetGuidance,
+      `anatomy: ${targetAnalysis.evidenceBuckets.anatomy.join(" ")}`,
+      `props/slots: ${targetAnalysis.evidenceBuckets.propsSlots.join(" ")}`,
+      `state matrix: ${targetAnalysis.evidenceBuckets.stateMatrix.join(" ")}`,
+      `tokens: ${targetAnalysis.evidenceBuckets.tokens.join(" ")}`,
+      `assets: ${targetAnalysis.evidenceBuckets.assets.join(" ")}`,
+      `accessibility: ${targetAnalysis.evidenceBuckets.accessibility.join(" ")}`,
+      `motion: ${targetAnalysis.evidenceBuckets.motion.join(" ")}`,
+      `preview fixtures: ${targetAnalysis.evidenceBuckets.previewFixtures.join(" ")}`
+    ])
+  ].join("\n");
+};
+
 const renderPrototypeGuidance = (
   profile: CanvasVisualDirectionProfile,
   synthesis: InspiredesignReferenceSynthesis,
-  designVectors: InspiredesignDesignVectors
+  designVectors: InspiredesignDesignVectors,
+  targetAnalysis: InspiredesignTargetAnalysis
 ): string => {
   return [
     "# 6. Optional Prototype Plan",
@@ -1566,6 +1987,9 @@ const renderPrototypeGuidance = (
     `- motion expectations: ${designVectors.motionPosture.join(" ")}`,
     `- material and depth expectations: ${designVectors.materialEffects.join(" ")}`,
     `- advisory advanced motion: ${designVectors.advancedMotionAdvisory.join(" ")}`,
+    "",
+    renderTargetAnalysisGuidance(targetAnalysis),
+    "",
     "- browser proof: capture desktop and mobile browser screenshots, verify reduced-motion behavior, inspect focus states, and confirm the primary CTA remains visible without overlap.",
     "- HTML skeleton guidance: start with one main landmark, one primary CTA group, and semantic sections that follow the design vector section architecture instead of fixed industry-specific defaults.",
     "- styling approach: define CSS variables for timing, easing, elevation, translucency, backdrop blur, cursor effects, hover effects, and parallax distance before mapping components to semantic tokens.",
@@ -1597,6 +2021,7 @@ type BuildEvidencePayloadInput = {
   references: InspiredesignReferenceEvidence[];
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
+  targetAnalysis: InspiredesignTargetAnalysis;
 };
 
 const buildEvidencePayload = ({
@@ -1606,7 +2031,8 @@ const buildEvidencePayload = ({
   urls,
   references,
   referencePatternBoard,
-  designVectors
+  designVectors,
+  targetAnalysis
 }: BuildEvidencePayloadInput): JsonRecord => ({
   brief,
   briefHash: referenceFingerprint(brief),
@@ -1620,7 +2046,8 @@ const buildEvidencePayload = ({
   referenceCount: references.length,
   references: references.map((reference) => toReferenceEvidenceJson(reference)),
   referencePatternBoard: referencePatternBoard as JsonRecord,
-  designVectors: designVectors as JsonRecord
+  designVectors: designVectors as JsonRecord,
+  targetAnalysis: targetAnalysis as JsonRecord
 });
 
 const toCaptureEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonValue => {
@@ -1665,6 +2092,13 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   );
   const designVectors = buildInspiredesignDesignVectors(selectedFormat, referencePatternBoard);
   const effectiveFormat = buildEvidenceDerivedFormat(selectedFormat, designVectors);
+  const targetAnalysis = buildTargetAnalysis(
+    brief,
+    effectiveFormat,
+    references,
+    synthesis,
+    designVectors
+  );
   const effectiveBriefExpansion: InspiredesignBriefExpansion = {
     ...input.briefExpansion,
     advancedBrief: isReferenceFirstPublicLanding(designVectors)
@@ -1683,7 +2117,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     format: effectiveFormat,
     synthesis,
     referencePatternBoard,
-    designVectors
+    designVectors,
+    targetAnalysis
   });
   const profile = generationPlan.visualDirection.profile;
   const canvasPlanRequest = buildCanvasPlanRequest(brief, generationPlan);
@@ -1700,7 +2135,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     synthesis,
     includePrototypeGuidance,
     referencePatternBoard,
-    designVectors
+    designVectors,
+    targetAnalysis
   });
   const implementationPlan = buildImplementationPlan({
     profile,
@@ -1712,7 +2148,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan, effectiveFormat);
   const implementationPlanMarkdown = renderImplementationMarkdown(implementationPlan);
   const prototypeGuidanceMarkdown = includePrototypeGuidance
-    ? renderPrototypeGuidance(profile, synthesis, designVectors)
+    ? renderPrototypeGuidance(profile, synthesis, designVectors, targetAnalysis)
     : null;
   const designMarkdown = [
     "# 1. Executive Summary",
@@ -1799,7 +2235,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       urls,
       references,
       referencePatternBoard,
-      designVectors
+      designVectors,
+      targetAnalysis
     })
   };
 };

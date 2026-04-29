@@ -78,11 +78,90 @@ type InspiredesignEvidenceJson = {
     patternsToBorrow: string[];
     patternsToReject: string[];
   };
+  targetAnalysis?: InspiredesignTargetAnalysisJson;
+};
+
+type InspiredesignTargetKind = "page" | "component" | "asset";
+
+type InspiredesignTargetAnalysisJson = {
+  primaryKind: InspiredesignTargetKind;
+  kinds: InspiredesignTargetKind[];
+  confidence: number;
+  triggeringSignals: string[];
+  evidenceBuckets: {
+    anatomy: string[];
+    propsSlots: string[];
+    stateMatrix: string[];
+    tokens: string[];
+    assets: string[];
+    accessibility: string[];
+    motion: string[];
+    previewFixtures: string[];
+  };
+  page?: {
+    canvasType: "CanvasPage";
+    assemblyFocus: string[];
+  };
+  component?: {
+    canvasType: "CanvasComponentInventoryItem";
+    inventoryItems: Array<{
+      name: string;
+      props: Array<{ name: string; type: string }>;
+      slots: Array<{ name: string; allowedKinds: string[] }>;
+      events: Array<{ name: string }>;
+      content: { acceptsText: boolean; acceptsRichText: boolean; slotNames: string[] };
+    }>;
+  };
+  asset?: {
+    canvasType: "CanvasAsset";
+    assets: Array<{
+      id: string;
+      sourceType: string;
+      kind: string;
+      usageNotes: string[];
+    }>;
+  };
 };
 
 type PlanMotionMaterialFields = {
   interactionMoments?: string[];
   materialEffects?: string[];
+};
+
+type HandoffTargetAnalysisFields = {
+  implementationContext: {
+    targetAnalysis?: InspiredesignTargetAnalysisJson;
+  };
+};
+
+type GenerationTargetAnalysisFields = {
+  targetAnalysis?: InspiredesignTargetAnalysisJson;
+};
+
+type CanvasTargetAnalysisLeakFields = {
+  targetAnalysis?: InspiredesignTargetAnalysisJson;
+  prototypeScope?: string;
+  sourceArtifacts?: string[];
+  artifactGuide?: string;
+  contractSectionGuide?: string;
+};
+
+const FORBIDDEN_CANVAS_PLAN_KEYS = new Set([
+  "targetAnalysis",
+  "confidence",
+  "triggeringSignals",
+  "prototypeScope",
+  "sourceArtifacts",
+  "artifactGuide",
+  "contractSectionGuide"
+]);
+
+const hasForbiddenCanvasPlanKey = (value: JsonValue): boolean => {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some((item) => hasForbiddenCanvasPlanKey(item));
+  return Object.entries(value).some(([key, nested]) => (
+    FORBIDDEN_CANVAS_PLAN_KEYS.has(key) || hasForbiddenCanvasPlanKey(nested)
+  ));
 };
 
 const makeReference = (
@@ -666,6 +745,8 @@ describe("inspiredesign packet + renderer", () => {
         }
       }
     });
+    expect(packet.followthrough.artifactGuide).toEqual(INSPIREDESIGN_ARTIFACT_GUIDE);
+    expect(packet.followthrough.contractSectionGuide).toEqual(INSPIREDESIGN_CONTRACT_SECTION_GUIDE);
   });
 
   it("keeps blocked diagnostic references out of creative synthesis", () => {
@@ -703,6 +784,344 @@ describe("inspiredesign packet + renderer", () => {
       "URL reference evidence is the creative source of truth when references are supplied."
     );
     expect(packet.advancedBriefMarkdown).not.toContain("admin dashboard analytics");
+  });
+
+  it("classifies page, component, and asset prototype targets without changing the Canvas request shape", () => {
+    const cases: Array<{
+      brief: string;
+      expectedKind: InspiredesignTargetKind;
+      expectedKinds: InspiredesignTargetKind[];
+      expectedText: string;
+      expectedGuidance: string;
+    }> = [
+      {
+        brief: "Design a premium documentation landing page with a homepage hero and section flow.",
+        expectedKind: "page",
+        expectedKinds: ["page"],
+        expectedText: "CanvasPage",
+        expectedGuidance: "Page prototype target"
+      },
+      {
+        brief: "Prototype a reusable pricing card component family with badge slots, CTA props, hover focus disabled loading and error states.",
+        expectedKind: "component",
+        expectedKinds: ["component"],
+        expectedText: "CanvasComponentInventoryItem",
+        expectedGuidance: "Component prototype target"
+      },
+      {
+        brief: "Create a logo icon visual asset pack with responsive artwork variants and tokenized usage rules.",
+        expectedKind: "asset",
+        expectedKinds: ["asset"],
+        expectedText: "CanvasAsset",
+        expectedGuidance: "Asset prototype target"
+      }
+    ];
+
+    for (const item of cases) {
+      const packet = buildInspiredesignPacket({
+        brief: item.brief,
+        briefExpansion: makeBriefExpansion({ sourceBrief: item.brief }),
+        urls: [],
+        includePrototypeGuidance: true,
+        references: []
+      });
+      const evidence = packet.evidence as InspiredesignEvidenceJson;
+      const generationPlan = packet.generationPlan as GenerationTargetAnalysisFields;
+      const handoff = packet.followthrough as HandoffTargetAnalysisFields;
+      const canvasPlan = packet.canvasPlanRequest.generationPlan as CanvasTargetAnalysisLeakFields;
+
+      expect(evidence.targetAnalysis).toMatchObject({
+        primaryKind: item.expectedKind,
+        kinds: item.expectedKinds
+      });
+      expect(evidence.targetAnalysis?.confidence).toBeGreaterThan(0);
+      expect(evidence.targetAnalysis?.triggeringSignals.length).toBeGreaterThan(0);
+      expect(generationPlan.targetAnalysis).toEqual(evidence.targetAnalysis);
+      expect(handoff.implementationContext.targetAnalysis).toEqual(evidence.targetAnalysis);
+      expect(JSON.stringify(evidence.targetAnalysis)).toContain(item.expectedText);
+      expect(evidence.targetAnalysis?.evidenceBuckets).toMatchObject({
+        anatomy: expect.arrayContaining([expect.any(String)]),
+        propsSlots: expect.arrayContaining([expect.any(String)]),
+        stateMatrix: expect.arrayContaining([expect.any(String)]),
+        tokens: expect.arrayContaining([expect.any(String)]),
+        assets: expect.arrayContaining([expect.any(String)]),
+        accessibility: expect.arrayContaining([expect.any(String)]),
+        motion: expect.arrayContaining([expect.any(String)]),
+        previewFixtures: expect.arrayContaining([expect.any(String)])
+      });
+      expect(packet.prototypeGuidanceMarkdown).toContain(item.expectedGuidance);
+      expect(packet.prototypeGuidanceMarkdown).toContain("props/slots");
+      expect(canvasPlan.targetAnalysis).toBeUndefined();
+      expect(canvasPlan.prototypeScope).toBeUndefined();
+      expect(canvasPlan.sourceArtifacts).toBeUndefined();
+      expect(canvasPlan.artifactGuide).toBeUndefined();
+      expect(canvasPlan.contractSectionGuide).toBeUndefined();
+      expect("advancedMotionAdvisory" in packet.canvasPlanRequest.generationPlan).toBe(false);
+      expect(hasForbiddenCanvasPlanKey(packet.canvasPlanRequest as JsonValue)).toBe(false);
+    }
+  });
+
+  it("keeps landing pages with incidental card button image media words classified as page", () => {
+    const brief = "Design a landing page with hero media, image-backed cards, CTA buttons, and a section flow.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: ["https://example.com/reference"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "reference",
+          url: "https://example.com/reference",
+          title: "Reference landing page",
+          excerpt: "Hero image, media panels, cards, buttons, and background artwork inside a page flow.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: { content: "Hero, CTA buttons, image cards, media rows, footer.", refCount: 6, warnings: [] },
+            clone: null,
+            dom: null,
+            screenshot: null,
+            diagnostics: { blocker: null, warnings: [] }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const canvasPlan = packet.canvasPlanRequest.generationPlan as CanvasTargetAnalysisLeakFields;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.component).toBeUndefined();
+    expect(evidence.targetAnalysis?.asset).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toContain(
+      "page default: non-page targets did not clear brief intent plus support gates"
+    );
+    expect(packet.prototypeGuidanceMarkdown).toContain("Page prototype target");
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Component prototype target");
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Asset prototype target");
+    expect(canvasPlan.targetAnalysis).toBeUndefined();
+    expect(hasForbiddenCanvasPlanKey(packet.canvasPlanRequest as JsonValue)).toBe(false);
+  });
+
+  it("keeps landing pages with incidental icon logo artwork words classified as page", () => {
+    const brief = "Design a landing page with logo placement, icon rows, background artwork, and image-led sections.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: [],
+      includePrototypeGuidance: true,
+      references: []
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.asset).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toContain(
+      "page default: non-page targets did not clear brief intent plus support gates"
+    );
+    expect(packet.prototypeGuidanceMarkdown).toContain("Page prototype target");
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Asset prototype target");
+    expect(hasForbiddenCanvasPlanKey(packet.canvasPlanRequest as JsonValue)).toBe(false);
+  });
+
+  it("requires non-page brief intent instead of reference-only component language", () => {
+    const brief = "Design a polished landing page for a premium checkout experience.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: ["https://example.com/storybook-reference"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "storybook-reference",
+          url: "https://example.com/storybook-reference",
+          title: "Storybook component props slots variants",
+          excerpt: "Reusable component family with props, slots, variants, hover focus disabled loading and error states.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Component prototype anatomy with props slots variants states fixtures.",
+              refCount: 8,
+              warnings: []
+            },
+            clone: null,
+            dom: null,
+            screenshot: null,
+            diagnostics: { blocker: null, warnings: [] }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.component).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toContain(
+      "page default: non-page targets did not clear brief intent plus support gates"
+    );
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Component prototype target");
+  });
+
+  it("keeps component intent without usable support classified as page", () => {
+    const brief = "Prototype a reusable component for a checkout card.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: ["https://example.com/failed-reference"],
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "failed-reference",
+          url: "https://example.com/failed-reference",
+          title: "Component props slots variants states",
+          excerpt: "Failed page mentions hover focus disabled loading error fixtures.",
+          fetchStatus: "failed",
+          captureStatus: "failed",
+          fetchFailure: "network_error",
+          captureFailure: "capture_failed",
+          capture: null
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.component).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toContain(
+      "page default: non-page targets did not clear brief intent plus support gates"
+    );
+  });
+
+  it("keeps asset intent without usable support classified as page", () => {
+    const brief = "Create a logo asset pack.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: [],
+      includePrototypeGuidance: true,
+      references: []
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.asset).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toContain(
+      "page default: non-page targets did not clear brief intent plus support gates"
+    );
+    expect(hasForbiddenCanvasPlanKey(packet.canvasPlanRequest as JsonValue)).toBe(false);
+  });
+
+  it("keeps support-only non-page language classified as page", () => {
+    const cases = [
+      "Design variants with hover focus disabled loading fixtures and state matrix coverage.",
+      "Design responsive variants with provenance, alt text, usage rules, and replacement rules."
+    ];
+
+    for (const brief of cases) {
+      const packet = buildInspiredesignPacket({
+        brief,
+        briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+        urls: [],
+        includePrototypeGuidance: true,
+        references: []
+      });
+      const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+      expect(evidence.targetAnalysis).toMatchObject({
+        primaryKind: "page",
+        kinds: ["page"]
+      });
+      expect(evidence.targetAnalysis?.component).toBeUndefined();
+      expect(evidence.targetAnalysis?.asset).toBeUndefined();
+    }
+  });
+
+  it("keeps an explicit hero component target despite page preview fixture wording", () => {
+    const brief = "Prototype a reusable hero component with props, slots, variants, states, and page preview fixtures.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: [],
+      includePrototypeGuidance: true,
+      references: []
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "component",
+      kinds: ["component"],
+      component: { canvasType: "CanvasComponentInventoryItem" }
+    });
+    expect(evidence.targetAnalysis?.asset).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("component intent"),
+        expect.stringContaining("component support")
+      ])
+    );
+    expect(packet.prototypeGuidanceMarkdown).toContain("Component prototype target");
+  });
+
+  it("keeps page-first briefs classified as page even with component detail words", () => {
+    const brief = "Design a landing page with a reusable hero component, variants, hover focus states, and preview fixtures.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: [],
+      includePrototypeGuidance: true,
+      references: []
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.component).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toContain(
+      "page default: page was the first explicit target in the brief"
+    );
+    expect(packet.prototypeGuidanceMarkdown).toContain("Page prototype target");
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Component prototype target");
+  });
+
+  it("emits mixed component and asset details only when both targets clear evidence gates", () => {
+    const brief = "Prototype a reusable checkout card component with price props, badge slot, media slot, hover focus disabled loading and error states plus an asset pack with responsive variants and usage rules.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: [],
+      includePrototypeGuidance: true,
+      references: []
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const canvasPlan = packet.canvasPlanRequest.generationPlan as CanvasTargetAnalysisLeakFields;
+
+    expect(evidence.targetAnalysis?.kinds).toEqual(["component", "asset"]);
+    expect(evidence.targetAnalysis?.component?.canvasType).toBe("CanvasComponentInventoryItem");
+    expect(evidence.targetAnalysis?.asset?.canvasType).toBe("CanvasAsset");
+    expect(evidence.targetAnalysis?.triggeringSignals).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("component intent"),
+        expect.stringContaining("asset intent")
+      ])
+    );
+    expect(packet.prototypeGuidanceMarkdown).toContain("Component prototype target");
+    expect(packet.prototypeGuidanceMarkdown).toContain("Asset prototype target");
+    expect(canvasPlan.targetAnalysis).toBeUndefined();
   });
 
   it("turns landing-page vectors into rich section and motion guidance", () => {

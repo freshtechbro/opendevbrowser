@@ -72,6 +72,7 @@ type InspiredesignWorkflowEvidence = {
     templateVersion: string;
     format: InspiredesignBriefFormat;
   };
+  targetAnalysis?: InspiredesignWorkflowTargetAnalysis;
   referencePatternBoard?: {
     references: Array<{
       id: string;
@@ -103,6 +104,43 @@ type InspiredesignWorkflowEvidence = {
   }>;
 };
 
+type InspiredesignWorkflowTargetAnalysis = {
+  primaryKind: "page" | "component" | "asset";
+  kinds: Array<"page" | "component" | "asset">;
+  confidence: number;
+  triggeringSignals: string[];
+  evidenceBuckets: {
+    anatomy: string[];
+    propsSlots: string[];
+    stateMatrix: string[];
+    tokens: string[];
+    assets: string[];
+    accessibility: string[];
+    motion: string[];
+    previewFixtures: string[];
+  };
+  component?: {
+    canvasType: "CanvasComponentInventoryItem";
+    inventoryItems: Array<{
+      name: string;
+      props: Array<{ name: string; type: string }>;
+      slots: Array<{ name: string; allowedKinds: string[] }>;
+    }>;
+  };
+  asset?: {
+    canvasType: "CanvasAsset";
+    assets: Array<{ id: string; sourceType: string; kind: string }>;
+  };
+};
+
+const FORBIDDEN_CANVAS_REQUEST_KEYS = [
+  "targetAnalysis",
+  "prototypeScope",
+  "sourceArtifacts",
+  "artifactGuide",
+  "contractSectionGuide"
+] as const;
+
 type InspiredesignWorkflowGuide = Record<string, {
   purpose: string;
   expectedContents: string[];
@@ -127,6 +165,7 @@ type InspiredesignWorkflowContext = {
       materialEffects?: string[];
       referencePatternBoard?: InspiredesignWorkflowEvidence["referencePatternBoard"];
       designVectors?: InspiredesignWorkflowEvidence["designVectors"];
+      targetAnalysis?: InspiredesignWorkflowTargetAnalysis;
     };
   };
   designAgentHandoff: {
@@ -149,6 +188,7 @@ type InspiredesignWorkflowContext = {
       };
       referencePatternBoard?: InspiredesignWorkflowEvidence["referencePatternBoard"];
       designVectors?: InspiredesignWorkflowEvidence["designVectors"];
+      targetAnalysis?: InspiredesignWorkflowTargetAnalysis;
     };
   };
 };
@@ -488,6 +528,106 @@ describe("inspiredesign workflow", () => {
       referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
     });
     expect(handoff.implementationContext.designVectors).toEqual(evidence.designVectors);
+  });
+
+  it("persists component target analysis through workflow artifacts without adding Canvas request fields", async () => {
+    const outputDir = makeOutputDir();
+    const componentBrief = "Prototype a reusable checkout card component with price props, badge slot, media slot, hover focus disabled loading and error states plus an asset pack with responsive variants and usage rules.";
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Checkout Card Component",
+            content: "Reusable checkout card component with pricing props, media slot, badge slot, focus state, loading state, error state, tokenized CTA anatomy, and an asset pack with provenance, responsive variants, and usage rules."
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: componentBrief,
+      urls: ["https://example.com/checkout-card"],
+      outputDir,
+      mode: "context",
+      includePrototypeGuidance: true
+    }, {
+      captureReference: async () => ({
+        ...makeCapture("Checkout Card Component anatomy props slots state matrix tokens asset pack responsive variants usage rules"),
+        attempts: {
+          snapshot: { status: "captured" },
+          clone: { status: "captured" },
+          dom: { status: "skipped", detail: "DOM capture helper unavailable in this execution lane." }
+        }
+      })
+    });
+
+    const context = output.context as InspiredesignWorkflowContext;
+    const artifactPath = String(output.artifact_path);
+    const generationPlan = JSON.parse(
+      readFileSync(join(artifactPath, "generation-plan.json"), "utf8")
+    ) as InspiredesignWorkflowContext["canvasPlanRequest"]["generationPlan"];
+    const canvasRequest = JSON.parse(
+      readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")
+    ) as InspiredesignWorkflowContext["canvasPlanRequest"];
+    const handoff = JSON.parse(
+      readFileSync(join(artifactPath, "design-agent-handoff.json"), "utf8")
+    ) as InspiredesignWorkflowContext["designAgentHandoff"];
+    const evidence = JSON.parse(
+      readFileSync(join(artifactPath, "evidence.json"), "utf8")
+    ) as InspiredesignWorkflowEvidence;
+    const prototypeGuidance = readFileSync(join(artifactPath, "prototype-guidance.md"), "utf8");
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "component",
+      kinds: ["component", "asset"],
+      confidence: expect.any(Number),
+      triggeringSignals: expect.arrayContaining([
+        expect.stringContaining("component intent"),
+        expect.stringContaining("asset intent")
+      ]),
+      component: {
+        canvasType: "CanvasComponentInventoryItem",
+        inventoryItems: [
+          expect.objectContaining({
+            name: expect.stringContaining("Component")
+          })
+        ]
+      },
+      asset: {
+        canvasType: "CanvasAsset",
+        assets: [
+          expect.objectContaining({
+            kind: "visual-asset"
+          })
+        ]
+      }
+    });
+    expect(evidence.targetAnalysis?.evidenceBuckets).toMatchObject({
+      anatomy: expect.arrayContaining([expect.stringContaining("anatomy")]),
+      propsSlots: expect.arrayContaining([expect.stringContaining("props")]),
+      stateMatrix: expect.arrayContaining([expect.stringContaining("default")]),
+      tokens: expect.arrayContaining([expect.stringContaining("token")]),
+      assets: expect.arrayContaining([expect.stringContaining("asset")]),
+      accessibility: expect.arrayContaining([expect.stringContaining("keyboard")]),
+      motion: expect.arrayContaining([expect.stringContaining("reduced-motion")]),
+      previewFixtures: expect.arrayContaining([expect.stringContaining("fixture")])
+    });
+    expect(context.evidence.targetAnalysis).toEqual(evidence.targetAnalysis);
+    expect(context.designAgentHandoff.implementationContext.targetAnalysis).toEqual(evidence.targetAnalysis);
+    expect(generationPlan.targetAnalysis).toEqual(evidence.targetAnalysis);
+    expect(handoff.implementationContext.targetAnalysis).toEqual(evidence.targetAnalysis);
+    expect(canvasRequest.generationPlan.targetAnalysis).toBeUndefined();
+    expect(canvasRequest.generationPlan.designVectors?.advancedMotionAdvisory).toEqual(
+      evidence.designVectors?.advancedMotionAdvisory
+    );
+    expect("advancedMotionAdvisory" in canvasRequest.generationPlan).toBe(false);
+    expect(prototypeGuidance).toContain("Component prototype target");
+    expect(prototypeGuidance).toContain("props/slots");
+    expect(prototypeGuidance).toContain("triggering signals");
+    for (const key of FORBIDDEN_CANVAS_REQUEST_KEYS) {
+      expect(JSON.stringify(canvasRequest)).not.toContain(key);
+    }
   });
 
   it("defaults to compact mode when inspiredesign input omits an explicit render mode", async () => {
