@@ -128,7 +128,13 @@
       "section reveal",
       "primary CTA feedback"
     ],
-    "parallaxPolicy": "off unless explicitly justified"
+    "parallaxPolicy": "off unless explicitly justified",
+    "advancedMotionAdvisory": [
+      "Advisory shader-like gradient depth: describe intent only; implement with approved runtime primitives unless a separate runtime change authorizes more.",
+      "Advisory WebGL-style spatial reveal: document depth and hierarchy without implying WebGL runtime support.",
+      "Advisory Spline-style product orbit: document scene posture and static fallback without approving custom 3D runtime dependencies.",
+      "Runtime boundary: libraryPolicy.motion and libraryPolicy.threeD stay empty unless separately approved."
+    ]
   },
   "performanceModel": {
     "renderHotspots": [
@@ -220,6 +226,14 @@
         "layout-shift",
         "spinner-stacking",
         "scan-surface-jank"
+      ]
+    },
+    "designVectors": {
+      "advancedMotionAdvisory": [
+        "Advisory shader-like gradient depth",
+        "Advisory WebGL-style spatial reveal",
+        "Advisory Spline-style product orbit",
+        "Runtime support: none. Library policy authorization: none."
       ]
     }
   }

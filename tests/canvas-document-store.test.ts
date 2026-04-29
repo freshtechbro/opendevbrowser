@@ -82,7 +82,8 @@ describe("canvas document store", () => {
       materialEffects: ["Glass nav", " Parallax depth "],
       designVectors: {
         surfaceIntent: "reference-led public landing page",
-        motionPosture: ["Staggered editorial reveal"]
+        motionPosture: ["Staggered editorial reveal"],
+        advancedMotionAdvisory: ["Advisory shader-style gradients"]
       }
     })).toMatchObject({
       ok: true,
@@ -91,7 +92,8 @@ describe("canvas document store", () => {
         materialEffects: ["Glass nav", "Parallax depth"],
         designVectors: {
           surfaceIntent: "reference-led public landing page",
-          motionPosture: ["Staggered editorial reveal"]
+          motionPosture: ["Staggered editorial reveal"],
+          advancedMotionAdvisory: ["Advisory shader-style gradients"]
         }
       }
     });

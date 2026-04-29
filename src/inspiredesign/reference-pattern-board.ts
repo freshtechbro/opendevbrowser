@@ -63,6 +63,7 @@ export type InspiredesignDesignVectors = {
   interactionDensity: string;
   interactionMoments: string[];
   materialEffects: string[];
+  advancedMotionAdvisory: string[];
   referenceInfluence: string[];
   patternsToBorrow: string[];
   patternsToReject: string[];
@@ -73,6 +74,13 @@ export type InspiredesignDesignVectors = {
 const SIGNAL_LIMIT = 5;
 const SIGNAL_CLIP = 180;
 const PATTERN_LIMIT = 6;
+const ADVANCED_MOTION_FIELDS = [
+  "Advisory shader-style gradients: specify effect type, uniforms, static fallback, and reduced-motion replacement as design language only.",
+  "Advisory WebGL-style depth cues: describe layered depth, camera-like parallax, and spatial hierarchy without requiring WebGL runtime.",
+  "Advisory Spline-style staging: describe object-like hero composition, scene count, camera posture, depth model, asset source, and spatial sequencing as implementation guidance only.",
+  "Advanced motion performance policy: define frame budget, lazy loading, offscreen pause behavior, and vestibular risk before implementation.",
+  "Runtime boundary: implement with approved CSS and Canvas-safe primitives unless explicit source-owned runtime support is added later."
+] as const;
 
 const trimText = (value: string): string => value.trim().replace(/\s+/g, " ");
 
@@ -554,6 +562,7 @@ export const buildInspiredesignDesignVectors = (
     interactionDensity: buildInteractionDensity(format, board),
     interactionMoments: buildInteractionMoments(format, board),
     materialEffects: buildMaterialEffects(board),
+    advancedMotionAdvisory: [...ADVANCED_MOTION_FIELDS],
     referenceInfluence: influence,
     patternsToBorrow: board.references.flatMap((entry) => entry.patternsToBorrow).slice(0, 8),
     patternsToReject: board.references.flatMap((entry) => entry.patternsToReject).slice(0, 8),

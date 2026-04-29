@@ -72,6 +72,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 ## Supporting Surfaces
 
 - Use browser replay (`screencast-start` / `screencast-stop`) during real-surface validation when motion, sequencing, or transition timing matters.
+- Treat shader, WebGL, Spline-style, and custom 3D motion references as advisory cues unless current runtime evidence proves support.
 - Desktop observation stays read-only and is only for external window or OS-level evidence around the workflow; it is not a design-surface control lane.
 - Browser-scoped computer use remains a challenge posture knob via `--challenge-automation-mode`, not a desktop-agent capability.
 
@@ -97,6 +98,8 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - For non-canvas frontend work, still fill the same design-contract fields before coding so decisions stay consistent across code, preview, and docs.
 - Use one owner for overlays, drawers, sheets, and detail panels; prefer item-backed state over boolean sprawl.
 - If motion depends on scroll or viewport progress, define the driver and reduced-motion fallback before implementation.
+- Carry advanced motion cues through `designVectors` and `motionSystem` as design intent only; they do not authorize new runtime libraries.
+- Keep `libraryPolicy.motion` and `libraryPolicy.threeD` empty in samples unless a separate runtime change explicitly approves those lanes.
 - Use `artifacts/scroll-reveal-surface-planning.md` whenever the design depends on pinned sections, reveal stages, or viewport-driven sequencing.
 - Validate new patterns in isolation or `/canvas` preview with `artifacts/isolated-preview-validation.md`, including deterministic fixtures and installed dependencies, before declaring the integrated screen finished.
 - Verify default, hover, focus, empty, loading, success, and error states when they are relevant.
@@ -138,6 +141,8 @@ The `generationPlan` block must include:
 - `responsivePosture`
 - `accessibilityPosture`
 - `validationTargets`
+
+Optional `designVectors` may carry advanced motion advisories, but it must not change the required CanvasGenerationPlan fields or imply shader, WebGL, Spline, or 3D runtime support.
 
 Use `scripts/extract-canvas-plan.sh` when the full contract already exists and only the `/canvas` payload is needed.
 

@@ -82,6 +82,7 @@ type InspiredesignWorkflowEvidence = {
     sectionArchitecture: string[];
     interactionMoments: string[];
     materialEffects: string[];
+    advancedMotionAdvisory: string[];
     referenceInfluence: string[];
   };
   references: Array<{
@@ -374,6 +375,12 @@ describe("inspiredesign workflow", () => {
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
       interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
       materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
+      advancedMotionAdvisory: expect.arrayContaining([
+        expect.stringContaining("shader-style"),
+        expect.stringContaining("WebGL-style"),
+        expect.stringContaining("Spline-style"),
+        expect.stringContaining("Runtime boundary")
+      ]),
       referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
     });
     expect("referencePatternBoard" in context.canvasPlanRequest.generationPlan).toBe(false);
@@ -383,8 +390,10 @@ describe("inspiredesign workflow", () => {
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
       interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
       materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
+      advancedMotionAdvisory: context.evidence.designVectors?.advancedMotionAdvisory,
       referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
     });
+    expect("advancedMotionAdvisory" in context.canvasPlanRequest.generationPlan).toBe(false);
     expect(context.designAgentHandoff.implementationContext.referencePatternBoard).toEqual(
       context.evidence.referencePatternBoard
     );
@@ -404,6 +413,9 @@ describe("inspiredesign workflow", () => {
       expect(content).toContain("limestone hero");
       expect(content).toContain("brass CTA rail");
       expect(content).toContain("staggered project index");
+      expect(content).toContain("shader-style");
+      expect(content).toContain("WebGL-style");
+      expect(content).toContain("Spline-style");
     }
     const generationPlan = JSON.parse(
       readFileSync(join(artifactPath, "generation-plan.json"), "utf8")
@@ -420,9 +432,13 @@ describe("inspiredesign workflow", () => {
 
     expect(generationPlan.referencePatternBoard).toEqual(evidence.referencePatternBoard);
     expect(generationPlan.designVectors).toEqual(evidence.designVectors);
+    expect(generationPlan.designVectors?.advancedMotionAdvisory).toEqual(
+      evidence.designVectors?.advancedMotionAdvisory
+    );
     expect(generationPlan.interactionMoments).toEqual(evidence.designVectors?.interactionMoments);
     expect(generationPlan.materialEffects).toEqual(evidence.designVectors?.materialEffects);
     expect("referencePatternBoard" in canvasRequest.generationPlan).toBe(false);
+    expect("advancedMotionAdvisory" in canvasRequest.generationPlan).toBe(false);
     expect(canvasRequest.generationPlan.interactionMoments).toEqual(evidence.designVectors?.interactionMoments);
     expect(canvasRequest.generationPlan.materialEffects).toEqual(evidence.designVectors?.materialEffects);
     expect(canvasRequest.generationPlan.designVectors).toMatchObject({
@@ -431,6 +447,7 @@ describe("inspiredesign workflow", () => {
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
       interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
       materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
+      advancedMotionAdvisory: evidence.designVectors?.advancedMotionAdvisory,
       referenceInfluence: expect.arrayContaining([expect.stringContaining("Atelier Luma Studio")])
     });
     expect(handoff.implementationContext.designVectors).toEqual(evidence.designVectors);

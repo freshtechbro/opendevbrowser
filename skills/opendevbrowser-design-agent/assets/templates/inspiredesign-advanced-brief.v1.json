@@ -4,11 +4,14 @@
   "commonRules": [
     "Preserve only the product, brand, audience, platform, and tone cues that are explicitly present in the source brief.",
     "Treat missing details as open constraints instead of inventing brand facts or user needs.",
-    "Use inspiration references to extract transferable design logic rather than copying a single layout, visual treatment, or narrative beat literally."
+    "Use inspiration references to extract transferable design logic rather than copying a single layout, visual treatment, or narrative beat literally.",
+    "Treat shader, WebGL, Spline-style, and 3D motion ideas as advisory design cues only, not as runtime support or dependency approval.",
+    "Carry accepted advanced motion cues in designVectors and motionSystem as intent, and keep libraryPolicy authorization separate."
   ],
   "outputRequirements": [
     "Return a reusable design contract that can drive design.md, implementation-plan artifacts, and a Canvas-ready prototype path.",
-    "Keep the direction premium, specific, and implementable instead of generic or template-driven."
+    "Keep the direction premium, specific, and implementable instead of generic or template-driven.",
+    "Keep libraryPolicy.motion and libraryPolicy.threeD empty in generated samples unless a separate runtime change explicitly approves those libraries."
   ],
   "formats": [
     {

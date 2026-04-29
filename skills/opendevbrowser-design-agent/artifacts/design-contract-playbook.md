@@ -90,6 +90,8 @@ Motion must help comprehension.
 - where motion is allowed
 - reduced-motion posture
 - whether depth, 3D, or parallax are justified
+- advisory-only shader, WebGL, Spline-style, or spatial cues when references suggest them
+- confirmation that motion cues do not authorize `libraryPolicy.motion` or `libraryPolicy.threeD`
 
 ## 9. Performance Model
 
@@ -139,6 +141,8 @@ Required keys:
 - `accessibilityPosture`
 - `validationTargets`
 
+Optional `designVectors` can carry advanced motion advisories when references suggest shader-like, WebGL-style, Spline-style, or spatial behavior. Keep those values descriptive. They do not add runtime support, change the required plan shape, or approve new motion or 3D libraries.
+
 Use `scripts/extract-canvas-plan.sh` to derive this from the full contract.
 
 ## Review Questions
@@ -154,4 +158,5 @@ Before implementation, answer:
 7. Where is the canonical theme or token source?
 8. Which list, grid, or pane is most likely to become render-heavy under realistic data?
 9. What part of the design is most likely to regress on mobile?
-10. What evidence will prove the design works on a real browser surface?
+10. Are advanced motion cues advisory only, with no runtime or library-policy authorization implied?
+11. What evidence will prove the design works on a real browser surface?

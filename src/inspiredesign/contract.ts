@@ -670,7 +670,8 @@ const renderReferenceFirstAdvancedBrief = (
       `motionPosture: ${vectors.motionPosture.join(" ")}`,
       `sectionArchitecture: ${vectors.sectionArchitecture.join(" ")}`,
       `interactionMoments: ${vectors.interactionMoments.join(" ")}`,
-      `materialEffects: ${vectors.materialEffects.join(" ")}`
+      `materialEffects: ${vectors.materialEffects.join(" ")}`,
+      `advancedMotionAdvisory: ${vectors.advancedMotionAdvisory.join(" ")}`
     ]),
     "",
     "Fixed format guardrails:",
@@ -769,7 +770,8 @@ const summarizeDesignVectors = (designVectors: InspiredesignDesignVectors): stri
   `sections: ${designVectors.sectionArchitecture.join(" ")}`,
   `motion: ${designVectors.motionPosture.slice(0, 1).join(" ")}`,
   `interactions: ${designVectors.interactionMoments.slice(0, 1).join(" ")}`,
-  `materials: ${designVectors.materialEffects.slice(0, 1).join(" ")}`
+  `materials: ${designVectors.materialEffects.slice(0, 1).join(" ")}`,
+  `advancedMotion: ${designVectors.advancedMotionAdvisory.slice(0, 1).join(" ")}`
 ].join(" ");
 
 const isReferenceFirstPublicLanding = (designVectors: InspiredesignDesignVectors): boolean => {
@@ -987,6 +989,8 @@ const buildMotionSystemBlock = (
     posture: [...designVectors.motionPosture],
     interactionMoments: [...designVectors.interactionMoments],
     materialEffects: [...designVectors.materialEffects],
+    advancedMotionAdvisory: [...designVectors.advancedMotionAdvisory],
+    advancedMotionRuntimePolicy: "Advanced motion fields are advisory contract metadata only and do not authorize shader, WebGL, Spline, R3F, Pixi, Babylon, or GLSL runtime support.",
     parallaxPolicy: "Use parallax only as a restrained hierarchy cue and remove transform-based depth for reduced-motion users.",
     hoverPolicy: "Hover effects must clarify clickability without becoming the only visible affordance.",
     cursorPolicy: "Cursor effects are allowed only on premium hero or CTA moments and must not interfere with reading or form controls.",
@@ -1023,7 +1027,7 @@ const buildLibraryPolicyBlock = (): JsonRecord => ({
   components: ["shadcn"],
   icons: ["tabler"],
   styling: ["tailwindcss"],
-  motion: ["css"],
+  motion: [],
   threeD: []
 });
 
@@ -1284,6 +1288,7 @@ const buildImplementationPlan = ({
     ...designVectors.motionPosture,
     ...designVectors.interactionMoments,
     ...designVectors.materialEffects,
+    ...designVectors.advancedMotionAdvisory,
     "Implement hero entrance reveal, section scroll reveal, and CTA/focus feedback as the minimum motion system for landing pages.",
     "Use @media (prefers-reduced-motion: reduce) to preserve hierarchy without motion.",
     "Preserve layout during loading and keep transient confirmations out of the main flow.",
@@ -1552,6 +1557,7 @@ const renderPrototypeGuidance = (
     `- interaction expectations: ${designVectors.interactionMoments.join(" ")}`,
     `- motion expectations: ${designVectors.motionPosture.join(" ")}`,
     `- material and depth expectations: ${designVectors.materialEffects.join(" ")}`,
+    `- advisory advanced motion: ${designVectors.advancedMotionAdvisory.join(" ")}`,
     "- browser proof: capture desktop and mobile browser screenshots, verify reduced-motion behavior, inspect focus states, and confirm the primary CTA remains visible without overlap.",
     "- HTML skeleton guidance: start with one main landmark, one primary CTA group, and semantic sections that follow the design vector section architecture instead of fixed industry-specific defaults.",
     "- styling approach: define CSS variables for timing, easing, elevation, translucency, backdrop blur, cursor effects, hover effects, and parallax distance before mapping components to semantic tokens.",
@@ -1737,7 +1743,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       `motion posture: ${designVectors.motionPosture.join(" ")}`,
       `section architecture: ${designVectors.sectionArchitecture.join(" ")}`,
       `interaction moments: ${designVectors.interactionMoments.join(" ")}`,
-      `material effects: ${designVectors.materialEffects.join(" ")}`
+      `material effects: ${designVectors.materialEffects.join(" ")}`,
+      `advanced motion advisory: ${designVectors.advancedMotionAdvisory.join(" ")}`
     ]),
     "",
     "## 3.4 System Direction",

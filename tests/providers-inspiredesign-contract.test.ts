@@ -71,6 +71,7 @@ type InspiredesignEvidenceJson = {
     interactionDensity: string;
     interactionMoments: string[];
     materialEffects: string[];
+    advancedMotionAdvisory: string[];
     referenceInfluence: string[];
     patternsToBorrow: string[];
     patternsToReject: string[];
@@ -564,6 +565,12 @@ describe("inspiredesign packet + renderer", () => {
           expect.stringContaining("Glassmorphism"),
           expect.stringContaining("Reduced-motion material fallback")
         ]),
+        advancedMotionAdvisory: expect.arrayContaining([
+          expect.stringContaining("shader-style"),
+          expect.stringContaining("WebGL-style"),
+          expect.stringContaining("Spline-style"),
+          expect.stringContaining("Runtime boundary")
+        ]),
         referenceInfluence: expect.arrayContaining([expect.stringContaining("worship hero")]),
         patternsToBorrow: expect.arrayContaining([expect.stringContaining("service pathways")]),
         patternsToReject: expect.arrayContaining(["No feature-card hero."])
@@ -590,8 +597,13 @@ describe("inspiredesign packet + renderer", () => {
       sectionArchitecture: expect.arrayContaining([expect.stringContaining("8 to 12")]),
       interactionMoments: expect.arrayContaining([expect.stringContaining("Microinteractions")]),
       materialEffects: expect.arrayContaining([expect.stringContaining("Glassmorphism")]),
+      advancedMotionAdvisory: packet.generationPlan.designVectors.advancedMotionAdvisory,
       referenceInfluence: expect.arrayContaining([expect.stringContaining("worship hero")])
     });
+    expect(packet.canvasPlanRequest.generationPlan.designVectors?.advancedMotionAdvisory).toEqual(
+      packet.generationPlan.designVectors.advancedMotionAdvisory
+    );
+    expect("advancedMotionAdvisory" in packet.canvasPlanRequest.generationPlan).toBe(false);
     expect(packet.generationPlan as PlanMotionMaterialFields).toMatchObject({
       interactionMoments: packet.generationPlan.designVectors.interactionMoments,
       materialEffects: packet.generationPlan.designVectors.materialEffects
@@ -604,11 +616,22 @@ describe("inspiredesign packet + renderer", () => {
     expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Cursor effects");
     expect(JSON.stringify(packet.designContract.motionSystem)).toContain("parallax");
     expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Glassmorphism");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("shader-style");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("WebGL-style");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("Spline-style");
+    expect(JSON.stringify(packet.designContract.motionSystem)).toContain("advisory contract metadata only");
+    expect(packet.designContract.libraryPolicy).toMatchObject({
+      motion: [],
+      threeD: []
+    });
     expect(validateGenerationPlan(packet.canvasPlanRequest.generationPlan)).toMatchObject({
       ok: true,
       plan: {
         interactionMoments: packet.generationPlan.designVectors.interactionMoments,
-        materialEffects: packet.generationPlan.designVectors.materialEffects
+        materialEffects: packet.generationPlan.designVectors.materialEffects,
+        designVectors: {
+          advancedMotionAdvisory: packet.generationPlan.designVectors.advancedMotionAdvisory
+        }
       }
     });
   });
