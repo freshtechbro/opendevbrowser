@@ -935,6 +935,25 @@ function collectMacroExecution(result) {
   };
 }
 
+export function resolveSocialFallbackRetry(currentResult, currentExecution, retryResult) {
+  const retryExecution = collectMacroExecution(retryResult);
+  const hasRetrySignal = retryExecution.records.length > 0 || retryExecution.failures.length > 0;
+  if (!hasRetrySignal) {
+    return {
+      result: currentResult,
+      execution: currentExecution,
+      usedFallbackQuery: false,
+      fallbackQueryStatus: retryResult.status
+    };
+  }
+  return {
+    result: retryResult,
+    execution: retryExecution,
+    usedFallbackQuery: true,
+    fallbackQueryStatus: retryResult.status
+  };
+}
+
 function collectShoppingExecution(result) {
   const data = result.json?.data ?? {};
   const offers = Array.isArray(data?.offers) ? data.offers : [];
@@ -1529,12 +1548,12 @@ async function main() {
           );
           timeoutRecoveryAttempted = true;
           timeoutRecoveryStatus = retry.status;
-          if (retry.status === 0) {
-            const retryExecution = collectMacroExecution(retry);
-            if (retryExecution.records.length > 0 || retryExecution.failures.length > 0) {
-              usedFallbackQuery = true;
-              fallbackQueryStatus = retry.status;
-            }
+          const retryState = resolveSocialFallbackRetry(res, execution, retry);
+          if (retryState.usedFallbackQuery) {
+            res = retryState.result;
+            execution = retryState.execution;
+            usedFallbackQuery = true;
+            fallbackQueryStatus = retryState.fallbackQueryStatus;
           }
         }
 
@@ -1543,9 +1562,11 @@ async function main() {
             allowFailure: true,
             timeoutMs: socialCliTimeoutMs
           });
-          const retryExecution = collectMacroExecution(retry);
-          fallbackQueryStatus = retry.status;
-          if (retry.status === 0 && (retryExecution.records.length > 0 || retryExecution.failures.length > 0)) {
+          const retryState = resolveSocialFallbackRetry(res, execution, retry);
+          fallbackQueryStatus = retryState.fallbackQueryStatus;
+          if (retryState.usedFallbackQuery) {
+            res = retryState.result;
+            execution = retryState.execution;
             usedFallbackQuery = true;
           }
         }

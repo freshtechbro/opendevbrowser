@@ -1373,6 +1373,46 @@ describe("provider-direct-runs", () => {
     expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
   });
 
+  it("classifies Facebook support-only search pages as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.facebook.search",
+      providerId: "social/facebook",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "facebook-support-shell",
+                url: "https://www.facebook.com/watch/search/?q=browser+automation&page=1",
+                title: "browser automation videos | Facebook",
+                content: "Search results Shared with Public",
+                attributes: {
+                  links: [
+                    "https://www.facebook.com/browserautomation",
+                    "https://m.facebook.com/opendevbrowser"
+                  ],
+                  retrievalPath: "social:search:index"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/facebook"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
   it("classifies Threads trailing-slash search shells as env-limited social macro results", () => {
     const step = evaluateMacroCase({
       id: "provider.social.threads.search",

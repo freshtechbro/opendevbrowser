@@ -390,17 +390,18 @@ const hasFacebookSearchResultSignals = (
   const hasSearchHeading = FACEBOOK_SEARCH_RESULTS_HEADING_RE.test(combined);
   const markerCount = FACEBOOK_SEARCH_RESULT_MARKERS.filter((pattern) => pattern.test(combined)).length;
   const evidence = collectSocialSearchLinkEvidence("facebook", parsed.toString(), Array.isArray(input.links) ? input.links : []);
+  const hasContentEvidence = evidence.usableContentLinks.length > 0;
   const supportLinkCount = evidence.usableLinks.filter(isRetainableFacebookSearchSupportUrl).length;
-  if (markerCount >= 2) {
+  if (markerCount >= 2 && hasContentEvidence) {
     return true;
   }
   if (!hasSearchHeading) {
     return false;
   }
-  if (markerCount >= 1) {
+  if (markerCount >= 1 && hasContentEvidence) {
     return true;
   }
-  return supportLinkCount >= 2;
+  return supportLinkCount >= 2 && hasContentEvidence;
 };
 
 const isUsableSocialSearchContentUrl = (

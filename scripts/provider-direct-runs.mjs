@@ -764,14 +764,15 @@ function hasFacebookSearchResultSignals(url, title, content, links) {
   const hasSearchHeading = FACEBOOK_SEARCH_RESULTS_HEADING_RE.test(combined);
   const markerCount = FACEBOOK_SEARCH_RESULT_MARKERS.filter((pattern) => pattern.test(combined)).length;
   const evidence = collectSocialSearchLinkEvidence("social/facebook", parsed.toString(), Array.isArray(links) ? links : []);
+  const hasContentEvidence = evidence.usableContentLinks.length > 0;
   const supportLinkCount = evidence.usableLinks.filter(isRetainableFacebookSearchSupportUrl).length;
-  if (markerCount >= 2) {
+  if (markerCount >= 2 && hasContentEvidence) {
     return true;
   }
   if (!hasSearchHeading) {
     return false;
   }
-  return markerCount >= 1 || supportLinkCount >= 2;
+  return (markerCount >= 1 || supportLinkCount >= 2) && hasContentEvidence;
 }
 
 function detectSocialSearchShell(providerId, url, title, content, links = []) {

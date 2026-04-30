@@ -66,7 +66,7 @@ describe("social search quality helpers", () => {
     expect(isAllowedSocialSearchExpansionUrl("facebook", "https://example.com/browser-automation")).toBe(true);
   });
 
-  it("accepts populated facebook watch search pages when result markers survive but only profile links are exposed", () => {
+  it("keeps facebook watch search pages as shells when result markers expose only profile links", () => {
     const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation+facebook&page=1";
 
     expect(detectSocialSearchShell("facebook", {
@@ -76,14 +76,16 @@ describe("social search quality helpers", () => {
         "/BradfordSCarlton",
         "/prince.okporu"
       ]
-    })).toBeNull();
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
     expect(selectUsableSocialSearchLinks("facebook", baseUrl, [
       "/BradfordSCarlton",
       "/prince.okporu"
     ])).toEqual([]);
   });
 
-  it("accepts populated facebook watch search pages without an explicit search heading when strong result markers and support links survive", () => {
+  it("keeps facebook watch search pages as shells when strong markers expose no content links", () => {
     const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation+facebook&page=1";
 
     expect(detectSocialSearchShell("facebook", {
@@ -93,7 +95,9 @@ describe("social search quality helpers", () => {
         "/BradfordSCarlton",
         "/prince.okporu"
       ]
-    })).toBeNull();
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
   });
 
   it("blocks reddit non-content routes while allowing non-primary-host and empty-path edge cases", () => {
@@ -388,7 +392,9 @@ describe("social search quality helpers", () => {
         "https://www.facebook.com/browserautomation",
         "https://m.facebook.com/opendevbrowser"
       ]
-    })).toBeNull();
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
     expect(selectUsableSocialSearchLinks("facebook", facebookSearch, [
       "https://www.facebook.com/browserautomation",
       "https://m.facebook.com/opendevbrowser"
@@ -415,15 +421,19 @@ describe("social search quality helpers", () => {
         "/BradfordSCarlton",
         "/prince.okporu"
       ]
-    })).toBeNull();
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
   });
 
-  it("accepts facebook search pages with a heading and one result marker", () => {
+  it("keeps facebook search pages with marker text but no content URL as shells", () => {
     expect(detectSocialSearchShell("facebook", {
       url: "https://www.facebook.com/watch/search/?q=browser+automation",
       content: "Search results Shared with Public",
       links: []
-    })).toBeNull();
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
   });
 
   it("accepts facebook concrete content patterns and rejects blocked support routes", () => {

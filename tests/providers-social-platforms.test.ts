@@ -205,7 +205,7 @@ describe("social platform adapters", () => {
     }
   });
 
-  it("keeps recovered facebook search rows when the browser page is populated but exposes no concrete content links", async () => {
+  it("classifies recovered facebook search rows without concrete content links as render-required", async () => {
     const fallbackResolve = vi.fn(async (request: {
       reasonCode: string;
       url?: string;
@@ -246,20 +246,19 @@ describe("social platform adapters", () => {
         { source: "social", providerIds: ["social/facebook"] }
       );
 
-      expect(result.ok).toBe(true);
-      expect(result.failures).toEqual([]);
-      expect(result.records).toHaveLength(1);
-      expect(result.records[0]).toMatchObject({
-        provider: "social/facebook",
-        url: "https://www.facebook.com/watch/search?page=1&q=browser+automation+facebook",
-        attributes: {
-          retrievalPath: "social:search:index",
-          browser_fallback_mode: "extension",
-          browser_fallback_reason_code: "token_required",
-          links: []
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]?.error).toMatchObject({
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_render_shell",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_render_shell"
+          }
         }
       });
-      expect(result.records[0]?.content).toContain("Top browser automation facebook videos");
     } finally {
       vi.unstubAllGlobals();
     }

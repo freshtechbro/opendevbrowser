@@ -12,6 +12,7 @@ import {
   REQUIRED_PLAYWRIGHT_CORE_FILES,
   resolveMatrixSocialPostStatus,
   resolveMatrixSocialSearchStatus,
+  resolveSocialFallbackRetry,
   restoreDaemonAfterNestedLiveRegression,
   runNestedLiveRegressionMode,
   WORKFLOW_RESEARCH_PROBE_ARGS,
@@ -482,5 +483,62 @@ describe("provider-live-matrix parseArgs", () => {
         }
       }
     })).toBe("env_limited");
+  });
+
+  it("adopts social fallback retries that return records or failures", () => {
+    const currentResult = { status: 0, detail: null, json: { data: { execution: { records: [], failures: [] } } } };
+    const currentExecution = {
+      records: [],
+      failures: [],
+      providerOrder: ["social/x"],
+      meta: null,
+      raw: null,
+      hasExecutionPayload: true
+    };
+    const retryResult = {
+      status: 0,
+      detail: "retry ok",
+      json: {
+        data: {
+          execution: {
+            records: [{ id: "x-status", url: "https://x.com/opendevbrowser/status/1" }],
+            failures: [],
+            meta: { providerOrder: ["social/x"] }
+          }
+        }
+      }
+    };
+
+    expect(resolveSocialFallbackRetry(currentResult, currentExecution, retryResult)).toMatchObject({
+      result: retryResult,
+      execution: {
+        records: retryResult.json.data.execution.records,
+        failures: [],
+        providerOrder: ["social/x"],
+        hasExecutionPayload: true
+      },
+      usedFallbackQuery: true,
+      fallbackQueryStatus: 0
+    });
+  });
+
+  it("keeps current social result when fallback retry has no executable signal", () => {
+    const currentResult = { status: 0, detail: null, json: { data: { execution: { records: [], failures: [] } } } };
+    const currentExecution = {
+      records: [],
+      failures: [],
+      providerOrder: ["social/x"],
+      meta: null,
+      raw: null,
+      hasExecutionPayload: true
+    };
+    const retryResult = { status: 0, detail: null, json: { data: { execution: { records: [], failures: [] } } } };
+
+    expect(resolveSocialFallbackRetry(currentResult, currentExecution, retryResult)).toEqual({
+      result: currentResult,
+      execution: currentExecution,
+      usedFallbackQuery: false,
+      fallbackQueryStatus: 0
+    });
   });
 });
