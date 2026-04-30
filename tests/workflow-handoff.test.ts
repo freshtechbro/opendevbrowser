@@ -53,7 +53,8 @@ describe("workflow handoff builders", () => {
       includeCopy: true
     });
 
-    expect(handoff.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
+    expect(handoff.suggestedNextAction).toContain("product-video brief helper");
+    expect(handoff.suggestedNextAction).not.toContain("<pack>");
     expect(handoff.suggestedSteps[1]?.command).toBe(`${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`);
     expect(handoff.suggestedSteps[2]?.command).toBe(
       "npx opendevbrowser product-video run --product-name \"Desk Lamp\" --include-copy --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --output-format json"

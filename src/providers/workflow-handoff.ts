@@ -178,7 +178,7 @@ export const buildProductVideoSuccessHandoff = (input: ProductVideoHandoffInput 
   const rerunCommand = buildProductVideoRerunCommand(input);
   return createSuccessHandoff(
     "Review the generated asset pack to confirm whether it is visual-ready or metadata-first before briefing production.",
-    `Open the returned pack path, inspect manifest.json plus copy and features, then run ${PRODUCT_VIDEO_BRIEF_HELPER_COMMAND} to generate production briefs and sourcing notes.`,
+    "Open the returned pack path, inspect manifest.json plus copy and features, then run the product-video brief helper with that manifest path to generate production briefs and sourcing notes.",
     [
       { reason: "Confirm whether the pack already includes enough images or screenshots for production." },
       {

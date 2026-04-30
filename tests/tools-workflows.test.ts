@@ -209,7 +209,8 @@ describe("workflow tools", () => {
     expect(response.ok).toBe(true);
     expect(response.path).toEqual(expect.any(String));
     expect(response.followthroughSummary).toContain("asset pack");
-    expect(response.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
+    expect(response.suggestedNextAction).toContain("product-video brief helper");
+    expect(response.suggestedNextAction).not.toContain("<pack>");
     expect(response.suggestedSteps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ reason: expect.stringContaining("metadata-first") }),

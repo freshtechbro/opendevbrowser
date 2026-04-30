@@ -381,7 +381,8 @@ describe("product-video substrate adoption", () => {
     expect(output.suggestedNextAction).toBe(handoff.suggestedNextAction);
     expect(output.suggestedSteps).toEqual(handoff.suggestedSteps);
     expect((output.suggestedSteps as Array<{ command?: string }>)[2]?.command).toContain("--browser-mode extension");
-    expect(output.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
+    expect(output.suggestedNextAction).toContain("product-video brief helper");
+    expect(output.suggestedNextAction).not.toContain("<pack>");
     expect((output.suggestedSteps as Array<{ command?: string }>)[1]?.command).toBe(
       `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`
     );

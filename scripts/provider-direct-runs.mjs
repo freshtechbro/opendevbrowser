@@ -499,7 +499,7 @@ function isBlockedRedditNonContentUrl(parsed, { includeSearchRoute }) {
     return false;
   }
   const pathname = parsed.pathname.toLowerCase();
-  if (pathname === "/" || pathname === "/login" || (includeSearchRoute && pathname === "/search")) {
+  if (pathname === "/" || pathname === "/login" || (includeSearchRoute && (pathname === "/search" || pathname === "/search/"))) {
     return true;
   }
   const pathSegment = firstPathSegment(pathname);
@@ -512,7 +512,7 @@ function isFirstPartySearchRoute(providerId, parsed) {
   return (
     (providerId === "social/x" && host === "x.com" && pathname === "/search")
     || (providerId === "social/bluesky" && host === "bsky.app" && pathname === "/search")
-    || (providerId === "social/reddit" && isPrimaryRedditHost(host) && pathname === "/search")
+    || (providerId === "social/reddit" && isPrimaryRedditHost(host) && (pathname === "/search" || pathname === "/search/"))
     || (providerId === "social/facebook" && isPrimaryFacebookHost(host) && isFacebookSearchLikePath(pathname))
     || (providerId === "social/threads" && isPrimaryThreadsHost(host) && (pathname === "/search" || pathname === "/search/"))
   );

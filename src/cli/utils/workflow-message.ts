@@ -30,6 +30,12 @@ const readRunnableStepCommand = (step: Record<string, unknown>): string | null =
   return UNRESOLVED_COMMAND_PLACEHOLDER_RE.test(command) ? null : command;
 };
 
+const readDisplayableNextStep = (value: unknown): string | null => {
+  const text = readNonEmptyString(value);
+  if (!text) return null;
+  return UNRESOLVED_COMMAND_PLACEHOLDER_RE.test(text) ? null : text;
+};
+
 const readMeta = (data: unknown): Record<string, unknown> | null => {
   return asRecord(asRecord(data)?.meta);
 };
@@ -86,7 +92,8 @@ const readSuggestedSteps = (data: unknown): readonly Record<string, unknown>[] =
 };
 
 export const buildNextStepMessage = (message: string, nextStep: string | null): string => {
-  return nextStep ? `${message} Next step: ${nextStep}` : message;
+  const displayableNextStep = readDisplayableNextStep(nextStep);
+  return displayableNextStep ? `${message} Next step: ${displayableNextStep}` : message;
 };
 
 export const buildProviderFollowupErrorMessage = (message: string): string => {
@@ -110,8 +117,8 @@ export const buildProviderFollowupErrorMessage = (message: string): string => {
 export const readSuggestedNextAction = (data: unknown): string | null => {
   const record = asRecord(data);
   if (!record) return null;
-  return readNonEmptyString(record.suggestedNextAction)
-    ?? readNonEmptyString(asRecord(record.sessionInspector)?.suggestedNextAction);
+  return readDisplayableNextStep(record.suggestedNextAction)
+    ?? readDisplayableNextStep(asRecord(record.sessionInspector)?.suggestedNextAction);
 };
 
 export const readSuggestedStepCommand = (data: unknown): string | null => {
@@ -136,7 +143,7 @@ export const readSuggestedStepReason = (data: unknown): string | null => {
   while (current) {
     const [firstStep] = readSuggestedSteps(current);
     if (firstStep) {
-      return readNonEmptyString(firstStep.reason);
+      return readDisplayableNextStep(firstStep.reason);
     }
     current = asRecord(current.challengePlan);
   }

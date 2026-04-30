@@ -1333,6 +1333,40 @@ describe("provider-direct-runs", () => {
     expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
   });
 
+  it("classifies Reddit trailing-slash search routes as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.reddit.search",
+      providerId: "social/reddit",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [{
+              id: "reddit-search-shell",
+              url: "https://www.reddit.com/search/?q=browser+automation",
+              title: "Reddit Search",
+              content: "Search Reddit",
+              attributes: {
+                retrievalPath: "social:search:index"
+              }
+            }],
+            failures: [],
+            meta: {
+              providerOrder: ["social/reddit"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
   it("classifies Facebook search-only shells as env-limited social macro results", () => {
     const step = evaluateMacroCase({
       id: "provider.social.facebook.search",

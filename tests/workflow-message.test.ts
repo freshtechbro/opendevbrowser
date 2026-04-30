@@ -181,4 +181,17 @@ describe("workflow message helpers", () => {
       ]
     })).toBe("npx opendevbrowser research run --topic \"motion\" --output-format json");
   });
+
+  it("does not surface unresolved placeholders from suggested actions", () => {
+    expect(buildWorkflowCompletionMessage("Product video workflow", {
+      followthroughSummary: "Review the generated pack before production.",
+      suggestedNextAction: "Run ./helper <pack>/manifest.json",
+      suggestedSteps: [{
+        reason: "Rerun with concrete input.",
+        command: "npx opendevbrowser product-video run --product-url \"https://example.com/p/4\" --output-format json"
+      }]
+    })).toBe(
+      "Product video workflow completed. Review the generated pack before production. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/4\" --output-format json"
+    );
+  });
 });
