@@ -5,7 +5,8 @@ import type {
   ProviderExecutionMetadata,
   ProviderOperation,
   ProviderRunOptions,
-  ProviderSelection
+  ProviderSelection,
+  WorkflowBrowserMode
 } from "../providers/types";
 import type { SocialPlatform } from "../providers/social";
 import { detectSocialSearchShell } from "../providers/social/search-quality";
@@ -65,7 +66,9 @@ export type MacroExecutionPayload = {
   diagnostics?: ProviderAggregateResult["diagnostics"];
 };
 
-type MacroExecutionOverrides = Pick<ProviderRunOptions, "challengeAutomationMode">;
+type MacroExecutionOverrides = Pick<ProviderRunOptions, "challengeAutomationMode"> & {
+  browserMode?: WorkflowBrowserMode;
+};
 
 const isRecordValue = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -105,7 +108,7 @@ const REDDIT_VERIFICATION_WALL_RE = /\b(?:please wait for verification|verify yo
 
 const readTargetedSocialPlatform = (
   providerId?: string
-): Extract<SocialPlatform, "x" | "bluesky" | "reddit"> | null => {
+): Extract<SocialPlatform, "x" | "bluesky" | "reddit" | "facebook" | "threads"> | null => {
   switch (providerId) {
     case "social/x":
       return "x";
@@ -113,6 +116,10 @@ const readTargetedSocialPlatform = (
       return "bluesky";
     case "social/reddit":
       return "reddit";
+    case "social/facebook":
+      return "facebook";
+    case "social/threads":
+      return "threads";
     default:
       return null;
   }
@@ -351,6 +358,9 @@ const buildRunOptions = (
     ...(providerId ? { providerIds: [providerId] } : {}),
     ...(overrides?.challengeAutomationMode
       ? { challengeAutomationMode: overrides.challengeAutomationMode }
+      : {}),
+    ...(overrides?.browserMode
+      ? { runtimePolicy: { browserMode: overrides.browserMode } }
       : {})
   };
 };

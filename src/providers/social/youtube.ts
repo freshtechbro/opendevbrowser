@@ -1,4 +1,13 @@
-import { ProviderRuntimeError, providerErrorCodeFromReasonCode } from "../errors";
+import { ProviderRuntimeError, isProviderRuntimeError, providerErrorCodeFromReasonCode } from "../errors";
+import { classifyBlockerSignal } from "../blocker";
+import {
+  browserFallbackObservationAttributes,
+  readFallbackString,
+  resolveProviderBrowserFallback,
+  toBrowserFallbackObservation,
+  toCompletedFallbackOutputError,
+  toProviderFallbackError
+} from "../browser-fallback";
 import type { AntiBotPolicyConfig } from "../shared/anti-bot-policy";
 import { providerRequestHeaders } from "../shared/request-headers";
 import { createSocialPlatformProvider, type SocialProviderOptions } from "./platform";
@@ -14,9 +23,12 @@ import {
 import { extractStructuredContent, toSnippet } from "../web/extract";
 import type {
   BrowserFallbackPort,
+  BrowserFallbackResponse,
+  BrowserFallbackObservation,
   JsonValue,
   ProviderContext,
   ProviderFetchInput,
+  ProviderReasonCode,
   ProviderSearchInput
 } from "../types";
 
@@ -192,6 +204,59 @@ const normalizeYouTubeVideoLink = (url: string): string | null => {
 };
 
 const YOUTUBE_SEARCH_SHELL_RE = /\b(?:about press copyright contact us creators advertise developers terms privacy policy|google for developers skip to main content youtube)\b/i;
+const YOUTUBE_FALLBACK_MIN_TEXT_CHARS = 40;
+const YOUTUBE_CONTENT_MARKER_RE = /"videoId"\s*:|"captionTracks"\s*:|itemprop="author"|itemprop="datePublished"|"viewCount"\s*:/i;
+
+const hasYouTubeFallbackEvidence = (html: string, url: string): boolean => {
+  if (YOUTUBE_CONTENT_MARKER_RE.test(html)) return true;
+  return extractStructuredContent(html, url)
+    .links
+    .some((link) => normalizeYouTubeVideoLink(link) !== null);
+};
+
+const reviewedFallback = (
+  fallback: BrowserFallbackResponse,
+  reasonCode: ProviderReasonCode | undefined
+): BrowserFallbackResponse => ({
+  ...fallback,
+  reasonCode: reasonCode ?? fallback.reasonCode
+});
+
+const assertUsableYouTubeFallbackPage = (
+  url: string,
+  fallback: BrowserFallbackResponse,
+  html: string
+): void => {
+  const extracted = extractStructuredContent(html, url);
+  const text = extracted.text.trim();
+  const blocker = classifyBlockerSignal({
+    source: "runtime_fetch",
+    url,
+    message: text,
+    status: 200,
+    providerErrorCode: "unavailable",
+    retryable: true
+  });
+  if (blocker && blocker.type !== "unknown") {
+    throw toCompletedFallbackOutputError({
+      provider: "social/youtube",
+      source: "social",
+      url,
+      fallback: reviewedFallback(fallback, blocker.reasonCode),
+      outputReason: blocker.type
+    });
+  }
+  if (hasYouTubeFallbackEvidence(html, url)) return;
+  if (text.length < YOUTUBE_FALLBACK_MIN_TEXT_CHARS || YOUTUBE_SEARCH_SHELL_RE.test(text)) {
+    throw toCompletedFallbackOutputError({
+      provider: "social/youtube",
+      source: "social",
+      url,
+      fallback,
+      outputReason: "youtube_shell_or_metadata"
+    });
+  }
+};
 
 const extractSearchResultSegment = (html: string, videoId: string): string | null => {
   const marker = new RegExp(`"videoId"\\s*:\\s*"${escapeRegExp(videoId)}"`);
@@ -323,7 +388,14 @@ const summarizeTranscript = (transcript: string): string => {
   return lines.slice(0, 8).join(" ").slice(0, 800);
 };
 
-const fetchPage = async (url: string, context: ProviderContext): Promise<{ status: number; url: string; html: string }> => {
+type YouTubeFetchedPage = {
+  status: number;
+  url: string;
+  html: string;
+  browserFallback?: BrowserFallbackObservation;
+};
+
+const fetchPageDirect = async (url: string, context: ProviderContext): Promise<YouTubeFetchedPage> => {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -377,6 +449,133 @@ const fetchPage = async (url: string, context: ProviderContext): Promise<{ statu
     url: response.url || url,
     html: await response.text()
   };
+};
+
+const forcedFallbackReasonCode = (context: ProviderContext): ProviderReasonCode => {
+  const policy = context.runtimePolicy;
+  if (policy?.cookies.policy === "required") return "auth_required";
+  return "env_limited";
+};
+
+const fallbackReasonCodeForPageError = (
+  error: unknown,
+  context: ProviderContext
+): ProviderReasonCode | null => {
+  if (!isProviderRuntimeError(error)) return "env_limited";
+  if (error.code === "auth") {
+    return context.runtimePolicy?.cookies.policy === "required" ? "auth_required" : "token_required";
+  }
+  if (error.code === "rate_limited") return "rate_limited";
+  if (error.code === "network" || error.code === "timeout") return "env_limited";
+  if (error.code === "upstream") return "ip_blocked";
+  if (error.reasonCode === "ip_blocked" || error.reasonCode === "challenge_detected") return error.reasonCode;
+  return null;
+};
+
+const fallbackDetailsForError = (error: unknown): Record<string, JsonValue> => {
+  if (!isProviderRuntimeError(error)) return {};
+  return {
+    errorCode: error.code,
+    message: error.message,
+    ...(error.details ?? {})
+  };
+};
+
+const pageFromFallback = (
+  url: string,
+  fallback: BrowserFallbackResponse
+): YouTubeFetchedPage => {
+  const html = readFallbackString(fallback.output, "html");
+  if (!html) {
+    throw toCompletedFallbackOutputError({
+      provider: "social/youtube",
+      source: "social",
+      url,
+      fallback,
+      outputReason: "missing_or_empty_html"
+    });
+  }
+  assertUsableYouTubeFallbackPage(url, fallback, html);
+  return {
+    status: 200,
+    url: readFallbackString(fallback.output, "url") ?? url,
+    html,
+    browserFallback: toBrowserFallbackObservation(fallback)
+  };
+};
+
+const resolveFallbackPage = async (args: {
+  url: string;
+  context: ProviderContext;
+  options: YouTubeProviderOptions;
+  operation: "search" | "fetch";
+  reasonCode: ProviderReasonCode;
+  details?: Record<string, JsonValue>;
+}): Promise<YouTubeFetchedPage | null> => {
+  const fallback = await resolveProviderBrowserFallback({
+    browserFallbackPort: args.context.browserFallbackPort ?? args.options.browserFallbackPort,
+    provider: "social/youtube",
+    source: "social",
+    operation: args.operation,
+    reasonCode: args.reasonCode,
+    url: args.url,
+    context: args.context,
+    details: args.details,
+    recoveryHints: args.options.recoveryHints?.()
+  });
+  if (!fallback) return null;
+  if (fallback.disposition !== "completed") {
+    throw toProviderFallbackError({
+      provider: "social/youtube",
+      source: "social",
+      url: args.url,
+      fallback
+    });
+  }
+  return pageFromFallback(args.url, fallback);
+};
+
+const fetchPage = async (
+  url: string,
+  context: ProviderContext,
+  options: YouTubeProviderOptions,
+  operation: "search" | "fetch"
+): Promise<YouTubeFetchedPage> => {
+  if (context.runtimePolicy?.browser.forceTransport) {
+    const page = await resolveFallbackPage({
+      url,
+      context,
+      options,
+      operation,
+      reasonCode: forcedFallbackReasonCode(context),
+      details: { message: "Direct browser transport was selected for this YouTube provider run." }
+    });
+    if (page) return page;
+    throw new ProviderRuntimeError(providerErrorCodeFromReasonCode(forcedFallbackReasonCode(context)), "Direct browser transport is required for this YouTube provider run, but no browser transport is available.", {
+      provider: "social/youtube",
+      source: "social",
+      retryable: false,
+      reasonCode: forcedFallbackReasonCode(context),
+      details: { browserTransportRequired: true }
+    });
+  }
+
+  try {
+    return await fetchPageDirect(url, context);
+  } catch (error) {
+    const reasonCode = fallbackReasonCodeForPageError(error, context);
+    if (!reasonCode) throw error;
+    const page = await resolveFallbackPage({
+      url,
+      context,
+      options,
+      operation,
+      reasonCode,
+      details: fallbackDetailsForError(error)
+    });
+    if (page) return page;
+    throw error;
+  }
 };
 
 const parseBooleanFilter = (value: unknown, fallback = false): boolean => {
@@ -433,8 +632,8 @@ const resolveTranscriptStrategyDetail = (
   return transcript.attemptChain.at(-1)?.strategy;
 };
 
-const buildSearch = (options: YouTubeProviderOptions["search"]) => {
-  if (options) return options;
+const buildSearch = (options: YouTubeProviderOptions) => {
+  if (options.search) return options.search;
   return async (input: ProviderSearchInput, context: ProviderContext) => {
     assertYouTubeLegalReviewChecklist();
     const query = input.query.trim();
@@ -450,7 +649,7 @@ const buildSearch = (options: YouTubeProviderOptions["search"]) => {
       ? query
       : `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
     const directUrlQuery = isHttpUrl(query);
-    const page = await fetchPage(lookupUrl, context);
+    const page = await fetchPage(lookupUrl, context, options, "search");
     const extracted = extractStructuredContent(page.html, page.url);
     const extractedVideoLinks = [...new Set(
       extracted.links
@@ -499,7 +698,8 @@ const buildSearch = (options: YouTubeProviderOptions["search"]) => {
         retrievalPath: isHttpUrl(query) ? "social:youtube:search:url" : "social:youtube:search:index",
         video_id: resolvedVideoId,
         ...(primaryResult?.channel ? { channel: primaryResult.channel } : {}),
-        links: extractedVideoLinks.slice(0, 20)
+        links: extractedVideoLinks.slice(0, 20),
+        ...browserFallbackObservationAttributes(page.browserFallback)
       }
     }];
   };
@@ -509,7 +709,7 @@ const buildFetch = (options: YouTubeProviderOptions) => {
   if (options.fetch) return options.fetch;
   return async (input: ProviderFetchInput, context: ProviderContext) => {
     assertYouTubeLegalReviewChecklist();
-    const page = await fetchPage(input.url, context);
+    const page = await fetchPage(input.url, context, options, "fetch");
     const extracted = extractStructuredContent(page.html, page.url);
 
     const includeFullTranscript = parseBooleanFilter(input.filters?.include_full_transcript, false);
@@ -526,7 +726,7 @@ const buildFetch = (options: YouTubeProviderOptions) => {
       legalChecklist: YOUTUBE_LEGAL_REVIEW_CHECKLIST,
       config: transcriptConfig,
       mode: requestedMode,
-      browserFallbackPort: options.browserFallbackPort,
+      browserFallbackPort: context.browserFallbackPort ?? options.browserFallbackPort,
       recoveryHints,
       allowBrowserFallbackEscalation: options.antiBotPolicy?.allowBrowserEscalation ?? true,
       asrTranscribe: options.asrTranscribe
@@ -593,6 +793,7 @@ const buildFetch = (options: YouTubeProviderOptions) => {
         transcript_mode: transcript.mode,
         translation_applied: translationApplied,
         transcript_summary: transcriptSummary,
+        ...browserFallbackObservationAttributes(page.browserFallback),
         ...(includeFullTranscript ? { transcript_full: transcriptContent } : {}),
         ...(transcriptStrategyDetail ? { transcript_strategy_detail: transcriptStrategyDetail } : {}),
         ...(transcript.ok
@@ -640,7 +841,7 @@ export const withDefaultYouTubeOptions = (options: YouTubeProviderOptions = {}):
 
   return {
     ...resolvedOptions,
-    search: buildSearch(resolvedOptions.search),
+    search: buildSearch(resolvedOptions),
     fetch: buildFetch(resolvedOptions)
   };
 };

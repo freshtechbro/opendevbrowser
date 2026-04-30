@@ -34,11 +34,11 @@ describe("macro-resolve CLI command", () => {
       runtime: "macros",
       resolution: { action: { source: "web", operation: "fetch", input: { url: "https://x.com/i/flow/login" } } },
       followthroughSummary: "Review execution.meta.blocker and failures before retrying the macro.",
-      suggestedNextAction: "Run npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser --output-format json after reviewing execution.meta.blocker.",
+      suggestedNextAction: "Run npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser_with_helper --output-format json after reviewing execution.meta.blocker.",
       suggestedSteps: [
         {
           title: "Retry the macro with browser automation",
-          command: "npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser --output-format json",
+          command: "npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser_with_helper --output-format json",
           reason: "Use browser automation to satisfy the login challenge before retrying the fetch."
         }
       ],
@@ -75,10 +75,10 @@ describe("macro-resolve CLI command", () => {
     expect(result.success).toBe(true);
     expect(result.message).toContain("Review execution.meta.blocker and failures before retrying the macro.");
     expect(result.message).toContain("Next step:");
-    expect(result.message).toContain("--challenge-automation-mode browser");
+    expect(result.message).toContain("--challenge-automation-mode browser_with_helper");
     expect(result.data).toMatchObject({
       followthroughSummary: "Review execution.meta.blocker and failures before retrying the macro.",
-      suggestedNextAction: expect.stringContaining("--challenge-automation-mode browser"),
+      suggestedNextAction: expect.stringContaining("--challenge-automation-mode browser_with_helper"),
       execution: {
         meta: {
           blocker: { type: "auth_required" }

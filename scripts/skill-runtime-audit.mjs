@@ -226,6 +226,16 @@ export function shouldUseConfiguredAuditEnv(laneId, options) {
   return options.smoke !== true && (laneId === "provider-direct" || laneId === "live-regression");
 }
 
+export function buildProviderDirectAuditArgs(options, laneJsonPath) {
+  return [
+    path.join(ROOT, "scripts", "provider-direct-runs.mjs"),
+    ...(options.smoke ? ["--smoke"] : ["--include-auth-gated", "--include-high-friction"]),
+    "--out",
+    laneJsonPath,
+    ...(options.quiet ? ["--quiet"] : [])
+  ];
+}
+
 function summarizeConstraintEntry(entry) {
   const constraintCount = countObservedExternalConstraints(entry.counts);
   if (constraintCount === 0) {
@@ -740,13 +750,7 @@ async function runSharedLane(laneId, options, reportOut) {
       logProgress(options, `lane provider-direct (${options.mode})`);
       const laneJsonPath = artifactPath;
       const runLane = async ({ env }) => {
-        const child = runNodeAtCwd([
-          path.join(ROOT, "scripts", "provider-direct-runs.mjs"),
-          ...(options.smoke ? ["--smoke"] : ["--use-global-env", "--include-auth-gated", "--include-high-friction"]),
-          "--out",
-          laneJsonPath,
-          ...(options.quiet ? ["--quiet"] : [])
-        ], {
+        const child = runNodeAtCwd(buildProviderDirectAuditArgs(options, laneJsonPath), {
           env,
           allowFailure: true,
           timeoutMs: options.smoke ? 900_000 : 1_800_000

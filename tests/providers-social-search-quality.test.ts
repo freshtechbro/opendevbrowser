@@ -100,7 +100,10 @@ describe("social search quality helpers", () => {
     const baseUrl = "https://www.reddit.com/search?q=browser+automation";
 
     expect(isFirstPartySocialSearchRoute("reddit", baseUrl)).toBe(true);
+    expect(isFirstPartySocialSearchRoute("reddit", "https://www.reddit.com/search/?q=browser+automation")).toBe(true);
     expect(isAllowedSocialSearchExpansionUrl("reddit", "https://www.reddit.com/search")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("reddit", "https://www.reddit.com/search/?q=browser+automation")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("reddit", "https://www.reddit.com/login/")).toBe(false);
     expect(isAllowedSocialSearchExpansionUrl("reddit", "https://ads.reddit.com/campaign")).toBe(false);
     expect(isAllowedSocialSearchExpansionUrl("reddit", "https://www.reddit.com////")).toBe(true);
     expect(isAllowedSocialSearchExpansionUrl("reddit", "https://example.com/reddit/thread")).toBe(true);
@@ -309,6 +312,144 @@ describe("social search quality helpers", () => {
     })).toBeNull();
     expect(prioritizeSocialSearchLinks("youtube", "https://www.youtube.com/results?search_query=test", links)).toEqual(links);
     expect(selectUsableSocialSearchLinks("youtube", "https://www.youtube.com/results?search_query=test", links)).toEqual(links);
+  });
+
+  it("treats threads search shells as browser-required until post links exist", () => {
+    const baseUrl = "https://www.threads.net/search?q=browser+automation";
+    const trailingSlashUrl = "https://www.threads.net/search/?q=browser+automation";
+    const postUrl = "https://www.threads.net/@opendevbrowser/post/ABC123";
+
+    expect(isFirstPartySocialSearchRoute("threads", baseUrl)).toBe(true);
+    expect(isFirstPartySocialSearchRoute("threads", trailingSlashUrl)).toBe(true);
+    expect(detectSocialSearchShell("threads", {
+      url: baseUrl,
+      content: "Search results",
+      links: ["https://www.threads.net/login"]
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
+    expect(detectSocialSearchShell("threads", {
+      url: trailingSlashUrl,
+      content: "Search results",
+      links: ["https://www.threads.net/login"]
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
+    expect(detectSocialSearchShell("threads", {
+      url: baseUrl,
+      content: "Search results",
+      links: [postUrl]
+    })).toBeNull();
+    expect(isAllowedSocialSearchExpansionUrl("threads", "https://www.threads.net/search")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("threads", trailingSlashUrl)).toBe(false);
+    expect(selectUsableSocialSearchLinks("threads", baseUrl, [
+      "https://www.threads.net/",
+      "https://www.threads.net/login",
+      postUrl
+    ])).toEqual([postUrl]);
+  });
+
+  it("blocks threads roots, login, metadata, and foreign post lookalikes", () => {
+    const baseUrl = "https://www.threads.net/search?q=browser+automation";
+    const postUrl = "https://threads.net/@opendevbrowser/post/ABC123";
+
+    expect(detectSocialSearchShell("threads", {
+      url: "https://threads.net/",
+      content: "Threads"
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
+    expect(detectSocialSearchShell("threads", {
+      url: "https://www.threads.net/login/",
+      content: "Log in"
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
+    expect(isAllowedSocialSearchExpansionUrl("threads", "https://www.threads.net/site.webmanifest")).toBe(false);
+    expect(isAllowedSocialSearchExpansionUrl("threads", "https://example.com/@opendevbrowser/post/ABC123")).toBe(true);
+    expect(selectUsableSocialSearchLinks("threads", baseUrl, [
+      "https://example.com/@opendevbrowser/post/ABC123",
+      "https://www.threads.net/site.webmanifest",
+      postUrl
+    ])).toEqual([postUrl]);
+  });
+
+  it("covers targeted edge routes for reddit, threads, and facebook support evidence", () => {
+    const facebookSearch = "https://www.facebook.com/watch/search/?q=browser+automation";
+
+    expect(isFirstPartySocialSearchRoute("reddit", "https://old.reddit.com/search/?q=browser+automation")).toBe(true);
+    expect(isAllowedSocialSearchExpansionUrl("reddit", "https://www.reddit.com/search/")).toBe(false);
+    expect(isFirstPartySocialSearchRoute("threads", "https://threads.net/search")).toBe(true);
+    expect(isAllowedSocialSearchExpansionUrl("threads", "https://threads.net/search")).toBe(false);
+    expect(detectSocialSearchShell("facebook", {
+      url: facebookSearch,
+      content: "Search results",
+      links: [
+        "https://www.facebook.com/browserautomation",
+        "https://m.facebook.com/opendevbrowser"
+      ]
+    })).toBeNull();
+    expect(selectUsableSocialSearchLinks("facebook", facebookSearch, [
+      "https://www.facebook.com/browserautomation",
+      "https://m.facebook.com/opendevbrowser"
+    ])).toEqual([]);
+  });
+
+  it("keeps facebook search shells when result evidence is too weak", () => {
+    const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation";
+
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Open reel in Reels Viewer",
+      links: [
+        "/watch/search/?q=browser+automation",
+        "/watch"
+      ]
+    })).toMatchObject({
+      providerShell: "social_render_shell"
+    });
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Search results",
+      links: [
+        "/BradfordSCarlton",
+        "/prince.okporu"
+      ]
+    })).toBeNull();
+  });
+
+  it("accepts facebook search pages with a heading and one result marker", () => {
+    expect(detectSocialSearchShell("facebook", {
+      url: "https://www.facebook.com/watch/search/?q=browser+automation",
+      content: "Search results Shared with Public",
+      links: []
+    })).toBeNull();
+  });
+
+  it("accepts facebook concrete content patterns and rejects blocked support routes", () => {
+    const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation";
+
+    expect(selectUsableSocialSearchLinks("facebook", baseUrl, [
+      "/groups/automation/posts/12345/",
+      "/automation/videos/67890/",
+      "/permalink.php?story_fbid=123&id=456",
+      "/story.php?story_fbid=123&id=456",
+      "/watch",
+      "/search/videos?q=browser+automation"
+    ])).toEqual([
+      "https://www.facebook.com/groups/automation/posts/12345/",
+      "https://www.facebook.com/automation/videos/67890/",
+      "https://www.facebook.com/permalink.php?story_fbid=123&id=456",
+      "https://www.facebook.com/story.php?story_fbid=123&id=456"
+    ]);
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Search results",
+      links: [
+        "https://example.com/browser-automation",
+        "https://www.facebook.com/watch/?v=123456789012345"
+      ]
+    })).toBeNull();
   });
 
   it("keeps allowed non-content links behind concrete content evidence for targeted platforms", () => {

@@ -27,6 +27,8 @@ import {
   writeJson
 } from "./live-direct-utils.mjs";
 import {
+  currentHarnessDaemonStatusDetail,
+  isCurrentHarnessDaemonStatus,
   startConfiguredDaemon,
   stopDaemon
 } from "./skill-runtime-probe-utils.mjs";
@@ -38,7 +40,6 @@ const HELP_TEXT = [
   "  --out <path>                 Output JSON path (default: /tmp/odb-provider-direct-runs-<mode>-<ts>.json)",
   "  --smoke                      Reduced provider set for faster manual checks",
   "  --release-gate               Strict release mode (enables gated cases and fails on env_limited)",
-  "  --use-global-env             Compatibility flag; direct runs already use the current environment",
   "  --include-auth-gated         Include auth-gated provider scenarios",
   "  --include-high-friction      Include high-friction provider scenarios",
   "  --include-social-posts       Include write-path social probes",
@@ -48,7 +49,7 @@ const HELP_TEXT = [
 const MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE = "browser_with_helper";
 const MACRO_CHALLENGE_ARGS = ["--challenge-automation-mode", MACRO_REQUESTED_CHALLENGE_AUTOMATION_MODE];
 const LINKEDIN_TIMEOUT_RETRY_DETAIL_RE = /\b(?:request|provider request) timed out after \d+ms\b/i;
-const YOUTUBE_GENERIC_SHELL_RETRY_DETAIL = "shell_only_records=generic_shell";
+const YOUTUBE_SITE_CHROME_SHELL_RETRY_DETAIL = "shell_only_records=youtube_site_chrome_shell";
 
 const DIRECT_WEB_COMMUNITY_CASES = [
   {
@@ -109,7 +110,7 @@ export async function ensureProviderDaemon(
   } = {}
 ) {
   const daemonStatus = readDaemonStatusImpl(env);
-  if (daemonStatus.status === 0) {
+  if (isCurrentHarnessDaemonStatus(daemonStatus)) {
     return {
       daemonStatus,
       startedDaemon: false
@@ -124,12 +125,17 @@ export async function ensureProviderDaemon(
 }
 
 export function classifyDaemonPreflight(result) {
+  const ok = isCurrentHarnessDaemonStatus(result);
   return {
     id: "infra.daemon_status",
-    status: result.status === 0 ? "pass" : "fail",
-    detail: result.status === 0 ? null : result.detail,
+    status: ok ? "pass" : "fail",
+    detail: currentHarnessDaemonStatusDetail(result),
     data: result.json?.data ?? null
   };
+}
+
+export function shouldAbortForDaemonPreflight(result) {
+  return !isCurrentHarnessDaemonStatus(result);
 }
 
 export function buildProviderCoverageStep(providerCoverage, { releaseGate = false } = {}) {
@@ -385,6 +391,12 @@ const REDDIT_VERIFICATION_WALL_RE = /\b(?:please wait for verification|verify yo
 const SOCIAL_JS_REQUIRED_RE = /\b(?:javascript (?:is not available|required|is disabled(?: in this browser)?)|you need to enable javascript|please enable javascript)\b/i;
 const BLUESKY_LOGGED_OUT_SEARCH_RE = /\bsearch is currently unavailable when logged out\b/i;
 const BLUESKY_EMPTY_SEARCH_SHELL_RE = /\b(?:follow 10 people to get started|find people to follow)\b/i;
+const FACEBOOK_SEARCH_RESULTS_HEADING_RE = /\bsearch results\b/i;
+const FACEBOOK_SEARCH_RESULT_MARKERS = [
+  /\bshared with public\b/i,
+  /\bopen reel in reels viewer\b/i,
+  /\bcomment as\b/i
+];
 const REDDIT_BLOCKED_EXPANSION_HOSTS = ["accounts.google.com", "ads.reddit.com"];
 const REDDIT_BLOCKED_FIRST_SEGMENTS = new Set(["account", "ads", "notifications", "submit", "verification"]);
 
@@ -433,6 +445,51 @@ function isPrimaryRedditHost(host) {
     || normalized === "old.reddit.com";
 }
 
+function isPrimaryFacebookHost(host) {
+  const normalized = host.toLowerCase();
+  return normalized === "www.facebook.com"
+    || normalized === "facebook.com"
+    || normalized === "m.facebook.com";
+}
+
+function isPrimaryThreadsHost(host) {
+  const normalized = host.toLowerCase();
+  return normalized === "www.threads.net" || normalized === "threads.net";
+}
+
+function isFacebookSearchLikePath(pathname) {
+  return pathname === "/watch/search"
+    || pathname === "/watch/search/"
+    || pathname.startsWith("/watch/explore/")
+    || pathname.startsWith("/search/")
+    || pathname.startsWith("/public/")
+    || pathname.startsWith("/hashtag/");
+}
+
+function isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute }) {
+  if (!isPrimaryFacebookHost(parsed.hostname)) {
+    return false;
+  }
+  const pathname = parsed.pathname.toLowerCase();
+  if (
+    pathname === "/"
+    || pathname === "/login"
+    || pathname === "/login/"
+    || pathname === "/reg"
+    || pathname === "/reg/"
+    || pathname.startsWith("/recover/")
+  ) {
+    return true;
+  }
+  if ((pathname === "/watch" || pathname === "/watch/") && !parsed.searchParams.get("v")) {
+    return true;
+  }
+  if (isStaticMetadataPath(pathname)) {
+    return true;
+  }
+  return includeSearchRoute && isFacebookSearchLikePath(pathname);
+}
+
 function isBlockedRedditNonContentUrl(parsed, { includeSearchRoute }) {
   const host = parsed.hostname.toLowerCase();
   if (matchesHost(host, REDDIT_BLOCKED_EXPANSION_HOSTS)) {
@@ -456,6 +513,8 @@ function isFirstPartySearchRoute(providerId, parsed) {
     (providerId === "social/x" && host === "x.com" && pathname === "/search")
     || (providerId === "social/bluesky" && host === "bsky.app" && pathname === "/search")
     || (providerId === "social/reddit" && isPrimaryRedditHost(host) && pathname === "/search")
+    || (providerId === "social/facebook" && isPrimaryFacebookHost(host) && isFacebookSearchLikePath(pathname))
+    || (providerId === "social/threads" && isPrimaryThreadsHost(host) && (pathname === "/search" || pathname === "/search/"))
   );
 }
 
@@ -487,6 +546,20 @@ function isBlockedSocialExpansionPath(providerId, parsed) {
   }
   if (providerId === "social/reddit") {
     return isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: true });
+  }
+  if (providerId === "social/facebook") {
+    return isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: true });
+  }
+  if (providerId === "social/threads") {
+    return isPrimaryThreadsHost(host)
+      && (
+        pathname === "/"
+        || pathname === "/login"
+        || pathname === "/login/"
+        || pathname === "/search"
+        || pathname === "/search/"
+        || isStaticMetadataPath(pathname)
+      );
   }
   return false;
 }
@@ -549,6 +622,44 @@ function isUsableRedditSearchEvidenceUrl(url) {
     && /^\/r\/[^/]+\/comments\/[^/]+(?:\/|$)/.test(parsed.pathname.toLowerCase());
 }
 
+function isUsableFacebookSearchEvidenceUrl(url) {
+  const parsed = parseUrl(url);
+  if (parsed === null || !isPrimaryFacebookHost(parsed.hostname)) {
+    return false;
+  }
+  const pathname = parsed.pathname.toLowerCase();
+  if ((pathname === "/watch" || pathname === "/watch/") && parsed.searchParams.get("v")) {
+    return true;
+  }
+  return /^\/reel\/[^/]+\/?$/.test(pathname)
+    || /^\/groups\/[^/]+\/posts\/[^/]+\/?$/.test(pathname)
+    || /^\/[^/]+\/videos\/[^/]+\/?$/.test(pathname)
+    || /^\/share\/v\/[^/]+\/?$/.test(pathname)
+    || ((pathname === "/permalink.php" || pathname === "/story.php") && parsed.searchParams.has("story_fbid"))
+    || (pathname === "/photo/" && parsed.searchParams.has("fbid"));
+}
+
+function isUsableThreadsSearchEvidenceUrl(url) {
+  const parsed = parseUrl(url);
+  return parsed !== null
+    && isPrimaryThreadsHost(parsed.hostname)
+    && /^\/@[^/]+\/post\/[^/]+\/?$/.test(parsed.pathname.toLowerCase());
+}
+
+function isRetainableFacebookSearchSupportUrl(url) {
+  const parsed = parseUrl(url);
+  if (parsed === null || !isPrimaryFacebookHost(parsed.hostname)) {
+    return false;
+  }
+  if (isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: true })) {
+    return false;
+  }
+  if (isFirstPartySearchRoute("social/facebook", parsed)) {
+    return false;
+  }
+  return !isUsableFacebookSearchEvidenceUrl(url);
+}
+
 function isUsableSocialSearchContentUrl(providerId, url) {
   if (providerId === "social/x") {
     return isUsableXSearchEvidenceUrl(url);
@@ -558,6 +669,12 @@ function isUsableSocialSearchContentUrl(providerId, url) {
   }
   if (providerId === "social/reddit") {
     return isUsableRedditSearchEvidenceUrl(url);
+  }
+  if (providerId === "social/facebook") {
+    return isUsableFacebookSearchEvidenceUrl(url);
+  }
+  if (providerId === "social/threads") {
+    return isUsableThreadsSearchEvidenceUrl(url);
   }
   return false;
 }
@@ -638,6 +755,25 @@ function hasUsableFirstPartySearchEvidence(providerId, parsed, links) {
     && evidence.usableContentLinks.length > 0;
 }
 
+function hasFacebookSearchResultSignals(url, title, content, links) {
+  const parsed = parseUrl(url);
+  if (parsed === null || !isFirstPartySearchRoute("social/facebook", parsed)) {
+    return false;
+  }
+  const combined = `${normalizePlainText(title)} ${normalizePlainText(content)}`.trim();
+  const hasSearchHeading = FACEBOOK_SEARCH_RESULTS_HEADING_RE.test(combined);
+  const markerCount = FACEBOOK_SEARCH_RESULT_MARKERS.filter((pattern) => pattern.test(combined)).length;
+  const evidence = collectSocialSearchLinkEvidence("social/facebook", parsed.toString(), Array.isArray(links) ? links : []);
+  const supportLinkCount = evidence.usableLinks.filter(isRetainableFacebookSearchSupportUrl).length;
+  if (markerCount >= 2) {
+    return true;
+  }
+  if (!hasSearchHeading) {
+    return false;
+  }
+  return markerCount >= 1 || supportLinkCount >= 2;
+}
+
 function detectSocialSearchShell(providerId, url, title, content, links = []) {
   const parsed = parseUrl(url);
   const combined = `${title} ${content}`.trim();
@@ -699,9 +835,19 @@ function detectSocialSearchShell(providerId, url, title, content, links = []) {
       (providerId === "social/x" && parsed.hostname === "x.com" && (pathname === "/" || pathname === "/home" || pathname === "/login" || pathname.startsWith("/i/flow/login")))
       || (providerId === "social/bluesky" && parsed.hostname === "bsky.app" && (pathname === "/" || pathname === "/login"))
       || (providerId === "social/reddit" && isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: false }))
+      || (providerId === "social/facebook" && isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: false }))
+      || (providerId === "social/threads" && isPrimaryThreadsHost(parsed.hostname) && (pathname === "/" || pathname === "/login" || pathname === "/login/"))
     ) {
       return "social_render_shell";
     }
+  }
+  if (
+    parsed
+    && isFirstPartySearchRoute(providerId, parsed)
+    && providerId === "social/facebook"
+    && hasFacebookSearchResultSignals(url, title, content, links)
+  ) {
+    return null;
   }
   if (
     parsed
@@ -783,7 +929,7 @@ function getMacroShellReason(record, providerId, fallbackRetrievalPath) {
       )
     )
   ) {
-    return "generic_shell";
+    return "youtube_site_chrome_shell";
   }
 
   return null;
@@ -824,12 +970,6 @@ function resolveDirectHarnessVerdict({ classified, detail, preferClassified }) {
 
 function isTimeoutDetail(detail) {
   return /timed out|timeout/i.test(String(detail ?? ""));
-}
-
-function isTemuTimeoutBoundary(testCase, result) {
-  return testCase?.providerId === "shopping/temu"
-    && result?.status !== 0
-    && isTimeoutDetail(result?.detail);
 }
 
 function buildProviderCases(options) {
@@ -907,7 +1047,6 @@ export function parseArgs(argv) {
     out: null,
     smoke: false,
     releaseGate: false,
-    useGlobalEnv: false,
     includeAuthGated: false,
     includeHighFriction: false,
     includeSocialPosts: false,
@@ -926,10 +1065,6 @@ export function parseArgs(argv) {
     }
     if (arg === "--release-gate") {
       options.releaseGate = true;
-      continue;
-    }
-    if (arg === "--use-global-env") {
-      options.useGlobalEnv = true;
       continue;
     }
     if (arg === "--include-auth-gated") {
@@ -1025,14 +1160,14 @@ function evaluateMacroCase(testCase, result) {
           execution.failures,
           {
             allowExpectedUnavailable: testCase.allowExpectedUnavailable === true,
-            allowNoRecordsNoFailures: testCase.providerId.startsWith("social/")
+            allowNoRecordsNoFailures: false
           }
         )
       ));
   const { rawFailure, verdict } = resolveDirectHarnessVerdict({
     classified,
     detail: result.detail,
-    preferClassified: execution.hasExecutionPayload
+    preferClassified: result.status === 0
   });
 
   return {
@@ -1072,7 +1207,7 @@ export function shouldRetryMacroTimeoutCase(testCase, step) {
     return LINKEDIN_TIMEOUT_RETRY_DETAIL_RE.test(String(step?.detail ?? ""));
   }
   if (providerId === "social/youtube") {
-    return String(step?.detail ?? "").trim() === YOUTUBE_GENERIC_SHELL_RETRY_DETAIL;
+    return String(step?.detail ?? "").trim() === YOUTUBE_SITE_CHROME_SHELL_RETRY_DETAIL;
   }
   return false;
 }
@@ -1084,7 +1219,9 @@ function mergeRetriedStep(initialStep, retriedStep) {
     retryInitialDetail: initialStep.detail
   };
 
-  if (retriedStep.status !== "fail") {
+  const usableCount = Number(retriedStep.data?.records ?? retriedStep.data?.offers ?? 0);
+  const recoveredUsableResults = retriedStep.status === "pass" && usableCount > 0;
+  if (recoveredUsableResults) {
     return {
       ...retriedStep,
       data: {
@@ -1115,8 +1252,13 @@ export function mergeRetriedMacroStep(initialStep, retriedStep) {
 export function shouldRetryShoppingTimeoutCase(testCase, step) {
   return testCase?.providerId === "shopping/temu"
     && step?.status === "fail"
-    && Array.isArray(step?.data?.reasonCodes)
-    && step.data.reasonCodes.includes("timeout");
+    && (
+      (
+        Array.isArray(step?.data?.reasonCodes)
+        && step.data.reasonCodes.includes("timeout")
+      )
+      || isTimeoutDetail(step?.detail)
+    );
 }
 
 export function mergeRetriedShoppingStep(initialStep, retriedStep) {
@@ -1133,24 +1275,17 @@ function evaluateShoppingCase(testCase, result) {
   const { verdict } = resolveDirectHarnessVerdict({
     classified,
     detail: result.detail,
-    preferClassified: execution.hasDataPayload || result.status === 0
+    preferClassified: result.status === 0
   });
   const firstFailure = execution.firstFailure;
   const failureDetails = firstFailure?.error?.details ?? {};
   const shoppingMetadata = collectRequestedChallengeMetadata(testCase.args);
-  const temuTimeoutBoundary = isTemuTimeoutBoundary(testCase, result);
-  const resolvedStatus = temuTimeoutBoundary
-    ? "env_limited"
-    : verdict.status;
-  const resolvedDetail = temuTimeoutBoundary
-    ? result.detail
-    : verdict.detail;
   return {
     id: testCase.id,
     providerId: testCase.providerId,
     command: testCase.args,
-    status: resolvedStatus,
-    detail: resolvedDetail,
+    status: verdict.status,
+    detail: verdict.detail,
     data: {
       offers: execution.offers.length,
       failures: execution.failures.length,
@@ -1182,7 +1317,6 @@ async function main() {
     out: options.out,
     mode: options.mode,
     releaseGate: options.releaseGate,
-    useGlobalEnv: options.useGlobalEnv,
     runAuthGated: options.runAuthGated,
     runHighFriction: options.runHighFriction,
     runSocialPostCases: options.runSocialPostCases,
@@ -1224,7 +1358,7 @@ async function main() {
       prefix: "[provider-direct]",
       logProgress: !options.quiet
     });
-    if (daemonPreflight.daemonStatus.status !== 0) {
+    if (shouldAbortForDaemonPreflight(daemonPreflight.daemonStatus)) {
       finalizeReport(report, { strictGate: options.releaseGate });
       writeJson(options.out, report);
       console.log(options.out);

@@ -281,4 +281,236 @@ describe("provider runtime coverage seams", () => {
       }
     });
   });
+
+  it("fails forced browser transport when no browser port is available", async () => {
+    vi.resetModules();
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://duckduckgo.com/html/?q=forced&ia=web",
+      text: async () => "<html><body>direct fetch should not run</body></html>"
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const runtime = createDefaultRuntime();
+    const result = await runtime.search(
+      { query: "forced", limit: 1 },
+      {
+        source: "web",
+        providerIds: ["web/default"],
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.error).toMatchObject({
+      code: "auth",
+      reasonCode: "auth_required",
+      details: {
+        browserTransportRequired: true
+      }
+    });
+  });
+
+  it("keeps forced extension transport unavailable when cookies are not required", async () => {
+    vi.resetModules();
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://duckduckgo.com/html/?q=forced&ia=web",
+      text: async () => "<html><body>direct fetch should not run</body></html>"
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const runtime = createDefaultRuntime();
+    const result = await runtime.search(
+      { query: "forced", limit: 1 },
+      {
+        source: "web",
+        providerIds: ["web/default"],
+        runtimePolicy: { browserMode: "extension" }
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.error).toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        browserTransportRequired: true
+      }
+    });
+  });
+
+  it("propagates non-completed forced browser transport results", async () => {
+    vi.resetModules();
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://duckduckgo.com/html/?q=forced&ia=web",
+      text: async () => "<html><body>direct fetch should not run</body></html>"
+    })) as unknown as typeof fetch;
+    const resolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "challenge_detected" as const,
+      mode: "extension" as const,
+      details: {
+        message: "Browser transport preserved a provider challenge."
+      }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const runtime = createDefaultRuntime({}, { browserFallbackPort: { resolve } });
+    const result = await runtime.search(
+      { query: "forced", limit: 1 },
+      {
+        source: "web",
+        providerIds: ["web/default"],
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.error).toMatchObject({
+      code: "unavailable",
+      reasonCode: "challenge_detected",
+      message: "Browser transport preserved a provider challenge.",
+      details: {
+        disposition: "failed",
+        browserFallbackMode: "extension"
+      }
+    });
+  });
+
+  it("rejects completed browser transport output without html", async () => {
+    vi.resetModules();
+    const resolve = vi.fn(async (request: { url?: string }) => ({
+      ok: true,
+      reasonCode: "auth_required" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=forced&ia=web"
+      }
+    }));
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const runtime = createDefaultRuntime({}, { browserFallbackPort: { resolve } });
+    const result = await runtime.search(
+      { query: "forced", limit: 1 },
+      {
+        source: "web",
+        providerIds: ["web/default"],
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.error).toMatchObject({
+      code: "auth",
+      reasonCode: "auth_required",
+      details: {
+        fallbackOutputReason: "missing_or_empty_html"
+      }
+    });
+  });
+
+  it("rejects completed browser transport output without usable body content", async () => {
+    vi.resetModules();
+    const resolve = vi.fn(async (request: { url?: string }) => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=forced&ia=web",
+        html: "<html><head><title>Shell</title></head>search results continue privacy policy</html>"
+      }
+    }));
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const runtime = createDefaultRuntime({}, { browserFallbackPort: { resolve } });
+    const result = await runtime.search(
+      { query: "forced", limit: 1 },
+      {
+        source: "web",
+        providerIds: ["web/default"],
+        runtimePolicy: {
+          browserMode: "extension"
+        }
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]?.error).toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        fallbackOutputReason: "empty_extracted_content"
+      }
+    });
+  });
+
+  it("uses completed browser transport output with usable links when browser mode is forced", async () => {
+    vi.resetModules();
+    const fetchMock = vi.fn(async () => {
+      throw new Error("direct fetch should not run for forced browser transport");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const resolve = vi.fn(async (request: { url?: string }) => ({
+      ok: true,
+      reasonCode: "auth_required" as const,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=forced&ia=web",
+        html: [
+          "<html><body><main>Signed-in search results for browser automation providers.</main>",
+          "<a href=\"https://developer.mozilla.org/en-US/docs/Web/API/Window/open\">Window open reference</a>",
+          "</body></html>"
+        ].join("")
+      }
+    }));
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const runtime = createDefaultRuntime({}, { browserFallbackPort: { resolve } });
+    const result = await runtime.search(
+      { query: "forced", limit: 1 },
+      {
+        source: "web",
+        providerIds: ["web/default"],
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.records[0]?.url).toBe("https://developer.mozilla.org/en-US/docs/Web/API/Window/open");
+    expect(result.records[0]?.attributes).toMatchObject({
+      browser_fallback_mode: "extension",
+      browser_fallback_reason_code: "auth_required"
+    });
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "web/default",
+      source: "web",
+      operation: "search",
+      reasonCode: "auth_required"
+    }));
+  });
 });

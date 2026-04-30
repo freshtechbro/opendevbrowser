@@ -79,7 +79,7 @@ export const readFallbackString = (
   key: "html" | "url"
 ): string | undefined => {
   const value = output?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 };
 
 export const fallbackDispositionMessage = (
@@ -99,6 +99,40 @@ export const fallbackDispositionMessage = (
   }
 };
 
+const fallbackErrorDetails = (args: {
+  url: string;
+  fallback: BrowserFallbackResponse;
+  extra?: Record<string, JsonValue>;
+}): Record<string, JsonValue> => ({
+  url: args.url,
+  disposition: args.fallback.disposition,
+  ...(args.fallback.mode ? { browserFallbackMode: args.fallback.mode } : {}),
+  ...(args.fallback.challenge ? { challenge: toJsonRecord(args.fallback.challenge) } : {}),
+  ...(args.fallback.preservedSessionId ? { preservedSessionId: args.fallback.preservedSessionId } : {}),
+  ...(args.fallback.preservedTargetId ? { preservedTargetId: args.fallback.preservedTargetId } : {}),
+  ...toJsonRecord(args.fallback.details ?? {}),
+  ...(args.extra ?? {})
+});
+
+const addProviderIssueGuidance = (args: {
+  provider: string;
+  reasonCode: ProviderReasonCode;
+  details: Record<string, JsonValue>;
+  includeCompleted?: boolean;
+}): Record<string, JsonValue> => {
+  const hint = readProviderIssueHint({
+    reasonCode: args.reasonCode,
+    details: args.details as Record<string, unknown>
+  });
+  const guidanceDetails = args.includeCompleted
+    ? { ...args.details, disposition: "failed" }
+    : args.details;
+  const guidance = hint
+    ? buildProviderIssueGuidance({ provider: args.provider, hint, details: guidanceDetails })
+    : undefined;
+  return guidance ? { ...args.details, guidance } : args.details;
+};
+
 export const toProviderFallbackError = (args: {
   provider: string;
   source: ProviderSource;
@@ -107,22 +141,7 @@ export const toProviderFallbackError = (args: {
 }): ProviderRuntimeError => {
   const { fallback } = args;
   const reasonCode = fallback.reasonCode;
-  const details: Record<string, JsonValue> = {
-    url: args.url,
-    disposition: fallback.disposition,
-    ...(fallback.mode ? { browserFallbackMode: fallback.mode } : {}),
-    ...(fallback.challenge ? { challenge: toJsonRecord(fallback.challenge) } : {}),
-    ...(fallback.preservedSessionId ? { preservedSessionId: fallback.preservedSessionId } : {}),
-    ...(fallback.preservedTargetId ? { preservedTargetId: fallback.preservedTargetId } : {}),
-    ...toJsonRecord(fallback.details ?? {})
-  };
-  const hint = readProviderIssueHint({
-    reasonCode,
-    details: details as Record<string, unknown>
-  });
-  const guidance = hint
-    ? buildProviderIssueGuidance({ provider: args.provider, hint, details })
-    : undefined;
+  const details = fallbackErrorDetails({ url: args.url, fallback });
   return new ProviderRuntimeError(
     providerErrorCodeFromReasonCode(reasonCode),
     fallbackDispositionMessage(fallback, args.url),
@@ -131,9 +150,43 @@ export const toProviderFallbackError = (args: {
       source: args.source,
       retryable: reasonCode === "rate_limited",
       reasonCode,
-      details: guidance
-        ? { ...details, guidance }
-        : details
+      details: addProviderIssueGuidance({
+        provider: args.provider,
+        reasonCode,
+        details
+      })
+    }
+  );
+};
+
+export const toCompletedFallbackOutputError = (args: {
+  provider: string;
+  source: ProviderSource;
+  url: string;
+  fallback: BrowserFallbackResponse;
+  outputReason: string;
+}): ProviderRuntimeError => {
+  const { fallback } = args;
+  const reasonCode = fallback.reasonCode;
+  const details = fallbackErrorDetails({
+    url: args.url,
+    fallback,
+    extra: { fallbackOutputReason: args.outputReason }
+  });
+  return new ProviderRuntimeError(
+    providerErrorCodeFromReasonCode(reasonCode),
+    `Browser fallback completed for ${args.url} without usable HTML content.`,
+    {
+      provider: args.provider,
+      source: args.source,
+      retryable: reasonCode === "rate_limited",
+      reasonCode,
+      details: addProviderIssueGuidance({
+        provider: args.provider,
+        reasonCode,
+        details,
+        includeCompleted: true
+      })
     }
   );
 };

@@ -8,6 +8,7 @@ import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 const z = tool.schema;
 const sortSchema = z.enum(["best_deal", "lowest_price", "highest_rating", "fastest_shipping"]);
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
+const browserModeSchema = z.enum(["auto", "extension", "managed"]);
 const cookiePolicySchema = z.enum(["off", "auto", "required"]);
 const challengeAutomationModeSchema = z.enum(CHALLENGE_AUTOMATION_MODES);
 
@@ -19,6 +20,7 @@ export function createShoppingRunTool(deps: ToolDeps): ToolDefinition {
       providers: z.array(z.string()).optional().describe("Optional provider allow-list"),
       budget: z.number().positive().optional().describe("Optional budget amount"),
       region: z.string().optional().describe("Region hint"),
+      browserMode: browserModeSchema.optional().describe("Browser transport mode: auto|extension|managed"),
       sort: sortSchema.optional().describe("best_deal|lowest_price|highest_rating|fastest_shipping"),
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       outputDir: z.string().optional().describe("Optional artifact output directory"),
@@ -36,6 +38,7 @@ export function createShoppingRunTool(deps: ToolDeps): ToolDefinition {
           providers: args.providers,
           budget: args.budget,
           region: args.region,
+          browserMode: args.browserMode,
           sort: args.sort,
           mode: args.mode ?? "compact",
           outputDir: args.outputDir,

@@ -92,6 +92,36 @@ const isExplicitShoppingExtensionRequest = (request: BrowserFallbackRequest): bo
     && preferredModes[0] === "extension";
 };
 
+const isExplicitSocialExtensionRequest = (request: BrowserFallbackRequest): boolean => {
+  const preferredModes = request.runtimePolicy?.browser.preferredModes ?? request.preferredModes;
+  return request.source === "social"
+    && request.runtimePolicy?.browser.forceTransport === true
+    && preferredModes?.length === 1
+    && preferredModes[0] === "extension";
+};
+
+const shouldVerifyExtensionRequestUrl = (request: BrowserFallbackRequest): boolean => (
+  isExplicitShoppingExtensionRequest(request) || isExplicitSocialExtensionRequest(request)
+);
+
+const isRequiredExtensionSessionRequest = (
+  request: BrowserFallbackRequest,
+  runtimePolicy: ReturnType<typeof resolveProviderRuntimePolicy>,
+  preferredMode: string
+): boolean => {
+  if (preferredMode !== "extension") {
+    return false;
+  }
+  const preferredModes = request.runtimePolicy?.browser.preferredModes ?? request.preferredModes;
+  return runtimePolicy.browser.forceTransport === true
+    || runtimePolicy.cookies.policy === "required"
+    || (preferredModes?.length === 1 && preferredModes[0] === "extension");
+};
+
+const requiresAuthenticatedExtensionSession = (
+  runtimePolicy: ReturnType<typeof resolveProviderRuntimePolicy>
+): boolean => runtimePolicy.cookies.policy === "required";
+
 const shouldAttachExtensionStartUrl = (request: BrowserFallbackRequest): boolean => (
   request.source === "social"
   || request.source === "shopping"
@@ -250,6 +280,41 @@ const fallbackFailure = (
   }
 });
 
+const extensionSessionRequiredFailure = (
+  message: string,
+  cookieDiagnostics: BrowserFallbackCookieDiagnostics,
+  runtimePolicy: Record<string, JsonValue>,
+  details?: Record<string, JsonValue>
+): BrowserFallbackResponse => {
+  const reasonMessage = `Logged-in extension session required: ${message}`;
+  cookieDiagnostics.reasonCode = "auth_required";
+  cookieDiagnostics.message = reasonMessage;
+  return fallbackFailure("auth_required", reasonMessage, cookieDiagnostics, undefined, runtimePolicy, {
+    mode: "extension",
+    details: {
+      ...(details ?? {}),
+      extensionSessionRequired: true
+    }
+  });
+};
+
+const extensionTransportUnavailableFailure = (
+  message: string,
+  cookieDiagnostics: BrowserFallbackCookieDiagnostics,
+  runtimePolicy: Record<string, JsonValue>,
+  details?: Record<string, JsonValue>
+): BrowserFallbackResponse => {
+  cookieDiagnostics.reasonCode = "env_limited";
+  cookieDiagnostics.message = message;
+  return fallbackFailure("env_limited", message, cookieDiagnostics, undefined, runtimePolicy, {
+    mode: "extension",
+    details: {
+      ...(details ?? {}),
+      extensionTransportRequired: true
+    }
+  });
+};
+
 const toJsonValue = (value: unknown): JsonValue | undefined => {
   if (
     value === null
@@ -334,6 +399,7 @@ const buildFallbackChallengeOrchestration = (args: {
   helperBridgeEnabled: boolean;
   invoked: boolean;
   reason: string;
+  helperEligibility?: Record<string, JsonValue>;
 }): Record<string, JsonValue> | undefined => {
   if (!shouldEmitFallbackChallengeOrchestration(args.request.reasonCode)) {
     return undefined;
@@ -343,13 +409,19 @@ const buildFallbackChallengeOrchestration = (args: {
     mode: policy.mode,
     source: policy.source,
     ...(policy.standDownReason ? { standDownReason: policy.standDownReason } : {}),
-    helperEligibility: resolveFallbackHelperEligibility({
+    helperEligibility: args.helperEligibility ?? resolveFallbackHelperEligibility({
       mode: policy.mode,
       helperBridgeEnabled: args.helperBridgeEnabled
     }),
     invoked: args.invoked,
     reason: args.reason
   });
+};
+
+const NO_ACTIVE_CHALLENGE_HELPER_ELIGIBILITY: Record<string, JsonValue> = {
+  allowed: false,
+  reason: "No active auth or challenge blocker was detected after capture.",
+  standDownReason: "helper_no_active_challenge"
 };
 
 const isPreserveEligibleBlocker = (
@@ -903,7 +975,13 @@ export const createBrowserFallbackPort = (
           ensureNotAborted("mode_start");
           if (preferredMode === "extension") {
             if (!transportDefaults.extensionWsEndpoint) {
-              lastFailure = fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics, undefined, runtimePolicyRecord);
+              lastFailure = isRequiredExtensionSessionRequest(request, runtimePolicy, preferredMode)
+                ? extensionTransportUnavailableFailure(
+                  "Extension fallback requires a relay endpoint.",
+                  cookieDiagnostics,
+                  runtimePolicyRecord
+                )
+                : fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics, undefined, runtimePolicyRecord);
               continue;
             }
             const attachOptions = shouldAttachExtensionStartUrl(request)
@@ -911,10 +989,10 @@ export const createBrowserFallbackPort = (
               : undefined;
             const attached = await manager.connectRelay(transportDefaults.extensionWsEndpoint, attachOptions);
             sessionId = attached.sessionId;
-            if (isExplicitShoppingExtensionRequest(request)) {
+            if (shouldVerifyExtensionRequestUrl(request)) {
               attachedUrl = (await manager.status(sessionId)).url;
               navigatedDuringAttach = didExtensionAttachReachRequestUrl(requestUrl, attachedUrl);
-              if (isRestrictedExtensionAttachUrl(attachedUrl)) {
+              if (request.source === "shopping" && isRestrictedExtensionAttachUrl(attachedUrl)) {
                 const recovered = await reconnectExplicitShoppingExtensionSession({
                   manager,
                   sessionId,
@@ -1025,25 +1103,28 @@ export const createBrowserFallbackPort = (
           );
           if (
             preferredMode === "extension"
-            && isExplicitShoppingExtensionRequest(request)
+            && shouldVerifyExtensionRequestUrl(request)
           ) {
             const resolvedAttachStatus = await runWithinFallbackDeadline("status", async () => manager.status(activeSessionId));
             const observedUrl = normalizeExtensionAttachUrl(resolvedAttachStatus.url);
             if (!didExtensionAttachReachRequestUrl(requestUrl, resolvedAttachStatus.url)) {
-              lastFailure = fallbackFailure(
-                "env_limited",
-                "Extension fallback did not reach the requested shopping URL.",
-                cookieDiagnostics,
-                undefined,
-                runtimePolicyRecord,
-                {
-                  mode: "extension",
-                  details: {
-                    requestedUrl: requestUrl,
-                    ...(observedUrl ? { observedUrl } : {})
-                  }
-                }
-              );
+              const details = {
+                requestedUrl: requestUrl,
+                ...(observedUrl ? { observedUrl } : {})
+              };
+              lastFailure = requiresAuthenticatedExtensionSession(runtimePolicy)
+                ? extensionSessionRequiredFailure(
+                  "Extension fallback did not reach the requested provider URL.",
+                  cookieDiagnostics,
+                  runtimePolicyRecord,
+                  details
+                )
+                : extensionTransportUnavailableFailure(
+                  "Extension fallback did not reach the requested provider URL.",
+                  cookieDiagnostics,
+                  runtimePolicyRecord,
+                  details
+                );
               continue;
             }
           }
@@ -1231,8 +1312,25 @@ export const createBrowserFallbackPort = (
             runtimePolicy,
             helperBridgeEnabled,
             invoked: false,
-            reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked."
+            reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked.",
+            helperEligibility: NO_ACTIVE_CHALLENGE_HELPER_ELIGIBILITY
           });
+          if (html.trim().length === 0) {
+            lastFailure = fallbackFailure(
+              request.reasonCode,
+              `Browser fallback captured no HTML content at ${resolvedUrl}.`,
+              cookieDiagnostics,
+              challengeOrchestrationRecord,
+              runtimePolicyRecord,
+              {
+                mode: toFallbackMode(status.mode),
+                details: {
+                  captureDiagnostics
+                }
+              }
+            );
+            continue;
+          }
           return {
             ok: true,
             reasonCode: request.reasonCode,
@@ -1273,17 +1371,19 @@ export const createBrowserFallbackPort = (
             && request.source === "social"
             && modeAttempt < maxModeAttempts;
           if (!retryModeAttempt) {
-            lastFailure = fallbackFailure(
-              "env_limited",
-              message,
-              cookieDiagnostics,
-              undefined,
-              runtimePolicyRecord,
-              {
-                mode: toFallbackMode(preferredMode),
-                ...(timeoutDetails ? { details: timeoutDetails } : {})
-              }
-            );
+            lastFailure = isRequiredExtensionSessionRequest(request, runtimePolicy, preferredMode)
+              ? extensionTransportUnavailableFailure(message, cookieDiagnostics, runtimePolicyRecord, timeoutDetails)
+              : fallbackFailure(
+                "env_limited",
+                message,
+                cookieDiagnostics,
+                undefined,
+                runtimePolicyRecord,
+                {
+                  mode: toFallbackMode(preferredMode),
+                  ...(timeoutDetails ? { details: timeoutDetails } : {})
+                }
+              );
           }
         } finally {
           request.signal?.removeEventListener("abort", abortListener);

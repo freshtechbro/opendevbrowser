@@ -546,6 +546,7 @@ Auth and policy:
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
+- Workflow and macro execute browser options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--browser-mode auto|extension|managed`; `extension` reuses relay-backed signed-in browser state, while `managed` runs a deterministic managed browser.
 - Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
 - Workflow response keys: provider follow-up summaries use `meta.primaryConstraintSummary`.
 - Research and shopping guidance uses `meta.primaryConstraint.guidance.reason` plus `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.

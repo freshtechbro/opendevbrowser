@@ -3640,4 +3640,31 @@ describe("canvas document store", () => {
     ]));
   });
 
+  it("reports combined unsupported runtime lanes and keeps regular library violations separate", () => {
+    const store = new CanvasDocumentStore(createDefaultCanvasDocument("dc_combined_runtime_violation"));
+    store.setGenerationPlan(validPlan as CanvasGenerationPlan);
+
+    expect(() => store.applyPatches(2, [{
+      op: "governance.update",
+      block: "libraryPolicy",
+      changes: {
+        motion: ["framer-motion"],
+        threeD: ["spline"]
+      }
+    }])).toThrow("libraryPolicy.motion, libraryPolicy.threeD must stay empty");
+
+    const document = createFullyGovernedDocument("dc_regular_library_violation");
+    document.designGovernance.libraryPolicy = {
+      ...structuredClone(CANVAS_PROJECT_DEFAULTS.libraryPolicy),
+      components: ["unknown-kit"]
+    };
+
+    expect(buildGovernanceBlockStates(document).libraryPolicy.status).toBe("present");
+    expect(missingRequiredSaveBlocks(document)).not.toContain("libraryPolicy");
+
+    const violation = evaluateCanvasWarnings(document).find((warning) => warning.code === "library-policy-violation");
+    expect(violation).toEqual(expect.objectContaining({ severity: "error" }));
+    expect(violation).not.toHaveProperty("details.runtimeLaneViolations");
+  });
+
 });

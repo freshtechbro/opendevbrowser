@@ -2,7 +2,7 @@ import type { BrowserManagerLike } from "../browser/manager-types";
 import type { ChallengeAutomationMode } from "../challenges";
 import type { BundledProviderRuntime, ProviderRuntimeBundleConfig } from "../providers/runtime-bundle";
 import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
-import type { BrowserFallbackPort } from "../providers/types";
+import type { BrowserFallbackPort, WorkflowBrowserMode } from "../providers/types";
 import type { RuntimeInit } from "../providers";
 import {
   executeMacroResolution,
@@ -51,6 +51,7 @@ export const executeMacroWithRuntime = async (args: {
   manager?: BrowserManagerLike;
   browserFallbackPort?: BrowserFallbackPort;
   timeoutMs?: number;
+  browserMode?: WorkflowBrowserMode;
   challengeAutomationMode?: ChallengeAutomationMode;
 }): Promise<MacroExecutionPayload> => {
   const runtime = args.runtime ?? resolveBundledProviderRuntime({
@@ -65,8 +66,11 @@ export const executeMacroWithRuntime = async (args: {
     await executeMacroResolution(
       args.resolution,
       runtime,
-      args.challengeAutomationMode
-        ? { challengeAutomationMode: args.challengeAutomationMode }
+      args.challengeAutomationMode || args.browserMode
+        ? {
+          ...(args.browserMode ? { browserMode: args.browserMode } : {}),
+          ...(args.challengeAutomationMode ? { challengeAutomationMode: args.challengeAutomationMode } : {})
+        }
         : undefined
     )
   );

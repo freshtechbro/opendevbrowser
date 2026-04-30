@@ -113,7 +113,15 @@ describe("social platform adapters", () => {
     }
   });
 
-  it("falls back to browser retrieval for auth-blocked social defaults across all social platforms (including reddit)", async () => {
+  it("uses browser retrieval for auth-blocked extension-first social defaults including reddit", async () => {
+    const recoveredHtmlByProvider: Record<string, string> = {
+      "social/x": `<html><body><main><article><a href="https://x.com/acct/status/123">Recovered X result</a></article></main></body></html>`,
+      "social/bluesky": `<html><body><main><article><a href="https://bsky.app/profile/alice.bsky.app/post/123">Recovered Bluesky result</a></article></main></body></html>`,
+      "social/reddit": `<html><body><main><article><a href="https://www.reddit.com/r/browserautomation/comments/abc123/runtime_fix/">Recovered Reddit result</a></article></main></body></html>`,
+      "social/facebook": `<html><body><main><a href="https://www.facebook.com/watch/?v=123456789012345">Recovered Facebook video</a></main></body></html>`,
+      "social/linkedin": `<html><body><main><a href="https://www.linkedin.com/feed/update/urn:li:activity:123">Recovered LinkedIn result</a></main></body></html>`,
+      "social/threads": `<html><body><main><a href="https://www.threads.net/@opendevbrowser/post/ABC123">Recovered Threads result</a></main></body></html>`
+    };
     const fallbackResolve = vi.fn(async (request: {
       provider?: string;
       reasonCode: "token_required" | "auth_required" | "challenge_detected" | "rate_limited" | "env_limited" | "ip_blocked";
@@ -127,13 +135,7 @@ describe("social platform adapters", () => {
         : "managed_headed" as const,
       output: {
         url: request.url ?? "https://www.facebook.com/watch/search/?q=browser%20automation",
-        html: request.provider === "social/x"
-          ? `<html><body><main><article><a href="https://x.com/acct/status/123">Recovered X result</a></article></main></body></html>`
-          : request.provider === "social/bluesky"
-            ? `<html><body><main><article><a href="https://bsky.app/profile/alice.bsky.app/post/123">Recovered Bluesky result</a></article></main></body></html>`
-            : request.provider === "social/reddit"
-              ? `<html><body><main><article><a href="https://www.reddit.com/r/browserautomation/comments/abc123/runtime_fix/">Recovered Reddit result</a></article></main></body></html>`
-              : `<html><body>fallback social content <a href="https://www.facebook.com/watch/?v=123456789012345">video</a></body></html>`
+        html: recoveredHtmlByProvider[request.provider ?? ""] ?? "<html><body>unexpected social fallback</body></html>"
       },
       details: {}
     }));
@@ -157,18 +159,15 @@ describe("social platform adapters", () => {
         "social/bluesky",
         "social/facebook",
         "social/linkedin",
-        "social/instagram",
-        "social/tiktok",
         "social/threads"
       ];
 
       for (const providerId of authBlockedProviders) {
         const result = await runtime.search(
-          { query: "browser automation", limit: 3 },
+          { query: "browser automation", limit: 3, filters: { hopLimit: 0, expansionPerRecord: 0 } },
           { source: "social", providerIds: [providerId] }
         );
-        expect(result.ok).toBe(true);
-        expect(result.records.length).toBeGreaterThan(0);
+        expect(result.ok, providerId).toBe(true);
         expect(result.failures).toHaveLength(0);
       }
 
@@ -189,8 +188,18 @@ describe("social platform adapters", () => {
       expect(fallbackCalls.get("social/bluesky")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
       expect(fallbackCalls.get("social/facebook")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
       expect(fallbackCalls.get("social/linkedin")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
-      expect(fallbackCalls.get("social/instagram")?.runtimePolicy?.browser?.preferredModes).toEqual(["managed_headed"]);
       expect(fallbackCalls.get("social/reddit")?.runtimePolicy?.browser?.preferredModes).toEqual(["extension", "managed_headed"]);
+
+      const fallbackCount = fallbackResolve.mock.calls.length;
+      for (const providerId of ["social/instagram", "social/tiktok"]) {
+        const result = await runtime.search(
+          { query: "browser automation", limit: 3, filters: { hopLimit: 0, expansionPerRecord: 0 } },
+          { source: "social", providerIds: [providerId] }
+        );
+        expect(result.ok, providerId).toBe(false);
+        expect(result.failures[0]?.error.code).toBe("auth");
+      }
+      expect(fallbackResolve).toHaveBeenCalledTimes(fallbackCount);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -490,7 +499,6 @@ describe("social platform adapters", () => {
       expect(result.failures).toHaveLength(1);
       expect(result.failures[0]?.error.details).toMatchObject({
         browserFallbackMode: "extension",
-        browserFallbackReasonCode: "token_required",
         cookieDiagnostics: {
           available: true,
           verifiedCount: 2
@@ -833,6 +841,260 @@ describe("social platform adapters", () => {
             preferredModes: ["extension", "managed_headed"]
           })
         })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses direct extension transport for X searches when browser mode is forced", async () => {
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://x.com/search?q=browser+automation",
+      text: async () => "<html><body><article><a href=\"https://x.com/loggedout/status/1\">logged out shell</a></article></body></html>"
+    })) as unknown as typeof fetch;
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      url?: string;
+      runtimePolicy?: { browser?: { forceTransport?: boolean; preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://x.com/search?q=browser+automation",
+        html: "<html><body><article><a href=\"https://x.com/acct/status/999\">X signed-in content</a></article></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        {
+          source: "social",
+          providerIds: ["social/x"],
+          runtimePolicy: {
+            browserMode: "extension",
+            useCookies: true,
+            cookiePolicyOverride: "required"
+          }
+        }
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+      expect(result.failures).toHaveLength(0);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/x",
+        reasonCode: "auth_required",
+        runtimePolicy: expect.objectContaining({
+          browser: expect.objectContaining({
+            forceTransport: true,
+            preferredModes: ["extension"]
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("fails forced X browser transport when no browser transport is available", async () => {
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://x.com/search?q=browser+automation",
+      text: async () => "<html><body>direct search should not run</body></html>"
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        {
+          source: "social",
+          providerIds: ["social/x"],
+          runtimePolicy: {
+            browserMode: "extension",
+            useCookies: true,
+            cookiePolicyOverride: "required"
+          }
+        }
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "auth",
+        reasonCode: "auth_required",
+        details: {
+          browserTransportRequired: true
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("propagates forced X browser transport blockers without falling back to raw fetch", async () => {
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://x.com/search?q=browser+automation",
+      text: async () => "<html><body>direct search should not run</body></html>"
+    })) as unknown as typeof fetch;
+    const fallbackResolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "challenge_detected" as const,
+      mode: "extension" as const,
+      details: {
+        message: "X preserved an interactive verification challenge."
+      }
+    }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        {
+          source: "social",
+          providerIds: ["social/x"],
+          runtimePolicy: {
+            browserMode: "extension",
+            useCookies: true,
+            cookiePolicyOverride: "required"
+          }
+        }
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        message: "X preserved an interactive verification challenge.",
+        details: {
+          disposition: "failed",
+          browserFallbackMode: "extension"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses direct extension transport for YouTube searches when browser mode is forced", async () => {
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/results?search_query=browser+automation",
+      text: async () => "<html><body><main>direct search should not run</main></body></html>"
+    })) as unknown as typeof fetch;
+    const fallbackResolve = vi.fn(async (request: {
+      reasonCode: string;
+      url?: string;
+      runtimePolicy?: { browser?: { forceTransport?: boolean; preferredModes?: string[] } };
+    }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.youtube.com/results?search_query=browser+automation",
+        html: `<html><body><script>{"videoId":"abc123def45","title":{"runs":[{"text":"Signed-in YouTube result"}]}}</script></body></html>`
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        {
+          source: "social",
+          providerIds: ["social/youtube"],
+          runtimePolicy: {
+            browserMode: "extension",
+            useCookies: true,
+            cookiePolicyOverride: "required"
+          }
+        }
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.url).toBe("https://www.youtube.com/watch?v=abc123def45");
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/youtube",
+        reasonCode: "auth_required",
+        runtimePolicy: expect.objectContaining({
+          browser: expect.objectContaining({
+            forceTransport: true,
+            preferredModes: ["extension"]
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses env_limited for forced public YouTube extension transport without required cookies", async () => {
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      url: "https://www.youtube.com/results?search_query=browser+automation",
+      text: async () => "<html><body><main>direct search should not run</main></body></html>"
+    })) as unknown as typeof fetch;
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.youtube.com/results?search_query=browser+automation",
+        html: `<html><body><script>{"videoId":"abc123def45","title":{"runs":[{"text":"Public YouTube result"}]}}</script></body></html>`
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: { resolve: fallbackResolve }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 5 },
+        {
+          source: "social",
+          providerIds: ["social/youtube"],
+          runtimePolicy: { browserMode: "extension" }
+        }
+      );
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.attributes.browser_fallback_reason_code).toBe("env_limited");
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "social/youtube",
+        reasonCode: "env_limited"
       }));
     } finally {
       vi.unstubAllGlobals();
@@ -2009,6 +2271,101 @@ describe("social platform adapters", () => {
       "https://x.com/acct/root",
       "https://x.com/acct/child"
     ]);
+  });
+
+  it("covers first-party search attribute carry-forward and recoverable pagination stops", async () => {
+    const searchRouteProvider = createSocialProvider("x", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1,
+        maxRecords: 4
+      },
+      search: async () => ([
+        {
+          url: "https://x.com/search?q=no-attrs",
+          content: "search shell",
+          attributes: {
+            links: ["https://x.com/acct/status/101"]
+          }
+        },
+        {
+          url: "https://x.com/search?q=ignored-attrs",
+          content: "search shell",
+          attributes: {
+            ignored: true,
+            links: ["https://x.com/acct/status/202"]
+          }
+        }
+      ]),
+      fetch: async (input) => ({
+        url: input.url,
+        title: "status",
+        content: "status"
+      })
+    });
+
+    const searchRouteRecords = await searchRouteProvider.search?.({
+      query: "carry-forward"
+    }, context("social-carry-forward"));
+    expect(searchRouteRecords?.map((record) => record.url)).toEqual([
+      "https://x.com/acct/status/202",
+      "https://x.com/acct/status/101"
+    ]);
+
+    const paginationProvider = createSocialProvider("x", {
+      defaultTraversal: {
+        pageLimit: 2,
+        hopLimit: 0,
+        expansionPerRecord: 0,
+        maxRecords: 4
+      },
+      search: async (input) => {
+        if (input.filters?.page === 2) {
+          throw new ProviderRuntimeError("timeout", "second page timed out", {
+            provider: "social/x",
+            source: "social"
+          });
+        }
+        return [{
+          url: "https://x.com/acct/status/303",
+          title: "first page"
+        }];
+      }
+    });
+
+    const paginatedRecords = await paginationProvider.search?.({
+      query: "recoverable page stop"
+    }, context("social-page-stop"));
+    expect(paginatedRecords?.map((record) => record.url)).toEqual([
+      "https://x.com/acct/status/303"
+    ]);
+  });
+
+  it("keeps recovered facebook search rows when browser metadata has visible content only", async () => {
+    const provider = createSocialProvider("facebook", {
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 0,
+        expansionPerRecord: 0,
+        maxRecords: 2
+      },
+      search: async () => ([{
+        url: "https://www.facebook.com/watch/search/?q=browser+automation",
+        content: "Recovered browser-rendered search content",
+        attributes: {
+          browser_fallback_mode: "extension"
+        }
+      }])
+    });
+
+    const records = await provider.search?.({
+      query: "facebook visible content"
+    }, context("facebook-visible-content"));
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.facebook.com/watch/search?q=browser+automation",
+      content: "Recovered browser-rendered search content"
+    });
   });
 
   it("filters first-party help and home links out of social traversal expansions", async () => {

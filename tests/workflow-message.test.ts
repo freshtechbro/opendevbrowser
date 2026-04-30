@@ -4,6 +4,7 @@ import {
   buildInspiredesignNextStep
 } from "../src/inspiredesign/handoff";
 import {
+  buildProviderFollowupErrorMessage,
   buildWorkflowCompletionMessage,
   readFollowthroughSummary,
   readSuggestedNextAction,
@@ -40,6 +41,45 @@ describe("workflow message helpers", () => {
 
     expect(buildWorkflowCompletionMessage("Shopping workflow", data)).toBe(
       "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required. Next step: Run shopping run --query='example' --browser-mode extension"
+    );
+  });
+
+  it("adds next steps to provider follow-up errors", () => {
+    expect(buildProviderFollowupErrorMessage(
+      "Bestbuy requires manual browser follow-up; this run did not determine whether login or page rendering is required."
+    )).toBe(
+      "Bestbuy requires manual browser follow-up; this run did not determine whether login or page rendering is required. Next step: Retry with browser assistance or a headed browser session."
+    );
+    expect(buildProviderFollowupErrorMessage(
+      "Costco requires login or an existing session."
+    )).toBe(
+      "Costco requires login or an existing session. Next step: Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+    );
+    expect(buildProviderFollowupErrorMessage(
+      "Costco requires login or an existing session. Next step: Retry."
+    )).toBe("Costco requires login or an existing session. Next step: Retry.");
+  });
+
+  it("infers next steps for explicit summaries when failures carry provider guidance", () => {
+    const data = {
+      meta: {
+        primaryConstraintSummary: "Bestbuy requires manual browser follow-up.",
+        failures: [{
+          provider: "shopping/bestbuy",
+          error: {
+            reasonCode: "env_limited",
+            details: {
+              constraint: {
+                kind: "render_required"
+              }
+            }
+          }
+        }]
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
+      "Product video workflow completed with provider follow-up required: Bestbuy requires manual browser follow-up. Next step: Retry with browser assistance or a headed browser session."
     );
   });
 

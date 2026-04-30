@@ -426,7 +426,7 @@ and the shared inspiredesign artifact source at `src/inspiredesign/handoff.ts`.
 
 ```bash
 npx opendevbrowser research run --topic "browser automation" --days 30 --mode compact
-npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json
+npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --browser-mode managed --mode json
 npx opendevbrowser research run --topic "creator tools" --sources web,shopping --include-engagement --limit-per-source 5 --mode context
 ```
 
@@ -437,6 +437,7 @@ Flags:
 - `--to`
 - `--source-selection` (`auto|web|community|social|shopping|all`)
 - `--sources` (comma-separated concrete sources)
+- `--browser-mode` (`auto|extension|managed`)
 - `--mode` (`compact|json|md|context|path`)
 - `--include-engagement`
 - `--limit-per-source`
@@ -450,6 +451,7 @@ Flags:
 
 Notes:
 - Use `--source-selection auto` for generic topical research.
+- Use `--browser-mode extension` when X, Threads, Facebook, Reddit, or another signed-in social provider needs an existing relay-backed browser session; use `managed` for reproducible no-auth reruns.
 - In the current contract, `auto` and `all` both stay inside the public topical families (`web`, `community`, `social`).
 - Add shopping only with `--source-selection shopping` or explicit `--sources ...shopping...` when the task is deliberately commercial.
 
@@ -457,9 +459,9 @@ Notes:
 
 ```bash
 npx opendevbrowser shopping run --query "usb microphone" --mode compact
-npx opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
-npx opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
-npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
 ```
 
 Flags:
@@ -488,8 +490,8 @@ Notes:
 #### Product presentation asset (`product-video run`)
 
 ```bash
-npx opendevbrowser product-video run --product-url "https://example.com/p/1" --include-screenshots
-npx opendevbrowser product-video run --product-name "Sample Product" --provider-hint shopping/amazon --output-dir /tmp/product-assets
+npx opendevbrowser product-video run --product-url "https://example.com/p/1" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots
+npx opendevbrowser product-video run --product-name "Sample Product" --provider-hint shopping/amazon --browser-mode extension --use-cookies --challenge-automation-mode browser_with_helper --output-dir /tmp/product-assets
 ```
 
 Flags:
@@ -500,6 +502,7 @@ Flags:
 - `--include-all-images` (`true|false`; bare flag means `true`)
 - `--include-copy` (`true|false`; bare flag means `true`)
 - `--timeout-ms`
+- `--browser-mode` (`auto|extension|managed`)
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
@@ -511,7 +514,7 @@ Flags:
 
 ```bash
 npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing page from calm editorial references" --url https://stripe.com --url https://vercel.com
-npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign
+npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign
 ```
 
 Flags:
@@ -523,6 +526,7 @@ Flags:
 - `--timeout-ms`
 - `--output-dir`
 - `--ttl-hours`
+- `--browser-mode` (`auto|extension|managed`)
 - `--use-cookies` (`true|false`; bare flag means `true`)
 - `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
@@ -534,6 +538,7 @@ Notes:
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
 - Successful runs now emit `advanced-brief.md`, `canvas-plan.request.json`, and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
 - The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
+- `--browser-mode` applies to provider-backed reference retrieval. Deep capture still uses the browser manager capture lane.
 
 Wrapper behavior:
 - Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
@@ -777,7 +782,7 @@ npx opendevbrowser macro-resolve --expression '@web.search("openai")'
 npx opendevbrowser macro-resolve --expression '@social.post("x", "ship it")' --default-provider social/x --include-catalog
 npx opendevbrowser macro-resolve --expression '@web.search("opendevbrowser")' --execute --output-format json
 npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000 --output-format json
-npx opendevbrowser macro-resolve --expression '@community.search("browser automation failures", 4)' --execute --challenge-automation-mode browser_with_helper --output-format json
+npx opendevbrowser macro-resolve --expression '@community.search("browser automation failures", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json
 ```
 
 Notes:
@@ -785,6 +790,7 @@ Notes:
 - `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
 - Resolve-only and execute responses now both emit `followthroughSummary`, `suggestedNextAction`, and `suggestedSteps` so the next rerun command stays explicit even when execution blocks.
 - `--timeout-ms` sets client-side daemon transport timeout for slow `--execute` runs.
+- `--browser-mode` is accepted for `--execute` runs and maps signed-in provider recovery to the same `auto|extension|managed` modes as workflow commands.
 - `--challenge-automation-mode` is accepted for `--execute` runs and maps to `challengeAutomationMode` with the same `run > session > config` precedence as workflow commands.
 - `opendevbrowser --help` includes this timeout flag in the global flag inventory.
 
@@ -1394,7 +1400,7 @@ Notes:
 
 ```bash
 npx opendevbrowser session-inspector-plan --session-id <session-id>
-npx opendevbrowser session-inspector-plan --session-id <session-id> --target-id <target-id> --challenge-automation-mode browser --timeout-ms 30000
+npx opendevbrowser session-inspector-plan --session-id <session-id> --target-id <target-id> --challenge-automation-mode browser_with_helper --timeout-ms 30000
 ```
 
 Notes:
@@ -1525,6 +1531,7 @@ Notes:
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
+| `--browser-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Provider browser transport mode (`auto|extension|managed`); `extension` reuses relay-backed signed-in browser state, `managed` runs a deterministic managed browser |
 | `--use-cookies` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
 | `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
 | `--cookie-policy-override` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Per-run provider cookie policy override (`off|auto|required`) |
@@ -1732,7 +1739,6 @@ Key options:
 - `--include-auth-gated` includes auth-dependent provider scenarios.
 - `--include-high-friction` includes high-friction shopping providers.
 - `--include-social-posts` includes social post scenarios.
-- `--use-global-env` is kept as a compatibility flag; direct runs already use the current environment.
 - `--release-gate` enables auth-gated + high-friction + social-post cases and fails on any non-`pass` status.
 
 Run contract parity and skill-asset gates as part of release checks:

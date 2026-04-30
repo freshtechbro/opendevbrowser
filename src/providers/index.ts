@@ -17,6 +17,7 @@ import {
   browserFallbackObservationAttributes,
   readFallbackString,
   resolveProviderBrowserFallback,
+  toCompletedFallbackOutputError,
   toBrowserFallbackObservation,
   toProviderFallbackError
 } from "./browser-fallback";
@@ -48,7 +49,7 @@ import { isLikelyDocumentUrl } from "./shared/traversal-url";
 import { createWebProvider, type WebProviderOptions } from "./web";
 import { classifyBlockerSignal } from "./blocker";
 import { canonicalizeUrl } from "./web/crawler";
-import { extractStructuredContent, toSnippet } from "./web/extract";
+import { extractStructuredContent, extractText, toSnippet } from "./web/extract";
 import { isWorkflowResumePayload, type WorkflowKind, type WorkflowResumeEnvelope } from "./workflow-contracts";
 import {
   runInspiredesignWorkflow,
@@ -59,6 +60,7 @@ import {
 import type {
   AdaptiveConcurrencyDiagnostics,
   BrowserFallbackObservation,
+  BrowserFallbackResponse,
   BrowserFallbackPort,
   BrowserFallbackMode,
   BlockerSignalV1,
@@ -106,11 +108,11 @@ const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind
 
 type SuspendedIntentResumeResult = ProviderAggregateResult | Record<string, unknown>;
 
-const EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS = new Set<SocialPlatform>(["x", "reddit", "bluesky", "facebook", "linkedin"]);
+const EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS = new Set<SocialPlatform>(["x", "reddit", "bluesky", "facebook", "linkedin", "threads"]);
 const EXTENSION_MINIMAL_TRAVERSAL_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["linkedin"]);
 const EXTENSION_FIRST_FALLBACK_MODES: BrowserFallbackMode[] = ["extension", "managed_headed"];
 const SOCIAL_BROWSER_RECOVERY_REASON_CODES = new Set<ProviderReasonCode>(["challenge_detected"]);
-const SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit", "facebook"]);
+const SEARCH_RENDER_RECOVERY_SOCIAL_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit", "facebook", "threads"]);
 
 const withPrioritizedFallbackModes = (
   prioritized: readonly BrowserFallbackMode[],
@@ -329,6 +331,210 @@ type RuntimeFetchedDocument = {
   browserFallback?: BrowserFallbackObservation;
 };
 
+type CompletedFallbackOwnerReviewInput = {
+  providerId: string;
+  source: ProviderSource;
+  operation: "search" | "fetch";
+  url: string;
+  html: string;
+  extracted: ReturnType<typeof extractStructuredContent>;
+};
+
+type CompletedFallbackOwnerReviewPredicate = (input: CompletedFallbackOwnerReviewInput) => boolean;
+
+const FALLBACK_SHELL_LINK_SEGMENTS = new Set([
+  "account",
+  "auth",
+  "about",
+  "cart",
+  "categories",
+  "category",
+  "collections",
+  "contact",
+  "explore",
+  "help",
+  "home",
+  "legal",
+  "login",
+  "policies",
+  "product",
+  "products",
+  "privacy",
+  "search",
+  "settings",
+  "shop",
+  "signin",
+  "sign-in",
+  "sitemap",
+  "store",
+  "submit",
+  "support",
+  "terms"
+]);
+const FALLBACK_SHELL_TEXT_TOKENS = new Set([
+  "account",
+  "ad",
+  "ads",
+  "about",
+  "cart",
+  "contact",
+  "explore",
+  "help",
+  "home",
+  "in",
+  "legal",
+  "log",
+  "login",
+  "policies",
+  "product",
+  "products",
+  "privacy",
+  "search",
+  "settings",
+  "sign",
+  "signin",
+  "submit",
+  "support",
+  "terms"
+]);
+
+const FALLBACK_HEAD_RE = /<head\b[^>]*>[\s\S]*?<\/head>/i;
+const FALLBACK_BODY_RE = /<body\b[^>]*>([\s\S]*?)<\/body>/i;
+const FALLBACK_MIN_MEANINGFUL_TEXT_CHARS = 20;
+const FALLBACK_MIN_MEANINGFUL_TOKENS = 3;
+const FALLBACK_SHELL_PHRASES_RE = /\b(?:search results?|please enable javascript|enable javascript|continue|welcome|accept cookies?|privacy policy|terms of service)\b/i;
+
+const extractFallbackBodyHtml = (html: string): string => {
+  const body = FALLBACK_BODY_RE.exec(html)?.[1];
+  return body ?? html.replace(FALLBACK_HEAD_RE, " ");
+};
+
+const extractFallbackBodyText = (html: string): string => {
+  return extractText(extractFallbackBodyHtml(html));
+};
+
+const hasUsableFallbackText = (html: string): boolean => {
+  const text = extractFallbackBodyText(html);
+  const blocker = classifyBlockerSignal({
+    source: "runtime_fetch",
+    message: text,
+    status: 200,
+    providerErrorCode: "unavailable",
+    retryable: true
+  });
+  if (blocker && blocker.type !== "unknown") return false;
+  if (text.length < FALLBACK_MIN_MEANINGFUL_TEXT_CHARS || FALLBACK_SHELL_PHRASES_RE.test(text)) {
+    return false;
+  }
+  const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  const meaningfulTokens = tokens.filter((token) => !FALLBACK_SHELL_TEXT_TOKENS.has(token));
+  return meaningfulTokens.length >= FALLBACK_MIN_MEANINGFUL_TOKENS;
+};
+
+const isUsableFallbackLink = (link: string, documentUrl: string): boolean => {
+  try {
+    const parsed = new URL(link);
+    const source = new URL(documentUrl);
+    const segments = parsed.pathname
+      .toLowerCase()
+      .split("/")
+      .filter(Boolean);
+    const firstSegment = segments[0];
+    if (parsed.origin === source.origin && parsed.pathname === source.pathname) {
+      return false;
+    }
+    if (segments.length === 0 && parsed.search.length === 0) {
+      return false;
+    }
+    return firstSegment === undefined || !FALLBACK_SHELL_LINK_SEGMENTS.has(firstSegment);
+  } catch {
+    return false;
+  }
+};
+
+const hasUsableFallbackBodyLink = (documentUrl: string, html: string): boolean => (
+  extractStructuredContent(extractFallbackBodyHtml(html), documentUrl)
+    .links
+    .some((link) => isUsableFallbackLink(link, documentUrl))
+);
+
+const hasUsableFallbackContent = (documentUrl: string, html: string): boolean => (
+  hasUsableFallbackText(html)
+  || hasUsableFallbackBodyLink(documentUrl, html)
+);
+
+const isBlockedRedditFallbackLink = (link: string): boolean => {
+  try {
+    const hostname = new URL(link).hostname.toLowerCase();
+    const isReddit = hostname === "reddit.com" || hostname.endsWith(".reddit.com");
+    return isReddit && !isAllowedSocialSearchExpansionUrl("reddit", link);
+  } catch {
+    return false;
+  }
+};
+
+const shouldOwnerReviewCommunityRedditSearchFallback: CompletedFallbackOwnerReviewPredicate = (input) => (
+  input.providerId === "community/default"
+  && input.source === "community"
+  && input.operation === "search"
+  && isFirstPartySocialSearchRoute("reddit", input.url)
+  && input.extracted.links.length > 0
+  && input.extracted.links.every(isBlockedRedditFallbackLink)
+);
+
+const shouldReturnCompletedFallbackForOwnerReview = (args: {
+  providerId: string;
+  source: ProviderSource;
+  operation: "search" | "fetch";
+  document: RuntimeFetchedDocument;
+  ownerReview?: CompletedFallbackOwnerReviewPredicate;
+}): boolean => (
+  args.document.browserFallback !== undefined
+  && args.ownerReview?.({
+    providerId: args.providerId,
+    source: args.source,
+    operation: args.operation,
+    url: args.document.url,
+    html: args.document.html,
+    extracted: extractStructuredContent(args.document.html, args.document.url)
+  }) === true
+);
+
+const toCompletedFallbackDocument = (args: {
+  providerId: string;
+  source: ProviderSource;
+  operation: "search" | "fetch";
+  url: string;
+  fallback: BrowserFallbackResponse;
+  ownerReview?: CompletedFallbackOwnerReviewPredicate;
+}): RuntimeFetchedDocument => {
+  const resolvedUrl = canonicalizeUrl(readFallbackString(args.fallback.output, "url") ?? args.url);
+  const html = readFallbackString(args.fallback.output, "html");
+  if (!html) {
+    throw toCompletedFallbackOutputError({ ...args, provider: args.providerId, url: resolvedUrl, outputReason: "missing_or_empty_html" });
+  }
+  const extracted = extractStructuredContent(html, resolvedUrl);
+  const reviewInput = {
+    providerId: args.providerId,
+    source: args.source,
+    operation: args.operation,
+    url: resolvedUrl,
+    html,
+    extracted
+  };
+  if (!hasUsableFallbackContent(resolvedUrl, html) && !args.ownerReview?.(reviewInput)) {
+    throw toCompletedFallbackOutputError({ ...args, provider: args.providerId, url: resolvedUrl, outputReason: "empty_extracted_content" });
+  }
+  return {
+    url: resolvedUrl,
+    status: 200,
+    html,
+    text: extracted.text,
+    links: extracted.links,
+    browserFallback: toBrowserFallbackObservation(args.fallback)
+  };
+};
+
 const describeDefaultFetchedIssue = (document: RuntimeFetchedDocument) => {
   const extracted = extractStructuredContent(document.html, document.url);
   const title = typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined;
@@ -410,11 +616,15 @@ const resolveDefaultFallbackDocumentIfNeeded = async (args: {
   document: RuntimeFetchedDocument;
   context: ProviderContext;
   browserFallbackPort?: BrowserFallbackPort;
+  ownerReview?: CompletedFallbackOwnerReviewPredicate;
 }): Promise<{ document: RuntimeFetchedDocument } & ReturnType<typeof describeDefaultFetchedIssue>> => {
   let currentDocument = args.document;
   let described = describeDefaultFetchedIssue(currentDocument);
   const initialIssue = described.issue;
   if (!initialIssue) {
+    return { document: currentDocument, ...described };
+  }
+  if (shouldReturnCompletedFallbackForOwnerReview({ ...args, document: currentDocument })) {
     return { document: currentDocument, ...described };
   }
   if (initialIssue.reasonCode === "env_limited" && !initialIssue.constraint) {
@@ -449,18 +659,18 @@ const resolveDefaultFallbackDocumentIfNeeded = async (args: {
       });
     }
 
-    const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? currentDocument.url);
-    const html = readFallbackString(fallback.output, "html") ?? "";
-    const extracted = extractStructuredContent(html, resolvedUrl);
-    currentDocument = {
-      url: resolvedUrl,
-      status: 200,
-      html,
-      text: extracted.text,
-      links: extracted.links,
-      browserFallback: toBrowserFallbackObservation(fallback)
-    };
+    currentDocument = toCompletedFallbackDocument({
+      providerId: args.providerId,
+      source: args.source,
+      operation: args.operation,
+      url: currentDocument.url,
+      fallback,
+      ownerReview: args.ownerReview
+    });
     described = describeDefaultFetchedIssue(currentDocument);
+    if (shouldReturnCompletedFallbackForOwnerReview({ ...args, document: currentDocument })) {
+      return { document: currentDocument, ...described };
+    }
     if (!described.issue || (described.issue.reasonCode === "env_limited" && !described.issue.constraint)) {
       return { document: currentDocument, ...described };
     }
@@ -831,7 +1041,62 @@ const fetchRuntimeDocumentWithFallback = async (args: {
   context?: ProviderContext;
   browserFallbackPort?: BrowserFallbackPort;
   recoveryHints?: ProviderRecoveryHints;
+  recoverRuntimeErrors?: boolean;
+  ownerReview?: CompletedFallbackOwnerReviewPredicate;
 }): Promise<RuntimeFetchedDocument> => {
+  const fallbackPort = args.context?.browserFallbackPort ?? args.browserFallbackPort;
+  const runtimePolicy = args.context?.runtimePolicy;
+  const forcedBrowserTransport = runtimePolicy?.browser.forceTransport === true;
+  const forcedReasonCode: ProviderReasonCode = runtimePolicy?.cookies.policy === "required"
+    ? "auth_required"
+    : "env_limited";
+  if (forcedBrowserTransport) {
+    const fallback = await resolveProviderBrowserFallback({
+      browserFallbackPort: fallbackPort,
+      provider: args.provider,
+      source: args.source,
+      operation: args.operation,
+      reasonCode: forcedReasonCode,
+      url: args.url,
+      context: args.context,
+      details: {
+        message: "Direct browser transport was selected for this provider run."
+      },
+      recoveryHints: args.recoveryHints
+    });
+    if (!fallback) {
+      throw new ProviderRuntimeError(
+        providerErrorCodeFromReasonCode(forcedReasonCode),
+        "Direct browser transport is required for this provider run, but no browser transport is available.",
+        {
+          provider: args.provider,
+          source: args.source,
+          retryable: false,
+          reasonCode: forcedReasonCode,
+          details: {
+            reasonCode: forcedReasonCode,
+            browserTransportRequired: true
+          }
+        }
+      );
+    }
+    if (fallback.disposition !== "completed") {
+      throw toProviderFallbackError({
+        provider: args.provider,
+        source: args.source,
+        url: args.url,
+        fallback
+      });
+    }
+    return toCompletedFallbackDocument({
+      providerId: args.provider,
+      source: args.source,
+      operation: args.operation,
+      url: args.url,
+      fallback,
+      ownerReview: args.ownerReview
+    });
+  }
   try {
     return await fetchRuntimeDocument({
       url: args.url,
@@ -844,7 +1109,9 @@ const fetchRuntimeDocumentWithFallback = async (args: {
       provider: args.provider,
       source: args.source
     });
-    const fallbackPort = args.context?.browserFallbackPort ?? args.browserFallbackPort;
+    if (args.recoverRuntimeErrors === false) {
+      throw error;
+    }
     if (!fallbackPort) {
       throw error;
     }
@@ -880,17 +1147,14 @@ const fetchRuntimeDocumentWithFallback = async (args: {
       });
     }
 
-    const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
-    const html = readFallbackString(fallback.output, "html") ?? "";
-    const extracted = extractStructuredContent(html, resolvedUrl);
-    return {
-      url: resolvedUrl,
-      status: 200,
-      html,
-      text: extracted.text,
-      links: extracted.links,
-      browserFallback: toBrowserFallbackObservation(fallback)
-    };
+    return toCompletedFallbackDocument({
+      providerId: args.provider,
+      source: args.source,
+      operation: args.operation,
+      url: args.url,
+      fallback,
+      ownerReview: args.ownerReview
+    });
   }
 };
 
@@ -2322,7 +2586,8 @@ const withDefaultCommunityOptions = (
         operation: "search",
         signal: context.signal,
         context,
-        browserFallbackPort
+        browserFallbackPort,
+        ownerReview: shouldOwnerReviewCommunityRedditSearchFallback
       });
       const { document: resolvedDocument, pageMessage } = await resolveDefaultFallbackDocumentIfNeeded({
         providerId,
@@ -2330,7 +2595,8 @@ const withDefaultCommunityOptions = (
         operation: "search",
         document,
         context,
-        browserFallbackPort
+        browserFallbackPort,
+        ownerReview: shouldOwnerReviewCommunityRedditSearchFallback
       });
       const links = resolveCommunitySearchLinks(resolvedDocument, limit);
       if (shouldRejectBlockedCommunityFallback(resolvedDocument, links)) {
@@ -2459,6 +2725,16 @@ const withDefaultSocialPlatformOptions = (
       }
     );
   };
+  const shouldOwnerReviewSocialFallback: CompletedFallbackOwnerReviewPredicate = (input) => (
+    input.source === "social"
+    && input.operation === "search"
+    && detectSocialSearchShell(platform, {
+      url: input.url,
+      title: typeof input.extracted.metadata.title === "string" ? input.extracted.metadata.title : undefined,
+      content: toSnippet(stripUrls(input.extracted.text), 1600),
+      links: input.extracted.links
+    })?.browserRequired === true
+  );
   const resolveFallbackDocumentIfNeeded = async (
     operation: "search" | "fetch",
     document: RuntimeFetchedDocument,
@@ -2499,23 +2775,24 @@ const withDefaultSocialPlatformOptions = (
       }
 
       const requestedUrl = currentDocument.url;
-      const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? currentDocument.url);
-      const html = readFallbackString(fallback.output, "html") ?? "";
-      const extracted = extractStructuredContent(html, resolvedUrl);
+      const fallbackDocument = toCompletedFallbackDocument({
+        providerId,
+        source: "social",
+        operation,
+        url: currentDocument.url,
+        fallback,
+        ownerReview: shouldOwnerReviewSocialFallback
+      });
       const effectiveUrl = resolveRecoveredSocialSearchDocumentUrl({
         platform,
         operation,
         requestedUrl,
-        recoveredUrl: resolvedUrl,
-        recoveredLinks: extracted.links
+        recoveredUrl: fallbackDocument.url,
+        recoveredLinks: fallbackDocument.links
       });
       currentDocument = {
+        ...fallbackDocument,
         url: effectiveUrl,
-        status: 200,
-        html,
-        text: extracted.text,
-        links: extracted.links,
-        browserFallback: toBrowserFallbackObservation(fallback)
       };
       described = describeDocumentIssue(operation, currentDocument);
       if (!described.issue || (described.issue.reasonCode === "env_limited" && !described.issue.constraint)) {
@@ -2542,7 +2819,9 @@ const withDefaultSocialPlatformOptions = (
         signal: context.signal,
         context,
         browserFallbackPort,
-        recoveryHints: extensionFirstRecoveryHints
+        recoveryHints: extensionFirstRecoveryHints,
+        recoverRuntimeErrors: EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS.has(platform),
+        ownerReview: shouldOwnerReviewSocialFallback
       });
       const { document: resolvedDocument, extracted, pageMessage } = await resolveFallbackDocumentIfNeeded("search", document, context);
       const links = dedupeLinks(
@@ -2576,7 +2855,9 @@ const withDefaultSocialPlatformOptions = (
         signal: context.signal,
         context,
         browserFallbackPort,
-        recoveryHints: extensionFirstRecoveryHints
+        recoveryHints: extensionFirstRecoveryHints,
+        recoverRuntimeErrors: EXTENSION_FIRST_SOCIAL_FALLBACK_PLATFORMS.has(platform),
+        ownerReview: shouldOwnerReviewSocialFallback
       });
       const { document: resolvedDocument, extracted } = await resolveFallbackDocumentIfNeeded("fetch", document, context);
       const links = dedupeLinks(resolvedDocument.links, resolvedDocument.url, 20);

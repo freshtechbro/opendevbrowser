@@ -144,6 +144,11 @@ const toPositiveInt = (value: number | undefined, fallback: number): number => {
   return Math.max(1, Math.floor(value));
 };
 
+const toNonNegativeInt = (value: number | undefined, fallback: number): number => {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  return Math.max(0, Math.floor(value));
+};
+
 const isHttpUrl = (value: string): boolean => {
   try {
     const protocol = new URL(value).protocol;
@@ -286,11 +291,11 @@ const mergedTraversal = (
       asNumber(filters.pageLimit) ?? options.defaultTraversal?.pageLimit,
       DEFAULT_TRAVERSAL.pageLimit
     ),
-    hopLimit: toPositiveInt(
+    hopLimit: toNonNegativeInt(
       asNumber(filters.hopLimit) ?? options.defaultTraversal?.hopLimit,
       DEFAULT_TRAVERSAL.hopLimit
     ),
-    expansionPerRecord: toPositiveInt(
+    expansionPerRecord: toNonNegativeInt(
       asNumber(filters.expansionPerRecord) ?? options.defaultTraversal?.expansionPerRecord,
       DEFAULT_TRAVERSAL.expansionPerRecord
     ),

@@ -116,6 +116,8 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  vi.doUnmock("../src/macros");
+  vi.resetModules();
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
     const url = String(input);
     return {
@@ -309,9 +311,87 @@ describe("macro resolve tool", () => {
 
     expect(result.ok).toBe(true);
     expect(result.followthroughSummary).toBe("Review execution.meta.blocker and failures before retrying the macro.");
-    expect(result.suggestedNextAction).toContain("--challenge-automation-mode browser");
+    expect(result.suggestedNextAction).toContain("--browser-mode extension");
+    expect(result.suggestedNextAction).toContain("--challenge-automation-mode browser_with_helper");
     expect(result.execution?.meta.ok).toBe(false);
     expect(result.execution?.meta.blocker?.type).toBe("auth_required");
+  });
+
+  it.each([
+    {
+      providerId: "social/facebook",
+      url: "https://www.facebook.com/search/posts/?q=browser",
+      content: "Search results Login Home Settings",
+      expected: "social_render_shell"
+    },
+    {
+      providerId: "social/threads",
+      url: "https://www.threads.net/search/?q=browser",
+      content: "Search Log in Threads",
+      expected: "social_render_shell"
+    }
+  ])("rejects $providerId macro execution when records are only social shells", async ({ providerId, url, content, expected }) => {
+    vi.doMock("../src/macros", () => ({
+      createDefaultMacroRegistry: () => ({
+        resolve: async () => ({
+          action: {
+            source: "social",
+            operation: "search",
+            input: { query: "browser", providerId }
+          },
+          provenance: {
+            macro: "social.search",
+            provider: providerId,
+            resolvedQuery: "browser",
+            pack: "core:social",
+            args: { positional: [], named: {} }
+          }
+        }),
+        list: () => []
+      })
+    }));
+
+    const providerRuntime = {
+      search: vi.fn(async () => makeAggregate({
+        records: [{
+          url,
+          title: "Search Results",
+          content,
+          attributes: { links: [] }
+        }],
+        sourceSelection: "social",
+        providerOrder: [providerId],
+        meta: {
+          tier: {
+            selected: "A",
+            reasonCode: "default_tier"
+          },
+          provenance: {
+            provider: providerId,
+            retrievalPath: `search:${providerId}`,
+            retrievedAt: "2026-01-01T00:00:00.000Z"
+          }
+        }
+      })),
+      fetch: vi.fn(),
+      crawl: vi.fn(),
+      post: vi.fn()
+    };
+
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
+    const tool = createMacroResolveTool({ providerRuntime } as never);
+    const result = parse(await tool.execute({
+      expression: "@social.search('browser')",
+      execute: true
+    }));
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        message: `Macro execution returned only shell records (${expected}).`,
+        code: "macro_resolve_failed"
+      }
+    });
   });
 
   it("preserves literal output-format text inside macro execute guidance", async () => {
@@ -416,6 +496,35 @@ describe("macro resolve tool", () => {
       ok: false,
       error: {
         message: "runtime exploded",
+        code: "macro_resolve_failed"
+      }
+    });
+  });
+
+  it("rejects execute-only browser options during resolve-only tool calls", async () => {
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
+    const tool = createMacroResolveTool({} as never);
+
+    const browserMode = parse(await tool.execute({
+      expression: "@web.search('x')",
+      browserMode: "managed"
+    } as never));
+    expect(browserMode).toEqual({
+      ok: false,
+      error: {
+        message: "browserMode requires execute=true for macro resolution",
+        code: "macro_resolve_failed"
+      }
+    });
+
+    const challengeAutomationMode = parse(await tool.execute({
+      expression: "@web.search('x')",
+      challengeAutomationMode: "browser"
+    } as never));
+    expect(challengeAutomationMode).toEqual({
+      ok: false,
+      error: {
+        message: "challengeAutomationMode requires execute=true for macro resolution",
         code: "macro_resolve_failed"
       }
     });

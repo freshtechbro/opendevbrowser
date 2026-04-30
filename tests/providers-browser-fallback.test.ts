@@ -5,6 +5,7 @@ import {
   readFallbackString,
   resolveProviderBrowserFallback,
   resolveProviderFallbackModes,
+  toCompletedFallbackOutputError,
   toProviderFallbackError
 } from "../src/providers/browser-fallback";
 import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
@@ -15,6 +16,8 @@ describe("provider browser fallback helpers", () => {
     expect(readFallbackString({ html: "<html />", url: "https://example.com" }, "html")).toBe("<html />");
     expect(readFallbackString({ html: "<html />", url: "https://example.com" }, "url")).toBe("https://example.com");
     expect(readFallbackString({ html: "" }, "html")).toBeUndefined();
+    expect(readFallbackString({ html: "   ", url: " https://example.com/path " }, "html")).toBeUndefined();
+    expect(readFallbackString({ url: " https://example.com/path " }, "url")).toBe("https://example.com/path");
     expect(readFallbackString(undefined, "url")).toBeUndefined();
 
     expect(fallbackDispositionMessage({
@@ -140,6 +143,124 @@ describe("provider browser fallback helpers", () => {
           "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow.",
           "Rerun the same provider or workflow once the session is active."
         ]
+      }
+    });
+  });
+
+  it("leaves guidance absent when a completed fallback failure has no actionable issue hint", () => {
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: "https://example.com/search",
+      fallback: {
+        ok: false,
+        reasonCode: "caption_missing",
+        disposition: "completed",
+        mode: "managed_headed",
+        details: {}
+      }
+    });
+
+    expect(error.details?.guidance).toBeUndefined();
+    expect(error.details).toMatchObject({
+      disposition: "completed",
+      browserFallbackMode: "managed_headed"
+    });
+  });
+
+  it("converts completed fallback output gaps into normalized provider errors", () => {
+    const error = toCompletedFallbackOutputError({
+      provider: "web/default",
+      source: "web",
+      url: "https://example.com/search",
+      outputReason: "missing_or_empty_html",
+      fallback: {
+        ok: true,
+        reasonCode: "env_limited",
+        disposition: "completed",
+        mode: "managed_headed",
+        details: {
+          captureDiagnostics: {
+            finalHtmlLength: 0,
+            finalTextLength: 0
+          }
+        }
+      }
+    });
+
+    expect(error.code).toBe("unavailable");
+    expect(error.message).toBe("Browser fallback completed for https://example.com/search without usable HTML content.");
+    expect(error.details).toMatchObject({
+      url: "https://example.com/search",
+      disposition: "completed",
+      browserFallbackMode: "managed_headed",
+      fallbackOutputReason: "missing_or_empty_html",
+      captureDiagnostics: {
+        finalHtmlLength: 0,
+        finalTextLength: 0
+      },
+      reasonCode: "env_limited"
+    });
+  });
+
+  it("keeps completed fallback output gaps retryable for rate-limited responses without optional metadata", () => {
+    const error = toCompletedFallbackOutputError({
+      provider: "web/default",
+      source: "web",
+      url: "https://example.com/limited",
+      outputReason: "empty_extracted_content",
+      fallback: {
+        ok: true,
+        reasonCode: "rate_limited",
+        disposition: "completed"
+      }
+    });
+
+    expect(error.retryable).toBe(true);
+    expect(error.details).toEqual({
+      url: "https://example.com/limited",
+      disposition: "completed",
+      fallbackOutputReason: "empty_extracted_content",
+      reasonCode: "rate_limited"
+    });
+  });
+
+  it("preserves challenge metadata when completed fallback output is unusable", () => {
+    const error = toCompletedFallbackOutputError({
+      provider: "social/youtube",
+      source: "social",
+      url: "https://example.com/checkpoint",
+      outputReason: "missing_or_empty_html",
+      fallback: {
+        ok: true,
+        reasonCode: "challenge_detected",
+        disposition: "completed",
+        mode: "extension",
+        preservedSessionId: "session-1",
+        preservedTargetId: "target-1",
+        challenge: {
+          challengeId: "challenge-1",
+          blockerType: "anti_bot_challenge",
+          ownerSurface: "provider_fallback",
+          resumeMode: "manual",
+          status: "active",
+          updatedAt: "2026-03-22T00:00:00.000Z"
+        }
+      }
+    });
+
+    expect(error.details).toMatchObject({
+      url: "https://example.com/checkpoint",
+      disposition: "completed",
+      browserFallbackMode: "extension",
+      preservedSessionId: "session-1",
+      preservedTargetId: "target-1",
+      fallbackOutputReason: "missing_or_empty_html",
+      challenge: {
+        challengeId: "challenge-1"
+      },
+      guidance: {
+        reason: "Youtube preserved browser state that can complete the current challenge."
       }
     });
   });

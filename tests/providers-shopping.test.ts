@@ -503,6 +503,129 @@ describe("shopping providers", () => {
     }
   });
 
+  it("accepts structured product metadata as completed shopping fallback evidence", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const productUrl = "https://amazon.com/dp/B0METADATA1";
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? productUrl,
+        html: [
+          "<html><head><script type=\"application/ld+json\">",
+          JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Product",
+            name: "Contour Wireless Mouse",
+            brand: { "@type": "Brand", name: "Contour" },
+            image: "https://m.media-amazon.com/images/I/mouse.jpg",
+            offers: {
+              "@type": "Offer",
+              price: "42.50",
+              priceCurrency: "USD",
+              availability: "https://schema.org/InStock"
+            }
+          }),
+          "</script></head><body><main>Contour Wireless Mouse with ergonomic grip.</main></body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 503,
+      url: productUrl,
+      text: async () => "temporarily unavailable"
+    })) as unknown as typeof fetch);
+
+    try {
+      const records = await provider.fetch?.(
+        { url: productUrl },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(records?.[0]?.attributes).toMatchObject({
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "env_limited",
+        retrievalPath: "shopping:fetch:url",
+        shopping_offer: expect.objectContaining({
+          provider: "shopping/amazon",
+          price: expect.objectContaining({ amount: 42.5, currency: "USD" }),
+          price_source: "structured_metadata"
+        })
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        operation: "fetch",
+        provider: "shopping/amazon",
+        reasonCode: "env_limited",
+        url: productUrl
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("accepts concrete offer text as completed shopping fallback evidence", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://amazon.com/s?k=wireless%20mouse",
+        html: [
+          "<html><body><main>",
+          "ErgoPoint wireless mouse $59.99 4.6 out of 5 101 reviews in stock add to cart free shipping",
+          "</main></body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 429,
+      url: "https://amazon.com/s?k=wireless%20mouse",
+      text: async () => "rate limited"
+    })) as unknown as typeof fetch);
+
+    try {
+      const records = await provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      );
+
+      expect(records?.[0]?.attributes).toMatchObject({
+        browser_fallback_mode: "managed_headed",
+        browser_fallback_reason_code: "rate_limited",
+        shopping_offer: expect.objectContaining({
+          provider: "shopping/amazon",
+          price: expect.objectContaining({ amount: 59.99, currency: "USD" }),
+          rating: 4.6,
+          reviews_count: 101,
+          availability: "in_stock"
+        })
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        operation: "search",
+        provider: "shopping/amazon",
+        reasonCode: "rate_limited"
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("falls back early when a recoverable Best Buy PDP fetch stalls", async () => {
     vi.useFakeTimers();
     const provider = createShoppingProviderById("shopping/bestbuy");
@@ -826,7 +949,7 @@ describe("shopping providers", () => {
     }
   });
 
-  it("uses browser fallback on network failure when fallback output omits html/url", async () => {
+  it("rejects completed shopping browser fallback when html output is missing", async () => {
     const provider = createShoppingProvider(amazonProfile);
     const fallbackResolve = vi.fn(async () => ({
       ok: true,
@@ -841,7 +964,7 @@ describe("shopping providers", () => {
     }) as unknown as typeof fetch);
 
     try {
-      const rows = await provider.search?.(
+      await expect(provider.search?.(
         { query: "wireless mouse", limit: 1 },
         {
           ...context,
@@ -849,10 +972,18 @@ describe("shopping providers", () => {
             resolve: fallbackResolve
           }
         }
-      );
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        message: "Browser fallback completed for https://amazon.com/s?k=wireless+mouse without usable HTML content.",
+        details: {
+          url: "https://amazon.com/s?k=wireless+mouse",
+          disposition: "completed",
+          browserFallbackMode: "managed_headed",
+          fallbackOutputReason: "missing_or_empty_html"
+        }
+      });
 
-      expect(rows?.length).toBeGreaterThan(0);
-      expect(rows?.[0]?.url).toContain("amazon.com");
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         reasonCode: "env_limited"
       }));
@@ -861,7 +992,85 @@ describe("shopping providers", () => {
     }
   });
 
-  it("uses browser fallback on rate-limited shopping retrieval", async () => {
+  it("rejects completed shopping browser fallback when output is metadata-only", async () => {
+    const provider = createShoppingProvider(amazonProfile);
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://amazon.com/s?k=wireless+mouse",
+        html: [
+          "<html><head>",
+          "<meta property=\"og:brand\" content=\"Amazon\">",
+          "<meta property=\"og:image\" content=\"https://m.media-amazon.com/images/I/shell.jpg\">",
+          "</head><body></body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.(
+        { query: "wireless mouse", limit: 1 },
+        {
+          ...context,
+          browserFallbackPort: {
+            resolve: fallbackResolve
+          }
+        }
+      )).rejects.toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        details: expect.objectContaining({
+          fallbackOutputReason: "empty_extracted_content"
+        })
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects shopping shell pages before accidental product links become results", async () => {
+    const provider = createShoppingProviderById("shopping/bestbuy");
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Best Buy International</title></head><body>",
+        "<main>Select your country before shopping.</main>",
+        "<a href=\"/site/quiet-wireless-mouse/1234567.p?skuId=1234567\">Quiet wireless mouse with ergonomic shell and fast charging</a>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      await expect(provider.search?.({ query: "wireless mouse", limit: 1 }, context))
+        .rejects.toMatchObject({
+          code: "unavailable",
+          reasonCode: "env_limited",
+          message: expect.stringContaining("Browser assistance required"),
+          details: expect.objectContaining({
+            browserRequired: true,
+            providerShell: "bestbuy_international_gate",
+            reasonCode: "env_limited",
+            constraint: expect.objectContaining({
+              kind: "render_required",
+              evidenceCode: "bestbuy_international_gate"
+            })
+          })
+        });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects generic completed browser fallback text on rate-limited shopping retrieval", async () => {
     const provider = createShoppingProvider(amazonProfile);
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
       ok: true,
@@ -881,7 +1090,7 @@ describe("shopping providers", () => {
     })) as unknown as typeof fetch);
 
     try {
-      const rows = await provider.search?.(
+      await expect(provider.search?.(
         { query: "wireless mouse", limit: 1 },
         {
           ...context,
@@ -889,9 +1098,13 @@ describe("shopping providers", () => {
             resolve: fallbackResolve
           }
         }
-      );
-
-      expect(rows?.length).toBeGreaterThan(0);
+      )).rejects.toMatchObject({
+        code: "rate_limited",
+        reasonCode: "rate_limited",
+        details: expect.objectContaining({
+          fallbackOutputReason: "empty_extracted_content"
+        })
+      });
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         reasonCode: "rate_limited"
       }));
@@ -2410,7 +2623,7 @@ describe("shopping providers", () => {
       mode: "managed_headed" as const,
       output: {
         url: request.url ?? "https://www.amazon.com/s?k=wireless%20mouse",
-        html: "<html><body><main>upstream fallback</main></body></html>"
+        html: "<html><body><main><a href=\"https://www.amazon.com/dp/B0FALLBACK01\">Quiet wireless mouse with ergonomic shell</a></main></body></html>"
       },
       details: {}
     }));

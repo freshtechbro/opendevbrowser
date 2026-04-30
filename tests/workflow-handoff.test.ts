@@ -15,12 +15,24 @@ import { INSPIREDESIGN_HANDOFF_COMMANDS, INSPIREDESIGN_HANDOFF_GUIDANCE } from "
 
 describe("workflow handoff builders", () => {
   it("builds research rerun guidance with explicit source and timebox flags", () => {
-    const handoff = buildResearchSuccessHandoff("browser automation blockers");
+    const handoff = buildResearchSuccessHandoff({
+      topic: "browser automation blockers"
+    });
 
     expect(handoff.suggestedNextAction).toContain(
-      "npx opendevbrowser research run --topic \"browser automation blockers\" --days 14 --source-selection auto --sources web,community --mode json --output-format json"
+      "npx opendevbrowser research run --topic \"browser automation blockers\" --days 14 --source-selection auto --sources web,community --browser-mode managed --mode json --output-format json"
     );
     expect(handoff.suggestedSteps[1]?.command).toContain("--sources web,community");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode managed");
+  });
+
+  it("preserves requested research browser mode in rerun guidance", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "signed-in social research",
+      browserMode: "extension"
+    });
+
+    expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode extension");
   });
 
   it("falls back to default shopping providers and managed mode when optional inputs are absent", () => {
@@ -29,7 +41,7 @@ describe("workflow handoff builders", () => {
     });
 
     expect(handoff.suggestedNextAction).toContain(
-      "npx opendevbrowser shopping run --query \"ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --browser-mode managed --mode json --output-format json"
+      "npx opendevbrowser shopping run --query \"ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json"
     );
     expect(handoff.suggestedSteps[1]?.command).not.toContain("--budget");
     expect(handoff.suggestedSteps[1]?.command).not.toContain("--region");
@@ -44,7 +56,22 @@ describe("workflow handoff builders", () => {
     expect(handoff.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
     expect(handoff.suggestedSteps[1]?.command).toBe(`${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`);
     expect(handoff.suggestedSteps[2]?.command).toBe(
-      "npx opendevbrowser product-video run --product-name \"Desk Lamp\" --include-copy --output-format json"
+      "npx opendevbrowser product-video run --product-name \"Desk Lamp\" --include-copy --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --output-format json"
+    );
+  });
+
+  it("builds product-url reruns with provider and media flags", () => {
+    const handoff = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      providerHint: "amazon",
+      browserMode: "extension",
+      includeScreenshots: true,
+      includeAllImages: true,
+      includeCopy: true
+    });
+
+    expect(handoff.suggestedSteps[2]?.command).toBe(
+      "npx opendevbrowser product-video run --product-url \"https://shop.example/item-1\" --provider-hint amazon --include-screenshots --include-all-images --include-copy --browser-mode extension --use-cookies --challenge-automation-mode browser_with_helper --output-format json"
     );
   });
 
@@ -52,7 +79,7 @@ describe("workflow handoff builders", () => {
     const handoff = buildProductVideoSuccessHandoff();
 
     expect(handoff.suggestedSteps[2]?.command).toBe(
-      "npx opendevbrowser product-video run --product-name \"<product-name>\" --output-format json"
+      "npx opendevbrowser product-video run --product-name \"<product-name>\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --output-format json"
     );
   });
 
@@ -77,8 +104,10 @@ describe("workflow handoff builders", () => {
     });
 
     expect(handoff.followthroughSummary).toContain("execution.meta.blocker");
-    expect(handoff.suggestedNextAction).toContain("--challenge-automation-mode browser");
-    expect(handoff.suggestedSteps[1]?.command).toContain("--challenge-automation-mode browser");
+    expect(handoff.suggestedNextAction).toContain("--browser-mode extension");
+    expect(handoff.suggestedNextAction).toContain("--challenge-automation-mode browser_with_helper");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode extension");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--challenge-automation-mode browser_with_helper");
   });
 
   it("keeps preview-first follow-through after a successful execute run", () => {
@@ -90,7 +119,8 @@ describe("workflow handoff builders", () => {
 
     expect(handoff.suggestedNextAction).toContain("macro-resolve --expression");
     expect(handoff.suggestedSteps[1]?.command).toContain("macro-resolve --expression");
-    expect(handoff.suggestedSteps[2]?.command).toContain("--challenge-automation-mode browser");
+    expect(handoff.suggestedSteps[2]?.command).toContain("--browser-mode extension");
+    expect(handoff.suggestedSteps[2]?.command).toContain("--challenge-automation-mode browser_with_helper");
   });
 
   it("builds inspiredesign handoff steps from the shared workflow seam", () => {

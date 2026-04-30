@@ -642,7 +642,8 @@ describe("provider runtime factory", () => {
       disposition: "deferred",
       mode: "extension",
       details: {
-        message: "Extension fallback did not reach the requested shopping URL.",
+        message: "Extension fallback did not reach the requested provider URL.",
+        extensionTransportRequired: true,
         requestedUrl: requestUrl,
         observedUrl: "https://example.com/home"
       }
@@ -829,8 +830,9 @@ describe("provider runtime factory", () => {
     ["social/x", "https://x.com/search?q=browser+automation&f=live"],
     ["social/bluesky", "https://bsky.app/search?q=browser+automation+bluesky"],
     ["social/youtube", "https://www.youtube.com/results?search_query=browser+automation"],
-    ["social/reddit", "https://www.reddit.com/search/?q=browser+automation"]
-  ])("threads extension startUrl for social fallback attaches on %s", async (provider, url) => {
+    ["social/reddit", "https://www.reddit.com/search/?q=browser+automation"],
+    ["social/threads", "https://www.threads.net/search?q=browser+automation"]
+  ])("social extension startUrl for social fallback attaches on %s", async (provider, url) => {
     const manager = {
       connectRelay: vi.fn(async () => ({ sessionId: "social-extension-fallback" })),
       goto: vi.fn(async () => ({ ok: true })),
@@ -1025,7 +1027,7 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).toHaveBeenCalledWith("shopping-timeout-cleanup-session", true);
   });
 
-  it("preserves extension ops timeout details on deferred fallback failures", async () => {
+  it("preserves extension ops timeout details on explicit extension session failures", async () => {
     const manager = {
       connectRelay: vi.fn(async () => {
         throw new OpsRequestTimeoutError({
@@ -1068,7 +1070,7 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).not.toHaveBeenCalled();
   });
 
-  it("omits absent extension ops timeout identifiers on deferred fallback failures", async () => {
+  it("omits absent extension ops timeout identifiers on explicit extension session failures", async () => {
     const manager = {
       connectRelay: vi.fn(async () => {
         throw new OpsRequestTimeoutError({
@@ -1649,7 +1651,7 @@ describe("provider runtime factory", () => {
     }
   });
 
-  it("returns env_limited when extension fallback is preferred but no relay endpoint is configured", async () => {
+  it("returns env_limited when explicit extension fallback has no relay endpoint", async () => {
     const manager = {
       connectRelay: vi.fn(),
       launch: vi.fn(),
@@ -1674,10 +1676,113 @@ describe("provider runtime factory", () => {
       ok: false,
       reasonCode: "env_limited",
       details: {
+        extensionTransportRequired: true,
         message: "Extension fallback requires a relay endpoint."
       }
     });
     expect(manager.connectRelay).not.toHaveBeenCalled();
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["social/x", "https://x.com/search?q=browser+automation"],
+    ["social/youtube", "https://www.youtube.com/results?search_query=browser+automation"]
+  ])("returns env_limited when explicit social extension fallback cannot attach for %s", async (provider, url) => {
+    vi.useFakeTimers();
+    try {
+      const manager = {
+        connectRelay: vi.fn(async () => {
+          throw new Error("extension relay timeout");
+        }),
+        launch: vi.fn(),
+        goto: vi.fn(),
+        withPage: vi.fn(),
+        status: vi.fn(),
+        disconnect: vi.fn()
+      } as unknown as BrowserManagerLike;
+
+      const port = createBrowserFallbackPort(manager, {}, {
+        extensionWsEndpoint: "ws://127.0.0.1:8787"
+      });
+      const pendingResponse = port?.resolve({
+        provider,
+        source: "social",
+        operation: "search",
+        reasonCode: "env_limited",
+        runtimePolicy: resolveProviderRuntimePolicy({
+          source: "social",
+          runtimePolicy: { browserMode: "extension" }
+        }),
+        trace: { requestId: `rf-${provider.replace("/", "-")}-explicit-extension-attach`, ts: "2026-02-16T00:00:00.000Z" },
+        url
+      });
+
+      await vi.advanceTimersByTimeAsync(socialExtensionRetryDelayMs * 2);
+      const response = await pendingResponse;
+
+      expect(response).toMatchObject({
+        ok: false,
+        reasonCode: "env_limited",
+        details: {
+          extensionTransportRequired: true,
+          message: "extension relay timeout"
+        }
+      });
+      expect(manager.connectRelay).toHaveBeenCalledTimes(3);
+      expect(manager.launch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["social/x", "https://x.com/search?q=browser+automation", "https://x.com/home"],
+    ["social/youtube", "https://www.youtube.com/results?search_query=browser+automation", "https://www.youtube.com/"]
+  ])("returns env_limited when explicit social extension fallback stays on another URL for %s", async (provider, requestUrl, observedUrl) => {
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "social-extension-wrong-url" })),
+      launch: vi.fn(),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(),
+      status: vi.fn(async () => ({ mode: "extension", url: observedUrl })),
+      disconnect: vi.fn(async () => undefined),
+      cookieList: vi.fn(async () => ({ requestId: "list", cookies: [], count: 1 }))
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787"
+    });
+    const response = await port?.resolve({
+      provider,
+      source: "social",
+      operation: "search",
+      reasonCode: "env_limited",
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { browserMode: "extension" }
+      }),
+      trace: { requestId: `rf-${provider.replace("/", "-")}-explicit-extension-wrong-url`, ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      mode: "extension",
+      details: {
+        extensionTransportRequired: true,
+        requestedUrl: requestUrl,
+        observedUrl
+      }
+    });
+    expect(manager.goto).toHaveBeenCalledWith(
+      "social-extension-wrong-url",
+      requestUrl,
+      "load",
+      expect.any(Number)
+    );
+    expect(manager.cookieList).not.toHaveBeenCalled();
     expect(manager.launch).not.toHaveBeenCalled();
   });
 
@@ -1825,11 +1930,12 @@ describe("provider runtime factory", () => {
     });
 
     expect(response).toMatchObject({
-      ok: true,
+      ok: false,
+      reasonCode: "transcript_unavailable",
+      disposition: "failed",
       mode: "managed_headed",
-      output: {
-        html: "",
-        url: "https://example.com/watch?v=fallback"
+      details: {
+        message: "Browser fallback captured no HTML content at https://example.com/watch?v=fallback."
       }
     });
   });
@@ -3083,7 +3189,7 @@ describe("provider runtime factory", () => {
     expect(waitForTimeout).toHaveBeenCalledWith(250);
   });
 
-  it("captures empty fallback HTML when the page surface lacks wait/content helpers", async () => {
+  it("treats empty fallback HTML as env-limited when the page surface lacks capture helpers", async () => {
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "no-helper-session" })),
       goto: vi.fn(async () => ({ ok: true })),
@@ -3105,17 +3211,20 @@ describe("provider runtime factory", () => {
     });
 
     expect(response).toMatchObject({
-      ok: true,
-      output: {
-        html: "",
-        url: "https://example.com/no-helper"
-      },
+      ok: false,
+      reasonCode: "env_limited",
+      disposition: "deferred",
       details: {
+        message: "Browser fallback captured no HTML content at https://example.com/no-helper.",
         challengeOrchestration: {
           mode: "browser_with_helper",
           source: "config",
           invoked: false,
-          reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked."
+          reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked.",
+          helperEligibility: {
+            allowed: false,
+            standDownReason: "helper_no_active_challenge"
+          }
         }
       }
     });
@@ -3194,7 +3303,11 @@ describe("provider runtime factory", () => {
           mode: "browser_with_helper",
           source: "run",
           invoked: false,
-          reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked."
+          reason: "Fallback capture cleared without an auth or challenge blocker, so challenge orchestration was not invoked.",
+          helperEligibility: {
+            allowed: false,
+            standDownReason: "helper_no_active_challenge"
+          }
         }
       }
     });

@@ -286,6 +286,43 @@ describe("workflow branch coverage", () => {
     expect((output.records as Array<{ source: string }>).map((record) => record.source)).toEqual(["social"]);
   });
 
+  it("forwards explicit research browser-mode overrides into provider run options", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: "research-browser-mode",
+        source: "web",
+        provider: "web/default",
+        url: "https://example.com/research-browser-mode",
+        title: "Research browser mode",
+        content: "Browser mode option is forwarded into research provider calls.",
+        attributes: {}
+      })]
+    }));
+
+    const output = await runResearchWorkflow(toRuntime({ search }), {
+      topic: "browser mode research",
+      sourceSelection: "web",
+      browserMode: "extension",
+      mode: "json"
+    });
+    const callOptions = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+
+    expect(callOptions).toMatchObject({
+      source: "web",
+      runtimePolicy: {
+        browserMode: "extension"
+      }
+    });
+    expect(output.meta).toMatchObject({
+      selection: {
+        requested_browser_mode: "extension"
+      }
+    });
+    expect((output.suggestedSteps as Array<{ command?: string }>)[1]?.command).toContain("--browser-mode extension");
+  });
+
   it("promotes provider alerts from warning to degraded across windows", async () => {
     const unstableProvider = "web/unstable-coverage";
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1585,6 +1622,39 @@ describe("workflow branch coverage", () => {
         })
       })
     );
+  });
+
+  it("caps large research workflow timeouts per provider step", async () => {
+    const workflowTimeoutMs = 120_000;
+    const providerStepTimeoutMs = 30_000;
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "community",
+      providerOrder: ["community/default"],
+      records: [makeRecord({
+        id: "bounded-research-timeout",
+        source: "community",
+        provider: "community/default",
+        url: "https://forums.example/bounded-research-timeout",
+        title: "Bounded Research Timeout",
+        content: "Concrete community record for bounded timeout validation.",
+        attributes: {
+          retrievalPath: "community:fetch:url"
+        }
+      })]
+    }));
+
+    await runResearchWorkflow(toRuntime({ search }), {
+      topic: "bounded research timeout",
+      sourceSelection: "community",
+      days: 7,
+      timeoutMs: workflowTimeoutMs,
+      mode: "json"
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      source: "community",
+      timeoutMs: providerStepTimeoutMs
+    }));
   });
 
   it("preserves research timeout failures in structured workflow output", async () => {
@@ -4895,6 +4965,47 @@ describe("workflow branch coverage", () => {
     expect((output.offers as Array<{ provider: string }>)[0]?.provider).toBe("shopping/amazon");
   });
 
+  it("forwards browser mode through product-video fetch steps", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/BROWSER001",
+        title: "Browser Mode Product",
+        content: "Browser mode product with enough useful detail for product extraction.",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "BROWSER001",
+            title: "Browser Mode Product",
+            url: "https://www.amazon.com/dp/BROWSER001",
+            price: { amount: 42, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.5,
+            reviews_count: 12
+          }
+        }
+      })]
+    }));
+
+    await runProductVideoWorkflow(toRuntime({ fetch }), {
+      product_url: "https://www.amazon.com/dp/BROWSER001",
+      include_screenshots: false,
+      browserMode: "extension"
+    });
+
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        browserMode: "extension"
+      }
+    });
+  });
+
   it("keeps auto shopping preserved extension challenges as single-run manual-yield outcomes", async () => {
     const search = vi.fn(async (_input, options) => {
       const providerId = options?.providerIds?.[0] ?? "shopping/walmart";
@@ -6482,6 +6593,14 @@ describe("workflow branch coverage", () => {
     });
 
     expect(output.meta).toMatchObject({
+      primaryConstraint: {
+        guidance: {
+          recommendedNextCommands: [
+            "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow.",
+            "Rerun the same provider or workflow once the session is active."
+          ]
+        }
+      },
       primaryConstraintSummary: "Costco requires login or an existing session.",
       reasonCodeDistribution: {
         auth_required: 1

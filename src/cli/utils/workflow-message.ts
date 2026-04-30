@@ -56,6 +56,10 @@ const readPrimaryNextStep = (data: unknown): string | null => {
   return nextStep?.trim() ?? null;
 };
 
+const inferPrimaryIssueNextStep = (data: unknown): string | null => {
+  return summarizePrimaryProviderIssue(readFailures(data))?.guidance?.recommendedNextCommands[0] ?? null;
+};
+
 const readFailures = (data: unknown): FailureShape[] => {
   const meta = readMeta(data);
   if (!meta) return [];
@@ -83,6 +87,24 @@ const readSuggestedSteps = (data: unknown): readonly Record<string, unknown>[] =
 
 export const buildNextStepMessage = (message: string, nextStep: string | null): string => {
   return nextStep ? `${message} Next step: ${nextStep}` : message;
+};
+
+export const buildProviderFollowupErrorMessage = (message: string): string => {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("next step:")) return message;
+  if (normalized.includes("requires login or an existing session")) {
+    return buildNextStepMessage(
+      message,
+      "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+    );
+  }
+  if (
+    normalized.includes("requires manual browser follow-up")
+    || normalized.includes("requires a live browser-rendered page")
+  ) {
+    return buildNextStepMessage(message, "Retry with browser assistance or a headed browser session.");
+  }
+  return message;
 };
 
 export const readSuggestedNextAction = (data: unknown): string | null => {
@@ -131,7 +153,7 @@ export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unkn
   if (explicitSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed with provider follow-up required: ${explicitSummary}`,
-      readPrimaryNextStep(data)
+      readPrimaryNextStep(data) ?? inferPrimaryIssueNextStep(data)
     );
   }
   const inferred = summarizePrimaryProviderIssue(readFailures(data));

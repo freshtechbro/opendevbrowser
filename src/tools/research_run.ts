@@ -9,6 +9,7 @@ const z = tool.schema;
 const sourceSelectionSchema = z.enum(["auto", "web", "community", "social", "shopping", "all"]);
 const sourceSchema = z.enum(["web", "community", "social", "shopping"]);
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
+const browserModeSchema = z.enum(["auto", "extension", "managed"]);
 const cookiePolicySchema = z.enum(["off", "auto", "required"]);
 const challengeAutomationModeSchema = z.enum(CHALLENGE_AUTOMATION_MODES);
 
@@ -27,6 +28,7 @@ export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
       limitPerSource: z.number().int().positive().optional().describe("Result limit per source"),
       outputDir: z.string().optional().describe("Optional artifact output directory"),
       ttlHours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
+      browserMode: browserModeSchema.optional().describe("Browser transport mode: auto|extension|managed"),
       useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),
       challengeAutomationMode: challengeAutomationModeSchema.optional().describe("Challenge automation mode: off|browser|browser_with_helper"),
       cookiePolicyOverride: cookiePolicySchema.optional().describe("Override cookie policy: off|auto|required")
@@ -47,6 +49,7 @@ export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
           limitPerSource: args.limitPerSource,
           outputDir: args.outputDir,
           ttlHours: args.ttlHours,
+          browserMode: args.browserMode,
           useCookies: args.useCookies,
           challengeAutomationMode: args.challengeAutomationMode,
           cookiePolicyOverride: args.cookiePolicyOverride

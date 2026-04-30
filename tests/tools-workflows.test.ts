@@ -367,10 +367,12 @@ describe("workflow tools", () => {
     const { createResearchRunTool } = await import("../src/tools/research_run");
     const { createShoppingRunTool } = await import("../src/tools/shopping_run");
     const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
 
     const researchTool = createResearchRunTool(deps as never);
     const shoppingTool = createShoppingRunTool(deps as never);
     const productVideoTool = createProductVideoRunTool(deps as never);
+    const macroTool = createMacroResolveTool(deps as never);
 
     await researchTool.execute({
       topic: "automation",
@@ -412,6 +414,109 @@ describe("workflow tools", () => {
       expect.objectContaining({
         runtimePolicy: expect.objectContaining({
           challengeAutomationMode: "off"
+        })
+      })
+    );
+
+    deps.providerRuntime.search.mockClear();
+    await macroTool.execute({
+      expression: "@community.search(\"browser automation\")",
+      execute: true,
+      challengeAutomationMode: "browser"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        challengeAutomationMode: "browser"
+      })
+    );
+  });
+
+  it("forwards browserMode through workflow tools", async () => {
+    const deps = makeDeps();
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const { createShoppingRunTool } = await import("../src/tools/shopping_run");
+    const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
+
+    const researchTool = createResearchRunTool(deps as never);
+    const shoppingTool = createShoppingRunTool(deps as never);
+    const productVideoTool = createProductVideoRunTool(deps as never);
+    const inspiredesignTool = createInspiredesignRunTool(deps as never);
+    const macroTool = createMacroResolveTool(deps as never);
+
+    await researchTool.execute({
+      topic: "authenticated social search",
+      sourceSelection: "social",
+      browserMode: "extension"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browserMode: "extension"
+        })
+      })
+    );
+
+    deps.providerRuntime.search.mockClear();
+    await shoppingTool.execute({
+      query: "usb microphone",
+      providers: ["shopping/amazon"],
+      browserMode: "managed"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browserMode: "managed"
+        })
+      })
+    );
+
+    deps.providerRuntime.fetch.mockClear();
+    await productVideoTool.execute({
+      product_url: "https://example.com/product",
+      include_screenshots: false,
+      browserMode: "extension"
+    } as never);
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/product" },
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browserMode: "extension"
+        })
+      })
+    );
+
+    deps.providerRuntime.fetch.mockClear();
+    await inspiredesignTool.execute({
+      brief: "Reference audit",
+      urls: ["https://example.com/reference"],
+      captureMode: "off",
+      browserMode: "managed"
+    } as never);
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/reference" },
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browserMode: "managed"
+        })
+      })
+    );
+
+    deps.providerRuntime.search.mockClear();
+    await macroTool.execute({
+      expression: "@community.search(\"browser automation\")",
+      execute: true,
+      browserMode: "extension"
+    } as never);
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browserMode: "extension"
         })
       })
     );

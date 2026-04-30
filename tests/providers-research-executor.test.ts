@@ -116,6 +116,22 @@ describe("research workflow executor", () => {
       timebox_from: plan.compiled.timebox.from,
       timebox_to: plan.compiled.timebox.to
     });
+    expect(plan.plan.steps[1]?.input.filters).toEqual({
+      include_engagement: true,
+      timebox_from: plan.compiled.timebox.from,
+      timebox_to: plan.compiled.timebox.to,
+      pageLimit: 1,
+      hopLimit: 0,
+      expansionPerRecord: 0
+    });
+    expect(plan.plan.steps[2]?.input.filters).toEqual({
+      include_engagement: true,
+      timebox_from: plan.compiled.timebox.from,
+      timebox_to: plan.compiled.timebox.to,
+      pageLimit: 1,
+      hopLimit: 0,
+      expansionPerRecord: 0
+    });
   });
 
   it("rejects malformed checkpoint state before execution", () => {

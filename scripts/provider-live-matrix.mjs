@@ -94,6 +94,25 @@ export const WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS = [
   '--youtube-mode',
   DEFAULT_YOUTUBE_TRANSCRIPT_MODE
 ];
+export function buildLiveShoppingRunArgs(provider, timeoutMs) {
+  return [
+    'shopping',
+    'run',
+    '--query',
+    'ergonomic wireless mouse',
+    '--providers',
+    provider,
+    '--sort',
+    'best_deal',
+    '--mode',
+    'json',
+    '--timeout-ms',
+    timeoutMs,
+    '--challenge-automation-mode',
+    'browser_with_helper',
+    '--use-cookies'
+  ];
+}
 
 const ownedHeadlessMarkers = new Set();
 const ownedHeadlessProfileDirs = new Set();
@@ -420,6 +439,10 @@ export function isEnvLimitedDetail(detail) {
   return /auth|challenge|captcha|token required|environment|extension not connected|ops client not connected|rate limit|timed out|profile is locked|processsingleton|singletonlock|already in use by another instance/i.test(
     String(detail || '')
   );
+}
+
+function classifyNonZeroProviderStatus() {
+  return 'fail';
 }
 
 export function buildDefaultSkippedStep(id, detail, data = {}) {
@@ -822,6 +845,81 @@ export function classifyMatrixRecords(recordsCount, failures, extra = {}) {
   };
 }
 
+export function resolveMatrixSocialSearchStatus(input) {
+  const execution = input.execution ?? {};
+  const records = Array.isArray(execution.records) ? execution.records : [];
+  const failures = Array.isArray(execution.failures) ? execution.failures : [];
+  const reasonCodes = normalizedCodesFromFailures(failures);
+  const hasExecutionPayload = execution.hasExecutionPayload === true;
+  const linkedinAuthWall = input.platform === 'linkedin' && hasLinkedInAuthWall(records);
+  const parityProbeCandidates = [
+    `browser.extension.${input.platform}.search`,
+    `browser.managed.${input.platform}.search`,
+    `browser.cdp_connect.${input.platform}.search`
+  ];
+  const probeParitySource = parityProbeCandidates.find((probeId) => (
+    input.reportSteps?.some((step) => step.id === probeId && step.status === 'pass')
+  )) ?? null;
+
+  if (input.resultStatus === 0 && !hasExecutionPayload) {
+    return {
+      status: 'fail',
+      detail: 'missing_execution_payload',
+      reasonCodes,
+      linkedinAuthWall,
+      extensionProbeParity: probeParitySource !== null,
+      probeParitySource,
+      expectedTiktokTimeoutGate: false
+    };
+  }
+
+  const verdict = classifyMatrixRecords(records.length, failures);
+  const status = input.resultStatus === 0
+    ? verdict.status
+    : classifyNonZeroProviderStatus(input.resultDetail);
+  const detail = input.resultStatus === 0
+    ? (linkedinAuthWall ? 'pass_with_auth_wall_markers' : verdict.reason)
+    : input.resultDetail;
+  const expectedTiktokTimeoutGate = input.strictGate === true
+    && input.platform === 'tiktok'
+    && status === 'env_limited'
+    && reasonCodes.includes('timeout');
+
+  return {
+    status,
+    detail,
+    reasonCodes,
+    linkedinAuthWall,
+    extensionProbeParity: probeParitySource !== null,
+    probeParitySource,
+    expectedTiktokTimeoutGate
+  };
+}
+
+export function resolveMatrixSocialPostStatus(input) {
+  const reasonCodes = Array.isArray(input.reasonCodes) ? input.reasonCodes : [];
+  const expectedTransportGateVerified = input.strictGate === true
+    && input.verdict?.status === 'env_limited'
+    && input.verdict?.reason === 'expected_gating_post_transport_not_configured';
+  const expectedPolicyGateVerified = input.strictGate === true
+    && input.verdict?.status === 'env_limited'
+    && reasonCodes.length > 0
+    && reasonCodes.every((code) => (
+      code === 'policy_blocked'
+      || code === 'challenge_detected'
+      || code === 'cooldown_active'
+    ));
+  return {
+    status: input.resultStatus === 0
+      ? input.verdict.status
+      : classifyNonZeroProviderStatus(input.resultDetail),
+    detail: input.resultStatus === 0 ? input.verdict.reason : input.resultDetail,
+    expectedGateVerified: expectedTransportGateVerified || expectedPolicyGateVerified,
+    expectedTransportGateVerified,
+    expectedPolicyGateVerified
+  };
+}
+
 function collectMacroExecution(result) {
   const execution = result.json?.data?.execution;
   const records = Array.isArray(execution?.records) ? execution.records : [];
@@ -930,28 +1028,6 @@ function hasLinkedInAuthWall(records) {
     }
   });
   return gated.length > 0 && gated.length === records.length;
-}
-
-function applyStrictProbeParityRecoveries(steps) {
-  if (!Array.isArray(steps) || steps.length === 0) return;
-  const extensionLaunchStep = steps.find((step) => step.id === 'browser.extension.launch');
-  if (!extensionLaunchStep || extensionLaunchStep.status !== 'env_limited') return;
-
-  const managedPass = BROWSER_REALWORLD_TARGETS.every((target) => (
-    steps.some((step) => step.id === `browser.managed.${target.id}` && step.status === 'pass')
-  ));
-  const cdpPass = BROWSER_REALWORLD_TARGETS.every((target) => (
-    steps.some((step) => step.id === `browser.cdp_connect.${target.id}` && step.status === 'pass')
-  ));
-  if (!managedPass || !cdpPass) return;
-
-  extensionLaunchStep.status = 'pass';
-  extensionLaunchStep.detail = 'managed_cdp_probe_parity_pass';
-  extensionLaunchStep.data = {
-    ...(extensionLaunchStep.data ?? {}),
-    parityRecovered: true,
-    paritySources: ['browser.managed.*', 'browser.cdp_connect.*']
-  };
 }
 
 async function buildRuntimeEnv(options) {
@@ -1365,7 +1441,7 @@ async function main() {
           id: testCase.id,
           status: res.status === 0
             ? verdict.status
-            : (isTimeoutDetail(res.detail) || isEnvLimitedDetail(res.detail) ? 'env_limited' : 'fail'),
+            : classifyNonZeroProviderStatus(res.detail),
           data: {
             records: execution.records.length,
             failures: execution.failures.length,
@@ -1413,7 +1489,7 @@ async function main() {
         if (res.status === 0 && !execution.hasExecutionPayload) {
           pushStep({
             id,
-            status: 'env_limited',
+            status: 'fail',
             detail: 'missing_execution_payload',
             data: {
               records: 0,
@@ -1456,8 +1532,6 @@ async function main() {
           if (retry.status === 0) {
             const retryExecution = collectMacroExecution(retry);
             if (retryExecution.records.length > 0 || retryExecution.failures.length > 0) {
-              res = retry;
-              execution = retryExecution;
               usedFallbackQuery = true;
               fallbackQueryStatus = retry.status;
             }
@@ -1472,65 +1546,27 @@ async function main() {
           const retryExecution = collectMacroExecution(retry);
           fallbackQueryStatus = retry.status;
           if (retry.status === 0 && (retryExecution.records.length > 0 || retryExecution.failures.length > 0)) {
-            res = retry;
-            execution = retryExecution;
             usedFallbackQuery = true;
           }
         }
 
-        const linkedinAuthWall = platform === 'linkedin' && hasLinkedInAuthWall(execution.records);
-        const verdict = classifyMatrixRecords(execution.records.length, execution.failures, {
-          allowNoRecordsNoFailures: true
+        const resolved = resolveMatrixSocialSearchStatus({
+          platform,
+          strictGate: options.strictGate,
+          resultStatus: res.status,
+          resultDetail: res.detail,
+          execution,
+          reportSteps: report.steps
         });
-
-        let resolvedStatus = res.status !== 0
-          ? (isTimeoutDetail(res.detail) || isEnvLimitedDetail(res.detail) ? 'env_limited' : 'fail')
-          : verdict.status;
-
-        const reasonCodes = normalizedCodesFromFailures(execution.failures);
-        let resolvedDetail = res.status !== 0
-          ? res.detail
-          : (linkedinAuthWall
-            ? 'pass_with_auth_wall_markers'
-            : verdict.reason);
-
-        let extensionProbeParity = false;
-        let probeParitySource = null;
-        if (resolvedStatus !== 'pass') {
-          const parityProbeCandidates = [
-            `browser.extension.${platform}.search`,
-            `browser.managed.${platform}.search`,
-            `browser.cdp_connect.${platform}.search`
-          ];
-          const passingProbe = parityProbeCandidates.find((probeId) => {
-            const probeStep = report.steps.find((step) => step.id === probeId);
-            return probeStep?.status === 'pass';
-          });
-          if (passingProbe) {
-            resolvedStatus = 'pass';
-            resolvedDetail = `browser_probe_parity_pass:${passingProbe}`;
-            extensionProbeParity = true;
-            probeParitySource = passingProbe;
-          }
-        }
-
-        const expectedTiktokTimeoutGate = options.strictGate
-          && platform === 'tiktok'
-          && resolvedStatus === 'env_limited'
-          && reasonCodes.includes('timeout');
-        if (expectedTiktokTimeoutGate) {
-          resolvedStatus = 'pass';
-          resolvedDetail = 'verified_expected_tiktok_timeout_gate';
-        }
 
         pushStep({
           id,
-          status: resolvedStatus,
+          status: resolved.status,
           data: {
             records: execution.records.length,
             failures: execution.failures.length,
             providerOrder: execution.providerOrder,
-            reasonCodes,
+            reasonCodes: resolved.reasonCodes,
             blockerType: execution.meta?.blocker?.type ?? null,
             usedFallbackQuery,
             fallbackQueryStatus,
@@ -1538,12 +1574,12 @@ async function main() {
             timeoutRecoveryStatus,
             hasExecutionPayload: execution.hasExecutionPayload,
             failureSamples: summarizeFailures(execution.failures),
-            linkedinAuthWall,
-            extensionProbeParity,
-            probeParitySource,
-            expectedTiktokTimeoutGate
+            linkedinAuthWall: resolved.linkedinAuthWall,
+            extensionProbeParity: resolved.extensionProbeParity,
+            probeParitySource: resolved.probeParitySource,
+            expectedTiktokTimeoutGate: resolved.expectedTiktokTimeoutGate
           },
-          detail: resolvedDetail
+          detail: resolved.detail
         });
       } catch (error) {
         pushStep({ id, status: 'fail', detail: String(error) });
@@ -1560,34 +1596,27 @@ async function main() {
           const execution = collectMacroExecution(res);
           const verdict = classifyMatrixRecords(execution.records.length, execution.failures, { allowExpectedUnavailable: true });
           const reasonCodes = normalizedCodesFromFailures(execution.failures);
-          const expectedTransportGateVerified = options.strictGate
-            && verdict.status === 'env_limited'
-            && verdict.reason === 'expected_gating_post_transport_not_configured';
-          const expectedPolicyGateVerified = options.strictGate
-            && verdict.status === 'env_limited'
-            && reasonCodes.length > 0
-            && reasonCodes.every((code) => code === 'policy_blocked' || code === 'challenge_detected' || code === 'cooldown_active');
-          const expectedGateVerified = expectedTransportGateVerified || expectedPolicyGateVerified;
-          const resolvedStatus = expectedGateVerified
-            ? 'pass'
-            : (res.status === 0 ? verdict.status : (isEnvLimitedDetail(res.detail) ? 'env_limited' : 'fail'));
-          const resolvedDetail = expectedGateVerified
-            ? (expectedTransportGateVerified ? 'verified_expected_post_transport_gate' : 'verified_expected_post_policy_gate')
-            : (res.status === 0 ? verdict.reason : res.detail);
+          const resolved = resolveMatrixSocialPostStatus({
+            strictGate: options.strictGate,
+            resultStatus: res.status,
+            resultDetail: res.detail,
+            verdict,
+            reasonCodes
+          });
           pushStep({
             id: testCase.id,
-            status: resolvedStatus,
+            status: resolved.status,
             data: {
               records: execution.records.length,
               failures: execution.failures.length,
               reasonCodes,
               failureSamples: summarizeFailures(execution.failures),
               blockerType: execution.meta?.blocker?.type ?? null,
-              expectedGateVerified,
-              expectedTransportGateVerified,
-              expectedPolicyGateVerified
+              expectedGateVerified: resolved.expectedGateVerified,
+              expectedTransportGateVerified: resolved.expectedTransportGateVerified,
+              expectedPolicyGateVerified: resolved.expectedPolicyGateVerified
             },
-            detail: resolvedDetail
+            detail: resolved.detail
           });
         } catch (error) {
           pushStep({ id: testCase.id, status: 'fail', detail: String(error) });
@@ -1626,7 +1655,7 @@ async function main() {
         const cliTimeoutMs = options.strictGate && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)
           ? 360000
           : 240000;
-        const res = runCli(env, ['shopping', 'run', '--query', 'ergonomic wireless mouse', '--providers', provider, '--sort', 'best_deal', '--mode', 'json', '--timeout-ms', providerTimeoutMs], {
+        const res = runCli(env, buildLiveShoppingRunArgs(provider, providerTimeoutMs), {
           allowFailure: true,
           timeoutMs: cliTimeoutMs
         });
@@ -1635,17 +1664,13 @@ async function main() {
         const reasonCodes = normalizedCodesFromFailures(execution.failures);
         const baseStatus = res.status === 0
           ? verdict.status
-          : (isTimeoutDetail(res.detail) || isEnvLimitedDetail(res.detail) ? 'env_limited' : 'fail');
+          : classifyNonZeroProviderStatus(res.detail);
         let resolvedStatus = baseStatus;
         let resolvedDetail = res.status === 0 ? verdict.reason : res.detail;
         const expectedHighFrictionTimeout = options.strictGate
           && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)
           && resolvedStatus === 'env_limited'
           && (reasonCodes.includes('timeout') || isTimeoutDetail(resolvedDetail));
-        if (expectedHighFrictionTimeout) {
-          resolvedStatus = 'pass';
-          resolvedDetail = 'verified_expected_high_friction_timeout_gate';
-        }
 
         pushStep({
           id,
@@ -1737,10 +1762,6 @@ async function main() {
       pushStep({ id: 'workflow.research.auto_sources', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
       pushStep({ id: 'workflow.product_video.amazon', status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
       pushStep({ id: YOUTUBE_TRANSCRIPT_PROBE_STEP_ID, status: 'pass', detail: 'skipped_by_mode', data: { skipped: true } });
-    }
-
-    if (options.strictGate) {
-      applyStrictProbeParityRecoveries(report.steps);
     }
 
     report.ok = options.strictGate

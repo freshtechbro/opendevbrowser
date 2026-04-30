@@ -1,7 +1,7 @@
 # Workflow Surface Map
 
 Status: active
-Last updated: 2026-04-16
+Last updated: 2026-04-30
 
 Canonical code-derived workflow inventory across CLI commands, tool surfaces, and executable validation scenarios.
 
@@ -229,7 +229,7 @@ Canonical code-derived workflow inventory across CLI commands, tool surfaces, an
 | --- | --- | --- | --- |
 | `scenario.feature.cli.onboarding` | `node scripts/cli-onboarding-smoke.mjs` | Read generated help, follow the best-practices quick-start guidance, and confirm a minimal managed happy path. | Repeat the same help-led onboarding flow to prove the alias help path and bundled quick-start guidance stay deterministic. |
 | `scenario.feature.cli.smoke` | `node scripts/cli-smoke-test.mjs` | Bootstrap a clean temp install, run a managed browser-debugging session end to end, and verify the low-level CLI surface a power user reaches for during page triage. | Repeat the same low-level CLI matrix against a second synthetic page while rechecking connect, cookies, review, pointer, export, diagnostics, and teardown flows. |
-| `scenario.workflow.research.run` | `opendevbrowser research run` | Research the last 14 days of public anti-bot changes that affect production browser automation teams. | Research public guidance and field reports about Chrome extension debugging workflows over the last month. |
+| `scenario.workflow.research.run` | `opendevbrowser research run` | Research public Playwright locator API guidance with a bounded web-only evidence set. | Research public Chrome extension debugger API guidance with a bounded web-only evidence set. |
 | `scenario.workflow.shopping.run` | `opendevbrowser shopping run` | Find the best ergonomic wireless mouse under a real budget using providers that should return live offers without auth walls. | Compare 27-inch 4K monitors under budget with explicit provider selection and price sorting pressure. |
 | `scenario.workflow.product_video.url` | `opendevbrowser product-video run --product-url ...` | Build a product presentation asset pack from a live Best Buy PDP for a creative brief. | Build a second product presentation asset pack from a different live Best Buy PDP to check asset extraction variability. |
 | `scenario.workflow.product_video.name` | `opendevbrowser product-video run --product-name ...` | Resolve a product by name and prepare an asset pack for a motion designer without supplying a URL manually. | Resolve a second named product with the same provider hint to check search-driven asset-pack stability. |

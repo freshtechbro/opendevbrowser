@@ -1756,6 +1756,26 @@ describe("daemon-commands integration", () => {
     }
   });
 
+  it("rejects execute-only macro guidance fields for daemon resolve-only calls", async () => {
+    const core = makeCore();
+
+    await expect(handleDaemonCommand(core, {
+      name: "macro.resolve",
+      params: {
+        expression: "@web.search(\"openai\")",
+        browserMode: "extension"
+      }
+    })).rejects.toThrow("browserMode requires execute=true for macro resolution");
+
+    await expect(handleDaemonCommand(core, {
+      name: "macro.resolve",
+      params: {
+        expression: "@web.search(\"openai\")",
+        challengeAutomationMode: "browser"
+      }
+    })).rejects.toThrow("challengeAutomationMode requires execute=true for macro resolution");
+  });
+
   it("resolves and executes macros through daemon command", async () => {
     const core = makeCore();
 
@@ -1892,7 +1912,8 @@ describe("daemon-commands integration", () => {
       name: "product.video.run",
       params: {
         product_name: "Timeout Product",
-        timeoutMs: 45000
+        timeoutMs: 45000,
+        browserMode: "extension"
       }
     });
 
@@ -1900,7 +1921,8 @@ describe("daemon-commands integration", () => {
       expect.anything(),
       expect.objectContaining({
         product_name: "Timeout Product",
-        timeoutMs: 45000
+        timeoutMs: 45000,
+        browserMode: "extension"
       }),
       expect.any(Object)
     );
@@ -1918,7 +1940,8 @@ describe("daemon-commands integration", () => {
       params: {
         topic: "Timeout Research",
         mode: "json",
-        timeoutMs: 45000
+        timeoutMs: 45000,
+        browserMode: "extension"
       }
     });
 
@@ -1927,7 +1950,8 @@ describe("daemon-commands integration", () => {
       expect.objectContaining({
         topic: "Timeout Research",
         mode: "json",
-        timeoutMs: 45000
+        timeoutMs: 45000,
+        browserMode: "extension"
       })
     );
   });
@@ -1977,6 +2001,7 @@ describe("daemon-commands integration", () => {
         captureMode: "deep",
         includePrototypeGuidance: true,
         timeoutMs: 45000,
+        browserMode: "managed",
         useCookies: true,
         challengeAutomationMode: "browser",
         cookiePolicyOverride: "required"
@@ -1991,6 +2016,7 @@ describe("daemon-commands integration", () => {
         captureMode: "deep",
         includePrototypeGuidance: true,
         timeoutMs: 45000,
+        browserMode: "managed",
         useCookies: true,
         challengeAutomationMode: "browser",
         cookiePolicyOverride: "required"
@@ -2155,6 +2181,7 @@ describe("daemon-commands integration", () => {
         expression: "@community.search(\"openai\")",
         execute: true,
         timeoutMs: 45000,
+        browserMode: "extension",
         challengeAutomationMode: "browser_with_helper"
       }
     });
@@ -2177,7 +2204,10 @@ describe("daemon-commands integration", () => {
     expect(executeSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      { challengeAutomationMode: "browser_with_helper" }
+      {
+        browserMode: "extension",
+        challengeAutomationMode: "browser_with_helper"
+      }
     );
   });
 

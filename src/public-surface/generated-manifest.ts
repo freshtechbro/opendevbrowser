@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-28T03:51:39.553Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-30T02:27:58.736Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-28T03:51:39.553Z",
+  "generatedAt": "2026-04-30T02:27:58.736Z",
   "cli": {
     "groups": [
       {
@@ -443,7 +443,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--timeout-ms"
         ],
         "examples": [
-          "npx opendevbrowser status-capabilities --session-id s1 --target-id page-1 --challenge-automation-mode browser --timeout-ms 30000 --output-format json"
+          "npx opendevbrowser status-capabilities --session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --timeout-ms 30000 --output-format json"
         ],
         "notes": [],
         "groupId": "session_lifecycle",
@@ -487,7 +487,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "research",
         "description": "Run research workflows",
-        "usage": "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "usage": "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--browser-mode <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--topic",
           "--days",
@@ -497,6 +497,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--sources",
           "--include-engagement",
           "--limit-per-source",
+          "--browser-mode",
           "--mode",
           "--timeout-ms",
           "--output-dir",
@@ -507,7 +508,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json"
+          "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json"
         ],
         "notes": [
           "Generic topical research is currently safest with --source-selection auto; add shopping only for deliberate commercial comparison."
@@ -537,7 +538,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json"
+          "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
           "Treat --region as advisory unless the workflow output reports region_authoritative=true."
@@ -549,7 +550,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "product-video",
         "description": "Run product presentation asset workflows",
-        "usage": "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
+        "usage": "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots[=<bool>]] [--include-all-images[=<bool>]] [--include-copy[=<bool>]] [--timeout-ms <ms>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
         "flags": [
           "--product-url",
           "--product-name",
@@ -558,6 +559,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--include-all-images",
           "--include-copy",
           "--timeout-ms",
+          "--browser-mode",
           "--use-cookies",
           "--challenge-automation-mode",
           "--cookie-policy-override",
@@ -566,7 +568,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--ttl-hours"
         ],
         "examples": [
-          "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+          "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json"
         ],
         "notes": [
           "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
@@ -578,7 +580,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "inspiredesign",
         "description": "Run inspiredesign workflows",
-        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--brief",
           "--url",
@@ -588,13 +590,14 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--timeout-ms",
           "--output-dir",
           "--ttl-hours",
+          "--browser-mode",
           "--use-cookies",
           "--challenge-automation-mode",
           "--cookie-policy-override",
           "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
+          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
         ],
         "notes": [
           "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
@@ -623,19 +626,21 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "macro-resolve",
         "description": "Resolve or execute a macro expression via provider actions",
-        "usage": "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>] [--challenge-automation-mode <mode>]",
+        "usage": "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute [--timeout-ms <ms>] [--browser-mode <mode>] [--challenge-automation-mode <mode>]]",
         "flags": [
           "--expression",
           "--default-provider",
           "--include-catalog",
           "--execute",
           "--timeout-ms",
+          "--browser-mode",
           "--challenge-automation-mode"
         ],
         "examples": [
-          "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --challenge-automation-mode browser --output-format json"
+          "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json"
         ],
         "notes": [
+          "Use --browser-mode and --challenge-automation-mode only with --execute.",
           "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete."
         ],
         "groupId": "provider_workflows",
@@ -1301,7 +1306,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--timeout-ms"
         ],
         "examples": [
-          "npx opendevbrowser session-inspector-plan --session-id s1 --target-id page-1 --challenge-automation-mode browser --output-format json"
+          "npx opendevbrowser session-inspector-plan --session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --output-format json"
         ],
         "notes": [
           "Inspect browser-scoped challenge automation before enabling browser_with_helper on a live rerun."
@@ -2247,7 +2252,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "name": "opendevbrowser_status_capabilities",
         "description": "Inspect runtime capability discovery for the host and an optional session.",
         "cliEquivalent": "status-capabilities",
-        "example": "npx opendevbrowser status-capabilities --session-id s1 --target-id page-1 --challenge-automation-mode browser --timeout-ms 30000 --output-format json"
+        "example": "npx opendevbrowser status-capabilities --session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --timeout-ms 30000 --output-format json"
       },
       {
         "name": "opendevbrowser_session_inspector",
@@ -2259,7 +2264,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "name": "opendevbrowser_session_inspector_plan",
         "description": "Inspect browser-scoped computer-use policy, eligibility, and safe suggested steps.",
         "cliEquivalent": "session-inspector-plan",
-        "example": "npx opendevbrowser session-inspector-plan --session-id s1 --target-id page-1 --challenge-automation-mode browser --output-format json"
+        "example": "npx opendevbrowser session-inspector-plan --session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --output-format json"
       },
       {
         "name": "opendevbrowser_session_inspector_audit",
@@ -2513,31 +2518,31 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "name": "opendevbrowser_macro_resolve",
         "description": "Resolve or execute provider macro expressions.",
         "cliEquivalent": "macro-resolve",
-        "example": "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --challenge-automation-mode browser --output-format json"
+        "example": "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json"
       },
       {
         "name": "opendevbrowser_research_run",
         "description": "Run the research workflow directly.",
         "cliEquivalent": "research",
-        "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json"
+        "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json"
       },
       {
         "name": "opendevbrowser_shopping_run",
         "description": "Run the shopping workflow directly.",
         "cliEquivalent": "shopping",
-        "example": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json"
+        "example": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json"
       },
       {
         "name": "opendevbrowser_product_video_run",
         "description": "Run the product-video asset workflow directly.",
         "cliEquivalent": "product-video",
-        "example": "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --include-screenshots --output-format json"
+        "example": "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json"
       },
       {
         "name": "opendevbrowser_inspiredesign_run",
         "description": "Run the inspiredesign workflow directly.",
         "cliEquivalent": "inspiredesign",
-        "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
+        "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
       },
       {
         "name": "opendevbrowser_canvas",

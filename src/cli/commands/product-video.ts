@@ -5,6 +5,7 @@ import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
+import type { WorkflowBrowserMode } from "../../providers/types";
 
 type ProductVideoCommandArgs = {
   productUrl?: string;
@@ -16,6 +17,7 @@ type ProductVideoCommandArgs = {
   outputDir?: string;
   ttlHours?: number;
   timeoutMs?: number;
+  browserMode?: WorkflowBrowserMode;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: "off" | "auto" | "required";
@@ -36,6 +38,7 @@ const parseBoolean = (value: string, flag: string): boolean => {
 };
 
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
+const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
 const parseProductVideoArgs = (rawArgs: string[]): ProductVideoCommandArgs => {
   const parsed: ProductVideoCommandArgs = {};
 
@@ -129,6 +132,24 @@ const parseProductVideoArgs = (rawArgs: string[]): ProductVideoCommandArgs => {
       continue;
     }
 
+    if (arg === "--browser-mode") {
+      const value = requireValue(rawArgs, index, "--browser-mode").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--browser-mode=")) {
+      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
+      continue;
+    }
+
     if (arg === "--use-cookies") {
       parsed.useCookies = true;
       continue;
@@ -200,6 +221,7 @@ export async function runProductVideoCommand(args: ParsedArgs) {
     output_dir: parsed.outputDir,
     ttl_hours: parsed.ttlHours,
     timeoutMs,
+    browserMode: parsed.browserMode,
     useCookies: parsed.useCookies,
     challengeAutomationMode: parsed.challengeAutomationMode,
     cookiePolicyOverride: parsed.cookiePolicyOverride

@@ -123,6 +123,7 @@ describe("workflow CLI commands", () => {
       timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
       outputDir: undefined,
       ttlHours: undefined,
+      browserMode: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
     }, {
@@ -223,6 +224,73 @@ describe("workflow CLI commands", () => {
     });
   });
 
+  it("forwards explicit research browser-mode overrides", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runResearchCommand(makeArgs("research", [
+      "run",
+      "--topic=browser automation on X",
+      "--browser-mode=extension"
+    ]));
+    await runResearchCommand(makeArgs("research", [
+      "run",
+      "--topic=browser automation on Reddit",
+      "--browser-mode=managed"
+    ]));
+    await runResearchCommand(makeArgs("research", [
+      "run",
+      "--topic=browser automation",
+      "--browser-mode=auto"
+    ]));
+
+    expect(callDaemon).toHaveBeenNthCalledWith(1, "research.run", expect.objectContaining({
+      topic: "browser automation on X",
+      browserMode: "extension"
+    }));
+    expect(callDaemon).toHaveBeenNthCalledWith(2, "research.run", expect.objectContaining({
+      topic: "browser automation on Reddit",
+      browserMode: "managed"
+    }));
+    expect(callDaemon).toHaveBeenNthCalledWith(3, "research.run", expect.objectContaining({
+      topic: "browser automation",
+      browserMode: "auto"
+    }));
+  });
+
+  it("forwards explicit browser-mode overrides across provider workflows", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runProductVideoCommand(makeArgs("product-video", [
+      "run",
+      "--product-url=https://example.com/item",
+      "--browser-mode=extension"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("product.video.run", expect.objectContaining({
+      product_url: "https://example.com/item",
+      browserMode: "extension"
+    }));
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Reference audit",
+      "--browser-mode=managed"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("inspiredesign.run", expect.objectContaining({
+      brief: "Reference audit",
+      browserMode: "managed"
+    }));
+
+    await runMacroResolve(makeArgs("macro-resolve", [
+      "--expression=@community.search(\"openai\")",
+      "--execute",
+      "--browser-mode=auto"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("macro.resolve", expect.objectContaining({
+      expression: "@community.search(\"openai\")",
+      browserMode: "auto"
+    }));
+  });
+
   it("surfaces provider follow-up requirements in workflow completion messages", async () => {
     callDaemon.mockResolvedValue({
       meta: {
@@ -280,7 +348,7 @@ describe("workflow CLI commands", () => {
     ]));
 
     expect(result.message).toBe(
-      "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue."
+      "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue. Next step: Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
     );
   });
 
@@ -540,7 +608,9 @@ describe("workflow CLI commands", () => {
       output_dir: "/tmp/assets",
       ttl_hours: 48,
       timeoutMs: 120000,
+      browserMode: undefined,
       useCookies: undefined,
+      challengeAutomationMode: undefined,
       cookiePolicyOverride: undefined
     });
   });
@@ -564,7 +634,9 @@ describe("workflow CLI commands", () => {
       output_dir: undefined,
       ttl_hours: undefined,
       timeoutMs: 45000,
+      browserMode: undefined,
       useCookies: undefined,
+      challengeAutomationMode: undefined,
       cookiePolicyOverride: undefined
     });
   });
@@ -651,8 +723,14 @@ describe("workflow CLI commands", () => {
 
   it("enforces run subcommand and required input", async () => {
     await expect(runResearchCommand(makeArgs("research", ["status"]))).rejects.toThrow("Usage: opendevbrowser research run");
+    await expect(runResearchCommand(makeArgs("research", ["run", "--topic=browser", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
     await expect(runShoppingCommand(makeArgs("shopping", ["run"]))).rejects.toThrow("Missing --query");
     await expect(runShoppingCommand(makeArgs("shopping", ["run", "--query=macbook", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
+    await expect(runProductVideoCommand(makeArgs("product-video", ["run", "--product-url=https://example.com", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
+    await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
+    await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--browser-mode=managed"]))).rejects.toThrow("--browser-mode requires --execute for macro-resolve");
+    await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--challenge-automation-mode=browser"]))).rejects.toThrow("--challenge-automation-mode requires --execute for macro-resolve");
     await expect(runProductVideoCommand(makeArgs("product-video", ["run"]))).rejects.toThrow("Missing --product-url or --product-name");
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run"]))).rejects.toThrow("Missing --brief");
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", "--capture-mode=wrong"]))).rejects.toThrow("Invalid --capture-mode: wrong");

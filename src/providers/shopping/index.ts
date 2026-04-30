@@ -5,6 +5,7 @@ import {
   readFallbackString,
   resolveProviderBrowserFallback,
   toBrowserFallbackObservation,
+  toCompletedFallbackOutputError,
   toProviderFallbackError
 } from "../browser-fallback";
 import { applyProviderIssueHint, classifyProviderIssue, readProviderIssueHint } from "../constraint";
@@ -18,6 +19,7 @@ import type { ExtractedContent } from "../web/extract";
 import type {
   BrowserFallbackMode,
   BrowserFallbackObservation,
+  BrowserFallbackResponse,
   JsonValue,
   NormalizedRecord,
   ProviderAdapter,
@@ -323,6 +325,103 @@ export const getShoppingRegionSupportDiagnostics = (
 };
 
 const hasValues = (values: string[]): boolean => values.some((value) => value.trim().length > 0);
+const FALLBACK_HEAD_RE = /<head\b[^>]*>[\s\S]*?<\/head>/i;
+const FALLBACK_BODY_RE = /<body\b[^>]*>([\s\S]*?)<\/body>/i;
+const SHOPPING_FALLBACK_EVIDENCE_LIMIT = 1;
+
+const extractShoppingFallbackBodyText = (html: string): string => {
+  const body = FALLBACK_BODY_RE.exec(html)?.[1];
+  return extractText(body ?? html.replace(FALLBACK_HEAD_RE, " "));
+};
+
+const hasShoppingMetadataEvidence = (extracted: ExtractedContent): boolean => {
+  return extracted.metadata.price !== undefined;
+};
+
+const hasShoppingOfferTextEvidence = (text: string): boolean => {
+  const price = parsePrice(text);
+  if (price.amount <= 0) return false;
+  return parseRating(text) > 0
+    || parseReviews(text) > 0
+    || parseAvailability(text) !== "unknown"
+    || /\b(?:add to cart|buy now|shipping|pickup|deal|save)\b/i.test(text);
+};
+
+const hasShoppingBlockingPageEvidence = (
+  url: string,
+  extracted: ExtractedContent
+): boolean => {
+  const blocker = classifyBlockerSignal({
+    source: "runtime_fetch",
+    url,
+    finalUrl: url,
+    title: typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined,
+    message: extracted.text,
+    status: 200,
+    providerErrorCode: "unavailable",
+    retryable: true
+  });
+  return blocker?.type === "auth_required" || blocker?.type === "anti_bot_challenge";
+};
+
+const hasShoppingFallbackEvidence = (args: {
+  html: string,
+  url: string,
+  extracted: ExtractedContent,
+  profile: ShoppingProviderProfile
+}): boolean => {
+  return args.extracted.links.some((link) => isLikelyProductUrl(canonicalizeUrl(link), args.profile))
+    || extractSearchCandidates(args.html, args.url, args.profile, SHOPPING_FALLBACK_EVIDENCE_LIMIT).length > 0
+    || hasShoppingMetadataEvidence(args.extracted)
+    || hasShoppingOfferTextEvidence(extractShoppingFallbackBodyText(args.html))
+    || hasShoppingBlockingPageEvidence(args.url, args.extracted);
+};
+
+const toFallbackShellIssueError = (args: {
+  provider: string;
+  url: string;
+  html: string;
+  fallback: BrowserFallbackResponse;
+  profile: ShoppingProviderProfile;
+  requirement: { reason: string; title?: string; message?: string };
+}): ProviderRuntimeError => {
+  const issue = classifyProviderIssue({
+    url: args.url,
+    title: args.requirement.title,
+    message: args.requirement.message,
+    providerShell: args.requirement.reason,
+    browserRequired: true,
+    status: 200
+  });
+  const reasonCode = issue?.reasonCode ?? "env_limited";
+  const extracted = extractStructuredContent(args.html, args.url);
+  return new ProviderRuntimeError(
+    providerErrorCodeFromReasonCode(reasonCode),
+    reasonCode === "challenge_detected"
+      ? `Detected anti-bot challenge while retrieving ${args.url}`
+      : `Browser assistance required for ${args.url}`,
+    {
+      provider: args.provider,
+      source: SHOPPING_SOURCE,
+      retryable: reasonCode === "env_limited",
+      reasonCode,
+      details: {
+        ...applyProviderIssueHint({
+          status: 200,
+          url: args.url,
+          ...(args.requirement.title ? { title: args.requirement.title } : {}),
+          ...(args.requirement.message ? { message: args.requirement.message } : {}),
+          providerShell: args.requirement.reason,
+          browserRequired: true,
+          extractionFocus: args.profile.extractionFocus,
+          extractedTextLength: extracted.text.length,
+          extractedLinkCount: extracted.links.length
+        }, issue),
+        ...browserFallbackObservationDetails(toBrowserFallbackObservation(args.fallback))
+      }
+    }
+  );
+};
 
 const parseIsoDate = (value: string): number => {
   const parsed = Date.parse(value);
@@ -395,6 +494,7 @@ const resolveBrowserFallback = async (args: {
   error: ProviderRuntimeError;
   url: string;
   provider: string;
+  profile: ShoppingProviderProfile;
   operation: "search" | "fetch";
   recoveryHints: ProviderRecoveryHints;
   context?: ProviderContext;
@@ -489,11 +589,47 @@ const resolveBrowserFallback = async (args: {
   }
 
   const resolvedUrl = canonicalizeUrl(readFallbackString(fallback.output, "url") ?? args.url);
+  const html = readFallbackString(fallback.output, "html");
+  if (!html) {
+    throw toCompletedFallbackOutputError({
+      provider: args.provider,
+      source: SHOPPING_SOURCE,
+      url: resolvedUrl,
+      fallback,
+      outputReason: "missing_or_empty_html"
+    });
+  }
+  const extracted = extractStructuredContent(html, resolvedUrl);
+  const browserRequirement = requiresBrowserAssistance(args.profile, resolvedUrl, html);
+  if (browserRequirement) {
+    throw toFallbackShellIssueError({
+      provider: args.provider,
+      url: resolvedUrl,
+      html,
+      fallback,
+      profile: args.profile,
+      requirement: browserRequirement
+    });
+  }
+  if (!hasShoppingFallbackEvidence({
+    html,
+    url: resolvedUrl,
+    extracted,
+    profile: args.profile
+  })) {
+    throw toCompletedFallbackOutputError({
+      provider: args.provider,
+      source: SHOPPING_SOURCE,
+      url: resolvedUrl,
+      fallback,
+      outputReason: "empty_extracted_content"
+    });
+  }
   return {
     record: {
       status: 200,
       url: resolvedUrl,
-      html: readFallbackString(fallback.output, "html") ?? "",
+      html,
       browserFallback: toBrowserFallbackObservation(fallback)
     }
   };
@@ -638,6 +774,7 @@ const defaultFetcher: ShoppingFetcher = async ({ url, signal, provider, operatio
       error,
       url,
       provider: providerId,
+      profile,
       operation,
       recoveryHints,
       context
@@ -1135,9 +1272,9 @@ const classifySearchPageIssue = (
   profile: ShoppingProviderProfile,
   fetched: ShoppingFetchRecord,
   extracted: ExtractedContent,
-  content: string
+  content: string,
+  providerShell: ReturnType<typeof requiresBrowserAssistance> = requiresBrowserAssistance(profile, fetched.url, fetched.html)
 ): ProviderIssueHint | null => {
-  const providerShell = requiresBrowserAssistance(profile, fetched.url, fetched.html);
   return classifyProviderIssue({
     url: fetched.url,
     title: providerShell?.title ?? (typeof extracted.metadata.title === "string" ? extracted.metadata.title : undefined),
@@ -1148,6 +1285,69 @@ const classifySearchPageIssue = (
     providerErrorCode: "unavailable",
     retryable: true
   });
+};
+
+const toExplicitProviderShellIssue = (
+  providerShell: NonNullable<ReturnType<typeof requiresBrowserAssistance>>,
+  content: string
+): ProviderIssueHint => ({
+  reasonCode: "env_limited",
+  blockerType: "env_limited",
+  constraint: {
+    kind: "render_required",
+    evidenceCode: providerShell.reason,
+    providerShell: providerShell.reason,
+    ...(content ? { message: content } : {})
+  }
+});
+
+const ensureProviderShellIssue = (
+  issue: ProviderIssueHint | null,
+  providerShell: NonNullable<ReturnType<typeof requiresBrowserAssistance>>,
+  content: string
+): ProviderIssueHint => {
+  if (!issue || (issue.reasonCode === "env_limited" && !issue.constraint)) {
+    return toExplicitProviderShellIssue(providerShell, content);
+  }
+  return issue;
+};
+
+const toShoppingPageIssueMessage = (reasonCode: ProviderReasonCode, url: string): string => {
+  if (reasonCode === "token_required") return `Authentication required for ${url}`;
+  if (reasonCode === "env_limited") return `Browser assistance required for ${url}`;
+  return `Detected anti-bot challenge while retrieving ${url}`;
+};
+
+const throwShoppingPageIssue = (args: {
+  providerId: string;
+  fetched: ShoppingFetchRecord;
+  extracted: ExtractedContent;
+  content: string;
+  pageIssue: ProviderIssueHint;
+  providerShell: ReturnType<typeof requiresBrowserAssistance>;
+}): never => {
+  const reasonCode = args.pageIssue.reasonCode;
+  throw new ProviderRuntimeError(
+    providerErrorCodeFromReasonCode(reasonCode),
+    toShoppingPageIssueMessage(reasonCode, args.fetched.url),
+    {
+      provider: args.providerId,
+      source: SHOPPING_SOURCE,
+      retryable: reasonCode === "env_limited",
+      reasonCode,
+      details: {
+        ...applyProviderIssueHint({
+          status: args.fetched.status,
+          url: args.fetched.url,
+          ...(typeof args.extracted.metadata.title === "string" ? { title: args.extracted.metadata.title } : {}),
+          ...(args.content ? { message: args.content } : {}),
+          ...(args.providerShell?.reason ? { providerShell: args.providerShell.reason } : {})
+        }, args.pageIssue),
+        ...(args.providerShell?.reason ? { browserRequired: true } : {}),
+        ...browserFallbackObservationDetails(args.fetched.browserFallback)
+      }
+    }
+  );
 };
 
 const unwrapTrackingUrl = (url: string, profile: ShoppingProviderProfile): string => {
@@ -1664,6 +1864,7 @@ const createDefaultSearch = (
     context
   });
   const extracted = extractStructuredContent(fetched.html, fetched.url);
+  const providerShell = requiresBrowserAssistance(profile, fetched.url, fetched.html);
 
   const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
   const links = dedupeLinks(
@@ -1672,9 +1873,22 @@ const createDefaultSearch = (
   );
   const content = toSnippet(extracted.text, 2000);
   const candidates = extractSearchCandidates(fetched.html, fetched.url, profile, limit);
-  const pageIssue = candidates.length === 0
-    ? classifySearchPageIssue(profile, fetched, extracted, content)
-    : null;
+  const pageIssue = providerShell
+    ? classifySearchPageIssue(profile, fetched, extracted, content, providerShell)
+    : candidates.length === 0
+      ? classifySearchPageIssue(profile, fetched, extracted, content, providerShell)
+      : null;
+
+  if (providerShell) {
+    throwShoppingPageIssue({
+      providerId,
+      fetched,
+      extracted,
+      content,
+      pageIssue: ensureProviderShellIssue(pageIssue, providerShell, content),
+      providerShell
+    });
+  }
 
   if (candidates.length > 0) {
     return candidates.map((candidate, index) => ({
@@ -1711,30 +1925,7 @@ const createDefaultSearch = (
   }
 
   if (pageIssue && (pageIssue.reasonCode !== "env_limited" || pageIssue.constraint)) {
-    const reasonCode = pageIssue.reasonCode;
-    const providerShell = requiresBrowserAssistance(profile, fetched.url, fetched.html);
-    throw new ProviderRuntimeError(
-      providerErrorCodeFromReasonCode(reasonCode),
-      reasonCode === "token_required"
-        ? `Authentication required for ${fetched.url}`
-        : `Detected anti-bot challenge while retrieving ${fetched.url}`,
-      {
-        provider: providerId,
-        source: SHOPPING_SOURCE,
-        retryable: reasonCode === "env_limited",
-        reasonCode,
-        details: {
-          ...applyProviderIssueHint({
-            status: fetched.status,
-            url: fetched.url,
-            ...(typeof extracted.metadata.title === "string" ? { title: extracted.metadata.title } : {}),
-            ...(content ? { message: content } : {}),
-            ...(providerShell?.reason ? { providerShell: providerShell.reason } : {})
-          }, pageIssue),
-          ...browserFallbackObservationDetails(fetched.browserFallback)
-        }
-      }
-    );
+    throwShoppingPageIssue({ providerId, fetched, extracted, content, pageIssue, providerShell });
   }
 
   const rows: ShoppingSearchRecord[] = [

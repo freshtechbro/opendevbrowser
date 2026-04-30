@@ -16,7 +16,11 @@ vi.mock("../scripts/live-direct-utils.mjs", () => ({
   sleep
 }));
 
-import { stopDaemon } from "../scripts/skill-runtime-probe-utils.mjs";
+import {
+  currentHarnessDaemonStatusDetail,
+  isCurrentHarnessDaemonStatus,
+  stopDaemon
+} from "../scripts/skill-runtime-probe-utils.mjs";
 
 const makeExitedDaemon = (): ChildProcess => ({
   exitCode: 0,
@@ -28,6 +32,29 @@ const makeExitedDaemon = (): ChildProcess => ({
 describe("skill runtime probe utils", () => {
   beforeEach(() => {
     runCli.mockReset();
+  });
+
+  it("requires a current daemon fingerprint for harness reuse", () => {
+    const currentStatus = {
+      status: 0,
+      json: { success: true, data: { fingerprintCurrent: true } }
+    };
+    const staleStatus = {
+      status: 0,
+      json: { success: true, data: { fingerprintCurrent: false } }
+    };
+    const failedStatus = {
+      status: 1,
+      detail: "daemon unavailable",
+      json: { success: false, data: { fingerprintCurrent: true } }
+    };
+
+    expect(isCurrentHarnessDaemonStatus(currentStatus)).toBe(true);
+    expect(currentHarnessDaemonStatusDetail(currentStatus)).toBeNull();
+    expect(isCurrentHarnessDaemonStatus(staleStatus)).toBe(false);
+    expect(currentHarnessDaemonStatusDetail(staleStatus)).toBe("daemon_fingerprint_mismatch");
+    expect(isCurrentHarnessDaemonStatus(failedStatus)).toBe(false);
+    expect(currentHarnessDaemonStatusDetail(failedStatus)).toBe("daemon unavailable");
   });
 
   it("stops a started daemon without uninstalling autostart by default", async () => {

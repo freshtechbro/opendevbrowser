@@ -22,6 +22,7 @@ import {
 } from "../macros/execute";
 import { executeMacroWithRuntime } from "../macros/execute-runtime";
 import type { RuntimeInit } from "../providers";
+import type { WorkflowBrowserMode } from "../providers/types";
 import type { AnnotationDispatchSource, AnnotationPayload } from "../relay/protocol";
 import {
   buildLoopbackSessionRelayEndpoint,
@@ -773,20 +774,34 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       };
     }
     case "macro.resolve":
+    {
+      const execute = optionalBoolean(params.execute) ?? false;
+      const browserMode = optionalWorkflowBrowserMode(params.browserMode);
+      const challengeAutomationMode = optionalChallengeAutomationMode(params.challengeAutomationMode);
+
+      if (!execute && browserMode) {
+        throw new Error("browserMode requires execute=true for macro resolution");
+      }
+      if (!execute && challengeAutomationMode) {
+        throw new Error("challengeAutomationMode requires execute=true for macro resolution");
+      }
+
       return resolveMacroExpression(
         {
           expression: requireString(params.expression, "expression"),
           defaultProvider: optionalString(params.defaultProvider),
           includeCatalog: optionalBoolean(params.includeCatalog) ?? false,
-          execute: optionalBoolean(params.execute) ?? false,
+          execute,
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
-          challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode)
+          browserMode,
+          challengeAutomationMode
         },
         core.config,
         core.manager,
         core.browserFallbackPort,
         core.providerRuntime
       );
+    }
     case "research.run":
       return runResearchWorkflow(
         createDaemonWorkflowRuntime(core),
@@ -803,6 +818,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
           outputDir: optionalString(params.outputDir),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          browserMode: optionalWorkflowBrowserMode(params.browserMode),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
@@ -840,6 +856,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           timeoutMs: inspiredesignTimeoutMs,
           outputDir: optionalString(params.outputDir),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          browserMode: optionalWorkflowBrowserMode(params.browserMode),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
@@ -867,6 +884,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           output_dir: optionalString(params.output_dir),
           ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
           timeoutMs: productVideoTimeoutMs,
+          browserMode: optionalWorkflowBrowserMode(params.browserMode),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
@@ -1909,6 +1927,7 @@ type MacroResolveOptions = {
   includeCatalog: boolean;
   execute: boolean;
   timeoutMs?: number;
+  browserMode?: WorkflowBrowserMode;
   challengeAutomationMode?: ChallengeAutomationMode;
 };
 
@@ -2132,6 +2151,7 @@ async function resolveMacroExpression(
     manager,
     browserFallbackPort,
     timeoutMs: options.timeoutMs,
+    browserMode: options.browserMode,
     challengeAutomationMode: options.challengeAutomationMode
   });
   const handoff = buildMacroResolveSuccessHandoff({

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildDefaultSkippedStep,
+  buildLiveShoppingRunArgs,
   classifyNestedLiveRegressionStatus,
   classifyProductVideoAmazonStatus,
   buildLiveRegressionEnv,
@@ -9,6 +10,8 @@ import {
   NESTED_LIVE_REGRESSION_TIMEOUT_MS,
   parseArgs,
   REQUIRED_PLAYWRIGHT_CORE_FILES,
+  resolveMatrixSocialPostStatus,
+  resolveMatrixSocialSearchStatus,
   restoreDaemonAfterNestedLiveRegression,
   runNestedLiveRegressionMode,
   WORKFLOW_RESEARCH_PROBE_ARGS,
@@ -276,6 +279,139 @@ describe("provider-live-matrix parseArgs", () => {
   it("treats ops-client disconnects as env-limited extension probe failures", () => {
     expect(isEnvLimitedDetail("Ops client not connected")).toBe(true);
     expect(isEnvLimitedDetail("[ops_unavailable] Extension not connected to relay.")).toBe(true);
+  });
+
+  it("keeps live social recovery signals diagnostic instead of promoting status", () => {
+    expect(resolveMatrixSocialSearchStatus({
+      platform: "x",
+      strictGate: true,
+      resultStatus: 0,
+      resultDetail: null,
+      execution: {
+        records: [],
+        failures: [],
+        hasExecutionPayload: false
+      },
+      reportSteps: [{ id: "browser.extension.x.search", status: "pass" }]
+    })).toMatchObject({
+      status: "fail",
+      detail: "missing_execution_payload",
+      extensionProbeParity: true,
+      probeParitySource: "browser.extension.x.search"
+    });
+
+    expect(resolveMatrixSocialSearchStatus({
+      platform: "threads",
+      strictGate: true,
+      resultStatus: 0,
+      resultDetail: null,
+      execution: {
+        records: [],
+        failures: [],
+        hasExecutionPayload: true
+      },
+      reportSteps: [{ id: "browser.managed.threads.search", status: "pass" }]
+    })).toMatchObject({
+      status: "fail",
+      detail: "no_records_no_failures",
+      extensionProbeParity: true,
+      probeParitySource: "browser.managed.threads.search"
+    });
+
+    expect(resolveMatrixSocialSearchStatus({
+      platform: "facebook",
+      strictGate: true,
+      resultStatus: 1,
+      resultDetail: "Authentication required before continuing.",
+      execution: {
+        records: [],
+        failures: [],
+        hasExecutionPayload: false
+      },
+      reportSteps: []
+    })).toMatchObject({
+      status: "fail",
+      detail: "Authentication required before continuing."
+    });
+  });
+
+  it("keeps expected tiktok timeout gate diagnostic only", () => {
+    expect(resolveMatrixSocialSearchStatus({
+      platform: "tiktok",
+      strictGate: true,
+      resultStatus: 0,
+      resultDetail: null,
+      execution: {
+        records: [],
+        failures: [{
+          error: {
+            code: "timeout",
+            message: "Provider request timed out after 120000ms"
+          }
+        }],
+        hasExecutionPayload: true
+      },
+      reportSteps: []
+    })).toMatchObject({
+      status: "fail",
+      detail: "unexpected_reason_codes=timeout",
+      expectedTiktokTimeoutGate: false
+    });
+  });
+
+  it("keeps social post expected gates diagnostic instead of pass-promoting", () => {
+    expect(resolveMatrixSocialPostStatus({
+      strictGate: true,
+      resultStatus: 0,
+      resultDetail: null,
+      verdict: {
+        status: "env_limited",
+        reason: "expected_gating_post_transport_not_configured"
+      },
+      reasonCodes: ["unavailable"]
+    })).toEqual({
+      status: "env_limited",
+      detail: "expected_gating_post_transport_not_configured",
+      expectedGateVerified: true,
+      expectedTransportGateVerified: true,
+      expectedPolicyGateVerified: false
+    });
+
+    expect(resolveMatrixSocialPostStatus({
+      strictGate: true,
+      resultStatus: 1,
+      resultDetail: "Challenge detected before posting.",
+      verdict: {
+        status: "env_limited",
+        reason: "reason_codes=challenge_detected"
+      },
+      reasonCodes: ["challenge_detected"]
+    })).toMatchObject({
+      status: "fail",
+      detail: "Challenge detected before posting.",
+      expectedGateVerified: true,
+      expectedPolicyGateVerified: true
+    });
+  });
+
+  it("builds live shopping probes with helper challenge automation and cookies", () => {
+    expect(buildLiveShoppingRunArgs("shopping/target", "120000")).toEqual([
+      "shopping",
+      "run",
+      "--query",
+      "ergonomic wireless mouse",
+      "--providers",
+      "shopping/target",
+      "--sort",
+      "best_deal",
+      "--mode",
+      "json",
+      "--timeout-ms",
+      "120000",
+      "--challenge-automation-mode",
+      "browser_with_helper",
+      "--use-cookies"
+    ]);
   });
 
   it("fails nested live-regression crashes when no structured counts were produced", () => {
