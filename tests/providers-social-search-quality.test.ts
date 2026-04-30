@@ -436,6 +436,30 @@ describe("social search quality helpers", () => {
     });
   });
 
+  it("accepts facebook search pages when marker and support evidence point at concrete content", () => {
+    const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation";
+
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Shared with Public Open reel in Reels Viewer",
+      links: ["/watch/?v=123456789012345"]
+    })).toBeNull();
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Search results Shared with Public",
+      links: ["/watch/?v=123456789012345"]
+    })).toBeNull();
+    expect(detectSocialSearchShell("facebook", {
+      url: baseUrl,
+      content: "Search results",
+      links: [
+        "/browserautomation",
+        "/opendevbrowser",
+        "/watch/?v=123456789012345"
+      ]
+    })).toBeNull();
+  });
+
   it("accepts facebook concrete content patterns and rejects blocked support routes", () => {
     const baseUrl = "https://www.facebook.com/watch/search/?q=browser+automation";
 
