@@ -86,13 +86,25 @@ Tracks the `0.0.28` release cycle for provider/workflow hardening after PR #45, 
 
 ## External release workflow evidence
 
-- [ ] Public Release workflow URL
-- [ ] npm publish verification
-- [ ] Registry consumer smoke JSON
-- [ ] GitHub release URL
-- [ ] GitHub release asset verification
+- [x] Public Release workflow URL
+  - URL: `https://github.com/freshtechbro/opendevbrowser/actions/runs/25145968841`
+  - Result: quality gates, extension packaging, and checksum steps passed; `Publish npm package` failed because `NODE_AUTH_TOKEN` was empty and repo secret `NPM_TOKEN` is not configured.
+- [x] npm publish verification
+  - Command: `npm publish --access public`
+  - Result: published `opendevbrowser@0.0.28` from local authenticated npm user `bishopdotun`.
+  - Verification: `npm view opendevbrowser version` returned `0.0.28`.
+- [x] Registry consumer smoke JSON
+  - Command: `node scripts/registry-consumer-smoke.mjs --version 0.0.28 --output artifacts/release/v0.0.28/registry-consumer-smoke.json`
+  - Result: passed; help alias matched, package version matched, packaged extension and skills directories were present, and consumer graph resolved `opendevbrowser=0.0.28`.
+- [x] GitHub release URL
+  - URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.28`
+  - Result: published, non-draft, non-prerelease.
+- [x] GitHub release asset verification
+  - Assets uploaded: `opendevbrowser-extension.zip`, `opendevbrowser-extension.zip.sha256`.
+  - Zip checksum: `0e66f23e77200581f3fe07577337bb3948b4e5506d8ae2706340dea678ae1665`.
 
 ## Notes
 
 - The standard tag-driven public release path defaults `run_release_live_gates=false`. Strict live gates remain separate evidence and must not be conflated with clean release quality gates.
 - `0.0.27` is already published on npm and GitHub, so this release requires the new `0.0.28` version.
+- `NPM_TOKEN` must be added to repository Actions secrets before the next tag-driven release can publish fully from CI.
