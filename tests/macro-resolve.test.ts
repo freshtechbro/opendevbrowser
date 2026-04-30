@@ -394,6 +394,131 @@ describe("macro resolve tool", () => {
     });
   });
 
+  it.each([
+    {
+      url: "https://www.youtube.com/watch?v=abc123def45",
+      content: "About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy"
+    },
+    {
+      url: "https://developers.google.com/youtube/v3/docs/search/list",
+      content: "Google for Developers Skip to main content YouTube"
+    }
+  ])("rejects youtube generic-shell macro records for $url", async ({ url, content }) => {
+    vi.doMock("../src/macros", () => ({
+      createDefaultMacroRegistry: () => ({
+        resolve: async () => ({
+          action: {
+            source: "social",
+            operation: "search",
+            input: { query: "browser", providerId: "social/youtube" }
+          },
+          provenance: {
+            macro: "social.search",
+            provider: "social/youtube",
+            resolvedQuery: "browser",
+            pack: "core:social",
+            args: { positional: [], named: {} }
+          }
+        }),
+        list: () => []
+      })
+    }));
+
+    const providerRuntime = {
+      search: vi.fn(async () => makeAggregate({
+        records: [{
+          url,
+          title: "YouTube",
+          content,
+          attributes: { links: [] }
+        }],
+        sourceSelection: "social",
+        providerOrder: ["social/youtube"]
+      })),
+      fetch: vi.fn(),
+      crawl: vi.fn(),
+      post: vi.fn()
+    };
+
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
+    const tool = createMacroResolveTool({ providerRuntime } as never);
+    const result = parse(await tool.execute({
+      expression: "@social.search('browser')",
+      execute: true
+    }));
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        message: "Macro execution returned only shell records (generic_shell).",
+        code: "macro_resolve_failed"
+      }
+    });
+  });
+
+  it("uses provenance provider when macro input omits providerId during shell pruning", async () => {
+    vi.doMock("../src/macros", () => ({
+      createDefaultMacroRegistry: () => ({
+        resolve: async () => ({
+          action: {
+            source: "social",
+            operation: "search",
+            input: { query: "browser" }
+          },
+          provenance: {
+            macro: "social.search",
+            provider: "social/facebook",
+            resolvedQuery: "browser",
+            pack: "core:social",
+            args: { positional: [], named: {} }
+          }
+        }),
+        list: () => []
+      })
+    }));
+
+    const providerRuntime = {
+      search: vi.fn(async () => makeAggregate({
+        records: [
+          {
+            url: "https://www.facebook.com/search/posts/?q=browser",
+            title: "Search Results",
+            content: "Search results Login Home Settings",
+            attributes: { links: [] }
+          },
+          {
+            url: "https://www.facebook.com/watch/?v=123456789012345",
+            title: "Browser automation demo",
+            content: "Concrete content",
+            attributes: { links: [] }
+          }
+        ],
+        sourceSelection: "social",
+        providerOrder: ["social/facebook"]
+      })),
+      fetch: vi.fn(),
+      crawl: vi.fn(),
+      post: vi.fn()
+    };
+
+    const { createMacroResolveTool } = await import("../src/tools/macro_resolve");
+    const tool = createMacroResolveTool({ providerRuntime } as never);
+    const result = parse(await tool.execute({
+      expression: "@social.search('browser')",
+      execute: true
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.execution?.records).toEqual([
+      expect.objectContaining({
+        url: "https://www.facebook.com/watch/?v=123456789012345"
+      }),
+      expect.objectContaining({
+        url: "https://www.facebook.com/search/posts/?q=browser"
+      })
+    ]);
+  });
+
   it("preserves literal output-format text inside macro execute guidance", async () => {
     vi.doMock("../src/macros", () => ({
       createDefaultMacroRegistry: () => ({
