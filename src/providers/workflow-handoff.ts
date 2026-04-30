@@ -1,3 +1,5 @@
+import { INSPIREDESIGN_HANDOFF_GUIDANCE } from "../inspiredesign/handoff";
+
 export type WorkflowSuccessStep = {
   reason: string;
   command?: string;
@@ -13,7 +15,7 @@ export const PRODUCT_VIDEO_BRIEF_HELPER_PATH = "./skills/opendevbrowser-product-
 
 const PRODUCT_VIDEO_BRIEF_HELPER_COMMAND = `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`;
 
-const createSuccessHandoff = (
+export const createSuccessHandoff = (
   followthroughSummary: string,
   suggestedNextAction: string,
   suggestedSteps: WorkflowSuccessStep[]
@@ -29,10 +31,15 @@ const cliExample = (command: string, args = ""): string => (
 
 const quoteCliValue = (value: string): string => JSON.stringify(value);
 
-const buildResearchRerunCommand = (topic: string): string => (
+type ResearchHandoffInput = {
+  topic: string;
+  browserMode?: string;
+};
+
+const buildResearchRerunCommand = (input: ResearchHandoffInput): string => (
   cliExample(
     "research run",
-    `--topic ${quoteCliValue(topic)} --days 14 --source-selection auto --sources web,community --mode json --output-format json`
+    `--topic ${quoteCliValue(input.topic)} --days 14 --source-selection auto --sources web,community --browser-mode ${input.browserMode ?? "managed"} --mode json --output-format json`
   )
 );
 
@@ -55,7 +62,7 @@ const buildShoppingRerunCommand = (input: ShoppingHandoffInput): string => {
   const sort = input.sort ? ` --sort ${input.sort}` : "";
   return cliExample(
     "shopping run",
-    `--query ${quoteCliValue(input.query)}${providers}${budget}${region}${browserMode}${sort} --mode json --output-format json`
+    `--query ${quoteCliValue(input.query)}${providers}${budget}${region}${browserMode}${sort} --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json`
   );
 };
 
@@ -63,6 +70,7 @@ type ProductVideoHandoffInput = {
   productUrl?: string;
   productName?: string;
   providerHint?: string;
+  browserMode?: string;
   includeScreenshots?: boolean;
   includeAllImages?: boolean;
   includeCopy?: boolean;
@@ -76,9 +84,10 @@ const buildProductVideoRerunCommand = (input: ProductVideoHandoffInput = {}): st
   const screenshots = input.includeScreenshots ? " --include-screenshots" : "";
   const allImages = input.includeAllImages ? " --include-all-images" : "";
   const includeCopy = input.includeCopy ? " --include-copy" : "";
+  const browserMode = ` --browser-mode ${input.browserMode ?? "managed"}`;
   return cliExample(
     "product-video run",
-    `${target}${providerHint}${screenshots}${allImages}${includeCopy} --output-format json`
+    `${target}${providerHint}${screenshots}${allImages}${includeCopy}${browserMode} --use-cookies --challenge-automation-mode browser_with_helper --output-format json`
   );
 };
 
@@ -89,21 +98,34 @@ type MacroResolveHandoffInput = {
   blocked: boolean;
 };
 
+type InspiredesignSuccessHandoffInput = {
+  summary: string;
+  nextStep: string;
+  commandExamples: {
+    loadBestPractices: string;
+    loadDesignAgent: string;
+    continueInCanvas: string;
+  };
+  deepCaptureRecommendation: string;
+};
+
 const buildMacroResolveArgs = (
   input: MacroResolveHandoffInput,
   options?: {
     execute?: boolean;
+    browserMode?: "extension" | "managed";
     challengeAutomationMode?: "browser" | "browser_with_helper";
     includeOutputFormat?: boolean;
   }
 ): string => {
   const defaultProvider = input.defaultProvider ? ` --default-provider ${input.defaultProvider}` : "";
   const execute = options?.execute ? " --execute" : "";
+  const browserMode = options?.browserMode ? ` --browser-mode ${options.browserMode}` : "";
   const challenge = options?.challengeAutomationMode
     ? ` --challenge-automation-mode ${options.challengeAutomationMode}`
     : "";
   const outputFormat = options?.includeOutputFormat === false ? "" : " --output-format json";
-  return `--expression ${quoteCliValue(input.expression)}${defaultProvider}${execute}${challenge}${outputFormat}`;
+  return `--expression ${quoteCliValue(input.expression)}${defaultProvider}${execute}${browserMode}${challenge}${outputFormat}`;
 };
 
 const buildMacroPreviewCommand = (input: MacroResolveHandoffInput): string => (
@@ -112,16 +134,18 @@ const buildMacroPreviewCommand = (input: MacroResolveHandoffInput): string => (
 
 const buildMacroExecuteCommand = (
   input: MacroResolveHandoffInput,
-  challengeAutomationMode?: "browser" | "browser_with_helper"
+  challengeAutomationMode?: "browser" | "browser_with_helper",
+  browserMode?: "extension" | "managed"
 ): string => (
   cliExample("macro-resolve", buildMacroResolveArgs(input, {
     execute: true,
+    browserMode,
     challengeAutomationMode
   }))
 );
 
-export const buildResearchSuccessHandoff = (topic: string): WorkflowSuccessHandoff => {
-  const rerunCommand = buildResearchRerunCommand(topic);
+export const buildResearchSuccessHandoff = (input: ResearchHandoffInput): WorkflowSuccessHandoff => {
+  const rerunCommand = buildResearchRerunCommand(input);
   return createSuccessHandoff(
     "Review the ranked records and artifact bundle before turning the result into a publishable claim.",
     `Open the returned artifact path, inspect the supporting records, and rerun ${rerunCommand} if you need a tighter evidence set.`,
@@ -154,7 +178,7 @@ export const buildProductVideoSuccessHandoff = (input: ProductVideoHandoffInput 
   const rerunCommand = buildProductVideoRerunCommand(input);
   return createSuccessHandoff(
     "Review the generated asset pack to confirm whether it is visual-ready or metadata-first before briefing production.",
-    `Open the returned pack path, inspect manifest.json plus copy and features, then run ${PRODUCT_VIDEO_BRIEF_HELPER_COMMAND} to generate production briefs and sourcing notes.`,
+    "Open the returned pack path, inspect manifest.json plus copy and features, then run the product-video brief helper with that manifest path to generate production briefs and sourcing notes.",
     [
       { reason: "Confirm whether the pack already includes enough images or screenshots for production." },
       {
@@ -173,7 +197,7 @@ export const buildProductVideoSuccessHandoff = (input: ProductVideoHandoffInput 
 export const buildMacroResolveSuccessHandoff = (input: MacroResolveHandoffInput): WorkflowSuccessHandoff => {
   const previewCommand = buildMacroPreviewCommand(input);
   const executeCommand = buildMacroExecuteCommand(input);
-  const browserRetryCommand = buildMacroExecuteCommand(input, "browser");
+  const browserRetryCommand = buildMacroExecuteCommand(input, "browser_with_helper", "extension");
   if (!input.execute) {
     return createSuccessHandoff(
       "Review the resolved provider action and provenance before executing the macro.",
@@ -206,3 +230,26 @@ export const buildMacroResolveSuccessHandoff = (input: MacroResolveHandoffInput)
     ]
   );
 };
+
+export const buildInspiredesignSuccessHandoff = (
+  input: InspiredesignSuccessHandoffInput
+): WorkflowSuccessHandoff => createSuccessHandoff(
+  input.summary,
+  input.nextStep,
+  [
+    { reason: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
+    {
+      reason: "Load the baseline workflow runbook before implementation.",
+      command: input.commandExamples.loadBestPractices
+    },
+    {
+      reason: "Load the Canvas contract lane before patching.",
+      command: input.commandExamples.loadDesignAgent
+    },
+    {
+      reason: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest,
+      command: input.commandExamples.continueInCanvas
+    },
+    { reason: input.deepCaptureRecommendation }
+  ]
+);

@@ -30,6 +30,12 @@ const readRunnableStepCommand = (step: Record<string, unknown>): string | null =
   return UNRESOLVED_COMMAND_PLACEHOLDER_RE.test(command) ? null : command;
 };
 
+const readDisplayableNextStep = (value: unknown): string | null => {
+  const text = readNonEmptyString(value);
+  if (!text) return null;
+  return UNRESOLVED_COMMAND_PLACEHOLDER_RE.test(text) ? null : text;
+};
+
 const readMeta = (data: unknown): Record<string, unknown> | null => {
   return asRecord(asRecord(data)?.meta);
 };
@@ -56,6 +62,10 @@ const readPrimaryNextStep = (data: unknown): string | null => {
   return nextStep?.trim() ?? null;
 };
 
+const inferPrimaryIssueNextStep = (data: unknown): string | null => {
+  return summarizePrimaryProviderIssue(readFailures(data))?.guidance?.recommendedNextCommands[0] ?? null;
+};
+
 const readFailures = (data: unknown): FailureShape[] => {
   const meta = readMeta(data);
   if (!meta) return [];
@@ -65,7 +75,7 @@ const readFailures = (data: unknown): FailureShape[] => {
     : [];
 };
 
-const readFollowthroughSummary = (data: unknown): string | null => {
+export const readFollowthroughSummary = (data: unknown): string | null => {
   const record = asRecord(data);
   return readNonEmptyString(record?.followthroughSummary)
     ?? readNonEmptyString(readMeta(data)?.followthroughSummary);
@@ -82,14 +92,33 @@ const readSuggestedSteps = (data: unknown): readonly Record<string, unknown>[] =
 };
 
 export const buildNextStepMessage = (message: string, nextStep: string | null): string => {
-  return nextStep ? `${message} Next step: ${nextStep}` : message;
+  const displayableNextStep = readDisplayableNextStep(nextStep);
+  return displayableNextStep ? `${message} Next step: ${displayableNextStep}` : message;
+};
+
+export const buildProviderFollowupErrorMessage = (message: string): string => {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("next step:")) return message;
+  if (normalized.includes("requires login or an existing session")) {
+    return buildNextStepMessage(
+      message,
+      "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+    );
+  }
+  if (
+    normalized.includes("requires manual browser follow-up")
+    || normalized.includes("requires a live browser-rendered page")
+  ) {
+    return buildNextStepMessage(message, "Retry with browser assistance or a headed browser session.");
+  }
+  return message;
 };
 
 export const readSuggestedNextAction = (data: unknown): string | null => {
   const record = asRecord(data);
   if (!record) return null;
-  return readNonEmptyString(record.suggestedNextAction)
-    ?? readNonEmptyString(asRecord(record.sessionInspector)?.suggestedNextAction);
+  return readDisplayableNextStep(record.suggestedNextAction)
+    ?? readDisplayableNextStep(asRecord(record.sessionInspector)?.suggestedNextAction);
 };
 
 export const readSuggestedStepCommand = (data: unknown): string | null => {
@@ -114,7 +143,7 @@ export const readSuggestedStepReason = (data: unknown): string | null => {
   while (current) {
     const [firstStep] = readSuggestedSteps(current);
     if (firstStep) {
-      return readNonEmptyString(firstStep.reason);
+      return readDisplayableNextStep(firstStep.reason);
     }
     current = asRecord(current.challengePlan);
   }
@@ -122,12 +151,16 @@ export const readSuggestedStepReason = (data: unknown): string | null => {
   return null;
 };
 
+export const readWorkflowGuidanceNextStep = (data: unknown): string | null => (
+  readSuggestedNextAction(data) ?? readSuggestedStepCommand(data) ?? readSuggestedStepReason(data)
+);
+
 export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unknown): string => {
   const explicitSummary = readPrimarySummary(data);
   if (explicitSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed with provider follow-up required: ${explicitSummary}`,
-      readPrimaryNextStep(data)
+      readPrimaryNextStep(data) ?? inferPrimaryIssueNextStep(data)
     );
   }
   const inferred = summarizePrimaryProviderIssue(readFailures(data));
@@ -141,7 +174,7 @@ export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unkn
   if (followthroughSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed. ${followthroughSummary}`,
-      readSuggestedNextAction(data) ?? readSuggestedStepCommand(data) ?? readSuggestedStepReason(data)
+      readWorkflowGuidanceNextStep(data)
     );
   }
   return `${workflowLabel} completed.`;

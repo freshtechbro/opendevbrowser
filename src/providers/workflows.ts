@@ -144,6 +144,7 @@ export interface ResearchRunInput {
   timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
+  browserMode?: WorkflowBrowserMode;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
@@ -175,6 +176,7 @@ export interface InspiredesignRunInput {
   timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
+  browserMode?: WorkflowBrowserMode;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
@@ -190,6 +192,7 @@ export interface ProductVideoRunInput {
   output_dir?: string;
   ttl_hours?: number;
   timeoutMs?: number;
+  browserMode?: WorkflowBrowserMode;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
@@ -1028,6 +1031,7 @@ export const workflowTestUtils = {
 };
 
 const PRODUCT_ASSET_FETCH_TIMEOUT_MS = 15_000;
+const RESEARCH_PROVIDER_STEP_TIMEOUT_MS = 30_000;
 
 const resolveAuxiliaryFetchTimeoutMs = (timeoutMs?: number): number => {
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -1238,6 +1242,13 @@ const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | und
   };
 };
 
+const resolveResearchProviderStepTimeoutMs = (timeoutMs?: number): number | undefined => {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return undefined;
+  }
+  return Math.max(1, Math.min(timeoutMs, RESEARCH_PROVIDER_STEP_TIMEOUT_MS));
+};
+
 type InspiredesignResolvedInput = Omit<InspiredesignRunInput, "brief" | "urls" | "captureMode"> & {
   brief: string;
   briefExpansion: InspiredesignBriefExpansion;
@@ -1248,6 +1259,7 @@ type InspiredesignResolvedInput = Omit<InspiredesignRunInput, "brief" | "urls" |
 const INSPIREDESIGN_RENDER_MODES = new Set<RenderMode>(["compact", "json", "md", "context", "path"]);
 const INSPIREDESIGN_CAPTURE_MODES = new Set<InspiredesignCaptureMode>(["off", "deep"]);
 const INSPIREDESIGN_COOKIE_POLICIES = new Set<ProviderCookiePolicy>(["off", "auto", "required"]);
+const WORKFLOW_BROWSER_MODES = new Set<WorkflowBrowserMode>(["auto", "extension", "managed"]);
 
 const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -1298,6 +1310,7 @@ const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Reco
   ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
   ...(input.outputDir ? { outputDir: input.outputDir } : {}),
   ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
+  ...(input.browserMode ? { browserMode: input.browserMode } : {}),
   ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
   ...(input.challengeAutomationMode ? { challengeAutomationMode: input.challengeAutomationMode } : {}),
   ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
@@ -1421,6 +1434,9 @@ const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"])
     ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
     ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
     ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
+    ...(typeof input.browserMode === "string" && WORKFLOW_BROWSER_MODES.has(input.browserMode as WorkflowBrowserMode)
+      ? { browserMode: input.browserMode as WorkflowBrowserMode }
+      : {}),
     ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
     ...(isChallengeAutomationMode(input.challengeAutomationMode)
       ? { challengeAutomationMode: input.challengeAutomationMode }
@@ -1554,10 +1570,13 @@ const buildInspiredesignFetchOptions = (
   envelope: WorkflowResumeEnvelope,
   timeoutMs?: number
 ): ProviderRunOptions => withWorkflowResumeEnvelopeIntent(
-  withChallengeAutomationOverride(
-    withCookieOverrides({
-      ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
-    }, workflowInput),
+  withBrowserModeOverride(
+    withChallengeAutomationOverride(
+      withCookieOverrides({
+        ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+      }, workflowInput),
+      workflowInput
+    ),
     workflowInput
   ),
   "workflow.inspiredesign",
@@ -1928,6 +1947,7 @@ const buildInspiredesignMeta = (
     selection: {
       urls: workflowInput.urls,
       capture_mode: workflowInput.captureMode,
+      ...(workflowInput.browserMode ? { requested_browser_mode: workflowInput.browserMode } : {}),
       include_prototype_guidance: Boolean(workflowInput.includePrototypeGuidance)
     },
     metrics: {
@@ -2649,10 +2669,17 @@ export const runResearchWorkflow = async (
     step: ResearchWorkflowExecutionStep,
     stepEnvelope: WorkflowResumeEnvelope
   ): ProviderRunOptions => {
-    const stepOptions = withChallengeAutomationOverride(withCookieOverrides({
-      source: step.input.source,
-      ...(typeof workflowInput.timeoutMs === "number" ? { timeoutMs: workflowInput.timeoutMs } : {})
-    }, workflowInput), workflowInput);
+    const timeoutMs = resolveResearchProviderStepTimeoutMs(workflowInput.timeoutMs);
+    const stepOptions = withBrowserModeOverride(
+      withChallengeAutomationOverride(
+        withCookieOverrides({
+          source: step.input.source,
+          ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+        }, workflowInput),
+        workflowInput
+      ),
+      workflowInput
+    );
 
     return withWorkflowResumeEnvelopeIntent(
       stepOptions,
@@ -2728,7 +2755,8 @@ export const runResearchWorkflow = async (
     timebox: resolvedTimebox,
     selection: withExcludedProviders({
       source_selection: plan.compiled.sourceSelection,
-      resolved_sources: plan.compiled.resolvedSources
+      resolved_sources: plan.compiled.resolvedSources,
+      ...(workflowInput.browserMode ? { requested_browser_mode: workflowInput.browserMode } : {})
     }, plan.compiled.autoExcludedProviders),
     metrics: {
       total_records: mergedRecords.length,
@@ -2755,7 +2783,10 @@ export const runResearchWorkflow = async (
     failures: mergedFailures,
     alerts: buildWorkflowAlerts(runtime, mergedFailures)
   } as Record<string, unknown>, primaryConstraintFailures);
-  const handoff = buildResearchSuccessHandoff(plan.compiled.topic);
+  const handoff = buildResearchSuccessHandoff({
+    topic: plan.compiled.topic,
+    browserMode: workflowInput.browserMode
+  });
   const responseMeta = withFollowthroughMeta(meta, handoff);
 
   const rendered = renderResearch({
@@ -3259,6 +3290,7 @@ export const runProductVideoWorkflow = async (
         providers: providerHint ? [providerHint] : undefined,
         mode: "json",
         ...timeoutOptions,
+        browserMode: workflowInput.browserMode,
         useCookies: workflowInput.useCookies,
         challengeAutomationMode: workflowInput.challengeAutomationMode,
         cookiePolicyOverride: workflowInput.cookiePolicyOverride
@@ -3349,12 +3381,15 @@ export const runProductVideoWorkflow = async (
     details = await runtime.fetch(
       { url: productUrl },
       withWorkflowResumeEnvelopeIntent(
-        withChallengeAutomationOverride(
-          withCookieOverrides({
-            source,
-            providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
-            ...timeoutOptions
-          }, workflowInput),
+        withBrowserModeOverride(
+          withChallengeAutomationOverride(
+            withCookieOverrides({
+              source,
+              providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
+              ...timeoutOptions
+            }, workflowInput),
+            workflowInput
+          ),
           workflowInput
         ),
         "workflow.product_video",
@@ -3527,14 +3562,18 @@ export const runProductVideoWorkflow = async (
     productUrl,
     productName: workflowInput.product_name,
     providerHint,
+    browserMode: workflowInput.browserMode,
     includeScreenshots: workflowInput.include_screenshots,
     includeAllImages: workflowInput.include_all_images,
     includeCopy: workflowInput.include_copy
   });
   const meta = withFollowthroughMeta({
+    ...(workflowInput.browserMode
+      ? { selection: { requested_browser_mode: workflowInput.browserMode } }
+      : {}),
     alerts: buildWorkflowAlerts(runtime, details.failures),
     failures: details.failures,
-    ...(primaryIssue ? { primaryConstraintSummary: primaryIssue.summary } : {}),
+    ...(primaryIssue ? { primaryConstraint: primaryIssue, primaryConstraintSummary: primaryIssue.summary } : {}),
     reasonCodeDistribution,
     transcript_strategy_failures: transcriptStrategyFailures,
     transcriptStrategyFailures,

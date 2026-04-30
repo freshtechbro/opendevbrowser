@@ -753,6 +753,21 @@ describe("tools", () => {
       result: "scalar-value"
     });
 
+    deps.canvasManager.execute.mockResolvedValueOnce({
+      guidance: {
+        recommendedNextCommands: ["canvas.plan.set"],
+        reason: "Handshake is complete. Submit a complete generationPlan before mutation."
+      }
+    });
+    expect(parse(await tools.opendevbrowser_canvas.execute({
+      command: "canvas.session.open"
+    } as never))).toMatchObject({
+      ok: true,
+      guidance: {
+        recommendedNextCommands: ["canvas.plan.set"]
+      }
+    });
+
     deps.canvasManager.execute.mockRejectedValueOnce(new Error("canvas boom"));
     expect(parse(await tools.opendevbrowser_canvas.execute({
       command: "canvas.plan.set"

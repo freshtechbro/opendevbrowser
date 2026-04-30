@@ -32,6 +32,12 @@ Required top-level areas:
 - prototypes
 - document metadata
 
+## Advanced motion advisory boundary
+
+Canvas design contracts may record shader-like, WebGL-style, Spline-style, or spatial motion ideas as advisory cues in `generationPlan.designVectors` and `motionSystem`. Those cues describe desired hierarchy, timing, depth, or transition intent only.
+
+Advisory motion cues do not add runtime support, authorize new dependencies, or change the accepted `CanvasGenerationPlan` field set. `libraryPolicy.motion` and `libraryPolicy.threeD` stay empty unless a separate runtime implementation explicitly approves those lanes. Canvas mutation and save/export validation reject non-empty `libraryPolicy.motion` or `libraryPolicy.threeD` runtime authorizations. The default canvas projection must still be implementable with the currently approved primitives.
+
 ## Public canvas command families
 
 Canonical inventory lives in `docs/SURFACE_REFERENCE.md`. High-level families:
@@ -66,6 +72,9 @@ Use this runtime-backed sequence when an agent needs next-step guidance instead 
 5. `canvas.preview.render`
 6. `canvas.feedback.poll`
 7. `canvas.document.save` or `canvas.document.export`
+
+Canvas guidance is centrally constructed with shared next-step advisory builders, but the public Canvas response stays Canvas-shaped:
+`guidance.recommendedNextCommands`, `guidance.reason`, and blocker `requiredNextCommands`.
 
 `canvas.plan.get` and `canvas.capabilities.get` remain useful when an invalid plan response needs to be re-read after failure or attach, but they are not required after a successful `canvas.plan.set`.
 

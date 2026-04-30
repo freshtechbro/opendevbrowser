@@ -355,10 +355,13 @@ describe("product-video substrate adoption", () => {
     }));
     const handoff = buildProductVideoSuccessHandoff({
       productUrl: "https://www.amazon.com/dp/B0PHASE5001",
-      providerHint: "shopping/amazon"
+      providerHint: "shopping/amazon",
+      browserMode: "extension"
     });
 
-    const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput());
+    const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput({
+      browserMode: "extension"
+    }));
 
     expect(search).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -377,7 +380,9 @@ describe("product-video substrate adoption", () => {
     expect(output.followthroughSummary).toBe(handoff.followthroughSummary);
     expect(output.suggestedNextAction).toBe(handoff.suggestedNextAction);
     expect(output.suggestedSteps).toEqual(handoff.suggestedSteps);
-    expect(output.suggestedNextAction).toContain(PRODUCT_VIDEO_BRIEF_HELPER_PATH);
+    expect((output.suggestedSteps as Array<{ command?: string }>)[2]?.command).toContain("--browser-mode extension");
+    expect(output.suggestedNextAction).toContain("product-video brief helper");
+    expect(output.suggestedNextAction).not.toContain("<pack>");
     expect((output.suggestedSteps as Array<{ command?: string }>)[1]?.command).toBe(
       `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`
     );
@@ -434,7 +439,7 @@ describe("product-video substrate adoption", () => {
     );
     expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
     expect((output.suggestedSteps as Array<{ command?: string }>)[2]?.command).toBe(
-      "npx opendevbrowser product-video run --product-url \"https://www.amazon.com/dp/B0PHASE5002\" --provider-hint shopping/amazon --output-format json"
+      "npx opendevbrowser product-video run --product-url \"https://www.amazon.com/dp/B0PHASE5002\" --provider-hint shopping/amazon --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --output-format json"
     );
   });
 
@@ -812,7 +817,7 @@ describe("product-video substrate adoption", () => {
     );
     expect((output.product as { provider: string }).provider).toBe("shopping/amazon");
     expect((output.suggestedSteps as Array<{ command?: string }>)[2]?.command).toBe(
-      "npx opendevbrowser product-video run --product-url \"https://www.amazon.com/dp/B0PHASE5004\" --provider-hint shopping/amazon --output-format json"
+      "npx opendevbrowser product-video run --product-url \"https://www.amazon.com/dp/B0PHASE5004\" --provider-hint shopping/amazon --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --output-format json"
     );
   });
 

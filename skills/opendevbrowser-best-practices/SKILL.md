@@ -116,7 +116,7 @@ Rules:
 2. Generic topical research without shopping contamination.
 
 ```bash
-npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json --output-format json
+npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json
 ```
 
 Rules:
@@ -127,9 +127,9 @@ Rules:
 3. Deterministic shopping reruns with explicit providers.
 
 ```bash
-npx opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
-npx opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
-npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json
+npx opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
 ```
 
 Rules:
@@ -142,7 +142,7 @@ Rules:
 4. Design-contract synthesis with repeated public references.
 
 ```bash
-npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
+npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --mode json --output-format json
 ```
 
 Rules:
@@ -308,7 +308,7 @@ Surface inventory source of truth:
 
 Direct-run release note:
 - `scripts/live-regression-direct.mjs` is the preferred release harness for `/canvas`, annotate, and CLI smoke. It uses temporary managed profiles for managed probes, waits for `/ops` drain before the legacy `/cdp` step, and keeps manual annotation timeouts as explicit `skipped` boundaries in `--release-gate` mode.
-- `scripts/provider-direct-runs.mjs --use-global-env --include-high-friction --include-auth-gated` is the preferred provider release harness. Treat `provider-live-matrix` and `live-regression-matrix` as debug-only helpers, not refreshed release evidence.
+- `scripts/provider-direct-runs.mjs --include-high-friction --include-auth-gated` is the preferred provider release harness. Treat `provider-live-matrix` and `live-regression-matrix` as debug-only helpers, not refreshed release evidence.
 
 ## Skill Runtime Audit and Realignment
 

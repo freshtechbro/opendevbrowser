@@ -5,11 +5,14 @@ import {
 } from "../macros/execute";
 import { executeMacroWithRuntime } from "../macros/execute-runtime";
 import { buildMacroResolveSuccessHandoff } from "../providers/workflow-handoff";
+import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
 
 const z = tool.schema;
+const browserModeSchema = z.enum(["auto", "extension", "managed"]);
+const challengeAutomationModeSchema = z.enum(CHALLENGE_AUTOMATION_MODES);
 
 type MacroRuntimeModule = {
   createDefaultMacroRegistry?: () => {
@@ -83,6 +86,8 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
       expression: z.string().min(2).describe("Macro expression, e.g. @web.search(\"query\")"),
       defaultProvider: z.string().optional().describe("Default provider fallback"),
       includeCatalog: z.boolean().optional().describe("Include available runtime macro names"),
+      browserMode: browserModeSchema.optional().describe("Browser transport mode for executed macros: auto|extension|managed"),
+      challengeAutomationMode: challengeAutomationModeSchema.optional().describe("Challenge automation mode for executed macros: off|browser|browser_with_helper"),
       execute: z.boolean().optional().describe("Execute the resolved provider action and include execution payload")
     },
     async execute(args) {
@@ -110,6 +115,13 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
           resolution = parseFallbackMacro(args.expression, args.defaultProvider);
         }
 
+        if (!args.execute && args.browserMode) {
+          throw new Error("browserMode requires execute=true for macro resolution");
+        }
+        if (!args.execute && args.challengeAutomationMode) {
+          throw new Error("challengeAutomationMode requires execute=true for macro resolution");
+        }
+
         if (!args.execute) {
           const handoff = buildMacroResolveSuccessHandoff({
             expression: args.expression,
@@ -128,7 +140,9 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
         const providerRuntime = await resolveProviderRuntime(deps);
         const execution = await executeMacroWithRuntime({
           resolution,
-          runtime: providerRuntime
+          runtime: providerRuntime,
+          browserMode: args.browserMode,
+          challengeAutomationMode: args.challengeAutomationMode
         });
         const handoff = buildMacroResolveSuccessHandoff({
           expression: args.expression,

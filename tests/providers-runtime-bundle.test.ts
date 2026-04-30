@@ -132,7 +132,7 @@ describe("provider runtime bundle", () => {
         source: undefined
       }),
       expect.any(Object),
-      undefined,
+      expect.any(Object),
       "off",
       false
     );
@@ -161,7 +161,7 @@ describe("provider runtime bundle", () => {
       undefined,
       expect.any(Object),
       expect.any(Object),
-      undefined,
+      expect.any(Object),
       "browser_with_helper",
       true
     );
@@ -286,6 +286,40 @@ describe("provider runtime bundle", () => {
       expect.objectContaining({
         browserFallbackPort: rebuiltFallbackPort,
         challengeConfig: updatedConfig.providers?.challengeOrchestration
+      })
+    );
+  });
+
+  it("rebuilds an unstamped browser fallback port when relay transport becomes available", () => {
+    const config = {
+      ...makeConfig(),
+      relayToken: "test-token"
+    };
+    const originalFallbackPort = makeFallbackPort();
+    const rebuiltFallbackPort = makeFallbackPort();
+    const rebuiltRuntime = makeProviderRuntime();
+    runtimeFactoryMocks.createBrowserFallbackPort.mockReturnValue(rebuiltFallbackPort);
+    runtimeFactoryMocks.createConfiguredProviderRuntime.mockReturnValue(rebuiltRuntime);
+
+    const resolved = resolveBundledProviderRuntime({
+      config,
+      existingRuntime: makeProviderRuntime(),
+      browserFallbackPort: originalFallbackPort,
+      init: { timeoutMs: 5000 }
+    });
+
+    expect(resolved).toBe(rebuiltRuntime);
+    expect(runtimeFactoryMocks.createBrowserFallbackPort).toHaveBeenCalledWith(
+      undefined,
+      expect.any(Object),
+      { extensionWsEndpoint: "ws://127.0.0.1:8787" },
+      expect.any(Object),
+      "off",
+      false
+    );
+    expect(runtimeFactoryMocks.createConfiguredProviderRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        browserFallbackPort: rebuiltFallbackPort
       })
     );
   });

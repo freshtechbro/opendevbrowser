@@ -4,7 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { countStatuses, ensureCliBuilt, runCli, runNode, sleep } from "./live-direct-utils.mjs";
-import { withConfiguredDaemon } from "./skill-runtime-probe-utils.mjs";
+import {
+  currentHarnessDaemonStatusDetail,
+  isCurrentHarnessDaemonStatus,
+  withConfiguredDaemon
+} from "./skill-runtime-probe-utils.mjs";
 import { MATRIX_ENV_LIMITED_CODES } from "./shared/workflow-lane-constants.mjs";
 import { classifyLaneRecords, normalizedCodesFromFailures, parseShellOnlyFailureDetail } from "./shared/workflow-lane-verdicts.mjs";
 import { VALIDATION_SCENARIOS } from "./shared/workflow-inventory.mjs";
@@ -180,6 +184,23 @@ function collectScenarioRecordCount(result) {
   return 0;
 }
 
+function readScenarioNextStep(result) {
+  const candidates = [
+    result.json?.data?.suggestedNextAction,
+    result.json?.summary?.data?.suggestedNextAction,
+    result.json?.data?.meta?.primaryConstraint?.guidance?.recommendedNextCommands?.[0]
+  ];
+  return candidates.find((value) => typeof value === "string" && value.trim().length > 0)?.trim() ?? null;
+}
+
+function withScenarioNextStep(detail, result) {
+  const nextStep = readScenarioNextStep(result);
+  if (!nextStep || typeof detail !== "string" || detail.toLowerCase().includes("next step:")) {
+    return detail;
+  }
+  return `${detail} Next step: ${nextStep}`;
+}
+
 async function waitForRequiredExtension({
   scenario,
   initialExtensionReady,
@@ -191,13 +212,14 @@ async function waitForRequiredExtension({
 }) {
   let currentDaemonStatus = readDaemonStatus(env);
   const extensionReady = currentDaemonStatus.json?.data?.relay?.extensionHandshakeComplete === true;
+  const daemonReady = isCurrentHarnessDaemonStatus(currentDaemonStatus);
 
   if (
     !scenario.requiresExtension
     || (!startedDaemon && relayWasDirty)
     || !initialExtensionReady
     || extensionReady
-    || currentDaemonStatus.status !== 0
+    || !daemonReady
   ) {
     return currentDaemonStatus;
   }
@@ -206,7 +228,7 @@ async function waitForRequiredExtension({
   while (Date.now() < deadline) {
     await sleep(pollMs);
     currentDaemonStatus = readDaemonStatus(env);
-    if (currentDaemonStatus.status !== 0) {
+    if (!isCurrentHarnessDaemonStatus(currentDaemonStatus)) {
       break;
     }
     if (currentDaemonStatus.json?.data?.relay?.extensionHandshakeComplete === true) {
@@ -226,7 +248,7 @@ export function classifyScenarioPreflight({
   currentDaemonStatus
 }) {
   const relay = currentDaemonStatus.json?.data?.relay ?? null;
-  const currentDaemonOk = currentDaemonStatus.status === 0;
+  const currentDaemonOk = isCurrentHarnessDaemonStatus(currentDaemonStatus);
   const currentExtensionReady = relay?.extensionHandshakeComplete === true;
 
   if (!scenario.requiresExtension) {
@@ -242,9 +264,10 @@ export function classifyScenarioPreflight({
   }
 
   if (!currentDaemonOk) {
+    const detail = currentHarnessDaemonStatusDetail(currentDaemonStatus);
     return {
       status: initialDaemonOk ? "fail" : "env_limited",
-      detail: initialDaemonOk ? "daemon_not_running_after_start" : "daemon_not_running",
+      detail: initialDaemonOk ? detail ?? "daemon_not_running_after_start" : detail ?? "daemon_not_running",
       data: { relay: null }
     };
   }
@@ -312,7 +335,7 @@ export function determineScenarioStatus(result, scenario) {
     });
     return {
       status: laneStatus.status,
-      detail: laneStatus.detail ?? detail,
+      detail: withScenarioNextStep(laneStatus.detail ?? detail, result),
       ok: scenario.allowedStatuses.includes(laneStatus.status)
     };
   }
@@ -430,7 +453,7 @@ export async function runWorkflowValidationMatrix(options) {
       const initialStatus = readDaemonStatus(env);
       const initialRelay = initialStatus.json?.data?.relay ?? null;
       const relayWasDirty = hasDirtyRelayClients(initialRelay);
-      const initialDaemonOk = initialStatus.status === 0;
+      const initialDaemonOk = isCurrentHarnessDaemonStatus(initialStatus);
       const initialExtensionReady = initialRelay?.extensionHandshakeComplete === true;
       const daemonMode = startedDaemon ? "started" : "reused";
       const daemonDetail = startedDaemon
@@ -443,7 +466,7 @@ export async function runWorkflowValidationMatrix(options) {
         id: "infra.daemon.recycle",
         status: initialDaemonOk ? "pass" : "fail",
         ok: initialDaemonOk,
-        detail: initialDaemonOk ? daemonDetail : initialStatus.detail,
+        detail: initialDaemonOk ? daemonDetail : currentHarnessDaemonStatusDetail(initialStatus),
         data: {
           mode: daemonMode,
           relayWasDirty,
@@ -456,7 +479,7 @@ export async function runWorkflowValidationMatrix(options) {
         id: "infra.daemon_status",
         status: initialDaemonOk ? "pass" : "fail",
         ok: initialDaemonOk,
-        detail: initialDaemonOk ? null : initialStatus.detail,
+        detail: currentHarnessDaemonStatusDetail(initialStatus),
         data: initialStatus.json?.data ?? null
       });
 

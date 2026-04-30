@@ -1,15 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  classifyLaneRecords,
   runCli,
   runNode,
   ensureCliBuilt,
+  normalizedCodesFromFailures,
+  parseShellOnlyFailureDetail,
   sleep,
   withConfiguredDaemon
 } = vi.hoisted(() => ({
+  classifyLaneRecords: vi.fn(() => ({ status: "fail", detail: null })),
   runCli: vi.fn(),
   runNode: vi.fn(),
   ensureCliBuilt: vi.fn(),
+  normalizedCodesFromFailures: vi.fn(() => []),
+  parseShellOnlyFailureDetail: vi.fn(() => null),
   sleep: vi.fn(async () => {}),
   withConfiguredDaemon: vi.fn()
 }));
@@ -38,6 +44,20 @@ vi.mock("../scripts/live-direct-utils.mjs", () => ({
 }));
 
 vi.mock("../scripts/skill-runtime-probe-utils.mjs", () => ({
+  currentHarnessDaemonStatusDetail: (status: { status?: number; detail?: string; json?: { data?: { fingerprintCurrent?: boolean } } }) => {
+    if (status?.status === 0 && status.json?.data?.fingerprintCurrent !== false) {
+      return null;
+    }
+    if (status?.status === 0 && status.json?.data?.fingerprintCurrent === false) {
+      return "daemon_fingerprint_mismatch";
+    }
+    return status?.detail ?? "daemon_status_unavailable";
+  },
+  isCurrentHarnessDaemonStatus: (status: { status?: number; json?: { success?: boolean; data?: { fingerprintCurrent?: boolean } } }) => (
+    status?.status === 0
+    && status.json?.success === true
+    && status.json?.data?.fingerprintCurrent !== false
+  ),
   withConfiguredDaemon
 }));
 
@@ -46,9 +66,9 @@ vi.mock("../scripts/shared/workflow-lane-constants.mjs", () => ({
 }));
 
 vi.mock("../scripts/shared/workflow-lane-verdicts.mjs", () => ({
-  classifyLaneRecords: vi.fn(() => ({ status: "fail", detail: null })),
-  normalizedCodesFromFailures: vi.fn(() => []),
-  parseShellOnlyFailureDetail: vi.fn(() => null)
+  classifyLaneRecords,
+  normalizedCodesFromFailures,
+  parseShellOnlyFailureDetail
 }));
 
 vi.mock("../scripts/shared/workflow-inventory.mjs", () => ({
@@ -88,6 +108,7 @@ vi.mock("../scripts/shared/workflow-inventory.mjs", () => ({
 }));
 
 import {
+  determineScenarioStatus,
   resolveScenarioProcessTimeoutMs,
   runWorkflowValidationMatrix
 } from "../scripts/workflow-validation-matrix.mjs";
@@ -115,8 +136,14 @@ describe("workflow validation matrix daemon ownership", () => {
     ensureCliBuilt.mockReset();
     runCli.mockReset();
     runNode.mockReset();
+    classifyLaneRecords.mockReset();
+    normalizedCodesFromFailures.mockReset();
+    parseShellOnlyFailureDetail.mockReset();
     sleep.mockReset();
     withConfiguredDaemon.mockReset();
+    classifyLaneRecords.mockReturnValue({ status: "fail", detail: null });
+    normalizedCodesFromFailures.mockReturnValue([]);
+    parseShellOnlyFailureDetail.mockReturnValue(null);
     currentRelayStatus = reusedRelayStatus;
     withConfiguredDaemon.mockImplementation(async (task: (context: { env: typeof envToken; daemon: null; startedDaemon: false }) => Promise<unknown>) => (
       task({ env: envToken, daemon: null, startedDaemon: false })
@@ -207,6 +234,45 @@ describe("workflow validation matrix daemon ownership", () => {
     expect(runNode).not.toHaveBeenCalled();
   });
 
+  it("fails infra before scenario execution when the configured daemon fingerprint is stale", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: false,
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: true,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay"]
+    });
+
+    expect(report.infraSteps).toEqual([
+      expect.objectContaining({
+        id: "infra.daemon.recycle",
+        status: "fail",
+        detail: "daemon_fingerprint_mismatch"
+      }),
+      expect.objectContaining({
+        id: "infra.daemon_status",
+        status: "fail",
+        detail: "daemon_fingerprint_mismatch"
+      })
+    ]);
+    expect(report.steps).toEqual([]);
+    expect(runNode).not.toHaveBeenCalled();
+  });
+
   it("executes daemon-owning scenarios outside the shared configured-daemon helper", async () => {
     runNode.mockImplementation((args: string[], options: { env: NodeJS.ProcessEnv }) => {
       expect(args).toEqual(["scripts/cli-smoke-test.mjs"]);
@@ -273,5 +339,41 @@ describe("workflow validation matrix daemon ownership", () => {
       runner: "node",
       timeoutMs: 120_000
     })).toBe(120_000);
+  });
+
+  it("preserves structured next-step guidance on reason-code classified rows", () => {
+    normalizedCodesFromFailures.mockReturnValue(["env_limited"]);
+    classifyLaneRecords.mockReturnValue({
+      status: "env_limited",
+      detail: "reason_codes=env_limited"
+    });
+
+    const outcome = determineScenarioStatus({
+      status: 0,
+      timedOut: false,
+      detail: null,
+      json: {
+        data: {
+          suggestedNextAction: "Retry with browser assistance or a headed browser session.",
+          meta: {
+            failures: [
+              {
+                error: {
+                  reasonCode: "env_limited"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }, {
+      allowedStatuses: ["env_limited"]
+    });
+
+    expect(outcome).toEqual({
+      status: "env_limited",
+      ok: true,
+      detail: "reason_codes=env_limited Next step: Retry with browser assistance or a headed browser session."
+    });
   });
 });

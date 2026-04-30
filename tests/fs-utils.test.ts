@@ -103,21 +103,16 @@ describe("writeFileAtomic", () => {
     expect(fs.readFileSync(nestedFile, "utf-8")).toBe(content);
   });
 
-  it("cleans up temp file and rethrows on write failure", () => {
+  it("rethrows when the parent path is not a directory", () => {
     fs.mkdirSync(testDir, { recursive: true });
-    const readOnlyDir = path.join(testDir, "readonly");
-    fs.mkdirSync(readOnlyDir);
-    fs.chmodSync(readOnlyDir, 0o444);
+    const blockedParent = path.join(testDir, "not-a-dir");
+    fs.writeFileSync(blockedParent, "content");
 
-    const failFile = path.join(readOnlyDir, "fail.json");
+    const failFile = path.join(blockedParent, "fail.json");
 
-    try {
-      expect(() => writeFileAtomic(failFile, "content")).toThrow();
-    } finally {
-      fs.chmodSync(readOnlyDir, 0o755);
-    }
+    expect(() => writeFileAtomic(failFile, "content")).toThrow();
 
-    const files = fs.readdirSync(readOnlyDir);
+    const files = fs.readdirSync(testDir);
     const tempFiles = files.filter((f) => f.endsWith(".tmp"));
     expect(tempFiles.length).toBe(0);
   });

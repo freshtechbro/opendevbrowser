@@ -11,6 +11,7 @@ import {
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 import { resolveInspiredesignCaptureMode } from "../../inspiredesign/capture-mode";
+import type { WorkflowBrowserMode } from "../../providers/types";
 
 type InspiredesignCommandArgs = {
   brief?: string;
@@ -21,6 +22,7 @@ type InspiredesignCommandArgs = {
   timeoutMs?: number;
   outputDir?: string;
   ttlHours?: number;
+  browserMode?: WorkflowBrowserMode;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: "off" | "auto" | "required";
@@ -29,6 +31,7 @@ type InspiredesignCommandArgs = {
 const MODE_VALUES = new Set(["compact", "json", "md", "context", "path"]);
 const CAPTURE_MODE_VALUES = new Set(["off", "deep"]);
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
+const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
 
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
@@ -130,6 +133,24 @@ const parseInspiredesignRunArgs = (rawArgs: string[]): InspiredesignCommandArgs 
       continue;
     }
 
+    if (arg === "--browser-mode") {
+      const value = requireValue(rawArgs, index, "--browser-mode").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--browser-mode=")) {
+      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
+      continue;
+    }
+
     if (arg === "--use-cookies") {
       parsed.useCookies = true;
       continue;
@@ -199,6 +220,7 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
     timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
     outputDir: parsed.outputDir,
     ttlHours: parsed.ttlHours,
+    browserMode: parsed.browserMode,
     useCookies: parsed.useCookies,
     challengeAutomationMode: parsed.challengeAutomationMode,
     cookiePolicyOverride: parsed.cookiePolicyOverride

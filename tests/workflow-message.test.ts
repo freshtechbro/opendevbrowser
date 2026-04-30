@@ -4,10 +4,13 @@ import {
   buildInspiredesignNextStep
 } from "../src/inspiredesign/handoff";
 import {
+  buildProviderFollowupErrorMessage,
   buildWorkflowCompletionMessage,
+  readFollowthroughSummary,
   readSuggestedNextAction,
   readSuggestedStepCommand,
-  readSuggestedStepReason
+  readSuggestedStepReason,
+  readWorkflowGuidanceNextStep
 } from "../src/cli/utils/workflow-message";
 
 describe("workflow message helpers", () => {
@@ -38,6 +41,45 @@ describe("workflow message helpers", () => {
 
     expect(buildWorkflowCompletionMessage("Shopping workflow", data)).toBe(
       "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required. Next step: Run shopping run --query='example' --browser-mode extension"
+    );
+  });
+
+  it("adds next steps to provider follow-up errors", () => {
+    expect(buildProviderFollowupErrorMessage(
+      "Bestbuy requires manual browser follow-up; this run did not determine whether login or page rendering is required."
+    )).toBe(
+      "Bestbuy requires manual browser follow-up; this run did not determine whether login or page rendering is required. Next step: Retry with browser assistance or a headed browser session."
+    );
+    expect(buildProviderFollowupErrorMessage(
+      "Costco requires login or an existing session."
+    )).toBe(
+      "Costco requires login or an existing session. Next step: Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+    );
+    expect(buildProviderFollowupErrorMessage(
+      "Costco requires login or an existing session. Next step: Retry."
+    )).toBe("Costco requires login or an existing session. Next step: Retry.");
+  });
+
+  it("infers next steps for explicit summaries when failures carry provider guidance", () => {
+    const data = {
+      meta: {
+        primaryConstraintSummary: "Bestbuy requires manual browser follow-up.",
+        failures: [{
+          provider: "shopping/bestbuy",
+          error: {
+            reasonCode: "env_limited",
+            details: {
+              constraint: {
+                kind: "render_required"
+              }
+            }
+          }
+        }]
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
+      "Product video workflow completed with provider follow-up required: Bestbuy requires manual browser follow-up. Next step: Retry with browser assistance or a headed browser session."
     );
   });
 
@@ -119,6 +161,37 @@ describe("workflow message helpers", () => {
     );
     expect(buildWorkflowCompletionMessage("Product video workflow", data)).toBe(
       "Product video workflow completed. Review the current pack, then rerun only if the assets are still too thin. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/3\" --provider-hint shopping/amazon --output-format json"
+    );
+  });
+
+  it("exports follow-through summary reading from top-level and meta fields", () => {
+    expect(readFollowthroughSummary({ followthroughSummary: "Review artifacts." })).toBe("Review artifacts.");
+    expect(readFollowthroughSummary({
+      meta: {
+        followthroughSummary: "Review workflow metadata."
+      }
+    })).toBe("Review workflow metadata.");
+  });
+
+  it("exports shared next-step reading with placeholder command skipping", () => {
+    expect(readWorkflowGuidanceNextStep({
+      suggestedSteps: [
+        { reason: "Generate notes.", command: "./helper <pack>/manifest.json" },
+        { reason: "Rerun with concrete input.", command: "npx opendevbrowser research run --topic \"motion\" --output-format json" }
+      ]
+    })).toBe("npx opendevbrowser research run --topic \"motion\" --output-format json");
+  });
+
+  it("does not surface unresolved placeholders from suggested actions", () => {
+    expect(buildWorkflowCompletionMessage("Product video workflow", {
+      followthroughSummary: "Review the generated pack before production.",
+      suggestedNextAction: "Run ./helper <pack>/manifest.json",
+      suggestedSteps: [{
+        reason: "Rerun with concrete input.",
+        command: "npx opendevbrowser product-video run --product-url \"https://example.com/p/4\" --output-format json"
+      }]
+    })).toBe(
+      "Product video workflow completed. Review the generated pack before production. Next step: npx opendevbrowser product-video run --product-url \"https://example.com/p/4\" --output-format json"
     );
   });
 });

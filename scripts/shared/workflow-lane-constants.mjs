@@ -51,7 +51,8 @@ export const ENV_LIMITED_SHELL_ONLY_REASONS = new Set([
   "social_render_shell",
   "social_js_required_shell",
   "social_first_party_help_shell",
-  "social_verification_wall"
+  "social_verification_wall",
+  "youtube_site_chrome_shell"
 ]);
 
 export const SOCIAL_POST_CASES = [

@@ -3,7 +3,7 @@ import type {
   OpenDevBrowserConfig,
   ProvidersChallengeOrchestrationConfig
 } from "../config";
-import { type ChallengeOrchestrator } from "../challenges";
+import { ChallengeOrchestrator } from "../challenges";
 import type { BrowserFallbackPort } from "./types";
 import {
   createBrowserFallbackPort,
@@ -39,7 +39,7 @@ type ResolveBundledProviderRuntimeArgs = ProviderRuntimeBundleArgs & {
 };
 
 const runtimeChallengeConfigFingerprints = new WeakMap<BundledProviderRuntime, string | null>();
-const fallbackPortChallengeConfigFingerprints = new WeakMap<BrowserFallbackPort, string | null>();
+const fallbackPortFingerprints = new WeakMap<BrowserFallbackPort, string>();
 
 const canReuseRuntime = (
   runtime: BundledProviderRuntime | undefined,
@@ -59,13 +59,16 @@ const canReuseRuntime = (
 
 const canReuseFallbackPort = (
   fallbackPort: BrowserFallbackPort | undefined,
-  challengeFingerprint: string | null
+  fingerprint: string
 ): fallbackPort is BrowserFallbackPort => {
   if (!fallbackPort) {
     return false;
   }
-  const fingerprint = fallbackPortChallengeConfigFingerprints.get(fallbackPort);
-  return fingerprint === undefined || fingerprint === challengeFingerprint;
+  const currentFingerprint = fallbackPortFingerprints.get(fallbackPort);
+  if (currentFingerprint === undefined) {
+    return !fingerprint.includes("\"extensionWsEndpoint\":\"ws://");
+  }
+  return currentFingerprint === fingerprint;
 };
 
 const resolveFallbackTransportConfig = (
@@ -76,12 +79,24 @@ const resolveFallbackTransportConfig = (
     : {}
 );
 
+const fallbackPortFingerprint = (
+  challengeFingerprint: string | null,
+  transportConfig: { extensionWsEndpoint?: string }
+): string => JSON.stringify({
+  challengeFingerprint,
+  extensionWsEndpoint: transportConfig.extensionWsEndpoint ?? null
+});
+
 export const createProviderRuntimeBundle = (
   args: ProviderRuntimeBundleArgs
 ): ProviderRuntimeBundle => {
   const challengeConfig = resolveEffectiveChallengeConfig(args.config, args.challengeConfig);
   const challengeFingerprint = challengeConfig ? JSON.stringify(challengeConfig) : null;
-  const browserFallbackPort = canReuseFallbackPort(args.browserFallbackPort, challengeFingerprint)
+  const transportConfig = resolveFallbackTransportConfig(args.config);
+  const fallbackFingerprint = fallbackPortFingerprint(challengeFingerprint, transportConfig);
+  const challengeOrchestrator = args.challengeOrchestrator
+    ?? (challengeConfig ? new ChallengeOrchestrator(challengeConfig) : undefined);
+  const browserFallbackPort = canReuseFallbackPort(args.browserFallbackPort, fallbackFingerprint)
     ? args.browserFallbackPort
     : createBrowserFallbackPort(
     args.manager,
@@ -89,20 +104,20 @@ export const createProviderRuntimeBundle = (
       policy: args.config?.providers?.cookiePolicy,
       source: args.config?.providers?.cookieSource
     },
-    resolveFallbackTransportConfig(args.config),
-    args.challengeOrchestrator,
+    transportConfig,
+    challengeOrchestrator,
     challengeConfig?.mode ?? "browser_with_helper",
     challengeConfig?.optionalComputerUseBridge.enabled ?? true
   );
   if (browserFallbackPort && browserFallbackPort !== args.browserFallbackPort) {
-    fallbackPortChallengeConfigFingerprints.set(browserFallbackPort, challengeFingerprint);
+    fallbackPortFingerprints.set(browserFallbackPort, fallbackFingerprint);
   }
   const providerRuntime = createConfiguredProviderRuntime({
     config: args.config,
     manager: args.manager,
     browserFallbackPort,
     challengeConfig,
-    challengeOrchestrator: args.challengeOrchestrator,
+    challengeOrchestrator,
     init: args.init
   });
   runtimeChallengeConfigFingerprints.set(

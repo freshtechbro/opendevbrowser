@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { classifyRecords } from "../scripts/live-direct-utils.mjs";
 import {
   DIRECT_ENV_LIMITED_CODES,
@@ -9,11 +9,13 @@ import {
   buildProviderCoverageStep,
   buildProviderCases,
   classifyDaemonPreflight,
+  ensureProviderDaemon,
   evaluateMacroCase,
   evaluateShoppingCase,
   mergeRetriedMacroStep,
   mergeRetriedShoppingStep,
   parseArgs,
+  shouldAbortForDaemonPreflight,
   shouldRetryShoppingTimeoutCase,
   shouldRetryMacroTimeoutCase
 } from "../scripts/provider-direct-runs.mjs";
@@ -31,6 +33,12 @@ describe("provider-direct-runs", () => {
   it("rejects --release-gate combined with --smoke", () => {
     expect(() => parseArgs(["--release-gate", "--smoke"])).toThrow(
       "--release-gate cannot be combined with --smoke."
+    );
+  });
+
+  it("rejects the removed global-env compatibility flag", () => {
+    expect(() => parseArgs(["--use-global-env"])).toThrow(
+      "Unknown option: --use-global-env"
     );
   });
 
@@ -73,6 +81,7 @@ describe("provider-direct-runs", () => {
 
     expect(target?.args).toContain("--challenge-automation-mode");
     expect(target?.args).toContain("browser_with_helper");
+    expect(target?.args).toContain("--use-cookies");
   });
 
   it("marks gated shopping providers as skipped outside release mode", () => {
@@ -111,6 +120,51 @@ describe("provider-direct-runs", () => {
       detail: "Daemon not running. Start with `opendevbrowser serve`.",
       data: null
     });
+  });
+
+  it("classifies stale daemon fingerprints as unusable", () => {
+    const step = classifyDaemonPreflight({
+      status: 0,
+      json: { success: true, data: { fingerprintCurrent: false } }
+    });
+
+    expect(step).toEqual({
+      id: "infra.daemon_status",
+      status: "fail",
+      detail: "daemon_fingerprint_mismatch",
+      data: { fingerprintCurrent: false }
+    });
+  });
+
+  it("aborts provider cases when daemon preflight sees a stale status-0 fingerprint", () => {
+    expect(shouldAbortForDaemonPreflight({
+      status: 0,
+      json: { success: true, data: { fingerprintCurrent: false } }
+    })).toBe(true);
+    expect(shouldAbortForDaemonPreflight({
+      status: 0,
+      json: { success: true, data: { fingerprintCurrent: true } }
+    })).toBe(false);
+  });
+
+  it("starts a fresh daemon when preflight sees a stale fingerprint", async () => {
+    const stale = { status: 0, json: { success: true, data: { fingerprintCurrent: false } } };
+    const fresh = { status: 0, json: { success: true, data: { fingerprintCurrent: true } } };
+    const state = { ownedDaemon: null };
+    const started = { pid: 1234 };
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(stale)
+      .mockReturnValueOnce(fresh);
+    const startConfiguredDaemonImpl = vi.fn(async () => started);
+
+    await expect(ensureProviderDaemon(state, {
+      readDaemonStatusImpl,
+      startConfiguredDaemonImpl
+    })).resolves.toEqual({
+      daemonStatus: fresh,
+      startedDaemon: true
+    });
+    expect(state.ownedDaemon).toBe(started);
   });
 
   it("downgrades non-release provider coverage gaps into explicit skipped advisories", () => {
@@ -273,7 +327,7 @@ describe("provider-direct-runs", () => {
     expect(step.detail).toBe("Request timed out after 120000ms");
   });
 
-  it("treats a raw Temu timeout boundary as env-limited instead of a hard failure", () => {
+  it("treats a raw Temu timeout boundary as a retryable failure", () => {
     const step = evaluateShoppingCase({
       id: "provider.shopping.temu.search",
       providerId: "shopping/temu",
@@ -284,11 +338,14 @@ describe("provider-direct-runs", () => {
       json: null
     });
 
-    expect(step.status).toBe("env_limited");
+    expect(step.status).toBe("fail");
     expect(step.detail).toBe("Request timed out after 125000ms");
+    expect(shouldRetryShoppingTimeoutCase({
+      providerId: "shopping/temu"
+    }, step)).toBe(true);
   });
 
-  it("prefers structured macro failures over non-zero raw challenge detail", () => {
+  it("keeps non-zero raw macro detail ahead of structured payload classification", () => {
     const step = evaluateMacroCase({
       id: "provider.community.search.keyword",
       providerId: "community/default",
@@ -317,7 +374,7 @@ describe("provider-direct-runs", () => {
     });
 
     expect(step.status).toBe("fail");
-    expect(step.detail).toBe("unexpected_reason_codes=timeout");
+    expect(step.detail).toBe("Challenge detected while resolving provider output.");
     expect(step.data).toMatchObject({
       hasExecutionPayload: true,
       reasonCodes: ["timeout"],
@@ -325,7 +382,7 @@ describe("provider-direct-runs", () => {
     });
   });
 
-  it("prefers structured shopping boundaries over non-zero raw auth detail", () => {
+  it("keeps non-zero raw shopping detail ahead of structured payload classification", () => {
     const step = evaluateShoppingCase({
       id: "provider.shopping.target.search",
       providerId: "shopping/target",
@@ -358,8 +415,8 @@ describe("provider-direct-runs", () => {
       }
     });
 
-    expect(step.status).toBe("env_limited");
-    expect(step.detail).toBe("reason_codes=env_limited");
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("Authentication required before continuing.");
     expect(step.data).toMatchObject({
       reasonCodes: ["env_limited"],
       providerShell: "target_shell_page",
@@ -420,6 +477,36 @@ describe("provider-direct-runs", () => {
       failures: 0,
       requestedChallengeAutomationMode: null,
       helperCapableRequested: false
+    });
+  });
+
+  it("fails social macro cases that return no records and no failures", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.threads.search",
+      providerId: "social/threads",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [],
+            failures: [],
+            meta: {
+              providerOrder: ["social/threads"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("no_records_no_failures");
+    expect(step.data).toMatchObject({
+      hasExecutionPayload: true,
+      records: 0,
+      failures: 0
     });
   });
 
@@ -493,7 +580,7 @@ describe("provider-direct-runs", () => {
       providerId: "social/youtube"
     }, {
       status: "fail",
-      detail: "shell_only_records=generic_shell",
+      detail: "shell_only_records=youtube_site_chrome_shell",
       data: {
         hasExecutionPayload: false
       }
@@ -557,6 +644,100 @@ describe("provider-direct-runs", () => {
     });
   });
 
+  it("keeps the original linkedin timeout row when retry is only env-limited", () => {
+    const merged = mergeRetriedMacroStep({
+      id: "provider.social.linkedin.search",
+      status: "fail",
+      detail: "Request timed out after 120000ms",
+      data: {
+        hasExecutionPayload: false
+      }
+    }, {
+      id: "provider.social.linkedin.search",
+      status: "env_limited",
+      detail: "reason_codes=auth",
+      data: {
+        records: 0
+      }
+    });
+
+    expect(merged.status).toBe("fail");
+    expect(merged.detail).toBe("Request timed out after 120000ms");
+    expect(merged.data).toMatchObject({
+      retryRecovered: false,
+      retryFinalStatus: "env_limited"
+    });
+  });
+
+
+  it("keeps the original YouTube chrome-shell row when retry lacks usable records", () => {
+    const initial = {
+      id: "provider.social.youtube.search",
+      status: "fail",
+      detail: "shell_only_records=youtube_site_chrome_shell",
+      data: {
+        hasExecutionPayload: false
+      }
+    };
+
+    expect(mergeRetriedMacroStep(initial, {
+      id: "provider.social.youtube.search",
+      status: "env_limited",
+      detail: "reason_codes=env_limited",
+      data: {
+        records: 0
+      }
+    })).toMatchObject({
+      status: "fail",
+      detail: "shell_only_records=youtube_site_chrome_shell",
+      data: {
+        retryRecovered: false,
+        retryFinalStatus: "env_limited"
+      }
+    });
+
+    expect(mergeRetriedMacroStep(initial, {
+      id: "provider.social.youtube.search",
+      status: "pass",
+      detail: null,
+      data: {
+        records: 0
+      }
+    })).toMatchObject({
+      status: "fail",
+      detail: "shell_only_records=youtube_site_chrome_shell",
+      data: {
+        retryRecovered: false,
+        retryFinalStatus: "pass"
+      }
+    });
+  });
+
+  it("promotes a YouTube chrome-shell retry only when usable records are returned", () => {
+    const merged = mergeRetriedMacroStep({
+      id: "provider.social.youtube.search",
+      status: "fail",
+      detail: "shell_only_records=youtube_site_chrome_shell",
+      data: {
+        hasExecutionPayload: false
+      }
+    }, {
+      id: "provider.social.youtube.search",
+      status: "pass",
+      detail: null,
+      data: {
+        hasExecutionPayload: true,
+        records: 1
+      }
+    });
+
+    expect(merged.status).toBe("pass");
+    expect(merged.data).toMatchObject({
+      records: 1,
+      retryRecovered: true
+    });
+  });
+
   it("retries Temu timeout rows when the first pass fails with provider timeout reason codes", () => {
     expect(shouldRetryShoppingTimeoutCase({
       providerId: "shopping/temu"
@@ -579,7 +760,7 @@ describe("provider-direct-runs", () => {
     })).toBe(false);
   });
 
-  it("promotes a recovered Temu retry result while preserving retry metadata", () => {
+  it("keeps the original Temu timeout row when retry is only env-limited", () => {
     const merged = mergeRetriedShoppingStep({
       id: "provider.shopping.temu.search",
       status: "fail",
@@ -597,14 +778,14 @@ describe("provider-direct-runs", () => {
       }
     });
 
-    expect(merged.status).toBe("env_limited");
+    expect(merged.status).toBe("fail");
+    expect(merged.detail).toBe("unexpected_reason_codes=timeout");
     expect(merged.data).toMatchObject({
-      reasonCodes: ["env_limited"],
-      offers: 0,
       retryAttempted: true,
-      retryRecovered: true,
+      retryRecovered: false,
       retryInitialStatus: "fail",
-      retryInitialDetail: "unexpected_reason_codes=timeout"
+      retryInitialDetail: "unexpected_reason_codes=timeout",
+      retryFinalStatus: "env_limited"
     });
   });
 
@@ -1152,6 +1333,197 @@ describe("provider-direct-runs", () => {
     expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
   });
 
+  it("classifies Reddit trailing-slash search routes as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.reddit.search",
+      providerId: "social/reddit",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [{
+              id: "reddit-search-shell",
+              url: "https://www.reddit.com/search/?q=browser+automation",
+              title: "Reddit Search",
+              content: "Search Reddit",
+              attributes: {
+                retrievalPath: "social:search:index"
+              }
+            }],
+            failures: [],
+            meta: {
+              providerOrder: ["social/reddit"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
+  it("classifies Facebook search-only shells as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.facebook.search",
+      providerId: "social/facebook",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "facebook-search-shell",
+                url: "https://www.facebook.com/watch/search/?q=browser+automation&page=1",
+                title: "browser automation videos | Facebook",
+                content: "Search results",
+                attributes: {
+                  links: [
+                    "https://www.facebook.com/watch/search/?q=browser+automation",
+                    "https://www.facebook.com/watch"
+                  ],
+                  retrievalPath: "social:search:index"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/facebook"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
+  it("classifies Facebook support-only search pages as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.facebook.search",
+      providerId: "social/facebook",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "facebook-support-shell",
+                url: "https://www.facebook.com/watch/search/?q=browser+automation&page=1",
+                title: "browser automation videos | Facebook",
+                content: "Search results Shared with Public",
+                attributes: {
+                  links: [
+                    "https://www.facebook.com/browserautomation",
+                    "https://m.facebook.com/opendevbrowser"
+                  ],
+                  retrievalPath: "social:search:index"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/facebook"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
+  it("classifies Threads trailing-slash search shells as env-limited social macro results", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.threads.search",
+      providerId: "social/threads",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "threads-search-shell",
+                url: "https://www.threads.net/search/?q=browser+automation&page=1",
+                title: "Threads search",
+                content: "Search results",
+                attributes: {
+                  links: [
+                    "https://www.threads.net/",
+                    "https://www.threads.net/login/"
+                  ],
+                  retrievalPath: "social:search:index"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/threads"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_render_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_render_shell"]);
+  });
+
+  it("keeps Threads macro rows as pass when a usable post link survives shell detection", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.threads.search",
+      providerId: "social/threads",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "threads-search-with-post",
+                url: "https://www.threads.net/search/?q=browser+automation&page=1",
+                title: "Threads search",
+                content: "Search results",
+                attributes: {
+                  links: ["https://www.threads.net/@opendevbrowser/post/ABC123"],
+                  retrievalPath: "social:search:index"
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/threads"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("pass");
+    expect(step.detail).toBeNull();
+    expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
   it("classifies deferred auth walls as env-limited social macro results even when expansion returned records", () => {
     const step = evaluateMacroCase({
       id: "provider.social.facebook.search",
@@ -1382,7 +1754,7 @@ describe("provider-direct-runs", () => {
     expect(step.data.shellOnlyReasons).toEqual(["social_verification_wall"]);
   });
 
-  it("classifies structured community challenge failures as env-limited", () => {
+  it("keeps non-zero community challenge detail blocking despite structured payload", () => {
     const step = evaluateMacroCase({
       id: "provider.community.search.keyword",
       providerId: "community/default",
@@ -1413,8 +1785,8 @@ describe("provider-direct-runs", () => {
       }
     });
 
-    expect(step.status).toBe("env_limited");
-    expect(step.detail).toBe("reason_codes=challenge_detected");
+    expect(step.status).toBe("fail");
+    expect(step.detail).toBe("Detected anti-bot challenge while retrieving https://www.reddit.com/search/?q=browser+automation+failures");
     expect(step.data).toMatchObject({
       reasonCodes: ["challenge_detected"],
       failureSamples: [
@@ -1496,6 +1868,40 @@ describe("provider-direct-runs", () => {
     expect(step.status).toBe("env_limited");
     expect(step.detail).toBe("reason_codes=env_limited");
     expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("classifies YouTube site chrome shell records with a provider-specific reason", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.youtube.search",
+      providerId: "social/youtube",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [{
+              id: "youtube-site-chrome",
+              url: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+              title: "YouTube",
+              content: "About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy",
+              attributes: {
+                retrievalPath: "social:fetch:url"
+              }
+            }],
+            failures: [],
+            meta: {
+              providerOrder: ["social/youtube"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=youtube_site_chrome_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["youtube_site_chrome_shell"]);
   });
 
   it("keeps macro passes when at least one usable record survives the shell gate", () => {

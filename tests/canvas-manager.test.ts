@@ -3196,6 +3196,16 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
         changes: { "metadata.note": "missing" }
       }]
     })).rejects.toThrow("Unknown node: node_missing");
+    await expect(manager.execute("canvas.document.patch", {
+      canvasSessionId,
+      leaseId,
+      baseRevision: Number(planResult.documentRevision),
+      patches: [{
+        op: "governance.update",
+        block: "libraryPolicy",
+        changes: { motion: ["framer-motion"] }
+      }]
+    })).rejects.toThrow("libraryPolicy.motion must stay empty");
 
     await expect(manager.execute("canvas.document.export", {
       canvasSessionId,

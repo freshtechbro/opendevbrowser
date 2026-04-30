@@ -101,6 +101,7 @@ import { setDefaultLogSink, stderrSink } from "../core/logging";
 import { flushOutputAndExit, writeOutput } from "./output";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
 import type { CliError } from "./errors";
+import { buildProviderFollowupErrorMessage } from "./utils/workflow-message";
 import packageJson from "../../package.json";
 import { resolveUpdateSkillModes } from "./update-skill-modes";
 import { buildUninstallCommandResult, buildUpdateCommandResult } from "./skill-lifecycle";
@@ -208,15 +209,16 @@ async function promptUninstallMode(): Promise<InstallMode | null> {
 }
 
 function emitFatalError(error: CliError, outputFormat: OutputFormat): void {
+  const message = buildProviderFollowupErrorMessage(error.message);
   if (outputFormat === "text") {
-    console.error(`Error: ${error.message}`);
+    console.error(`Error: ${message}`);
     if (error.exitCode === EXIT_USAGE) {
       console.error("\nFor help: npx opendevbrowser --help");
     }
     return;
   }
 
-  writeOutput(formatErrorPayload(error), { format: outputFormat });
+  writeOutput({ ...formatErrorPayload(error), error: message }, { format: outputFormat });
 }
 
 async function main(): Promise<void> {

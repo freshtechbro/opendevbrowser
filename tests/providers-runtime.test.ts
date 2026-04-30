@@ -739,7 +739,7 @@ describe("provider runtime branches", () => {
     }
   });
 
-  it("surfaces token-required community fallback failures as authentication-required errors", async () => {
+  it("rejects token-required community fallback when completed output is still only shell links", async () => {
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
       ok: true,
       reasonCode: "token_required" as const,
@@ -785,6 +785,8 @@ describe("provider runtime branches", () => {
         reasonCode: "token_required",
         message: "Authentication required for https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all",
         details: {
+          browserRequired: true,
+          browserFallbackMode: "extension",
           browserFallbackReasonCode: "token_required",
           blockedLinks: [
             "https://www.reddit.com/login",
@@ -792,6 +794,9 @@ describe("provider runtime branches", () => {
             "https://www.reddit.com"
           ]
         }
+      });
+      expect(result.failures[0]?.error.details).not.toMatchObject({
+        fallbackOutputReason: "empty_extracted_content"
       });
     } finally {
       vi.unstubAllGlobals();
@@ -1780,7 +1785,7 @@ describe("provider runtime branches", () => {
     }
   });
 
-  it("keeps community auth-required classification when completed fallback omits url and html output", async () => {
+  it("rejects community completed fallback when url and html output are omitted", async () => {
     const fallbackResolve = vi.fn(async () => ({
       ok: true as const,
       reasonCode: "token_required" as const,
@@ -1811,18 +1816,12 @@ describe("provider runtime branches", () => {
       expect(result.failures[0]?.error).toMatchObject({
         code: "auth",
         reasonCode: "token_required",
-        message: "Authentication required for https://example.com/login",
+        message: "Browser fallback completed for https://example.com/login without usable HTML content.",
         details: {
-          status: 200,
           url: "https://example.com/login",
-          reasonCode: "token_required",
-          blockerType: "auth_required",
-          constraint: {
-            kind: "session_required",
-            evidenceCode: "auth_required"
-          },
-          browserFallbackReasonCode: "token_required",
-          browserFallbackMode: "extension"
+          disposition: "completed",
+          browserFallbackMode: "extension",
+          fallbackOutputReason: "missing_or_empty_html"
         }
       });
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
@@ -1835,12 +1834,14 @@ describe("provider runtime branches", () => {
     }
   });
 
-  it("keeps social auth-required classification when completed fallback omits url and html output", async () => {
+  it("rejects social completed fallback when html output is empty", async () => {
     const fallbackResolve = vi.fn(async () => ({
       ok: true as const,
       reasonCode: "token_required" as const,
       mode: "extension" as const,
-      output: {},
+      output: {
+        html: ""
+      },
       details: {}
     }));
 
@@ -1866,18 +1867,12 @@ describe("provider runtime branches", () => {
       expect(result.failures[0]?.error).toMatchObject({
         code: "auth",
         reasonCode: "token_required",
-        message: "Authentication required for https://example.com/login",
+        message: "Browser fallback completed for https://example.com/login without usable HTML content.",
         details: {
-          status: 200,
           url: "https://example.com/login",
-          reasonCode: "token_required",
-          blockerType: "auth_required",
-          constraint: {
-            kind: "session_required",
-            evidenceCode: "auth_required"
-          },
-          browserFallbackReasonCode: "token_required",
-          browserFallbackMode: "extension"
+          disposition: "completed",
+          browserFallbackMode: "extension",
+          fallbackOutputReason: "missing_or_empty_html"
         }
       });
       expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
@@ -1885,6 +1880,176 @@ describe("provider runtime branches", () => {
         reasonCode: "token_required",
         operation: "search"
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects completed fallback pages that only contain metadata and shell navigation", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=metadata+shell",
+        html: [
+          "<html><head>",
+          "<title>Search results</title>",
+          "<meta name=\"description\" content=\"Search the web\">",
+          "</head><body>",
+          "<a href=\"/search?q=metadata+shell\">Search</a>",
+          "<a href=\"/login\">Log in</a>",
+          "<a href=\"/privacy\">Privacy</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "metadata shell", limit: 2 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        message: "Browser fallback completed for https://duckduckgo.com/html?ia=web&q=metadata+shell without usable HTML content.",
+        details: {
+          disposition: "completed",
+          browserFallbackMode: "managed_headed",
+          fallbackOutputReason: "empty_extracted_content"
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("accepts completed fallback pages with useful body links and no body text", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://example.com/search",
+        html: "<html><body><a href=\"https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API\"></a></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "fetch api", limit: 1 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.url).toBe("https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API");
+      expect(result.records[0]?.attributes).toMatchObject({
+        browser_fallback_mode: "managed_headed",
+        browser_fallback_reason_code: "env_limited"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects completed fallback pages with generic navigation body links", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://example.com/search",
+        html: [
+          "<html><body>",
+          "<a href=\"/about\">About</a>",
+          "<a href=\"/contact\">Contact</a>",
+          "<a href=\"/products\">Products</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "navigation shell", limit: 1 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        fallbackOutputReason: "empty_extracted_content"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects completed fallback pages that only expose head links", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://example.com/search",
+        html: "<html><head><title>Search</title><link href=\"/assets/app.css\" rel=\"stylesheet\"></head><body></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "head link shell", limit: 1 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        fallbackOutputReason: "empty_extracted_content"
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -2142,11 +2307,14 @@ describe("provider runtime branches", () => {
   });
 
   it("falls back with env_limited reason and forwards cookie context on network failures", async () => {
-    const fallbackResolve = vi.fn(async () => ({
+    const fallbackResolve = vi.fn(async (request: { url?: string }) => ({
       ok: true as const,
       reasonCode: "env_limited" as const,
       mode: "managed_headed" as const,
-      output: {},
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=provider+fallback",
+        html: "<html><body><a href=\"https://example.com/fallback\">Fallback result</a></body></html>"
+      },
       details: {}
     }));
 

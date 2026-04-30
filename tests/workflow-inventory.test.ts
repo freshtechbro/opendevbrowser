@@ -98,8 +98,8 @@ describe("workflow inventory", () => {
 
     expect(onboarding?.ownerFiles).toContain("src/cli/onboarding-metadata.json");
     expect(onboarding?.ownerFiles).toContain("docs/FIRST_RUN_ONBOARDING.md");
-    expect(research?.primaryArgs).toContain("auto");
-    expect(research?.secondaryArgs).toContain("auto");
+    expect(research?.primaryArgs).toContain("web");
+    expect(research?.secondaryArgs).toContain("web");
     expect(research?.primaryArgs).not.toContain("--sources");
     expect(research?.secondaryArgs).not.toContain("--sources");
     expect(research?.ownerFiles).toContain("src/providers/research-compiler.ts");
@@ -133,6 +133,8 @@ describe("workflow inventory", () => {
     expect(media?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoUrl?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoName?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(productVideoUrl?.primaryArgs).toEqual(expect.arrayContaining(["--browser-mode", "managed"]));
+    expect(productVideoName?.primaryArgs).toEqual(expect.arrayContaining(["--browser-mode", "managed"]));
     expect(productVideoUrl?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
     expect(productVideoName?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
     expect(inspiredesign?.allowedStatuses).toEqual(["pass", "env_limited"]);
@@ -269,6 +271,7 @@ describe("workflow validation matrix helpers", () => {
     const currentDaemonStatus = {
       status: 0,
       json: {
+        success: true,
         data: {
           relay: {
             extensionHandshakeComplete: true,
@@ -298,6 +301,29 @@ describe("workflow validation matrix helpers", () => {
       initialExtensionReady: true,
       currentDaemonStatus
     })).toBeNull();
+  });
+
+  it("treats stale daemon fingerprints as failed extension preflight", () => {
+    expect(classifyScenarioPreflight({
+      scenario: { requiresExtension: true },
+      startedDaemon: false,
+      relayWasDirty: false,
+      initialDaemonOk: true,
+      initialExtensionReady: true,
+      currentDaemonStatus: {
+        status: 0,
+        json: {
+          success: true,
+          data: {
+            fingerprintCurrent: false,
+            relay: { extensionHandshakeComplete: true }
+          }
+        }
+      }
+    })).toMatchObject({
+      status: "fail",
+      detail: "daemon_fingerprint_mismatch"
+    });
   });
 
   it("renders a compact execution ledger with infra and inventoried sections", () => {

@@ -3,7 +3,13 @@ import { callDaemon } from "../client";
 import { createUsageError } from "../errors";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
 import { parseNumberFlag } from "../utils/parse";
+import {
+  buildNextStepMessage,
+  readFollowthroughSummary,
+  readWorkflowGuidanceNextStep
+} from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
+import type { WorkflowBrowserMode } from "../../providers/types";
 
 type MacroResolveArgs = {
   expression?: string;
@@ -11,10 +17,12 @@ type MacroResolveArgs = {
   includeCatalog?: boolean;
   execute?: boolean;
   timeoutMs?: number;
+  browserMode?: WorkflowBrowserMode;
   challengeAutomationMode?: ChallengeAutomationMode;
 };
 
 const MACRO_TRANSPORT_TIMEOUT_BUFFER_MS = 60_000;
+const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
 
 const deriveMacroTransportTimeoutMs = (timeoutMs: number): number => {
   return Math.max(
@@ -37,39 +45,17 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   return value as Record<string, unknown>;
 };
 
-const readNonEmptyString = (value: unknown): string | null => (
-  typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : null
-);
-
 const hasExecutionBlocker = (result: unknown): boolean => {
   const execution = asRecord(asRecord(result)?.execution);
   const meta = asRecord(execution?.meta);
   return asRecord(meta?.blocker) !== null;
 };
 
-const readMacroResolveSummary = (result: unknown): string | null => (
-  readNonEmptyString(asRecord(result)?.followthroughSummary)
-);
-
-const readMacroResolveNextStep = (result: unknown): string | null => {
-  const record = asRecord(result);
-  const explicit = readNonEmptyString(record?.suggestedNextAction);
-  if (explicit) {
-    return explicit;
-  }
-  const [firstStep] = Array.isArray(record?.suggestedSteps)
-    ? record.suggestedSteps.filter((step): step is Record<string, unknown> => Boolean(step) && typeof step === "object")
-    : [];
-  return readNonEmptyString(firstStep?.command) ?? readNonEmptyString(firstStep?.reason);
-};
-
 const buildMacroResolveMessage = (execute: boolean, result: unknown): string => {
-  const summary = readMacroResolveSummary(result);
-  const nextStep = readMacroResolveNextStep(result);
+  const summary = readFollowthroughSummary(result);
+  const nextStep = readWorkflowGuidanceNextStep(result);
   if (summary) {
-    return nextStep ? `${summary} Next step: ${nextStep}` : summary;
+    return buildNextStepMessage(summary, nextStep);
   }
   if (!execute) {
     return "Macro resolved.";
@@ -127,6 +113,24 @@ const parseMacroResolveArgs = (rawArgs: string[]): MacroResolveArgs => {
       continue;
     }
 
+    if (arg === "--browser-mode") {
+      const value = requireValue(rawArgs[index + 1], "--browser-mode").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--browser-mode=")) {
+      const value = requireValue(arg.split("=", 2)[1], "--browser-mode").toLowerCase();
+      if (!BROWSER_MODE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --browser-mode: ${value}`);
+      }
+      parsed.browserMode = value as WorkflowBrowserMode;
+      continue;
+    }
+
     if (arg === "--challenge-automation-mode") {
       const value = requireValue(rawArgs[index + 1], "--challenge-automation-mode");
       if (!isChallengeAutomationMode(value)) {
@@ -154,6 +158,12 @@ export async function runMacroResolve(args: ParsedArgs) {
   if (!parsed.expression) {
     throw createUsageError("Missing --expression");
   }
+  if (!parsed.execute && parsed.browserMode) {
+    throw createUsageError("--browser-mode requires --execute for macro-resolve");
+  }
+  if (!parsed.execute && parsed.challengeAutomationMode) {
+    throw createUsageError("--challenge-automation-mode requires --execute for macro-resolve");
+  }
 
   const params = {
     expression: parsed.expression,
@@ -161,6 +171,7 @@ export async function runMacroResolve(args: ParsedArgs) {
     includeCatalog: parsed.includeCatalog ?? false,
     execute: parsed.execute ?? false,
     ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {}),
+    ...(parsed.browserMode ? { browserMode: parsed.browserMode } : {}),
     ...(parsed.challengeAutomationMode ? { challengeAutomationMode: parsed.challengeAutomationMode } : {})
   };
   const result = typeof parsed.timeoutMs === "number"

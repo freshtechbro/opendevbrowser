@@ -15,6 +15,7 @@
       "contentHierarchy": [],
       "componentFamilies": [],
       "motionPosture": "",
+      "advancedMotionAdvisory": [],
       "loadingStrategy": "",
       "tokenNotes": [],
       "patternsToBorrow": [],
@@ -26,6 +27,7 @@
     "dominantDirection": "",
     "sharedStrengths": [],
     "sharedFailuresToAvoid": [],
+    "motionContractDeltas": [],
     "contractDeltas": []
   }
 }

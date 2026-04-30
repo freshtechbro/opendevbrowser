@@ -259,8 +259,8 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       {
         name: "research",
         description: "Run research workflows",
-        usage: "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
-        flags: ["--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source", "--mode", "--timeout-ms", "--output-dir", "--ttl-hours", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
+        usage: "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--browser-mode <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        flags: ["--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source", "--browser-mode", "--mode", "--timeout-ms", "--output-dir", "--ttl-hours", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
       },
       {
         name: "shopping",
@@ -271,14 +271,14 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       {
         name: "product-video",
         description: "Run product presentation asset workflows",
-        usage: "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots <bool>] [--include-all-images <bool>] [--include-copy <bool>] [--timeout-ms <ms>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
-        flags: ["--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy", "--timeout-ms", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy", "--output-dir", "--ttl-hours"]
+        usage: "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots[=<bool>]] [--include-all-images[=<bool>]] [--include-copy[=<bool>]] [--timeout-ms <ms>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
+        flags: ["--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy", "--timeout-ms", "--browser-mode", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy", "--output-dir", "--ttl-hours"]
       },
       {
         name: "inspiredesign",
         description: "Run inspiredesign workflows",
-        usage: "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
-        flags: ["--brief", "--url", "--capture-mode", "--include-prototype-guidance", "--mode", "--timeout-ms", "--output-dir", "--ttl-hours", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
+        usage: "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        flags: ["--brief", "--url", "--capture-mode", "--include-prototype-guidance", "--mode", "--timeout-ms", "--output-dir", "--ttl-hours", "--browser-mode", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
       },
       {
         name: "artifacts",
@@ -289,8 +289,8 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       {
         name: "macro-resolve",
         description: "Resolve or execute a macro expression via provider actions",
-        usage: "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute] [--timeout-ms <ms>] [--challenge-automation-mode <mode>]",
-        flags: ["--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms", "--challenge-automation-mode"]
+        usage: "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute [--timeout-ms <ms>] [--browser-mode <mode>] [--challenge-automation-mode <mode>]]",
+        flags: ["--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms", "--browser-mode", "--challenge-automation-mode"]
       }
     ]
   },
@@ -721,15 +721,15 @@ const CLI_COMMAND_EXAMPLES = {
   connect: [cliExample("connect", "--host 127.0.0.1 --cdp-port 9222 --output-format json")],
   disconnect: [cliExample("disconnect", "--session-id s1 --close-browser --output-format json")],
   status: [cliExample("status", "--daemon --output-format json")],
-  "status-capabilities": [cliExample("status-capabilities", "--session-id s1 --target-id page-1 --challenge-automation-mode browser --timeout-ms 30000 --output-format json")],
+  "status-capabilities": [cliExample("status-capabilities", "--session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --timeout-ms 30000 --output-format json")],
   "cookie-import": [cliExample("cookie-import", "--session-id s1 --cookies-file ./cookies.json --strict true --output-format json")],
   "cookie-list": [cliExample("cookie-list", "--session-id s1 --url https://example.com --output-format json")],
-  research: [cliExample("research run", "--topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --mode json --output-format json")],
-  shopping: [cliExample("shopping run", "--query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json")],
-  "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --include-screenshots --output-format json")],
-  inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
+  research: [cliExample("research run", "--topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json")],
+  shopping: [cliExample("shopping run", "--query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json")],
+  "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json")],
+  inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
   artifacts: [cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")],
-  "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --challenge-automation-mode browser --output-format json")],
+  "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json")],
   canvas: [cliExample("canvas", "--command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json")],
   goto: [cliExample("goto", "--session-id s1 --url https://example.com --wait-until networkidle --output-format json")],
   wait: [cliExample("wait", "--session-id s1 --state networkidle --timeout-ms 30000 --output-format json")],
@@ -767,7 +767,7 @@ const CLI_COMMAND_EXAMPLES = {
   "clone-page": [cliExample("clone-page", "--session-id s1 --target-id page-1 --path ./exports/page.tsx --output-format json")],
   "clone-component": [cliExample("clone-component", "--session-id s1 --ref r12 --path ./exports/component.tsx --output-format json")],
   "session-inspector": [cliExample("session-inspector", "--session-id s1 --include-urls --max 20 --output-format json")],
-  "session-inspector-plan": [cliExample("session-inspector-plan", "--session-id s1 --target-id page-1 --challenge-automation-mode browser --output-format json")],
+  "session-inspector-plan": [cliExample("session-inspector-plan", "--session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --output-format json")],
   "session-inspector-audit": [cliExample("session-inspector-audit", "--session-id s1 --target-id page-1 --reason \"trace challenge state\" --include-urls --request-id req-session-audit-001 --challenge-automation-mode browser_with_helper --output-format json")],
   perf: [cliExample("perf", "--session-id s1 --output-format json")],
   screenshot: [cliExample("screenshot", "--session-id s1 --path ./artifacts/page.png --full-page --output-format json")],
@@ -811,6 +811,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Repeat --url for multiple references. There is no --urls alias."
   ],
   "macro-resolve": [
+    "Use --browser-mode and --challenge-automation-mode only with --execute.",
     "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete."
   ],
   canvas: [

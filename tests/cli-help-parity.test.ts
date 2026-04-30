@@ -113,7 +113,8 @@ describe("cli help parity", () => {
       "--brief",
       "--url",
       "--capture-mode",
-      "--include-prototype-guidance"
+      "--include-prototype-guidance",
+      "--browser-mode"
     ]));
   });
 
@@ -149,17 +150,18 @@ describe("cli help parity", () => {
     expect(COMMAND_HELP_DETAILS.uninstall.usage).toContain("--quiet");
     expect(COMMAND_HELP_DETAILS.run.examples[0]).toContain("run --script ./workflow.json");
     expect(COMMAND_HELP_DETAILS.run.flags).toEqual(expect.arrayContaining(["--headless", "--persist-profile"]));
-    expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--browser-mode"]));
     expect(COMMAND_HELP_DETAILS.research.examples[0]).toContain("research run");
     expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
     expect(COMMAND_HELP_DETAILS.shopping.examples[0]).toContain("shopping run");
-    expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--browser-mode"]));
     expect(COMMAND_HELP_DETAILS["product-video"].examples[0]).toContain("product-video run");
     expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
       "--brief",
       "--url",
       "--capture-mode",
-      "--include-prototype-guidance"
+      "--include-prototype-guidance",
+      "--browser-mode"
     ]));
     expect(COMMAND_HELP_DETAILS.inspiredesign.examples[0]).toContain("inspiredesign run");
     expect(HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands])).toContain("inspiredesign");
@@ -192,6 +194,7 @@ describe("cli help parity", () => {
     expect(labels).toContain("opendevbrowser help");
     expect(labels).toContain("src/cli/help.ts");
     expect(labels).toContain("src/cli/onboarding-metadata.json");
+    expect(labels).toContain("src/providers/workflow-handoff.ts");
     expect(labels).toContain("src/inspiredesign/handoff.ts");
     expect(labels).toContain("src/public-surface/generated-manifest.ts");
     expect(labels).toContain("docs/WORKFLOW_SURFACE_MAP.md");

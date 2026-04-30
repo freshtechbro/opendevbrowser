@@ -31,6 +31,22 @@ function tailLog(chunks) {
   return chunks.join("").trim();
 }
 
+export function isCurrentHarnessDaemonStatus(status) {
+  return status?.status === 0
+    && status.json?.success === true
+    && status.json?.data?.fingerprintCurrent !== false;
+}
+
+export function currentHarnessDaemonStatusDetail(status) {
+  if (isCurrentHarnessDaemonStatus(status)) {
+    return null;
+  }
+  if (status?.status === 0 && status.json?.data?.fingerprintCurrent === false) {
+    return "daemon_fingerprint_mismatch";
+  }
+  return status?.detail ?? "daemon_status_unavailable";
+}
+
 async function waitForChildExit(child, timeoutMs = CHILD_EXIT_WAIT_MS) {
   if (child.exitCode !== null || child.signalCode !== null) {
     return;
@@ -141,7 +157,7 @@ export async function startDaemon(env, daemonPort) {
       allowFailure: true,
       timeoutMs: 10_000
     });
-    if (status.status === 0 && status.json?.success) {
+    if (isCurrentHarnessDaemonStatus(status)) {
       return daemon;
     }
     await sleep(250);
@@ -173,7 +189,7 @@ export async function startConfiguredDaemon(env) {
       allowFailure: true,
       timeoutMs: 10_000
     });
-    if (status.status === 0 && status.json?.success) {
+    if (isCurrentHarnessDaemonStatus(status)) {
       return daemon;
     }
     await sleep(250);
@@ -238,7 +254,7 @@ export async function withConfiguredDaemon(task, env = process.env) {
     allowFailure: true,
     timeoutMs: 10_000
   });
-  if (status.status === 0 && status.json?.success) {
+  if (isCurrentHarnessDaemonStatus(status)) {
     return await task({
       env,
       daemon: null,

@@ -6,7 +6,7 @@ export type SocialSearchShellCode =
   | "social_first_party_help_shell"
   | "social_verification_wall";
 
-const TARGETED_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit", "facebook"]);
+const TARGETED_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit", "facebook", "threads"]);
 const SOCIAL_JS_REQUIRED_RE = /\b(?:javascript (?:is not available|required|is disabled(?: in this browser)?)|you need to enable javascript|please enable javascript)\b/i;
 const BLUESKY_LOGGED_OUT_SEARCH_RE = /\bsearch is currently unavailable when logged out\b/i;
 const BLUESKY_EMPTY_SEARCH_SHELL_RE = /\b(?:follow 10 people to get started|find people to follow)\b/i;
@@ -108,6 +108,11 @@ const isPrimaryFacebookHost = (host: string): boolean => {
     || normalized === "m.facebook.com";
 };
 
+const isPrimaryThreadsHost = (host: string): boolean => {
+  const normalized = host.toLowerCase();
+  return normalized === "www.threads.net" || normalized === "threads.net";
+};
+
 const isFacebookSearchLikePath = (pathname: string): boolean => (
   pathname === "/watch/search"
   || pathname === "/watch/search/"
@@ -156,7 +161,12 @@ const isBlockedRedditNonContentUrl = (
     return false;
   }
   const pathname = parsed.pathname.toLowerCase();
-  if (pathname === "/" || pathname === "/login" || (options.includeSearchRoute && pathname === "/search")) {
+  if (
+    pathname === "/"
+    || pathname === "/login"
+    || pathname === "/login/"
+    || (options.includeSearchRoute && (pathname === "/search" || pathname === "/search/"))
+  ) {
     return true;
   }
   const pathSegment = firstPathSegment(pathname);
@@ -177,6 +187,9 @@ const isRootShellUrl = (platform: SocialPlatform, parsed: URL): boolean => {
       return isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: false });
     case "facebook":
       return isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: false });
+    case "threads":
+      return isPrimaryThreadsHost(host)
+        && (pathname === "/" || pathname === "/login" || pathname === "/login/");
     default:
       return false;
   }
@@ -211,6 +224,15 @@ const isBlockedExpansionPath = (platform: SocialPlatform, parsed: URL): boolean 
       return isBlockedRedditNonContentUrl(parsed, { includeSearchRoute: true });
     case "facebook":
       return isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: true });
+    case "threads":
+      return isPrimaryThreadsHost(host)
+        && (
+          pathname === "/"
+          || pathname === "/login"
+          || pathname === "/search"
+          || pathname === "/search/"
+          || isStaticMetadataPath(pathname)
+        );
     default:
       return false;
   }
@@ -225,9 +247,11 @@ const isFirstPartySearchRoute = (platform: SocialPlatform, parsed: URL): boolean
     case "bluesky":
       return host === "bsky.app" && pathname === "/search";
     case "reddit":
-      return isPrimaryRedditHost(host) && pathname === "/search";
+      return isPrimaryRedditHost(host) && (pathname === "/search" || pathname === "/search/");
     case "facebook":
       return isPrimaryFacebookHost(host) && isFacebookSearchLikePath(pathname);
+    case "threads":
+      return isPrimaryThreadsHost(host) && (pathname === "/search" || pathname === "/search/");
     default:
       return false;
   }
@@ -334,6 +358,13 @@ const isUsableFacebookSearchEvidenceUrl = (url: string): boolean => {
     || (pathname === "/photo/" && parsed.searchParams.has("fbid"));
 };
 
+const isUsableThreadsSearchEvidenceUrl = (url: string): boolean => {
+  const parsed = parseUrl(url);
+  return parsed !== null
+    && isPrimaryThreadsHost(parsed.hostname)
+    && /^\/@[^/]+\/post\/[^/]+\/?$/.test(parsed.pathname.toLowerCase());
+};
+
 const isRetainableFacebookSearchSupportUrl = (url: string): boolean => {
   const parsed = parseUrl(url);
   if (parsed === null || !isPrimaryFacebookHost(parsed.hostname)) {
@@ -359,17 +390,18 @@ const hasFacebookSearchResultSignals = (
   const hasSearchHeading = FACEBOOK_SEARCH_RESULTS_HEADING_RE.test(combined);
   const markerCount = FACEBOOK_SEARCH_RESULT_MARKERS.filter((pattern) => pattern.test(combined)).length;
   const evidence = collectSocialSearchLinkEvidence("facebook", parsed.toString(), Array.isArray(input.links) ? input.links : []);
+  const hasContentEvidence = evidence.usableContentLinks.length > 0;
   const supportLinkCount = evidence.usableLinks.filter(isRetainableFacebookSearchSupportUrl).length;
-  if (markerCount >= 2) {
+  if (markerCount >= 2 && hasContentEvidence) {
     return true;
   }
   if (!hasSearchHeading) {
     return false;
   }
-  if (markerCount >= 1) {
+  if (markerCount >= 1 && hasContentEvidence) {
     return true;
   }
-  return supportLinkCount >= 2;
+  return supportLinkCount >= 2 && hasContentEvidence;
 };
 
 const isUsableSocialSearchContentUrl = (
@@ -385,6 +417,8 @@ const isUsableSocialSearchContentUrl = (
       return isUsableRedditSearchEvidenceUrl(url);
     case "facebook":
       return isUsableFacebookSearchEvidenceUrl(url);
+    case "threads":
+      return isUsableThreadsSearchEvidenceUrl(url);
     default:
       return false;
   }

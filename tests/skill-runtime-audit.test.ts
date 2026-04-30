@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildProviderDirectAuditArgs,
   buildFixQueue,
   buildTargetedRerunCommands,
   deriveAuditDomainStatus,
@@ -229,6 +230,15 @@ describe("skill runtime audit status modeling", () => {
     expect(shouldUseConfiguredAuditEnv("provider-direct", { smoke: true })).toBe(false);
     expect(shouldUseConfiguredAuditEnv("live-regression", { smoke: true })).toBe(false);
     expect(shouldUseConfiguredAuditEnv("cli-smoke", { smoke: false })).toBe(false);
+  });
+
+  it("keeps provider direct audit args aligned with the current environment contract", () => {
+    const args = buildProviderDirectAuditArgs({ smoke: false, quiet: true }, "artifacts/provider-direct.json");
+
+    expect(args).toContain("--include-auth-gated");
+    expect(args).toContain("--include-high-friction");
+    expect(args).toContain("--quiet");
+    expect(args).not.toContain("--use-global-env");
   });
 
   it("preserves rerun metadata from JSON lanes", () => {

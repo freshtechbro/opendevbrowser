@@ -6,6 +6,7 @@ import { resolveProviderRuntime } from "./workflow-runtime";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 
 const z = tool.schema;
+const browserModeSchema = z.enum(["auto", "extension", "managed"]);
 const cookiePolicySchema = z.enum(["off", "auto", "required"]);
 const challengeAutomationModeSchema = z.enum(CHALLENGE_AUTOMATION_MODES);
 
@@ -46,6 +47,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
       output_dir: z.string().optional().describe("Optional output directory"),
       ttl_hours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
+      browserMode: browserModeSchema.optional().describe("Browser transport mode: auto|extension|managed"),
       useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),
       challengeAutomationMode: challengeAutomationModeSchema.optional().describe("Challenge automation mode: off|browser|browser_with_helper"),
       cookiePolicyOverride: cookiePolicySchema.optional().describe("Override cookie policy: off|auto|required")
@@ -65,6 +67,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
           output_dir: args.output_dir,
           ttl_hours: args.ttl_hours,
           timeoutMs: args.timeoutMs,
+          browserMode: args.browserMode,
           useCookies: args.useCookies,
           challengeAutomationMode: args.challengeAutomationMode,
           cookiePolicyOverride: args.cookiePolicyOverride

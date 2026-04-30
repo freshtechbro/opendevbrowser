@@ -7,9 +7,9 @@ import {
 } from "../inspiredesign/contract";
 import type { CanvasDesignGovernance, CanvasGenerationPlan } from "../canvas/types";
 import {
-  INSPIREDESIGN_HANDOFF_FILES,
-  INSPIREDESIGN_HANDOFF_GUIDANCE
+  INSPIREDESIGN_HANDOFF_FILES
 } from "../inspiredesign/handoff";
+import { buildInspiredesignSuccessHandoff } from "./workflow-handoff";
 
 export type RenderMode = "compact" | "json" | "md" | "context" | "path";
 
@@ -367,26 +367,12 @@ export const renderInspiredesign = (args: {
     evidence: args.evidence,
     meta: args.meta
   };
-  const suggestedSteps = [
-    {
-      reason: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief
-    },
-    {
-      reason: "Load the baseline workflow runbook before implementation.",
-      command: args.designAgentHandoff.commandExamples.loadBestPractices
-    },
-    {
-      reason: "Load the Canvas contract lane before patching.",
-      command: args.designAgentHandoff.commandExamples.loadDesignAgent
-    },
-    {
-      reason: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest,
-      command: args.designAgentHandoff.commandExamples.continueInCanvas
-    },
-    {
-      reason: args.designAgentHandoff.deepCaptureRecommendation
-    }
-  ];
+  const handoff = buildInspiredesignSuccessHandoff({
+    summary: followthroughSummary,
+    nextStep: args.designAgentHandoff.nextStep,
+    commandExamples: args.designAgentHandoff.commandExamples,
+    deepCaptureRecommendation: args.designAgentHandoff.deepCaptureRecommendation
+  });
   const files: Array<{ path: string; content: string | Record<string, unknown> }> = [
     { path: INSPIREDESIGN_HANDOFF_FILES.designMarkdown, content: args.designMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.advancedBrief, content: args.advancedBriefMarkdown },
@@ -411,9 +397,7 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         summary,
-        followthroughSummary,
-        suggestedNextAction: args.designAgentHandoff.nextStep,
-        suggestedSteps,
+        ...handoff,
         ...captureAttemptFields,
         meta: args.meta
       },
@@ -434,9 +418,7 @@ export const renderInspiredesign = (args: {
         implementationPlan: args.implementationPlan,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
         evidence: args.evidence,
-        followthroughSummary,
-        suggestedNextAction: args.designAgentHandoff.nextStep,
-        suggestedSteps,
+        ...handoff,
         ...captureAttemptFields,
         meta: args.meta
       },
@@ -450,9 +432,7 @@ export const renderInspiredesign = (args: {
         markdown: args.designMarkdown,
         implementationPlanMarkdown: args.implementationPlanMarkdown,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
-        followthroughSummary,
-        suggestedNextAction: args.designAgentHandoff.nextStep,
-        suggestedSteps,
+        ...handoff,
         ...captureAttemptFields,
         meta: args.meta
       },
@@ -464,9 +444,7 @@ export const renderInspiredesign = (args: {
       response: {
         mode: args.mode,
         context: contextPayload,
-        followthroughSummary,
-        suggestedNextAction: args.designAgentHandoff.nextStep,
-        suggestedSteps,
+        ...handoff,
         ...captureAttemptFields,
         meta: args.meta
       },
@@ -477,9 +455,7 @@ export const renderInspiredesign = (args: {
   return {
     response: {
       mode: "path",
-      followthroughSummary,
-      suggestedNextAction: args.designAgentHandoff.nextStep,
-      suggestedSteps,
+      ...handoff,
       ...captureAttemptFields,
       meta: args.meta
     },

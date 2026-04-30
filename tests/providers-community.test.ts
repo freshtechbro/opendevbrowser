@@ -758,6 +758,36 @@ describe("community provider", () => {
     expect(crawled?.map((record) => record.url)).toEqual(["https://forums.local/root"]);
   });
 
+  it("honors zero expansion filters without fetching linked threads", async () => {
+    const fetch = vi.fn(async () => ({
+      title: "should-not-run",
+      content: "no-fetch"
+    }));
+    const provider = createCommunityProvider({
+      search: async () => ([
+        {
+          url: "https://forums.local/root",
+          title: "root",
+          content: "https://forums.local/child",
+          attributes: { links: ["https://forums.local/child"] }
+        }
+      ]),
+      fetch
+    });
+
+    const records = await provider.search?.({
+      query: "bounded",
+      limit: 3,
+      filters: {
+        hopLimit: 0,
+        expansionPerRecord: 0
+      }
+    }, context("r-zero-expansion"));
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(records?.map((record) => record.url)).toEqual(["https://forums.local/root"]);
+  });
+
   it("prefers blank titles when duplicate canonical urls tie on url sort", async () => {
     const provider = createCommunityProvider({
       defaultTraversal: {
@@ -780,5 +810,45 @@ describe("community provider", () => {
     expect(records).toHaveLength(1);
     expect(records?.[0]?.url).toBe("https://forums.local/same");
     expect(records?.[0]?.title).toBeUndefined();
+  });
+
+  it("skips already-seen links during crawl expansion", async () => {
+    const provider = createCommunityProvider({
+      fetch: async (input) => {
+        if (input.url.endsWith("/child")) {
+          return {
+            url: input.url,
+            title: "child",
+            content: "child",
+            attributes: {
+              links: [
+                "https://forums.local/root",
+                "https://forums.local/grandchild"
+              ]
+            }
+          };
+        }
+        return {
+          url: input.url,
+          title: "root",
+          content: "root",
+          attributes: {
+            links: ["https://forums.local/child"]
+          }
+        };
+      }
+    });
+
+    const records = await provider.crawl?.({
+      seedUrls: ["https://forums.local/root"],
+      maxDepth: 2,
+      maxPages: 3
+    }, context("r-crawl-seen-link"));
+
+    expect(records?.map((record) => record.url)).toEqual([
+      "https://forums.local/root",
+      "https://forums.local/child",
+      "https://forums.local/grandchild"
+    ]);
   });
 });

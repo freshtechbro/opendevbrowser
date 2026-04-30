@@ -34,11 +34,11 @@ describe("macro-resolve CLI command", () => {
       runtime: "macros",
       resolution: { action: { source: "web", operation: "fetch", input: { url: "https://x.com/i/flow/login" } } },
       followthroughSummary: "Review execution.meta.blocker and failures before retrying the macro.",
-      suggestedNextAction: "Run npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser --output-format json after reviewing execution.meta.blocker.",
+      suggestedNextAction: "Run npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser_with_helper --output-format json after reviewing execution.meta.blocker.",
       suggestedSteps: [
         {
           title: "Retry the macro with browser automation",
-          command: "npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser --output-format json",
+          command: "npx opendevbrowser macro-resolve --expression='@web.fetch(\"https://x.com/i/flow/login\")' --execute --challenge-automation-mode browser_with_helper --output-format json",
           reason: "Use browser automation to satisfy the login challenge before retrying the fetch."
         }
       ],
@@ -75,10 +75,10 @@ describe("macro-resolve CLI command", () => {
     expect(result.success).toBe(true);
     expect(result.message).toContain("Review execution.meta.blocker and failures before retrying the macro.");
     expect(result.message).toContain("Next step:");
-    expect(result.message).toContain("--challenge-automation-mode browser");
+    expect(result.message).toContain("--challenge-automation-mode browser_with_helper");
     expect(result.data).toMatchObject({
       followthroughSummary: "Review execution.meta.blocker and failures before retrying the macro.",
-      suggestedNextAction: expect.stringContaining("--challenge-automation-mode browser"),
+      suggestedNextAction: expect.stringContaining("--challenge-automation-mode browser_with_helper"),
       execution: {
         meta: {
           blocker: { type: "auth_required" }
@@ -129,6 +129,32 @@ describe("macro-resolve CLI command", () => {
     const executionMeta = (result.data as { execution?: { meta?: Record<string, unknown> } }).execution?.meta;
     expect(executionMeta?.ok).toBe(true);
     expect(executionMeta).not.toHaveProperty("blocker");
+  });
+
+  it("uses the shared runnable next-step reader when explicit macro next action is absent", async () => {
+    callDaemon.mockResolvedValue({
+      runtime: "macros",
+      followthroughSummary: "Review the resolved macro before rerunning.",
+      suggestedSteps: [
+        {
+          command: "npx opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute <provider>",
+          reason: "Placeholder command should not be presented as the next step."
+        },
+        {
+          command: "npx opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --output-format json",
+          reason: "Runnable command should be used as the next step."
+        }
+      ],
+      resolution: { action: { source: "community", operation: "search", input: { query: "openai" } } }
+    });
+
+    const result = await runMacroResolve(makeArgs([
+      "--expression=@community.search(\"openai\")"
+    ]));
+
+    expect(result.message).toBe(
+      "Review the resolved macro before rerunning. Next step: npx opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --output-format json"
+    );
   });
 
   it("buffers transport timeout above the workflow payload timeout", async () => {

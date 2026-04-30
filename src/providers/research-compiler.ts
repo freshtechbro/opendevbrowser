@@ -252,6 +252,23 @@ const resolveResearchAutoExcludedProviders = (
     .sort((left, right) => left.localeCompare(right));
 };
 
+const buildResearchSearchFilters = (
+  source: ProviderSource,
+  args: {
+    includeEngagement?: boolean;
+    timebox: ResolvedTimebox;
+  }
+): Record<string, JsonValue> => ({
+  include_engagement: args.includeEngagement ?? false,
+  timebox_from: args.timebox.from,
+  timebox_to: args.timebox.to,
+  ...(source === "community" || source === "social" ? {
+    pageLimit: 1,
+    hopLimit: 0,
+    expansionPerRecord: 0
+  } : {})
+});
+
 export const compileResearchExecutionPlan = (args: {
   input: ResearchRunInput;
   envelope?: WorkflowResumeEnvelope | null;
@@ -295,11 +312,10 @@ export const compileResearchExecutionPlan = (args: {
       source,
       query: topic,
       limit: searchLimit,
-      filters: {
-        include_engagement: args.input.includeEngagement ?? false,
-        timebox_from: timebox.from,
-        timebox_to: timebox.to
-      }
+      filters: buildResearchSearchFilters(source, {
+        includeEngagement: args.input.includeEngagement,
+        timebox
+      })
     }
   }));
 

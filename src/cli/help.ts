@@ -228,7 +228,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--include-all-images", description: "Include all discovered product images." },
       { flag: "--include-copy", description: "Include product marketing copy metadata." },
       { flag: "--use-cookies", description: "Enable or disable provider cookie injection for workflow runs; a bare flag means true.", example: "opendevbrowser shopping run --query 'usb hub' --use-cookies" },
-      { flag: "--browser-mode", description: "Shopping browser-recovery preference: auto, extension, or managed. Use managed for deterministic reruns and extension only when relay-backed auth/session state is required.", example: "opendevbrowser shopping run --query 'wireless ergonomic mouse' --providers shopping/bestbuy,shopping/ebay --browser-mode managed" },
+      { flag: "--browser-mode", description: "Provider browser transport mode: auto, extension, or managed. extension reuses relay-backed signed-in browser state; managed runs a deterministic managed browser.", example: "opendevbrowser research run --topic 'browser automation on X' --source-selection social --browser-mode extension --use-cookies --challenge-automation-mode browser_with_helper" },
       { flag: "--challenge-automation-mode", description: "Per-run challenge automation mode for workflow runs and macro-resolve execute: off, browser, or browser_with_helper. Precedence is run > session > config, and the helper remains browser-scoped only.", example: "opendevbrowser macro-resolve --expression '@community.search(\"openai\")' --execute --challenge-automation-mode browser_with_helper" },
       { flag: "--cookie-policy-override", description: "Per-run workflow cookie policy override: off, auto, or required.", example: "opendevbrowser research run --topic 'agent workflows' --cookie-policy-override required" },
       { flag: "--cookie-policy", description: "Alias of --cookie-policy-override." },
@@ -345,6 +345,7 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
 
 export const HELP_REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
   { label: "src/cli/onboarding-metadata.json", description: "Canonical first-contact onboarding metadata shared by help, nudges, and proof lanes." },
+  { label: "src/providers/workflow-handoff.ts", description: "Central next-step advisory builders for workflow follow-through." },
   { label: "src/inspiredesign/handoff.ts", description: "Shared inspiredesign follow-through commands, artifact names, and Canvas continuation guidance." },
   { label: "src/public-surface/source.ts", description: "Authoritative command, usage, flag, and tool surface metadata." },
   { label: "src/public-surface/generated-manifest.ts", description: "Checked-in generated public-surface snapshot consumed by help and parity tests." },

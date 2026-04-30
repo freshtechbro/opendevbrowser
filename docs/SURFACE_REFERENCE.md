@@ -405,6 +405,7 @@ Extension runtime subset (internal relay helpers, not public agent commands):
 
 Behavior notes:
 - `canvas.session.open` creates a session and lease; `canvas.session.attach` joins an existing session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
+- Canvas guidance is centrally constructed with shared next-step advisory builders while preserving Canvas-native fields: `guidance.recommendedNextCommands`, `guidance.reason`, and blocker `requiredNextCommands`.
 - `canvas.session.open` and `canvas.capabilities.get` return the authoritative operator handshake, including `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `warningClasses`, `mutationPolicy.allowedBeforePlan`, and `guidance.recommendedNextCommands`.
 - `canvas.plan.set` is the mutation gate. On success it returns accepted state plus next-step guidance; on failure it throws `generation_plan_invalid` with `details.missingFields` and `details.issues`. `canvas.plan.get` remains useful for diagnostics after that failure or after attach, but it is not required on the success path.
 - `canvas.document.patch` supports governance completion through `governance.update` patch batches in addition to scene/node operations.
@@ -545,6 +546,7 @@ Auth and policy:
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
+- Workflow and macro execute browser options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--browser-mode auto|extension|managed`; `extension` reuses relay-backed signed-in browser state, while `managed` runs a deterministic managed browser.
 - Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
 - Workflow response keys: provider follow-up summaries use `meta.primaryConstraintSummary`.
 - Research and shopping guidance uses `meta.primaryConstraint.guidance.reason` plus `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.
