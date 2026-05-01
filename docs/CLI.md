@@ -545,7 +545,7 @@ Wrapper behavior:
 - Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
 - `product-video run` always returns a path-based local asset pack.
 - `inspiredesign run` returns a reusable design contract plus a Canvas-first handoff bundle; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
-- Path-bearing modes persist artifacts under the configured output directory (or default tmp namespace) and include TTL metadata in manifest files.
+- Path-bearing modes persist artifacts under the configured output directory and include TTL metadata in manifest files. `inspiredesign run` uses `.opendevbrowser/inspiredesign/<runId>` from the current workspace when `--output-dir` is omitted.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.

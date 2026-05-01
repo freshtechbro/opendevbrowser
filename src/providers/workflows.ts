@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { join } from "path";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
 import {
   readProviderIssueHintFromRecord,
@@ -2007,6 +2008,9 @@ const buildInspiredesignMeta = (
   };
 };
 
+const resolveInspiredesignArtifactRoot = (outputDir?: string): string =>
+  outputDir ?? join(process.cwd(), ".opendevbrowser");
+
 const inferBrandFromContent = (content: string | undefined): string | undefined => {
   const normalized = normalizePlainText(content);
   if (!normalized) return undefined;
@@ -3118,7 +3122,7 @@ export const runInspiredesignWorkflow = async (
   });
   const bundle = await createArtifactBundle({
     namespace: "inspiredesign",
-    outputDir: workflowInput.outputDir,
+    outputDir: resolveInspiredesignArtifactRoot(workflowInput.outputDir),
     ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });

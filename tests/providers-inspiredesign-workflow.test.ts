@@ -313,13 +313,15 @@ describe("inspiredesign workflow", () => {
 
   it("returns a path artifact bundle when no references are supplied", async () => {
     const runtime = toRuntime({});
+    const outputDir = makeOutputDir();
     const output = await runInspiredesignWorkflow(runtime, {
       brief: "  Create a premium knowledge base  ",
       mode: "path",
-      outputDir: makeOutputDir()
+      outputDir
     });
 
     const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.path);
 
     expect(output).toMatchObject({
       mode: "path",
@@ -348,6 +350,23 @@ describe("inspiredesign workflow", () => {
       "canvas-plan.request.json",
       "design-agent-handoff.json"
     ]));
+    expect(artifactPath.startsWith(join(outputDir, "inspiredesign"))).toBe(true);
+  });
+
+  it("stores default artifact bundles under the workspace inspiredesign directory", async () => {
+    const runtime = toRuntime({});
+    const workspaceDir = makeOutputDir();
+    vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Create a repo-local artifact bundle",
+      mode: "path"
+    });
+
+    const artifactPath = String(output.path);
+
+    expect(artifactPath.startsWith(join(workspaceDir, ".opendevbrowser", "inspiredesign"))).toBe(true);
+    expect(readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")).toContain("canvasSessionId");
   });
 
   it("emits URL-backed artifact files and capture telemetry together for workflow runs", async () => {
