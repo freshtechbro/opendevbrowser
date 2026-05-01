@@ -2031,6 +2031,11 @@ const inferBrandFromContent = (content: string | undefined): string | undefined 
   if (productIdentifiersBrandMatch?.[1]) {
     return productIdentifiersBrandMatch[1].trim();
   }
+  const ebayTitle = inferEbayTitleFromContent(normalized);
+  const ebayBrand = extractBrandFromTitle(ebayTitle) ?? inferEbayBrandFromTitle(ebayTitle);
+  if (ebayBrand) {
+    return ebayBrand;
+  }
   const brandMatch = /\bBrand ([A-Z][A-Za-z0-9&+' -]{1,60})\b/i.exec(normalized);
   if (brandMatch?.[1]) {
     return brandMatch[1].trim();
@@ -2053,12 +2058,44 @@ const inferBestBuyTitleFromContent = (normalized: string): string | undefined =>
   return candidate;
 };
 
-const inferTitleFromContent = (content: string | undefined): string | undefined => {
+const inferEbayTitleFromContent = (normalized: string): string | undefined => {
+  const patterns = [
+    /\bExpand Cart Loading\.\.\.\s+(.+?)(?:\s+for sale online\s*\|\s*eBay)?\s+Condition:/i,
+    /\bBuy It Now\s+(.+?)\s+Sign in to check out\b/i
+  ];
+  for (const pattern of patterns) {
+    const candidate = stripMarketplaceTitleFraming(normalizePlainText(pattern.exec(normalized)?.[1]), "https://www.ebay.com");
+    if (
+      candidate
+      && candidate.length >= 20
+      && candidate.length <= 180
+      && !candidate.endsWith("...")
+      && !LOOKS_LIKE_URL_RE.test(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+};
+
+const inferEbayBrandFromTitle = (title: string | undefined): string | undefined => {
+  const cleaned = normalizePlainText(title);
+  const match = /^([A-Z][A-Za-z0-9&+']+(?:\s+[A-Z][A-Za-z0-9&+']+){0,2}?)(?=\s+(?:AirPods|Bluetooth|Ergonomic|Mouse|Mice|Optical|Rechargeable|Vertical|Wireless|2\.4\b))/i.exec(cleaned);
+  return match?.[1]?.trim() || undefined;
+};
+
+const inferTitleFromContent = (content: string | undefined, productUrl?: string): string | undefined => {
   const normalized = normalizePlainText(content);
   if (!normalized) return undefined;
   const bestBuyTitle = inferBestBuyTitleFromContent(normalized);
   if (bestBuyTitle) {
     return bestBuyTitle;
+  }
+  if (productUrl && resolveShoppingProviderIdForUrl(productUrl) === "shopping/ebay") {
+    const ebayTitle = inferEbayTitleFromContent(normalized);
+    if (ebayTitle) {
+      return ebayTitle;
+    }
   }
   const storeMatch = /\bVisit the [A-Z][A-Za-z0-9&+' -]{1,60} Store\s+(.+?)(?=\s+(?:Brand [A-Z]|About this item|Key item features|Current price is|Actual Color|[0-9]+(?:\.[0-9]+)? stars out of|Best seller\b))/i.exec(normalized);
   const candidate = normalizePlainText(storeMatch?.[1]);
@@ -2459,7 +2496,7 @@ const resolveProductTitle = (
     : undefined;
   const candidates = [
     refreshedTitle,
-    inferTitleFromContent(record.content),
+    inferTitleFromContent(record.content, productUrl),
     record.title,
     typeof nestedTitle === "string" ? nestedTitle : undefined,
     typeof record.attributes.description === "string" ? record.attributes.description.split(/(?<=[.!?])\s+/)[0] : undefined,

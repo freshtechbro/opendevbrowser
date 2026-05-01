@@ -6444,7 +6444,7 @@ describe("workflow branch coverage", () => {
           source: "shopping",
           provider: "shopping/ebay",
           url: productUrl,
-          title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay Skip to main content",
+          title: "Skip to main content Hi! Sign in or register Deals Brand Outlet Gift Cards Help & Contact Sell Watchlist Expand Watch List My eBay",
           content: [
             "Hi! Sign in or register Deals Brand Outlet Gift Cards Help & Contact Sell Watchlist Expand Watch List My eBay Expand My eBay Summary",
             "Expand Cart Loading...",
@@ -6464,7 +6464,7 @@ describe("workflow branch coverage", () => {
             shopping_offer: {
               provider: "shopping/ebay",
               product_id: "4062765295",
-              title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White for sale online | eBay",
+              title: "Skip to main content Hi! Sign in or register Deals Brand Outlet Gift Cards Help & Contact Sell Watchlist Expand Watch List My eBay",
               url: productUrl,
               price: { amount: 110, currency: "USD", retrieved_at: isoHoursAgo(1) },
               shipping: { amount: 0, currency: "USD", notes: "unknown" },
