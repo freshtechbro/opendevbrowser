@@ -2008,7 +2008,7 @@ const buildInspiredesignMeta = (
   };
 };
 
-const resolveInspiredesignArtifactRoot = (outputDir?: string): string =>
+const resolveWorkflowArtifactRoot = (outputDir?: string): string =>
   outputDir ?? join(process.cwd(), ".opendevbrowser");
 
 const inferBrandFromContent = (content: string | undefined): string | undefined => {
@@ -2802,7 +2802,7 @@ export const runResearchWorkflow = async (
 
   const bundle = await createArtifactBundle({
     namespace: "research",
-    outputDir: workflowInput.outputDir,
+    outputDir: resolveWorkflowArtifactRoot(workflowInput.outputDir),
     ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
@@ -3011,7 +3011,7 @@ export const runShoppingWorkflow = async (
 
   const bundle = await createArtifactBundle({
     namespace: "shopping",
-    outputDir: workflowInput.outputDir,
+    outputDir: resolveWorkflowArtifactRoot(workflowInput.outputDir),
     ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
@@ -3122,7 +3122,7 @@ export const runInspiredesignWorkflow = async (
   });
   const bundle = await createArtifactBundle({
     namespace: "inspiredesign",
-    outputDir: resolveInspiredesignArtifactRoot(workflowInput.outputDir),
+    outputDir: resolveWorkflowArtifactRoot(workflowInput.outputDir),
     ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
@@ -3549,7 +3549,7 @@ export const runProductVideoWorkflow = async (
 
   const bundle = await createArtifactBundle({
     namespace: "product-assets",
-    outputDir: workflowInput.output_dir,
+    outputDir: resolveWorkflowArtifactRoot(workflowInput.output_dir),
     ttlHours: workflowInput.ttl_hours,
     files,
     manifestFileName: "bundle-manifest.json"

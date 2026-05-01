@@ -47,6 +47,12 @@ describe("artifact and workflow runtime", () => {
     createdDirs.length = 0;
   });
 
+  const makeWorkspaceDir = async (prefix: string): Promise<string> => {
+    const directory = await mkdtemp(join(tmpdir(), prefix));
+    createdDirs.push(directory);
+    return directory;
+  };
+
   it("writes artifact bundles and cleans expired runs", async () => {
     const root = await mkdtemp(join(tmpdir(), "odb-artifacts-"));
     createdDirs.push(root);
@@ -71,6 +77,21 @@ describe("artifact and workflow runtime", () => {
     const cleaned = await cleanupExpiredArtifacts(root, new Date("2026-02-16T12:00:00.000Z"));
     expect(cleaned.removed.some((entry) => entry.includes(expired.runId))).toBe(true);
     expect(cleaned.skipped.some((entry) => entry.includes(active.runId))).toBe(true);
+  });
+
+  it("uses the temporary artifact root for direct bundles without outputDir", async () => {
+    const bundle = await createArtifactBundle({
+      namespace: "research",
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    });
+
+    try {
+      expect(bundle.basePath.startsWith(join(tmpdir(), "opendevbrowser", "research"))).toBe(true);
+      expect(await stat(join(bundle.basePath, "bundle-manifest.json"))).toBeDefined();
+    } finally {
+      await rm(bundle.basePath, { recursive: true, force: true });
+    }
   });
 
   it("skips invalid manifest layouts and non-expiring manifests safely", async () => {
@@ -98,6 +119,25 @@ describe("artifact and workflow runtime", () => {
     expect(cleaned.skipped).toContain(missingManifestRun);
     expect(cleaned.skipped).toContain(manifestAsDirectoryRun);
     expect(cleaned.skipped).toContain(invalidExpiryRun);
+  });
+
+  it("handles missing cleanup roots and corrupt artifact manifests safely", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-corrupt-"));
+    createdDirs.push(root);
+    const corruptRun = join(root, "research", "corrupt-manifest");
+
+    await writeFile(join(root, "not-a-namespace"), "artifact namespace placeholder");
+    await mkdir(corruptRun, { recursive: true });
+    await writeFile(join(corruptRun, "bundle-manifest.json"), "{not-json");
+
+    await expect(cleanupExpiredArtifacts(join(root, "missing"), new Date("2026-02-20T00:00:00.000Z"))).resolves.toEqual({
+      removed: [],
+      skipped: []
+    });
+    await expect(cleanupExpiredArtifacts(root, new Date("2026-02-20T00:00:00.000Z"))).resolves.toEqual({
+      removed: [],
+      skipped: [corruptRun]
+    });
   });
 
   it("falls back to legacy manifest.json during artifact cleanup", async () => {
@@ -227,6 +267,42 @@ describe("artifact and workflow runtime", () => {
       mode: "path",
       path: expect.any(String)
     });
+  });
+
+  it("stores default research artifacts under the workspace research directory", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-15T00:00:00.000Z"));
+    const workspaceDir = await makeWorkspaceDir("odb-research-workspace-");
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
+
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate({
+        records: [{
+          id: "research-record",
+          source: "web",
+          provider: "web/default",
+          url: "https://example.com/research",
+          title: "Research record",
+          content: "A concrete research artifact record.",
+          timestamp: "2026-02-10T00:00:00.000Z",
+          confidence: 0.9,
+          attributes: {}
+        }]
+      })),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    try {
+      const output = await runResearchWorkflow(runtime, {
+        topic: "artifact storage",
+        days: 30,
+        mode: "json"
+      });
+
+      expect(String(output.artifact_path).startsWith(join(workspaceDir, ".opendevbrowser", "research"))).toBe(true);
+    } finally {
+      cwdSpy.mockRestore();
+    }
   });
 
   it("persists sanitized research output without shell records", async () => {
@@ -528,6 +604,58 @@ describe("artifact and workflow runtime", () => {
       providers: ["invalid-provider"],
       mode: "json"
     })).rejects.toThrow("No valid shopping providers");
+  });
+
+  it("stores default shopping artifacts under the workspace shopping directory", async () => {
+    const workspaceDir = await makeWorkspaceDir("odb-shopping-workspace-");
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
+
+    const runtime = toRuntime({
+      search: vi.fn(async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [{
+            id: "shopping-offer",
+            source: "shopping",
+            provider: providerId,
+            url: "https://example.com/shopping-offer",
+            title: "Shopping offer",
+            content: "$25",
+            timestamp: "2026-02-16T00:00:00.000Z",
+            confidence: 0.9,
+            attributes: {
+              shopping_offer: {
+                provider: providerId,
+                product_id: "shopping-offer",
+                title: "Shopping offer",
+                url: "https://example.com/shopping-offer",
+                price: {
+                  amount: 25,
+                  currency: "USD",
+                  retrieved_at: "2026-02-16T00:00:00.000Z"
+                },
+                availability: "in_stock"
+              }
+            }
+          }]
+        });
+      }),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    try {
+      const output = await runShoppingWorkflow(runtime, {
+        query: "artifact storage",
+        providers: ["shopping/amazon"],
+        mode: "json"
+      });
+
+      expect(String(output.artifact_path).startsWith(join(workspaceDir, ".opendevbrowser", "shopping"))).toBe(true);
+    } finally {
+      cwdSpy.mockRestore();
+    }
   });
 
   it("marks empty shopping provider runs as env-limited failures instead of silent success", async () => {
@@ -1200,6 +1328,53 @@ describe("artifact and workflow runtime", () => {
     });
 
     await expect(runProductVideoWorkflow(runtime, {})).rejects.toThrow("product_url or product_name is required");
+  });
+
+  it("stores default product-video artifacts under the workspace product-assets directory", async () => {
+    const workspaceDir = await makeWorkspaceDir("odb-product-workspace-");
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
+
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate()),
+      fetch: vi.fn(async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [{
+          id: "product-artifact",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://example.com/product-artifact",
+          title: "Workspace Product",
+          content: "Feature one. Feature two. Feature three.",
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.9,
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "product-artifact",
+              title: "Workspace Product",
+              url: "https://example.com/product-artifact",
+              price: {
+                amount: 49,
+                currency: "USD",
+                retrieved_at: "2026-02-16T00:00:00.000Z"
+              },
+              availability: "in_stock"
+            }
+          }
+        }]
+      }))
+    });
+
+    try {
+      const output = await runProductVideoWorkflow(runtime, {
+        product_url: "https://example.com/product-artifact"
+      });
+
+      expect(String(output.path).startsWith(join(workspaceDir, ".opendevbrowser", "product-assets"))).toBe(true);
+    } finally {
+      cwdSpy.mockRestore();
+    }
   });
 
   it("rejects invalid product targets before creating a product-video artifact bundle", async () => {
