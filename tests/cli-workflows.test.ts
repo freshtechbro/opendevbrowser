@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolve } from "path";
 import type { ParsedArgs } from "../src/cli/args";
 import { runInspiredesignCommand } from "../src/cli/commands/inspiredesign";
 import { runMacroResolve } from "../src/cli/commands/macro-resolve";
@@ -32,6 +33,8 @@ const makeArgs = (command: ParsedArgs["command"], rawArgs: string[]): ParsedArgs
   fullInstall: false,
   rawArgs
 });
+
+const defaultWorkflowOutputDir = resolve(".opendevbrowser");
 
 describe("workflow CLI commands", () => {
   beforeEach(() => {
@@ -93,11 +96,49 @@ describe("workflow CLI commands", () => {
       includeEngagement: false,
       limitPerSource: undefined,
       timeoutMs: 45000,
-      outputDir: undefined,
+      outputDir: defaultWorkflowOutputDir,
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
     });
+  });
+
+  it("resolves relative workflow output directories before daemon dispatch", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+    const outputDir = "workflow-artifacts";
+
+    await runResearchCommand(makeArgs("research", ["run", "--topic=browser automation", `--output-dir=${outputDir}`]));
+    expect(callDaemon).toHaveBeenLastCalledWith("research.run", expect.objectContaining({
+      outputDir: resolve(outputDir)
+    }));
+
+    await runShoppingCommand(makeArgs("shopping", ["run", "--query=usb hub", `--output-dir=${outputDir}`]));
+    expect(callDaemon).toHaveBeenLastCalledWith("shopping.run", expect.objectContaining({
+      outputDir: resolve(outputDir)
+    }), {
+      timeoutMs: 180000
+    });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", `--output-dir=${outputDir}`]));
+    expect(callDaemon).toHaveBeenLastCalledWith("inspiredesign.run", expect.objectContaining({
+      outputDir: resolve(outputDir)
+    }));
+
+    await runProductVideoCommand(makeArgs("product-video", ["run", "--product-name=Sample Product", `--output-dir=${outputDir}`]));
+    expect(callDaemon).toHaveBeenLastCalledWith("product.video.run", expect.objectContaining({
+      output_dir: resolve(outputDir)
+    }));
+  });
+
+  it("rejects blank workflow output directories", async () => {
+    await expect(runResearchCommand(makeArgs("research", ["run", "--topic=browser automation", "--output-dir="]))).rejects.toThrow("Missing value for --output-dir");
+    await expect(runResearchCommand(makeArgs("research", ["run", "--topic=browser automation", "--output-dir", "   "]))).rejects.toThrow("Missing value for --output-dir");
+    await expect(runShoppingCommand(makeArgs("shopping", ["run", "--query=usb hub", "--output-dir="]))).rejects.toThrow("Missing value for --output-dir");
+    await expect(runShoppingCommand(makeArgs("shopping", ["run", "--query=usb hub", "--output-dir", "   "]))).rejects.toThrow("Missing value for --output-dir");
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", "--output-dir="]))).rejects.toThrow("Missing value for --output-dir");
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", "--output-dir", "   "]))).rejects.toThrow("Missing value for --output-dir");
+    await expect(runProductVideoCommand(makeArgs("product-video", ["run", "--product-name=Sample Product", "--output-dir="]))).rejects.toThrow("Missing value for --output-dir");
+    await expect(runProductVideoCommand(makeArgs("product-video", ["run", "--product-name=Sample Product", "--output-dir", "   "]))).rejects.toThrow("Missing value for --output-dir");
   });
 
   it("parses and dispatches shopping run payload", async () => {
@@ -121,7 +162,7 @@ describe("workflow CLI commands", () => {
       sort: "lowest_price",
       mode: "md",
       timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
-      outputDir: undefined,
+      outputDir: defaultWorkflowOutputDir,
       ttlHours: undefined,
       browserMode: undefined,
       useCookies: undefined,
@@ -149,7 +190,7 @@ describe("workflow CLI commands", () => {
       sort: undefined,
       mode: "compact",
       timeoutMs: 45000,
-      outputDir: undefined,
+      outputDir: defaultWorkflowOutputDir,
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
@@ -176,7 +217,7 @@ describe("workflow CLI commands", () => {
       sort: undefined,
       mode: "compact",
       timeoutMs: 360000,
-      outputDir: undefined,
+      outputDir: defaultWorkflowOutputDir,
       ttlHours: undefined,
       useCookies: undefined,
       cookiePolicyOverride: undefined
@@ -420,7 +461,7 @@ describe("workflow CLI commands", () => {
       includePrototypeGuidance: true,
       mode: "md",
       timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
-      outputDir: undefined,
+      outputDir: defaultWorkflowOutputDir,
       ttlHours: undefined,
       useCookies: undefined,
       challengeAutomationMode: undefined,
@@ -631,7 +672,7 @@ describe("workflow CLI commands", () => {
       include_screenshots: undefined,
       include_all_images: undefined,
       include_copy: undefined,
-      output_dir: undefined,
+      output_dir: defaultWorkflowOutputDir,
       ttl_hours: undefined,
       timeoutMs: 45000,
       browserMode: undefined,

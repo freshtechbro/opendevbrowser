@@ -1074,6 +1074,7 @@ describe("workflow branch coverage", () => {
     expect(workflowTestUtils.isValidHttpUrl("http://shop.example/item")).toBe(true);
     expect(workflowTestUtils.isValidHttpUrl("https://shop.example/item")).toBe(true);
     expect(workflowTestUtils.isValidHttpUrl("ftp://shop.example/item")).toBe(false);
+    expect(workflowTestUtils.isValidHttpUrl("://shop.example/item")).toBe(false);
   });
 
   it("covers helper branches for feature sanitization and price parsing", () => {
@@ -6456,7 +6457,7 @@ describe("workflow branch coverage", () => {
             "Perfect for those who value style, functionality, and convenience in their audio accessories.",
             "Buy It Now Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C)...",
             "Sign in to check out Check out as guest Add to cart Adding to your cart See all details Oops!",
-            "About this product Product Identifiers Brand Apple MPN MTJV3AM/A UPC 0195949052484 Model Apple AirPods Pro (2nd generation)",
+            "About this product Product Identifiers MPN MTJV3AM/A UPC 0195949052484 Model Apple AirPods Pro (2nd generation)",
             "All listings for this product Ratings and Reviews"
           ].join(" "),
           attributes: {
@@ -6501,6 +6502,349 @@ describe("workflow branch coverage", () => {
       "The built-in microphone and Bluetooth connectivity ensure hands-free calls and easy connection to your devices.",
       "Perfect for those who value style, functionality, and convenience in their audio accessories."
     ]);
+  });
+
+  it("does not treat eBay color suffixes or host names as product brands", async () => {
+    const productUrl = "https://www.ebay.com/itm/sony-wh-1000xm5";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-sony-headphones",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "eBay",
+          content: [
+            "Expand Cart Loading...",
+            "Sony WH-1000XM5 Noise Canceling Headphones - Black for sale online | eBay",
+            "Condition: New New",
+            "The Sony WH-1000XM5 headphones provide adaptive noise cancellation and long battery life.",
+            "Buy It Now Sony WH-1000XM5 Noise Canceling Headphones - Black",
+            "Sign in to check out"
+          ].join(" "),
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "sony-wh-1000xm5",
+              title: "eBay",
+              url: productUrl,
+              price: { amount: 299.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock",
+              rating: 4.8,
+              reviews_count: 184
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.product).toMatchObject({
+      brand: "Sony",
+      title: "Sony WH-1000XM5 Noise Canceling Headphones - Black"
+    });
+    expect(output.product.brand).not.toBe("Black");
+    expect(output.product.brand).not.toBe("eBay");
+  });
+
+  it("uses eBay record titles without falling back to color suffix brands", async () => {
+    const productUrl = "https://www.ebay.com/itm/sony-wh-1000xm5-title";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-sony-title-only",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "Sony WH-1000XM5 Noise Canceling Headphones - Black",
+          content: "Fast shipping. Condition: New. High-quality over-ear audio.",
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "sony-wh-1000xm5-title",
+              title: "Sony WH-1000XM5 Noise Canceling Headphones - Black",
+              url: productUrl,
+              price: { amount: 289.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 91
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.product).toMatchObject({
+      brand: "Sony",
+      title: "Sony WH-1000XM5 Noise Canceling Headphones - Black"
+    });
+    expect(output.product.brand).not.toBe("Black");
+  });
+
+  it("normalizes lowercase eBay known brands from seller titles", async () => {
+    const productUrl = "https://www.ebay.com/itm/sony-wh-1000xm5-lowercase";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-lowercase-sony-title",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "eBay",
+          content: [
+            "Expand Cart Loading...",
+            "sony WH-1000XM5 Noise Canceling Headphones - Black for sale online | eBay",
+            "Condition: New New",
+            "Buy It Now sony WH-1000XM5 Noise Canceling Headphones - Black"
+          ].join(" "),
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "sony-wh-1000xm5-lowercase",
+              title: "eBay",
+              url: productUrl,
+              price: { amount: 279.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock"
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.product).toMatchObject({
+      brand: "Sony",
+      title: "sony WH-1000XM5 Noise Canceling Headphones - Black"
+    });
+    expect(output.product.brand).not.toBe("unknown");
+  });
+
+  it("ignores eBay Brand Outlet chrome when product title has no brand signal", async () => {
+    const productUrl = "https://www.ebay.com/itm/wireless-case";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-brand-outlet-chrome",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "eBay",
+          content: [
+            "Deals Brand Outlet Gift Cards Help & Contact Sell Watchlist",
+            "Expand Cart Loading...",
+            "Wireless Charging Case for sale online | eBay",
+            "Condition: New New",
+            "Buy It Now Wireless Charging Case"
+          ].join(" "),
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "wireless-case",
+              title: "eBay",
+              url: productUrl,
+              price: { amount: 19.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock",
+              rating: 4.2,
+              reviews_count: 28
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.product).toMatchObject({
+      brand: "unknown",
+      title: "Wireless Charging Case"
+    });
+    expect(output.product.brand).not.toContain("Outlet");
+    expect(output.product.brand).not.toBe("eBay");
+  });
+
+  it("does not infer descriptor-first eBay titles as product brands", async () => {
+    const productUrl = "https://www.ebay.com/itm/noise-canceling-headphones";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-descriptor-title",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "eBay",
+          content: [
+            "Expand Cart Loading...",
+            "Noise Canceling Headphones - Black for sale online | eBay",
+            "Condition: New New",
+            "Buy It Now Noise Canceling Headphones - Black"
+          ].join(" "),
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "noise-canceling-headphones",
+              title: "eBay",
+              url: productUrl,
+              price: { amount: 49.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock"
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.product).toMatchObject({
+      brand: "unknown",
+      title: "Noise Canceling Headphones - Black"
+    });
+    expect(output.product.brand).not.toBe("Noise");
+    expect(output.product.brand).not.toBe("Black");
+  });
+
+  it("keeps known compound eBay title brands intact", async () => {
+    const cases = [
+      ["New Balance 574 Shoes - Navy", "New Balance"],
+      ["Used Bang & Olufsen Beoplay H95 Headphones - Black", "Bang & Olufsen"],
+      ["Bowers & Wilkins Px7 Headphones - Gray", "Bowers & Wilkins"],
+      ["Hewlett-Packard EliteBook 840 Laptop - Silver", "Hewlett-Packard"],
+      ["iRobot Roomba Combo Vacuum - White", "iRobot"],
+      ["3M Peltor WorkTunes Hearing Protector - Black", "3M"],
+      ["Refurbished Acme X-1000 Sensor - Black", "Acme"]
+    ] as const;
+
+    for (const [title, brand] of cases) {
+      const productUrl = `https://www.ebay.com/itm/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      const runtime = toRuntime({
+        fetch: async () => makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: ["shopping/ebay"],
+          records: [makeRecord({
+            id: `ebay-${brand.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+            source: "shopping",
+            provider: "shopping/ebay",
+            url: productUrl,
+            title: "eBay",
+            content: [
+              "Expand Cart Loading...",
+              `${title} for sale online | eBay`,
+              "Condition: New New",
+              `Buy It Now ${title}`
+            ].join(" "),
+            attributes: {
+              brand: "eBay",
+              shopping_offer: {
+                provider: "shopping/ebay",
+                product_id: brand,
+                title: "eBay",
+                url: productUrl,
+                price: { amount: 199.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+                shipping: { amount: 0, currency: "USD", notes: "unknown" },
+                availability: "in_stock"
+              }
+            }
+          })]
+        })
+      });
+
+      const output = await runProductVideoWorkflow(runtime, {
+        product_url: productUrl,
+        include_screenshots: false,
+        include_all_images: false,
+        include_copy: false
+      });
+
+      expect(output.product.brand).toBe(brand);
+    }
+  });
+
+  it("keeps exact eBay record-title brands when content has no title signal", async () => {
+    const productUrl = "https://www.ebay.com/itm/sony-headphones";
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [makeRecord({
+          id: "ebay-exact-title-brand",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: productUrl,
+          title: "Sony",
+          content: "Manual and accessories included. Condition: New.",
+          attributes: {
+            brand: "eBay",
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "sony-headphones",
+              title: "Sony",
+              url: productUrl,
+              price: { amount: 79.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock"
+            }
+          }
+        })]
+      })
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: productUrl,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: false
+    });
+
+    expect(output.product.brand).toBe("Sony");
+    expect(output.product.brand).not.toBe("eBay");
   });
 
   it("refreshes malformed shopping-offer payloads and still resolves stable product output", async () => {

@@ -4,6 +4,7 @@ import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
+import { resolveWorkflowOutputDirFlag } from "./workflow-output";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 import type { WorkflowBrowserMode } from "../../providers/types";
 
@@ -103,12 +104,12 @@ const parseProductVideoArgs = (rawArgs: string[]): ProductVideoCommandArgs => {
     }
 
     if (arg === "--output-dir") {
-      parsed.outputDir = requireValue(rawArgs, index, "--output-dir");
+      parsed.outputDir = resolveWorkflowOutputDirFlag(requireValue(rawArgs, index, "--output-dir"));
       index += 1;
       continue;
     }
     if (arg?.startsWith("--output-dir=")) {
-      parsed.outputDir = arg.split("=", 2)[1];
+      parsed.outputDir = resolveWorkflowOutputDirFlag(arg.split("=", 2)[1]);
       continue;
     }
 
@@ -218,7 +219,7 @@ export async function runProductVideoCommand(args: ParsedArgs) {
     include_screenshots: parsed.includeScreenshots,
     include_all_images: parsed.includeAllImages,
     include_copy: parsed.includeCopy,
-    output_dir: parsed.outputDir,
+    output_dir: resolveWorkflowOutputDirFlag(parsed.outputDir),
     ttl_hours: parsed.ttlHours,
     timeoutMs,
     browserMode: parsed.browserMode,

@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "fs/promises";
-import { join } from "path";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "fs/promises";
+import { basename, dirname, join } from "path";
 import { tmpdir } from "os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanupExpiredArtifacts, createArtifactBundle } from "../src/providers/artifacts";
+import { cleanupExpiredArtifacts, createArtifactBundle, type ArtifactManifest } from "../src/providers/artifacts";
 import {
   workflowTestUtils,
   runProductVideoWorkflow,
@@ -53,6 +53,12 @@ describe("artifact and workflow runtime", () => {
     return directory;
   };
 
+  const expectArtifactPath = (artifactPath: string, root: string, namespace: string): void => {
+    expect(dirname(dirname(artifactPath))).toBe(root);
+    expect(basename(dirname(artifactPath))).toBe(namespace);
+    expect(basename(artifactPath)).toMatch(/^[0-9a-f-]{36}$/);
+  };
+
   it("writes artifact bundles and cleans expired runs", async () => {
     const root = await mkdtemp(join(tmpdir(), "odb-artifacts-"));
     createdDirs.push(root);
@@ -87,7 +93,7 @@ describe("artifact and workflow runtime", () => {
     });
 
     try {
-      expect(bundle.basePath.startsWith(join(tmpdir(), "opendevbrowser", "research"))).toBe(true);
+      expectArtifactPath(bundle.basePath, join(tmpdir(), "opendevbrowser"), "research");
       expect(await stat(join(bundle.basePath, "bundle-manifest.json"))).toBeDefined();
     } finally {
       await rm(bundle.basePath, { recursive: true, force: true });
@@ -276,7 +282,17 @@ describe("artifact and workflow runtime", () => {
     const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
 
     const runtime = toRuntime({
-      search: vi.fn(async () => makeAggregate({
+      search: vi.fn(async (_input, options) => {
+        expect(options?.suspendedIntent).toMatchObject({
+          kind: "workflow.research",
+          input: {
+            workflow: {
+              kind: "research",
+              input: { outputDir: join(workspaceDir, ".opendevbrowser") }
+            }
+          }
+        });
+        return makeAggregate({
         records: [{
           id: "research-record",
           source: "web",
@@ -288,7 +304,8 @@ describe("artifact and workflow runtime", () => {
           confidence: 0.9,
           attributes: {}
         }]
-      })),
+        });
+      }),
       fetch: vi.fn(async () => makeAggregate())
     });
 
@@ -299,7 +316,7 @@ describe("artifact and workflow runtime", () => {
         mode: "json"
       });
 
-      expect(String(output.artifact_path).startsWith(join(workspaceDir, ".opendevbrowser", "research"))).toBe(true);
+      expectArtifactPath(String(output.artifact_path), join(workspaceDir, ".opendevbrowser"), "research");
     } finally {
       cwdSpy.mockRestore();
     }
@@ -612,6 +629,15 @@ describe("artifact and workflow runtime", () => {
 
     const runtime = toRuntime({
       search: vi.fn(async (_input, options) => {
+        expect(options?.suspendedIntent).toMatchObject({
+          kind: "workflow.shopping",
+          input: {
+            workflow: {
+              kind: "shopping",
+              input: { outputDir: join(workspaceDir, ".opendevbrowser") }
+            }
+          }
+        });
         const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
         return makeAggregate({
           sourceSelection: "shopping",
@@ -652,9 +678,82 @@ describe("artifact and workflow runtime", () => {
         mode: "json"
       });
 
-      expect(String(output.artifact_path).startsWith(join(workspaceDir, ".opendevbrowser", "shopping"))).toBe(true);
+      expectArtifactPath(String(output.artifact_path), join(workspaceDir, ".opendevbrowser"), "shopping");
     } finally {
       cwdSpy.mockRestore();
+    }
+  });
+
+  it("rejects blank workflow artifact roots", async () => {
+    const search = vi.fn(async () => makeAggregate());
+    const fetch = vi.fn(async () => makeAggregate());
+    const runtime = toRuntime({
+      search,
+      fetch
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "artifact storage",
+      mode: "json",
+      outputDir: ""
+    })).rejects.toThrow("outputDir cannot be empty");
+    await expect(runShoppingWorkflow(runtime, {
+      query: "artifact storage",
+      mode: "json",
+      outputDir: ""
+    })).rejects.toThrow("outputDir cannot be empty");
+    await expect(runResearchWorkflow(runtime, {
+      topic: "artifact storage",
+      mode: "json",
+      outputDir: "   "
+    })).rejects.toThrow("outputDir cannot be empty");
+    await expect(runShoppingWorkflow(runtime, {
+      query: "artifact storage",
+      mode: "json",
+      outputDir: "   "
+    })).rejects.toThrow("outputDir cannot be empty");
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://example.com/product",
+      output_dir: "   "
+    })).rejects.toThrow("outputDir cannot be empty");
+    expect(search).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses direct caller relative workflow artifact roots from the current process directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-relative-root-"));
+    createdDirs.push(root);
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate({
+        records: [{
+          id: "research-record",
+          source: "web",
+          provider: "web/search",
+          url: "https://example.com/research",
+          title: "Research artifact",
+          content: "Artifact content",
+          timestamp: new Date().toISOString(),
+          confidence: 0.9,
+          attributes: {}
+        }]
+      })),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    try {
+      const output = await runResearchWorkflow(runtime, {
+        topic: "artifact storage",
+        mode: "json",
+        outputDir: "direct-artifacts"
+      });
+
+      const artifactPath = String(output.artifact_path);
+      expectArtifactPath(artifactPath, await realpath(join(root, "direct-artifacts")), "research");
+      expect(await stat(join(artifactPath, "bundle-manifest.json"))).toBeDefined();
+    } finally {
+      process.chdir(previousCwd);
     }
   });
 
@@ -1336,7 +1435,17 @@ describe("artifact and workflow runtime", () => {
 
     const runtime = toRuntime({
       search: vi.fn(async () => makeAggregate()),
-      fetch: vi.fn(async () => makeAggregate({
+      fetch: vi.fn(async (_input, options) => {
+        expect(options?.suspendedIntent).toMatchObject({
+          kind: "workflow.product_video",
+          input: {
+            workflow: {
+              kind: "product_video",
+              input: { output_dir: join(workspaceDir, ".opendevbrowser") }
+            }
+          }
+        });
+        return makeAggregate({
         sourceSelection: "shopping",
         providerOrder: ["shopping/amazon"],
         records: [{
@@ -1363,7 +1472,8 @@ describe("artifact and workflow runtime", () => {
             }
           }
         }]
-      }))
+        });
+      })
     });
 
     try {
@@ -1371,10 +1481,94 @@ describe("artifact and workflow runtime", () => {
         product_url: "https://example.com/product-artifact"
       });
 
-      expect(String(output.path).startsWith(join(workspaceDir, ".opendevbrowser", "product-assets"))).toBe(true);
+      expectArtifactPath(String(output.path), join(workspaceDir, ".opendevbrowser"), "product-assets");
     } finally {
       cwdSpy.mockRestore();
     }
+  });
+
+  it("stores product-video name-resolution artifacts under the requested root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-product-nested-"));
+    createdDirs.push(root);
+    const productUrl = "https://example.com/product-artifact";
+
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [{
+          id: "resolved-offer",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: productUrl,
+          title: "Workspace Product",
+          content: "$49",
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.9,
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "resolved-offer",
+              title: "Workspace Product",
+              url: productUrl,
+              price: {
+                amount: 49,
+                currency: "USD",
+                retrieved_at: "2026-02-16T00:00:00.000Z"
+              },
+              availability: "in_stock"
+            }
+          }
+        }]
+      })),
+      fetch: vi.fn(async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [{
+          id: "product-artifact",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: productUrl,
+          title: "Workspace Product",
+          content: "Feature one. Feature two. Feature three.",
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.9,
+          attributes: {
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "product-artifact",
+              title: "Workspace Product",
+              url: productUrl,
+              price: {
+                amount: 49,
+                currency: "USD",
+                retrieved_at: "2026-02-16T00:00:00.000Z"
+              },
+              availability: "in_stock"
+            }
+          }
+        }]
+      }))
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_name: "Workspace Product",
+      provider_hint: "shopping/amazon",
+      output_dir: root,
+      ttl_hours: 12
+    });
+
+    const shoppingRuns = await readdir(join(root, "shopping"));
+    expect(shoppingRuns).toHaveLength(1);
+    expectArtifactPath(String(output.path), root, "product-assets");
+    const shoppingManifest = JSON.parse(
+      await readFile(join(root, "shopping", shoppingRuns[0] ?? "", "bundle-manifest.json"), "utf8")
+    ) as ArtifactManifest;
+    const productManifest = JSON.parse(
+      await readFile(join(String(output.path), "bundle-manifest.json"), "utf8")
+    ) as ArtifactManifest;
+    expect(shoppingManifest.ttl_hours).toBe(12);
+    expect(productManifest.ttl_hours).toBe(12);
   });
 
   it("rejects invalid product targets before creating a product-video artifact bundle", async () => {

@@ -12,6 +12,7 @@ import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 import { resolveInspiredesignCaptureMode } from "../../inspiredesign/capture-mode";
 import type { WorkflowBrowserMode } from "../../providers/types";
+import { resolveWorkflowOutputDirFlag } from "./workflow-output";
 
 type InspiredesignCommandArgs = {
   brief?: string;
@@ -114,12 +115,12 @@ const parseInspiredesignRunArgs = (rawArgs: string[]): InspiredesignCommandArgs 
     }
 
     if (arg === "--output-dir") {
-      parsed.outputDir = requireValue(rawArgs, index, "--output-dir");
+      parsed.outputDir = resolveWorkflowOutputDirFlag(requireValue(rawArgs, index, "--output-dir"));
       index += 1;
       continue;
     }
     if (arg?.startsWith("--output-dir=")) {
-      parsed.outputDir = arg.split("=", 2)[1];
+      parsed.outputDir = resolveWorkflowOutputDirFlag(arg.split("=", 2)[1]);
       continue;
     }
 
@@ -218,7 +219,7 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
     includePrototypeGuidance: parsed.includePrototypeGuidance,
     mode: parsed.mode ?? "compact",
     timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
-    outputDir: parsed.outputDir,
+    outputDir: resolveWorkflowOutputDirFlag(parsed.outputDir),
     ttlHours: parsed.ttlHours,
     browserMode: parsed.browserMode,
     useCookies: parsed.useCookies,
