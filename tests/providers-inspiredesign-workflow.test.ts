@@ -42,6 +42,7 @@ type InspiredesignWorkflowMeta = {
   selection: {
     urls: string[];
     capture_mode: string;
+    requested_browser_mode?: string;
     include_prototype_guidance: boolean;
   };
   metrics: {
@@ -810,6 +811,29 @@ describe("inspiredesign workflow", () => {
     expect(meta.selection.capture_mode).toBe("deep");
     expect(meta.selection.include_prototype_guidance).toBe(true);
     expect(meta.deepCaptureRecommendation).toContain("already uses captureMode=deep");
+  });
+
+  it("drops primitive cached brief formats while accepting valid envelope browser mode", async () => {
+    const staleBriefExpansion: JsonValue = {
+      sourceBrief: "Design a premium launch surface",
+      advancedBrief: "Primitive cached brief should be ignored.",
+      templateVersion: "inspiredesign-advanced-brief.v1",
+      format: "not-a-format"
+    };
+
+    const output = await runInspiredesignWorkflow(toRuntime({}), buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "Design a premium launch surface",
+      briefExpansion: staleBriefExpansion,
+      browserMode: "managed",
+      mode: "context"
+    }));
+
+    const context = output.context as InspiredesignWorkflowContext;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("Primitive cached brief should be ignored.");
+    expect(meta.selection.requested_browser_mode).toBe("managed");
   });
 
   it("defaults invalid envelope render fields but still forces deep capture when urls are present", async () => {
