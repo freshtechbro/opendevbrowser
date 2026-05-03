@@ -4,6 +4,7 @@ import { createUsageError } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../transport-timeouts";
+import { resolveWorkflowOutputDirFlag } from "./workflow-output";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 import type { WorkflowBrowserMode } from "../../providers/types";
 
@@ -182,12 +183,12 @@ const parseResearchRunArgs = (rawArgs: string[]): ResearchCommandArgs => {
     }
 
     if (arg === "--output-dir") {
-      parsed.outputDir = requireValue(rawArgs, index, "--output-dir");
+      parsed.outputDir = resolveWorkflowOutputDirFlag(requireValue(rawArgs, index, "--output-dir"));
       index += 1;
       continue;
     }
     if (arg?.startsWith("--output-dir=")) {
-      parsed.outputDir = arg.split("=", 2)[1];
+      parsed.outputDir = resolveWorkflowOutputDirFlag(arg.split("=", 2)[1]);
       continue;
     }
 
@@ -290,7 +291,7 @@ export async function runResearchCommand(args: ParsedArgs) {
     includeEngagement: parsed.includeEngagement ?? false,
     limitPerSource: parsed.limitPerSource,
     timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
-    outputDir: parsed.outputDir,
+    outputDir: resolveWorkflowOutputDirFlag(parsed.outputDir),
     ttlHours: parsed.ttlHours,
     browserMode: parsed.browserMode,
     useCookies: parsed.useCookies,

@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { join } from "path";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
 import {
   readProviderIssueHintFromRecord,
@@ -1184,6 +1185,48 @@ const WALMART_TITLE_CHROME_RE = /\b(?:Walmart\.com|Skip to Main Content|Pickup o
 const WALMART_BRAND_COLOR_RE = /\bColor\s+[A-Z0-9][A-Za-z0-9 /-]*(?=\s+(?:View full specifications|Current price is|Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Sold and shipped by|Seller Rating|Free shipping|Arrives\b|Shipping\b|Delivery\b|Pickup\b|Departments Services|More details|Add to cart)|$)/i;
 const WALMART_BRAND_CHROME_TAIL_RE = /\b(?:View full specifications|Current price is|Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Sold and shipped by|Seller Rating|Free shipping|Arrives\b|Shipping\b|Delivery\b|Pickup\b|Departments Services|More details|Add to cart)\b.*$/i;
 const WALMART_BRAND_CHROME_RE = /\b(?:Walmart\.com|Skip to Main Content|Pickup or delivery\?|How do you want your item\?|Sold and shipped by|Seller Rating|View full specifications|Current price is|Free shipping|Departments Services)\b/i;
+const EBAY_TITLE_BRAND_PREFIX_RE = /^(?:new|used|pre-owned|preowned|open box|refurbished|renewed|genuine|authentic)\s+/i;
+const EBAY_KNOWN_MULTI_TOKEN_BRANDS = [
+  "3M",
+  "Bang & Olufsen",
+  "Bowers & Wilkins",
+  "Hewlett-Packard",
+  "iRobot",
+  "New Balance"
+] as const;
+const EBAY_KNOWN_SINGLE_TOKEN_BRANDS = new Map([
+  ["apple", "Apple"],
+  ["bose", "Bose"],
+  ["canon", "Canon"],
+  ["dell", "Dell"],
+  ["dyson", "Dyson"],
+  ["google", "Google"],
+  ["jbl", "JBL"],
+  ["lenovo", "Lenovo"],
+  ["lg", "LG"],
+  ["microsoft", "Microsoft"],
+  ["nikon", "Nikon"],
+  ["nintendo", "Nintendo"],
+  ["panasonic", "Panasonic"],
+  ["philips", "Philips"],
+  ["samsung", "Samsung"],
+  ["sony", "Sony"]
+]);
+const EBAY_TITLE_BRAND_STOP_WORDS = new Set([
+  "bluetooth",
+  "case",
+  "ergonomic",
+  "gaming",
+  "headphones",
+  "keyboard",
+  "leather",
+  "noise",
+  "portable",
+  "rechargeable",
+  "speaker",
+  "vertical",
+  "wireless"
+]);
 const PRODUCT_FEATURE_SECTION_MARKERS = [
   "about this item",
   "key item features",
@@ -1432,7 +1475,7 @@ const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"])
       : {}),
     ...(typeof input.includePrototypeGuidance === "boolean" ? { includePrototypeGuidance: input.includePrototypeGuidance } : {}),
     ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
-    ...(typeof input.outputDir === "string" && input.outputDir.length > 0 ? { outputDir: input.outputDir } : {}),
+    ...(typeof input.outputDir === "string" ? { outputDir: input.outputDir } : {}),
     ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
     ...(typeof input.browserMode === "string" && WORKFLOW_BROWSER_MODES.has(input.browserMode as WorkflowBrowserMode)
       ? { browserMode: input.browserMode as WorkflowBrowserMode }
@@ -2007,9 +2050,20 @@ const buildInspiredesignMeta = (
   };
 };
 
-const inferBrandFromContent = (content: string | undefined): string | undefined => {
+const resolveWorkflowArtifactRoot = (outputDir?: string): string => {
+  if (outputDir === undefined) {
+    return join(process.cwd(), ".opendevbrowser");
+  }
+  if (outputDir.trim() === "") {
+    throw new Error("outputDir cannot be empty");
+  }
+  return outputDir;
+};
+
+const inferBrandFromContent = (content: string | undefined, productUrl?: string): string | undefined => {
   const normalized = normalizePlainText(content);
   if (!normalized) return undefined;
+  const isEbayProduct = productUrl ? resolveShoppingProviderIdForUrl(productUrl) === "shopping/ebay" : false;
   const bestBuyTitle = inferBestBuyTitleFromContent(normalized);
   const bestBuyBrand = inferBestBuyBrandFromTitle(bestBuyTitle) ?? extractBrandFromTitle(bestBuyTitle);
   if (bestBuyBrand) {
@@ -2026,6 +2080,14 @@ const inferBrandFromContent = (content: string | undefined): string | undefined 
   const productIdentifiersBrandMatch = /\bProduct Identifiers\s+Brand\s+([A-Z][A-Za-z0-9&+' -]{1,60}?)(?=\s+(?:MPN|UPC|Model)\b|$)/i.exec(normalized);
   if (productIdentifiersBrandMatch?.[1]) {
     return productIdentifiersBrandMatch[1].trim();
+  }
+  const ebayTitle = inferEbayTitleFromContent(normalized);
+  const ebayBrand = inferEbayBrandFromTitle(ebayTitle);
+  if (ebayBrand) {
+    return ebayBrand;
+  }
+  if (isEbayProduct) {
+    return undefined;
   }
   const brandMatch = /\bBrand ([A-Z][A-Za-z0-9&+' -]{1,60})\b/i.exec(normalized);
   if (brandMatch?.[1]) {
@@ -2049,12 +2111,78 @@ const inferBestBuyTitleFromContent = (normalized: string): string | undefined =>
   return candidate;
 };
 
-const inferTitleFromContent = (content: string | undefined): string | undefined => {
+const inferEbayTitleFromContent = (normalized: string): string | undefined => {
+  const patterns = [
+    /\bExpand Cart Loading\.\.\.\s+(.+?)(?:\s+for sale online\s*\|\s*eBay)?\s+Condition:/i,
+    /\bBuy It Now\s+(.+?)\s+Sign in to check out\b/i
+  ];
+  for (const pattern of patterns) {
+    const candidate = stripMarketplaceTitleFraming(normalizePlainText(pattern.exec(normalized)?.[1]), "https://www.ebay.com");
+    if (
+      candidate
+      && candidate.length >= 20
+      && candidate.length <= 180
+      && !candidate.endsWith("...")
+      && !LOOKS_LIKE_URL_RE.test(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+};
+
+const inferKnownEbayBrandFromTitle = (title: string): string | undefined => {
+  const normalized = title.toLowerCase();
+  return EBAY_KNOWN_MULTI_TOKEN_BRANDS.find((brand) => {
+    const candidate = brand.toLowerCase();
+    return normalized === candidate || normalized.startsWith(`${candidate} `);
+  });
+};
+
+const inferKnownSingleEbayBrandFromTitle = (title: string): string | undefined => {
+  const firstToken = /^([A-Za-z][A-Za-z0-9&+']{1,30})(?:\s|$)/.exec(title)?.[1];
+  return firstToken ? EBAY_KNOWN_SINGLE_TOKEN_BRANDS.get(firstToken.toLowerCase()) : undefined;
+};
+
+const inferEbayBrandFromTitle = (title: string | undefined): string | undefined => {
+  const framed = normalizePlainText(title).replace(/\s+[-|]\s+[^-|]+$/i, "").trim();
+  const knownBrand = inferKnownEbayBrandFromTitle(framed);
+  if (knownBrand) return knownBrand;
+  const cleaned = framed.replace(EBAY_TITLE_BRAND_PREFIX_RE, "");
+  const prefixedBrand = inferKnownEbayBrandFromTitle(cleaned);
+  if (prefixedBrand) return prefixedBrand;
+  const singleTokenBrand = inferKnownSingleEbayBrandFromTitle(cleaned);
+  if (singleTokenBrand) return singleTokenBrand;
+  const exactBrand = /^([A-Z][A-Za-z0-9&+']{1,30})$/.exec(cleaned)?.[1];
+  if (exactBrand && EBAY_KNOWN_SINGLE_TOKEN_BRANDS.has(exactBrand.toLowerCase())) {
+    return exactBrand;
+  }
+  const match = /^([A-Z][A-Za-z0-9&+']{1,30})\s+([A-Z0-9][A-Za-z0-9&+'().-]+|AirPods)\b/.exec(cleaned);
+  const brand = match?.[1]?.trim();
+  if (!brand || EBAY_TITLE_BRAND_STOP_WORDS.has(brand.toLowerCase())) {
+    return undefined;
+  }
+  if (EBAY_KNOWN_SINGLE_TOKEN_BRANDS.has(brand.toLowerCase())) {
+    return EBAY_KNOWN_SINGLE_TOKEN_BRANDS.get(brand.toLowerCase());
+  }
+  if (!/[\d-]/.test(match?.[2] ?? "")) {
+    return undefined;
+  }
+  return brand;
+};
+
+const inferTitleFromContent = (content: string | undefined, productUrl?: string): string | undefined => {
   const normalized = normalizePlainText(content);
   if (!normalized) return undefined;
   const bestBuyTitle = inferBestBuyTitleFromContent(normalized);
   if (bestBuyTitle) {
     return bestBuyTitle;
+  }
+  if (productUrl && resolveShoppingProviderIdForUrl(productUrl) === "shopping/ebay") {
+    const ebayTitle = inferEbayTitleFromContent(normalized);
+    if (ebayTitle) {
+      return ebayTitle;
+    }
   }
   const storeMatch = /\bVisit the [A-Z][A-Za-z0-9&+' -]{1,60} Store\s+(.+?)(?=\s+(?:Brand [A-Z]|About this item|Key item features|Current price is|Actual Color|[0-9]+(?:\.[0-9]+)? stars out of|Best seller\b))/i.exec(normalized);
   const candidate = normalizePlainText(storeMatch?.[1]);
@@ -2069,6 +2197,11 @@ const sanitizeProductBrandCandidate = (candidate: string | undefined, productUrl
   if (!normalized) return undefined;
   try {
     const host = new URL(productUrl).hostname.toLowerCase();
+    const hostBrand = normalizePlainText(inferBrandFromUrl(productUrl)).replace(/\.com\b/gi, "").toLowerCase();
+    const candidateBrand = normalized.replace(/\.com\b/gi, "").toLowerCase();
+    if (host.includes("ebay.") && hostBrand && candidateBrand === hostBrand) {
+      return undefined;
+    }
     if (!host.includes("walmart.")) {
       return normalized;
     }
@@ -2261,6 +2394,18 @@ const inferHostDefaultCurrency = (productUrl: string): string | undefined => {
   }
 };
 
+const extractProductBrandFromTitle = (title: string | undefined, productUrl: string): string | undefined => {
+  try {
+    const host = new URL(productUrl).hostname.toLowerCase();
+    if (host.includes("ebay.")) {
+      return inferEbayBrandFromTitle(title);
+    }
+  } catch {
+    return extractBrandFromTitle(title);
+  }
+  return extractBrandFromTitle(title);
+};
+
 const shouldSuppressMarketplacePrice = (
   record: NormalizedRecord,
   productUrl: string,
@@ -2430,12 +2575,12 @@ const resolveProductBrand = (
     ? SHOPPING_PROVIDER_PROFILES.find((entry) => entry.id === nestedProvider)?.displayName
     : undefined;
   const candidates = [
-    inferBrandFromContent(record.content),
+    inferBrandFromContent(record.content, productUrl),
     rejectRetailerBrand(refreshedBrand),
     rejectRetailerBrand(typeof record.attributes.brand === "string" ? record.attributes.brand : undefined),
     rejectRetailerBrand(typeof record.attributes.site_name === "string" ? record.attributes.site_name : undefined),
     rejectRetailerBrand(providerBrand && providerBrand !== "Others" ? providerBrand : undefined),
-    extractBrandFromTitle(record.title),
+    extractProductBrandFromTitle(record.title, productUrl),
     inferBrandFromUrl(productUrl)
   ]
     .map((entry) => sanitizeProductBrandCandidate(entry, productUrl))
@@ -2455,7 +2600,7 @@ const resolveProductTitle = (
     : undefined;
   const candidates = [
     refreshedTitle,
-    inferTitleFromContent(record.content),
+    inferTitleFromContent(record.content, productUrl),
     record.title,
     typeof nestedTitle === "string" ? nestedTitle : undefined,
     typeof record.attributes.description === "string" ? record.attributes.description.split(/(?<=[.!?])\s+/)[0] : undefined,
@@ -2634,7 +2779,9 @@ export const runResearchWorkflow = async (
     throw new Error(`Research workflow envelope kind mismatch. Expected research but received ${envelope.kind}.`);
   }
 
-  const workflowInput = envelope.input as unknown as ResearchRunInput;
+  const rawWorkflowInput = envelope.input as unknown as ResearchRunInput;
+  const artifactRoot = resolveWorkflowArtifactRoot(rawWorkflowInput.outputDir);
+  const workflowInput: ResearchRunInput = { ...rawWorkflowInput, outputDir: artifactRoot };
   let trace: WorkflowTraceEntry[] = [
     ...(envelope.trace ?? []),
     {
@@ -2798,7 +2945,7 @@ export const runResearchWorkflow = async (
 
   const bundle = await createArtifactBundle({
     namespace: "research",
-    outputDir: workflowInput.outputDir,
+    outputDir: artifactRoot,
     ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
@@ -2839,7 +2986,9 @@ export const runShoppingWorkflow = async (
     throw new Error(`Shopping workflow envelope kind mismatch. Expected shopping but received ${envelope.kind}.`);
   }
 
-  const workflowInput = envelope.input as unknown as ShoppingRunInput;
+  const rawWorkflowInput = envelope.input as unknown as ShoppingRunInput;
+  const artifactRoot = resolveWorkflowArtifactRoot(rawWorkflowInput.outputDir);
+  const workflowInput: ShoppingRunInput = { ...rawWorkflowInput, outputDir: artifactRoot };
   const remainingTimeoutMs = createRemainingTimeoutResolver(workflowInput.timeoutMs);
   let trace: WorkflowTraceEntry[] = [
     ...(envelope.trace ?? []),
@@ -3007,7 +3156,7 @@ export const runShoppingWorkflow = async (
 
   const bundle = await createArtifactBundle({
     namespace: "shopping",
-    outputDir: workflowInput.outputDir,
+    outputDir: artifactRoot,
     ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
@@ -3042,7 +3191,9 @@ export const runInspiredesignWorkflow = async (
   input: InspiredesignRunInput | WorkflowResumeEnvelope,
   options: InspiredesignWorkflowOptions = {}
 ): Promise<Record<string, unknown>> => {
-  const { envelope, workflowInput } = buildInspiredesignEnvelope(input);
+  const { envelope, workflowInput: rawWorkflowInput } = buildInspiredesignEnvelope(input);
+  const artifactRoot = resolveWorkflowArtifactRoot(rawWorkflowInput.outputDir);
+  const workflowInput: InspiredesignResolvedInput = { ...rawWorkflowInput, outputDir: artifactRoot };
   const remainingTimeoutMs = createRemainingTimeoutResolver(workflowInput.timeoutMs);
   let trace = appendWorkflowTrace(envelope.trace ?? [], "compile", "compile_started", {
     kind: "inspiredesign"
@@ -3118,7 +3269,7 @@ export const runInspiredesignWorkflow = async (
   });
   const bundle = await createArtifactBundle({
     namespace: "inspiredesign",
-    outputDir: workflowInput.outputDir,
+    outputDir: artifactRoot,
     ttlHours: workflowInput.ttlHours,
     files: rendered.files
   });
@@ -3185,7 +3336,9 @@ export const runProductVideoWorkflow = async (
     }
   ];
 
-  const workflowInput = plan.input;
+  const rawWorkflowInput = plan.input;
+  const productVideoArtifactRoot = resolveWorkflowArtifactRoot(rawWorkflowInput.output_dir);
+  const workflowInput = { ...rawWorkflowInput, output_dir: productVideoArtifactRoot };
   const includeScreenshots = plan.compiled.includeScreenshots;
   const includeAllImages = plan.compiled.includeAllImages;
   const includeCopy = plan.compiled.includeCopy;
@@ -3289,6 +3442,8 @@ export const runProductVideoWorkflow = async (
         query: resolveStep.input.product_name,
         providers: providerHint ? [providerHint] : undefined,
         mode: "json",
+        outputDir: productVideoArtifactRoot,
+        ttlHours: workflowInput.ttl_hours,
         ...timeoutOptions,
         browserMode: workflowInput.browserMode,
         useCookies: workflowInput.useCookies,
@@ -3545,7 +3700,7 @@ export const runProductVideoWorkflow = async (
 
   const bundle = await createArtifactBundle({
     namespace: "product-assets",
-    outputDir: workflowInput.output_dir,
+    outputDir: productVideoArtifactRoot,
     ttlHours: workflowInput.ttl_hours,
     files,
     manifestFileName: "bundle-manifest.json"

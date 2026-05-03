@@ -545,7 +545,7 @@ Wrapper behavior:
 - Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
 - `product-video run` always returns a path-based local asset pack.
 - `inspiredesign run` returns a reusable design contract plus a Canvas-first handoff bundle; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
-- Path-bearing modes persist artifacts under the configured output directory (or default tmp namespace) and include TTL metadata in manifest files.
+- Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata in manifest files. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `.opendevbrowser/<namespace>/<runId>` from the current workspace. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-assets`. Direct tool or daemon callers should pass an absolute output directory when they need caller-specific placement.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.
@@ -577,7 +577,7 @@ Script helper:
 
 Notes:
 - `--expired-only` is required.
-- Default cleanup root is `${TMPDIR:-/tmp}/opendevbrowser`.
+- Default cleanup root is `${TMPDIR:-/tmp}/opendevbrowser`. To clean workspace-local workflow artifacts, pass `--output-dir ./.opendevbrowser`.
 - Output includes `removed` and `skipped` run paths.
 
 ### Run (single-shot script)

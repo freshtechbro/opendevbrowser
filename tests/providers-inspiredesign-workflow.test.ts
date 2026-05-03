@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { normalizeRecord } from "../src/providers/normalize";
 import {
@@ -42,6 +42,7 @@ type InspiredesignWorkflowMeta = {
   selection: {
     urls: string[];
     capture_mode: string;
+    requested_browser_mode?: string;
     include_prototype_guidance: boolean;
   };
   metrics: {
@@ -201,6 +202,12 @@ const makeOutputDir = (): string => {
   return dir;
 };
 
+const expectArtifactPath = (artifactPath: string, root: string, namespace: string): void => {
+  expect(dirname(dirname(artifactPath))).toBe(root);
+  expect(basename(dirname(artifactPath))).toBe(namespace);
+  expect(basename(artifactPath)).toMatch(/^[0-9a-f-]{36}$/);
+};
+
 const makeFailure = (
   provider: string,
   source: ProviderSource,
@@ -313,13 +320,15 @@ describe("inspiredesign workflow", () => {
 
   it("returns a path artifact bundle when no references are supplied", async () => {
     const runtime = toRuntime({});
+    const outputDir = makeOutputDir();
     const output = await runInspiredesignWorkflow(runtime, {
       brief: "  Create a premium knowledge base  ",
       mode: "path",
-      outputDir: makeOutputDir()
+      outputDir
     });
 
     const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.path);
 
     expect(output).toMatchObject({
       mode: "path",
@@ -348,6 +357,37 @@ describe("inspiredesign workflow", () => {
       "canvas-plan.request.json",
       "design-agent-handoff.json"
     ]));
+    expectArtifactPath(artifactPath, outputDir, "inspiredesign");
+  });
+
+  it("stores default artifact bundles under the workspace inspiredesign directory", async () => {
+    const workspaceDir = makeOutputDir();
+    vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
+    const runtime = toRuntime({
+      fetch: vi.fn(async (_input, options) => {
+        expect(options?.suspendedIntent).toMatchObject({
+          kind: "workflow.inspiredesign",
+          input: {
+            workflow: {
+              kind: "inspiredesign",
+              input: { outputDir: join(workspaceDir, ".opendevbrowser") }
+            }
+          }
+        });
+        return makeAggregate();
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Create a repo-local artifact bundle",
+      urls: ["https://example.com/reference"],
+      mode: "path"
+    });
+
+    const artifactPath = String(output.path);
+
+    expectArtifactPath(artifactPath, join(workspaceDir, ".opendevbrowser"), "inspiredesign");
+    expect(readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")).toContain("canvasSessionId");
   });
 
   it("emits URL-backed artifact files and capture telemetry together for workflow runs", async () => {
@@ -773,6 +813,29 @@ describe("inspiredesign workflow", () => {
     expect(meta.deepCaptureRecommendation).toContain("already uses captureMode=deep");
   });
 
+  it("drops primitive cached brief formats while accepting valid envelope browser mode", async () => {
+    const staleBriefExpansion: JsonValue = {
+      sourceBrief: "Design a premium launch surface",
+      advancedBrief: "Primitive cached brief should be ignored.",
+      templateVersion: "inspiredesign-advanced-brief.v1",
+      format: "not-a-format"
+    };
+
+    const output = await runInspiredesignWorkflow(toRuntime({}), buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "Design a premium launch surface",
+      briefExpansion: staleBriefExpansion,
+      browserMode: "managed",
+      mode: "context"
+    }));
+
+    const context = output.context as InspiredesignWorkflowContext;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).not.toContain("Primitive cached brief should be ignored.");
+    expect(meta.selection.requested_browser_mode).toBe("managed");
+  });
+
   it("defaults invalid envelope render fields but still forces deep capture when urls are present", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       records: [
@@ -794,7 +857,6 @@ describe("inspiredesign workflow", () => {
         captureMode: "invalid-capture",
         includePrototypeGuidance: "yes",
         timeoutMs: "fast",
-        outputDir: "",
         ttlHours: "24",
         useCookies: "true",
         challengeAutomationMode: 1,
@@ -819,6 +881,27 @@ describe("inspiredesign workflow", () => {
       capture_mode: "deep",
       include_prototype_guidance: false
     });
+  });
+
+  it("rejects blank inspiredesign envelope output dirs", async () => {
+    const fetch = vi.fn(async () => makeAggregate());
+    const runtime = toRuntime({ fetch });
+
+    await expect(runInspiredesignWorkflow(runtime, {
+      kind: "inspiredesign",
+      input: {
+        brief: "Design a calm control surface",
+        outputDir: ""
+      }
+    } as never)).rejects.toThrow("outputDir cannot be empty");
+    await expect(runInspiredesignWorkflow(runtime, {
+      kind: "inspiredesign",
+      input: {
+        brief: "Design a calm control surface",
+        outputDir: "   "
+      }
+    } as never)).rejects.toThrow("outputDir cannot be empty");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("ignores invalid envelope brief expansions and regenerates the advanced brief", async () => {
