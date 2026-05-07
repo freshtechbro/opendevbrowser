@@ -168,6 +168,11 @@ describe("workflow primitives", () => {
       const report = rendered.files.find((file) => file.path === "report.md");
       expect(report?.content).toContain("# Research Report");
       expect(report?.content).toContain("agentic systems");
+      expect(report?.content).toContain("- Source: community");
+      expect(report?.content).toContain("- Provider: community/default");
+      expect(report?.content).not.toContain("community/community/default");
+      expect(report?.content).toContain("## Report Files");
+      expect(report?.content).not.toContain("bundle-manifest.json");
       expect(rendered.response.mode).toBe(mode === "path" ? "path" : mode);
     }
   });
@@ -185,6 +190,12 @@ describe("workflow primitives", () => {
       records: [],
       meta: {}
     }).files.find((file) => file.path === "report.md")?.content ?? "");
+    const emptySummary = String(renderResearch({
+      mode: "compact",
+      topic: "empty evidence topic",
+      records: [],
+      meta: {}
+    }).response.summary);
     const [sparseRecord] = enrichResearchRecords([
       makeRecord({
         id: "sparse",
@@ -222,6 +233,7 @@ describe("workflow primitives", () => {
       }
     }).files.find((file) => file.path === "report.md")?.content ?? "");
 
+    expect(emptySummary).toBe("No usable research findings were available.");
     expect(emptyReport).toContain("No usable findings were available.");
     expect(emptyReport).toContain("No provider limitations or sanitization gaps were reported.");
     expect(emptyReport).toContain("No sources available.");
@@ -264,6 +276,25 @@ describe("workflow primitives", () => {
     expect(report).not.toContain("### 11. Finding 11");
     expect(report).toContain("Finding 20: https://example.com/20");
     expect(report).not.toContain("Finding 21: https://example.com/21");
+  });
+
+  it("discloses truncated research evidence excerpts", () => {
+    const timebox = resolveTimebox({ days: 30, now: new Date("2026-02-16T00:00:00.000Z") });
+    const [record] = enrichResearchRecords([
+      makeRecord({
+        content: `${"Detailed evidence ".repeat(20)}complete source payload remains in records json.`
+      })
+    ], timebox);
+
+    const report = String(renderResearch({
+      mode: "path",
+      topic: "long evidence topic",
+      records: record ? [record] : [],
+      meta: {}
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+
+    expect(report).toContain("[truncated; see records.json for full content]");
+    expect(report).not.toContain("complete source payload remains in records json");
   });
 
   it("renders shopping payloads and comparison matrix", () => {

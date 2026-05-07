@@ -36,6 +36,15 @@ const makeRecord = (overrides: Partial<NormalizedRecord> = {}): NormalizedRecord
   ...overrides
 });
 
+const makeSurvivingRecord = (provider: string, source: ProviderSource, id: string): NormalizedRecord => makeRecord({
+  id,
+  source,
+  provider,
+  url: `https://example.com/${id}`,
+  title: `${id} survivor`,
+  content: `Concrete surviving evidence for ${id}.`
+});
+
 const makeFailure = (
   provider: string,
   source: ProviderSource,
@@ -331,6 +340,7 @@ describe("workflow branch coverage", () => {
         ok: false,
         sourceSelection: "web",
         providerOrder: [unstableProvider],
+        records: [makeSurvivingRecord(unstableProvider, "web", "unstable-source")],
         failures: [makeFailure(unstableProvider, "web", {
           code: "rate_limited",
           message: "rate limited",
@@ -379,6 +389,7 @@ describe("workflow branch coverage", () => {
             ok: false,
             sourceSelection: "web",
             providerOrder: [provider],
+            records: [makeSurvivingRecord(provider, "web", `recovery-failure-${callCount}`)],
             failures: [makeFailure(provider, "web", {
               code: "rate_limited",
               message: "rate limited",
@@ -439,6 +450,7 @@ describe("workflow branch coverage", () => {
             ok: false,
             sourceSelection: "web",
             providerOrder: [provider],
+            records: [makeSurvivingRecord(provider, "web", `recovery-waiting-failure-${callCount}`)],
             failures: [makeFailure(provider, "web", {
               code: "rate_limited",
               message: "rate limited",
@@ -499,6 +511,7 @@ describe("workflow branch coverage", () => {
             ok: false,
             sourceSelection: "web",
             providerOrder: [provider],
+            records: [makeSurvivingRecord(provider, "web", `recovery-pending-failure-${callCount}`)],
             failures: [makeFailure(provider, "web", {
               code: "rate_limited",
               message: "rate limited",
@@ -562,6 +575,7 @@ describe("workflow branch coverage", () => {
         ok: false,
         sourceSelection: "web",
         providerOrder: ["web/default"],
+        records: [makeSurvivingRecord("web/default", "web", "runtime-snapshot-alert")],
         failures: [makeFailure("web/default", "web")],
         metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
       }),
@@ -604,6 +618,7 @@ describe("workflow branch coverage", () => {
         ok: false,
         sourceSelection: "social",
         providerOrder: ["social/youtube"],
+        records: [makeSurvivingRecord("social/youtube", "social", "runtime-warning-alert")],
         failures: [
           makeFailure("social/youtube", "social", {
             code: "unavailable",
@@ -670,6 +685,7 @@ describe("workflow branch coverage", () => {
         ok: false,
         sourceSelection: "social",
         providerOrder: ["social/x"],
+        records: [makeSurvivingRecord("social/x", "social", "runtime-degraded-alert")],
         failures: [makeFailure("social/x", "social", {
           code: "rate_limited",
           message: "rate limited",
@@ -775,6 +791,7 @@ describe("workflow branch coverage", () => {
           ok: false,
           sourceSelection: "web",
           providerOrder: [provider],
+          records: [makeSurvivingRecord(provider, "web", `captcha-window-${callCount}`)],
           failures: [makeFailure(provider, "web", {
             code: "unavailable",
             message: "captcha challenge triggered",
@@ -816,6 +833,7 @@ describe("workflow branch coverage", () => {
           ok: false,
           sourceSelection: "social",
           providerOrder: ["social/youtube"],
+          records: [makeSurvivingRecord("social/youtube", "social", "youtube-degraded-seed")],
           failures: [makeFailure("social/youtube", "social", {
             code: "rate_limited",
             message: "rate limited",
@@ -1658,11 +1676,51 @@ describe("workflow branch coverage", () => {
     }));
   });
 
-  it("preserves research timeout failures in structured workflow output", async () => {
-    const output = await runResearchWorkflow(toRuntime({
+  it("fails timeout-only research failures without usable records", async () => {
+    await expect(runResearchWorkflow(toRuntime({
       search: async () => makeAggregate({
         ok: false,
         records: [],
+        partial: false,
+        failures: [makeFailure("web/default", "web", {
+          code: "timeout",
+          message: "Browser fallback timed out after 15000ms",
+          retryable: true,
+          details: {
+            stage: "capture",
+            timeoutMs: 15000
+          }
+        })],
+        metrics: {
+          attempted: 1,
+          succeeded: 0,
+          failed: 1,
+          retries: 0,
+          latencyMs: 15000
+        },
+        sourceSelection: "web",
+        providerOrder: ["web/default"]
+      })
+    }), {
+      topic: "browser automation timeout",
+      sourceSelection: "web",
+      days: 7,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable results after post-processing."
+    );
+  });
+
+  it("preserves research timeout failures when usable records survive", async () => {
+    const output = await runResearchWorkflow(toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        records: [makeRecord({
+          id: "timeout-survivor",
+          url: "https://example.com/timeout-survivor",
+          title: "Timeout survivor",
+          content: "Concrete timeout survivor evidence remains available."
+        })],
         partial: false,
         failures: [makeFailure("web/default", "web", {
           code: "timeout",
@@ -1699,7 +1757,9 @@ describe("workflow branch coverage", () => {
       mode: "json"
     });
 
-    expect(output.records).toEqual([]);
+    expect(output.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "timeout-survivor" })
+    ]));
     expect(output.meta).toMatchObject({
       failures: [{
         provider: "web/default",
@@ -1721,13 +1781,20 @@ describe("workflow branch coverage", () => {
     }).failures[0]?.error.reasonCode).not.toBe("env_limited");
   });
 
-  it("does not synthesize primary constraint summaries for timeout-only research failures", async () => {
+  it("does not synthesize primary constraint summaries for timeout failures with surviving records", async () => {
     const output = await runResearchWorkflow(toRuntime({
       search: async () => makeAggregate({
         ok: false,
         sourceSelection: "social",
         providerOrder: ["social/x"],
-        records: [],
+        records: [makeRecord({
+          id: "social-timeout-survivor",
+          source: "social",
+          provider: "social/x",
+          url: "https://social.example/timeout-survivor",
+          title: "Social timeout survivor",
+          content: "Concrete social timeout survivor evidence remains available."
+        })],
         partial: false,
         failures: [makeFailure("social/x", "social", {
           code: "timeout",
@@ -1755,7 +1822,7 @@ describe("workflow branch coverage", () => {
       mode: "compact"
     });
 
-    expect(output.summary).toBe("No records matched the requested timebox.");
+    expect(output.summary).toContain("Social timeout survivor");
     expect(output.meta).not.toHaveProperty("primary_constraint");
     expect(output.meta).not.toHaveProperty("primaryConstraint");
     expect(output.meta).not.toHaveProperty("primary_constraint_summary");
@@ -1776,7 +1843,14 @@ describe("workflow branch coverage", () => {
         ok: false,
         sourceSelection: "social",
         providerOrder: ["social/x", "social/linkedin"],
-        records: [],
+        records: [makeRecord({
+          id: "linkedin-survivor",
+          source: "social",
+          provider: "social/linkedin",
+          url: "https://social.example/linkedin-survivor",
+          title: "Linkedin survivor",
+          content: "Concrete linkedin source evidence remains available."
+        })],
         partial: false,
         failures: [
           makeFailure("social/x", "social", {
@@ -1840,7 +1914,7 @@ describe("workflow branch coverage", () => {
     });
     expect(output.meta).not.toHaveProperty("primary_constraint");
     expect(output.meta).not.toHaveProperty("primary_constraint_summary");
-    expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
+    expect(output.summary).toContain("Linkedin survivor");
   });
 
   it("keeps failed_sources derived from search failures only when web follow-up fetches fail", async () => {
@@ -1872,9 +1946,9 @@ describe("workflow branch coverage", () => {
             id: "search-shell",
             source: "web",
             provider: "web/default",
-            url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Ffollow-up",
-            title: "search shell",
-            content: "resume topic",
+            url: "https://example.com/follow-up-source",
+            title: "Follow-up source",
+            content: "Concrete follow-up source content for failure accounting.",
             attributes: {
               retrievalPath: "web:search:index"
             }
@@ -1921,12 +1995,13 @@ describe("workflow branch coverage", () => {
     });
   });
 
-  it("propagates primary constraint summaries into research meta and compact empty-state output", async () => {
+  it("propagates primary constraint summaries into research meta with surviving records", async () => {
     const runtime = toRuntime({
       search: async () => makeAggregate({
         ok: false,
         sourceSelection: "social",
         providerOrder: ["social/linkedin"],
+        records: [makeSurvivingRecord("social/linkedin", "social", "linkedin-primary-constraint")],
         failures: [makeFailure("social/linkedin", "social", {
           code: "auth",
           message: "Authentication required",
@@ -1955,8 +2030,7 @@ describe("workflow branch coverage", () => {
       primaryConstraintSummary: "Linkedin requires login or an existing session."
     });
     expect(output.meta).not.toHaveProperty("primary_constraint_summary");
-    expect(output.summary).toContain("No records matched the requested timebox.");
-    expect(output.summary).toContain("Primary constraint: Linkedin requires login or an existing session.");
+    expect(output.summary).toContain("linkedin-primary-constraint survivor");
   });
 
   it("threads cookie overrides and aggregates cookie diagnostics across failures, records, and attempt chains", async () => {
@@ -3795,6 +3869,7 @@ describe("workflow branch coverage", () => {
         ok: false,
         sourceSelection: "web",
         providerOrder: ["web/default"],
+        records: [makeSurvivingRecord("web/default", "web", "attempt-chain-summary")],
         failures: [
           makeFailure("web/default", "web", {
             code: "internal",
@@ -3904,6 +3979,7 @@ describe("workflow branch coverage", () => {
         ok: false,
         sourceSelection: "social",
         providerOrder: ["social/youtube"],
+        records: [makeSurvivingRecord("social/youtube", "social", "caption-alert")],
         failures: [makeFailure("social/youtube", "social", {
           code: "unavailable",
           message: "captions missing",
@@ -4155,6 +4231,140 @@ describe("workflow branch coverage", () => {
     );
   });
 
+  it("fails research runs when provider failures accompany only shell records", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        partial: true,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "duckduckgo-shell-with-failure",
+          source: "web",
+          provider: "web/default",
+          url: "https://html.duckduckgo.com/html",
+          title: "https://html.duckduckgo.com/html",
+          content: "browser automation blockers at DuckDuckGo",
+          attributes: {
+            retrievalPath: "web:search:index"
+          }
+        })],
+        failures: [makeFailure("web/default", "web", { reasonCode: "env_limited" })]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "browser automation blockers",
+      sourceSelection: "web",
+      days: 14,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced only shell records and no usable results"
+    );
+  });
+
+  it("fails research runs when providers return neither records nor failures", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: []
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "empty provider success",
+      sourceSelection: "web",
+      days: 14,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable results after post-processing."
+    );
+  });
+
+  it("fails research runs when env-limited provider failures return no records", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        partial: true,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [],
+        failures: [makeFailure("web/default", "web", {
+          reasonCode: "env_limited",
+          message: "Browser fallback requires a reachable page."
+        })]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "browser fallback unavailable",
+      sourceSelection: "web",
+      days: 14,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable results after post-processing."
+    );
+  });
+
+  it("fails research runs when rate-limited provider failures return no records", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        partial: true,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [],
+        failures: [makeFailure("web/default", "web", {
+          code: "rate_limited",
+          message: "Provider rate limit reached.",
+          reasonCode: "rate_limited",
+          retryable: true
+        })]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "rate limited research",
+      sourceSelection: "web",
+      days: 14,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable results after post-processing."
+    );
+  });
+
+  it("fails research runs when provider failures accompany only out-of-timebox records", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        ok: false,
+        partial: true,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "stale-record-with-failure",
+          source: "web",
+          provider: "web/default",
+          url: "https://example.com/stale-record",
+          title: "Stale usable record",
+          content: "Concrete browser automation field notes.",
+          timestamp: isoHoursAgo(24 * 90)
+        })],
+        failures: [makeFailure("web/default", "web", { reasonCode: "env_limited" })]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "stale browser automation incident",
+      sourceSelection: "web",
+      from: isoHoursAgo(72),
+      to: isoHoursAhead(1),
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable in-timebox results after sanitization."
+    );
+  });
+
   it("caps research web follow-up fetches and ignores malformed search redirect urls", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       sourceSelection: "web",
@@ -4260,7 +4470,7 @@ describe("workflow branch coverage", () => {
     expect((output.records as Array<{ id: string }>).map((record) => record.id)).toHaveLength(3);
   });
 
-  it("sorts multiple auto-excluded providers across social and shopping sources", async () => {
+  it("fails excluded-only research evidence and preserves excluded metadata with survivors", async () => {
     const runtime = toRuntime({
       search: async (_input, options) => {
         const source = (options?.source ?? "web") as ProviderSource;
@@ -4269,6 +4479,7 @@ describe("workflow branch coverage", () => {
             ok: false,
             sourceSelection: "social",
             providerOrder: ["social/youtube"],
+            records: [makeSurvivingRecord("social/youtube", "social", "excluded-social-seed")],
             failures: [makeFailure("social/youtube", "social", {
               code: "rate_limited",
               message: "rate limited",
@@ -4322,10 +4533,20 @@ describe("workflow branch coverage", () => {
       mode: "json"
     });
 
+    await expect(runResearchWorkflow(runtime, {
+      topic: "excluded-provider-only",
+      sourceSelection: "auto",
+      sources: ["shopping", "social"],
+      days: 1,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced no usable results after post-processing."
+    );
+
     const output = await runResearchWorkflow(runtime, {
       topic: "excluded-provider-sort",
       sourceSelection: "auto",
-      sources: ["shopping", "social"],
+      sources: ["web", "shopping", "social"],
       days: 1,
       mode: "json"
     });
@@ -4337,6 +4558,7 @@ describe("workflow branch coverage", () => {
       "shopping/walmart",
       "social/youtube"
     ]);
+    expect((output.records as Array<{ provider: string }>).map((record) => record.provider)).toContain("web/default");
   });
 
   it("normalizes product-video provider hints for shopping-domain URLs", async () => {

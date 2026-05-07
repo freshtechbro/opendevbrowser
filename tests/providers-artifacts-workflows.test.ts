@@ -222,6 +222,7 @@ describe("artifact and workflow runtime", () => {
   it("runs research workflow with strict source resolution and artifacts", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-15T00:00:00.000Z"));
+    const pathModeRoot = await makeWorkspaceDir("odb-research-path-mode-");
 
     const runtime = toRuntime({
       search: vi.fn(async (_input, options) => {
@@ -275,6 +276,7 @@ describe("artifact and workflow runtime", () => {
       from: "2026-02-01T00:00:00.000Z",
       to: "2026-02-16T00:00:00.000Z",
       sourceSelection: "all",
+      outputDir: pathModeRoot,
       mode: "path"
     });
 
@@ -282,6 +284,16 @@ describe("artifact and workflow runtime", () => {
       mode: "path",
       path: expect.any(String)
     });
+    const pathModeArtifactPath = String(pathMode.path);
+    const pathModeManifest = JSON.parse(
+      await readFile(join(pathModeArtifactPath, "bundle-manifest.json"), "utf8")
+    ) as ArtifactManifest;
+    const pathModeReport = await readFile(join(pathModeArtifactPath, "report.md"), "utf8");
+    expect(pathModeArtifactPath.startsWith(pathModeRoot)).toBe(true);
+    expect(pathModeManifest.files).toEqual(RESEARCH_ARTIFACT_FILES);
+    expect(pathMode.meta).toMatchObject({ artifact_manifest: { files: RESEARCH_ARTIFACT_FILES } });
+    expect(pathModeReport).toContain("# Research Report");
+    expect(pathModeReport).toContain("web inside");
   });
 
   it("stores default research artifacts under the workspace research directory", async () => {

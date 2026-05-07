@@ -107,15 +107,15 @@ const compactResearchLines = (records: ResearchRecord[], meta: Record<string, un
     const summary = primaryConstraintSummaryFromMeta(meta);
     return summary
       ? [
-        "No records matched the requested timebox.",
+        "No usable research findings were available.",
         `Primary constraint: ${summary}`
       ]
-      : ["No records matched the requested timebox."];
+      : ["No usable research findings were available."];
   }
   return records.slice(0, 10).map((record, index) => {
     const title = record.title ?? record.url ?? record.provider;
     const engagement = record.engagement.likes + record.engagement.comments + record.engagement.upvotes;
-    return `${index + 1}. ${title} (${record.source}/${record.provider}) score=${record.confidence.toFixed(2)} engagement=${engagement}`;
+    return `${index + 1}. ${title} (${record.source}; ${record.provider}) score=${record.confidence.toFixed(2)} engagement=${engagement}`;
   });
 };
 
@@ -125,6 +125,13 @@ const RESEARCH_REPORT_LIMITS = {
   failures: 10,
   excerptCharacters: 240
 } as const;
+const RESEARCH_REPORT_FILE_NAMES = [
+  "summary.md",
+  "report.md",
+  "records.json",
+  "context.json",
+  "meta.json"
+] as const;
 
 const plainObject = (value: unknown): Record<string, unknown> => (
   typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -132,10 +139,16 @@ const plainObject = (value: unknown): Record<string, unknown> => (
 
 const researchTitle = (record: ResearchRecord): string => record.title ?? record.url ?? record.provider;
 
-const researchExcerpt = (content: string | undefined): string => (
-  content?.replace(/\s+/g, " ").trim().slice(0, RESEARCH_REPORT_LIMITS.excerptCharacters)
-    || "No content excerpt was available."
-);
+const researchExcerpt = (content: string | undefined): string => {
+  const normalized = content?.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "No content excerpt was available.";
+  }
+  if (normalized.length <= RESEARCH_REPORT_LIMITS.excerptCharacters) {
+    return normalized;
+  }
+  return `${normalized.slice(0, RESEARCH_REPORT_LIMITS.excerptCharacters)} [truncated; see records.json for full content]`;
+};
 
 const limitedCount = (total: number, limit: number): number => Math.min(total, limit);
 
@@ -160,7 +173,8 @@ const researchFindingsLines = (records: ResearchRecord[]): string[] => (
     : [
       ...records.slice(0, RESEARCH_REPORT_LIMITS.findings).flatMap((record, index) => [
         `### ${index + 1}. ${researchTitle(record)}`,
-        `- Source: ${record.source}/${record.provider}`,
+        `- Source: ${record.source}`,
+        `- Provider: ${record.provider}`,
         `- URL: ${record.url ?? "not provided"}`,
         `- Published: ${record.timestamp}`,
         `- Confidence: ${record.confidence.toFixed(2)}`,
@@ -240,6 +254,11 @@ const researchGapLines = (meta: Record<string, unknown>): string[] => {
   ];
 };
 
+const researchArtifactFileLines = (): string[] => [
+  "## Report Files",
+  ...RESEARCH_REPORT_FILE_NAMES.map((fileName) => `- ${fileName}`)
+];
+
 const buildResearchReport = (args: {
   topic: string;
   records: ResearchRecord[];
@@ -254,6 +273,8 @@ const buildResearchReport = (args: {
   `- Sources shown in report: ${limitedCount(args.records.length, RESEARCH_REPORT_LIMITS.sources)}`,
   "- Final output: Usable records are persisted in records.json.",
   "- Diagnostics: Run metadata, failures, and constraints are persisted in meta.json; this report summarizes the bounded inline subset.",
+  "",
+  ...researchArtifactFileLines(),
   "",
   "## Findings",
   ...researchFindingsLines(args.records),
