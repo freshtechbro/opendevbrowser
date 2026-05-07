@@ -2284,6 +2284,45 @@ describe("inspiredesign packet + renderer", () => {
     expect(derivedSummary.response.summary).toEqual(expect.stringContaining(`Capture: ${expectedSummary}`));
   });
 
+  it("ignores malformed capture attempt reports", () => {
+    const brief = "Design a premium product narrative landing page";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://example.com/ref-1"],
+      references: [makeReference()]
+    });
+    const renderWithReport = (captureAttemptReport: Record<string, string | Array<string | number>>) => renderInspiredesign({
+      mode: "compact",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: ["https://example.com/ref-1"],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      meta: {
+        requestId: "req-invalid",
+        captureAttemptReport
+      }
+    });
+
+    for (const rendered of [
+      renderWithReport({ worked: "snapshot", didNotWork: ["dom"] }),
+      renderWithReport({ worked: ["snapshot"], didNotWork: "dom" }),
+      renderWithReport({ worked: ["snapshot", 1], didNotWork: ["dom"] })
+    ]) {
+      expect(rendered.response.captureAttemptReport).toBeUndefined();
+      expect(rendered.response.captureAttemptSummary).toBeUndefined();
+      expect(rendered.response.summary).not.toEqual(expect.stringContaining("Capture:"));
+    }
+  });
+
   it("omits the prototype guidance file when the packet does not include it", () => {
     const brief = "Design a product detail page";
     const packet = buildInspiredesignPacket({

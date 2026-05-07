@@ -32,6 +32,15 @@ const toRuntime = (handlers: {
   fetch: handlers.fetch
 });
 
+const RESEARCH_ARTIFACT_FILES = [
+  "summary.md",
+  "report.md",
+  "records.json",
+  "context.json",
+  "meta.json",
+  "bundle-manifest.json"
+];
+
 describe("artifact and workflow runtime", () => {
   const createdDirs: string[] = [];
 
@@ -316,7 +325,16 @@ describe("artifact and workflow runtime", () => {
         mode: "json"
       });
 
-      expectArtifactPath(String(output.artifact_path), join(workspaceDir, ".opendevbrowser"), "research");
+      const artifactPath = String(output.artifact_path);
+      expectArtifactPath(artifactPath, join(workspaceDir, ".opendevbrowser"), "research");
+      const manifest = JSON.parse(
+        await readFile(join(artifactPath, "bundle-manifest.json"), "utf8")
+      ) as ArtifactManifest;
+      const report = await readFile(join(artifactPath, "report.md"), "utf8");
+      expect(manifest.files).toEqual(RESEARCH_ARTIFACT_FILES);
+      expect(report).toContain("# Research Report");
+      expect(report).toContain("A concrete research artifact record.");
+      expect(report).toContain("https://example.com/research");
     } finally {
       cwdSpy.mockRestore();
     }
@@ -439,6 +457,67 @@ describe("artifact and workflow runtime", () => {
     };
     expect(recordsPayload.records.map((record) => record.id)).toEqual(["clean-inspiration-record"]);
     expect(metaPayload.metrics.sanitized_records).toBe(3);
+    const report = await readFile(join(artifactPath, "report.md"), "utf8");
+    expect(report).toContain("Coffee shop website design inspiration");
+    expect(report).toContain("login_shell: 1");
+  });
+
+  it("reports provider-limited research runs when usable records survive", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T00:00:00.000Z"));
+    const root = await mkdtemp(join(tmpdir(), "odb-research-provider-limited-"));
+    createdDirs.push(root);
+
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate({
+        ok: false,
+        partial: true,
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 5 },
+        records: [{
+          id: "provider-limited-survivor",
+          source: "web",
+          provider: "web/default",
+          url: "https://research.example.com/provider-limited",
+          title: "Provider-limited survivor",
+          content: "A usable finding survived despite provider limitations.",
+          timestamp: "2026-03-10T00:00:00.000Z",
+          confidence: 0.88,
+          attributes: {}
+        }],
+        failures: [{
+          provider: "web/default",
+          source: "web",
+          error: {
+            code: "unavailable",
+            message: "Live source returned a login shell",
+            retryable: false,
+            reasonCode: "env_limited"
+          }
+        }]
+      })),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "provider-limited research",
+      days: 30,
+      sourceSelection: "web",
+      mode: "json",
+      outputDir: root
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const manifest = JSON.parse(
+      await readFile(join(artifactPath, "bundle-manifest.json"), "utf8")
+    ) as ArtifactManifest;
+    const report = await readFile(join(artifactPath, "report.md"), "utf8");
+    expect(manifest.files).toEqual(RESEARCH_ARTIFACT_FILES);
+    expect(report).toContain("Provider-limited survivor");
+    expect(report).toContain("A usable finding survived despite provider limitations.");
+    expect(report).toContain("Live source returned a login shell");
+    expect(report).toContain("env_limited");
   });
 
   it("persists fetched web research pages after search-index shells are sanitized", async () => {

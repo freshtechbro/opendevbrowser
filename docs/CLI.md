@@ -454,6 +454,7 @@ Notes:
 - Use `--browser-mode extension` when X, Threads, Facebook, Reddit, or another signed-in social provider needs an existing relay-backed browser session; use `managed` for reproducible no-auth reruns.
 - In the current contract, `auto` and `all` both stay inside the public topical families (`web`, `community`, `social`).
 - Add shopping only with `--source-selection shopping` or explicit `--sources ...shopping...` when the task is deliberately commercial.
+- Successful research artifact bundles include human-readable `report.md` alongside `summary.md`, `records.json`, `context.json`, and `meta.json`.
 
 #### Shopping (`shopping run`)
 
