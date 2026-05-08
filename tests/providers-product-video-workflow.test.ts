@@ -366,11 +366,11 @@ describe("product-video substrate adoption", () => {
     expect(search).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(Object.keys(output).sort()).toEqual([
+      "artifact_path",
       "followthroughSummary",
       "images",
       "manifest",
       "meta",
-      "path",
       "pricing",
       "product",
       "screenshots",

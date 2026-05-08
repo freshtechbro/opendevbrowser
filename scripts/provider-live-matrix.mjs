@@ -507,6 +507,62 @@ export function classifyProductVideoAmazonStatus(status, detail, data = {}) {
   return isApprovedProductVideoEnvLimitedDetail(detail) ? 'env_limited' : 'fail';
 }
 
+function readArtifactPath(data) {
+  return typeof data?.artifact_path === 'string' && data.artifact_path.trim()
+    ? data.artifact_path
+    : null;
+}
+
+export function validateSuccessfulWorkflowArtifact(data, workflow) {
+  const artifactPath = readArtifactPath(data);
+  if (!artifactPath) {
+    return {
+      artifactPath: null,
+      detail: `successful_${workflow}_workflow_missing_artifact_path`
+    };
+  }
+  if (!fs.existsSync(artifactPath) || !fs.statSync(artifactPath).isDirectory()) {
+    return {
+      artifactPath,
+      detail: `successful_${workflow}_workflow_artifact_path_missing_on_disk`
+    };
+  }
+  if (path.basename(path.dirname(artifactPath)) !== workflow) {
+    return {
+      artifactPath,
+      detail: `successful_${workflow}_workflow_artifact_namespace_mismatch`
+    };
+  }
+  const manifestPath = path.join(artifactPath, 'bundle-manifest.json');
+  if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+    return {
+      artifactPath,
+      detail: `successful_${workflow}_workflow_bundle_manifest_missing`
+    };
+  }
+  const reportPath = path.join(artifactPath, 'report.md');
+  if (workflow === 'research' && (!fs.existsSync(reportPath) || !fs.statSync(reportPath).isFile())) {
+    return {
+      artifactPath,
+      detail: 'successful_research_workflow_report_missing'
+    };
+  }
+  return { artifactPath, detail: null };
+}
+
+export function classifySuccessfulResearchWorkflow(records, artifactValidation) {
+  if (records <= 0) {
+    return {
+      status: 'fail',
+      detail: 'successful_research_workflow_returned_no_records'
+    };
+  }
+  if (artifactValidation.detail) {
+    return { status: 'fail', detail: artifactValidation.detail };
+  }
+  return { status: 'pass', detail: null };
+}
+
 export function classifyNestedLiveRegressionStatus(status, parsed, { strictGate = false } = {}) {
   const failCount = readStructuredCount(parsed?.counts?.fail);
   const envLimitedCount = readStructuredCount(parsed?.counts?.env_limited);
@@ -1720,11 +1776,15 @@ async function main() {
         const data = research.json?.data ?? {};
         const records = Array.isArray(data.records) ? data.records.length : 0;
         const failures = Array.isArray(data.meta?.failures) ? data.meta.failures.length : 0;
+        const artifactValidation = validateSuccessfulWorkflowArtifact(data, 'research');
+        const verdict = research.status === 0
+          ? classifySuccessfulResearchWorkflow(records, artifactValidation)
+          : { status: 'fail', detail: research.detail };
         pushStep({
           id: 'workflow.research.auto_sources',
-          status: research.status === 0 ? (records > 0 ? 'pass' : 'env_limited') : 'fail',
-          data: { records, failures, artifactPath: data.artifact_path ?? data.path ?? null },
-          detail: research.status === 0 ? null : research.detail
+          status: verdict.status,
+          data: { records, failures, artifactPath: artifactValidation.artifactPath },
+          detail: verdict.detail
         });
       } catch (error) {
         pushStep({ id: 'workflow.research.auto_sources', status: 'fail', detail: String(error) });
@@ -1736,16 +1796,20 @@ async function main() {
           timeoutMs: 300000
         });
         const data = product.json?.data ?? {};
+        const artifactValidation = validateSuccessfulWorkflowArtifact(data, 'product-video');
+        const status = product.status === 0 && artifactValidation.detail
+          ? 'fail'
+          : classifyProductVideoAmazonStatus(product.status, product.detail, data);
         pushStep({
           id: 'workflow.product_video.amazon',
-          status: classifyProductVideoAmazonStatus(product.status, product.detail, data),
+          status,
           data: {
-            path: data.path ?? null,
+            artifactPath: artifactValidation.artifactPath,
             provider: data.provider ?? null,
             imageCount: Array.isArray(data.images) ? data.images.length : null,
             screenshotCount: Array.isArray(data.screenshots) ? data.screenshots.length : null
           },
-          detail: product.status === 0 ? null : product.detail
+          detail: product.status === 0 ? artifactValidation.detail : product.detail
         });
       } catch (error) {
         pushStep({ id: 'workflow.product_video.amazon', status: 'fail', detail: String(error) });

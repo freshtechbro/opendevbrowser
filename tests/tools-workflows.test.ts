@@ -207,7 +207,7 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
-    expect(response.path).toEqual(expect.any(String));
+    expect(response.artifact_path).toEqual(expect.any(String));
     expect(response.followthroughSummary).toContain("asset pack");
     expect(response.suggestedNextAction).toContain("product-video brief helper");
     expect(response.suggestedNextAction).not.toContain("<pack>");

@@ -155,32 +155,28 @@ describe("artifact and workflow runtime", () => {
     });
   });
 
-  it("falls back to legacy manifest.json during artifact cleanup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-legacy-"));
+  it("does not treat product manifests as cleanup lifecycle manifests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-product-manifest-"));
     createdDirs.push(root);
+    const runPath = join(root, "product-video", "product-manifest-only");
 
-    const legacy = await createArtifactBundle({
-      namespace: "research",
-      outputDir: root,
-      ttlHours: 1,
-      manifestFileName: "manifest.json",
-      now: new Date("2026-02-01T00:00:00.000Z"),
-      files: [{ path: "summary.md", content: "summary" }]
-    });
-
-    await expect(stat(join(legacy.basePath, "bundle-manifest.json"))).rejects.toThrow();
-    expect(await readFile(join(legacy.basePath, "manifest.json"), "utf8")).toContain(`"run_id": "${legacy.runId}"`);
+    await mkdir(runPath, { recursive: true });
+    await writeFile(join(runPath, "manifest.json"), JSON.stringify({
+      run_id: "product-manifest-only",
+      expires_at: "2026-02-01T01:00:00.000Z",
+      product: { title: "Widget Pro" }
+    }));
 
     const cleaned = await cleanupExpiredArtifacts(root, new Date("2026-02-16T12:00:00.000Z"));
-    expect(cleaned.removed).toContain(legacy.basePath);
+    expect(cleaned.removed).not.toContain(runPath);
+    expect(cleaned.skipped).toContain(runPath);
   });
 
-  it("skips runs when a discovered manifest stops being a file before readback", async () => {
+  it("skips runs when the lifecycle manifest is not a file", async () => {
     const root = "/virtual-artifacts";
     const namespacePath = join(root, "research");
     const runPath = join(namespacePath, "run-1");
     const manifestPath = join(runPath, "bundle-manifest.json");
-    let manifestStatCount = 0;
     vi.doMock("fs/promises", () => ({
       readdir: vi.fn(async (target: string) => {
         if (target === root) {
@@ -195,9 +191,8 @@ describe("artifact and workflow runtime", () => {
         if (target !== manifestPath) {
           throw new Error(`unexpected stat ${target}`);
         }
-        manifestStatCount += 1;
         return {
-          isFile: () => manifestStatCount === 1
+          isFile: () => false
         };
       }),
       readFile: vi.fn(async () => {
@@ -282,9 +277,9 @@ describe("artifact and workflow runtime", () => {
 
     expect(pathMode).toMatchObject({
       mode: "path",
-      path: expect.any(String)
+      artifact_path: expect.any(String)
     });
-    const pathModeArtifactPath = String(pathMode.path);
+    const pathModeArtifactPath = String(pathMode.artifact_path);
     const pathModeManifest = JSON.parse(
       await readFile(join(pathModeArtifactPath, "bundle-manifest.json"), "utf8")
     ) as ArtifactManifest;
@@ -1486,18 +1481,19 @@ describe("artifact and workflow runtime", () => {
     });
 
     expect(outputByUrl).toMatchObject({
-      path: expect.any(String),
+      artifact_path: expect.any(String),
       manifest: {
         source_url: "https://example.com/product/1"
       }
     });
 
-    const manifestRaw = await readFile(join(outputByUrl.path as string, "manifest.json"), "utf8");
+    const outputByUrlPath = String(outputByUrl.artifact_path);
+    const manifestRaw = await readFile(join(outputByUrlPath, "manifest.json"), "utf8");
     expect(JSON.parse(manifestRaw)).toMatchObject({
       source_url: "https://example.com/product/1"
     });
 
-    const rawSourceRaw = await readFile(join(outputByUrl.path as string, "raw/source-record.json"), "utf8");
+    const rawSourceRaw = await readFile(join(outputByUrlPath, "raw/source-record.json"), "utf8");
     const rawSource = JSON.parse(rawSourceRaw) as {
       attributes?: {
         headers?: { authorization?: string };
@@ -1514,13 +1510,13 @@ describe("artifact and workflow runtime", () => {
     });
 
     expect(outputByName).toMatchObject({
-      path: expect.any(String)
+      artifact_path: expect.any(String)
     });
 
     await expect(runProductVideoWorkflow(runtime, {})).rejects.toThrow("product_url or product_name is required");
   });
 
-  it("stores default product-video artifacts under the workspace product-assets directory", async () => {
+  it("stores default product-video artifacts under the workspace product-video directory", async () => {
     const workspaceDir = await makeWorkspaceDir("odb-product-workspace-");
     const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
 
@@ -1572,7 +1568,7 @@ describe("artifact and workflow runtime", () => {
         product_url: "https://example.com/product-artifact"
       });
 
-      expectArtifactPath(String(output.path), join(workspaceDir, ".opendevbrowser"), "product-assets");
+      expectArtifactPath(String(output.artifact_path), join(workspaceDir, ".opendevbrowser"), "product-video");
     } finally {
       cwdSpy.mockRestore();
     }
@@ -1651,12 +1647,13 @@ describe("artifact and workflow runtime", () => {
 
     const shoppingRuns = await readdir(join(root, "shopping"));
     expect(shoppingRuns).toHaveLength(1);
-    expectArtifactPath(String(output.path), root, "product-assets");
+    const productVideoPath = String(output.artifact_path);
+    expectArtifactPath(productVideoPath, root, "product-video");
     const shoppingManifest = JSON.parse(
       await readFile(join(root, "shopping", shoppingRuns[0] ?? "", "bundle-manifest.json"), "utf8")
     ) as ArtifactManifest;
     const productManifest = JSON.parse(
-      await readFile(join(String(output.path), "bundle-manifest.json"), "utf8")
+      await readFile(join(productVideoPath, "bundle-manifest.json"), "utf8")
     ) as ArtifactManifest;
     expect(shoppingManifest.ttl_hours).toBe(12);
     expect(productManifest.ttl_hours).toBe(12);
@@ -1704,7 +1701,7 @@ describe("artifact and workflow runtime", () => {
       include_copy: true
     })).rejects.toThrow("Product target appears to be a not-found page");
 
-    await expect(stat(join(root, "product-assets"))).rejects.toThrow();
+    await expect(stat(join(root, "product-video"))).rejects.toThrow();
     expect(auxiliaryFetch).not.toHaveBeenCalled();
   });
 });

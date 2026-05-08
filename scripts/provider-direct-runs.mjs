@@ -1297,7 +1297,7 @@ function evaluateShoppingCase(testCase, result) {
       constraintKind: failureDetails.constraint?.kind ?? null,
       constraint: failureDetails.constraint ?? null,
       providerShell: firstFailure?.error?.providerShell ?? failureDetails.providerShell ?? null,
-      artifactPath: execution.data?.artifact_path ?? execution.data?.path ?? null,
+      artifactPath: execution.data?.artifact_path ?? null,
       challengeOrchestration,
       browserFallbackMode: browserFallback.browserFallbackMode,
       browserFallbackReasonCode: browserFallback.browserFallbackReasonCode,

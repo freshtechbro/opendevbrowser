@@ -47,6 +47,7 @@ import { createShoppingProviders, type ShoppingProvidersOptions } from "./shoppi
 import { providerRequestHeaders } from "./shared/request-headers";
 import { isLikelyDocumentUrl } from "./shared/traversal-url";
 import { createWebProvider, type WebProviderOptions } from "./web";
+import { mapBounded } from "./bounded-map";
 import { classifyBlockerSignal } from "./blocker";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, extractText, toSnippet } from "./web/extract";
@@ -1591,8 +1592,9 @@ export class ProviderRuntime {
     providerIds?: string[],
     runOptions: ProviderRunOptions = {}
   ): Promise<ProviderAggregateResult> {
-    const results = await Promise.all(
-      providers.map((provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, tierMetadata, runOptions))
+    const results = await this.mapProvidersBounded(
+      providers,
+      (provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, tierMetadata, runOptions)
     );
 
     const records: NormalizedRecord[] = [];
@@ -1639,8 +1641,9 @@ export class ProviderRuntime {
         });
       }
 
-      const fallbackResults = await Promise.all(
-        fallbackProviders.map((provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, fallbackTier, runOptions))
+      const fallbackResults = await this.mapProvidersBounded(
+        fallbackProviders,
+        (provider) => this.invokeProvider(provider, operation, input, trace, timeoutMs, fallbackTier, runOptions)
       );
 
       for (const result of fallbackResults) {
@@ -1688,6 +1691,13 @@ export class ProviderRuntime {
       ...(diagnostics ? { diagnostics } : {}),
       ...(!ok && failures[0] ? { error: failures[0].error } : {})
     };
+  }
+
+  private async mapProvidersBounded<T>(
+    providers: ProviderAdapter[],
+    task: (provider: ProviderAdapter) => Promise<T>
+  ): Promise<T[]> {
+    return mapBounded(providers, this.budgets.concurrency.global, task);
   }
 
   private async invokeProvider<Operation extends ProviderOperation>(

@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   defaultArtifactPath,
   finalizeReport,
@@ -156,6 +157,30 @@ function getReviewBundleRoot() {
   return path.join(process.cwd(), "artifacts", "skill-runtime-audit", "review-bundles", "product-video-fixture");
 }
 
+export function validateProductVideoArtifactBundle(artifactPath) {
+  if (typeof artifactPath !== "string" || artifactPath.trim() === "") {
+    return { artifactPath: null, detail: "missing_product_video_artifact_path" };
+  }
+  if (!fs.existsSync(artifactPath) || !fs.statSync(artifactPath).isDirectory()) {
+    return { artifactPath, detail: "product_video_artifact_path_missing_on_disk" };
+  }
+  if (path.basename(path.dirname(artifactPath)) !== "product-video") {
+    return { artifactPath, detail: "product_video_artifact_namespace_mismatch" };
+  }
+  const manifestPath = path.join(artifactPath, "bundle-manifest.json");
+  if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+    return { artifactPath, detail: "product_video_bundle_manifest_missing" };
+  }
+  return { artifactPath, detail: null };
+}
+
+export function productVideoWorkflowFailureDetail(workflow, artifactDetail) {
+  if (workflow.status !== 0) {
+    return workflow.detail ?? `product_video_workflow_failed:${workflow.status}`;
+  }
+  return artifactDetail;
+}
+
 function persistArtifactBundle(sourcePath, runId, bundleName) {
   const targetPath = path.join(getReviewBundleRoot(), runId, bundleName);
   fs.rmSync(targetPath, { recursive: true, force: true });
@@ -217,11 +242,16 @@ async function runProbe(options) {
       });
 
       const metadataOnlyData = metadataOnlyWorkflow.json?.data ?? {};
-      const metadataOnlyArtifactPath = typeof metadataOnlyData.path === "string" ? metadataOnlyData.path : null;
-      const persistedMetadataOnlyArtifactPath = metadataOnlyArtifactPath
+      const metadataOnlyArtifactPath = typeof metadataOnlyData.artifact_path === "string" ? metadataOnlyData.artifact_path : null;
+      const metadataOnlyArtifactValidation = metadataOnlyWorkflow.status === 0
+        ? validateProductVideoArtifactBundle(metadataOnlyArtifactPath)
+        : { artifactPath: metadataOnlyArtifactPath, detail: null };
+      const persistedMetadataOnlyArtifactPath = metadataOnlyWorkflow.status === 0
+        && metadataOnlyArtifactValidation.detail === null
         ? persistArtifactBundle(metadataOnlyArtifactPath, runId, "metadata-only")
         : null;
       const metadataOnlyOk = metadataOnlyWorkflow.status === 0
+        && metadataOnlyArtifactValidation.detail === null
         && persistedMetadataOnlyArtifactPath
         && Array.isArray(metadataOnlyData.screenshots)
         && metadataOnlyData.screenshots.length === 0
@@ -233,7 +263,7 @@ async function runProbe(options) {
       pushStep(report, {
         id: "workflow.product_video_run_no_screenshots",
         status: metadataOnlyOk ? "pass" : "fail",
-        detail: metadataOnlyOk ? null : metadataOnlyWorkflow.detail,
+        detail: metadataOnlyOk ? null : productVideoWorkflowFailureDetail(metadataOnlyWorkflow, metadataOnlyArtifactValidation.detail),
         data: {
           artifactPath: persistedMetadataOnlyArtifactPath,
           sourceArtifactPath: metadataOnlyArtifactPath,
@@ -264,14 +294,19 @@ async function runProbe(options) {
       });
 
       const data = workflow.json?.data ?? {};
-      const artifactPath = typeof data.path === "string" ? data.path : null;
-      const persistedArtifactPath = artifactPath
+      const artifactPath = typeof data.artifact_path === "string" ? data.artifact_path : null;
+      const artifactValidation = workflow.status === 0
+        ? validateProductVideoArtifactBundle(artifactPath)
+        : { artifactPath, detail: null };
+      const persistedArtifactPath = workflow.status === 0
+        && artifactValidation.detail === null
         ? persistArtifactBundle(artifactPath, runId, "with-screenshots")
         : null;
       const manifestPath = persistedArtifactPath ? path.join(persistedArtifactPath, "manifest.json") : null;
       const copyPath = persistedArtifactPath ? path.join(persistedArtifactPath, "copy.md") : null;
       const featuresPath = persistedArtifactPath ? path.join(persistedArtifactPath, "features.md") : null;
       const workflowOk = workflow.status === 0
+        && artifactValidation.detail === null
         && persistedArtifactPath
         && manifestPath
         && copyPath
@@ -289,7 +324,7 @@ async function runProbe(options) {
       pushStep(report, {
         id: "workflow.product_video_run",
         status: workflowOk ? "pass" : "fail",
-        detail: workflowOk ? null : workflow.detail,
+        detail: workflowOk ? null : productVideoWorkflowFailureDetail(workflow, artifactValidation.detail),
         data: {
           artifactPath: persistedArtifactPath,
           sourceArtifactPath: artifactPath,
@@ -325,7 +360,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

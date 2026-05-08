@@ -328,11 +328,11 @@ describe("inspiredesign workflow", () => {
     });
 
     const meta = output.meta as InspiredesignWorkflowMeta;
-    const artifactPath = String(output.path);
+    const artifactPath = String(output.artifact_path);
 
     expect(output).toMatchObject({
       mode: "path",
-      path: expect.any(String),
+      artifact_path: expect.any(String),
       followthroughSummary: expect.stringContaining("OpenDevBrowser Canvas"),
       suggestedNextAction: expect.stringContaining("canvas.plan.set")
     });
@@ -384,7 +384,7 @@ describe("inspiredesign workflow", () => {
       mode: "path"
     });
 
-    const artifactPath = String(output.path);
+    const artifactPath = String(output.artifact_path);
 
     expectArtifactPath(artifactPath, join(workspaceDir, ".opendevbrowser"), "inspiredesign");
     expect(readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")).toContain("canvasSessionId");

@@ -259,7 +259,7 @@ describe("workflow branch coverage", () => {
     });
 
     expect(search).toHaveBeenCalledTimes(2);
-    expect(output).toMatchObject({ mode: "path", path: expect.any(String) });
+    expect(output).toMatchObject({ mode: "path", artifact_path: expect.any(String) });
 
     const records = output.records as Array<{ id: string }>;
     expect(records).toHaveLength(1);
@@ -2480,7 +2480,7 @@ describe("workflow branch coverage", () => {
       ...baseInput,
       mode: "path"
     });
-    expect(bestDealPath).toMatchObject({ mode: "path", path: expect.any(String) });
+    expect(bestDealPath).toMatchObject({ mode: "path", artifact_path: expect.any(String) });
 
     await expect(runShoppingWorkflow(runtime, {
       query: "   ",
@@ -5809,7 +5809,7 @@ describe("workflow branch coverage", () => {
       captureScreenshot: async () => null
     });
 
-    expect(output.path).toEqual(expect.any(String));
+    expect(output.artifact_path).toEqual(expect.any(String));
     expect(output.images).toEqual(["images/image-01.jpg"]);
     expect(output.screenshots).toEqual(["screenshots/screenshot-01.png"]);
     expect((output.product as { copy: string }).copy).toBe("");
