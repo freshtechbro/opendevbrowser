@@ -297,6 +297,27 @@ describe("workflow primitives", () => {
     expect(report).not.toContain("complete source payload remains in records json");
   });
 
+  it("discloses truncated provider failure messages", () => {
+    const report = String(renderResearch({
+      mode: "path",
+      topic: "long provider failure topic",
+      records: [],
+      meta: {
+        failures: [{
+          provider: "web/default",
+          source: "web",
+          error: {
+            reasonCode: "env_limited",
+            message: `${"Verbose provider failure ".repeat(20)}complete diagnostic tail.`
+          }
+        }]
+      }
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+
+    expect(report).toContain("[truncated; see meta.json]");
+    expect(report).not.toContain("complete diagnostic tail");
+  });
+
   it("renders shopping payloads and comparison matrix", () => {
     const offers: ShoppingOffer[] = [{
       offer_id: "o1",

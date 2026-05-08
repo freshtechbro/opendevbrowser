@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, readdir, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   workflowTestUtils,
   runProductVideoWorkflow,
@@ -81,6 +84,19 @@ const toRuntime = (handlers: {
   fetch: handlers.fetch ?? (async () => makeAggregate()),
   ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
 });
+
+const withArtifactRoot = async <T>(callback: (outputDir: string) => Promise<T>): Promise<T> => {
+  const outputDir = await mkdtemp(join(tmpdir(), "odb-research-failure-"));
+  try {
+    return await callback(outputDir);
+  } finally {
+    await rm(outputDir, { recursive: true, force: true });
+  }
+};
+
+const expectNoArtifactChildren = async (outputDir: string): Promise<void> => {
+  expect(await readdir(outputDir)).toEqual([]);
+};
 
 const expectBudgetedTimeout = (value: unknown, requestedTimeoutMs: number): void => {
   expect(typeof value).toBe("number");
@@ -4253,14 +4269,18 @@ describe("workflow branch coverage", () => {
       })
     });
 
-    await expect(runResearchWorkflow(runtime, {
-      topic: "browser automation blockers",
-      sourceSelection: "web",
-      days: 14,
-      mode: "json"
-    })).rejects.toThrow(
-      "Research workflow produced only shell records and no usable results"
-    );
+    await withArtifactRoot(async (outputDir) => {
+      await expect(runResearchWorkflow(runtime, {
+        topic: "browser automation blockers",
+        sourceSelection: "web",
+        days: 14,
+        outputDir,
+        mode: "json"
+      })).rejects.toThrow(
+        "Research workflow produced only shell records and no usable results"
+      );
+      await expectNoArtifactChildren(outputDir);
+    });
   });
 
   it("fails research runs when providers return neither records nor failures", async () => {
@@ -4272,14 +4292,18 @@ describe("workflow branch coverage", () => {
       })
     });
 
-    await expect(runResearchWorkflow(runtime, {
-      topic: "empty provider success",
-      sourceSelection: "web",
-      days: 14,
-      mode: "json"
-    })).rejects.toThrow(
-      "Research workflow produced no usable results after post-processing."
-    );
+    await withArtifactRoot(async (outputDir) => {
+      await expect(runResearchWorkflow(runtime, {
+        topic: "empty provider success",
+        sourceSelection: "web",
+        days: 14,
+        outputDir,
+        mode: "json"
+      })).rejects.toThrow(
+        "Research workflow produced no usable results after post-processing."
+      );
+      await expectNoArtifactChildren(outputDir);
+    });
   });
 
   it("fails research runs when env-limited provider failures return no records", async () => {
@@ -4354,15 +4378,19 @@ describe("workflow branch coverage", () => {
       })
     });
 
-    await expect(runResearchWorkflow(runtime, {
-      topic: "stale browser automation incident",
-      sourceSelection: "web",
-      from: isoHoursAgo(72),
-      to: isoHoursAhead(1),
-      mode: "json"
-    })).rejects.toThrow(
-      "Research workflow produced no usable in-timebox results after sanitization."
-    );
+    await withArtifactRoot(async (outputDir) => {
+      await expect(runResearchWorkflow(runtime, {
+        topic: "stale browser automation incident",
+        sourceSelection: "web",
+        from: isoHoursAgo(72),
+        to: isoHoursAhead(1),
+        outputDir,
+        mode: "json"
+      })).rejects.toThrow(
+        "Research workflow produced no usable in-timebox results after sanitization."
+      );
+      await expectNoArtifactChildren(outputDir);
+    });
   });
 
   it("caps research web follow-up fetches and ignores malformed search redirect urls", async () => {

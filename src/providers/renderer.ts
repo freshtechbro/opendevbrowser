@@ -123,7 +123,8 @@ const RESEARCH_REPORT_LIMITS = {
   findings: 10,
   sources: 20,
   failures: 10,
-  excerptCharacters: 240
+  excerptCharacters: 240,
+  failureMessageCharacters: 240
 } as const;
 const RESEARCH_REPORT_FILE_NAMES = [
   "summary.md",
@@ -139,16 +140,41 @@ const plainObject = (value: unknown): Record<string, unknown> => (
 
 const researchTitle = (record: ResearchRecord): string => record.title ?? record.url ?? record.provider;
 
-const researchExcerpt = (content: string | undefined): string => {
-  const normalized = content?.replace(/\s+/g, " ").trim();
+const normalizedInlineText = (content: string | undefined): string => content?.replace(/\s+/g, " ").trim() ?? "";
+
+const boundedInlineText = (args: {
+  content: string | undefined;
+  fallback: string;
+  limit: number;
+  target: string;
+}): string => {
+  const normalized = normalizedInlineText(args.content);
   if (!normalized) {
-    return "No content excerpt was available.";
+    return args.fallback;
   }
-  if (normalized.length <= RESEARCH_REPORT_LIMITS.excerptCharacters) {
+  if (normalized.length <= args.limit) {
     return normalized;
   }
-  return `${normalized.slice(0, RESEARCH_REPORT_LIMITS.excerptCharacters)} [truncated; see records.json for full content]`;
+  return `${normalized.slice(0, args.limit)} [truncated; see ${args.target}]`;
 };
+
+const researchExcerpt = (content: string | undefined): string => (
+  boundedInlineText({
+    content,
+    fallback: "No content excerpt was available.",
+    limit: RESEARCH_REPORT_LIMITS.excerptCharacters,
+    target: "records.json for full content"
+  })
+);
+
+const researchFailureMessage = (content: string | undefined): string => (
+  boundedInlineText({
+    content,
+    fallback: "provider failure",
+    limit: RESEARCH_REPORT_LIMITS.failureMessageCharacters,
+    target: "meta.json"
+  })
+);
 
 const limitedCount = (total: number, limit: number): number => Math.min(total, limit);
 
@@ -219,7 +245,7 @@ const researchFailureSummary = (failure: unknown): string => {
   const provider = typeof record.provider === "string" ? record.provider : "unknown";
   const source = typeof record.source === "string" ? record.source : "unknown";
   const reason = typeof error.reasonCode === "string" ? `${error.reasonCode}: ` : "";
-  const message = typeof error.message === "string" ? error.message : "provider failure";
+  const message = researchFailureMessage(typeof error.message === "string" ? error.message : undefined);
   return `${provider} (${source}): ${reason}${message}`;
 };
 
