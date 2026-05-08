@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildDefaultSkippedStep,
   buildLiveShoppingRunArgs,
+  classifySuccessfulResearchWorkflow,
   classifyNestedLiveRegressionStatus,
   classifyProductVideoAmazonStatus,
   buildLiveRegressionEnv,
@@ -15,6 +19,7 @@ import {
   resolveSocialFallbackRetry,
   restoreDaemonAfterNestedLiveRegression,
   runNestedLiveRegressionMode,
+  validateSuccessfulWorkflowArtifact,
   WORKFLOW_RESEARCH_PROBE_ARGS,
   WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS
 } from "../scripts/provider-live-matrix.mjs";
@@ -483,6 +488,79 @@ describe("provider-live-matrix parseArgs", () => {
         }
       }
     })).toBe("env_limited");
+  });
+
+  it("fails successful workflow probes when required artifact evidence is missing", () => {
+    const missingArtifact = validateSuccessfulWorkflowArtifact({}, "research");
+
+    expect(missingArtifact).toEqual({
+      artifactPath: null,
+      detail: "successful_research_workflow_missing_artifact_path"
+    });
+    expect(classifySuccessfulResearchWorkflow(0, { artifactPath: "/tmp/run", detail: null })).toEqual({
+      status: "fail",
+      detail: "successful_research_workflow_returned_no_records"
+    });
+    expect(classifySuccessfulResearchWorkflow(1, missingArtifact)).toEqual({
+      status: "fail",
+      detail: "successful_research_workflow_missing_artifact_path"
+    });
+  });
+
+  it("validates successful workflow artifact namespace and required files", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-live-artifact-"));
+    try {
+      const researchRun = join(root, "research", "run-1");
+      const researchDirectoryReportRun = join(root, "research", "run-2");
+      const shoppingRun = join(root, "shopping", "run-1");
+      const productVideoRun = join(root, "product-video", "run-1");
+      const productVideoDirectoryManifestRun = join(root, "product-video", "run-2");
+      mkdirSync(researchRun, { recursive: true });
+      mkdirSync(researchDirectoryReportRun, { recursive: true });
+      mkdirSync(shoppingRun, { recursive: true });
+      mkdirSync(productVideoRun, { recursive: true });
+      mkdirSync(productVideoDirectoryManifestRun, { recursive: true });
+      writeFileSync(join(researchRun, "bundle-manifest.json"), "{}\n");
+      writeFileSync(join(researchDirectoryReportRun, "bundle-manifest.json"), "{}\n");
+      mkdirSync(join(researchDirectoryReportRun, "report.md"));
+      writeFileSync(join(shoppingRun, "bundle-manifest.json"), "{}\n");
+      writeFileSync(join(productVideoRun, "bundle-manifest.json"), "{}\n");
+      mkdirSync(join(productVideoDirectoryManifestRun, "bundle-manifest.json"));
+
+      expect(validateSuccessfulWorkflowArtifact({ artifact_path: researchRun }, "research")).toEqual({
+        artifactPath: researchRun,
+        detail: "successful_research_workflow_report_missing"
+      });
+      expect(validateSuccessfulWorkflowArtifact(
+        { artifact_path: researchDirectoryReportRun },
+        "research"
+      )).toEqual({
+        artifactPath: researchDirectoryReportRun,
+        detail: "successful_research_workflow_report_missing"
+      });
+      writeFileSync(join(researchRun, "report.md"), "# Report\n");
+      expect(validateSuccessfulWorkflowArtifact({ artifact_path: researchRun }, "research")).toEqual({
+        artifactPath: researchRun,
+        detail: null
+      });
+      expect(validateSuccessfulWorkflowArtifact({ artifact_path: productVideoRun }, "product-video")).toEqual({
+        artifactPath: productVideoRun,
+        detail: null
+      });
+      expect(validateSuccessfulWorkflowArtifact(
+        { artifact_path: productVideoDirectoryManifestRun },
+        "product-video"
+      )).toEqual({
+        artifactPath: productVideoDirectoryManifestRun,
+        detail: "successful_product-video_workflow_bundle_manifest_missing"
+      });
+      expect(validateSuccessfulWorkflowArtifact({ artifact_path: shoppingRun }, "product-video")).toEqual({
+        artifactPath: shoppingRun,
+        detail: "successful_product-video_workflow_artifact_namespace_mismatch"
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("adopts social fallback retries that return records or failures", () => {

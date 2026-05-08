@@ -493,7 +493,7 @@ Notes:
 
 ```bash
 npx opendevbrowser product-video run --product-url "https://example.com/p/1" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots
-npx opendevbrowser product-video run --product-name "Sample Product" --provider-hint shopping/amazon --browser-mode extension --use-cookies --challenge-automation-mode browser_with_helper --output-dir /tmp/product-assets
+npx opendevbrowser product-video run --product-name "Sample Product" --provider-hint shopping/amazon --browser-mode extension --use-cookies --challenge-automation-mode browser_with_helper --output-dir /tmp/product-video
 ```
 
 Flags:
@@ -545,9 +545,9 @@ Notes:
 Wrapper behavior:
 - Timebox semantics are strict (`--days` is mutually exclusive with `--from/--to`).
 - Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
-- `product-video run` always returns a path-based local asset pack.
+- Successful research, shopping, inspiredesign, and product-video artifact-bearing outputs include `artifact_path`.
 - `inspiredesign run` returns a reusable design contract plus a Canvas-first handoff bundle; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
-- Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata in manifest files. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `.opendevbrowser/<namespace>/<runId>` from the current workspace. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-assets`. Direct tool or daemon callers should pass an absolute output directory when they need caller-specific placement.
+- Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata in manifest files. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `.opendevbrowser/<namespace>/<runId>` from the current workspace. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-video`. Direct tool or daemon callers should pass an absolute output directory when they need caller-specific placement.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.

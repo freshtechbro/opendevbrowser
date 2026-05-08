@@ -25,7 +25,6 @@ export interface ArtifactBundle {
   runId: string;
   basePath: string;
   manifest: ArtifactManifest;
-  manifestFileName: string;
 }
 
 const clampTtlHours = (value: number | undefined): number => {
@@ -47,13 +46,11 @@ export const createArtifactBundle = async (args: {
   files: ArtifactFile[];
   outputDir?: string;
   ttlHours?: number;
-  manifestFileName?: string;
   now?: Date;
 }): Promise<ArtifactBundle> => {
   const runId = randomUUID();
   const now = args.now ?? new Date();
   const ttlHours = clampTtlHours(args.ttlHours);
-  const manifestFileName = args.manifestFileName ?? "bundle-manifest.json";
   const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
   const root = args.outputDir ? resolve(args.outputDir) : join(tmpdir(), "opendevbrowser");
   const basePath = join(root, args.namespace, runId);
@@ -76,16 +73,15 @@ export const createArtifactBundle = async (args: {
     created_at: now.toISOString(),
     ttl_hours: ttlHours,
     expires_at: expiresAt.toISOString(),
-    files: [...writtenFiles, manifestFileName]
+    files: [...writtenFiles, "bundle-manifest.json"]
   };
 
-  await writeFile(join(basePath, manifestFileName), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(join(basePath, "bundle-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 
   return {
     runId,
     basePath,
-    manifest,
-    manifestFileName
+    manifest
   };
 };
 
@@ -120,25 +116,8 @@ export const cleanupExpiredArtifacts = async (
 
     for (const run of runs) {
       const runPath = join(namespacePath, run);
-      const manifestCandidates = [join(runPath, "bundle-manifest.json"), join(runPath, "manifest.json")];
+      const manifestPath = join(runPath, "bundle-manifest.json");
       try {
-        let manifestPath: string | null = null;
-        for (const candidate of manifestCandidates) {
-          try {
-            const candidateMetadata = await stat(candidate);
-            if (candidateMetadata.isFile()) {
-              manifestPath = candidate;
-              break;
-            }
-          } catch {
-            // try next manifest path
-          }
-        }
-        if (!manifestPath) {
-          skipped.push(runPath);
-          continue;
-        }
-
         const metadata = await stat(manifestPath);
         if (!metadata.isFile()) {
           skipped.push(runPath);

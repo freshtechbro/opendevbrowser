@@ -2947,7 +2947,7 @@ export const runResearchWorkflow = async (
     return {
       ...rendered.response,
       ...handoff,
-      path: bundle.basePath,
+      artifact_path: bundle.basePath,
       records: ranked,
       meta: {
         ...responseMeta,
@@ -3158,7 +3158,7 @@ export const runShoppingWorkflow = async (
     return {
       ...rendered.response,
       ...handoff,
-      path: bundle.basePath,
+      artifact_path: bundle.basePath,
       offers,
       meta: {
         ...responseMeta,
@@ -3270,7 +3270,7 @@ export const runInspiredesignWorkflow = async (
   if (workflowInput.mode === "path") {
     return {
       ...rendered.response,
-      path: bundle.basePath,
+      artifact_path: bundle.basePath,
       meta: {
         ...meta,
         artifact_manifest: bundle.manifest
@@ -3692,11 +3692,10 @@ export const runProductVideoWorkflow = async (
   });
 
   const bundle = await createArtifactBundle({
-    namespace: "product-assets",
+    namespace: "product-video",
     outputDir: productVideoArtifactRoot,
     ttlHours: workflowInput.ttl_hours,
-    files,
-    manifestFileName: "bundle-manifest.json"
+    files
   });
 
   const reasonCodeDistribution = summarizeReasonCodeDistribution(details.failures);
@@ -3740,7 +3739,7 @@ export const runProductVideoWorkflow = async (
 
   return {
     ...handoff,
-    path: bundle.basePath,
+    artifact_path: bundle.basePath,
     manifest: manifestPayload,
     product: productPayload,
     pricing,

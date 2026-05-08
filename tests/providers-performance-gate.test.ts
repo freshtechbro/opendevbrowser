@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createProviderRuntime, createWebProvider } from "../src/providers";
+import { mapBounded } from "../src/providers/bounded-map";
 import type { ProviderAggregateResult } from "../src/providers";
 import { runResearchWorkflow, type ProviderExecutor } from "../src/providers/workflows";
 import { normalizeRecord } from "../src/providers/normalize";
@@ -12,6 +13,11 @@ import type {
 type FixturePage = {
   html: string;
   status: number;
+};
+
+type ProviderInvocationTracker = {
+  active: number;
+  maxActive: number;
 };
 
 const percent = (values: number[], ratio: number): number => {
@@ -52,6 +58,44 @@ const fixtureFetcher = async (url: string): Promise<{ html: string; status: numb
   }
   return row;
 };
+
+const makeTrackedSearchProvider = (
+  id: string,
+  tracker: ProviderInvocationTracker
+): ProviderAdapter => ({
+  id,
+  source: "web",
+  search: async () => {
+    tracker.active += 1;
+    tracker.maxActive = Math.max(tracker.maxActive, tracker.active);
+    try {
+      await wait(30);
+      return [normalizeRecord(id, "web", {
+        url: `https://bounded.test/${id}`,
+        title: id,
+        content: `Measured bounded provider ${id}`
+      })];
+    } finally {
+      tracker.active -= 1;
+    }
+  },
+  capabilities: () => ({
+    providerId: id,
+    source: "web",
+    operations: {
+      search: { op: "search", supported: true },
+      fetch: { op: "fetch", supported: false },
+      crawl: { op: "crawl", supported: false },
+      post: { op: "post", supported: false }
+    },
+    policy: {
+      posting: "unsupported",
+      riskNoticeRequired: false,
+      confirmationRequired: false
+    },
+    metadata: {}
+  })
+});
 
 const extractCrawlMetrics = (result: ProviderAggregateResult): { pagesPerMinute: number; p50LatencyMs: number; p95LatencyMs: number; elapsedMs: number } => {
   const first = result.records[0];
@@ -231,6 +275,65 @@ describe("provider performance release gate", () => {
     expect(parallelP50).toBeLessThan(sequentialP50);
     expect(parallelP50).toBeLessThanOrEqual(sequentialP50 * 0.9);
   }, 16_000);
+
+  it("bounds aggregate provider fanout and preserves selected provider order", async () => {
+    const tracker: ProviderInvocationTracker = { active: 0, maxActive: 0 };
+    const ids = ["web/gamma", "web/alpha", "web/epsilon", "web/beta", "web/delta"];
+    const runtime = createProviderRuntime({
+      budgets: { concurrency: { global: 2, perProvider: 5, perDomain: 5 } }
+    });
+
+    for (const id of ids) {
+      runtime.register(makeTrackedSearchProvider(id, tracker));
+    }
+
+    const expectedOrder = [...ids].sort((left, right) => left.localeCompare(right));
+    const result = await runtime.search({ query: "bounded provider fanout" }, { source: "all" });
+
+    expect(result.ok).toBe(true);
+    expect(tracker.maxActive).toBeLessThanOrEqual(2);
+    expect(result.providerOrder).toEqual(expectedOrder);
+    expect(result.records.map((record) => record.provider)).toEqual(expectedOrder);
+    expect(result.metrics.attempted).toBe(ids.length);
+  });
+
+  it("bounds the provider fanout scheduler before provider-level semaphores", async () => {
+    const tracker: ProviderInvocationTracker = { active: 0, maxActive: 0 };
+    const ids = ["web/gamma", "web/alpha", "web/epsilon", "web/beta", "web/delta"];
+    const results = await mapBounded(ids, 2, async (id) => {
+      tracker.active += 1;
+      tracker.maxActive = Math.max(tracker.maxActive, tracker.active);
+      try {
+        await wait(20);
+        return id;
+      } finally {
+        tracker.active -= 1;
+      }
+    });
+
+    expect(tracker.maxActive).toBe(2);
+    expect(results).toEqual(ids);
+  });
+
+  it("keeps undefined scheduler items instead of treating them as queue sentinels", async () => {
+    const inputs: Array<string | undefined> = ["first", undefined, "third"];
+    const visited: Array<number> = [];
+    const results = await mapBounded(inputs, 1, async (item, index) => {
+      visited.push(index);
+      return item ?? `missing-${index}`;
+    });
+
+    expect(visited).toEqual([0, 1, 2]);
+    expect(results).toEqual(["first", "missing-1", "third"]);
+  });
+
+  it("keeps scheduler behavior explicit for empty inputs, non-finite limits, and task failures", async () => {
+    await expect(mapBounded([], Number.NaN, async (item) => item)).resolves.toEqual([]);
+    await expect(mapBounded(["finite"], Number.POSITIVE_INFINITY, async (item) => item)).resolves.toEqual(["finite"]);
+    await expect(mapBounded(["reject"], 1, async () => {
+      throw new Error("scheduler_task_failed");
+    })).rejects.toThrow("scheduler_task_failed");
+  });
 
   it("enforces realism detection diagnostics for placeholder outputs", async () => {
     const runtime = createProviderRuntime();

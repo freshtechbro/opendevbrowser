@@ -1899,7 +1899,7 @@ describe("daemon-commands integration", () => {
   it("forwards product-video timeoutMs through the daemon router", async () => {
     const core = makeCore();
     const workflowSpy = vi.spyOn(workflowModule, "runProductVideoWorkflow").mockResolvedValue({
-      path: "/tmp/product-assets",
+      artifact_path: "/tmp/product-video",
       manifest: {},
       product: {},
       pricing: {},
