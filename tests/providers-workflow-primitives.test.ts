@@ -160,12 +160,162 @@ describe("workflow primitives", () => {
 
       expect(rendered.files.map((file) => file.path)).toEqual([
         "summary.md",
+        "report.md",
         "records.json",
         "context.json",
         "meta.json"
       ]);
+      const report = rendered.files.find((file) => file.path === "report.md");
+      expect(report?.content).toContain("# Research Report");
+      expect(report?.content).toContain("agentic systems");
+      expect(report?.content).toContain("- Source: community");
+      expect(report?.content).toContain("- Provider: community/default");
+      expect(report?.content).not.toContain("community/community/default");
+      expect(report?.content).toContain("## Report Files");
+      expect(report?.content).not.toContain("bundle-manifest.json");
       expect(rendered.response.mode).toBe(mode === "path" ? "path" : mode);
     }
+  });
+
+  it("renders report gaps for empty and sparse research records", () => {
+    const timebox = resolveTimebox({ days: 7, now: new Date("2026-02-16T00:00:00.000Z") });
+    const failures = Array.from({ length: 12 }, (_value, index) => ({
+      provider: `web/provider-${index + 1}`,
+      source: "web",
+      error: { message: `failure ${index + 1}`, reasonCode: "env_limited" }
+    }));
+    const emptyReport = String(renderResearch({
+      mode: "path",
+      topic: "empty evidence topic",
+      records: [],
+      meta: {}
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+    const emptySummary = String(renderResearch({
+      mode: "compact",
+      topic: "empty evidence topic",
+      records: [],
+      meta: {}
+    }).response.summary);
+    const [sparseRecord] = enrichResearchRecords([
+      makeRecord({
+        id: "sparse",
+        title: undefined,
+        url: undefined,
+        content: undefined,
+        provider: "web/provider-only"
+      })
+    ], timebox);
+    const sparseReport = String(renderResearch({
+      mode: "path",
+      topic: "sparse evidence topic",
+      records: sparseRecord ? [sparseRecord] : [],
+      meta: {}
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+    const constrainedReport = String(renderResearch({
+      mode: "path",
+      topic: "constrained evidence topic",
+      records: [],
+      meta: {
+        failures,
+        primaryConstraintSummary: "Provider returned only shell pages."
+      }
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+    const malformedFailureReport = String(renderResearch({
+      mode: "path",
+      topic: "malformed failure topic",
+      records: [],
+      meta: {
+        failures: [{
+          provider: 123,
+          source: null,
+          error: { message: false }
+        }]
+      }
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+
+    expect(emptySummary).toBe("No usable research findings were available.");
+    expect(emptyReport).toContain("No usable findings were available.");
+    expect(emptyReport).toContain("No provider limitations or sanitization gaps were reported.");
+    expect(emptyReport).toContain("No sources available.");
+    expect(constrainedReport).toContain("Primary constraint: Provider returned only shell pages.");
+    expect(constrainedReport).toContain("web/provider-10");
+    expect(constrainedReport).toContain("2 more provider failures omitted from this report; see meta.json");
+    expect(constrainedReport).not.toContain("web/provider-11");
+    expect(malformedFailureReport).toContain("unknown (unknown): provider failure");
+    expect(sparseReport).toContain("web/provider-only");
+    expect(sparseReport).toContain("URL not provided");
+    expect(sparseReport).toContain("No content excerpt was available.");
+  });
+
+  it("discloses bounded report omissions for large research runs", () => {
+    const timebox = resolveTimebox({ days: 30, now: new Date("2026-02-16T00:00:00.000Z") });
+    const records = enrichResearchRecords(
+      Array.from({ length: 21 }, (_value, index) => makeRecord({
+        id: `finding-${index + 1}`,
+        title: `Finding ${index + 1}`,
+        url: `https://example.com/${index + 1}`,
+        content: `Evidence ${index + 1}`
+      })),
+      timebox
+    );
+    const report = String(renderResearch({
+      mode: "path",
+      topic: "large research topic",
+      records,
+      meta: {}
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+
+    expect(report).toContain("Usable findings: 21");
+    expect(report).toContain("Findings shown in report: 10");
+    expect(report).toContain("Sources shown in report: 20");
+    expect(report).toContain("Usable records are persisted in records.json.");
+    expect(report).toContain("Run metadata, failures, and constraints are persisted in meta.json");
+    expect(report).toContain("11 more findings omitted from this report; see records.json");
+    expect(report).toContain("1 more source omitted from this report; see records.json");
+    expect(report).toContain("### 10. Finding 10");
+    expect(report).not.toContain("### 11. Finding 11");
+    expect(report).toContain("Finding 20: https://example.com/20");
+    expect(report).not.toContain("Finding 21: https://example.com/21");
+  });
+
+  it("discloses truncated research evidence excerpts", () => {
+    const timebox = resolveTimebox({ days: 30, now: new Date("2026-02-16T00:00:00.000Z") });
+    const [record] = enrichResearchRecords([
+      makeRecord({
+        content: `${"Detailed evidence ".repeat(20)}complete source payload remains in records json.`
+      })
+    ], timebox);
+
+    const report = String(renderResearch({
+      mode: "path",
+      topic: "long evidence topic",
+      records: record ? [record] : [],
+      meta: {}
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+
+    expect(report).toContain("[truncated; see records.json for full content]");
+    expect(report).not.toContain("complete source payload remains in records json");
+  });
+
+  it("discloses truncated provider failure messages", () => {
+    const report = String(renderResearch({
+      mode: "path",
+      topic: "long provider failure topic",
+      records: [],
+      meta: {
+        failures: [{
+          provider: "web/default",
+          source: "web",
+          error: {
+            reasonCode: "env_limited",
+            message: `${"Verbose provider failure ".repeat(20)}complete diagnostic tail.`
+          }
+        }]
+      }
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+
+    expect(report).toContain("[truncated; see meta.json]");
+    expect(report).not.toContain("complete diagnostic tail");
   });
 
   it("renders shopping payloads and comparison matrix", () => {

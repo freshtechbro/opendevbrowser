@@ -107,17 +107,209 @@ const compactResearchLines = (records: ResearchRecord[], meta: Record<string, un
     const summary = primaryConstraintSummaryFromMeta(meta);
     return summary
       ? [
-        "No records matched the requested timebox.",
+        "No usable research findings were available.",
         `Primary constraint: ${summary}`
       ]
-      : ["No records matched the requested timebox."];
+      : ["No usable research findings were available."];
   }
   return records.slice(0, 10).map((record, index) => {
     const title = record.title ?? record.url ?? record.provider;
     const engagement = record.engagement.likes + record.engagement.comments + record.engagement.upvotes;
-    return `${index + 1}. ${title} (${record.source}/${record.provider}) score=${record.confidence.toFixed(2)} engagement=${engagement}`;
+    return `${index + 1}. ${title} (${record.source}; ${record.provider}) score=${record.confidence.toFixed(2)} engagement=${engagement}`;
   });
 };
+
+const RESEARCH_REPORT_LIMITS = {
+  findings: 10,
+  sources: 20,
+  failures: 10,
+  excerptCharacters: 240,
+  failureMessageCharacters: 240
+} as const;
+const RESEARCH_REPORT_FILE_NAMES = [
+  "summary.md",
+  "report.md",
+  "records.json",
+  "context.json",
+  "meta.json"
+] as const;
+
+const plainObject = (value: unknown): Record<string, unknown> => (
+  typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
+);
+
+const researchTitle = (record: ResearchRecord): string => record.title ?? record.url ?? record.provider;
+
+const normalizedInlineText = (content: string | undefined): string => content?.replace(/\s+/g, " ").trim() ?? "";
+
+const boundedInlineText = (args: {
+  content: string | undefined;
+  fallback: string;
+  limit: number;
+  target: string;
+}): string => {
+  const normalized = normalizedInlineText(args.content);
+  if (!normalized) {
+    return args.fallback;
+  }
+  if (normalized.length <= args.limit) {
+    return normalized;
+  }
+  return `${normalized.slice(0, args.limit)} [truncated; see ${args.target}]`;
+};
+
+const researchExcerpt = (content: string | undefined): string => (
+  boundedInlineText({
+    content,
+    fallback: "No content excerpt was available.",
+    limit: RESEARCH_REPORT_LIMITS.excerptCharacters,
+    target: "records.json for full content"
+  })
+);
+
+const researchFailureMessage = (content: string | undefined): string => (
+  boundedInlineText({
+    content,
+    fallback: "provider failure",
+    limit: RESEARCH_REPORT_LIMITS.failureMessageCharacters,
+    target: "meta.json"
+  })
+);
+
+const limitedCount = (total: number, limit: number): number => Math.min(total, limit);
+
+const omissionLine = (args: {
+  total: number;
+  limit: number;
+  singular: string;
+  plural: string;
+  target: string;
+}): string[] => {
+  const omitted = args.total - limitedCount(args.total, args.limit);
+  if (omitted <= 0) {
+    return [];
+  }
+  const noun = omitted === 1 ? args.singular : args.plural;
+  return [`- ${omitted} more ${noun} omitted from this report; see ${args.target} for the complete dataset.`];
+};
+
+const researchFindingsLines = (records: ResearchRecord[]): string[] => (
+  records.length === 0
+    ? ["- No usable findings were available."]
+    : [
+      ...records.slice(0, RESEARCH_REPORT_LIMITS.findings).flatMap((record, index) => [
+        `### ${index + 1}. ${researchTitle(record)}`,
+        `- Source: ${record.source}`,
+        `- Provider: ${record.provider}`,
+        `- URL: ${record.url ?? "not provided"}`,
+        `- Published: ${record.timestamp}`,
+        `- Confidence: ${record.confidence.toFixed(2)}`,
+        `- Evidence: ${researchExcerpt(record.content)}`
+      ]),
+      ...omissionLine({
+        total: records.length,
+        limit: RESEARCH_REPORT_LIMITS.findings,
+        singular: "finding",
+        plural: "findings",
+        target: "records.json"
+      })
+    ]
+);
+
+const researchSourcesLines = (records: ResearchRecord[]): string[] => (
+  records.length === 0
+    ? ["- No sources available."]
+    : [
+      ...records
+      .slice(0, RESEARCH_REPORT_LIMITS.sources)
+      .map((record) => `- ${researchTitle(record)}: ${record.url ?? "URL not provided"}`),
+      ...omissionLine({
+        total: records.length,
+        limit: RESEARCH_REPORT_LIMITS.sources,
+        singular: "source",
+        plural: "sources",
+        target: "records.json"
+      })
+    ]
+);
+
+const researchReasonLine = (metrics: Record<string, unknown>): string[] => {
+  const reasons = Object.entries(plainObject(metrics.sanitized_reason_distribution))
+    .map(([reason, count]) => `${reason}: ${String(count)}`);
+  return reasons.length === 0 ? [] : [`- Sanitized record reasons: ${reasons.join(", ")}`];
+};
+
+const researchFailureSummary = (failure: unknown): string => {
+  const record = plainObject(failure);
+  const error = plainObject(record.error);
+  const provider = typeof record.provider === "string" ? record.provider : "unknown";
+  const source = typeof record.source === "string" ? record.source : "unknown";
+  const reason = typeof error.reasonCode === "string" ? `${error.reasonCode}: ` : "";
+  const message = researchFailureMessage(typeof error.message === "string" ? error.message : undefined);
+  return `${provider} (${source}): ${reason}${message}`;
+};
+
+const researchFailureLines = (failures: unknown): string[] => {
+  if (!Array.isArray(failures) || failures.length === 0) {
+    return [];
+  }
+  const summaries = failures.slice(0, RESEARCH_REPORT_LIMITS.failures).map(researchFailureSummary);
+  const omitted = failures.length - summaries.length;
+  const noun = omitted === 1 ? "failure" : "failures";
+  const suffix = omitted > 0
+    ? `; ${omitted} more provider ${noun} omitted from this report; see meta.json`
+    : "";
+  return [`- Provider failures: ${summaries.join("; ")}${suffix}`];
+};
+
+const researchGapLines = (meta: Record<string, unknown>): string[] => {
+  const metrics = plainObject(meta.metrics);
+  const details = [
+    typeof metrics.final_records === "number" ? `- Final records reported by workflow: ${metrics.final_records}` : "",
+    typeof metrics.sanitized_records === "number" ? `- Sanitized records excluded: ${metrics.sanitized_records}` : "",
+    ...researchReasonLine(metrics),
+    ...researchFailureLines(meta.failures)
+  ].filter(Boolean);
+  const constraint = primaryConstraintSummaryFromMeta(meta);
+  const fallback = "- No provider limitations or sanitization gaps were reported.";
+  const gapDetails = details.length > 0 || constraint ? details : [fallback];
+  return [
+    "## Confidence and Gaps",
+    ...(constraint ? [`- Primary constraint: ${constraint}`] : []),
+    ...gapDetails
+  ];
+};
+
+const researchArtifactFileLines = (): string[] => [
+  "## Report Files",
+  ...RESEARCH_REPORT_FILE_NAMES.map((fileName) => `- ${fileName}`)
+];
+
+const buildResearchReport = (args: {
+  topic: string;
+  records: ResearchRecord[];
+  meta: Record<string, unknown>;
+}): string => [
+  "# Research Report",
+  "",
+  "## Executive Summary",
+  `- Topic: ${args.topic}`,
+  `- Usable findings: ${args.records.length}`,
+  `- Findings shown in report: ${limitedCount(args.records.length, RESEARCH_REPORT_LIMITS.findings)}`,
+  `- Sources shown in report: ${limitedCount(args.records.length, RESEARCH_REPORT_LIMITS.sources)}`,
+  "- Final output: Usable records are persisted in records.json.",
+  "- Diagnostics: Run metadata, failures, and constraints are persisted in meta.json; this report summarizes the bounded inline subset.",
+  "",
+  ...researchArtifactFileLines(),
+  "",
+  "## Findings",
+  ...researchFindingsLines(args.records),
+  "",
+  ...researchGapLines(args.meta),
+  "",
+  "## Sources",
+  ...researchSourcesLines(args.records)
+].join("\n");
 
 export const renderResearch = (args: {
   mode: RenderMode;
@@ -130,6 +322,7 @@ export const renderResearch = (args: {
 } => {
   const lines = compactResearchLines(args.records, args.meta);
   const summary = lines.join("\n");
+  const report = buildResearchReport(args);
   const markdown = [
     `# Research: ${args.topic}`,
     "",
@@ -149,6 +342,7 @@ export const renderResearch = (args: {
 
   const files = [
     { path: "summary.md", content: markdown },
+    { path: "report.md", content: report },
     { path: "records.json", content: { records: args.records } },
     { path: "context.json", content: contextPayload },
     { path: "meta.json", content: args.meta }

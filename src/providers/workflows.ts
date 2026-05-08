@@ -2844,21 +2844,17 @@ export const runResearchWorkflow = async (
   });
 
   const excludedProviderSet = new Set(plan.compiled.autoExcludedProviders);
-  const mergedRecords = removeExcludedProviders(
-    [
-      ...execution.searchRuns.flatMap((run) => run.result.records),
-      ...execution.followUpRuns.flatMap((run) => run.result.records)
-    ],
-    excludedProviderSet
-  );
+  const rawRecords = [
+    ...execution.searchRuns.flatMap((run) => run.result.records),
+    ...execution.followUpRuns.flatMap((run) => run.result.records)
+  ];
+  const rawFailures = [
+    ...execution.searchRuns.flatMap((run) => run.result.failures),
+    ...execution.followUpRuns.flatMap((run) => run.result.failures)
+  ];
+  const mergedRecords = removeExcludedProviders(rawRecords, excludedProviderSet);
   const sanitizedRecords = sanitizeResearchRecords(mergedRecords);
-  const mergedFailures = removeExcludedProviders(
-    [
-      ...execution.searchRuns.flatMap((run) => run.result.failures),
-      ...execution.followUpRuns.flatMap((run) => run.result.failures)
-    ],
-    excludedProviderSet
-  );
+  const mergedFailures = removeExcludedProviders(rawFailures, excludedProviderSet);
   const reasonCodeDistribution = summarizeReasonCodeDistribution(mergedFailures);
   const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(mergedFailures);
   const evaluationNow = new Date();
@@ -2866,9 +2862,6 @@ export const runResearchWorkflow = async (
   const enriched = enrichResearchRecords(withinTimebox, plan.compiled.timebox, evaluationNow);
   const deduped = dedupeResearchRecords(enriched);
   const ranked = rankResearchRecords(deduped);
-  const noUsableResearchRecords = mergedRecords.length > 0
-    && mergedFailures.length === 0
-    && ranked.length === 0;
   const cookieDiagnostics = summarizeCookieDiagnostics(mergedFailures, mergedRecords);
   const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(ranked);
   const transcriptDurability = summarizeTranscriptDurability(ranked, mergedFailures);
@@ -2880,7 +2873,7 @@ export const runResearchWorkflow = async (
     }
     : plan.compiled.timebox;
 
-  if (noUsableResearchRecords && sanitizedRecords.records.length === 0) {
+  if (mergedRecords.length > 0 && sanitizedRecords.records.length === 0) {
     const sanitizedReasons = Object.entries(sanitizedRecords.reasonDistribution)
       .map(([reason, count]) => `${reason}:${count}`)
       .join(",");
@@ -2889,11 +2882,11 @@ export const runResearchWorkflow = async (
     );
   }
 
-  if (noUsableResearchRecords && sanitizedRecords.records.length > 0 && withinTimebox.length === 0) {
+  if (sanitizedRecords.records.length > 0 && withinTimebox.length === 0) {
     throw new Error("Research workflow produced no usable in-timebox results after sanitization.");
   }
 
-  if (noUsableResearchRecords) {
+  if (ranked.length === 0) {
     throw new Error("Research workflow produced no usable results after post-processing.");
   }
 
