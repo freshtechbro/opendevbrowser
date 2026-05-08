@@ -400,7 +400,7 @@ export const runProviderWorkflowBaselineSuite = async (
     }))
   ];
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: PROVIDER_WORKFLOW_BASELINE_NOW,
     artifactRoot,
     scenarios: WORKFLOW_BASELINE_SCENARIOS,
     metrics,

@@ -2,8 +2,13 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readOrCreateScoreboard } from "../scripts/provider-workflow-baseline.mjs";
 import {
+  insertBaselineRow,
+  makeBaselineRow,
+  readOrCreateScoreboard
+} from "../scripts/provider-workflow-baseline.mjs";
+import {
+  PROVIDER_WORKFLOW_BASELINE_NOW,
   WORKFLOW_BASELINE_SCENARIOS,
   runProviderWorkflowBaselineSuite,
   type ProviderWorkflowBaselineSuite,
@@ -56,6 +61,7 @@ describe("provider workflow baseline instrumentation", () => {
     const root = await makeRoot();
     const suite = await runProviderWorkflowBaselineSuite(root);
 
+    expect(suite.generatedAt).toBe(PROVIDER_WORKFLOW_BASELINE_NOW);
     expect(suite.scenarios).toEqual(WORKFLOW_BASELINE_SCENARIOS);
     expect(suite.metrics.map((metric) => metric.workflow)).toEqual([
       "research",
@@ -116,6 +122,39 @@ describe("provider workflow baseline instrumentation", () => {
     await expect(readOrCreateScoreboard(join(root, "missing.md"))).resolves.toContain(
       "# Optimize Workflow Artifacts Runs"
     );
+    await expect(readOrCreateScoreboard(join(root, "missing.md"))).resolves.toContain(
+      "Research ms (live)"
+    );
     await expect(readOrCreateScoreboard(root)).rejects.toMatchObject({ code: "EISDIR" });
+  });
+
+  it("renders deterministic baseline metadata and dedupes by commit plus command", async () => {
+    const suite = {
+      generatedAt: PROVIDER_WORKFLOW_BASELINE_NOW,
+      artifactRoot: "/tmp/odb-baseline",
+      metrics: [
+        { workflow: "research", durationMs: 12, namespace: "research", responsePathKey: "artifact_path", fileCount: 6 },
+        { workflow: "shopping", durationMs: 13, namespace: "shopping", responsePathKey: "artifact_path", fileCount: 5 },
+        { workflow: "product-video", durationMs: 14, namespace: "product-video", responsePathKey: "artifact_path", fileCount: 7 },
+        { workflow: "inspiredesign", durationMs: 15, namespace: "inspiredesign", responsePathKey: "artifact_path", fileCount: 8 }
+      ],
+      failureArtifacts: [
+        {
+          workflow: "product-video",
+          expectedNamespace: "product-video",
+          artifactDirectoryExists: false,
+          auxiliaryFetchCalls: 0,
+          errorMessage: "not-found page"
+        }
+      ]
+    };
+    const row = makeBaselineRow(suite, "abc123", "node scripts/provider-workflow-baseline.mjs");
+
+    expect(row).toContain("2026-05-07");
+    expect(row).toContain("fixtureAt=2026-05-07T23:08:56.000Z");
+    expect(row).toContain("durationColumns=live_fixture_wall_time");
+
+    const content = insertBaselineRow(`${row}\n## Candidate Runs`, row, "abc123", "node scripts/provider-workflow-baseline.mjs");
+    expect(content.match(/\| abc123 \|/g)).toHaveLength(1);
   });
 });

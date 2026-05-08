@@ -2,7 +2,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { validateProductVideoArtifactBundle } from "../scripts/product-video-fixture-live-probe.mjs";
+import {
+  productVideoWorkflowFailureDetail,
+  validateProductVideoArtifactBundle
+} from "../scripts/product-video-fixture-live-probe.mjs";
 
 describe("product-video fixture live probe artifact validation", () => {
   it("requires product-video namespace and a real bundle manifest file", () => {
@@ -37,5 +40,16 @@ describe("product-video fixture live probe artifact validation", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("reports workflow command failures before artifact validation failures", () => {
+    expect(productVideoWorkflowFailureDetail({
+      status: 1,
+      detail: "workflow_timeout"
+    }, "missing_product_video_artifact_path")).toBe("workflow_timeout");
+    expect(productVideoWorkflowFailureDetail({
+      status: 0,
+      detail: null
+    }, "missing_product_video_artifact_path")).toBe("missing_product_video_artifact_path");
   });
 });

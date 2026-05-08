@@ -335,6 +335,57 @@ describe("provider performance release gate", () => {
     })).rejects.toThrow("scheduler_task_failed");
   });
 
+  it("stops scheduling new items after the first task failure", async () => {
+    const visited: number[] = [];
+    await expect(mapBounded([0, 1, 2, 3], 2, async (_item, index) => {
+      visited.push(index);
+      if (index === 0) {
+        await wait(20);
+        return index;
+      }
+      throw new Error("scheduler_task_failed");
+    })).rejects.toThrow("scheduler_task_failed");
+
+    await wait(30);
+    expect(visited).toEqual([0, 1]);
+  });
+
+  it("preserves the first scheduler task failure", async () => {
+    const result = mapBounded([0, 1, 2], 2, async (_item, index) => {
+      if (index === 0) {
+        await wait(5);
+        throw new Error("first_scheduler_failure");
+      }
+      if (index === 1) {
+        await wait(20);
+        throw new Error("second_scheduler_failure");
+      }
+      return index;
+    });
+
+    await expect(result).rejects.toThrow("first_scheduler_failure");
+  });
+
+  it("waits for already-started scheduler tasks before rejecting", async () => {
+    const settled: number[] = [];
+    const result = mapBounded([0, 1, 2], 2, async (_item, index) => {
+      if (index === 0) {
+        await wait(20);
+        settled.push(index);
+        return index;
+      }
+      if (index === 1) {
+        settled.push(index);
+        throw new Error("scheduler_task_failed");
+      }
+      settled.push(index);
+      return index;
+    });
+
+    await expect(result).rejects.toThrow("scheduler_task_failed");
+    expect(settled).toEqual([1, 0]);
+  });
+
   it("enforces realism detection diagnostics for placeholder outputs", async () => {
     const runtime = createProviderRuntime();
     const placeholderProvider: ProviderAdapter = {

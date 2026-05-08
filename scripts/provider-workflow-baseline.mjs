@@ -63,16 +63,16 @@ const failureSummary = (failures) => failures.map((failure) => [
 
 const escapeCell = (value) => String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
 
-const makeBaselineRow = (suite, commit, commandText) => {
+export const makeBaselineRow = (suite, commit, commandText) => {
   const notes = [
     `Node ${process.version}`,
     `${process.platform}/${process.arch}`,
-    `fixtureNow=${suite.generatedAt}`,
+    `fixtureAt=${suite.generatedAt}`,
     `root=${suite.artifactRoot}`,
-    "duration uses local fixture wall time"
+    "durationColumns=live_fixture_wall_time"
   ].join("; ");
   const cells = [
-    DATE_FORMAT.format(new Date()).replace(",", ""),
+    DATE_FORMAT.format(new Date(suite.generatedAt)).replace(",", ""),
     commit,
     commandText,
     formatDuration(suite.metrics, "research"),
@@ -89,7 +89,7 @@ const makeBaselineRow = (suite, commit, commandText) => {
 const scaffold = `# Optimize Workflow Artifacts Runs
 
 ## Baseline
-| Date | Commit | Command | Research ms | Shopping ms | Product-video ms | Inspiredesign ms | Artifact root result | Failure artifact result | Notes |
+| Date | Commit | Command | Research ms (live) | Shopping ms (live) | Product-video ms (live) | Inspiredesign ms (live) | Artifact root result | Failure artifact result | Notes |
 |---|---|---:|---:|---:|---:|---|---|---|---|
 
 ## Candidate Runs
@@ -112,7 +112,7 @@ export const readOrCreateScoreboard = async (outputPath) => {
   }
 };
 
-const insertBaselineRow = (content, row, commit, commandText) => {
+export const insertBaselineRow = (content, row, commit, commandText) => {
   const identity = `| ${escapeCell(commit)} | ${escapeCell(commandText)} |`;
   const deduped = content
     .split("\n")

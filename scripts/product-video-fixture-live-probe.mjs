@@ -174,6 +174,13 @@ export function validateProductVideoArtifactBundle(artifactPath) {
   return { artifactPath, detail: null };
 }
 
+export function productVideoWorkflowFailureDetail(workflow, artifactDetail) {
+  if (workflow.status !== 0) {
+    return workflow.detail ?? `product_video_workflow_failed:${workflow.status}`;
+  }
+  return artifactDetail;
+}
+
 function persistArtifactBundle(sourcePath, runId, bundleName) {
   const targetPath = path.join(getReviewBundleRoot(), runId, bundleName);
   fs.rmSync(targetPath, { recursive: true, force: true });
@@ -236,8 +243,11 @@ async function runProbe(options) {
 
       const metadataOnlyData = metadataOnlyWorkflow.json?.data ?? {};
       const metadataOnlyArtifactPath = typeof metadataOnlyData.artifact_path === "string" ? metadataOnlyData.artifact_path : null;
-      const metadataOnlyArtifactValidation = validateProductVideoArtifactBundle(metadataOnlyArtifactPath);
-      const persistedMetadataOnlyArtifactPath = metadataOnlyArtifactValidation.detail === null
+      const metadataOnlyArtifactValidation = metadataOnlyWorkflow.status === 0
+        ? validateProductVideoArtifactBundle(metadataOnlyArtifactPath)
+        : { artifactPath: metadataOnlyArtifactPath, detail: null };
+      const persistedMetadataOnlyArtifactPath = metadataOnlyWorkflow.status === 0
+        && metadataOnlyArtifactValidation.detail === null
         ? persistArtifactBundle(metadataOnlyArtifactPath, runId, "metadata-only")
         : null;
       const metadataOnlyOk = metadataOnlyWorkflow.status === 0
@@ -253,7 +263,7 @@ async function runProbe(options) {
       pushStep(report, {
         id: "workflow.product_video_run_no_screenshots",
         status: metadataOnlyOk ? "pass" : "fail",
-        detail: metadataOnlyOk ? null : metadataOnlyArtifactValidation.detail ?? metadataOnlyWorkflow.detail,
+        detail: metadataOnlyOk ? null : productVideoWorkflowFailureDetail(metadataOnlyWorkflow, metadataOnlyArtifactValidation.detail),
         data: {
           artifactPath: persistedMetadataOnlyArtifactPath,
           sourceArtifactPath: metadataOnlyArtifactPath,
@@ -285,8 +295,11 @@ async function runProbe(options) {
 
       const data = workflow.json?.data ?? {};
       const artifactPath = typeof data.artifact_path === "string" ? data.artifact_path : null;
-      const artifactValidation = validateProductVideoArtifactBundle(artifactPath);
-      const persistedArtifactPath = artifactValidation.detail === null
+      const artifactValidation = workflow.status === 0
+        ? validateProductVideoArtifactBundle(artifactPath)
+        : { artifactPath, detail: null };
+      const persistedArtifactPath = workflow.status === 0
+        && artifactValidation.detail === null
         ? persistArtifactBundle(artifactPath, runId, "with-screenshots")
         : null;
       const manifestPath = persistedArtifactPath ? path.join(persistedArtifactPath, "manifest.json") : null;
@@ -311,7 +324,7 @@ async function runProbe(options) {
       pushStep(report, {
         id: "workflow.product_video_run",
         status: workflowOk ? "pass" : "fail",
-        detail: workflowOk ? null : artifactValidation.detail ?? workflow.detail,
+        detail: workflowOk ? null : productVideoWorkflowFailureDetail(workflow, artifactValidation.detail),
         data: {
           artifactPath: persistedArtifactPath,
           sourceArtifactPath: artifactPath,

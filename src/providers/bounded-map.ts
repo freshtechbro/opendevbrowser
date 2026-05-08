@@ -11,14 +11,24 @@ export const mapBounded = async <Input, Output>(
 ): Promise<Output[]> => {
   const results: Output[] = new Array<Output>(items.length);
   let cursor = 0;
+  let firstError: Error | null = null;
   const workers = Array.from({ length: resolveWorkerCount(items.length, limit) }, async () => {
     for (;;) {
+      if (firstError) return;
       const index = cursor;
       cursor += 1;
       if (index >= items.length) return;
-      results[index] = await task(items[index] as Input, index);
+      try {
+        results[index] = await task(items[index] as Input, index);
+      } catch (error) {
+        if (!firstError) {
+          firstError = error instanceof Error ? error : new Error(String(error));
+        }
+        return;
+      }
     }
   });
   await Promise.all(workers);
+  if (firstError) throw firstError;
   return results;
 };
