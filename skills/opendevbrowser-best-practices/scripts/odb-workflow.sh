@@ -188,8 +188,9 @@ EOF
 # Public-first YouTube transcript probe
 node $TRANSCRIPT_PROBE_PATH --url "https://www.youtube.com/watch?v=aircAruvnKk" --youtube-mode auto --out artifacts/capability-fix/youtube-transcript-auto.json
 
-# Generic topical research without shopping contamination
-$CLI_PREFIX research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json --output-format json
+# Evidence-gated research primitive with explicit public source families
+# Load opendevbrowser-research first, then inspect records.json, context.json, meta.json, and report.md before publishing claims.
+$CLI_PREFIX research run --topic "Chrome extension debugging workflows" --days 30 --sources web,community --mode json --output-format json
 
 # Deterministic shopping reruns with explicit providers
 $CLI_PREFIX shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json

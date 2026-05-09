@@ -20,10 +20,13 @@ describe("workflow handoff builders", () => {
     });
 
     expect(handoff.suggestedNextAction).toContain(
-      "npx opendevbrowser research run --topic \"browser automation blockers\" --days 14 --source-selection auto --sources web,community --browser-mode managed --mode json --output-format json"
+      "npx opendevbrowser research run --topic \"browser automation blockers\" --days 14 --sources web,community --browser-mode managed --mode json --output-format json"
     );
     expect(handoff.suggestedSteps[1]?.command).toContain("--sources web,community");
+    expect(handoff.suggestedSteps[1]?.command).not.toContain("--source-selection auto");
     expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode managed");
+    expect(handoff.suggestedNextAction).toContain("records.json, context.json, meta.json, and report.md");
+    expect(handoff.followthroughSummary).toContain("artifact metadata");
   });
 
   it("preserves requested research browser mode in rerun guidance", () => {

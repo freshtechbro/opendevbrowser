@@ -39,7 +39,7 @@ type ResearchHandoffInput = {
 const buildResearchRerunCommand = (input: ResearchHandoffInput): string => (
   cliExample(
     "research run",
-    `--topic ${quoteCliValue(input.topic)} --days 14 --source-selection auto --sources web,community --browser-mode ${input.browserMode ?? "managed"} --mode json --output-format json`
+    `--topic ${quoteCliValue(input.topic)} --days 14 --sources web,community --browser-mode ${input.browserMode ?? "managed"} --mode json --output-format json`
   )
 );
 
@@ -147,10 +147,10 @@ const buildMacroExecuteCommand = (
 export const buildResearchSuccessHandoff = (input: ResearchHandoffInput): WorkflowSuccessHandoff => {
   const rerunCommand = buildResearchRerunCommand(input);
   return createSuccessHandoff(
-    "Review the ranked records and artifact bundle before turning the result into a publishable claim.",
-    `Open the returned artifact path, inspect the supporting records, and rerun ${rerunCommand} if you need a tighter evidence set.`,
+    "Review ranked records, artifact metadata, and source support before turning the result into a publishable claim.",
+    `Open the returned artifact path, inspect records.json, context.json, meta.json, and report.md, then rerun ${rerunCommand} if you need a tighter evidence set.`,
     [
-      { reason: "Check which records actually support the final claim." },
+      { reason: "Check which ranked records and artifact metadata actually support the final claim." },
       {
         reason: "Rerun with explicit sources and a narrower timebox if the evidence set is still too broad.",
         command: rerunCommand

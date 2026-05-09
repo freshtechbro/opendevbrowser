@@ -72,7 +72,7 @@ Expected:
 - the block maps replay to `screencast-start` / `screencast-stop`
 - the block maps desktop observation to the public `desktop-*` family
 - the block maps browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`
-- the block includes a concrete browser-scoped entry command such as `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
+- the block includes a concrete browser-scoped entry command such as `npx opendevbrowser research run --topic "account recovery flow" --sources web,community --challenge-automation-mode browser --mode json --output-format json`
 - help then opens the `Agent Quick Start` block
 - the block explicitly points agents to `opendevbrowser_prompting_guide`
 - the block explicitly points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`
@@ -86,12 +86,12 @@ Optional terminal proof:
 npx --no-install opendevbrowser --help | grep -E "screencast / browser replay|desktop observation|computer use / browser-scoped computer use|screencast-start|desktop-status|challenge-automation-mode"
 ```
 
-## 2c) Validate the currently reliable workflow lanes
+## 2c) Validate the current workflow lanes
 
-These are the most repeatable capability checks from the April 6 validation pass.
+These are repeatable capability checks from the April 6 validation pass, with research treated as an evidence-gated primitive. Load `opendevbrowser-research` before research tasks and inspect returned artifacts before final claims.
 
 ```bash
-npx --no-install opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --mode json --output-format json
+npx --no-install opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --sources web,community --mode json --output-format json
 npx --no-install opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
 npx --no-install opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
 ```

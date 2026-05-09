@@ -724,7 +724,7 @@ const CLI_COMMAND_EXAMPLES = {
   "status-capabilities": [cliExample("status-capabilities", "--session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --timeout-ms 30000 --output-format json")],
   "cookie-import": [cliExample("cookie-import", "--session-id s1 --cookies-file ./cookies.json --strict true --output-format json")],
   "cookie-list": [cliExample("cookie-list", "--session-id s1 --url https://example.com --output-format json")],
-  research: [cliExample("research run", "--topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json")],
+  research: [cliExample("research run", "--topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json")],
   shopping: [cliExample("shopping run", "--query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json")],
   "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json")],
   inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
@@ -798,7 +798,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
   ],
   research: [
-    "Generic topical research is currently safest with --source-selection auto; add shopping only for deliberate commercial comparison."
+    "Load opendevbrowser-research first, use explicit source families such as --sources web,community, and inspect artifacts before final claims."
   ],
   shopping: [
     "Treat --region as advisory unless the workflow output reports region_authoritative=true."

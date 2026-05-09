@@ -100,7 +100,7 @@ Load this section directly with:
 opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"
 ```
 
-Current reliable lanes:
+Current validated lanes:
 
 1. Public-first YouTube transcript retrieval.
 
@@ -113,16 +113,18 @@ Rules:
 - browser-assisted transcript fallback is opt-in only
 - if browser fallback is enabled, use an isolated automation profile instead of a daily logged-in Google profile
 
-2. Generic topical research without shopping contamination.
+2. Evidence-gated research primitive with explicit public source families.
 
 ```bash
-npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json
+npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --sources web,community --browser-mode managed --mode json --output-format json
 ```
 
 Rules:
-- use `--source-selection auto` for general research
-- use `--source-selection shopping` or explicit `--sources ...shopping...` only when the task is deliberately commercial
-- in the current contract, `auto` and `all` both resolve to `web`, `community`, and `social`
+- load `opendevbrowser-research` before research tasks so planning, evidence review, confidence, and limitations stay skill-guided
+- treat `research run` as provider-constrained and low-level; inspect `summary.md`, `report.md`, `records.json`, `context.json`, `meta.json`, and `bundle-manifest.json` before publishing claims
+- use `--source-selection` only to explain selector semantics; use explicit `--sources web,community` for public topical examples
+- add shopping only with `--source-selection shopping` or explicit `--sources ...shopping...` when the task is deliberately commercial
+- in the current contract, `auto` and `all` both resolve to `web`, `community`, and `social`, but neither value guarantees reliability
 
 3. Deterministic shopping reruns with explicit providers.
 

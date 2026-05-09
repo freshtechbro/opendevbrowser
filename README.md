@@ -257,7 +257,7 @@ Start every surface check from generated help when you need the current public l
 
 - `screencast / browser replay`: `screencast-start`, `screencast-stop`
 - `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`; start with `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json` when you need the first entry point, and use `review` plus `session-inspector` as the quickest proof surfaces while the optional helper stays browser-scoped rather than becoming a desktop agent
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`; start with `npx opendevbrowser research run --topic "account recovery flow" --sources web,community --challenge-automation-mode browser --mode json --output-format json` when you need the first entry point, and use `review` plus `session-inspector` as the quickest proof surfaces while the optional helper stays browser-scoped rather than becoming a desktop agent
 
 ## Challenge Handling Boundary
 
