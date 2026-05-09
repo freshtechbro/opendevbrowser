@@ -15,6 +15,46 @@ required=(
   "scripts/validate-skill-assets.sh"
 )
 
+posture_files=(
+  "SKILL.md"
+  "artifacts/research-workflows.md"
+  "assets/templates/compact.md"
+  "assets/templates/context.json"
+  "assets/templates/report.md"
+)
+
+required_markers=(
+  "evidence-gated"
+  "provider-constrained"
+  "discovery-only"
+  "search_engine_passes"
+  "summary.md"
+  "report.md"
+  "records.json"
+  "context.json"
+  "meta.json"
+  "bundle-manifest.json"
+)
+
+required_file_markers=(
+  "SKILL.md|Search Engine Discovery Lane"
+  "SKILL.md|Keep SERPs discovery-only"
+  "SKILL.md|bundle-manifest.json"
+  "artifacts/research-workflows.md|Search Engine Discovery Lane"
+  "artifacts/research-workflows.md|Keep SERPs discovery-only"
+  "artifacts/research-workflows.md|search_engine_passes"
+  "assets/templates/context.json|bundle-manifest.json"
+  "assets/templates/context.json|search_engine_passes"
+  "assets/templates/report.md|SERPs are discovery-only"
+  "assets/templates/report.md|bundle-manifest.json"
+)
+
+forbidden_markers=(
+  "research_reliable"
+  "auto is the recommended default"
+  "generic topical research is currently safest"
+)
+
 status=0
 validator_cli="$root/../opendevbrowser-best-practices/scripts/validator-fixture-cli.sh"
 export ODB_CLI_VALIDATOR_OVERRIDE="$validator_cli"
@@ -28,6 +68,44 @@ require_marker() {
     status=1
   fi
 }
+
+require_file_marker() {
+  local marker="$1"
+  local found=0
+  local rel
+  for rel in "${posture_files[@]}"; do
+    if [[ -f "$root/$rel" ]] && grep -Fq "$marker" "$root/$rel"; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    echo "Research assets missing required marker: $marker" >&2
+    status=1
+  fi
+}
+
+require_marker_in_file() {
+  local entry="$1"
+  local rel="${entry%%|*}"
+  local marker="${entry#*|}"
+  if [[ ! -f "$root/$rel" ]] || ! grep -Fq "$marker" "$root/$rel"; then
+    echo "Research asset $rel missing required marker: $marker" >&2
+    status=1
+  fi
+}
+
+reject_forbidden_marker() {
+  local marker="$1"
+  local rel
+  for rel in "${posture_files[@]}"; do
+    if [[ -f "$root/$rel" ]] && tr -d '`' < "$root/$rel" | grep -Fq "$marker"; then
+      echo "Research assets contain forbidden marker in $rel: $marker" >&2
+      status=1
+    fi
+  done
+}
+
 for rel in "${required[@]}"; do
   if [[ ! -f "$root/$rel" ]]; then
     echo "Missing required asset: $rel" >&2
@@ -59,6 +137,18 @@ for rel in scripts/run-research.sh scripts/render-output.sh scripts/write-artifa
   fi
 done
 
+for marker in "${required_markers[@]}"; do
+  require_file_marker "$marker"
+done
+
+for marker in "${required_file_markers[@]}"; do
+  require_marker_in_file "$marker"
+done
+
+for marker in "${forbidden_markers[@]}"; do
+  reject_forbidden_marker "$marker"
+done
+
 if [[ -f "$root/assets/templates/context.json" ]]; then
   if ! node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$root/assets/templates/context.json" >/dev/null 2>&1; then
     echo "Invalid JSON template: assets/templates/context.json" >&2
@@ -66,7 +156,7 @@ if [[ -f "$root/assets/templates/context.json" ]]; then
   fi
 fi
 
-context_output="$("$root/scripts/run-research.sh" "ai browser automation" 30 context auto "web,docs")"
+context_output="$("$root/scripts/run-research.sh" "ai browser automation" 30 context "web,docs")"
 require_marker "run-research context" "$context_output" "# Research Context"
 require_marker "run-research context" "$context_output" "ISSUE-09"
 

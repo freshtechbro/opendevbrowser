@@ -1,8 +1,36 @@
 {
   "topic": "",
   "timebox": {
-    "days": 30
+    "days": 30,
+    "from": null,
+    "to": null
   },
+  "source_families": [],
+  "evidence_gate": {
+    "status": "pending",
+    "reviewed_artifacts": [],
+    "accepted_claims": [],
+    "tentative_claims": [],
+    "unsupported_claims": [],
+    "blockers": []
+  },
+  "artifact_files": [
+    "summary.md",
+    "report.md",
+    "records.json",
+    "context.json",
+    "meta.json",
+    "bundle-manifest.json"
+  ],
+  "source_ledger": [],
+  "staleness_checks": [],
+  "provider_constraints": [],
+  "search_engine_passes": [],
+  "serp_candidates": [],
+  "selected_destination_pages": [],
+  "engine_failures": [],
+  "provenance": [],
+  "limitations": [],
   "issue_ids": [
     "ISSUE-06",
     "ISSUE-09",
