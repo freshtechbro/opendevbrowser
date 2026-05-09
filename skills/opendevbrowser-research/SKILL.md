@@ -62,9 +62,10 @@ Required review:
 
 1. Read `records.json` for fetched source records, timestamps, providers, extraction quality, and blockers.
 2. Read `context.json` for source ledger, evidence gaps, unsupported claims, staleness checks, and search-engine provenance when used.
-3. Read `meta.json` for provider limits, warnings, no-evidence failures, and artifact generation details.
-4. Use `report.md` and `summary.md` only after confirming claims map back to accepted evidence.
-5. Do not use shell-only, stale-only, login-only, not-found-only, or zero-source-evidence runs to support final claims.
+3. Read `meta.json` for provider limits, warnings, no-evidence failures, cookie diagnostics, challenge/auth/token failures, and artifact generation details.
+4. When gated providers such as Reddit block evidence, rerun only with user-authorized recovery: `--browser-mode extension` for an existing signed-in relay session, `--use-cookies` only when legitimate cookies are available, and `--challenge-automation-mode browser_with_helper` for browser-scoped assistance.
+5. Use `report.md` and `summary.md` only after confirming claims map back to accepted evidence.
+6. Do not use shell-only, stale-only, login-only, not-found-only, or zero-source-evidence runs to support final claims.
 
 ## Search Engine Discovery Lane
 
@@ -75,7 +76,7 @@ This lane is optional, skill-guided, provider-constrained, and discovery-only. I
 3. Collect up to 10 result URLs per selected engine. Preserve engine, query, rank, URL, title if available, and retrieval notes.
 4. Dedupe canonical URLs, then select the strongest 5 to 10 destination pages for extraction.
 5. Extract destination pages through OpenDevBrowser browsing primitives when useful, including DOM interaction, screenshots, cookies, and authenticated browsing when the user has legitimate access.
-6. Do not bypass robots restrictions, login walls, consent gates, CAPTCHAs, rate limits, anti-bot controls, or access controls. Stand down and record limitations instead.
+6. Do not violate robots restrictions, login walls, consent gates, CAPTCHAs, rate limits, anti-bot controls, or access controls. Stand down and record limitations instead.
 7. Keep SERPs discovery-only. SERP snippets, result pages, shells, and blocked pages cannot be final evidence.
 8. Final claims must cite destination pages or other fetched evidence that survived review.
 
@@ -101,7 +102,8 @@ Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-i
 3. Optionally run the search-engine discovery lane to find destination candidates.
 4. Run `opendevbrowser research run` as a low-level best-effort primitive.
 5. Review `records.json`, `context.json`, and `meta.json` before trusting `report.md`.
-6. Return final claims only when they are supported by accepted evidence.
+6. If `meta.json` shows auth, token, challenge, or cookie-gated providers, make the next run skill-first: use the existing signed-in browser session when authorized, cookies only when legitimate cookies are available, and browser-scoped challenge assistance only for that browser session.
+7. Return final claims only when they are supported by accepted evidence.
 
 ## Commands
 

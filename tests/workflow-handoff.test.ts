@@ -12,6 +12,51 @@ import {
   getCanvasRequiredNextCommands
 } from "../src/canvas/guidance";
 import { INSPIREDESIGN_HANDOFF_COMMANDS, INSPIREDESIGN_HANDOFF_GUIDANCE } from "../src/inspiredesign/handoff";
+import type { JsonValue, ProviderFailureEntry } from "../src/providers/types";
+
+const researchGatedFailure = (cookieDiagnostics?: Record<string, JsonValue>): ProviderFailureEntry => ({
+  provider: "community/reddit",
+  source: "community",
+  error: {
+    code: "auth",
+    message: "Reddit requires login or a token for this request.",
+    retryable: false,
+    reasonCode: "auth_required",
+    ...(cookieDiagnostics ? { details: { cookieDiagnostics } } : {})
+  }
+});
+
+const researchDetailsOnlyGatedFailure = (): ProviderFailureEntry => ({
+  provider: "community/reddit",
+  source: "community",
+  error: {
+    code: "unavailable",
+    message: "Provider returned a challenge page.",
+    retryable: false,
+    details: { reasonCode: "challenge_detected" }
+  }
+});
+
+const researchAuthCodeFailure = (): ProviderFailureEntry => ({
+  provider: "community/reddit",
+  source: "community",
+  error: {
+    code: "auth",
+    message: "Provider returned a login wall.",
+    retryable: false
+  }
+});
+
+const researchRateLimitedFailure = (): ProviderFailureEntry => ({
+  provider: "web/search",
+  source: "web",
+  error: {
+    code: "rate_limited",
+    message: "Provider returned 429.",
+    retryable: true,
+    reasonCode: "rate_limited"
+  }
+});
 
 describe("workflow handoff builders", () => {
   it("builds research rerun guidance with explicit source and timebox flags", () => {
@@ -36,6 +81,160 @@ describe("workflow handoff builders", () => {
     });
 
     expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode extension");
+  });
+
+  it("adds gated research recovery guidance for auth-constrained providers", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "reddit browser automation reports",
+      failures: [researchGatedFailure()]
+    });
+
+    expect(handoff.followthroughSummary).toContain("gated-provider diagnostics");
+    expect(handoff.followthroughSummary).toContain("community/reddit");
+    expect(handoff.suggestedNextAction).toContain("user-authorized signed-in relay session");
+    expect(handoff.suggestedNextAction).toContain("--browser-mode extension");
+    expect(handoff.suggestedNextAction).toContain("--challenge-automation-mode browser_with_helper");
+    expect(handoff.suggestedNextAction).toContain("Add --use-cookies only when legitimate provider cookies are available.");
+    expect(handoff.suggestedSteps[1]?.command).not.toContain("--use-cookies");
+  });
+
+  it("adds gated research recovery guidance for details-only challenge codes", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "challenge-constrained browser automation reports",
+      failures: [researchDetailsOnlyGatedFailure()]
+    });
+
+    expect(handoff.followthroughSummary).toContain("community/reddit");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode extension");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--challenge-automation-mode browser_with_helper");
+  });
+
+  it("normalizes auth-code research failures without top-level reason codes", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "login-constrained browser automation reports",
+      failures: [researchAuthCodeFailure()]
+    });
+
+    expect(handoff.followthroughSummary).toContain("community/reddit");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode extension");
+  });
+
+  it("adds gated research recovery guidance from challenge orchestration metadata", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "challenge-constrained browser automation reports",
+      challengeOrchestration: [{
+        provider: "community/reddit",
+        source: "community",
+        blockerType: "anti_bot_challenge",
+        browserFallbackReasonCode: "challenge_detected"
+      }]
+    });
+
+    expect(handoff.followthroughSummary).toContain("community/reddit");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode extension");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--challenge-automation-mode browser_with_helper");
+  });
+
+  it("uses generic gated-provider guidance when diagnostics omit provider names", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "cookie-constrained browser automation reports",
+      cookieDiagnostics: [{ reasonCode: "auth_required", policy: "required", injected: 1 }]
+    });
+
+    expect(handoff.followthroughSummary).toContain("gated providers");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--use-cookies");
+  });
+
+  it("reads browser fallback challenge reason metadata", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "challenge-constrained browser automation reports",
+      challengeOrchestration: [{
+        provider: "community/reddit",
+        blockerType: "auth_required",
+        browserFallbackReasonCode: "auth_required"
+      }]
+    });
+
+    expect(handoff.followthroughSummary).toContain("community/reddit");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--challenge-automation-mode browser_with_helper");
+  });
+
+  it("uses generic gated guidance for providerless challenge metadata", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "challenge-constrained browser automation reports",
+      challengeOrchestration: [{ reasonCode: "challenge_detected" }]
+    });
+
+    expect(handoff.followthroughSummary).toContain("gated providers");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--challenge-automation-mode browser_with_helper");
+  });
+
+  it("keeps non-gated challenge metadata on the default research handoff", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "rate-limited browser automation reports",
+      challengeOrchestration: [{ blockerType: "rate_limited" }]
+    });
+
+    expect(handoff.followthroughSummary).not.toContain("gated-provider diagnostics");
+    expect(handoff.suggestedSteps[1]?.command).not.toContain("--challenge-automation-mode browser_with_helper");
+  });
+
+  it("adds cookie-backed gated research recovery only when diagnostics show available cookies", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "reddit browser automation reports",
+      failures: [researchGatedFailure({ available: true, verifiedCount: 2 })],
+      cookieDiagnostics: [{
+        provider: "community/reddit",
+        source: "community",
+        policy: "required",
+        reasonCode: "auth_required",
+        available: true,
+        verifiedCount: 2
+      }]
+    });
+
+    expect(handoff.suggestedNextAction).toContain("--use-cookies");
+    expect(handoff.suggestedNextAction).toContain("cookie diagnostics show available cookies");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--use-cookies");
+  });
+
+  it("does not add cookies from unrelated aggregate cookie diagnostics", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "reddit browser automation reports",
+      failures: [researchGatedFailure()],
+      cookieDiagnostics: [{ provider: "web/search", available: true, loaded: 1 }]
+    });
+
+    expect(handoff.followthroughSummary).toContain("community/reddit");
+    expect(handoff.suggestedSteps[1]?.command).not.toContain("--use-cookies");
+  });
+
+  it("keeps non-gated research failures on the default evidence rerun path", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "rate-limited browser automation reports",
+      failures: [researchRateLimitedFailure()],
+      cookieDiagnostics: [{ provider: "web/search", source: "web", available: true }]
+    });
+
+    expect(handoff.followthroughSummary).not.toContain("gated-provider diagnostics");
+    expect(handoff.suggestedSteps[1]?.command).toContain("--browser-mode managed");
+    expect(handoff.suggestedSteps[1]?.command).not.toContain("--use-cookies");
+    expect(handoff.suggestedSteps[1]?.command).not.toContain("--challenge-automation-mode browser_with_helper");
+  });
+
+  it("does not add cookies when gated diagnostics show no available cookies", () => {
+    const handoff = buildResearchSuccessHandoff({
+      topic: "reddit browser automation reports",
+      failures: [researchGatedFailure({
+        available: false,
+        loaded: 0,
+        injected: 0,
+        verifiedCount: 0
+      })]
+    });
+
+    expect(handoff.followthroughSummary).toContain("community/reddit");
+    expect(handoff.suggestedSteps[1]?.command).not.toContain("--use-cookies");
   });
 
   it("falls back to default shopping providers and managed mode when optional inputs are absent", () => {

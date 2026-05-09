@@ -10,7 +10,8 @@ Use these workflows to plan evidence first, run provider-constrained collection 
 4. Run `opendevbrowser research run` as a low-level best-effort primitive.
 5. Persist `summary.md`, `report.md`, `records.json`, `context.json`, `meta.json`, and `bundle-manifest.json`.
 6. Review `records.json`, `context.json`, and `meta.json` before using `report.md`.
-7. Publish supported claims, mark weak claims as tentative, and exclude unsupported claims.
+7. If `meta.json` or failures show auth, token, challenge, or cookie-gated providers, rerun only through user-authorized browser recovery: `--browser-mode extension` for an existing signed-in relay session, `--use-cookies` only when legitimate cookies are available, and `--challenge-automation-mode browser_with_helper` for browser-scoped assistance.
+8. Publish supported claims, mark weak claims as tentative, and exclude unsupported claims.
 
 ## Claim-to-source review workflow
 
@@ -37,10 +38,11 @@ This optional lane is skill-guided, provider-constrained, and discovery-only. It
 
 ## Backoff and blocker workflow
 
-1. Detect repeated 429 responses, provider throttling, challenge pages, login walls, consent gates, or extraction failures.
+1. Detect repeated 429 responses, provider throttling, challenge pages, login walls, token gates, consent gates, cookie diagnostics, or extraction failures.
 2. Honor retry windows and bounded retries.
-3. Resume from persisted artifacts only when the next run can add evidence without bypassing controls.
-4. Report partial coverage, provider constraints, and skipped lanes when limits persist.
+3. For gated providers such as Reddit, prefer a skill-first recovery rerun with an existing signed-in relay session, legitimate cookies only when available, and browser-scoped challenge assistance.
+4. Resume from persisted artifacts only when the next run can add evidence without violating controls.
+5. Report partial coverage, provider constraints, and skipped lanes when limits persist.
 
 ## Compact handoff workflow
 

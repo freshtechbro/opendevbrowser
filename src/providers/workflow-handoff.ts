@@ -1,4 +1,6 @@
 import { INSPIREDESIGN_HANDOFF_GUIDANCE } from "../inspiredesign/handoff";
+import { isProviderReasonCode, normalizeProviderReasonCode } from "./errors";
+import type { JsonValue, ProviderFailureEntry, ProviderReasonCode } from "./types";
 
 export type WorkflowSuccessStep = {
   reason: string;
@@ -34,14 +36,170 @@ const quoteCliValue = (value: string): string => JSON.stringify(value);
 type ResearchHandoffInput = {
   topic: string;
   browserMode?: string;
+  failures?: ProviderFailureEntry[];
+  cookieDiagnostics?: Array<Record<string, JsonValue>>;
+  challengeOrchestration?: Array<Record<string, JsonValue>>;
 };
 
-const buildResearchRerunCommand = (input: ResearchHandoffInput): string => (
-  cliExample(
+type ResearchRerunOptions = {
+  browserMode?: string;
+  useCookies?: boolean;
+  challengeAutomationMode?: "browser_with_helper";
+};
+
+type ResearchGatedProviderSignal = {
+  providers: string[];
+  reasonCodes: string[];
+  useCookies: boolean;
+};
+
+const GATED_PROVIDER_REASON_CODES = new Set<ProviderReasonCode>([
+  "auth_required",
+  "token_required",
+  "challenge_detected"
+]);
+
+const buildResearchRerunCommand = (
+  input: ResearchHandoffInput,
+  options: ResearchRerunOptions = {}
+): string => {
+  const browserMode = options.browserMode ?? input.browserMode ?? "managed";
+  const useCookies = options.useCookies ? " --use-cookies" : "";
+  const challengeMode = options.challengeAutomationMode
+    ? ` --challenge-automation-mode ${options.challengeAutomationMode}`
+    : "";
+  return cliExample(
     "research run",
-    `--topic ${quoteCliValue(input.topic)} --days 14 --sources web,community --browser-mode ${input.browserMode ?? "managed"} --mode json --output-format json`
-  )
+    `--topic ${quoteCliValue(input.topic)} --days 14 --sources web,community --browser-mode ${browserMode}${useCookies}${challengeMode} --mode json --output-format json`
+  );
+};
+
+const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
+  Boolean(value) && typeof value === "object" && !Array.isArray(value)
 );
+
+const readFailureReasonCode = (failure: ProviderFailureEntry): ProviderReasonCode | null => {
+  return failure.error.reasonCode
+    ?? normalizeProviderReasonCode({
+      code: failure.error.code,
+      message: failure.error.message,
+      details: failure.error.details
+    })
+    ?? null;
+};
+
+const readDiagnosticReasonCode = (diagnostic: Record<string, JsonValue>): ProviderReasonCode | null => {
+  const reasonCode = diagnostic.reasonCode ?? diagnostic.browserFallbackReasonCode;
+  return isProviderReasonCode(reasonCode) && GATED_PROVIDER_REASON_CODES.has(reasonCode) ? reasonCode : null;
+};
+
+const cookieDiagnosticShowsAvailableCookies = (diagnostic: Record<string, JsonValue>): boolean => {
+  return diagnostic.available === true
+    || (typeof diagnostic.loaded === "number" && diagnostic.loaded > 0)
+    || (typeof diagnostic.injected === "number" && diagnostic.injected > 0)
+    || (typeof diagnostic.verifiedCount === "number" && diagnostic.verifiedCount > 0);
+};
+
+const addProviderSignal = (
+  signal: ResearchGatedProviderSignal,
+  provider: string | undefined,
+  reasonCode: ProviderReasonCode | null
+): void => {
+  if (provider) signal.providers.push(provider);
+  if (reasonCode) signal.reasonCodes.push(reasonCode);
+};
+
+const readFailureCookieDiagnostics = (failure: ProviderFailureEntry): Record<string, JsonValue> | null => {
+  const candidate = failure.error.details?.cookieDiagnostics;
+  return isJsonRecord(candidate) ? candidate : null;
+};
+
+const emptyResearchGatedProviderSignal = (): ResearchGatedProviderSignal => ({
+  providers: [],
+  reasonCodes: [],
+  useCookies: false
+});
+
+const normalizeResearchGatedProviderSignal = (
+  signal: ResearchGatedProviderSignal
+): ResearchGatedProviderSignal | null => {
+  return signal.providers.length > 0 || signal.reasonCodes.length > 0 ? {
+    providers: [...new Set(signal.providers)].sort(),
+    reasonCodes: [...new Set(signal.reasonCodes)].sort(),
+    useCookies: signal.useCookies
+  } : null;
+};
+
+const mergeResearchGatedProviderSignals = (
+  signals: ResearchGatedProviderSignal[]
+): ResearchGatedProviderSignal => {
+  const merged = emptyResearchGatedProviderSignal();
+  for (const signal of signals) {
+    merged.providers.push(...signal.providers);
+    merged.reasonCodes.push(...signal.reasonCodes);
+    merged.useCookies = merged.useCookies || signal.useCookies;
+  }
+  return merged;
+};
+
+const detectResearchFailureSignals = (failures: ProviderFailureEntry[]): ResearchGatedProviderSignal => {
+  const signal = emptyResearchGatedProviderSignal();
+  for (const failure of failures) {
+    const reasonCode = readFailureReasonCode(failure);
+    const isGatedFailure = Boolean(reasonCode && GATED_PROVIDER_REASON_CODES.has(reasonCode));
+    if (isGatedFailure) {
+      addProviderSignal(signal, failure.provider, reasonCode);
+      const diagnostic = readFailureCookieDiagnostics(failure);
+      signal.useCookies = signal.useCookies || Boolean(diagnostic && cookieDiagnosticShowsAvailableCookies(diagnostic));
+    }
+  }
+  return signal;
+};
+
+const detectResearchCookieSignals = (
+  diagnostics: Array<Record<string, JsonValue>>
+): ResearchGatedProviderSignal => {
+  const signal = emptyResearchGatedProviderSignal();
+  for (const diagnostic of diagnostics) {
+    const reasonCode = readDiagnosticReasonCode(diagnostic);
+    const isGatedDiagnostic = Boolean(reasonCode || diagnostic.policy === "required");
+    if (isGatedDiagnostic) {
+      addProviderSignal(signal, typeof diagnostic.provider === "string" ? diagnostic.provider : undefined, reasonCode);
+      signal.useCookies = signal.useCookies || cookieDiagnosticShowsAvailableCookies(diagnostic);
+    }
+  }
+  return signal;
+};
+
+const detectResearchChallengeSignals = (
+  diagnostics: Array<Record<string, JsonValue>>
+): ResearchGatedProviderSignal => {
+  const signal = emptyResearchGatedProviderSignal();
+  for (const diagnostic of diagnostics) {
+    const reasonCode = readDiagnosticReasonCode(diagnostic);
+    if (reasonCode || diagnostic.blockerType === "auth_required" || diagnostic.blockerType === "anti_bot_challenge") {
+      addProviderSignal(signal, typeof diagnostic.provider === "string" ? diagnostic.provider : undefined, reasonCode);
+    }
+  }
+  return signal;
+};
+
+const detectResearchGatedProviderSignal = (input: ResearchHandoffInput): ResearchGatedProviderSignal | null => {
+  return normalizeResearchGatedProviderSignal(mergeResearchGatedProviderSignals([
+    detectResearchFailureSignals(input.failures ?? []),
+    detectResearchCookieSignals(input.cookieDiagnostics ?? []),
+    detectResearchChallengeSignals(input.challengeOrchestration ?? [])
+  ]));
+};
+
+const buildResearchRecoveryRerunCommand = (
+  input: ResearchHandoffInput,
+  signal: ResearchGatedProviderSignal
+): string => buildResearchRerunCommand(input, {
+  browserMode: "extension",
+  useCookies: signal.useCookies,
+  challengeAutomationMode: "browser_with_helper"
+});
 
 type ShoppingHandoffInput = {
   query: string;
@@ -144,7 +302,30 @@ const buildMacroExecuteCommand = (
   }))
 );
 
-export const buildResearchSuccessHandoff = (input: ResearchHandoffInput): WorkflowSuccessHandoff => {
+const buildResearchGatedSuccessHandoff = (
+  input: ResearchHandoffInput,
+  signal: ResearchGatedProviderSignal
+): WorkflowSuccessHandoff => {
+  const recoveryCommand = buildResearchRecoveryRerunCommand(input, signal);
+  const providers = signal.providers.length > 0 ? signal.providers.join(", ") : "gated providers";
+  const cookieNote = signal.useCookies
+    ? " The command includes --use-cookies because cookie diagnostics show available cookies."
+    : " Add --use-cookies only when legitimate provider cookies are available.";
+  return createSuccessHandoff(
+    `Review ranked records, artifact metadata, and gated-provider diagnostics for ${providers} before publishing claims.`,
+    `Open the returned artifact path, inspect records.json, context.json, meta.json, and report.md, then rerun ${recoveryCommand} only with a user-authorized signed-in relay session.${cookieNote}`,
+    [
+      { reason: "Check records.json, context.json, meta.json, failures, and cookie diagnostics before using the result as evidence." },
+      {
+        reason: "Rerun with an existing signed-in extension session and browser-scoped challenge assistance when gated providers blocked useful evidence.",
+        command: recoveryCommand
+      },
+      { reason: "Keep SERPs discovery-only and publish only claims supported by destination records that passed review." }
+    ]
+  );
+};
+
+const buildResearchDefaultSuccessHandoff = (input: ResearchHandoffInput): WorkflowSuccessHandoff => {
   const rerunCommand = buildResearchRerunCommand(input);
   return createSuccessHandoff(
     "Review ranked records, artifact metadata, and source support before turning the result into a publishable claim.",
@@ -157,6 +338,13 @@ export const buildResearchSuccessHandoff = (input: ResearchHandoffInput): Workfl
       }
     ]
   );
+};
+
+export const buildResearchSuccessHandoff = (input: ResearchHandoffInput): WorkflowSuccessHandoff => {
+  const signal = detectResearchGatedProviderSignal(input);
+  return signal
+    ? buildResearchGatedSuccessHandoff(input, signal)
+    : buildResearchDefaultSuccessHandoff(input);
 };
 
 export const buildShoppingSuccessHandoff = (input: ShoppingHandoffInput): WorkflowSuccessHandoff => {

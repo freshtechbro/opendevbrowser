@@ -2863,6 +2863,7 @@ export const runResearchWorkflow = async (
   const deduped = dedupeResearchRecords(enriched);
   const ranked = rankResearchRecords(deduped);
   const cookieDiagnostics = summarizeCookieDiagnostics(mergedFailures, mergedRecords);
+  const challengeOrchestration = summarizeChallengeOrchestration(mergedFailures, mergedRecords);
   const transcriptStrategyDetailDistribution = summarizeTranscriptStrategyDetailDistribution(ranked);
   const transcriptDurability = summarizeTranscriptDurability(ranked, mergedFailures);
   const antiBotPressure = summarizeAntiBotPressure(mergedFailures);
@@ -2917,6 +2918,8 @@ export const runResearchWorkflow = async (
       transcriptDurability,
       cookie_diagnostics: cookieDiagnostics,
       cookieDiagnostics,
+      challenge_orchestration: challengeOrchestration,
+      challengeOrchestration,
       anti_bot_pressure: antiBotPressure,
       antiBotPressure
     },
@@ -2925,7 +2928,10 @@ export const runResearchWorkflow = async (
   } as Record<string, unknown>, primaryConstraintFailures);
   const handoff = buildResearchSuccessHandoff({
     topic: plan.compiled.topic,
-    browserMode: workflowInput.browserMode
+    browserMode: workflowInput.browserMode,
+    failures: mergedFailures,
+    cookieDiagnostics,
+    challengeOrchestration
   });
   const responseMeta = withFollowthroughMeta(meta, handoff);
 
