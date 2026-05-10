@@ -1,4 +1,5 @@
 import { canonicalizeUrl } from "./web/crawler";
+import { isLikelyResearchDestinationUrl } from "./shared/traversal-url";
 import {
   buildWorkflowResumeEnvelope,
   type WorkflowCheckpoint,
@@ -24,6 +25,7 @@ import type {
 import type { ProviderExecutor } from "./workflows";
 
 const RESEARCH_WEB_SEARCH_FETCH_PATHS = new Set<string>([
+  "community:search:index",
   "web:search:index",
   "social:search:index"
 ]);
@@ -114,6 +116,17 @@ const isValidHttpUrl = (url: string): boolean => {
   }
 };
 
+const attributeLinks = (record: NormalizedRecord): string[] => {
+  const links = record.attributes.links;
+  if (!Array.isArray(links)) return [];
+  return links.filter((link): link is string => typeof link === "string");
+};
+
+const researchCandidateUrls = (record: NormalizedRecord): string[] => [
+  ...(typeof record.url === "string" ? [record.url] : []),
+  ...attributeLinks(record)
+];
+
 export const resolveResearchWebFetchCandidates = (
   records: NormalizedRecord[],
   limit: number
@@ -128,29 +141,38 @@ export const resolveResearchWebFetchCandidates = (
     if (!RESEARCH_WEB_SEARCH_FETCH_PATHS.has(retrievalPath)) {
       continue;
     }
-    const rawUrl = typeof record.url === "string" ? canonicalizeUrl(record.url) : "";
-    if (!rawUrl) {
-      continue;
-    }
+    for (const candidateUrl of researchCandidateUrls(record)) {
+      const rawUrl = canonicalizeUrl(candidateUrl);
+      if (!rawUrl) continue;
 
-    let resolvedUrl = rawUrl;
-    try {
-      const parsed = new URL(rawUrl);
-      if (/duckduckgo\.com$/i.test(parsed.hostname) && parsed.pathname === "/l") {
-        const redirect = parsed.searchParams.get("uddg");
-        if (typeof redirect === "string" && redirect.length > 0) {
-          resolvedUrl = canonicalizeUrl(redirect);
+      let resolvedUrl = rawUrl;
+      try {
+        const parsed = new URL(rawUrl);
+        if (/duckduckgo\.com$/i.test(parsed.hostname) && (parsed.pathname === "/l" || parsed.pathname === "/l/")) {
+          const redirect = parsed.searchParams.get("uddg");
+          if (typeof redirect === "string" && redirect.length > 0) {
+            resolvedUrl = canonicalizeUrl(redirect);
+          }
         }
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
-    }
 
-    if (!resolvedUrl || !isValidHttpUrl(resolvedUrl) || /duckduckgo\.com/i.test(resolvedUrl) || seen.has(resolvedUrl)) {
-      continue;
+      if (
+        !resolvedUrl
+        || !isValidHttpUrl(resolvedUrl)
+        || !isLikelyResearchDestinationUrl(resolvedUrl)
+        || /duckduckgo\.com/i.test(resolvedUrl)
+        || seen.has(resolvedUrl)
+      ) {
+        continue;
+      }
+      seen.add(resolvedUrl);
+      candidates.push(resolvedUrl);
+      if (candidates.length >= limit) {
+        break;
+      }
     }
-    seen.add(resolvedUrl);
-    candidates.push(resolvedUrl);
     if (candidates.length >= limit) {
       break;
     }

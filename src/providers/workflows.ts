@@ -84,6 +84,10 @@ import {
   type ChallengeAutomationMode
 } from "../challenges/types";
 import { providerRequestHeaders } from "./shared/request-headers";
+import {
+  classifyResearchDestinationRejection,
+  isLikelyResearchDestinationUrl
+} from "./shared/traversal-url";
 import { canonicalizeUrl } from "./web/crawler";
 import { extractStructuredContent, toSnippet } from "./web/extract";
 import type { ProviderAntiBotSnapshot } from "./registry";
@@ -1103,6 +1107,8 @@ const RESEARCH_LOGIN_SHELL_RE = /\b(?:log in|login|sign in|sign-in|please log in
 const RESEARCH_JS_REQUIRED_RE = /\b(?:enable javascript|javascript required|javascript is not available|javascript is disabled|you need to enable javascript)\b/i;
 const RESEARCH_GENERIC_SHELL_RE = /\b(?:skip to main content|the heart of the internet|open navigation|get the app|view in app|please wait for verification|verify you are human|security check)\b/i;
 const RESEARCH_NOT_FOUND_SHELL_RE = /\b(?:error 404|page not found|not found|can['’]t seem to find the page)\b/i;
+const RESEARCH_PRIVACY_PREFERENCE_SHELL_RE = /\b(?:select your cookie preferences|customize cookie preferences|unable to save cookie preferences|your privacy choices|manage consent preferences|privacy opt[- ]out|do not sell or share my personal information)\b/i;
+const RESEARCH_PRIVACY_RECOVERED_CONTENT_RE = /\b(?:blogs? home|permalink|comments|article)\b/i;
 const RESEARCH_SEARCH_SHELL_RE = /\b(?:duckduckgo|search results|all posts|communities|comments|try another search|no relevant content found|unable to load answer|search page)\b/i;
 const isDuckDuckGoResearchShellUrl = (url: string): boolean => {
   try {
@@ -2667,8 +2673,34 @@ type ResearchSanitizeReason =
   | "js_required_shell"
   | "login_shell"
   | "not_found_shell"
+  | "privacy_preference_shell"
+  | "research_dead_end_shell"
   | "search_index_shell"
   | "search_results_shell";
+
+const RESEARCH_REJECTED_CANDIDATE_LIMIT = 25;
+
+type ResearchRejectedCandidate = {
+  provider: string;
+  source: ProviderSource;
+  reason: ResearchSanitizeReason;
+  replacement_status: "rejected_before_synthesis";
+  retrievalPath?: string;
+  title?: string;
+  url?: string;
+};
+
+const isResearchPrivacyPreferenceShell = (content: string): boolean => {
+  const matchIndex = content.slice(0, 400).search(RESEARCH_PRIVACY_PREFERENCE_SHELL_RE);
+  return matchIndex >= 0
+    && matchIndex <= 80
+    && !RESEARCH_PRIVACY_RECOVERED_CONTENT_RE.test(content);
+};
+
+const classifyResearchDeadEndUrl = (value: string): ResearchSanitizeReason | null => {
+  if (!value) return null;
+  return classifyResearchDestinationRejection(value);
+};
 
 const classifyResearchShellRecord = (record: NormalizedRecord): ResearchSanitizeReason | null => {
   const retrievalPath = typeof record.attributes.retrievalPath === "string"
@@ -2688,6 +2720,13 @@ const classifyResearchShellRecord = (record: NormalizedRecord): ResearchSanitize
   }
   if (RESEARCH_NOT_FOUND_SHELL_RE.test(combined)) {
     return "not_found_shell";
+  }
+  if (isResearchPrivacyPreferenceShell(content)) {
+    return "privacy_preference_shell";
+  }
+  const deadEndUrlReason = classifyResearchDeadEndUrl(url);
+  if (deadEndUrlReason) {
+    return deadEndUrlReason;
   }
   if (!retrievalPath) {
     return null;
@@ -2720,21 +2759,57 @@ const sanitizeResearchRecords = (
   records: NormalizedRecord[];
   sanitizedCount: number;
   reasonDistribution: Record<string, number>;
+  rejectedCandidates: ResearchRejectedCandidate[];
 } => {
   const reasonDistribution: Record<string, number> = {};
+  const rejectedCandidates: ResearchRejectedCandidate[] = [];
   const sanitizedRecords = records.filter((record) => {
     const reason = classifyResearchShellRecord(record);
     if (!reason) return true;
     reasonDistribution[reason] = (reasonDistribution[reason] ?? 0) + 1;
+    if (rejectedCandidates.length < RESEARCH_REJECTED_CANDIDATE_LIMIT) {
+      const retrievalPath = typeof record.attributes.retrievalPath === "string"
+        ? record.attributes.retrievalPath
+        : undefined;
+      rejectedCandidates.push({
+        provider: record.provider,
+        source: record.source,
+        reason,
+        replacement_status: "rejected_before_synthesis",
+        ...(retrievalPath ? { retrievalPath } : {}),
+        ...(record.title ? { title: record.title } : {}),
+        ...(record.url ? { url: record.url } : {})
+      });
+    }
     return false;
   });
 
   return {
     records: sanitizedRecords,
     sanitizedCount: records.length - sanitizedRecords.length,
-    reasonDistribution
+    reasonDistribution,
+    rejectedCandidates
   };
 };
+
+const rejectedCandidateFromFailure = (failure: ProviderFailureEntry): ResearchRejectedCandidate | null => {
+  const details = failure.error.details ?? {};
+  if (details.fallbackOutputReason !== "research_dead_end_shell") return null;
+  const retrievalPath = typeof details.retrievalPath === "string" ? details.retrievalPath : undefined;
+  const url = typeof details.url === "string" ? details.url : undefined;
+  return {
+    provider: failure.provider,
+    source: failure.source,
+    reason: "research_dead_end_shell",
+    replacement_status: "rejected_before_synthesis",
+    ...(retrievalPath ? { retrievalPath } : {}),
+    ...(url ? { url } : {})
+  };
+};
+
+const rejectedCandidatesFromFailures = (failures: ProviderFailureEntry[]): ResearchRejectedCandidate[] => (
+  failures.map(rejectedCandidateFromFailure).filter((candidate): candidate is ResearchRejectedCandidate => candidate !== null)
+);
 
 const isValidHttpUrl = (url: string): boolean => {
   try {
@@ -2855,6 +2930,12 @@ export const runResearchWorkflow = async (
   const mergedRecords = removeExcludedProviders(rawRecords, excludedProviderSet);
   const sanitizedRecords = sanitizeResearchRecords(mergedRecords);
   const mergedFailures = removeExcludedProviders(rawFailures, excludedProviderSet);
+  const rejectedFailureCandidates = rejectedCandidatesFromFailures(mergedFailures);
+  const rejectedCandidates = [
+    ...sanitizedRecords.rejectedCandidates,
+    ...rejectedFailureCandidates
+  ].slice(0, RESEARCH_REJECTED_CANDIDATE_LIMIT);
+  const rejectedCandidateCount = sanitizedRecords.sanitizedCount + rejectedFailureCandidates.length;
   const reasonCodeDistribution = summarizeReasonCodeDistribution(mergedFailures);
   const transcriptStrategyFailures = summarizeTranscriptStrategyFailures(mergedFailures);
   const evaluationNow = new Date();
@@ -2898,13 +2979,15 @@ export const runResearchWorkflow = async (
       source_selection: plan.compiled.sourceSelection,
       resolved_sources: plan.compiled.resolvedSources,
       ...(workflowInput.browserMode ? { requested_browser_mode: workflowInput.browserMode } : {})
-    }, plan.compiled.autoExcludedProviders),
-    metrics: {
-      total_records: mergedRecords.length,
-      sanitized_records: sanitizedRecords.sanitizedCount,
-      sanitized_reason_distribution: sanitizedRecords.reasonDistribution,
-      sanitizedReasonDistribution: sanitizedRecords.reasonDistribution,
-      within_timebox: withinTimebox.length,
+	    }, plan.compiled.autoExcludedProviders),
+	    metrics: {
+	      total_records: mergedRecords.length,
+	      sanitized_records: sanitizedRecords.sanitizedCount,
+	      rejected_candidate_count: rejectedCandidateCount,
+	      sanitized_reason_distribution: sanitizedRecords.reasonDistribution,
+	      sanitizedReasonDistribution: sanitizedRecords.reasonDistribution,
+	      rejected_candidate_sample_size: rejectedCandidates.length,
+	      within_timebox: withinTimebox.length,
       final_records: ranked.length,
       failed_sources: execution.searchRuns.filter((run) => !run.result.ok).map((run) => run.source),
       reasonCodeDistribution,
@@ -2923,8 +3006,10 @@ export const runResearchWorkflow = async (
       anti_bot_pressure: antiBotPressure,
       antiBotPressure
     },
-    failures: mergedFailures,
-    alerts: buildWorkflowAlerts(runtime, mergedFailures)
+	    failures: mergedFailures,
+	    rejected_candidates: rejectedCandidates,
+	    rejectedCandidates,
+	    alerts: buildWorkflowAlerts(runtime, mergedFailures)
   } as Record<string, unknown>, primaryConstraintFailures);
   const handoff = buildResearchSuccessHandoff({
     topic: plan.compiled.topic,

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isLikelyDocumentUrl } from "../src/providers/shared/traversal-url";
+import {
+  isLikelyDocumentUrl,
+  isLikelyResearchDestinationUrl
+} from "../src/providers/shared/traversal-url";
 
 describe("provider traversal url filter", () => {
   it("accepts normal http(s) document urls", () => {
@@ -25,5 +28,38 @@ describe("provider traversal url filter", () => {
     expect(isLikelyDocumentUrl("https://example.com/assets/main.js")).toBe(false);
     expect(isLikelyDocumentUrl("https://example.com/assets/banner.webp")).toBe(false);
     expect(isLikelyDocumentUrl("https://example.com/docs/readme.txt")).toBe(false);
+  });
+
+  it("rejects research dead-end navigation urls without blocking article paths", () => {
+    expect(isLikelyResearchDestinationUrl("https://example.com/articles/privacy-engineering")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/privacy/research-report")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/policy/analysis")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/legal/case-study")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/terms/browser-study")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://www.reddit.com/r/opendevbrowser/comments/123/example")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/research/search-quality")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/docs/auth")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/research/results/browser-automation")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://example.com/formal-verification/browser")).toBe(true);
+    expect(isLikelyResearchDestinationUrl("https://www.google.com/search?q=browser+automation")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/search?q=browser+automation")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/results/browser-automation")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/results/query/browser-automation")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/verification")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/settings")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://www.reddit.com/login/")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://www.reddit.com/prefs/privacy")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/privacy/choices")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/privacy/choices/")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/privacychoices/")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/legal/privacy/")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/legal/terms")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/terms-of-service")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/policies/privacy-policy")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/cookie-policy")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/cookie-preferences")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/cookie-preferences/")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/consent/manage")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/choices")).toBe(false);
   });
 });

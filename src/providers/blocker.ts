@@ -21,10 +21,13 @@ const AUTH_TITLE_PATTERNS: Array<{ id: string; regex: RegExp; confidence: number
 ];
 
 const CHALLENGE_PATTERNS: Array<{ id: string; regex: RegExp; confidence: number }> = [
-  { id: "challenge_keyword", regex: /\b(challenge|captcha|verify|interstitial|cf_chl|bot)\b/i, confidence: 0.88 },
+  { id: "challenge_keyword", regex: /\b(?:captcha|interstitial|cf_chl|recaptcha|hcaptcha|security challenge|browser challenge|bot check|bot detection)\b/i, confidence: 0.88 },
+  { id: "complete_challenge_prompt", regex: /\b(?:complete|solve|pass) (?:the )?(?:security )?challenge\b/i, confidence: 0.9 },
   { id: "prove_humanity", regex: /prove your humanity/i, confidence: 0.96 },
+  { id: "verify_humanity", regex: /verify (?:you(?:'|’)re|you are) human/i, confidence: 0.96 },
   { id: "robot_or_human", regex: /robot or human/i, confidence: 0.98 },
   { id: "confirm_human", regex: /confirm that you(?:'|’)re human/i, confidence: 0.96 },
+  { id: "confirm_not_bot", regex: /sign in to confirm (?:you(?:'|’)re|you are) not a bot/i, confidence: 0.96 },
   { id: "click_and_hold", regex: /\b(?:click|press|tap|activate)\s+(?:and\s+)?hold\b/i, confidence: 0.95 },
   { id: "press_and_hold", regex: /activate and hold the button/i, confidence: 0.95 },
   { id: "drag_slider", regex: /\b(?:drag|slide|move)(?:\s+the)?\s+(?:slider|puzzle(?:\s+piece)?|piece|button)\b/i, confidence: 0.95 },

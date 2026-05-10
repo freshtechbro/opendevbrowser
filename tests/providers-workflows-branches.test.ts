@@ -4031,17 +4031,30 @@ describe("workflow branch coverage", () => {
           return makeAggregate({
             sourceSelection: "web",
             providerOrder: ["web/default"],
-            records: [makeRecord({
-              id: "duckduckgo-shell",
-              source: "web",
-              provider: "web/default",
-              url: "https://html.duckduckgo.com/html",
-              title: "https://html.duckduckgo.com/html",
-              content: "coffee shop website design inspiration at DuckDuckGo",
-              attributes: {
-                retrievalPath: "web:search:index"
-              }
-            })]
+            records: [
+              makeRecord({
+                id: "duckduckgo-shell",
+                source: "web",
+                provider: "web/default",
+                url: "https://html.duckduckgo.com/html",
+                title: "https://html.duckduckgo.com/html",
+                content: "coffee shop website design inspiration at DuckDuckGo",
+                attributes: {
+                  retrievalPath: "web:search:index"
+                }
+              }),
+              makeRecord({
+                id: "aws-cookie-preferences-shell",
+                source: "web",
+                provider: "web/default",
+                url: "https://pulse.aws/application/ZRPLWLL6?p=0",
+                title: "AWS Pulse",
+                content: "Select your cookie preferences. We use essential cookies and manage consent preferences.",
+                attributes: {
+                  retrievalPath: "web:fetch:url"
+                }
+              })
+            ]
           });
         }
         if (source === "community") {
@@ -4126,15 +4139,112 @@ describe("workflow branch coverage", () => {
     expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["clean-inspiration-record"]);
     expect(output.meta).toMatchObject({
       metrics: {
-        sanitized_records: 5,
+        sanitized_records: 6,
         sanitized_reason_distribution: {
-          search_index_shell: 2,
+          search_index_shell: 1,
           login_shell: 1,
           js_required_shell: 1,
-          search_results_shell: 1
+          search_results_shell: 2,
+          privacy_preference_shell: 1
         }
       }
     });
+  });
+
+  it("fails research runs when only privacy preference records are gathered", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "aws-cookie-preferences-shell",
+          source: "web",
+          provider: "web/default",
+          url: "https://pulse.aws/application/ZRPLWLL6?p=0",
+          title: "AWS Pulse",
+          content: "Select your cookie preferences. We use essential cookies and manage consent preferences.",
+          attributes: {
+            retrievalPath: "web:fetch:url"
+          }
+        })]
+      })
+    });
+
+    await expect(runResearchWorkflow(runtime, {
+      topic: "browser automation challenge handling evidence collection best practices 2026",
+      sourceSelection: "web",
+      days: 30,
+      mode: "json"
+    })).rejects.toThrow(
+      "Research workflow produced only shell records and no usable results"
+    );
+  });
+
+  it("keeps usable research records with non-leading privacy boilerplate", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "usable-with-privacy-footer",
+          source: "web",
+          provider: "web/default",
+          url: "https://example.com/browser-automation-evidence",
+          title: "Browser automation challenge handling",
+          content: "Detailed field notes on browser automation challenge handling, evidence capture, and operator handoff. Footer: Your privacy choices.",
+          attributes: {
+            retrievalPath: "web:fetch:url"
+          }
+        })]
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "browser automation challenge handling evidence collection best practices 2026",
+      sourceSelection: "web",
+      days: 30,
+      mode: "json"
+    });
+
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual([
+      "usable-with-privacy-footer"
+    ]);
+  });
+
+  it("keeps destination evidence when a cookie banner precedes article content", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "aws-cookie-banner-with-article",
+          source: "web",
+          provider: "web/default",
+          url: "https://aws.amazon.com/blogs/machine-learning/building-an-ai-powered-system-for-compliance-evidence-collection",
+          title: "Building an AI powered system for compliance evidence collection",
+          content: [
+            "Select your cookie preferences. We use essential cookies.",
+            "Skip to Main Content AWS Blogs Home.",
+            "Building an AI powered system for compliance evidence collection.",
+            "This post demonstrates automated audit workflows using browser automation."
+          ].join(" "),
+          attributes: {
+            retrievalPath: "web:fetch:url"
+          }
+        })]
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "browser automation challenge handling evidence collection best practices 2026",
+      sourceSelection: "web",
+      days: 30,
+      mode: "json"
+    });
+
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual([
+      "aws-cookie-banner-with-article"
+    ]);
   });
 
   it("fails research runs when every gathered record sanitizes away without explicit provider failures", async () => {
@@ -4491,11 +4601,12 @@ describe("workflow branch coverage", () => {
       mode: "json"
     });
 
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
     expect(fetch).toHaveBeenNthCalledWith(1, { url: "https://example.com/one" }, expect.any(Object));
     expect(fetch).toHaveBeenNthCalledWith(2, { url: "https://example.com/two" }, expect.any(Object));
     expect(fetch).toHaveBeenNthCalledWith(3, { url: "https://example.com/three" }, expect.any(Object));
-    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toHaveLength(3);
+    expect(fetch).toHaveBeenNthCalledWith(4, { url: "https://example.com/four" }, expect.any(Object));
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toHaveLength(4);
   });
 
   it("fails excluded-only research evidence and preserves excluded metadata with survivors", async () => {
@@ -7549,6 +7660,66 @@ describe("workflow branch coverage", () => {
             content: "Page not found"
           }),
           makeRecord({
+            id: "privacy-preferences-shell",
+            url: "https://pulse.aws/application/ZRPLWLL6?p=0",
+            title: "AWS Pulse",
+            content: "Select your cookie preferences. Manage consent preferences and privacy settings."
+          }),
+          makeRecord({
+            id: "privacy-preferences-leading-nav-shell",
+            url: "https://example.com/privacy/choices",
+            title: "Privacy choices",
+            content: "Home navigation. Skip to main content. Your privacy choices. Manage consent preferences."
+          }),
+          makeRecord({
+            id: "legal-terms-shell",
+            url: "https://example.com/legal/terms",
+            title: "Terms",
+            content: "Terms and legal navigation."
+          }),
+          makeRecord({
+            id: "policy-shell",
+            url: "https://example.com/policies/privacy-policy",
+            title: "Privacy Policy",
+            content: "Privacy policy navigation."
+          }),
+          makeRecord({
+            id: "cookie-policy-shell",
+            url: "https://example.com/cookie-policy",
+            title: "Cookie Policy",
+            content: "Cookie policy navigation."
+          }),
+          makeRecord({
+            id: "cookie-preferences-url-shell",
+            url: "https://example.com/cookie-preferences",
+            title: "Cookie preferences",
+            content: "Navigation shell."
+          }),
+          makeRecord({
+            id: "consent-manage-url-shell",
+            url: "https://example.com/consent/manage",
+            title: "Consent manager",
+            content: "Navigation shell."
+          }),
+          makeRecord({
+            id: "choices-url-shell",
+            url: "https://example.com/choices",
+            title: "Privacy choices",
+            content: "Navigation shell."
+          }),
+          makeRecord({
+            id: "settings-url-shell",
+            url: "https://example.com/settings",
+            title: "Settings",
+            content: "Navigation shell."
+          }),
+          makeRecord({
+            id: "results-url-shell",
+            url: "https://example.com/results/query",
+            title: "Results",
+            content: "Navigation shell."
+          }),
+          makeRecord({
             id: "usable-record",
             url: "https://example.com/usable-record",
             title: "Usable record",
@@ -7569,21 +7740,83 @@ describe("workflow branch coverage", () => {
       metrics: {
         total_records: number;
         sanitized_records: number;
+        rejected_candidate_count: number;
+        rejected_candidate_sample_size: number;
         sanitized_reason_distribution: Record<string, number>;
         sanitizedReasonDistribution: Record<string, number>;
       };
     }).metrics;
 
-    expect(metrics.total_records).toBe(11);
-    expect(metrics.sanitized_records).toBe(10);
+    expect(metrics.total_records).toBe(21);
+    expect(metrics.sanitized_records).toBe(20);
+    expect(metrics.rejected_candidate_count).toBe(20);
+    expect(metrics.rejected_candidate_sample_size).toBe(20);
     expect(metrics.sanitized_reason_distribution).toEqual({
-      search_index_shell: 2,
-      search_results_shell: 5,
+      search_index_shell: 1,
+      search_results_shell: 7,
       login_shell: 1,
       js_required_shell: 1,
-      not_found_shell: 1
+      not_found_shell: 1,
+      privacy_preference_shell: 8,
+      research_dead_end_shell: 1
     });
     expect(metrics.sanitizedReasonDistribution).toEqual(metrics.sanitized_reason_distribution);
+    expect(output.meta).toMatchObject({
+      rejected_candidates: expect.arrayContaining([
+        expect.objectContaining({
+          url: "https://pulse.aws/application/ZRPLWLL6?p=0",
+          reason: "privacy_preference_shell",
+          replacement_status: "rejected_before_synthesis"
+        })
+      ])
+    });
+  });
+
+  it("serializes provider-level dead-end shell failures as rejected candidates", async () => {
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [
+          makeRecord({
+            id: "usable-record",
+            url: "https://example.com/usable-record",
+            title: "Usable record",
+            content: "Concrete browser automation field notes with reproducible details."
+          })
+        ],
+        failures: [
+          makeFailure("web/default", "web", {
+            reasonCode: "policy_blocked",
+            details: {
+              url: "https://www.google.com/search?q=browser+automation",
+              retrievalPath: "web:search:index",
+              fallbackOutputReason: "research_dead_end_shell"
+            }
+          })
+        ]
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "dead-end candidate audit",
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    expect(output.meta).toMatchObject({
+      metrics: {
+        rejected_candidate_count: 1,
+        rejected_candidate_sample_size: 1
+      },
+      rejected_candidates: [expect.objectContaining({
+        url: "https://www.google.com/search?q=browser+automation",
+        retrievalPath: "web:search:index",
+        reason: "research_dead_end_shell",
+        replacement_status: "rejected_before_synthesis"
+      })]
+    });
   });
 
   it("fails research when only out-of-timebox records remain after sanitization", async () => {

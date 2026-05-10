@@ -237,6 +237,34 @@ describe("community provider", () => {
     expect(crawled?.[1]?.attributes.traversal).toMatchObject({ depth: 1 });
   });
 
+  it("keeps generic community traversal on document filtering rather than research-only filtering", async () => {
+    const provider = createCommunityProvider({
+      platform: "forums",
+      defaultTraversal: {
+        pageLimit: 1,
+        hopLimit: 1,
+        expansionPerRecord: 1,
+        maxRecords: 3
+      },
+      search: async () => [{
+        url: "https://forums.local/thread/seed",
+        title: "seed",
+        content: "seed",
+        attributes: {
+          links: ["https://forums.local/search?q=browser-automation"]
+        }
+      }],
+      fetch: async (input) => ({
+        title: "generic search route",
+        content: `expanded ${input.url}`
+      })
+    });
+
+    const records = await provider.search?.({ query: "browser automation" }, context("community-generic-links"));
+
+    expect(records?.map((record) => record.url)).toContain("https://forums.local/search?q=browser-automation");
+  });
+
   it("skips non-document expansion links and continues after recoverable expansion failures", async () => {
     const expansionFetches: string[] = [];
     const provider = createCommunityProvider({

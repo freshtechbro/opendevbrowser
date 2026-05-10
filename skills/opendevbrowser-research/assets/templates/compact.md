@@ -9,11 +9,20 @@
 - Provider constraints:
 - Staleness checks:
 - Search engine discovery, if used:
+  - direction from providers/search:
+  - candidate_triage:
+  - rejected_candidates:
+  - rejected privacy/login/shell pages:
+  - replacement destination followed:
+  - remaining candidate queue:
+  - deep-dive pages:
+  - next query or evidence gap:
   - search_engine_passes:
   - serp_candidates reviewed:
   - selected_destination_pages:
   - engine_failures:
   - provenance:
+- synthesis_feedback:
 - Limitations:
 - Artifact paths:
   - summary.md:

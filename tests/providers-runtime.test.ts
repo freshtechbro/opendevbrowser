@@ -7,10 +7,23 @@ import type {
   ProviderAdapter,
   ProviderCallResultByOperation,
   ProviderContext,
-  ProviderSource
+  ProviderSource,
+  SuspendedIntentSummary
 } from "../src/providers/types";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const researchSuspendedIntent: SuspendedIntentSummary = {
+  kind: "workflow.research",
+  input: {
+    workflow: {
+      kind: "research",
+      input: {},
+      checkpoint: null,
+      trace: []
+    }
+  }
+};
 
 const makeProviderContext = (overrides: Partial<ProviderContext> = {}): ProviderContext => ({
   trace: {
@@ -466,6 +479,38 @@ describe("provider runtime branches", () => {
     expect(DEFAULT_PROVIDER_BUDGETS.timeoutMs.search).toBe(12000);
   });
 
+  it("serializes concurrent calls to the same provider through provider semaphores", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const runtime = new ProviderRuntime({
+      budgets: {
+        retries: { read: 0, write: 0 },
+        concurrency: { global: 1, perProvider: 2 },
+        circuitBreaker: { failureThreshold: 99, cooldownMs: 1000 }
+      }
+    });
+    runtime.register(makeProvider("web/serial", "web", {
+      search: async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await wait(10);
+        active -= 1;
+        return [normalizeRecord("web/serial", "web", {
+          url: "https://example.com/serial"
+        })];
+      }
+    }));
+
+    const [first, second] = await Promise.all([
+      runtime.search({ query: "one" }, { source: "web", providerIds: ["web/serial"] }),
+      runtime.search({ query: "two" }, { source: "web", providerIds: ["web/serial"] })
+    ]);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(maxActive).toBe(1);
+  });
+
   it("provides real default retrieval transports for web/community/social runtime paths", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
       const url = String(input);
@@ -623,6 +668,53 @@ describe("provider runtime branches", () => {
         provider: "community/default",
         reasonCode: "challenge_detected"
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not use browser fallback for research community search discovery", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode,
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation&sort=relevance&t=all&page=1",
+        html: "<html><body><a href=\"https://forum.example.com/t/browser-automation-checklist\">Checklist</a></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><head><title>Reddit</title></head><body>",
+        "<main>Please wait for verification. Skip to main content.</main>",
+        "</body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 3 },
+        { source: "community", providerIds: ["community/default"], suspendedIntent: researchSuspendedIntent }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        provider: "community/default",
+        source: "community",
+        reasonCode: "challenge_detected"
+      });
+      expect(result.failures[0]?.error.details).not.toHaveProperty("browserFallbackMode");
+      expect(fallbackResolve).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -803,7 +895,7 @@ describe("provider runtime branches", () => {
     }
   });
 
-  it("keeps soft env-limited community pages when no render or session constraint is inferred", async () => {
+  it("rejects soft env-limited community search shells even when no hard blocker is inferred", async () => {
     const fallbackResolve = vi.fn(async () => ({
       ok: true,
       reasonCode: "env_limited" as const,
@@ -833,18 +925,15 @@ describe("provider runtime branches", () => {
       });
       const result = await runtime.search(
         { query: "soft env limited community", limit: 1 },
-        { source: "community", providerIds: ["community/default"] }
+        { source: "community", providerIds: ["community/default"], suspendedIntent: researchSuspendedIntent }
       );
 
-      expect(result.ok).toBe(true);
-      expect(result.failures).toEqual([]);
-      expect(result.records).toHaveLength(1);
-      expect(result.records[0]?.content).toContain("not available in this environment");
-      expect(result.records[0]?.attributes).toMatchObject({
-        query: "soft env limited community",
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        fallbackOutputReason: "research_dead_end_shell",
         retrievalPath: "community:search:index",
-        status: 200,
-        links: []
+        status: 200
       });
       expect(fallbackResolve).not.toHaveBeenCalled();
     } finally {
@@ -1286,6 +1375,18 @@ describe("provider runtime branches", () => {
           `
         };
       }
+      if (url.includes("generic%20document%20links")) {
+        return {
+          status: 200,
+          url,
+          text: async () => `
+            <html><body>
+              <a href="https://example.com/search?q=browser-automation">generic-search-route</a>
+              <a href="https://example.com/docs/auth">generic-auth-doc</a>
+            </body></html>
+          `
+        };
+      }
       if (url.includes("shell%20only%20ddg")) {
         return {
           status: 200,
@@ -1313,6 +1414,18 @@ describe("provider runtime branches", () => {
         };
       }
       if (url.startsWith("https://www.reddit.com/search/")) {
+        if (url.includes("community%20document%20links")) {
+          return {
+            status: 200,
+            url,
+            text: async () => [
+              "<html><body><main>community documents</main>",
+              "<a href=\"https://forums.local/search?q=browser-automation\">forum search route</a>",
+              "<a href=\"https://forums.local/thread/evidence\">thread</a>",
+              "</body></html>"
+            ].join("")
+          };
+        }
         return {
           status: 200,
           url,
@@ -1392,6 +1505,14 @@ describe("provider runtime branches", () => {
       expect(webMixedDdg.records[1]?.attributes?.rank).toBe(2);
       expect(webMixedDdg.records[0]?.attributes?.retrievalPath).toBe("web:search:index");
 
+      const webGenericDocumentLinks = await runtime.search(
+        { query: "generic document links", limit: 20 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+      expect(webGenericDocumentLinks.ok).toBe(true);
+      expect(webGenericDocumentLinks.records.map((record) => record.url))
+        .toContain("https://example.com/search?q=browser-automation");
+
       const webShellOnlyDdg = await runtime.search(
         { query: "shell only ddg", limit: 20 },
         { source: "web", providerIds: ["web/default"] }
@@ -1430,9 +1551,25 @@ describe("provider runtime branches", () => {
         { source: "community", providerIds: ["community/default"] }
       );
       expect(communityIndex.ok).toBe(true);
-      expect(communityIndex.records[0]?.confidence).toBe(0.6);
-      expect(communityIndex.records[0]?.attributes?.page).toBe(1);
+      expect(communityIndex.records.length).toBeGreaterThan(0);
       expect(communityIndex.records[0]?.attributes?.retrievalPath).toBe("community:search:index");
+
+      const communityGenericDocumentLinks = await runtime.search(
+        { query: "community document links", limit: 20 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+      expect(communityGenericDocumentLinks.ok).toBe(true);
+      expect(communityGenericDocumentLinks.records.map((record) => record.url))
+        .toContain("https://forums.local/search?q=browser-automation");
+
+      const communityResearchDocumentLinks = await runtime.search(
+        { query: "community document links", limit: 20 },
+        { source: "community", providerIds: ["community/default"], suspendedIntent: researchSuspendedIntent }
+      );
+      expect(communityResearchDocumentLinks.ok).toBe(true);
+      expect(communityResearchDocumentLinks.records.map((record) => record.url))
+        .toEqual(["https://forums.local/thread/evidence"]);
+      expect(communityResearchDocumentLinks.records[0]?.attributes?.retrievalPath).toBe("community:search:index");
 
       const socialUrl = await runtime.search(
         { query: "https://example.com/social-query", filters: { page: "3" } },
@@ -1511,6 +1648,43 @@ describe("provider runtime branches", () => {
           }
         }
       });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps soft social fetch pages local instead of forcing browser recovery", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true as const,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: "https://example.com/recovered-thread",
+        html: "<html><body>Recovered thread</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>manual interaction required</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.fetch(
+        { url: "https://x.com/opendevbrowser/status/456" },
+        { source: "social", providerIds: ["social/x"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.attributes?.retrievalPath).toBe("social:fetch:url");
+      expect(fallbackResolve).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1608,6 +1782,54 @@ describe("provider runtime branches", () => {
         operation: "search",
         reasonCode: "env_limited"
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps research social search shells rejected instead of starting auth recovery", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true as const,
+      reasonCode: "env_limited" as const,
+      mode: "extension" as const,
+      output: {
+        url: "https://example.com/recovered-thread",
+        html: "<html><body><main>Recovered social thread</main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>Please wait for verification.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 1 },
+        { source: "social", providerIds: ["social/x"], suspendedIntent: researchSuspendedIntent }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "env_limited",
+        details: {
+          providerShell: "social_render_shell",
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "social_render_shell"
+          }
+        }
+      });
+      expect(fallbackResolve).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1976,6 +2198,152 @@ describe("provider runtime branches", () => {
     }
   });
 
+  it("uses browser fallback for research destination fetches after candidate triage", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: "https://aws.amazon.com/blogs/machine-learning/building-an-ai-powered-system-for-compliance-evidence-collection/",
+        html: [
+          "<html><head><title>Evidence collection</title></head><body>",
+          "<main>Evidence collection article with concrete browser automation guidance.</main>",
+          "<a href=\"https://github.com/aws-samples/evidence-collector\">GitHub</a>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.fetch(
+        { url: "https://aws.amazon.com/blogs/machine-learning/building-an-ai-powered-system-for-compliance-evidence-collection/" },
+        { source: "web", providerIds: ["web/default"], suspendedIntent: researchSuspendedIntent }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records[0]?.url).toBe("https://aws.amazon.com/blogs/machine-learning/building-an-ai-powered-system-for-compliance-evidence-collection/");
+      expect(result.records[0]?.content).toContain("Evidence collection article");
+      expect(fallbackResolve).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps research search discovery from invoking browser fallback on transport failure", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: "https://example.com/recovered-search",
+        html: "<html><body><main>Recovered search shell</main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation evidence collection", limit: 2 },
+        { source: "web", providerIds: ["web/default"], suspendedIntent: researchSuspendedIntent }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(fallbackResolve).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ["https://www.google.com/search?q=browser+automation", "https://www.google.com/search?q=browser+automation"],
+    ["https://duckduckgo.com/html/?q=browser+automation&ia=web", "https://duckduckgo.com/html?ia=web&q=browser+automation"],
+    ["https://duckduckgo.com/lite/?q=browser+automation", "https://duckduckgo.com/lite?q=browser+automation"]
+  ])("rejects no-link web search shell %s instead of returning shell records", async (searchUrl, expectedUrl) => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 200,
+      url: searchUrl,
+      text: async () => [
+        "<html><body><main>",
+        "Search results for browser automation with enough visible text to avoid the empty-content guard.",
+        "This shell lists summaries, navigation controls, filters, and result chrome but no usable destination URLs.",
+        "The provider must reject this search page rather than returning it as research evidence.",
+        "</main></body></html>"
+      ].join(" ")
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime();
+      const result = await runtime.search(
+        { query: "browser automation", limit: 2 },
+        { source: "web", providerIds: ["web/default"], suspendedIntent: researchSuspendedIntent }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        fallbackOutputReason: "research_dead_end_shell",
+        url: expectedUrl
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps community research search discovery from invoking browser fallback on transport failure", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: "https://forum.example.com/search?q=browser+automation",
+        html: "<html><body>Search page with forum navigation but no destination results.</body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation", limit: 2 },
+        { source: "community", providerIds: ["community/default"], suspendedIntent: researchSuspendedIntent }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.records).toEqual([]);
+      expect(fallbackResolve).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects completed fallback pages with generic navigation body links", async () => {
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
       ok: true as const,
@@ -2006,6 +2374,42 @@ describe("provider runtime branches", () => {
       });
       const result = await runtime.search(
         { query: "navigation shell", limit: 1 },
+        { source: "web", providerIds: ["web/default"] }
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.failures[0]?.error.details).toMatchObject({
+        fallbackOutputReason: "empty_extracted_content"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects completed fallback pages with punctuation-only body text", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://example.com/search",
+        html: "<html><body><main>!!! ??? ... !!! ??? ... !!! ??? ... !!! ??? ...</main></body></html>"
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("socket hang up");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "punctuation shell", limit: 1 },
         { source: "web", providerIds: ["web/default"] }
       );
 

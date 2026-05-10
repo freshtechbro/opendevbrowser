@@ -27,6 +27,10 @@ required_markers=(
   "evidence-gated"
   "provider-constrained"
   "discovery-only"
+  "candidate_triage"
+  "rejected_candidates"
+  "deep_dive_pages"
+  "synthesis_feedback"
   "search_engine_passes"
   "summary.md"
   "report.md"
@@ -38,21 +42,36 @@ required_markers=(
 
 required_file_markers=(
   "SKILL.md|Search Engine Discovery Lane"
+  "SKILL.md|Guided Research Loop"
+  "SKILL.md|privacy"
+  "SKILL.md|login"
   "SKILL.md|Keep SERPs discovery-only"
   "SKILL.md|bundle-manifest.json"
   "artifacts/research-workflows.md|Search Engine Discovery Lane"
+  "artifacts/research-workflows.md|Iterative destination-follow workflow"
+  "artifacts/research-workflows.md|candidate queue"
   "artifacts/research-workflows.md|Keep SERPs discovery-only"
   "artifacts/research-workflows.md|search_engine_passes"
   "assets/templates/context.json|bundle-manifest.json"
+  "assets/templates/context.json|rejected_candidates"
+  "assets/templates/context.json|deep_dive_pages"
   "assets/templates/context.json|search_engine_passes"
+  "assets/templates/context.json|blocker_notes"
+  "assets/templates/context.json|retrieval_notes"
   "assets/templates/report.md|SERPs are discovery-only"
+  "assets/templates/report.md|Deep Dives"
+  "assets/templates/report.md|Synthesis Feedback"
   "assets/templates/report.md|bundle-manifest.json"
+  "assets/templates/compact.md|deep-dive pages"
 )
 
 forbidden_markers=(
   "research_reliable"
   "auto is the recommended default"
   "generic topical research is currently safest"
+  "privacy pages can support final claims"
+  "login pages can support final claims"
+  "SERP snippets are evidence"
 )
 
 status=0
@@ -163,6 +182,11 @@ require_marker "run-research context" "$context_output" "ISSUE-09"
 report_output="$("$root/scripts/render-output.sh" "ai browser automation" report)"
 require_marker "render-output report" "$report_output" "# Research Report"
 require_marker "render-output report" "$report_output" "Source selection"
+require_marker "render-output report" "$report_output" "Search Direction"
+require_marker "render-output report" "$report_output" "Candidate Triage"
+require_marker "render-output report" "$report_output" "Rejected Candidates"
+require_marker "render-output report" "$report_output" "Deep Dives"
+require_marker "render-output report" "$report_output" "Synthesis Feedback"
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT

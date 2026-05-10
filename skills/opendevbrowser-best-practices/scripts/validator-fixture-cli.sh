@@ -118,7 +118,29 @@ if (domain === "research" && command === "run") {
     );
     fs.writeFileSync(
       path.join(bundleDir, "report.md"),
-      `# Research Report\n\n- Topic: ${topic}\n- Days: ${days}\n- Source selection: ${sourceSelection}\n- Sources: ${sources}\n`
+      [
+        "# Research Report",
+        "",
+        `- Topic: ${topic}`,
+        `- Days: ${days}`,
+        `- Source selection: ${sourceSelection}`,
+        `- Sources: ${sources}`,
+        "",
+        "## Search Direction",
+        "Fixture provider pass suggested destination follow-up.",
+        "",
+        "## Candidate Triage",
+        "Accepted fixture destination and rejected shell candidates.",
+        "",
+        "## Rejected Candidates",
+        "Rejected privacy, login, and search shell examples.",
+        "",
+        "## Deep Dives",
+        "Opened the fixture destination page.",
+        "",
+        "## Synthesis Feedback",
+        "Remaining gap is independent corroboration."
+      ].join("\n")
     );
     fs.writeFileSync(
       path.join(bundleDir, "compact.md"),
@@ -148,7 +170,22 @@ if (domain === "research" && command === "run") {
       `- Days: ${days}`,
       `- Source selection: ${sourceSelection}`,
       `- Sources: ${sources}`,
-      "- Finding: ISSUE-09 pagination/result drift across sources"
+      "- Finding: ISSUE-09 pagination/result drift across sources",
+      "",
+      "## Search Direction",
+      "Fixture provider pass suggested destination follow-up.",
+      "",
+      "## Candidate Triage",
+      "Accepted fixture destination and rejected shell candidates.",
+      "",
+      "## Rejected Candidates",
+      "Rejected privacy, login, and search shell examples.",
+      "",
+      "## Deep Dives",
+      "Opened the fixture destination page.",
+      "",
+      "## Synthesis Feedback",
+      "Remaining gap is independent corroboration."
     ]);
     process.exit(0);
   }

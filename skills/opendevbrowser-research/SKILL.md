@@ -63,9 +63,21 @@ Required review:
 1. Read `records.json` for fetched source records, timestamps, providers, extraction quality, and blockers.
 2. Read `context.json` for source ledger, evidence gaps, unsupported claims, staleness checks, and search-engine provenance when used.
 3. Read `meta.json` for provider limits, warnings, no-evidence failures, cookie diagnostics, challenge/auth/token failures, and artifact generation details.
-4. When gated providers such as Reddit block evidence, rerun only with user-authorized recovery: `--browser-mode extension` for an existing signed-in relay session, `--use-cookies` only when legitimate cookies are available, and `--challenge-automation-mode browser_with_helper` for browser-scoped assistance.
+4. When gated providers such as Reddit block evidence, rerun with user-authorized recovery only after candidate triage has exhausted relevant public destination pages: `--browser-mode extension` for an existing signed-in relay session, `--use-cookies` only when legitimate cookies are available, and `--challenge-automation-mode browser_with_helper` for browser-scoped assistance.
 5. Use `report.md` and `summary.md` only after confirming claims map back to accepted evidence.
 6. Do not use shell-only, stale-only, login-only, not-found-only, or zero-source-evidence runs to support final claims.
+
+## Guided Research Loop
+
+Research is iterative. Do not stop at the first provider page or SERP shell.
+
+1. Start with provider or search-engine direction: query, capture candidate URLs, rank, title, and blocker notes.
+2. Reject navigation dead ends before treating them as evidence: login routes, privacy or cookie preference pages, consent gates, search result shells, not-found pages, and JavaScript-only shells.
+3. Open destination pages from the candidate set, not account, privacy, cookie, or login links. For Reddit, prefer concrete `/r/.../comments/...` result URLs over `/login`, `/search`, `/account`, `/submit`, or root navigation.
+4. If a destination is blocked, record the blocker and choose the next candidate from the same result set before escalating to cookies or an authenticated browser.
+5. Escalate to `--browser-mode extension`, `--use-cookies`, or `--challenge-automation-mode browser_with_helper` only when the selected evidence page itself needs authorized browser recovery and the user has legitimate access.
+6. Continue until you have enough accepted destination evidence for the claims, or every relevant candidate is blocked, stale, irrelevant, or unsupported.
+7. Synthesize only after the loop produces accepted evidence. If no destination evidence survives, return limitations and next-step options instead of a research answer.
 
 ## Search Engine Discovery Lane
 
@@ -75,7 +87,7 @@ This lane is optional, skill-guided, provider-constrained, and discovery-only. I
 2. Record engine choice rationale, query variants, region and language assumptions, auth or cookie needs, and blockers.
 3. Collect up to 10 result URLs per selected engine. Preserve engine, query, rank, URL, title if available, and retrieval notes.
 4. Dedupe canonical URLs, then select the strongest 5 to 10 destination pages for extraction.
-5. Extract destination pages through OpenDevBrowser browsing primitives when useful, including DOM interaction, screenshots, cookies, and authenticated browsing when the user has legitimate access.
+5. Extract selected destination pages through OpenDevBrowser browsing primitives when useful, including DOM interaction and screenshots. Use cookies or authenticated browsing only after destination-candidate triage shows the selected evidence page itself requires authorized access.
 6. Do not violate robots restrictions, login walls, consent gates, CAPTCHAs, rate limits, anti-bot controls, or access controls. Stand down and record limitations instead.
 7. Keep SERPs discovery-only. SERP snippets, result pages, shells, and blocked pages cannot be final evidence.
 8. Final claims must cite destination pages or other fetched evidence that survived review.
@@ -102,7 +114,7 @@ Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-i
 3. Optionally run the search-engine discovery lane to find destination candidates.
 4. Run `opendevbrowser research run` as a low-level best-effort primitive.
 5. Review `records.json`, `context.json`, and `meta.json` before trusting `report.md`.
-6. If `meta.json` shows auth, token, challenge, or cookie-gated providers, make the next run skill-first: use the existing signed-in browser session when authorized, cookies only when legitimate cookies are available, and browser-scoped challenge assistance only for that browser session.
+6. If `meta.json` shows auth, token, challenge, or cookie-gated providers, make the next run skill-first only after the candidate queue has no relevant public destination evidence left: use the existing signed-in browser session when authorized, cookies only when legitimate cookies are available, and browser-scoped challenge assistance only for that browser session.
 7. Return final claims only when they are supported by accepted evidence.
 
 ## Commands

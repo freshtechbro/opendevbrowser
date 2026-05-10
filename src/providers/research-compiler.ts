@@ -17,7 +17,8 @@ import type { WorkflowCheckpoint, WorkflowPlan, WorkflowPlanStep, WorkflowResume
 const RESEARCH_AUTO_SOURCES: ProviderSource[] = ["web", "community", "social"];
 const RESEARCH_ALL_SOURCES: ProviderSource[] = [...RESEARCH_AUTO_SOURCES];
 const DEFAULT_RESEARCH_SEARCH_LIMIT = 10;
-export const RESEARCH_WEB_SEARCH_FETCH_LIMIT = 3;
+export const RESEARCH_WEB_SEARCH_FETCH_LIMIT = 5;
+const RESEARCH_COMMUNITY_EXPANSION_PER_RECORD = 2;
 
 export type ResearchWorkflowStepKind = "search" | "fetch";
 
@@ -264,8 +265,8 @@ const buildResearchSearchFilters = (
   timebox_to: args.timebox.to,
   ...(source === "community" || source === "social" ? {
     pageLimit: 1,
-    hopLimit: 0,
-    expansionPerRecord: 0
+    hopLimit: source === "community" ? 1 : 0,
+    expansionPerRecord: source === "community" ? RESEARCH_COMMUNITY_EXPANSION_PER_RECORD : 0
   } : {})
 });
 
