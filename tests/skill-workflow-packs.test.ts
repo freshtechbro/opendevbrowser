@@ -1,4 +1,4 @@
-import { access, chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "fs/promises";
+import { access, chmod, copyFile, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "fs/promises";
 import { spawnSync } from "child_process";
 import { join } from "path";
 import * as os from "os";
@@ -8,6 +8,36 @@ import { SkillLoader } from "../src/skills/skill-loader";
 
 const repoRoot = process.cwd();
 const bundledSkillsDir = join(repoRoot, "skills");
+
+type ResearchValidatorMutation = {
+  relativePath: string;
+  mutate: (content: string) => string;
+  expectedError: string;
+};
+
+const runResearchValidatorWithMutation = async (mutation: ResearchValidatorMutation) => {
+  const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-research-validator-"));
+  const tempSkillsDir = join(tempRoot, "skills");
+  const skillName = "opendevbrowser-research";
+  try {
+    await mkdir(tempSkillsDir, { recursive: true });
+    await cp(join(bundledSkillsDir, skillName), join(tempSkillsDir, skillName), { recursive: true });
+    await cp(
+      join(bundledSkillsDir, "opendevbrowser-best-practices"),
+      join(tempSkillsDir, "opendevbrowser-best-practices"),
+      { recursive: true }
+    );
+    const target = join(tempSkillsDir, skillName, mutation.relativePath);
+    await writeFile(target, mutation.mutate(await readFile(target, "utf8")));
+    return spawnSync("/bin/bash", [join(tempSkillsDir, skillName, "scripts/validate-skill-assets.sh")], {
+      cwd: tempRoot,
+      encoding: "utf8",
+      env: process.env
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+};
 
 const requiredFilesBySkill: Record<string, string[]> = {
   "opendevbrowser-continuity-ledger": [
@@ -350,6 +380,34 @@ describe("workflow skill packs", () => {
         env: process.env
       });
       expect(result.status, `${relativePath}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+    }
+  }, 60000);
+
+  it("rejects research skill validator contract drift", async () => {
+    if (process.platform === "win32") return;
+
+    const cases: ResearchValidatorMutation[] = [
+      {
+        relativePath: "assets/templates/context.json",
+        mutate: (content) => content.replace("bundle-manifest.json", "bundle-manifest.removed"),
+        expectedError: "assets/templates/context.json missing required marker: bundle-manifest.json"
+      },
+      {
+        relativePath: "SKILL.md",
+        mutate: (content) => `${content}\nauto is the recommended default\n`,
+        expectedError: "Research assets contain forbidden marker in SKILL.md: auto is the recommended default"
+      },
+      {
+        relativePath: "artifacts/research-workflows.md",
+        mutate: (content) => content.replace("Keep SERPs discovery-only", "Use SERPs as final support"),
+        expectedError: "artifacts/research-workflows.md missing required marker: Keep SERPs discovery-only"
+      }
+    ];
+
+    for (const testCase of cases) {
+      const result = await runResearchValidatorWithMutation(testCase);
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(testCase.expectedError);
     }
   }, 60000);
 

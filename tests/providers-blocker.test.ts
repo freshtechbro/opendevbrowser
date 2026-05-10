@@ -105,6 +105,17 @@ describe("provider blocker classifier + artifacts", () => {
     });
     expect(ebayChallenge?.type).toBe("anti_bot_challenge");
 
+    const topicalChallengeArticle = classifyBlockerSignal({
+      source: "runtime_fetch",
+      url: "https://aws.amazon.com/blogs/machine-learning/example",
+      title: "Building an AI powered system for compliance evidence collection",
+      message: "This article explains research challenges and evidence collection workflows.",
+      status: 200,
+      providerErrorCode: "unavailable",
+      retryable: true
+    });
+    expect(topicalChallengeArticle?.type).not.toBe("anti_bot_challenge");
+
     const localhostChallengeBypass = classifyBlockerSignal({
       source: "navigation",
       url: "http://127.0.0.1:41731/",

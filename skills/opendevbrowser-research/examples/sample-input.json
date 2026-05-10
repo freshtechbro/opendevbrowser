@@ -1,6 +1,6 @@
 {
   "topic": "ai browser automation",
   "days": 30,
-  "sourceSelection": "auto",
+  "sources": ["web", "community"],
   "mode": "context"
 }

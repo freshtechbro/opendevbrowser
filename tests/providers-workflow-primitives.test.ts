@@ -155,7 +155,20 @@ describe("workflow primitives", () => {
         mode,
         topic: "agentic systems",
         records,
-        meta: { selection: { source_selection: "auto" } }
+        meta: {
+          selection: { source_selection: "auto" },
+          rejected_candidates: [{
+            provider: "web/default",
+            source: "web",
+            reason: "search_index_shell",
+            replacement_status: "rejected_before_synthesis",
+            url: "https://duckduckgo.com/html?q=agentic+systems"
+          }],
+          metrics: {
+            sanitized_records: 1,
+            sanitized_reason_distribution: { search_index_shell: 1 }
+          }
+        }
       });
 
       expect(rendered.files.map((file) => file.path)).toEqual([
@@ -172,9 +185,97 @@ describe("workflow primitives", () => {
       expect(report?.content).toContain("- Provider: community/default");
       expect(report?.content).not.toContain("community/community/default");
       expect(report?.content).toContain("## Report Files");
-      expect(report?.content).not.toContain("bundle-manifest.json");
+      expect(report?.content).toContain("## Search Direction");
+      expect(report?.content).toContain("## Candidate Triage");
+      expect(report?.content).toContain("## Rejected Candidates");
+      expect(report?.content).toContain("## Deep Dives");
+      expect(report?.content).toContain("## Synthesis Feedback");
+      expect(report?.content).toContain("Rejected candidate: search_index_shell from web/default (web; rejected_before_synthesis");
+      expect(report?.content).toContain("bundle-manifest.json");
+      const contextFile = rendered.files.find((file) => file.path === "context.json");
+      expect(contextFile?.content).toMatchObject({
+        candidate_triage: {
+          accepted_destination_records: 1,
+          rejected_shell_or_dead_end_candidates: 1
+        },
+        rejected_candidates: [{
+          url: "https://duckduckgo.com/html?q=agentic+systems"
+        }],
+        evidence_gate: {
+          status: "pending_review",
+          reviewed_artifacts: []
+        },
+        artifact_files: expect.arrayContaining(["report.md", "bundle-manifest.json"]),
+        search_direction_notes: expect.any(Array),
+        candidate_triage_schema: expect.objectContaining({
+          url: "",
+          extraction_status: "pending|fetched|blocked|shell|stale|irrelevant"
+        }),
+        synthesis_feedback: expect.stringContaining("Synthesize")
+      });
       expect(rendered.response.mode).toBe(mode === "path" ? "path" : mode);
     }
+  });
+
+  it("keeps empty research context evidence pending review", () => {
+    const rendered = renderResearch({
+      mode: "context",
+      topic: "empty evidence audit",
+      records: [],
+      meta: {}
+    });
+
+    expect(rendered.response.context).toMatchObject({
+      evidence_gate: {
+        status: "pending_review",
+        reviewed_artifacts: []
+      }
+    });
+  });
+
+  it("renders fallback labels for malformed research rejection metadata", () => {
+    const failures = Array.from({ length: 11 }, () => ({
+      provider: 1,
+      source: false,
+      error: { message: "provider failed" }
+    }));
+    const rendered = renderResearch({
+      mode: "md",
+      topic: "malformed rejection metadata",
+      records: [],
+      meta: {
+        failures,
+        rejected_candidates: [{
+          note: "missing public fields"
+        }]
+      }
+    });
+
+    const report = rendered.files.find((file) => file.path === "report.md")?.content ?? "";
+    expect(report).toContain("unknown_reason from unknown_provider (unknown_source; not_recorded): URL not recorded");
+    expect(report).toContain("1 more provider failure omitted from this report; see meta.json");
+  });
+
+  it("counts provider-level dead-end research failures in report triage", () => {
+    const report = String(renderResearch({
+      mode: "path",
+      topic: "dead-end search topic",
+      records: [],
+      meta: {
+        metrics: { sanitized_records: 2 },
+        failures: [{
+          provider: "web/default",
+          source: "web",
+          error: {
+            message: "Research search resolved only dead-end pages.",
+            details: { fallbackOutputReason: "research_dead_end_shell" }
+          }
+        }]
+      }
+    }).files.find((file) => file.path === "report.md")?.content ?? "");
+
+    expect(report).toContain("- Rejected shell or dead-end candidates: 3");
+    expect(report).toContain("- Dead-end search failures: 1");
   });
 
   it("renders report gaps for empty and sparse research records", () => {

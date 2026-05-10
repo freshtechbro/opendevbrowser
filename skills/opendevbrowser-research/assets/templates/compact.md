@@ -1,7 +1,33 @@
 # Compact Research Template
 
-- Top findings:
-- Source diversity:
-- Key risks:
-- Rate-limit/backoff notes:
-- Open evidence gaps:
+- Topic and timebox:
+- Source families used:
+- Evidence-gated status:
+- Accepted claims:
+- Tentative or excluded claims:
+- Evidence gaps:
+- Provider constraints:
+- Staleness checks:
+- Search engine discovery, if used:
+  - direction from providers/search:
+  - candidate_triage:
+  - rejected_candidates:
+  - rejected privacy/login/shell pages:
+  - replacement destination followed:
+  - remaining candidate queue:
+  - deep-dive pages:
+  - next query or evidence gap:
+  - search_engine_passes:
+  - serp_candidates reviewed:
+  - selected_destination_pages:
+  - engine_failures:
+  - provenance:
+- synthesis_feedback:
+- Limitations:
+- Artifact paths:
+  - summary.md:
+  - report.md:
+  - records.json:
+  - context.json:
+  - meta.json:
+  - bundle-manifest.json:

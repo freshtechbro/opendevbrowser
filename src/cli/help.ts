@@ -209,8 +209,8 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--days", description: "Lookback window in days for research commands." },
       { flag: "--from", description: "Start date boundary for research commands." },
       { flag: "--to", description: "End date boundary for research commands." },
-      { flag: "--source-selection", description: "Research source-family selector. Use auto for generic topical research; add shopping only for deliberate commercial comparison." },
-      { flag: "--sources", description: "Explicit source selectors within a source family. Use shopping only when commercial intent is explicit." },
+      { flag: "--source-selection", description: "Research source-family selector: auto, web, community, social, shopping, or all. This selects families only and is not a reliability guarantee." },
+      { flag: "--sources", description: "Explicit source-family selectors such as web,community. Use shopping only when commercial intent is explicit." },
       { flag: "--include-engagement", description: "Include engagement metrics in research output." },
       { flag: "--limit-per-source", description: "Per-source result cap for research runs." },
       { flag: "--query", description: "Shopping query input." },
@@ -286,7 +286,7 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "validated_lanes",
-    description: `Load ${onboardingMetadata.skillName} ${onboardingMetadata.validatedSkillTopic} when you need the current proven transcript, research, and shopping runbook.`,
+    description: `Load ${onboardingMetadata.skillName} ${onboardingMetadata.validatedSkillTopic} when you need the current proven transcript, evidence-gated research, and shopping runbook.`,
     details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.validatedLanes }]
   },
   {
@@ -295,8 +295,8 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
     details: [{ label: "tool:", value: onboardingMetadata.quickStartCommands.skillList }]
   },
   {
-    label: "research_reliable",
-    description: "Generic topical research is currently safest with `--source-selection auto`; add shopping only when the task is explicitly commercial.",
+    label: "research_evidence_gated",
+    description: "Load opendevbrowser-research first, run explicit source-family research, and inspect artifacts before final claims.",
     details: [{ label: "cli:", value: onboardingMetadata.quickStartCommands.validatedResearch }]
   },
   {

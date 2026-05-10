@@ -98,7 +98,7 @@ describe("research workflow executor", () => {
       resolvedSources: ["web", "community", "social"],
       autoExcludedProviders: ["social/youtube"],
       searchLimit: 5,
-      followUpFetchLimit: 3,
+      followUpFetchLimit: 5,
       allowFollowUpWebFetch: true
     });
     expect(plan.compiled.timebox).toMatchObject({
@@ -121,8 +121,8 @@ describe("research workflow executor", () => {
       timebox_from: plan.compiled.timebox.from,
       timebox_to: plan.compiled.timebox.to,
       pageLimit: 1,
-      hopLimit: 0,
-      expansionPerRecord: 0
+      hopLimit: 1,
+      expansionPerRecord: 2
     });
     expect(plan.plan.steps[2]?.input.filters).toEqual({
       include_engagement: true,
@@ -578,10 +578,11 @@ describe("research workflow executor", () => {
     expect(fetchedUrls).toEqual([
       "https://example.com/one",
       "https://example.com/two",
-      "https://example.com/three"
+      "https://example.com/three",
+      "https://example.com/four"
     ]);
     expect(execution.searchRuns).toHaveLength(1);
-    expect(execution.followUpRuns).toHaveLength(3);
+    expect(execution.followUpRuns).toHaveLength(4);
   });
 
   it("does not widen non-web research selections into hidden web follow-up fetches", async () => {
@@ -617,22 +618,49 @@ describe("research workflow executor", () => {
   });
 
   it("keeps web follow-up fetches enabled when web is part of the resolved source set", async () => {
-    const search = vi.fn(async (_input, options) => makeAggregate({
-      sourceSelection: options?.source ?? "web",
-      providerOrder: [options?.source === "social" ? "social/youtube" : "web/default"],
-      records: options?.source === "social"
-        ? [makeRecord({
-          id: "social-follow-up",
-          source: "social",
-          provider: "social/youtube",
-          url: "https://example.com/social-follow-up",
-          title: "Social result",
-          attributes: {
-            retrievalPath: "social:search:index"
-          }
-        })]
-        : []
-    }));
+    const search = vi.fn(async (_input, options) => {
+      const source = options?.source ?? "web";
+      let providerOrder = ["web/default"];
+      if (source === "community") {
+        providerOrder = ["community/default"];
+      }
+      if (source === "social") {
+        providerOrder = ["social/youtube"];
+      }
+      if (source === "community") {
+        return makeAggregate({
+          sourceSelection: source,
+          providerOrder,
+          records: [makeRecord({
+            id: "community-follow-up",
+            source: "community",
+            provider: "community/default",
+            url: "https://example.com/community-follow-up",
+            title: "Community result",
+            attributes: {
+              retrievalPath: "community:search:index"
+            }
+          })]
+        });
+      }
+      if (source === "social") {
+        return makeAggregate({
+          sourceSelection: source,
+          providerOrder,
+          records: [makeRecord({
+            id: "social-follow-up",
+            source: "social",
+            provider: "social/youtube",
+            url: "https://example.com/social-follow-up",
+            title: "Social result",
+            attributes: {
+              retrievalPath: "social:search:index"
+            }
+          })]
+        });
+      }
+      return makeAggregate({ sourceSelection: source, providerOrder });
+    });
     const fetch = vi.fn(async (input) => makeAggregate({
       sourceSelection: "web",
       providerOrder: ["web/default"],
@@ -649,7 +677,7 @@ describe("research workflow executor", () => {
     }));
     const plan = compileResearchExecutionPlan({
       input: researchInput({
-        sources: ["social", "web"]
+        sources: ["community", "social", "web"]
       })
     });
 
@@ -658,8 +686,11 @@ describe("research workflow executor", () => {
     });
 
     expect(plan.compiled.allowFollowUpWebFetch).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(execution.followUpRuns).toEqual([
+      expect.objectContaining({
+        url: "https://example.com/community-follow-up"
+      }),
       expect.objectContaining({
         url: "https://example.com/social-follow-up"
       })
@@ -690,14 +721,65 @@ describe("research workflow executor", () => {
         attributes: { retrievalPath: "web:search:index" }
       }),
       makeRecord({
+        id: "login-redirect",
+        url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fwww.reddit.com%2Flogin%2F",
+        attributes: { retrievalPath: "web:search:index" }
+      }),
+      makeRecord({
+        id: "privacy-redirect",
+        url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fprivacy%2Fchoices",
+        attributes: { retrievalPath: "web:search:index" }
+      }),
+      makeRecord({
+        id: "privacy-redirect-trailing",
+        url: "https://duckduckgo.com/l?uddg=https%3A%2F%2Fexample.com%2Fprivacy%2Fchoices%2F",
+        attributes: { retrievalPath: "web:search:index" }
+      }),
+      makeRecord({
+        id: "cookie-direct",
+        url: "https://example.com/cookie-preferences",
+        attributes: { retrievalPath: "web:search:index" }
+      }),
+      makeRecord({
+        id: "search-direct",
+        url: "https://example.com/search?q=browser+automation",
+        attributes: { retrievalPath: "web:search:index" }
+      }),
+      makeRecord({
+        id: "google-search",
+        url: "https://www.google.com/search?q=browser+automation",
+        attributes: { retrievalPath: "web:search:index" }
+      }),
+      makeRecord({
         id: "non-http",
         url: "mailto:test@example.com",
         attributes: { retrievalPath: "web:search:index" }
       }),
       makeRecord({
+        id: "community-valid",
+        url: "https://example.com/community-follow-up",
+        attributes: { retrievalPath: "community:search:index" }
+      }),
+      makeRecord({
         id: "social-valid",
         url: "https://example.com/social-follow-up",
         attributes: { retrievalPath: "social:search:index" }
+      }),
+      makeRecord({
+        id: "ddg-trailing-redirect",
+        url: "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Ftrailing-ddg-follow-up",
+        attributes: { retrievalPath: "web:search:index" }
+      }),
+      makeRecord({
+        id: "social-links",
+        url: "https://www.reddit.com/search/?q=browser+automation",
+        attributes: {
+          retrievalPath: "social:search:index",
+          links: [
+            "https://www.reddit.com/login/",
+            "https://example.com/social-linked-follow-up"
+          ]
+        }
       }),
       makeRecord({
         id: "web-valid",
@@ -707,7 +789,10 @@ describe("research workflow executor", () => {
     ], 5);
 
     expect(candidates).toEqual([
+      "https://example.com/community-follow-up",
       "https://example.com/social-follow-up",
+      "https://example.com/trailing-ddg-follow-up",
+      "https://example.com/social-linked-follow-up",
       "https://example.com/web-follow-up"
     ]);
   });

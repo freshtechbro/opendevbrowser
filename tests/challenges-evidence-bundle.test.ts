@@ -175,6 +175,30 @@ describe("challenge evidence bundle", () => {
     expect(bundle.continuity.sessionReuseRefs).not.toContain("r3");
   });
 
+  it("does not classify ordinary provider links as login controls", () => {
+    const bundle = buildChallengeEvidenceBundle({
+      status: {
+        mode: "managed",
+        activeTargetId: "tab-article",
+        url: "https://aws.amazon.com/blogs/machine-learning/example",
+        title: "Evidence collection article",
+        meta: {
+          blockerState: "clear"
+        }
+      },
+      snapshot: {
+        content: [
+          "[r1] link \"GitHub\"",
+          "[r2] link \"Google Cloud\"",
+          "[r3] link \"Apple developer documentation\""
+        ].join("\n")
+      }
+    });
+
+    expect(bundle.continuity.likelyLoginPage).toBe(false);
+    expect(bundle.continuity.loginRefs).toEqual([]);
+  });
+
   it("defaults clear blocker state, keeps nameless actionables, and ignores missing network urls", () => {
     const bundle = buildChallengeEvidenceBundle({
       status: {

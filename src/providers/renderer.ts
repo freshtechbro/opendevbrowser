@@ -131,7 +131,8 @@ const RESEARCH_REPORT_FILE_NAMES = [
   "report.md",
   "records.json",
   "context.json",
-  "meta.json"
+  "meta.json",
+  "bundle-manifest.json"
 ] as const;
 
 const plainObject = (value: unknown): Record<string, unknown> => (
@@ -239,6 +240,51 @@ const researchReasonLine = (metrics: Record<string, unknown>): string[] => {
   return reasons.length === 0 ? [] : [`- Sanitized record reasons: ${reasons.join(", ")}`];
 };
 
+const deadEndSearchFailures = (failures: unknown): Record<string, unknown>[] => {
+  if (!Array.isArray(failures)) return [];
+  return failures.filter((failure): failure is Record<string, unknown> => {
+    const record = plainObject(failure);
+    const error = plainObject(record.error);
+    const details = plainObject(error.details);
+    return details.fallbackOutputReason === "research_dead_end_shell";
+  });
+};
+
+const deadEndSearchFailureCount = (meta: Record<string, unknown>): number => (
+  deadEndSearchFailures(meta.failures).length
+);
+
+const rejectedCandidatesFromMeta = (meta: Record<string, unknown>): Record<string, unknown>[] => (
+  Array.isArray(meta.rejected_candidates)
+    ? meta.rejected_candidates.map(plainObject).filter((candidate) => Object.keys(candidate).length > 0)
+    : []
+);
+
+const rejectedCandidateCount = (meta: Record<string, unknown>): number => {
+  const metrics = plainObject(meta.metrics);
+  if (typeof metrics.rejected_candidate_count === "number") {
+    return metrics.rejected_candidate_count;
+  }
+  const sanitized = typeof metrics.sanitized_records === "number" ? metrics.sanitized_records : 0;
+  return sanitized + deadEndSearchFailureCount(meta);
+};
+
+const deadEndSearchFailureLines = (meta: Record<string, unknown>): string[] => {
+  const failures = deadEndSearchFailures(meta.failures);
+  if (failures.length === 0) return [];
+  return [`- Dead-end search failures: ${failures.length}`];
+};
+
+const researchRejectedCandidateSummary = (candidate: Record<string, unknown>): string => {
+  const reason = typeof candidate.reason === "string" ? candidate.reason : "unknown_reason";
+  const provider = typeof candidate.provider === "string" ? candidate.provider : "unknown_provider";
+  const source = typeof candidate.source === "string" ? candidate.source : "unknown_source";
+  const status = typeof candidate.replacement_status === "string" ? candidate.replacement_status : "not_recorded";
+  const retrievalPath = typeof candidate.retrievalPath === "string" ? `; path=${candidate.retrievalPath}` : "";
+  const url = typeof candidate.url === "string" ? candidate.url : "URL not recorded";
+  return `${reason} from ${provider} (${source}; ${status}${retrievalPath}): ${url}`;
+};
+
 const researchFailureSummary = (failure: unknown): string => {
   const record = plainObject(failure);
   const error = plainObject(record.error);
@@ -280,6 +326,130 @@ const researchGapLines = (meta: Record<string, unknown>): string[] => {
   ];
 };
 
+const researchSearchDirectionLines = (meta: Record<string, unknown>): string[] => {
+  const selection = plainObject(meta.selection);
+  const sources = Array.isArray(selection.resolved_sources)
+    ? selection.resolved_sources.map(String).join(", ")
+    : "not recorded";
+  return [
+    "## Search Direction",
+    `- Source families searched: ${sources}`,
+    "- Direction: Follow accepted destination pages from provider/search output before synthesis."
+  ];
+};
+
+const researchSourceFamilies = (meta: Record<string, unknown>): string[] => {
+  const sources = plainObject(meta.selection).resolved_sources;
+  return Array.isArray(sources) ? sources.map(String) : [];
+};
+
+const researchCandidateTriageSchema = (): Record<string, unknown> => ({
+  url: "",
+  rank: 0,
+  engine: "",
+  query: "",
+  source_family: "",
+  title: "",
+  status: "pending|accepted|rejected",
+  blocker_notes: "",
+  rejection_reason: "",
+  replacement_url: "",
+  retrieval_notes: "",
+  extraction_status: "pending|fetched|blocked|shell|stale|irrelevant"
+});
+
+const researchCandidateTriageLines = (records: ResearchRecord[], meta: Record<string, unknown>): string[] => {
+  const rejected = rejectedCandidateCount(meta);
+  return [
+    "## Candidate Triage",
+    `- Accepted destination records: ${records.length}`,
+    `- Rejected shell or dead-end candidates: ${rejected}`,
+    "- Rejection policy: search pages, login/account pages, privacy/cookie pages, JavaScript shells, not-found pages, and unsupported shells are not final evidence."
+  ];
+};
+
+const researchRejectedCandidateLines = (meta: Record<string, unknown>): string[] => {
+  const rejectedCandidates = rejectedCandidatesFromMeta(meta);
+  const rejectionLines = [
+    ...researchReasonLine(plainObject(meta.metrics)),
+    ...rejectedCandidates.slice(0, RESEARCH_REPORT_LIMITS.failures)
+      .map((candidate) => `- Rejected candidate: ${researchRejectedCandidateSummary(candidate)}`),
+    ...deadEndSearchFailureLines(meta)
+  ];
+  return [
+    "## Rejected Candidates",
+    ...rejectionLines,
+    ...(rejectionLines.length === 0
+      ? ["- No rejected candidate distribution was reported."]
+      : [])
+  ];
+};
+
+const researchDeepDiveLines = (records: ResearchRecord[]): string[] => [
+  "## Deep Dives",
+  ...(records.length === 0
+    ? ["- No destination pages passed the evidence gate."]
+    : records.slice(0, RESEARCH_REPORT_LIMITS.sources).map((record) => {
+      const retrievalPath = typeof record.attributes.retrievalPath === "string"
+        ? record.attributes.retrievalPath
+        : "";
+      const prefix = retrievalPath.includes(":fetch:") ? "Opened destination evidence" : "Accepted evidence record";
+      return `- ${prefix}: ${record.url ?? researchTitle(record)}`;
+    }))
+];
+
+const researchSynthesisFeedbackText = (records: ResearchRecord[], meta: Record<string, unknown>): string => {
+  const rejected = rejectedCandidateCount(meta);
+  return records.length === 0 || rejected > records.length
+    ? "Continue with remaining public destination candidates or narrow the query; use auth/cookies only when a selected evidence page itself requires authorized access."
+    : "Synthesize only the accepted destination evidence and cite records.json for full source text.";
+};
+
+const researchSynthesisFeedbackLines = (records: ResearchRecord[], meta: Record<string, unknown>): string[] => {
+  return ["## Synthesis Feedback", `- Next step: ${researchSynthesisFeedbackText(records, meta)}`];
+};
+
+const researchContextPayload = (args: {
+  topic: string;
+  lines: string[];
+  records: ResearchRecord[];
+  meta: Record<string, unknown>;
+}): Record<string, unknown> => ({
+  topic: args.topic,
+  timebox: plainObject(args.meta.timebox),
+  source_families: researchSourceFamilies(args.meta),
+  evidence_gate: {
+    status: "pending_review",
+    reviewed_artifacts: []
+  },
+  artifact_files: RESEARCH_REPORT_FILE_NAMES,
+  source_ledger: args.records.map((record) => ({
+    title: researchTitle(record),
+    url: record.url,
+    source_family: record.source,
+    provider: record.provider
+  })),
+  search_direction_notes: researchSearchDirectionLines(args.meta),
+  candidate_triage_schema: researchCandidateTriageSchema(),
+  highlights: args.lines,
+  records: args.records,
+  candidate_triage: {
+    accepted_destination_records: args.records.length,
+    rejected_shell_or_dead_end_candidates: rejectedCandidateCount(args.meta)
+  },
+  rejected_candidates: rejectedCandidatesFromMeta(args.meta),
+  deep_dive_pages: args.records.map((record) => ({
+    title: researchTitle(record),
+    url: record.url,
+    provider: record.provider,
+    source: record.source,
+    retrievalPath: record.attributes.retrievalPath
+  })),
+  iteration_log: researchSearchDirectionLines(args.meta),
+  synthesis_feedback: researchSynthesisFeedbackText(args.records, args.meta),
+  meta: args.meta
+});
+
 const researchArtifactFileLines = (): string[] => [
   "## Report Files",
   ...RESEARCH_REPORT_FILE_NAMES.map((fileName) => `- ${fileName}`)
@@ -301,6 +471,16 @@ const buildResearchReport = (args: {
   "- Diagnostics: Run metadata, failures, and constraints are persisted in meta.json; this report summarizes the bounded inline subset.",
   "",
   ...researchArtifactFileLines(),
+  "",
+  ...researchSearchDirectionLines(args.meta),
+  "",
+  ...researchCandidateTriageLines(args.records, args.meta),
+  "",
+  ...researchRejectedCandidateLines(args.meta),
+  "",
+  ...researchDeepDiveLines(args.records),
+  "",
+  ...researchSynthesisFeedbackLines(args.records, args.meta),
   "",
   "## Findings",
   ...researchFindingsLines(args.records),
@@ -333,12 +513,12 @@ export const renderResearch = (args: {
     JSON.stringify(args.meta, null, 2),
     "```"
   ].join("\n");
-  const contextPayload = {
+  const contextPayload = researchContextPayload({
     topic: args.topic,
-    highlights: lines,
+    lines,
     records: args.records,
     meta: args.meta
-  };
+  });
 
   const files = [
     { path: "summary.md", content: markdown },

@@ -1,8 +1,59 @@
 {
   "topic": "",
   "timebox": {
-    "days": 30
+    "days": 30,
+    "from": null,
+    "to": null
   },
+  "source_families": [],
+  "evidence_gate": {
+    "status": "pending_review",
+    "reviewed_artifacts": [],
+    "accepted_claims": [],
+    "tentative_claims": [],
+    "unsupported_claims": [],
+    "blockers": []
+  },
+  "artifact_files": [
+    "summary.md",
+    "report.md",
+    "records.json",
+    "context.json",
+    "meta.json",
+    "bundle-manifest.json"
+  ],
+  "source_ledger": [],
+  "search_direction_notes": [],
+  "candidate_triage_schema": {
+    "url": "",
+    "rank": 0,
+    "engine": "",
+    "query": "",
+    "source_family": "",
+    "title": "",
+    "status": "pending|accepted|rejected",
+    "blocker_notes": "",
+    "rejection_reason": "",
+    "replacement_url": "",
+    "retrieval_notes": "",
+    "extraction_status": "pending|fetched|blocked|shell|stale|irrelevant"
+  },
+  "candidate_triage": {
+    "accepted_destination_records": 0,
+    "rejected_shell_or_dead_end_candidates": 0
+  },
+  "rejected_candidates": [],
+  "deep_dive_pages": [],
+  "iteration_log": [],
+  "synthesis_feedback": "",
+  "staleness_checks": [],
+  "provider_constraints": [],
+  "search_engine_passes": [],
+  "serp_candidates": [],
+  "selected_destination_pages": [],
+  "engine_failures": [],
+  "provenance": [],
+  "limitations": [],
   "issue_ids": [
     "ISSUE-06",
     "ISSUE-09",

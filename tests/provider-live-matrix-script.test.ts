@@ -227,8 +227,9 @@ describe("provider-live-matrix parseArgs", () => {
     expect(NESTED_LIVE_REGRESSION_TIMEOUT_MS).toBe(1_500_000);
     expect(MATRIX_ENV_LIMITED_CODES.has("timeout")).toBe(false);
     expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target")).toBe("120000");
-    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--source-selection");
-    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("auto");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--sources");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("web,community");
+    expect(WORKFLOW_RESEARCH_PROBE_ARGS).not.toContain("--source-selection");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).not.toContain("all");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--timeout-ms");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("120000");

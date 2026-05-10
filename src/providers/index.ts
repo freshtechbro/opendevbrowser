@@ -45,7 +45,10 @@ import {
 } from "./social/search-quality";
 import { createShoppingProviders, type ShoppingProvidersOptions } from "./shopping";
 import { providerRequestHeaders } from "./shared/request-headers";
-import { isLikelyDocumentUrl } from "./shared/traversal-url";
+import {
+  isLikelyDocumentUrl,
+  isLikelyResearchDestinationUrl
+} from "./shared/traversal-url";
 import { createWebProvider, type WebProviderOptions } from "./web";
 import { mapBounded } from "./bounded-map";
 import { classifyBlockerSignal } from "./blocker";
@@ -156,8 +159,12 @@ const buildSocialDefaultTraversal = (
 const shouldRecoverSocialDocumentIssue = (
   platform: SocialPlatform,
   operation: "search" | "fetch",
-  issue: ProviderIssueHint
+  issue: ProviderIssueHint,
+  context: ProviderContext
 ): boolean => {
+  if (isResearchSearchDiscoveryRun(operation, context)) {
+    return false;
+  }
   if (SOCIAL_BROWSER_RECOVERY_REASON_CODES.has(issue.reasonCode)) {
     return true;
   }
@@ -583,6 +590,13 @@ const shouldRecoverDefaultFetchedIssue = (issue: ProviderIssueHint): boolean => 
   || (issue.reasonCode === "env_limited" && !!issue.constraint)
 );
 
+const isResearchSearchDiscoveryRun = (
+  operation: "search" | "fetch",
+  context: ProviderContext
+): boolean => (
+  operation === "search" && context.suspendedIntent?.kind === "workflow.research"
+);
+
 const toDefaultFetchedIssueError = (args: {
   providerId: string;
   source: ProviderSource;
@@ -632,6 +646,14 @@ const resolveDefaultFallbackDocumentIfNeeded = async (args: {
     return { document: currentDocument, ...described };
   }
   if (!shouldRecoverDefaultFetchedIssue(initialIssue)) {
+    throw toDefaultFetchedIssueError({
+      providerId: args.providerId,
+      source: args.source,
+      document: currentDocument,
+      issueDetails: described
+    });
+  }
+  if (isResearchSearchDiscoveryRun(args.operation, args.context)) {
     throw toDefaultFetchedIssueError({
       providerId: args.providerId,
       source: args.source,
@@ -690,7 +712,8 @@ const MIN_COMMUNITY_SEARCH_LINK_SCAN = 12;
 
 const resolveCommunitySearchLinks = (
   document: RuntimeFetchedDocument,
-  limit: number
+  limit: number,
+  researchContext: boolean
 ): string[] => {
   const scanLimit = Math.max(limit * COMMUNITY_SEARCH_LINK_SCAN_MULTIPLIER, MIN_COMMUNITY_SEARCH_LINK_SCAN);
   const links = prioritizeSocialSearchLinks(
@@ -699,6 +722,7 @@ const resolveCommunitySearchLinks = (
     dedupeLinks(document.links, document.url, scanLimit)
   );
   return links
+    .filter((url) => researchContext ? isLikelyResearchDestinationUrl(url) : isLikelyDocumentUrl(url))
     .filter((url) => isAllowedSocialSearchExpansionUrl("reddit", url))
     .slice(0, limit);
 };
@@ -863,6 +887,57 @@ const dedupeLinks = (links: string[], baseUrl: string, limit: number): string[] 
   }
   return deduped;
 };
+
+const isUsableWebSearchResultUrl = (url: string, researchContext: boolean): boolean => (
+  !isDuckDuckGoSearchShellUrl(url)
+    && (researchContext ? isLikelyResearchDestinationUrl(url) : isLikelyDocumentUrl(url))
+);
+
+const isResearchWorkflowContext = (context: ProviderContext): boolean => (
+  context.suspendedIntent?.kind === "workflow.research"
+);
+
+const resolveWebSearchResultLinks = (
+  document: RuntimeFetchedDocument,
+  limit: number,
+  researchContext: boolean,
+  includeDocumentUrl: boolean
+): string[] => {
+  const links = dedupeLinks(document.links, document.url, limit * 2);
+  const candidates = includeDocumentUrl ? [document.url, ...links] : links;
+  const seen = new Set<string>();
+  return candidates
+    .filter((url) => {
+      const keep = isUsableWebSearchResultUrl(url, researchContext) && !seen.has(url);
+      if (keep) seen.add(url);
+      return keep;
+    })
+    .slice(0, limit);
+};
+
+const toResearchDeadEndSearchError = (args: {
+  providerId: string;
+  source: ProviderSource;
+  document: RuntimeFetchedDocument;
+  retrievalPath: string;
+}): ProviderRuntimeError => new ProviderRuntimeError(
+  "unavailable",
+  `Research search resolved only dead-end pages for ${args.document.url}`,
+  {
+    provider: args.providerId,
+    source: args.source,
+    retryable: false,
+    reasonCode: "policy_blocked",
+    details: {
+      status: args.document.status,
+      url: args.document.url,
+      ...(args.document.browserFallback?.reasonCode ? { browserFallbackReasonCode: args.document.browserFallback.reasonCode } : {}),
+      retrievalPath: args.retrievalPath,
+      fallbackOutputReason: "research_dead_end_shell",
+      ...browserFallbackObservationDetails(args.document.browserFallback)
+    }
+  }
+);
 
 const RUNTIME_FALLBACK_ERROR_CODES = new Set<ProviderErrorCode>([
   "auth",
@@ -1045,9 +1120,11 @@ const fetchRuntimeDocumentWithFallback = async (args: {
   recoverRuntimeErrors?: boolean;
   ownerReview?: CompletedFallbackOwnerReviewPredicate;
 }): Promise<RuntimeFetchedDocument> => {
-  const fallbackPort = args.context?.browserFallbackPort ?? args.browserFallbackPort;
+  const researchSearchDiscovery = args.context !== undefined
+    && isResearchSearchDiscoveryRun(args.operation, args.context);
+  const fallbackPort = researchSearchDiscovery ? undefined : args.context?.browserFallbackPort ?? args.browserFallbackPort;
   const runtimePolicy = args.context?.runtimePolicy;
-  const forcedBrowserTransport = runtimePolicy?.browser.forceTransport === true;
+  const forcedBrowserTransport = !researchSearchDiscovery && runtimePolicy?.browser.forceTransport === true;
   const forcedReasonCode: ProviderReasonCode = runtimePolicy?.cookies.policy === "required"
     ? "auth_required"
     : "env_limited";
@@ -2507,11 +2584,18 @@ const withDefaultWebOptions = (
       });
 
       const limit = Math.max(1, Math.min(input.limit ?? 5, 10));
-      const links = dedupeLinks(document.links, document.url, limit * 2)
-        .filter((url) => !isDuckDuckGoSearchShellUrl(url))
-        .slice(0, limit);
+      const researchContext = isResearchWorkflowContext(context);
+      const links = resolveWebSearchResultLinks(document, limit, researchContext, researchContext || isHttpUrl(query));
       const searchPath = isHttpUrl(query) ? "web:search:url" : "web:search:index";
       if (links.length === 0) {
+        if (researchContext && !isUsableWebSearchResultUrl(document.url, true)) {
+          throw toResearchDeadEndSearchError({
+            providerId,
+            source: "web",
+            document,
+            retrievalPath: searchPath
+          });
+        }
         return [{
           url: document.url,
           title: document.url,
@@ -2554,6 +2638,7 @@ const withDefaultCommunityOptions = (
     document: RuntimeFetchedDocument;
     pageMessage: string;
     links: string[];
+    context: ProviderContext;
   }) => {
     const searchPath = isHttpUrl(args.query) ? "community:search:url" : "community:search:index";
     const attributes = {
@@ -2565,6 +2650,14 @@ const withDefaultCommunityOptions = (
       ...browserFallbackObservationAttributes(args.document.browserFallback)
     };
     if (args.links.length === 0) {
+      if (isResearchWorkflowContext(args.context) && !isLikelyResearchDestinationUrl(args.document.url)) {
+        throw toResearchDeadEndSearchError({
+          providerId,
+          source: "community",
+          document: args.document,
+          retrievalPath: searchPath
+        });
+      }
       return [{
         url: args.document.url,
         title: isHttpUrl(args.query) ? args.document.url : `Community search: ${args.query}`,
@@ -2608,7 +2701,7 @@ const withDefaultCommunityOptions = (
         browserFallbackPort,
         ownerReview: shouldOwnerReviewCommunityRedditSearchFallback
       });
-      const links = resolveCommunitySearchLinks(resolvedDocument, limit);
+      const links = resolveCommunitySearchLinks(resolvedDocument, limit, isResearchWorkflowContext(context));
       if (shouldRejectBlockedCommunityFallback(resolvedDocument, links)) {
         throw toCommunityFallbackSearchError({
           providerId,
@@ -2621,7 +2714,8 @@ const withDefaultCommunityOptions = (
         page,
         document: resolvedDocument,
         pageMessage,
-        links
+        links,
+        context
       });
     }),
     fetch: options?.fetch ?? (async (input, context) => {
@@ -2759,7 +2853,7 @@ const withDefaultSocialPlatformOptions = (
     if (initialIssue.reasonCode === "env_limited" && !initialIssue.constraint) {
       return { document: currentDocument, ...described };
     }
-    if (!shouldRecoverSocialDocumentIssue(platform, operation, initialIssue)) {
+    if (!shouldRecoverSocialDocumentIssue(platform, operation, initialIssue, context)) {
       throw toIssueError(currentDocument, described);
     }
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-04-30T02:27:58.736Z",
+  "generatedAt": "2026-05-09T17:48:24.119Z",
   "cli": {
     "groups": [
       {
@@ -491,10 +491,10 @@
           "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json"
+          "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json"
         ],
         "notes": [
-          "Generic topical research is currently safest with --source-selection auto; add shopping only for deliberate commercial comparison."
+          "Load opendevbrowser-research first, use explicit source families such as --sources web,community, and inspect artifacts before final claims."
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
@@ -2507,7 +2507,7 @@
         "name": "opendevbrowser_research_run",
         "description": "Run the research workflow directly.",
         "cliEquivalent": "research",
-        "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json"
+        "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json"
       },
       {
         "name": "opendevbrowser_shopping_run",

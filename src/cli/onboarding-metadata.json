@@ -1,6 +1,6 @@
 {
   "sectionTitle": "Agent Quick Start",
-  "sectionSummary": "Start with opendevbrowser_prompting_guide or opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\" before low-level browser commands, then load the validated capability lanes when you need the current reliable transcript plus browser replay, desktop observation, research, shopping, and browser-scoped computer-use workflows.",
+  "sectionSummary": "Start with opendevbrowser_prompting_guide or opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\" before low-level browser commands, then load validated capability lanes when you need the current transcript, evidence-gated research, shopping, browser replay, desktop observation, and browser-scoped computer-use workflows.",
   "skillName": "opendevbrowser-best-practices",
   "skillTopic": "quick start",
   "validatedSkillTopic": "validated capability lanes",
@@ -16,9 +16,9 @@
     "skillList": "opendevbrowser_skill_list",
     "skillLoad": "opendevbrowser_skill_load opendevbrowser-best-practices \"quick start\"",
     "validatedLanes": "opendevbrowser_skill_load opendevbrowser-best-practices \"validated capability lanes\"",
-    "validatedResearch": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --source-selection auto --browser-mode managed --mode json --output-format json",
+    "validatedResearch": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json",
     "validatedShopping": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json",
-    "computerUseEntry": "npx opendevbrowser research run --topic \"account recovery flow\" --source-selection auto --challenge-automation-mode browser --mode json --output-format json",
+    "computerUseEntry": "npx opendevbrowser research run --topic \"account recovery flow\" --sources web,community --challenge-automation-mode browser --mode json --output-format json",
     "happyPath": "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
   },
   "referencePaths": {

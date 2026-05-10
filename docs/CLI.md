@@ -271,7 +271,7 @@ npx opendevbrowser -v
 - A `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 - That block maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with a concrete `research run --topic ... --challenge-automation-mode browser` entry command.
 - An `Agent Quick Start` block that tells agents to start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands.
-- A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current reliable transcript, research, and shopping runbook.
+- A follow-up `validated_lanes` entry that points agents to `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` for the current transcript, evidence-gated research, and shopping runbook.
 - A direct pointer to `opendevbrowser_skill_list` when an agent needs a different local skill lane.
 - A browser-scoped computer-use description that makes the optional helper boundary explicit and does not imply a desktop agent.
 - The complete generated CLI command, flag, and `opendevbrowser_*` tool inventories.
@@ -280,7 +280,7 @@ npx opendevbrowser -v
 Quick lookup terms from generated help:
 - `screencast / browser replay`: `screencast-start`, `screencast-stop`
 - `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`; entry command `npx opendevbrowser research run --topic "account recovery flow" --source-selection auto --challenge-automation-mode browser --mode json --output-format json`
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`; entry command `npx opendevbrowser research run --topic "account recovery flow" --sources web,community --challenge-automation-mode browser --mode json --output-format json`
 
 These first-contact assets are also mirrored as release and website inputs through `src/cli/onboarding-metadata.json`, `src/public-surface/generated-manifest.ts`, and `src/public-surface/generated-manifest.json`.
 
@@ -424,9 +424,11 @@ and the shared inspiredesign artifact source at `src/inspiredesign/handoff.ts`.
 
 #### Research (`research run`)
 
+`research run` is a low-level, provider-constrained primitive. Load `opendevbrowser-research` before research tasks so planning, evidence review, confidence, limitations, and final synthesis stay evidence-gated.
+
 ```bash
 npx opendevbrowser research run --topic "browser automation" --days 30 --mode compact
-npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --source-selection auto --browser-mode managed --mode json
+npx opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --sources web,community --browser-mode managed --mode json
 npx opendevbrowser research run --topic "creator tools" --sources web,shopping --include-engagement --limit-per-source 5 --mode context
 ```
 
@@ -450,11 +452,12 @@ Flags:
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
 Notes:
-- Use `--source-selection auto` for generic topical research.
+- Prefer explicit public source-family examples such as `--sources web,community`; use `--source-selection` only to explain selector semantics.
 - Use `--browser-mode extension` when X, Threads, Facebook, Reddit, or another signed-in social provider needs an existing relay-backed browser session; use `managed` for reproducible no-auth reruns.
-- In the current contract, `auto` and `all` both stay inside the public topical families (`web`, `community`, `social`).
+- In the current contract, `auto` and `all` both stay inside the public topical families (`web`, `community`, `social`), but neither value guarantees reliability.
 - Add shopping only with `--source-selection shopping` or explicit `--sources ...shopping...` when the task is deliberately commercial.
 - Successful research artifact bundles include human-readable `report.md` alongside `summary.md`, `records.json`, `context.json`, `meta.json`, and `bundle-manifest.json`.
+- Inspect `records.json`, `context.json`, `meta.json`, and `report.md` before publishing final claims.
 - Research runs fail instead of emitting a successful empty report when providers return only shell records, stale records, or no source evidence; successful runs persist diagnostics in `meta.json`.
 
 #### Shopping (`shopping run`)

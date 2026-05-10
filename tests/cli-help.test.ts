@@ -72,7 +72,7 @@ describe("CLI help surface", () => {
       "skill_load",
       "validated_lanes",
       "skill_list",
-      "research_reliable",
+      "research_evidence_gated",
       "shopping_reliable",
       "inspiredesign_followthrough",
       "computer_use_entry",
@@ -139,6 +139,11 @@ describe("CLI help surface", () => {
     expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas);
     expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain(onboardingMetadata.quickStartCommands.happyPath);
+    expect(output).toContain("research_evidence_gated");
+    expect(output).not.toContain("research_reliable");
+    expect(output).not.toContain("Generic topical research is currently safest");
+    expect(output).not.toContain("--source-selection auto");
+    expect(output).toContain("inspect artifacts before final claims");
     expect(output).toContain(getCliOnlyCommands().join(", "));
     expect(output).toContain(getToolOnlyHelperNames().join(", "));
     expect(output).toContain(onboardingMetadata.referencePaths.onboardingDoc);
