@@ -24,7 +24,7 @@ Tracks the completed `0.0.19` release cycle after the published `v0.0.18` releas
 - Adds a post-publish registry-consumer smoke lane so npm releases are proven from a fresh consumer install instead of only repo-local `npm pack` validation.
 - Makes browser-scoped computer use easier to discover by surfacing a concrete workflow entry command in help, onboarding metadata, and release-facing docs.
 - Fixes the screencast recorder so a stop request during the first in-flight capture does not allow a later scheduled frame.
-- Preserves the `0.0.18` npm parity investigation as a historical post-release audit while moving the active release cycle to `0.0.19`.
+- Preserves the `0.0.18` release evidence as a historical record while moving the active release cycle to `0.0.19`.
 
 ## Current repo note
 
@@ -33,7 +33,7 @@ Tracks the completed `0.0.19` release cycle after the published `v0.0.18` releas
 - npm `latest` points to `0.0.19`
 - GitHub release published: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.19`
 - Local version authority is `package.json` at `0.0.19`; extension version owners stay synced via `npm run extension:sync`
-- `docs/RELEASE_0.0.18_EVIDENCE.md` and `docs/NPM_0_0_18_PARITY_INVESTIGATION.md` remain historical release records
+- `docs/RELEASE_0.0.18_EVIDENCE.md` remains a historical release record
 
 ## Mandatory release gates
 
@@ -122,4 +122,4 @@ Tracks the completed `0.0.19` release cycle after the published `v0.0.18` releas
 
 - This ledger now captures completed `0.0.19` release evidence, not only release-prep proof.
 - The mandatory publish-time registry-consumer smoke is closed with a successful post-publish run against npm `latest`.
-- Keep `docs/RELEASE_0.0.18_EVIDENCE.md` and `docs/NPM_0_0_18_PARITY_INVESTIGATION.md` historical; do not rewrite them as active `0.0.19` guidance.
+- Keep `docs/RELEASE_0.0.18_EVIDENCE.md` historical; do not rewrite it as active `0.0.19` guidance.
