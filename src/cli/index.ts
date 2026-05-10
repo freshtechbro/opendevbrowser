@@ -2,111 +2,27 @@
 
 import { parseArgs, detectOutputFormat } from "./args";
 import type { InstallMode, OutputFormat, ParsedArgs } from "./args";
-import { getHelpText } from "./help";
-import onboardingMetadata from "./onboarding-metadata.json";
 import { registerCommand, getCommand } from "./commands/registry";
 import type { CommandResult } from "./commands/types";
-import { installGlobal } from "./installers/global";
-import { installLocal } from "./installers/local";
-import {
-  getBundledSkillTargets,
-  getBundledSkillLifecycleTargets,
-  hasBundledSkillArtifacts,
-  removeBundledSkillsForTargets,
-  syncBundledSkills,
-  syncBundledSkillsForTargets
-} from "./installers/skills";
-import { runUpdate } from "./commands/update";
-import { runUninstall, findInstalledConfigs, hasInstalledConfig } from "./commands/uninstall";
-import { runServe } from "./commands/serve";
-import { runDaemonCommand } from "./commands/daemon";
-import { runNativeCommand } from "./commands/native";
-import { runArtifactsCommand } from "./commands/artifacts";
-import { reconcileInstallAutostart } from "./install-autostart-reconciliation";
-import type { InstallAutostartReconciliationResult } from "./install-autostart-reconciliation";
-import {
-  createInstallAutostartOutputPayload,
-  formatAutostartReconciliationMessage
-} from "./install-autostart-output";
-import { runScriptCommand } from "./commands/run";
-import { runSessionLaunch } from "./commands/session/launch";
-import { runSessionConnect } from "./commands/session/connect";
-import { runSessionDisconnect } from "./commands/session/disconnect";
-import { runSessionInspector } from "./commands/session/inspector";
-import { runSessionInspectorAudit } from "./commands/session/inspector-audit";
-import { runSessionInspectorPlan } from "./commands/session/inspector-plan";
-import { runStatus } from "./commands/status";
-import { runStatusCapabilities } from "./commands/status-capabilities";
-import { runGoto } from "./commands/nav/goto";
-import { runWait } from "./commands/nav/wait";
-import { runSnapshot } from "./commands/nav/snapshot";
-import { runReview } from "./commands/nav/review";
-import { runReviewDesktop } from "./commands/nav/review-desktop";
-import { runAnnotate } from "./commands/annotate";
-import { runCanvas } from "./commands/canvas";
-import { runRpc } from "./commands/rpc";
-import { runClick } from "./commands/interact/click";
-import { runHover } from "./commands/interact/hover";
-import { runPress } from "./commands/interact/press";
-import { runCheck } from "./commands/interact/check";
-import { runUncheck } from "./commands/interact/uncheck";
-import { runType } from "./commands/interact/type";
-import { runSelect } from "./commands/interact/select";
-import { runScroll } from "./commands/interact/scroll";
-import { runScrollIntoView } from "./commands/interact/scroll-into-view";
-import { runUpload } from "./commands/interact/upload";
-import { runPointerMove } from "./commands/interact/pointer-move";
-import { runPointerDown } from "./commands/interact/pointer-down";
-import { runPointerUp } from "./commands/interact/pointer-up";
-import { runPointerDrag } from "./commands/interact/pointer-drag";
-import { runTargetsList } from "./commands/targets/list";
-import { runTargetUse } from "./commands/targets/use";
-import { runTargetNew } from "./commands/targets/new";
-import { runTargetClose } from "./commands/targets/close";
-import { runPageOpen } from "./commands/pages/open";
-import { runPagesList } from "./commands/pages/list";
-import { runPageClose } from "./commands/pages/close";
-import { runDomHtml } from "./commands/dom/html";
-import { runDomText } from "./commands/dom/text";
-import { runDomAttr } from "./commands/dom/attr";
-import { runDomValue } from "./commands/dom/value";
-import { runDomVisible } from "./commands/dom/visible";
-import { runDomEnabled } from "./commands/dom/enabled";
-import { runDomChecked } from "./commands/dom/checked";
-import { runClonePage } from "./commands/export/clone-page";
-import { runCloneComponent } from "./commands/export/clone-component";
-import { runPerf } from "./commands/devtools/perf";
-import { runScreenshot } from "./commands/devtools/screenshot";
-import { runScreencastStart } from "./commands/devtools/screencast-start";
-import { runScreencastStop } from "./commands/devtools/screencast-stop";
-import { runDialog } from "./commands/devtools/dialog";
-import { runConsolePoll } from "./commands/devtools/console-poll";
-import { runNetworkPoll } from "./commands/devtools/network-poll";
-import { runDebugTraceSnapshot } from "./commands/devtools/debug-trace-snapshot";
-import { runDesktopStatus } from "./commands/desktop/status";
-import { runDesktopWindows } from "./commands/desktop/windows";
-import { runDesktopActiveWindow } from "./commands/desktop/active-window";
-import { runDesktopCaptureDesktop } from "./commands/desktop/capture-desktop";
-import { runDesktopCaptureWindow } from "./commands/desktop/capture-window";
-import { runDesktopAccessibilitySnapshot } from "./commands/desktop/accessibility-snapshot";
-import { runCookieImport } from "./commands/session/cookie-import";
-import { runCookieList } from "./commands/session/cookie-list";
-import { runMacroResolve } from "./commands/macro-resolve";
-import { runResearchCommand } from "./commands/research";
-import { runShoppingCommand } from "./commands/shopping";
-import { runProductVideoCommand } from "./commands/product-video";
-import { runInspiredesignCommand } from "./commands/inspiredesign";
-import { extractExtension } from "../extension-extractor";
 import { setDefaultLogSink, stderrSink } from "../core/logging";
 import { flushOutputAndExit, writeOutput } from "./output";
 import { formatErrorPayload, resolveExitCode, toCliError, EXIT_EXECUTION, EXIT_USAGE } from "./errors";
 import type { CliError } from "./errors";
 import { buildProviderFollowupErrorMessage } from "./utils/workflow-message";
 import packageJson from "../../package.json";
-import { resolveUpdateSkillModes } from "./update-skill-modes";
-import { buildUninstallCommandResult, buildUpdateCommandResult } from "./skill-lifecycle";
 
 const VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.0.0";
+
+type CommandRunner = (args: ParsedArgs) => Promise<CommandResult> | CommandResult;
+
+async function runLazyCommand<ExportName extends string>(
+  args: ParsedArgs,
+  loader: () => Promise<Record<ExportName, CommandRunner>>,
+  exportName: ExportName
+): Promise<CommandResult> {
+  const commandModule = await loader();
+  return commandModule[exportName](args);
+}
 
 async function promptInstallMode(): Promise<InstallMode> {
   if (!process.stdin.isTTY) {
@@ -162,6 +78,7 @@ async function promptInstallMode(): Promise<InstallMode> {
 }
 
 async function promptUninstallMode(): Promise<InstallMode | null> {
+  const { findInstalledConfigs } = await import("./commands/uninstall");
   const installed = findInstalledConfigs();
 
   if (!installed.global && !installed.local) {
@@ -257,10 +174,33 @@ async function main(): Promise<void> {
       }
     };
 
+    const finishCommand = async (result: CommandResult): Promise<void> => {
+      emitResult(result, result.data ? { data: result.data } : undefined);
+      const exitCode = resolveExitCode(result);
+      if (exitCode === null) {
+        return;
+      }
+      await flushOutputAndExit(exitCode);
+    };
+
+    if (args.command === "help") {
+      const { getHelpText } = await import("./help");
+      await finishCommand({ success: true, message: getHelpText() });
+      return;
+    }
+
+    if (args.command === "version") {
+      await finishCommand({ success: true, message: `opendevbrowser v${VERSION}` });
+      return;
+    }
+
     registerCommand({
       name: "help",
       description: "Show help",
-      run: () => ({ success: true, message: getHelpText() })
+      run: async () => {
+        const { getHelpText } = await import("./help");
+        return { success: true, message: getHelpText() };
+      }
     });
 
     registerCommand({
@@ -272,14 +212,35 @@ async function main(): Promise<void> {
     registerCommand({
       name: "update",
       description: "Repair cached plugin pins and refresh managed skill packs",
-      run: () => buildUpdateCommandResult(args, runUpdate(), {
-        resolveUpdateSkillModes,
-        hasInstalledConfig,
-        hasBundledSkillArtifacts,
-        getBundledSkillTargets,
-        getBundledSkillLifecycleTargets,
-        syncBundledSkillsForTargets
-      })
+      run: async () => {
+        const [
+          { runUpdate },
+          { resolveUpdateSkillModes },
+          { hasInstalledConfig },
+          {
+            getBundledSkillTargets,
+            getBundledSkillLifecycleTargets,
+            hasBundledSkillArtifacts,
+            syncBundledSkillsForTargets
+          },
+          { buildUpdateCommandResult }
+        ] = await Promise.all([
+          import("./commands/update"),
+          import("./update-skill-modes"),
+          import("./commands/uninstall"),
+          import("./installers/skills"),
+          import("./skill-lifecycle")
+        ]);
+
+        return buildUpdateCommandResult(args, runUpdate(), {
+          resolveUpdateSkillModes,
+          hasInstalledConfig,
+          hasBundledSkillArtifacts,
+          getBundledSkillTargets,
+          getBundledSkillLifecycleTargets,
+          syncBundledSkillsForTargets
+        });
+      }
     });
 
     registerCommand({
@@ -296,6 +257,20 @@ async function main(): Promise<void> {
         if (!mode) {
           return { success: false, message: "Error: Please specify --global or --local for uninstall.", exitCode: EXIT_USAGE };
         }
+        const [
+          { runUninstall },
+          {
+            getBundledSkillLifecycleTargets,
+            hasBundledSkillArtifacts,
+            removeBundledSkillsForTargets
+          },
+          { buildUninstallCommandResult }
+        ] = await Promise.all([
+          import("./commands/uninstall"),
+          import("./installers/skills"),
+          import("./skill-lifecycle")
+        ]);
+
         return buildUninstallCommandResult(args, mode, runUninstall(mode), {
           hasBundledSkillArtifacts,
           getBundledSkillLifecycleTargets,
@@ -308,6 +283,27 @@ async function main(): Promise<void> {
       name: "install",
       description: "Install the plugin and sync bundled skill packs",
       run: async () => {
+        const [
+          { installGlobal },
+          { installLocal },
+          { syncBundledSkills },
+          { reconcileInstallAutostart },
+          {
+            createInstallAutostartOutputPayload,
+            formatAutostartReconciliationMessage
+          },
+          { extractExtension },
+          { default: onboardingMetadata }
+        ] = await Promise.all([
+          import("./installers/global"),
+          import("./installers/local"),
+          import("./installers/skills"),
+          import("./install-autostart-reconciliation"),
+          import("./install-autostart-output"),
+          import("../extension-extractor"),
+          import("./onboarding-metadata.json")
+        ]);
+
         const log = (...values: unknown[]) => {
           if (args.quiet) return;
           console.log(...values);
@@ -410,433 +406,433 @@ async function main(): Promise<void> {
     registerCommand({
       name: "serve",
       description: "Start or stop the local daemon",
-      run: async () => runServe(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/serve"), "runServe")
     });
 
     registerCommand({
       name: "daemon",
       description: "Install/uninstall/status daemon auto-start",
-      run: async () => runDaemonCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/daemon"), "runDaemonCommand")
     });
 
     registerCommand({
       name: "native",
       description: "Install/uninstall/status native messaging host",
-      run: async () => runNativeCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/native"), "runNativeCommand")
     });
 
     registerCommand({
       name: "run",
       description: "Execute a JSON script in a single process",
-      run: async () => runScriptCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/run"), "runScriptCommand")
     });
 
     registerCommand({
       name: "launch",
       description: "Launch a managed browser session via daemon",
-      run: async () => runSessionLaunch(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/launch"), "runSessionLaunch")
     });
 
     registerCommand({
       name: "connect",
       description: "Connect to an existing browser via daemon",
-      run: async () => runSessionConnect(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/connect"), "runSessionConnect")
     });
 
     registerCommand({
       name: "disconnect",
       description: "Disconnect a daemon session",
-      run: async () => runSessionDisconnect(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/disconnect"), "runSessionDisconnect")
     });
 
     registerCommand({
       name: "status",
       description: "Get daemon or session status",
-      run: async () => runStatus(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/status"), "runStatus")
     });
 
     registerCommand({
       name: "status-capabilities",
       description: "Inspect runtime capability discovery for the host and an optional session",
-      run: async () => runStatusCapabilities(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/status-capabilities"), "runStatusCapabilities")
     });
 
     registerCommand({
       name: "session-inspector",
       description: "Capture a session-first diagnostic summary with relay health and trace proof",
-      run: async () => runSessionInspector(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/inspector"), "runSessionInspector")
     });
 
     registerCommand({
       name: "session-inspector-plan",
       description: "Inspect browser-scoped computer-use policy and safe suggested steps",
-      run: async () => runSessionInspectorPlan(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/inspector-plan"), "runSessionInspectorPlan")
     });
 
     registerCommand({
       name: "session-inspector-audit",
       description: "Capture a correlated audit bundle across desktop evidence, browser review, and policy state",
-      run: async () => runSessionInspectorAudit(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/inspector-audit"), "runSessionInspectorAudit")
     });
 
     registerCommand({
       name: "goto",
       description: "Navigate current session to a URL",
-      run: async () => runGoto(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/nav/goto"), "runGoto")
     });
 
     registerCommand({
       name: "wait",
       description: "Wait for load or a ref to appear",
-      run: async () => runWait(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/nav/wait"), "runWait")
     });
 
     registerCommand({
       name: "snapshot",
       description: "Capture a snapshot of the active page",
-      run: async () => runSnapshot(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/nav/snapshot"), "runSnapshot")
     });
 
     registerCommand({
       name: "review",
       description: "Capture a first-class review payload for the active page",
-      run: async () => runReview(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/nav/review"), "runReview")
     });
 
     registerCommand({
       name: "review-desktop",
       description: "Capture desktop-assisted browser review with read-only desktop evidence",
-      run: async () => runReviewDesktop(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/nav/review-desktop"), "runReviewDesktop")
     });
 
     registerCommand({
       name: "annotate",
       description: "Request interactive annotations via direct or relay transport",
-      run: async () => runAnnotate(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/annotate"), "runAnnotate")
     });
 
     registerCommand({
       name: "canvas",
       description: "Execute a design-canvas command",
-      run: async () => runCanvas(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/canvas"), "runCanvas")
     });
 
     registerCommand({
       name: "rpc",
       description: "Execute an internal daemon RPC command (power-user)",
-      run: async () => runRpc(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/rpc"), "runRpc")
     });
 
     registerCommand({
       name: "click",
       description: "Click an element by ref",
-      run: async () => runClick(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/click"), "runClick")
     });
 
     registerCommand({
       name: "hover",
       description: "Hover an element by ref",
-      run: async () => runHover(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/hover"), "runHover")
     });
 
     registerCommand({
       name: "press",
       description: "Press a keyboard key",
-      run: async () => runPress(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/press"), "runPress")
     });
 
     registerCommand({
       name: "check",
       description: "Check a checkbox by ref",
-      run: async () => runCheck(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/check"), "runCheck")
     });
 
     registerCommand({
       name: "uncheck",
       description: "Uncheck a checkbox by ref",
-      run: async () => runUncheck(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/uncheck"), "runUncheck")
     });
 
     registerCommand({
       name: "type",
       description: "Type into an element by ref",
-      run: async () => runType(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/type"), "runType")
     });
 
     registerCommand({
       name: "select",
       description: "Select values in a select by ref",
-      run: async () => runSelect(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/select"), "runSelect")
     });
 
     registerCommand({
       name: "scroll",
       description: "Scroll the page or element by ref",
-      run: async () => runScroll(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/scroll"), "runScroll")
     });
 
     registerCommand({
       name: "scroll-into-view",
       description: "Scroll an element into view by ref",
-      run: async () => runScrollIntoView(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/scroll-into-view"), "runScrollIntoView")
     });
 
     registerCommand({
       name: "upload",
       description: "Upload files to a file input or chooser by ref",
-      run: async () => runUpload(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/upload"), "runUpload")
     });
 
     registerCommand({
       name: "pointer-move",
       description: "Move the pointer to viewport coordinates",
-      run: async () => runPointerMove(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/pointer-move"), "runPointerMove")
     });
 
     registerCommand({
       name: "pointer-down",
       description: "Press a mouse button at viewport coordinates",
-      run: async () => runPointerDown(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/pointer-down"), "runPointerDown")
     });
 
     registerCommand({
       name: "pointer-up",
       description: "Release a mouse button at viewport coordinates",
-      run: async () => runPointerUp(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/pointer-up"), "runPointerUp")
     });
 
     registerCommand({
       name: "pointer-drag",
       description: "Drag the pointer between two viewport coordinates",
-      run: async () => runPointerDrag(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/interact/pointer-drag"), "runPointerDrag")
     });
 
     registerCommand({
       name: "targets-list",
       description: "List page targets",
-      run: async () => runTargetsList(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/targets/list"), "runTargetsList")
     });
 
     registerCommand({
       name: "target-use",
       description: "Focus a target by id",
-      run: async () => runTargetUse(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/targets/use"), "runTargetUse")
     });
 
     registerCommand({
       name: "target-new",
       description: "Open a new target",
-      run: async () => runTargetNew(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/targets/new"), "runTargetNew")
     });
 
     registerCommand({
       name: "target-close",
       description: "Close a target by id",
-      run: async () => runTargetClose(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/targets/close"), "runTargetClose")
     });
 
     registerCommand({
       name: "page",
       description: "Open or focus a named page",
-      run: async () => runPageOpen(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/pages/open"), "runPageOpen")
     });
 
     registerCommand({
       name: "pages",
       description: "List named pages",
-      run: async () => runPagesList(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/pages/list"), "runPagesList")
     });
 
     registerCommand({
       name: "page-close",
       description: "Close a named page",
-      run: async () => runPageClose(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/pages/close"), "runPageClose")
     });
 
     registerCommand({
       name: "dom-html",
       description: "Capture HTML for a ref",
-      run: async () => runDomHtml(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/dom/html"), "runDomHtml")
     });
 
     registerCommand({
       name: "dom-text",
       description: "Capture text for a ref",
-      run: async () => runDomText(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/dom/text"), "runDomText")
     });
 
     registerCommand({
       name: "dom-attr",
       description: "Capture attribute value for a ref",
-      run: async () => runDomAttr(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/dom/attr"), "runDomAttr")
     });
 
     registerCommand({
       name: "dom-value",
       description: "Capture input value for a ref",
-      run: async () => runDomValue(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/dom/value"), "runDomValue")
     });
 
     registerCommand({
       name: "dom-visible",
       description: "Check visibility for a ref",
-      run: async () => runDomVisible(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/dom/visible"), "runDomVisible")
     });
 
     registerCommand({
       name: "dom-enabled",
       description: "Check enabled state for a ref",
-      run: async () => runDomEnabled(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/dom/enabled"), "runDomEnabled")
     });
 
     registerCommand({
       name: "dom-checked",
       description: "Check checked state for a ref",
-      run: async () => runDomChecked(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/dom/checked"), "runDomChecked")
     });
 
     registerCommand({
       name: "clone-page",
       description: "Clone the active page to React",
-      run: async () => runClonePage(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/export/clone-page"), "runClonePage")
     });
 
     registerCommand({
       name: "clone-component",
       description: "Clone a component by ref",
-      run: async () => runCloneComponent(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/export/clone-component"), "runCloneComponent")
     });
 
     registerCommand({
       name: "perf",
       description: "Capture performance metrics",
-      run: async () => runPerf(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/perf"), "runPerf")
     });
 
     registerCommand({
       name: "screenshot",
       description: "Capture a screenshot",
-      run: async () => runScreenshot(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/screenshot"), "runScreenshot")
     });
 
     registerCommand({
       name: "screencast-start",
       description: "Start a browser replay screencast capture",
-      run: async () => runScreencastStart(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/screencast-start"), "runScreencastStart")
     });
 
     registerCommand({
       name: "screencast-stop",
       description: "Stop a browser replay screencast capture",
-      run: async () => runScreencastStop(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/screencast-stop"), "runScreencastStop")
     });
 
     registerCommand({
       name: "dialog",
       description: "Inspect or handle a JavaScript dialog",
-      run: async () => runDialog(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/dialog"), "runDialog")
     });
 
     registerCommand({
       name: "console-poll",
       description: "Poll console events",
-      run: async () => runConsolePoll(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/console-poll"), "runConsolePoll")
     });
 
     registerCommand({
       name: "network-poll",
       description: "Poll network events",
-      run: async () => runNetworkPoll(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/network-poll"), "runNetworkPoll")
     });
 
     registerCommand({
       name: "debug-trace-snapshot",
       description: "Capture page + console + network + exception diagnostics",
-      run: async () => runDebugTraceSnapshot(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/devtools/debug-trace-snapshot"), "runDebugTraceSnapshot")
     });
 
     registerCommand({
       name: "desktop-status",
       description: "Inspect public read-only desktop observation availability",
-      run: async () => runDesktopStatus(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/desktop/status"), "runDesktopStatus")
     });
 
     registerCommand({
       name: "desktop-windows",
       description: "List windows exposed by the public read-only desktop observation plane",
-      run: async () => runDesktopWindows(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/desktop/windows"), "runDesktopWindows")
     });
 
     registerCommand({
       name: "desktop-active-window",
       description: "Inspect the active window through the public read-only desktop observation plane",
-      run: async () => runDesktopActiveWindow(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/desktop/active-window"), "runDesktopActiveWindow")
     });
 
     registerCommand({
       name: "desktop-capture-desktop",
       description: "Capture the current desktop surface through the public read-only desktop observation plane",
-      run: async () => runDesktopCaptureDesktop(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/desktop/capture-desktop"), "runDesktopCaptureDesktop")
     });
 
     registerCommand({
       name: "desktop-capture-window",
       description: "Capture a specific window through the public read-only desktop observation plane",
-      run: async () => runDesktopCaptureWindow(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/desktop/capture-window"), "runDesktopCaptureWindow")
     });
 
     registerCommand({
       name: "desktop-accessibility-snapshot",
       description: "Capture desktop accessibility state through the public read-only desktop observation plane",
-      run: async () => runDesktopAccessibilitySnapshot(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/desktop/accessibility-snapshot"), "runDesktopAccessibilitySnapshot")
     });
 
     registerCommand({
       name: "cookie-import",
       description: "Import validated cookies into a session",
-      run: async () => runCookieImport(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/cookie-import"), "runCookieImport")
     });
 
     registerCommand({
       name: "cookie-list",
       description: "List cookies for a session (optionally filtered by URL)",
-      run: async () => runCookieList(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/cookie-list"), "runCookieList")
     });
 
     registerCommand({
       name: "macro-resolve",
       description: "Resolve or execute a macro expression via provider actions",
-      run: async () => runMacroResolve(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/macro-resolve"), "runMacroResolve")
     });
 
     registerCommand({
       name: "research",
       description: "Run research workflows",
-      run: async () => runResearchCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/research"), "runResearchCommand")
     });
 
     registerCommand({
       name: "shopping",
       description: "Run shopping workflows",
-      run: async () => runShoppingCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/shopping"), "runShoppingCommand")
     });
 
     registerCommand({
       name: "product-video",
       description: "Run product presentation asset workflows",
-      run: async () => runProductVideoCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/product-video"), "runProductVideoCommand")
     });
 
     registerCommand({
       name: "inspiredesign",
       description: "Run inspiredesign workflows",
-      run: async () => runInspiredesignCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/inspiredesign"), "runInspiredesignCommand")
     });
 
     registerCommand({
       name: "artifacts",
       description: "Manage workflow artifact lifecycle",
-      run: async () => runArtifactsCommand(args)
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/artifacts"), "runArtifactsCommand")
     });
     const command = getCommand(args.command);
     if (!command) {
@@ -844,12 +840,7 @@ async function main(): Promise<void> {
     }
 
     const result = await command.run(args);
-    emitResult(result, result.data ? { data: result.data } : undefined);
-    const exitCode = resolveExitCode(result);
-    if (exitCode === null) {
-      return;
-    }
-    await flushOutputAndExit(exitCode);
+    await finishCommand(result);
     return;
   } catch (error) {
     const format = outputFormat ?? detectOutputFormat(process.argv);

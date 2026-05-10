@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CLI_COMMANDS } from "../src/cli/args";
 import onboardingMetadata from "../src/cli/onboarding-metadata.json";
@@ -8,12 +9,23 @@ import { INSPIREDESIGN_HANDOFF_COMMANDS, INSPIREDESIGN_HANDOFF_GUIDANCE } from "
 import { LOCAL_ONLY_TOOL_NAMES } from "../src/tools";
 import { TOOL_SURFACE_ENTRIES } from "../src/public-surface/generated-manifest";
 
+const MIN_LAZY_COMMAND_IMPORTS = 40;
+
 function getRuntimeCommandDescriptions(): Record<string, string> {
   const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
   return Object.fromEntries(
     [...source.matchAll(/registerCommand\(\{\s*name:\s*"([^"]+)",\s*description:\s*"([^"]+)"/gs)]
       .map((match) => [match[1], match[2]])
   );
+}
+
+function getLazyCommandImports(): Array<{ modulePath: string; exportName: string }> {
+  const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
+  return [...source.matchAll(/runLazyCommand\(parsedArgs, \(\) => import\("([^"]+)"\), "([^"]+)"\)/g)]
+    .map((match) => ({
+      modulePath: match[1] ?? "",
+      exportName: match[2] ?? ""
+    }));
 }
 
 describe("cli help parity", () => {
@@ -136,6 +148,19 @@ describe("cli help parity", () => {
       for (const example of COMMAND_HELP_DETAILS[command].examples) {
         expect(example.startsWith("npx opendevbrowser")).toBe(true);
       }
+    }
+  });
+
+  it("keeps lazy command import contracts resolvable", async () => {
+    const lazyImports = getLazyCommandImports();
+
+    expect(lazyImports.length).toBeGreaterThan(MIN_LAZY_COMMAND_IMPORTS);
+    for (const lazyImport of lazyImports) {
+      const absolutePath = resolve(process.cwd(), "src/cli", `${lazyImport.modulePath}.ts`);
+      const moduleExports = await import(pathToFileURL(absolutePath).href) as Record<string, unknown>;
+
+      expect(moduleExports[lazyImport.exportName], `${lazyImport.modulePath} should export ${lazyImport.exportName}`)
+        .toBeTypeOf("function");
     }
   });
 
