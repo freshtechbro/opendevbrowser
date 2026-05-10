@@ -16,6 +16,14 @@ describe("provider traversal url filter", () => {
   });
 
   it("rejects static asset hosts used in anti-bot walls", () => {
+    expect(isLikelyDocumentUrl("https://analytics.google.com/g/collect?v=2")).toBe(false);
+    expect(isLikelyDocumentUrl("https://fonts.googleapis.com/css?family=Roboto")).toBe(false);
+    expect(isLikelyDocumentUrl("https://www.google-analytics.com")).toBe(false);
+    expect(isLikelyDocumentUrl("https://www.googleadservices.com/pagead/conversion/123")).toBe(false);
+    expect(isLikelyDocumentUrl("https://www.googletagmanager.com/gtag/js?id=G-123")).toBe(false);
+    expect(isLikelyDocumentUrl("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js")).toBe(false);
+    expect(isLikelyDocumentUrl("https://stats.g.doubleclick.net/g/collect?v=2")).toBe(false);
+    expect(isLikelyDocumentUrl("https://www.gstatic.com/devrel-devsite/app.css")).toBe(false);
     expect(isLikelyDocumentUrl("https://www.redditstatic.com/challenge.js")).toBe(false);
     expect(isLikelyDocumentUrl("https://abs.twimg.com/responsive-web/client-web/main.js")).toBe(false);
     expect(isLikelyDocumentUrl("https://static.licdn.com/sc/h/1exdo4axa6eaw1jioxh1vu4fj")).toBe(false);
