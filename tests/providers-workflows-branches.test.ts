@@ -311,6 +311,148 @@ describe("workflow branch coverage", () => {
     expect((output.records as Array<{ source: string }>).map((record) => record.source)).toEqual(["social"]);
   });
 
+  it("follows direct URL research search candidates before synthesis", async () => {
+    const targetUrl = "https://example.com/direct-research-note";
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [
+        makeRecord({
+          id: "direct-url-search",
+          url: targetUrl,
+          title: targetUrl,
+          content: "Direct URL discovery record with no usable destination evidence yet.",
+          attributes: {
+            links: [],
+            retrievalPath: "web:search:url"
+          }
+        }),
+        makeRecord({
+          id: "direct-url-font-search",
+          url: "https://fonts.googleapis.com/css?family=Roboto",
+          title: "https://fonts.googleapis.com/css?family=Roboto",
+          content: "Static font CSS candidate from the direct URL page.",
+          attributes: {
+            retrievalPath: "web:search:url"
+          }
+        }),
+        makeRecord({
+          id: "direct-url-analytics-search",
+          url: "https://www.google-analytics.com",
+          title: "https://www.google-analytics.com",
+          content: "Analytics candidate from the direct URL page.",
+          attributes: {
+            retrievalPath: "web:search:url"
+          }
+        })
+      ]
+    }));
+    const fetch = vi.fn(async (input) => {
+      if (input.url !== targetUrl) {
+        return makeAggregate({
+          sourceSelection: "web",
+          providerOrder: ["web/default"]
+        });
+      }
+      return makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "direct-url-fetch",
+          url: input.url,
+          title: "Direct research note",
+          content: "Concrete destination evidence gathered from the direct URL follow-up fetch.",
+          attributes: {
+            retrievalPath: "web:fetch:url"
+          }
+        })]
+      });
+    });
+
+    const output = await runResearchWorkflow(toRuntime({ search, fetch }), {
+      topic: targetUrl,
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ url: targetUrl }), expect.any(Object));
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["direct-url-fetch"]);
+    expect(output.meta).toMatchObject({
+      metrics: {
+        sanitized_records: 3,
+        sanitized_reason_distribution: {
+          research_dead_end_shell: 2,
+          search_index_shell: 1
+        }
+      },
+      rejected_candidates: expect.arrayContaining([
+        expect.objectContaining({
+          retrievalPath: "web:search:url",
+          reason: "search_index_shell",
+          url: targetUrl
+        })
+      ])
+    });
+  });
+
+  it("fails direct URL research when follow-up fetch returns no evidence", async () => {
+    const targetUrl = "https://example.com/no-evidence";
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"],
+      records: [makeRecord({
+        id: "direct-url-search",
+        url: targetUrl,
+        title: targetUrl,
+        content: "Direct URL discovery record with no links.",
+        attributes: {
+          links: [],
+          retrievalPath: "web:search:url"
+        }
+      })]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      sourceSelection: "web",
+      providerOrder: ["web/default"]
+    }));
+
+    await expect(runResearchWorkflow(toRuntime({ search, fetch }), {
+      topic: targetUrl,
+      sourceSelection: "web",
+      days: 1,
+      mode: "json"
+    })).rejects.toThrow("Research workflow produced only shell records and no usable results");
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ url: targetUrl }), expect.any(Object));
+  });
+
+  it("rejects provider-specific social direct URL search records before synthesis", async () => {
+    const targetUrl = "https://www.youtube.com/watch?v=directurl01";
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "social",
+      providerOrder: ["social/youtube"],
+      records: [makeRecord({
+        id: "youtube-direct-url-search",
+        source: "social",
+        provider: "social/youtube",
+        url: targetUrl,
+        title: targetUrl,
+        content: "YouTube direct URL discovery record without destination evidence.",
+        attributes: {
+          retrievalPath: "social:youtube:search:url"
+        }
+      })]
+    }));
+
+    await expect(runResearchWorkflow(toRuntime({ search }), {
+      topic: targetUrl,
+      sourceSelection: "social",
+      days: 1,
+      mode: "json"
+    })).rejects.toThrow("Research workflow produced only shell records and no usable results");
+  });
+
   it("forwards explicit research browser-mode overrides into provider run options", async () => {
     const search = vi.fn(async () => makeAggregate({
       sourceSelection: "web",

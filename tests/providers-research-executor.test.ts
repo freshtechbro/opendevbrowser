@@ -766,6 +766,11 @@ describe("research workflow executor", () => {
         attributes: { retrievalPath: "social:search:index" }
       }),
       makeRecord({
+        id: "youtube-direct-valid",
+        url: "https://example.com/youtube-direct-follow-up",
+        attributes: { retrievalPath: "social:youtube:search:url" }
+      }),
+      makeRecord({
         id: "ddg-trailing-redirect",
         url: "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Ftrailing-ddg-follow-up",
         attributes: { retrievalPath: "web:search:index" }
@@ -786,11 +791,12 @@ describe("research workflow executor", () => {
         url: "https://example.com/web-follow-up",
         attributes: { retrievalPath: "web:search:index" }
       })
-    ], 5);
+    ], 6);
 
     expect(candidates).toEqual([
       "https://example.com/community-follow-up",
       "https://example.com/social-follow-up",
+      "https://example.com/youtube-direct-follow-up",
       "https://example.com/trailing-ddg-follow-up",
       "https://example.com/social-linked-follow-up",
       "https://example.com/web-follow-up"

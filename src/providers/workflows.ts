@@ -1096,7 +1096,11 @@ const hash = (value: string): string => createHash("sha1").update(value).digest(
 
 const RESEARCH_ALWAYS_SANITIZED_PATHS = new Set<string>([
   "community:search:index",
-  "social:search:index"
+  "community:search:url",
+  "social:search:index",
+  "social:search:url",
+  "social:youtube:search:url",
+  "web:search:url",
 ]);
 const RESEARCH_CONDITIONAL_SANITIZED_PATHS = new Set<string>([
   "community:fetch:url",

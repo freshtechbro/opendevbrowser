@@ -26,7 +26,11 @@ import type { ProviderExecutor } from "./workflows";
 
 const RESEARCH_WEB_SEARCH_FETCH_PATHS = new Set<string>([
   "community:search:index",
+  "community:search:url",
   "web:search:index",
+  "web:search:url",
+  "social:youtube:search:url",
+  "social:search:url",
   "social:search:index"
 ]);
 

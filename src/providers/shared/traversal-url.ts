@@ -1,4 +1,12 @@
 const STATIC_HOST_PATTERNS = [
+  /(^|\.)analytics\.google\.com$/i,
+  /(^|\.)fonts\.googleapis\.com$/i,
+  /(^|\.)google-analytics\.com$/i,
+  /(^|\.)googleadservices\.com$/i,
+  /(^|\.)googletagmanager\.com$/i,
+  /(^|\.)googlesyndication\.com$/i,
+  /(^|\.)gstatic\.com$/i,
+  /(^|\.)doubleclick\.net$/i,
   /(^|\.)redditstatic\.com$/i,
   /(^|\.)twimg\.com$/i,
   /(^|\.)static\.licdn\.com$/i,
