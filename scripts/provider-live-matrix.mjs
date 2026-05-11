@@ -15,7 +15,7 @@ import {
 } from './provider-live-scenarios.mjs';
 import { hasDirtyRelayClients } from './live-regression-matrix.mjs';
 import {
-  AUTH_GATED_SHOPPING_PROVIDERS,
+  DIRECT_SHOPPING_PROVIDER_QUERY,
   HIGH_FRICTION_SHOPPING_PROVIDERS,
   MATRIX_ENV_LIMITED_CODES,
   MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS,
@@ -94,12 +94,13 @@ export const WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS = [
   '--youtube-mode',
   DEFAULT_YOUTUBE_TRANSCRIPT_MODE
 ];
+const SIGNED_IN_BROWSER_ARGS = ['--browser-mode', 'extension', '--use-cookies', '--cookie-policy', 'required'];
 export function buildLiveShoppingRunArgs(provider, timeoutMs) {
   return [
     'shopping',
     'run',
     '--query',
-    'ergonomic wireless mouse',
+    DIRECT_SHOPPING_PROVIDER_QUERY.get(provider) ?? 'ergonomic wireless mouse',
     '--providers',
     provider,
     '--sort',
@@ -108,9 +109,9 @@ export function buildLiveShoppingRunArgs(provider, timeoutMs) {
     'json',
     '--timeout-ms',
     timeoutMs,
+    ...SIGNED_IN_BROWSER_ARGS,
     '--challenge-automation-mode',
-    'browser_with_helper',
-    '--use-cookies'
+    'browser_with_helper'
   ];
 }
 
@@ -132,8 +133,8 @@ const HELP_TEXT = [
   '  --include-live-regression    Force nested live-regression run (disabled by default in --release-gate and --smoke)',
   '  --include-browser-probes     Force browser probes even in --smoke',
   '  --include-workflows          Force workflow probes even in --smoke',
-  '  --include-auth-gated         Include auth-gated provider scenarios (default: skipped)',
-  '  --include-high-friction      Include high-friction providers (default: skipped)',
+  '  --include-auth-gated         Compatibility flag; auth-gated diagnostics run by default',
+  '  --include-high-friction      Compatibility flag; high-friction diagnostics run by default',
   '  --include-social-posts       Include social post probes (default: skipped)',
   '  --release-gate               Strict release mode (forces auth/high-friction/social-post scenarios and fails on non-pass statuses)',
   '  --help                       Show help'
@@ -247,8 +248,8 @@ export function parseArgs(argv) {
     runLiveRegression,
     runBrowserProbes,
     runWorkflows,
-    runAuthGated: options.releaseGate || options.includeAuthGated,
-    runHighFriction: options.releaseGate || options.includeHighFriction,
+    runAuthGated: true,
+    runHighFriction: true,
     runSocialPostCases: options.releaseGate || options.includeSocialPosts,
     strictGate: options.releaseGate,
     out: options.out || `/tmp/odb-provider-live-matrix-${mode}-${Date.now()}.json`
@@ -1359,11 +1360,11 @@ function webCommunityCases(smoke) {
     },
     {
       id: 'provider.community.search.keyword',
-      args: ['macro-resolve', '--execute', '--expression', '@community.search("browser automation failures", 4)', '--timeout-ms', '120000']
+      args: ['macro-resolve', '--execute', '--expression', '@community.search("browser automation failures", 4)', '--timeout-ms', '120000', ...SIGNED_IN_BROWSER_ARGS, '--challenge-automation-mode', 'browser_with_helper']
     },
     {
       id: 'provider.community.search.url',
-      args: ['macro-resolve', '--execute', '--expression', '@community.search("https://www.reddit.com/r/programming", 2)', '--timeout-ms', '120000']
+      args: ['macro-resolve', '--execute', '--expression', '@community.search("https://www.reddit.com/r/programming", 2)', '--timeout-ms', '120000', ...SIGNED_IN_BROWSER_ARGS, '--challenge-automation-mode', 'browser_with_helper']
     }
   ];
   return smoke ? all.slice(0, 4) : all;
@@ -1542,15 +1543,17 @@ async function main() {
           : (options.smoke ? '45000' : '120000');
         const primaryExpression = `@media.search("hard mode browser automation anti bot for ${platform}", "${platform}", 5)`;
         const fallbackExpression = `@media.search("browser automation ${platform}", "${platform}", 5)`;
+        const primaryMacroArgs = ['macro-resolve', '--execute', '--expression', primaryExpression, '--timeout-ms', socialMacroTimeoutMs, ...SIGNED_IN_BROWSER_ARGS, '--challenge-automation-mode', 'browser_with_helper'];
+        const fallbackMacroArgs = ['macro-resolve', '--execute', '--expression', fallbackExpression, '--timeout-ms', socialMacroTimeoutMs, ...SIGNED_IN_BROWSER_ARGS, '--challenge-automation-mode', 'browser_with_helper'];
 
-        let res = runCli(env, ['macro-resolve', '--execute', '--expression', primaryExpression, '--timeout-ms', socialMacroTimeoutMs], {
+        let res = runCli(env, primaryMacroArgs, {
           allowFailure: true,
           timeoutMs: socialCliTimeoutMs
         });
         let execution = collectMacroExecution(res);
 
         if (res.status === 0 && !execution.hasExecutionPayload) {
-          const retry = runCli(env, ['macro-resolve', '--execute', '--expression', primaryExpression, '--timeout-ms', socialMacroTimeoutMs], {
+          const retry = runCli(env, primaryMacroArgs, {
             allowFailure: true,
             timeoutMs: socialCliTimeoutMs
           });
@@ -1596,7 +1599,7 @@ async function main() {
         ) {
           const retry = runCli(
             env,
-            ['macro-resolve', '--execute', '--expression', fallbackExpression, '--timeout-ms', '240000'],
+            ['macro-resolve', '--execute', '--expression', fallbackExpression, '--timeout-ms', '240000', ...SIGNED_IN_BROWSER_ARGS, '--challenge-automation-mode', 'browser_with_helper'],
             {
               allowFailure: true,
               timeoutMs: 360000
@@ -1614,7 +1617,7 @@ async function main() {
         }
 
         if (res.status === 0 && execution.records.length === 0 && execution.failures.length === 0) {
-          const retry = runCli(env, ['macro-resolve', '--execute', '--expression', fallbackExpression, '--timeout-ms', socialMacroTimeoutMs], {
+          const retry = runCli(env, fallbackMacroArgs, {
             allowFailure: true,
             timeoutMs: socialCliTimeoutMs
           });
@@ -1666,7 +1669,7 @@ async function main() {
     if (options.runSocialPostCases) {
       for (const testCase of SOCIAL_POST_CASES) {
         try {
-          const res = runCli(env, ['macro-resolve', '--execute', '--expression', testCase.expression, '--timeout-ms', '120000'], {
+          const res = runCli(env, ['macro-resolve', '--execute', '--expression', testCase.expression, '--timeout-ms', '120000', ...SIGNED_IN_BROWSER_ARGS, '--challenge-automation-mode', 'browser_with_helper'], {
             allowFailure: true,
             timeoutMs: 180000
           });
@@ -1711,22 +1714,6 @@ async function main() {
 
     for (const provider of shoppingProvidersForMode(options.smoke)) {
       const id = `provider.${provider.replace('/', '.')}.search`;
-      if (!options.runHighFriction && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)) {
-        pushStep(buildDefaultSkippedStep(
-          id,
-          'skipped_high_friction_by_default',
-          { highFriction: true, includeHighFriction: false }
-        ));
-        continue;
-      }
-      if (!options.runAuthGated && AUTH_GATED_SHOPPING_PROVIDERS.has(provider)) {
-        pushStep(buildDefaultSkippedStep(
-          id,
-          'skipped_auth_gated_by_default',
-          { authGated: true, includeAuthGated: false }
-        ));
-        continue;
-      }
       try {
         const providerTimeoutMs = MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get(provider) ?? '45000';
         const cliTimeoutMs = options.strictGate && HIGH_FRICTION_SHOPPING_PROVIDERS.has(provider)

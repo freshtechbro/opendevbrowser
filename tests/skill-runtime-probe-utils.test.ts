@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { runCli, ensureCliBuilt, sleep } = vi.hoisted(() => ({
@@ -17,6 +18,8 @@ vi.mock("../scripts/live-direct-utils.mjs", () => ({
 }));
 
 import {
+  cleanupHarness,
+  createTempHarness,
   currentHarnessDaemonStatusDetail,
   isCurrentHarnessDaemonStatus,
   stopDaemon
@@ -55,6 +58,22 @@ describe("skill runtime probe utils", () => {
     expect(currentHarnessDaemonStatusDetail(staleStatus)).toBe("daemon_fingerprint_mismatch");
     expect(isCurrentHarnessDaemonStatus(failedStatus)).toBe(false);
     expect(currentHarnessDaemonStatusDetail(failedStatus)).toBe("daemon unavailable");
+  });
+
+  it("allocates an isolated relay port for temp harnesses", async () => {
+    const harness = await createTempHarness("odb-probe-test");
+    try {
+      const configPath = `${harness.configDir}/opendevbrowser.jsonc`;
+      const content = await readFile(configPath, "utf8");
+      const parsed = JSON.parse(content) as { daemonPort: number; relayPort: number };
+
+      expect(parsed.daemonPort).toBe(harness.daemonPort);
+      expect(parsed.relayPort).toBe(harness.relayPort);
+      expect(parsed.relayPort).not.toBe(8787);
+      expect(parsed.relayPort).not.toBe(parsed.daemonPort);
+    } finally {
+      await cleanupHarness(harness.tempRoot);
+    }
   });
 
   it("stops a started daemon without uninstalling autostart by default", async () => {

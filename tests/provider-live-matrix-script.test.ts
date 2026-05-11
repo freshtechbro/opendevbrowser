@@ -3,7 +3,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildDefaultSkippedStep,
   buildLiveShoppingRunArgs,
   classifySuccessfulResearchWorkflow,
   classifyNestedLiveRegressionStatus,
@@ -24,6 +23,7 @@ import {
   WORKFLOW_YOUTUBE_TRANSCRIPT_PROBE_ARGS
 } from "../scripts/provider-live-matrix.mjs";
 import {
+  DIRECT_SHOPPING_PROVIDER_QUERY,
   MATRIX_ENV_LIMITED_CODES,
   MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS
 } from "../scripts/shared/workflow-lane-constants.mjs";
@@ -39,6 +39,13 @@ describe("provider-live-matrix parseArgs", () => {
     expect(parsed.runLiveRegression).toBe(false);
     expect(parsed.runBrowserProbes).toBe(true);
     expect(parsed.runWorkflows).toBe(true);
+  });
+
+  it("runs signed-in shopping diagnostics by default", () => {
+    const parsed = parseArgs([]);
+
+    expect(parsed.runAuthGated).toBe(true);
+    expect(parsed.runHighFriction).toBe(true);
   });
 
   it("allows opting into nested live-regression in release-gate mode", () => {
@@ -223,10 +230,12 @@ describe("provider-live-matrix parseArgs", () => {
     expect(REQUIRED_PLAYWRIGHT_CORE_FILES).toContain("lib/server/registry/index.js");
   });
 
-  it("fails timeout by default, skips default-gated lanes, and only downgrades approved product-video details", () => {
+  it("fails timeout by default, runs slow shopping diagnostics, and only downgrades approved product-video details", () => {
     expect(NESTED_LIVE_REGRESSION_TIMEOUT_MS).toBe(1_500_000);
     expect(MATRIX_ENV_LIMITED_CODES.has("timeout")).toBe(false);
     expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target")).toBe("120000");
+    expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/costco")).toBe("120000");
+    expect(MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/macys")).toBe("120000");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("--sources");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).toContain("web,community");
     expect(WORKFLOW_RESEARCH_PROBE_ARGS).not.toContain("--source-selection");
@@ -246,20 +255,19 @@ describe("provider-live-matrix parseArgs", () => {
       status: "fail",
       reason: "unexpected_reason_codes=timeout"
     });
-    expect(buildDefaultSkippedStep(
-      "provider.shopping.bestbuy.search",
-      "skipped_high_friction_by_default",
-      { highFriction: true, includeHighFriction: false }
-    )).toEqual({
-      id: "provider.shopping.bestbuy.search",
-      status: "skipped",
-      detail: "skipped_high_friction_by_default",
-      data: {
-        skipped: true,
-        highFriction: true,
-        includeHighFriction: false
-      }
-    });
+    expect(buildLiveShoppingRunArgs("shopping/macys", "120000")).toEqual(expect.arrayContaining([
+      "--query",
+      DIRECT_SHOPPING_PROVIDER_QUERY.get("shopping/macys"),
+      "--providers",
+      "shopping/macys",
+      "--browser-mode",
+      "extension",
+      "--use-cookies",
+      "--cookie-policy",
+      "required",
+      "--challenge-automation-mode",
+      "browser_with_helper"
+    ]));
     expect(classifyProductVideoAmazonStatus(0, null)).toBe("pass");
     expect(classifyProductVideoAmazonStatus(
       1,
@@ -415,9 +423,13 @@ describe("provider-live-matrix parseArgs", () => {
       "json",
       "--timeout-ms",
       "120000",
+      "--browser-mode",
+      "extension",
+      "--use-cookies",
+      "--cookie-policy",
+      "required",
       "--challenge-automation-mode",
-      "browser_with_helper",
-      "--use-cookies"
+      "browser_with_helper"
     ]);
   });
 

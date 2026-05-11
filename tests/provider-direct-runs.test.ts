@@ -2,22 +2,29 @@ import { describe, expect, it, vi } from "vitest";
 import { classifyRecords } from "../scripts/live-direct-utils.mjs";
 import {
   DIRECT_ENV_LIMITED_CODES,
+  DIRECT_SHOPPING_PROVIDER_QUERY,
   DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS,
   SOCIAL_POST_CASES
 } from "../scripts/shared/workflow-lane-constants.mjs";
 import {
+  buildSignedInExtensionPreflightArgs,
+  buildExtensionPreflightBlockedStep,
   buildProviderCoverageStep,
   buildProviderCases,
   classifyDaemonPreflight,
+  ensureSignedInExtensionReady,
   ensureProviderDaemon,
   evaluateMacroCase,
   evaluateShoppingCase,
+  isExtensionRelayReady,
   mergeRetriedMacroStep,
   mergeRetriedShoppingStep,
   parseArgs,
   shouldAbortForDaemonPreflight,
+  shouldRetrySignedInExtensionTransportCase,
   shouldRetryShoppingTimeoutCase,
-  shouldRetryMacroTimeoutCase
+  shouldRetryMacroTimeoutCase,
+  withExtensionPreflightMetadata
 } from "../scripts/provider-direct-runs.mjs";
 
 describe("provider-direct-runs", () => {
@@ -28,6 +35,13 @@ describe("provider-direct-runs", () => {
     expect(parsed.runAuthGated).toBe(true);
     expect(parsed.runHighFriction).toBe(true);
     expect(parsed.runSocialPostCases).toBe(true);
+  });
+
+  it("runs signed-in shopping diagnostics by default", () => {
+    const parsed = parseArgs([]);
+
+    expect(parsed.runAuthGated).toBe(true);
+    expect(parsed.runHighFriction).toBe(true);
   });
 
   it("rejects --release-gate combined with --smoke", () => {
@@ -52,7 +66,7 @@ describe("provider-direct-runs", () => {
     expect(ids).toContain("provider.social.linkedin.search");
   });
 
-  it("requests helper-capable challenge mode for macro execute cases", () => {
+  it("requests signed-in extension transport for provider macro execute cases", () => {
     const cases = buildProviderCases(parseArgs(["--include-social-posts"]));
     const communitySearch = cases.find((entry) => entry.id === "provider.community.search.keyword");
     const linkedinSearch = cases.find((entry) => entry.id === "provider.social.linkedin.search");
@@ -60,10 +74,25 @@ describe("provider-direct-runs", () => {
 
     expect(communitySearch?.args).toContain("--challenge-automation-mode");
     expect(communitySearch?.args).toContain("browser_with_helper");
+    expect(communitySearch?.args).toContain("--browser-mode");
+    expect(communitySearch?.args).toContain("extension");
+    expect(communitySearch?.args).toContain("--use-cookies");
+    expect(communitySearch?.args).toContain("--cookie-policy");
+    expect(communitySearch?.args).toContain("required");
     expect(linkedinSearch?.args).toContain("--challenge-automation-mode");
     expect(linkedinSearch?.args).toContain("browser_with_helper");
+    expect(linkedinSearch?.args).toContain("--browser-mode");
+    expect(linkedinSearch?.args).toContain("extension");
+    expect(linkedinSearch?.args).toContain("--use-cookies");
+    expect(linkedinSearch?.args).toContain("--cookie-policy");
+    expect(linkedinSearch?.args).toContain("required");
     expect(socialPost?.args).toContain("--challenge-automation-mode");
     expect(socialPost?.args).toContain("browser_with_helper");
+    expect(socialPost?.args).toContain("--browser-mode");
+    expect(socialPost?.args).toContain("extension");
+    expect(socialPost?.args).toContain("--use-cookies");
+    expect(socialPost?.args).toContain("--cookie-policy");
+    expect(socialPost?.args).toContain("required");
   });
 
   it("builds social post probes from the shared governance inventory", () => {
@@ -81,31 +110,333 @@ describe("provider-direct-runs", () => {
 
     expect(target?.args).toContain("--challenge-automation-mode");
     expect(target?.args).toContain("browser_with_helper");
+    expect(target?.args).toContain("--browser-mode");
+    expect(target?.args).toContain("extension");
     expect(target?.args).toContain("--use-cookies");
+    expect(target?.args).toContain("--cookie-policy");
+    expect(target?.args).toContain("required");
   });
 
-  it("marks gated shopping providers as skipped outside release mode", () => {
+  it("runs gated shopping providers outside release mode", () => {
     const cases = buildProviderCases(parseArgs([]));
     const costco = cases.find((entry) => entry.id === "provider.shopping.costco.search");
+    const macys = cases.find((entry) => entry.id === "provider.shopping.macys.search");
     const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
 
-    expect(costco?.skipped).toBe(true);
-    expect(bestbuy?.skipped).toBe(true);
+    for (const target of [costco, macys, bestbuy]) {
+      expect(target?.skipped).not.toBe(true);
+      expect(target?.args).toContain("--browser-mode");
+      expect(target?.args).toContain("extension");
+      expect(target?.args).toContain("--use-cookies");
+      expect(target?.args).toContain("--cookie-policy");
+      expect(target?.args).toContain("required");
+      expect(target?.args).toContain("--challenge-automation-mode");
+      expect(target?.args).toContain("browser_with_helper");
+    }
   });
 
   it("uses the Target-specific timeout without widening other slow shopping providers", () => {
     const cases = buildProviderCases(parseArgs(["--include-high-friction", "--include-auth-gated"]));
     const ebay = cases.find((entry) => entry.id === "provider.shopping.ebay.search");
     const costco = cases.find((entry) => entry.id === "provider.shopping.costco.search");
+    const macys = cases.find((entry) => entry.id === "provider.shopping.macys.search");
     const walmart = cases.find((entry) => entry.id === "provider.shopping.walmart.search");
     const target = cases.find((entry) => entry.id === "provider.shopping.target.search");
     const temu = cases.find((entry) => entry.id === "provider.shopping.temu.search");
 
     expect(ebay?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/ebay"));
     expect(costco?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/costco"));
+    expect(macys?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/macys"));
     expect(walmart?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/walmart"));
     expect(target?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/target"));
     expect(temu?.args).toContain(DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS.get("shopping/temu"));
+  });
+
+  it("uses provider-appropriate shopping queries for high-friction diagnostics", () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const macys = cases.find((entry) => entry.id === "provider.shopping.macys.search");
+    const costco = cases.find((entry) => entry.id === "provider.shopping.costco.search");
+
+    expect(macys?.args).toContain(DIRECT_SHOPPING_PROVIDER_QUERY.get("shopping/macys"));
+    expect(costco?.args).toContain(DIRECT_SHOPPING_PROVIDER_QUERY.get("shopping/costco"));
+  });
+
+  it("preflights signed-in shopping providers against provider-specific extension URLs", () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const costco = cases.find((entry) => entry.id === "provider.shopping.costco.search");
+    const macys = cases.find((entry) => entry.id === "provider.shopping.macys.search");
+
+    expect(buildSignedInExtensionPreflightArgs(bestbuy)).toEqual(expect.arrayContaining([
+      "--extension-only",
+      "--wait-for-extension",
+      "--start-url",
+      "https://www.bestbuy.com/"
+    ]));
+    expect(buildSignedInExtensionPreflightArgs(costco)).toEqual(expect.arrayContaining([
+      "--start-url",
+      "https://www.costco.com/"
+    ]));
+    expect(buildSignedInExtensionPreflightArgs(macys)).toEqual(expect.arrayContaining([
+      "--start-url",
+      "https://www.macys.com/"
+    ]));
+  });
+
+  it("retries signed-in extension cases after ops transport timeouts", () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const web = cases.find((entry) => entry.id === "provider.web.search.keyword");
+
+    expect(shouldRetrySignedInExtensionTransportCase(bestbuy, {
+      status: "fail",
+      detail: "Ops request timed out"
+    })).toBe(true);
+    expect(shouldRetrySignedInExtensionTransportCase(bestbuy, {
+      status: "env_limited",
+      detail: "Ops handshake timeout"
+    })).toBe(true);
+    expect(shouldRetrySignedInExtensionTransportCase(bestbuy, {
+      status: "env_limited",
+      detail: "reason_codes=env_limited",
+      data: {
+        failureSamples: [{ message: "Ops socket closed before handshake" }]
+      }
+    })).toBe(true);
+    expect(shouldRetrySignedInExtensionTransportCase(bestbuy, {
+      status: "pass",
+      detail: null
+    })).toBe(false);
+    expect(shouldRetrySignedInExtensionTransportCase(web, {
+      status: "fail",
+      detail: "Ops request timed out"
+    })).toBe(false);
+  });
+
+  it("rejects dirty extension relay clients before signed-in provider cases", () => {
+    const baseStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            running: true,
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+
+    expect(isExtensionRelayReady(baseStatus)).toBe(true);
+    expect(isExtensionRelayReady({
+      ...baseStatus,
+      json: {
+        ...baseStatus.json,
+        data: {
+          ...baseStatus.json.data,
+          relay: {
+            ...baseStatus.json.data.relay,
+            opsConnected: true
+          }
+        }
+      }
+    })).toBe(false);
+    expect(isExtensionRelayReady({
+      ...baseStatus,
+      json: {
+        ...baseStatus.json,
+        data: {
+          ...baseStatus.json.data,
+          relay: {
+            ...baseStatus.json.data.relay,
+            cdpConnected: true
+          }
+        }
+      }
+    })).toBe(false);
+  });
+
+  it("recycles the daemon before forced signed-in extension transport retries", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const readyStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const state = { ownedDaemon: { pid: 1234 } };
+    const replacementDaemon = { pid: 5678 };
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(readyStatus)
+      .mockReturnValueOnce(readyStatus);
+    const runCliImpl = vi.fn(() => ({ status: 0, json: { success: true } }));
+    const stopOwnedDaemonImpl = vi.fn(async () => undefined);
+    const startConfiguredDaemonImpl = vi.fn(async () => replacementDaemon);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      daemonState: state,
+      readDaemonStatusImpl,
+      runCliImpl,
+      stopOwnedDaemonImpl,
+      startConfiguredDaemonImpl
+    })).resolves.toMatchObject({
+      ready: true,
+      launched: true
+    });
+
+    expect(stopOwnedDaemonImpl).toHaveBeenCalledWith({ pid: 1234 }, process.env);
+    expect(startConfiguredDaemonImpl).toHaveBeenCalledWith(process.env);
+    expect(runCliImpl).toHaveBeenCalledWith(
+      expect.arrayContaining(["launch", "--extension-only", "--wait-for-extension"]),
+      expect.objectContaining({ allowFailure: true })
+    );
+    expect(state.ownedDaemon).toBe(replacementDaemon);
+  });
+
+  it("disconnects signed-in extension preflight sessions before provider execution", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const readyStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: true,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const cleanStatus = {
+      ...readyStatus,
+      json: {
+        ...readyStatus.json,
+        data: {
+          ...readyStatus.json.data,
+          relay: {
+            ...readyStatus.json.data.relay,
+            opsConnected: false
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 0, json: { success: true } };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(cleanStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      startConfiguredDaemonImpl: vi.fn(async () => ({ pid: 9876 })),
+      stopConfiguredDaemonImpl: vi.fn()
+    })).resolves.toMatchObject({
+      ready: true,
+      launched: true,
+      disconnect: { status: 0 }
+    });
+
+    expect(runCliImpl).toHaveBeenCalledWith(
+      expect.arrayContaining(["launch", "--extension-only", "--wait-for-extension"]),
+      expect.objectContaining({ allowFailure: true })
+    );
+    expect(runCliImpl).toHaveBeenCalledWith(
+      ["disconnect", "--session-id", "preflight-session"],
+      expect.objectContaining({ allowFailure: true })
+    );
+  });
+
+  it("builds an env-limited skip when signed-in extension preflight remains unready", () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const step = buildExtensionPreflightBlockedStep(bestbuy, {
+      ready: false,
+      launched: true,
+      launch: { status: 0 },
+      disconnect: { status: 0 },
+      status: {
+        status: 0,
+        json: {
+          success: true,
+          data: {
+            fingerprintCurrent: true,
+            relay: {
+              extensionConnected: true,
+              extensionHandshakeComplete: false
+            }
+          }
+        }
+      }
+    });
+
+    expect(step).toMatchObject({
+      id: "provider.shopping.bestbuy.search",
+      status: "env_limited",
+      detail: "extension_preflight_not_ready",
+      data: {
+        skippedProviderExecution: true,
+        extensionPreflightAttempted: true,
+        extensionPreflightReady: false
+      }
+    });
+  });
+
+  it("does not overwrite retry preflight metadata when attaching common metadata", () => {
+    const recoveredRetry = withExtensionPreflightMetadata({
+      id: "provider.shopping.bestbuy.search",
+      providerId: "shopping/bestbuy",
+      status: "pass",
+      detail: null,
+      data: {
+        retryAttempted: true,
+        offers: 3,
+        extensionPreflightAttempted: true,
+        extensionPreflightReady: true
+      }
+    }, {
+      launched: true,
+      ready: false,
+      launch: { status: 2 },
+      disconnect: { status: 1 }
+    });
+
+    expect(recoveredRetry.data).toMatchObject({
+      extensionPreflightReady: true,
+      retryAttempted: true,
+      offers: 3
+    });
+    expect(recoveredRetry.data).not.toHaveProperty("extensionPreflightStatus");
   });
 
   it("classifies daemon preflight failures before provider cases run", () => {
@@ -156,14 +487,92 @@ describe("provider-direct-runs", () => {
       .mockReturnValueOnce(stale)
       .mockReturnValueOnce(fresh);
     const startConfiguredDaemonImpl = vi.fn(async () => started);
+    const stopConfiguredDaemonImpl = vi.fn(() => ({ status: 0, json: { success: true } }));
 
     await expect(ensureProviderDaemon(state, {
       readDaemonStatusImpl,
-      startConfiguredDaemonImpl
+      startConfiguredDaemonImpl,
+      stopConfiguredDaemonImpl
     })).resolves.toEqual({
       daemonStatus: fresh,
       startedDaemon: true
     });
+    expect(stopConfiguredDaemonImpl).toHaveBeenCalledTimes(1);
+    expect(state.ownedDaemon).toBe(started);
+  });
+
+  it("fails closed when a configured stale daemon cannot be stopped before replacement", async () => {
+    const stale = { status: 0, json: { success: true, data: { fingerprintCurrent: false } } };
+    const state = { ownedDaemon: null };
+    const readDaemonStatusImpl = vi.fn().mockReturnValue(stale);
+    const startConfiguredDaemonImpl = vi.fn(async () => ({ pid: 1234 }));
+    const stopConfiguredDaemonImpl = vi.fn(() => ({
+      status: 2,
+      detail: "stale daemon rejected stop"
+    }));
+
+    await expect(ensureProviderDaemon(state, {
+      readDaemonStatusImpl,
+      startConfiguredDaemonImpl,
+      stopConfiguredDaemonImpl
+    })).rejects.toThrow("configured_daemon_stop_failed: stale daemon rejected stop");
+    expect(startConfiguredDaemonImpl).not.toHaveBeenCalled();
+    expect(state.ownedDaemon).toBeNull();
+  });
+
+  it("recycles a current daemon when relay clients are dirty", async () => {
+    const dirty = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: true,
+            canvasConnected: false,
+            annotationConnected: true,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const fresh = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const state = { ownedDaemon: null };
+    const started = { pid: 5678 };
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(dirty)
+      .mockReturnValueOnce(fresh);
+    const stopConfiguredDaemonImpl = vi.fn(() => ({ status: 0, json: { success: true } }));
+    const startConfiguredDaemonImpl = vi.fn(async () => started);
+
+    await expect(ensureProviderDaemon(state, {
+      readDaemonStatusImpl,
+      startConfiguredDaemonImpl,
+      stopConfiguredDaemonImpl
+    })).resolves.toEqual({
+      daemonStatus: fresh,
+      startedDaemon: true
+    });
+    expect(stopConfiguredDaemonImpl).toHaveBeenCalledTimes(1);
+    expect(startConfiguredDaemonImpl).toHaveBeenCalledTimes(1);
     expect(state.ownedDaemon).toBe(started);
   });
 
@@ -309,6 +718,21 @@ describe("provider-direct-runs", () => {
     ])).toEqual({
       status: "fail",
       detail: "unexpected_reason_codes=timeout"
+    });
+  });
+
+  it("treats canonical auth-required provider failures as env-limited", () => {
+    expect(DIRECT_ENV_LIMITED_CODES.has("auth_required")).toBe(true);
+    expect(classifyRecords(0, [
+      {
+        error: {
+          reasonCode: "auth_required",
+          message: "Authentication required."
+        }
+      }
+    ])).toEqual({
+      status: "env_limited",
+      detail: "reason_codes=auth_required"
     });
   });
 
@@ -949,6 +1373,43 @@ describe("provider-direct-runs", () => {
     expect(step.status).toBe("pass");
     expect(step.detail).toBeNull();
     expect(step.data.shellOnlyReasons).toEqual([]);
+  });
+
+  it("classifies expanded X result urls as env-limited when content is only a javascript shell", () => {
+    const step = evaluateMacroCase({
+      id: "provider.social.x.search",
+      providerId: "social/x",
+      args: ["macro-resolve", "--execute"]
+    }, {
+      status: 0,
+      detail: "Macro resolved and executed.",
+      json: {
+        data: {
+          execution: {
+            records: [
+              {
+                id: "x-expanded-shell",
+                url: "https://x.com/acct/status/1",
+                title: "https://x.com/acct/status/1",
+                content: "JavaScript is not available. Please enable JavaScript or switch to a supported browser. Something went wrong. Try again.",
+                attributes: {
+                  retrievalPath: "social:search:index",
+                  links: ["https://x.com/acct/status/1"]
+                }
+              }
+            ],
+            failures: [],
+            meta: {
+              providerOrder: ["social/x"]
+            }
+          }
+        }
+      }
+    });
+
+    expect(step.status).toBe("env_limited");
+    expect(step.detail).toBe("shell_only_records=social_js_required_shell");
+    expect(step.data.shellOnlyReasons).toEqual(["social_js_required_shell"]);
   });
 
   it("classifies live-like X policy and legal shells as env-limited macro results", () => {

@@ -13,13 +13,22 @@ export const DIRECT_SHOPPING_PROVIDER_TIMEOUT_MS = new Map([
   ["shopping/walmart", "120000"],
   ["shopping/target", "180000"],
   ["shopping/costco", "120000"],
+  ["shopping/macys", "120000"],
   ["shopping/temu", "120000"]
+]);
+
+export const DIRECT_SHOPPING_PROVIDER_QUERY = new Map([
+  ["shopping/bestbuy", "ergonomic wireless mouse"],
+  ["shopping/costco", "office chair"],
+  ["shopping/macys", "women sneakers"]
 ]);
 
 export const MATRIX_SHOPPING_PROVIDER_TIMEOUT_MS = new Map([
   ["shopping/bestbuy", "120000"],
   ["shopping/walmart", "120000"],
   ["shopping/target", "120000"],
+  ["shopping/costco", "120000"],
+  ["shopping/macys", "120000"],
   ["shopping/temu", "120000"]
 ]);
 
@@ -27,6 +36,7 @@ const BASE_ENV_LIMITED_CODES = [
   "unavailable",
   "env_limited",
   "auth",
+  "auth_required",
   "rate_limited",
   "upstream",
   "network",

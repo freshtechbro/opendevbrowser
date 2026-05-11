@@ -108,6 +108,7 @@ export async function createTempHarness(prefix) {
   const configDir = path.join(tempRoot, "config");
   const cacheDir = path.join(tempRoot, "cache");
   const daemonPort = await getFreePort();
+  const relayPort = await getFreePort();
   const relayToken = randomUUID().replaceAll("-", "");
   const daemonToken = randomUUID().replaceAll("-", "");
   fs.mkdirSync(configDir, { recursive: true });
@@ -115,7 +116,7 @@ export async function createTempHarness(prefix) {
   fs.writeFileSync(
     path.join(configDir, "opendevbrowser.jsonc"),
     `{
-  "relayPort": 8787,
+  "relayPort": ${relayPort},
   "relayToken": "${relayToken}",
   "daemonPort": ${daemonPort},
   "daemonToken": "${daemonToken}"
@@ -129,6 +130,7 @@ export async function createTempHarness(prefix) {
     configDir,
     cacheDir,
     daemonPort,
+    relayPort,
     env: {
       ...process.env,
       OPENCODE_CONFIG_DIR: configDir,

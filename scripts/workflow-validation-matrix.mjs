@@ -7,6 +7,8 @@ import { countStatuses, ensureCliBuilt, runCli, runNode, sleep } from "./live-di
 import {
   currentHarnessDaemonStatusDetail,
   isCurrentHarnessDaemonStatus,
+  startConfiguredDaemon,
+  stopDaemon,
   withConfiguredDaemon
 } from "./skill-runtime-probe-utils.mjs";
 import { MATRIX_ENV_LIMITED_CODES } from "./shared/workflow-lane-constants.mjs";
@@ -149,7 +151,31 @@ function readDaemonStatus(env = process.env) {
 function hasDirtyRelayClients(relay) {
   return relay?.canvasConnected === true
     || relay?.annotationConnected === true
-    || relay?.cdpConnected === true;
+    || relay?.cdpConnected === true
+    || relay?.opsConnected === true;
+}
+
+function assertConfiguredDaemonStopSucceeded(result) {
+  const success = result?.status === 0 && result.json?.success !== false;
+  if (success) {
+    return;
+  }
+  const detail = result?.detail ?? result?.stderr ?? `exit_status_${result?.status ?? "unknown"}`;
+  throw new Error(`configured_daemon_stop_failed: ${detail}`);
+}
+
+async function recycleConfiguredDaemon(env, ownedDaemon) {
+  if (ownedDaemon) {
+    await stopDaemon(ownedDaemon, env);
+  } else {
+    const stopResult = runCli(["serve", "--stop"], {
+      env,
+      allowFailure: true,
+      timeoutMs: 15_000
+    });
+    assertConfiguredDaemonStopSucceeded(stopResult);
+  }
+  return await startConfiguredDaemon(env);
 }
 
 function collectScenarioFailures(result) {
@@ -217,7 +243,7 @@ async function waitForRequiredExtension({
   if (
     !scenario.requiresExtension
     || (!startedDaemon && relayWasDirty)
-    || !initialExtensionReady
+    || (!startedDaemon && !initialExtensionReady)
     || extensionReady
     || !daemonReady
   ) {
@@ -243,6 +269,7 @@ export function classifyScenarioPreflight({
   scenario,
   startedDaemon,
   relayWasDirty,
+  recycledDirtyRelay,
   initialDaemonOk,
   initialExtensionReady,
   currentDaemonStatus
@@ -275,7 +302,9 @@ export function classifyScenarioPreflight({
   if (!currentExtensionReady) {
     return {
       status: initialExtensionReady ? "fail" : "env_limited",
-      detail: initialExtensionReady ? "extension_disconnected_after_start" : "extension_disconnected",
+      detail: recycledDirtyRelay === true
+        ? "extension_disconnected_after_recycle"
+        : (initialExtensionReady ? "extension_disconnected_after_start" : "extension_disconnected"),
       data: { relay }
     };
   }
@@ -450,96 +479,162 @@ export async function runWorkflowValidationMatrix(options) {
 
     if (sharedScenarios.length > 0) {
       await withConfiguredDaemon(async ({ env, startedDaemon }) => {
-      const initialStatus = readDaemonStatus(env);
-      const initialRelay = initialStatus.json?.data?.relay ?? null;
-      const relayWasDirty = hasDirtyRelayClients(initialRelay);
-      const initialDaemonOk = isCurrentHarnessDaemonStatus(initialStatus);
-      const initialExtensionReady = initialRelay?.extensionHandshakeComplete === true;
-      const daemonMode = startedDaemon ? "started" : "reused";
-      const daemonDetail = startedDaemon
-        ? "started configured daemon via owner helper"
-        : relayWasDirty
-          ? "reused configured daemon; dirty relay gates extension scenarios"
-          : "reused configured daemon";
-
-      report.infraSteps.push({
-        id: "infra.daemon.recycle",
-        status: initialDaemonOk ? "pass" : "fail",
-        ok: initialDaemonOk,
-        detail: initialDaemonOk ? daemonDetail : currentHarnessDaemonStatusDetail(initialStatus),
-        data: {
-          mode: daemonMode,
-          relayWasDirty,
-          previousRelay: initialRelay,
-          startedDaemon
-        }
-      });
-
-      report.infraSteps.push({
-        id: "infra.daemon_status",
-        status: initialDaemonOk ? "pass" : "fail",
-        ok: initialDaemonOk,
-        detail: currentHarnessDaemonStatusDetail(initialStatus),
-        data: initialStatus.json?.data ?? null
-      });
-
-      if (!initialDaemonOk) {
-        return;
-      }
-
-      for (const scenario of sharedScenarios) {
-        const scenarioArgs = resolveScenarioArgs(scenario, options.variant);
-        const step = buildScenarioStepBase(scenario, options.variant, scenarioArgs);
-
+        let ownedRecycledDaemon = null;
         try {
-          const currentDaemonStatus = await waitForRequiredExtension({
-            scenario,
-            initialExtensionReady,
-            startedDaemon,
-            relayWasDirty,
-            env
-          });
-          const preflight = classifyScenarioPreflight({
-            scenario,
-            startedDaemon,
-            relayWasDirty,
-            initialDaemonOk,
-            initialExtensionReady,
-            currentDaemonStatus
-          });
-          if (preflight) {
-            stepResults.set(scenario.id, {
-              ...step,
-              status: preflight.status,
-              ok: scenario.allowedStatuses.includes(preflight.status),
-              detail: preflight.detail,
-              artifactPath: null,
-              data: preflight.data
-            });
-            continue;
+          let initialStatus = readDaemonStatus(env);
+          const previousRelay = initialStatus.json?.data?.relay ?? null;
+          const previousRelayWasDirty = hasDirtyRelayClients(previousRelay);
+          let initialRelay = previousRelay;
+          let relayWasDirty = hasDirtyRelayClients(initialRelay);
+          const reusedConfiguredDaemon = !startedDaemon && isCurrentHarnessDaemonStatus(initialStatus);
+          let recycledDirtyRelay = false;
+          let recycledForOwnership = false;
+          let activeStartedDaemon = startedDaemon;
+
+          if (reusedConfiguredDaemon) {
+            ownedRecycledDaemon = await recycleConfiguredDaemon(env, ownedRecycledDaemon);
+            activeStartedDaemon = true;
+            recycledDirtyRelay = relayWasDirty;
+            recycledForOwnership = true;
+            initialStatus = readDaemonStatus(env);
+            initialRelay = initialStatus.json?.data?.relay ?? null;
+            relayWasDirty = hasDirtyRelayClients(initialRelay);
           }
 
-          const result = executeScenarioCommand(scenario, scenarioArgs, env);
-          const outcome = determineScenarioStatus(result, scenario);
-          stepResults.set(scenario.id, {
-            ...step,
-            status: outcome.status,
-            ok: outcome.ok,
-            detail: outcome.detail,
-            artifactPath: result.json?.artifactPath ?? result.json?.summary?.artifactPath ?? null,
-            data: result.json?.data ?? result.json?.summary ?? null
+          const initialDaemonOk = isCurrentHarnessDaemonStatus(initialStatus);
+          const initialExtensionReady = initialRelay?.extensionHandshakeComplete === true
+            || previousRelay?.extensionHandshakeComplete === true;
+          const daemonMode = recycledForOwnership ? "owned_recycled" : (startedDaemon ? "started" : "reused");
+          const daemonDetail = recycledForOwnership
+            ? (previousRelayWasDirty
+              ? "recycled configured daemon to own matrix lifecycle and clear dirty relay clients"
+              : "recycled configured daemon to own matrix lifecycle")
+            : (startedDaemon ? "started configured daemon via owner helper" : "reused configured daemon");
+
+          report.infraSteps.push({
+            id: "infra.daemon.recycle",
+            status: initialDaemonOk ? "pass" : "fail",
+            ok: initialDaemonOk,
+            detail: initialDaemonOk ? daemonDetail : currentHarnessDaemonStatusDetail(initialStatus),
+            data: {
+              mode: daemonMode,
+              relayWasDirty,
+              previousRelayWasDirty,
+              previousRelay,
+              recycledForOwnership,
+              recycledDirtyRelay,
+              startedDaemon: activeStartedDaemon
+            }
           });
-        } catch (error) {
-          stepResults.set(scenario.id, {
-            ...step,
-            status: "fail",
-            ok: false,
-            detail: error instanceof Error ? error.message : String(error),
-            artifactPath: null,
-            data: null
+
+          report.infraSteps.push({
+            id: "infra.daemon_status",
+            status: initialDaemonOk ? "pass" : "fail",
+            ok: initialDaemonOk,
+            detail: currentHarnessDaemonStatusDetail(initialStatus),
+            data: initialStatus.json?.data ?? null
           });
+
+          if (!initialDaemonOk) {
+            return;
+          }
+
+          for (const scenario of sharedScenarios) {
+            const scenarioArgs = resolveScenarioArgs(scenario, options.variant);
+            const step = buildScenarioStepBase(scenario, options.variant, scenarioArgs);
+
+            try {
+              let scenarioRelayWasDirty = relayWasDirty;
+              let scenarioRecycledDirtyRelay = false;
+              let scenarioInitialExtensionReady = initialExtensionReady;
+              let scenarioStartedDaemon = activeStartedDaemon;
+              if (scenario.requiresExtension) {
+                let beforeScenarioStatus = readDaemonStatus(env);
+                let beforeScenarioRelay = beforeScenarioStatus.json?.data?.relay ?? null;
+                const beforeScenarioDirty = hasDirtyRelayClients(beforeScenarioRelay);
+                const dirtyRelayBeforeRecycle = beforeScenarioRelay;
+                scenarioInitialExtensionReady = scenarioInitialExtensionReady
+                  || beforeScenarioRelay?.extensionHandshakeComplete === true;
+                if (isCurrentHarnessDaemonStatus(beforeScenarioStatus) && beforeScenarioDirty) {
+                  ownedRecycledDaemon = await recycleConfiguredDaemon(env, ownedRecycledDaemon);
+                  activeStartedDaemon = true;
+                  scenarioStartedDaemon = true;
+                  scenarioRecycledDirtyRelay = true;
+                  beforeScenarioStatus = readDaemonStatus(env);
+                  beforeScenarioRelay = beforeScenarioStatus.json?.data?.relay ?? null;
+                  scenarioInitialExtensionReady = scenarioInitialExtensionReady
+                    || beforeScenarioRelay?.extensionHandshakeComplete === true;
+                  report.infraSteps.push({
+                    id: `infra.daemon.recycle.${scenario.id}`,
+                    status: isCurrentHarnessDaemonStatus(beforeScenarioStatus) ? "pass" : "fail",
+                    ok: isCurrentHarnessDaemonStatus(beforeScenarioStatus),
+                    detail: isCurrentHarnessDaemonStatus(beforeScenarioStatus)
+                      ? "recycled configured daemon before extension scenario"
+                      : currentHarnessDaemonStatusDetail(beforeScenarioStatus),
+                    data: {
+                      scenarioId: scenario.id,
+                      previousRelay: dirtyRelayBeforeRecycle,
+                      recycledDirtyRelay: true,
+                      startedDaemon: true
+                    }
+                  });
+                }
+                scenarioRelayWasDirty = hasDirtyRelayClients(beforeScenarioRelay);
+              }
+              const currentDaemonStatus = await waitForRequiredExtension({
+                scenario,
+                initialExtensionReady: scenarioInitialExtensionReady,
+                startedDaemon: scenarioStartedDaemon,
+                relayWasDirty: scenarioRelayWasDirty,
+                env
+              });
+              const preflight = classifyScenarioPreflight({
+                scenario,
+                startedDaemon: scenarioStartedDaemon,
+                relayWasDirty: scenarioRelayWasDirty,
+                recycledDirtyRelay: scenarioRecycledDirtyRelay || recycledDirtyRelay,
+                initialDaemonOk,
+                initialExtensionReady: scenarioInitialExtensionReady,
+                currentDaemonStatus
+              });
+              if (preflight) {
+                stepResults.set(scenario.id, {
+                  ...step,
+                  status: preflight.status,
+                  ok: scenario.allowedStatuses.includes(preflight.status),
+                  detail: preflight.detail,
+                  artifactPath: null,
+                  data: preflight.data
+                });
+                continue;
+              }
+
+              const result = executeScenarioCommand(scenario, scenarioArgs, env);
+              const outcome = determineScenarioStatus(result, scenario);
+              stepResults.set(scenario.id, {
+                ...step,
+                status: outcome.status,
+                ok: outcome.ok,
+                detail: outcome.detail,
+                artifactPath: result.json?.artifactPath ?? result.json?.summary?.artifactPath ?? null,
+                data: result.json?.data ?? result.json?.summary ?? null
+              });
+            } catch (error) {
+              stepResults.set(scenario.id, {
+                ...step,
+                status: "fail",
+                ok: false,
+                detail: error instanceof Error ? error.message : String(error),
+                artifactPath: null,
+                data: null
+              });
+            }
+          }
+        } finally {
+          if (ownedRecycledDaemon) {
+            await stopDaemon(ownedRecycledDaemon, env);
+          }
         }
-      }
       });
     }
   } catch (error) {

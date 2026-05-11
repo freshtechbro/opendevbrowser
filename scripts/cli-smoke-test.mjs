@@ -340,6 +340,7 @@ async function main() {
   const configDir = path.join(tempRoot, "config");
   const cacheDir = path.join(tempRoot, "cache");
   const daemonPort = await getFreePort();
+  const relayPort = await getFreePort();
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(cacheDir, { recursive: true });
 
@@ -349,7 +350,7 @@ async function main() {
   fs.writeFileSync(
     configPath,
     `{
-  "relayPort": 8787,
+  "relayPort": ${relayPort},
   "relayToken": "${relayToken}",
   "daemonPort": ${daemonPort},
   "daemonToken": "${daemonToken}"

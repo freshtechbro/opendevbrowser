@@ -8,6 +8,8 @@ const {
   normalizedCodesFromFailures,
   parseShellOnlyFailureDetail,
   sleep,
+  startConfiguredDaemon,
+  stopDaemon,
   withConfiguredDaemon
 } = vi.hoisted(() => ({
   classifyLaneRecords: vi.fn(() => ({ status: "fail", detail: null })),
@@ -17,6 +19,8 @@ const {
   normalizedCodesFromFailures: vi.fn(() => []),
   parseShellOnlyFailureDetail: vi.fn(() => null),
   sleep: vi.fn(async () => {}),
+  startConfiguredDaemon: vi.fn(async () => ({ pid: 1234 })),
+  stopDaemon: vi.fn(async () => {}),
   withConfiguredDaemon: vi.fn()
 }));
 
@@ -58,6 +62,8 @@ vi.mock("../scripts/skill-runtime-probe-utils.mjs", () => ({
     && status.json?.success === true
     && status.json?.data?.fingerprintCurrent !== false
   ),
+  startConfiguredDaemon,
+  stopDaemon,
   withConfiguredDaemon
 }));
 
@@ -103,11 +109,27 @@ vi.mock("../scripts/shared/workflow-inventory.mjs", () => ({
       ownerFiles: ["scripts/cli-smoke-test.mjs"],
       timeoutMs: 60_000,
       requiresExtension: false
+    },
+    {
+      id: "feature.canvas.extension",
+      label: "Canvas extension surface",
+      entryPath: "node scripts/canvas-live-workflow.mjs --surface extension",
+      executionPolicy: "automated",
+      runner: "node",
+      primaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "extension"],
+      secondaryArgs: ["scripts/canvas-live-workflow.mjs", "--surface", "extension"],
+      primaryTask: "Run the extension canvas workflow.",
+      secondaryTask: "Run the extension canvas workflow again.",
+      allowedStatuses: ["pass", "env_limited"],
+      ownerFiles: ["scripts/canvas-live-workflow.mjs"],
+      timeoutMs: 60_000,
+      requiresExtension: true
     }
   ]
 }));
 
 import {
+  classifyScenarioPreflight,
   determineScenarioStatus,
   resolveScenarioProcessTimeoutMs,
   runWorkflowValidationMatrix
@@ -140,7 +162,11 @@ describe("workflow validation matrix daemon ownership", () => {
     normalizedCodesFromFailures.mockReset();
     parseShellOnlyFailureDetail.mockReset();
     sleep.mockReset();
+    startConfiguredDaemon.mockReset();
+    stopDaemon.mockReset();
     withConfiguredDaemon.mockReset();
+    startConfiguredDaemon.mockResolvedValue({ pid: 1234 });
+    stopDaemon.mockResolvedValue(undefined);
     classifyLaneRecords.mockReturnValue({ status: "fail", detail: null });
     normalizedCodesFromFailures.mockReturnValue([]);
     parseShellOnlyFailureDetail.mockReturnValue(null);
@@ -157,7 +183,32 @@ describe("workflow validation matrix daemon ownership", () => {
     });
   });
 
-  it("executes extension-required scenarios when reusing a healthy relay with only opsConnected", async () => {
+  it("recycles extension-required scenarios when the reused relay has an active ops client", async () => {
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        return currentRelayStatus;
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        currentRelayStatus = {
+          status: 0,
+          json: {
+            success: true,
+            data: {
+              relay: {
+                extensionHandshakeComplete: true,
+                opsConnected: false,
+                canvasConnected: false,
+                annotationConnected: false,
+                cdpConnected: false
+              }
+            }
+          }
+        };
+        return { status: 0, json: { success: true } };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
     runNode.mockImplementation((args: string[], options: { env: typeof envToken }) => {
       expect(args).toEqual(["scripts/annotate-live-probe.mjs", "--transport", "relay"]);
       expect(options.env).toBe(envToken);
@@ -177,11 +228,13 @@ describe("workflow validation matrix daemon ownership", () => {
     expect(report.infraSteps[0]).toMatchObject({
       id: "infra.daemon.recycle",
       status: "pass",
-      detail: "reused configured daemon",
+      detail: "recycled configured daemon to own matrix lifecycle and clear dirty relay clients",
       data: {
-        mode: "reused",
+        mode: "owned_recycled",
         relayWasDirty: false,
-        startedDaemon: false
+        previousRelayWasDirty: true,
+        recycledForOwnership: true,
+        startedDaemon: true
       }
     });
     expect(report.steps[0]).toMatchObject({
@@ -189,11 +242,13 @@ describe("workflow validation matrix daemon ownership", () => {
       status: "pass",
       ok: true
     });
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(1);
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
     expect(runNode).toHaveBeenCalledTimes(1);
   });
 
-  it("marks extension-required scenarios env_limited when reusing a relay with active non-default clients", async () => {
-    currentRelayStatus = {
+  it("recycles a reused relay with active non-default clients before extension-required scenarios", async () => {
+    const dirtyRelayStatus = {
       status: 0,
       json: {
         success: true,
@@ -208,6 +263,42 @@ describe("workflow validation matrix daemon ownership", () => {
         }
       }
     };
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+            relay: {
+              extensionHandshakeComplete: true,
+              opsConnected: false,
+              canvasConnected: false,
+              annotationConnected: false,
+              cdpConnected: false
+          }
+        }
+      }
+    };
+    let statusCalls = 0;
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        statusCalls += 1;
+        return statusCalls === 1 ? dirtyRelayStatus : currentRelayStatus;
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        return { status: 0, json: { success: true } };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+    runNode.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(args).toEqual(["scripts/annotate-live-probe.mjs", "--transport", "relay"]);
+      expect(options.env).toBe(envToken);
+      return {
+        status: 0,
+        timedOut: false,
+        json: { success: true }
+      };
+    });
 
     const report = await runWorkflowValidationMatrix({
       variant: "primary",
@@ -218,20 +309,24 @@ describe("workflow validation matrix daemon ownership", () => {
     expect(report.infraSteps[0]).toMatchObject({
       id: "infra.daemon.recycle",
       status: "pass",
-      detail: "reused configured daemon; dirty relay gates extension scenarios",
+      detail: "recycled configured daemon to own matrix lifecycle and clear dirty relay clients",
       data: {
-        mode: "reused",
-        relayWasDirty: true,
-        startedDaemon: false
+        mode: "owned_recycled",
+        relayWasDirty: false,
+        previousRelayWasDirty: true,
+        recycledForOwnership: true,
+        recycledDirtyRelay: true,
+        startedDaemon: true
       }
     });
     expect(report.steps[0]).toMatchObject({
       id: "feature.annotate.relay",
-      status: "env_limited",
-      detail: "relay_busy_existing_clients",
+      status: "pass",
       ok: true
     });
-    expect(runNode).not.toHaveBeenCalled();
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(1);
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
+    expect(runNode).toHaveBeenCalledTimes(1);
   });
 
   it("fails infra before scenario execution when the configured daemon fingerprint is stale", async () => {
@@ -273,6 +368,142 @@ describe("workflow validation matrix daemon ownership", () => {
     expect(runNode).not.toHaveBeenCalled();
   });
 
+  it("classifies extension loss after dirty relay recycle as a harness failure when the extension was previously ready", () => {
+    expect(classifyScenarioPreflight({
+      scenario: {
+        requiresExtension: true
+      },
+      startedDaemon: true,
+      relayWasDirty: false,
+      recycledDirtyRelay: true,
+      initialDaemonOk: true,
+      initialExtensionReady: true,
+      currentDaemonStatus: {
+        status: 0,
+        json: {
+          success: true,
+          data: {
+            relay: {
+              extensionConnected: false,
+              extensionHandshakeComplete: false
+            }
+          }
+        }
+      }
+    })).toEqual({
+      status: "fail",
+      detail: "extension_disconnected_after_recycle",
+      data: {
+        relay: {
+          extensionConnected: false,
+          extensionHandshakeComplete: false
+        }
+      }
+    });
+  });
+
+  it("recycles a clean reused configured daemon so the matrix owns daemon lifetime", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        return currentRelayStatus;
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        return { status: 0, json: { success: true } };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+    runNode.mockReturnValue({
+      status: 0,
+      timedOut: false,
+      json: { success: true }
+    });
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay"]
+    });
+
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(1);
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
+    expect(report.infraSteps[0]).toMatchObject({
+      id: "infra.daemon.recycle",
+      status: "pass",
+      detail: "recycled configured daemon to own matrix lifecycle",
+      data: {
+        mode: "owned_recycled",
+        previousRelayWasDirty: false,
+        recycledForOwnership: true,
+        recycledDirtyRelay: false,
+        startedDaemon: true
+      }
+    });
+    expect(report.steps[0]).toMatchObject({
+      id: "feature.annotate.relay",
+      status: "pass",
+      ok: true
+    });
+  });
+
+  it("fails infra before scenario execution when configured daemon stop fails", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        return currentRelayStatus;
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        return { status: 2, detail: "stale daemon rejected stop" };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay"]
+    });
+
+    expect(report.infraSteps).toEqual([
+      expect.objectContaining({
+        id: "infra.daemon.recycle",
+        status: "fail",
+        detail: "configured_daemon_stop_failed: stale daemon rejected stop"
+      })
+    ]);
+    expect(report.steps).toEqual([]);
+    expect(startConfiguredDaemon).not.toHaveBeenCalled();
+    expect(runNode).not.toHaveBeenCalled();
+  });
+
   it("executes daemon-owning scenarios outside the shared configured-daemon helper", async () => {
     runNode.mockImplementation((args: string[], options: { env: NodeJS.ProcessEnv }) => {
       expect(args).toEqual(["scripts/cli-smoke-test.mjs"]);
@@ -299,6 +530,31 @@ describe("workflow validation matrix daemon ownership", () => {
   });
 
   it("keeps daemon-owning scenarios isolated from shared-daemon workflow scenarios", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        return currentRelayStatus;
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        return { status: 0, json: { success: true } };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
     runNode.mockImplementation((args: string[], options: { env: NodeJS.ProcessEnv }) => {
       if (args[0] === "scripts/cli-smoke-test.mjs") {
         expect(options.env).toBe(process.env);
@@ -323,11 +579,145 @@ describe("workflow validation matrix daemon ownership", () => {
     });
 
     expect(withConfiguredDaemon).toHaveBeenCalledTimes(1);
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(1);
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
     expect(runNode).toHaveBeenCalledTimes(2);
     expect(report.steps).toMatchObject([
       { id: "feature.annotate.relay", status: "pass", ok: true },
       { id: "feature.cli.smoke", status: "pass", ok: true }
     ]);
+  });
+
+  it("recycles the shared daemon between extension-required scenarios when a row leaves ops dirty", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        return currentRelayStatus;
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        currentRelayStatus = {
+          status: 0,
+          json: {
+            success: true,
+            data: {
+              relay: {
+                extensionHandshakeComplete: true,
+                opsConnected: false,
+                canvasConnected: false,
+                annotationConnected: false,
+                cdpConnected: false
+              }
+            }
+          }
+        };
+        return { status: 0, json: { success: true } };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+    runNode.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "scripts/annotate-live-probe.mjs") {
+        currentRelayStatus = {
+          status: 0,
+          json: {
+            success: true,
+            data: {
+              relay: {
+                extensionHandshakeComplete: true,
+                opsConnected: true,
+                canvasConnected: false,
+                annotationConnected: false,
+                cdpConnected: false
+              }
+            }
+          }
+        };
+      }
+      return {
+        status: 0,
+        timedOut: false,
+        json: { success: true }
+      };
+    });
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay", "feature.canvas.extension"]
+    });
+
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(2);
+    expect(stopDaemon).toHaveBeenCalledTimes(2);
+    expect(report.infraSteps).toContainEqual(expect.objectContaining({
+      id: "infra.daemon.recycle.feature.canvas.extension",
+      status: "pass",
+      detail: "recycled configured daemon before extension scenario"
+    }));
+    expect(report.steps).toMatchObject([
+      { id: "feature.annotate.relay", status: "pass", ok: true },
+      { id: "feature.canvas.extension", status: "pass", ok: true }
+    ]);
+  });
+
+  it("waits for extension reconnection after starting a configured daemon", async () => {
+    let statusCalls = 0;
+    withConfiguredDaemon.mockImplementation(async (task: (context: { env: typeof envToken; daemon: { pid: number }; startedDaemon: true }) => Promise<unknown>) => (
+      task({ env: envToken, daemon: { pid: 1234 }, startedDaemon: true })
+    ));
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        statusCalls += 1;
+        return {
+          status: 0,
+          json: {
+            success: true,
+            data: {
+              relay: {
+                extensionHandshakeComplete: statusCalls >= 4,
+                opsConnected: false,
+                canvasConnected: false,
+                annotationConnected: false,
+                cdpConnected: false
+              }
+            }
+          }
+        };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+    runNode.mockReturnValue({
+      status: 0,
+      timedOut: false,
+      json: { success: true }
+    });
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay"]
+    });
+
+    expect(sleep).toHaveBeenCalled();
+    expect(runNode).toHaveBeenCalledTimes(1);
+    expect(report.steps[0]).toMatchObject({
+      id: "feature.annotate.relay",
+      status: "pass",
+      ok: true
+    });
   });
 
   it("adds CLI timeout headroom beyond the inner workflow budget", () => {
