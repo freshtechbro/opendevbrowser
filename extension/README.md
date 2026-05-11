@@ -10,7 +10,7 @@ Connects Chrome tabs to the local OpenDevBrowser relay so sessions can run again
 
 - Connects to local relay (`/extension`) and participates in `/ops`, `/canvas`, `/cdp` (legacy), and `/annotation` workflows.
 - Uses flat CDP sessions (Chrome 125+) with `sessionId`-based routing.
-- Supports auto-connect, auto-pair, and optional native-host fallback.
+- Supports auto-connect, auto-pair, and optional native-host fallback. Relay takeover suppression is temporary: if no replacement extension client remains connected, auto-connect retries the stored relay.
 - Tracks a primary tab for handshake/status while keeping multi-target routing intact.
 - Supports browser replay capture for extension-backed sessions through the existing screenshot lane used by OpenDevBrowser screencasts.
 - Uses canonical toolbar/store icons from `assets/extension-icons` synced into `extension/icons` at build time.

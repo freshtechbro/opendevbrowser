@@ -28,6 +28,7 @@ let lastConnectionManager: {
   emitOpsMessage: (message: unknown) => void;
   emitCanvasMessage: (message: unknown) => void;
 } | null = null;
+let reconnectSuppressed = false;
 
 const registerLastConnectionManager = (manager: NonNullable<typeof lastConnectionManager>): void => {
   lastConnectionManager = manager;
@@ -52,7 +53,7 @@ vi.mock("../extension/src/services/ConnectionManager", () => ({
     getLastError = vi.fn(() => null);
     getRelayIdentity = vi.fn(() => ({ instanceId: null, relayPort: null }));
     getRelayNotice = vi.fn(() => null);
-    isReconnectSuppressed = vi.fn(() => false);
+    isReconnectSuppressed = vi.fn(() => reconnectSuppressed);
     clearLastError = vi.fn();
     onAnnotationCommand = (handler: (command: unknown) => void) => {
       this.annotationHandler = handler;
@@ -109,6 +110,7 @@ describe("extension background auto-connect", () => {
 
   beforeEach(() => {
     lastConnectionManager = null;
+    reconnectSuppressed = false;
     vi.resetModules();
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
   });
@@ -170,6 +172,120 @@ describe("extension background auto-connect", () => {
     expect(globalThis.chrome.alarms.create).toHaveBeenCalledWith(
       "opendevbrowser-auto-connect",
       expect.objectContaining({ when: expect.any(Number) })
+    );
+  });
+
+  it("reconnects after relay-takeover suppression when no extension client remains", async () => {
+    reconnectSuppressed = true;
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        health: {
+          ok: false,
+          reason: "extension_disconnected",
+          extensionConnected: false,
+          extensionHandshakeComplete: false,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: false,
+          pairingRequired: false
+        }
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps relay-takeover suppression while another extension client is connected", async () => {
+    reconnectSuppressed = true;
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        health: {
+          ok: true,
+          reason: "ok",
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: false,
+          pairingRequired: false
+        }
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
+    expect(globalThis.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
+  });
+
+  it("does not let an unrelated default relay hold stored-relay takeover suppression", async () => {
+    reconnectSuppressed = true;
+    const mock = createChromeMock({ autoConnect: true, autoPair: false, relayPort: 9999 });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes(":9999/status")) {
+        return {
+          ok: true,
+          json: async () => ({
+            health: {
+              ok: false,
+              reason: "extension_disconnected",
+              extensionConnected: false,
+              extensionHandshakeComplete: false,
+              cdpConnected: false,
+              annotationConnected: false,
+              opsConnected: false,
+              canvasConnected: false,
+              pairingRequired: false
+            }
+          })
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: false,
+            pairingRequired: false
+          }
+        })
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:9999/status",
+      expect.any(Object)
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      "http://127.0.0.1:8787/status",
+      expect.any(Object)
     );
   });
 
@@ -457,7 +573,7 @@ describe("extension background auto-connect", () => {
     expect(mock.chrome.alarms.clear).toHaveBeenCalledWith("opendevbrowser-auto-connect");
   });
 
-  it("does not schedule an alarm retry when reconnect is suppressed after relay takeover", async () => {
+  it("schedules an alarm retry when reconnect is suppressed after relay takeover", async () => {
     const mock = createChromeMock({ autoConnect: true, autoPair: false });
     globalThis.chrome = mock.chrome;
 
@@ -473,11 +589,14 @@ describe("extension background auto-connect", () => {
 
     lastConnectionManager?.emitStatus("disconnected");
 
-    expect(mock.chrome.alarms.create).not.toHaveBeenCalled();
-    expect(mock.chrome.alarms.clear).toHaveBeenCalledWith("opendevbrowser-auto-connect");
+    expect(mock.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
+    expect(mock.chrome.alarms.clear).not.toHaveBeenCalled();
   });
 
-  it("does not reconnect when the retry alarm fires while reconnect is suppressed", async () => {
+  it("keeps retrying when the retry alarm fires while suppression still has an active extension client", async () => {
     const mock = createChromeMock({ autoConnect: true, autoPair: false });
     globalThis.chrome = mock.chrome;
 
@@ -488,14 +607,105 @@ describe("extension background auto-connect", () => {
     mock.chrome.alarms.create.mockClear();
     mock.chrome.alarms.clear.mockClear();
     lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        health: {
+          ok: true,
+          reason: "ok",
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          canvasConnected: false,
+          pairingRequired: false
+        }
+      })
+    }) as unknown as typeof fetch;
 
     lastConnectionManager?.emitStatus("disconnected");
     mock.emitAlarm("opendevbrowser-auto-connect");
     await flushMicrotasks();
 
     expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
-    expect(mock.chrome.alarms.create).not.toHaveBeenCalled();
-    expect(mock.chrome.alarms.clear).toHaveBeenCalledWith("opendevbrowser-auto-connect");
+    expect(mock.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
+    expect(mock.chrome.alarms.clear).not.toHaveBeenCalled();
+  });
+
+  it("reconnects from an alarm after relay-takeover suppression sees the relay free", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.connect.mockClear();
+    mock.chrome.alarms.create.mockClear();
+    mock.chrome.alarms.clear.mockClear();
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: false,
+            pairingRequired: false
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          health: {
+            ok: true,
+            reason: "ok",
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: false,
+            pairingRequired: false
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          health: {
+            ok: false,
+            reason: "extension_disconnected",
+            extensionConnected: false,
+            extensionHandshakeComplete: false,
+            cdpConnected: false,
+            annotationConnected: false,
+            opsConnected: false,
+            canvasConnected: false,
+            pairingRequired: false
+          }
+        })
+      }) as unknown as typeof fetch;
+
+    lastConnectionManager?.emitStatus("disconnected");
+    mock.emitAlarm("opendevbrowser-auto-connect");
+    await flushMicrotasks();
+    expect(lastConnectionManager?.connect).not.toHaveBeenCalled();
+
+    mock.emitAlarm("opendevbrowser-auto-connect");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
   });
 
   it("resumes alarm retries after reconnect clears suppression", async () => {
@@ -510,7 +720,10 @@ describe("extension background auto-connect", () => {
     lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
 
     lastConnectionManager?.emitStatus("disconnected");
-    expect(mock.chrome.alarms.create).not.toHaveBeenCalled();
+    expect(mock.chrome.alarms.create).toHaveBeenCalledWith(
+      "opendevbrowser-auto-connect",
+      expect.objectContaining({ when: expect.any(Number) })
+    );
 
     lastConnectionManager?.isReconnectSuppressed.mockReturnValue(false);
     mock.chrome.alarms.create.mockClear();

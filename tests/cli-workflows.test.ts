@@ -324,11 +324,30 @@ describe("workflow CLI commands", () => {
     await runMacroResolve(makeArgs("macro-resolve", [
       "--expression=@community.search(\"openai\")",
       "--execute",
-      "--browser-mode=auto"
+      "--browser-mode=extension",
+      "--use-cookies",
+      "--cookie-policy=required"
     ]));
     expect(callDaemon).toHaveBeenLastCalledWith("macro.resolve", expect.objectContaining({
       expression: "@community.search(\"openai\")",
-      browserMode: "auto"
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required"
+    }));
+
+    await runMacroResolve(makeArgs("macro-resolve", [
+      "--expression=@community.search(\"openai\")",
+      "--execute",
+      "--browser-mode=extension",
+      "--use-cookies",
+      "false",
+      "--cookie-policy=auto"
+    ]));
+    expect(callDaemon).toHaveBeenLastCalledWith("macro.resolve", expect.objectContaining({
+      expression: "@community.search(\"openai\")",
+      browserMode: "extension",
+      useCookies: false,
+      cookiePolicyOverride: "auto"
     }));
   });
 
@@ -771,7 +790,9 @@ describe("workflow CLI commands", () => {
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
     await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--browser-mode=bad"]))).rejects.toThrow("Invalid --browser-mode: bad");
     await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--browser-mode=managed"]))).rejects.toThrow("--browser-mode requires --execute for macro-resolve");
+    await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--use-cookies"]))).rejects.toThrow("--use-cookies requires --execute for macro-resolve");
     await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--challenge-automation-mode=browser"]))).rejects.toThrow("--challenge-automation-mode requires --execute for macro-resolve");
+    await expect(runMacroResolve(makeArgs("macro-resolve", ["--expression=@web.search(\"x\")", "--cookie-policy=required"]))).rejects.toThrow("--cookie-policy requires --execute for macro-resolve");
     await expect(runProductVideoCommand(makeArgs("product-video", ["run"]))).rejects.toThrow("Missing --product-url or --product-name");
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run"]))).rejects.toThrow("Missing --brief");
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", ["run", "--brief=Design system", "--capture-mode=wrong"]))).rejects.toThrow("Invalid --capture-mode: wrong");

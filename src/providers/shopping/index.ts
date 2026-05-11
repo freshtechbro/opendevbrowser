@@ -915,7 +915,7 @@ const PROVIDER_PRODUCT_URL_HINT_RE: Partial<Record<ShoppingProviderName, RegExp>
   bestbuy: /\/site\/[^?#]*\/\d+\.p(?:[?#]|$)/i,
   ebay: /\/itm(?:\/|$)/i,
   costco: /(?:\/|\.)(?:product|warehouse)\.[^?#]+\.html(?:[?#]|$)|[?&](?:prodid|itemnumber)=/i,
-  macys: /\/shop\/product\/|[?&]id=\d+/i,
+  macys: /\/shop\/product\/[^?#]+(?:[?#]|$)/i,
   aliexpress: /\/(?:item|i)\/[^?#]+/i,
   temu: /\/(?:goods\.html|g-[^/?#]+\.html)(?:[?#]|$)/i,
   others: /(?:\/ip(?:\/|$)|\/itm(?:\/|$)|\/product(?:s)?\/|\/sku\/|\/site\/[^?#]*\/\d+\.p(?:[?#]|$)|(?:\/|\.)(?:product|warehouse)\.[^?#]+\.html(?:[?#]|$))/i
@@ -1198,6 +1198,19 @@ const requiresBrowserAssistance = (
     if (hasInternationalGate) {
       return {
         reason: "bestbuy_international_gate",
+        ...(title ? { title } : {}),
+        ...(text ? { message: toSnippet(text, 400) } : {})
+      };
+    }
+    const hasPdpErrorShell = textLower.includes("something went wrong")
+      && (
+        textLower.includes("use our search bar")
+        || textLower.includes("pick a category below")
+        || textLower.includes("typed in a url")
+      );
+    if (hasPdpErrorShell) {
+      return {
+        reason: "bestbuy_pdp_error_shell",
         ...(title ? { title } : {}),
         ...(text ? { message: toSnippet(text, 400) } : {})
       };
@@ -1968,6 +1981,19 @@ const createDefaultFetch = (
     context
   });
   const extracted = extractStructuredContent(fetched.html, fetched.url);
+  const content = toSnippet(extracted.text, 2000);
+  const providerShell = requiresBrowserAssistance(profile, fetched.url, fetched.html);
+  if (providerShell) {
+    const pageIssue = classifySearchPageIssue(profile, fetched, extracted, content, providerShell);
+    throwShoppingPageIssue({
+      providerId,
+      fetched,
+      extracted,
+      content,
+      pageIssue: ensureProviderShellIssue(pageIssue, providerShell, content),
+      providerShell
+    });
+  }
   const title = toSnippet(extracted.text, 120) || fetched.url;
   const extractedPrice = extracted.metadata.price
     ? {

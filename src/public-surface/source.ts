@@ -289,8 +289,8 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       {
         name: "macro-resolve",
         description: "Resolve or execute a macro expression via provider actions",
-        usage: "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute [--timeout-ms <ms>] [--browser-mode <mode>] [--challenge-automation-mode <mode>]]",
-        flags: ["--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms", "--browser-mode", "--challenge-automation-mode"]
+        usage: "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute [--timeout-ms <ms>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]]",
+        flags: ["--expression", "--default-provider", "--include-catalog", "--execute", "--timeout-ms", "--browser-mode", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
       }
     ]
   },
@@ -729,7 +729,7 @@ const CLI_COMMAND_EXAMPLES = {
   "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json")],
   inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
   artifacts: [cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")],
-  "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json")],
+  "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json")],
   canvas: [cliExample("canvas", "--command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json")],
   goto: [cliExample("goto", "--session-id s1 --url https://example.com --wait-until networkidle --output-format json")],
   wait: [cliExample("wait", "--session-id s1 --state networkidle --timeout-ms 30000 --output-format json")],
@@ -812,6 +812,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   ],
   "macro-resolve": [
     "Use --browser-mode and --challenge-automation-mode only with --execute.",
+    "Use --browser-mode extension --use-cookies --cookie-policy required when provider macros must reuse relay-backed browser state and verify that provider cookies are observable.",
     "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete."
   ],
   canvas: [

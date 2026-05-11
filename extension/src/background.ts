@@ -507,6 +507,11 @@ const fetchRelayHealth = async (port: number): Promise<RelayHealthStatus | null>
   }
 };
 
+const relayHasActiveExtensionClient = async (storedRelayPort: number): Promise<boolean> => {
+  const storedHealth = await fetchRelayHealth(storedRelayPort);
+  return storedHealth?.extensionConnected === true;
+};
+
 const sendAnnotationResponse = (payload: AnnotationResponse, transport: AnnotationTransport = "relay"): void => {
   if (transport === "popup") {
     return;
@@ -1531,7 +1536,7 @@ const attemptAutoConnect = async (): Promise<void> => {
 
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
   autoConnectEnabled = autoConnect;
-  if (!autoConnect || connection.getStatus() === "connected" || connection.isReconnectSuppressed()) {
+  if (!autoConnect || connection.getStatus() === "connected") {
     clearRetry();
     return;
   }
@@ -1543,6 +1548,15 @@ const attemptAutoConnect = async (): Promise<void> => {
   nativeEnabled = typeof data.nativeEnabled === "boolean" ? data.nativeEnabled : DEFAULT_NATIVE_ENABLED;
   if (typeof data.nativeEnabled !== "boolean") {
     await setStorage({ nativeEnabled });
+  }
+  if (connection.isReconnectSuppressed()) {
+    const activeExtensionClient = await relayHasActiveExtensionClient(storedRelayPort);
+    if (activeExtensionClient) {
+      setStatusNoteOverride("Another extension client is connected. Retrying when the relay is free.");
+      scheduleRetry();
+      return;
+    }
+    setStatusNoteOverride("Relay no longer has an active extension client. Reconnecting.");
   }
 
   if (autoPair && pairingEnabled) {
@@ -1661,6 +1675,10 @@ connection.onStatus((status) => {
       clearTimeout(session.timeoutId);
     }
     annotationSessions.clear();
+    if (connection.isReconnectSuppressed() && autoConnectEnabled) {
+      scheduleRetry();
+      return;
+    }
     if (connection.isReconnectSuppressed()) {
       clearRetry();
       return;

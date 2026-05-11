@@ -214,6 +214,74 @@ describe("provider runtime factory", () => {
     expect(waitForTimeout.mock.calls.map(([delay]) => delay)).toEqual([500, 250, 250]);
   });
 
+  it("retries transient frame-removal errors during fallback capture", async () => {
+    const stableHtml = "<html><body><a href=\"https://example.com/product\">Recovered product</a><p>Ready content</p></body></html>";
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "frame-removed-retry-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      status: vi.fn(async () => ({ mode: "managed_headed", url: "https://www.macys.com/shop/featured/women%20sneakers" })),
+      withPage: vi.fn()
+        .mockRejectedValueOnce(new Error("[execution_failed] Frame with ID 0 was removed."))
+        .mockResolvedValueOnce(stableHtml)
+        .mockResolvedValueOnce(stableHtml),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "shopping/macys",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-frame-removed-retry", ts: "2026-04-08T00:00:00.000Z" },
+      url: "https://www.macys.com/shop/featured/women%20sneakers"
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      output: {
+        html: stableHtml
+      },
+      details: {
+        captureDiagnostics: {
+          attempts: 3,
+          transientCaptureErrors: 1
+        }
+      }
+    });
+  });
+
+  it("does not treat extension ops handshake closures as fallback capture instability", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "ops-handshake-retry-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      status: vi.fn(async () => ({ mode: "managed_headed", url: "https://www.macys.com/shop/featured/women%20sneakers" })),
+      withPage: vi.fn()
+        .mockRejectedValueOnce(new Error("Ops socket closed before handshake")),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+    const response = await port?.resolve({
+      provider: "shopping/macys",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      trace: { requestId: "rf-ops-handshake-retry", ts: "2026-04-08T00:00:00.000Z" },
+      url: "https://www.macys.com/shop/featured/women%20sneakers"
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      details: {
+        message: "Ops socket closed before handshake"
+      }
+    });
+    expect(manager.withPage).toHaveBeenCalledTimes(1);
+  });
+
   it("waits longer before capturing shopping fallback HTML", async () => {
     const waitForTimeout = vi.fn(async () => undefined);
     const manager = {
@@ -620,6 +688,10 @@ describe("provider runtime factory", () => {
       status: vi
         .fn()
         .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" })
+        .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" })
+        .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" })
+        .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" })
+        .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" })
         .mockResolvedValueOnce({ mode: "extension", url: "https://example.com/home" }),
       cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
       disconnect: vi.fn(async () => undefined)
@@ -881,6 +953,61 @@ describe("provider runtime factory", () => {
       inlineStyles: false
     });
     expect(manager.clonePage).not.toHaveBeenCalled();
+  });
+
+  it("uses startUrl during explicit community extension attach", async () => {
+    const url = "https://www.reddit.com/search/?q=browser%20automation";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "community-extension-fallback" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body>community extension fallback</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension", url })),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787"
+    });
+    const response = await port?.resolve({
+      provider: "community/reddit",
+      source: "community",
+      operation: "search",
+      reasonCode: "challenge_detected",
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "community",
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }),
+      trace: { requestId: "rf-community-extension-start-url", ts: "2026-02-16T00:00:00.000Z" },
+      url
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>community extension fallback</body></html>",
+        url
+      },
+      details: {
+        cookieDiagnostics: {
+          policy: "required",
+          verifiedCount: 1
+        }
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787", { startUrl: url });
+    expect(manager.goto).not.toHaveBeenCalled();
   });
 
   it("treats shopping dialog interstitials as preserve-eligible blocker pages", async () => {
@@ -1535,7 +1662,7 @@ describe("provider runtime factory", () => {
     }));
   });
 
-  const socialExtensionRetryDelayMs = 500;
+  const extensionRetryDelayMs = 500;
 
   it.each([
     ["social/x", "https://x.com/search?q=browser+automation&f=live"],
@@ -1578,7 +1705,7 @@ describe("provider runtime factory", () => {
         url
       });
 
-      await vi.advanceTimersByTimeAsync(socialExtensionRetryDelayMs);
+      await vi.advanceTimersByTimeAsync(extensionRetryDelayMs);
       const response = await pendingResponse;
 
       expect(response).toMatchObject({
@@ -1595,6 +1722,116 @@ describe("provider runtime factory", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("retries community extension fallback before returning an ops transport failure", async () => {
+    vi.useFakeTimers();
+    try {
+      const url = "https://www.reddit.com/search/?q=browser%20automation";
+      const manager = {
+        connectRelay: vi
+          .fn()
+          .mockRejectedValueOnce(new Error("Ops handshake timeout"))
+          .mockResolvedValueOnce({ sessionId: "community-extension-retry" }),
+        launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+        goto: vi.fn(async () => ({ ok: true })),
+        waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+        withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+          return callback({
+            waitForTimeout: async () => undefined,
+            content: async () => "<html><body>community extension retry</body></html>"
+          });
+        }),
+        status: vi.fn(async () => ({ mode: "extension", url })),
+        cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+        disconnect: vi.fn(async () => undefined)
+      } as unknown as BrowserManagerLike;
+
+      const port = createBrowserFallbackPort(manager, {}, {
+        extensionWsEndpoint: "ws://127.0.0.1:8787/ops"
+      });
+      const pendingResponse = port?.resolve({
+        provider: "community/reddit",
+        source: "community",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        runtimePolicy: resolveProviderRuntimePolicy({
+          source: "community",
+          runtimePolicy: {
+            browserMode: "extension",
+            useCookies: true,
+            cookiePolicyOverride: "required"
+          }
+        }),
+        trace: { requestId: "rf-community-extension-retry", ts: "2026-02-16T00:00:00.000Z" },
+        url
+      });
+
+      await vi.advanceTimersByTimeAsync(extensionRetryDelayMs);
+      const response = await pendingResponse;
+
+      expect(response).toMatchObject({
+        ok: true,
+        mode: "extension",
+        output: {
+          html: "<html><body>community extension retry</body></html>",
+          url
+        }
+      });
+      expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787/ops", { startUrl: url });
+      expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787/ops", { startUrl: url });
+      expect(manager.launch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries shopping extension fallback before returning an ops transport failure", async () => {
+    const url = "https://www.bestbuy.com/site/searchpage.jsp?st=mouse&intl=nosplash";
+    const manager = {
+      connectRelay: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Ops handshake timeout"))
+        .mockResolvedValueOnce({ sessionId: "shopping-extension-retry" }),
+      launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePage: vi.fn(async () => ({
+        component: "export default function OpenDevBrowserComponent() { return (<div className=\"opendevbrowser-root\" dangerouslySetInnerHTML={{ __html: \"<html><body>shopping extension retry</body></html>\" }} />); }",
+        css: ""
+      })),
+      status: vi.fn(async () => ({ mode: "extension", url })),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+    const response = await port?.resolve({
+      provider: "shopping/bestbuy",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "rate_limited",
+      trace: { requestId: "rf-shopping-extension-retry", ts: "2026-02-16T00:00:00.000Z" },
+      url,
+      preferredModes: ["extension"]
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><body>shopping extension retry</body></html>",
+        url
+      }
+    });
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787/ops", { startUrl: url });
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787/ops", { startUrl: url });
+    expect(manager.launch).not.toHaveBeenCalled();
   });
 
   it("downgrades to managed after exhausting the bounded social extension retry", async () => {
@@ -1633,7 +1870,7 @@ describe("provider runtime factory", () => {
         url
       });
 
-      await vi.advanceTimersByTimeAsync(socialExtensionRetryDelayMs * 2);
+      await vi.advanceTimersByTimeAsync(extensionRetryDelayMs * 2);
       const response = await pendingResponse;
 
       expect(response).toMatchObject({
@@ -1717,7 +1954,7 @@ describe("provider runtime factory", () => {
         url
       });
 
-      await vi.advanceTimersByTimeAsync(socialExtensionRetryDelayMs * 2);
+      await vi.advanceTimersByTimeAsync(extensionRetryDelayMs * 2);
       const response = await pendingResponse;
 
       expect(response).toMatchObject({
@@ -1838,6 +2075,169 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).toHaveBeenCalledWith("extension-required-cookie-miss", true);
   });
 
+  it("accepts shopping extension redirects that keep the requested provider path", async () => {
+    const requestUrl = "https://www.bestbuy.com/site/searchpage.jsp?st=logitech%20mx%20master%203s&intl=nosplash";
+    const observedUrl = "https://www.bestbuy.com/site/searchpage.jsp?id=pcat17071&st=logitech+mx+master+3s";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-rewrite" })),
+      launch: vi.fn(),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><a href=\"https://www.bestbuy.com/site/mouse/1.p?skuId=1\">Best Buy mouse</a><div>$49.99 in stock</div></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension", url: observedUrl })),
+      disconnect: vi.fn(async () => undefined),
+      cookieList: vi.fn(async () => ({ requestId: "list", cookies: [], count: 2 }))
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, { policy: "required" }, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787"
+    });
+    const response = await port?.resolve({
+      provider: "shopping/bestbuy",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "shopping",
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }),
+      trace: { requestId: "rf-shopping-extension-rewrite", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      reasonCode: "env_limited",
+      mode: "extension",
+      output: {
+        url: observedUrl
+      },
+      details: {
+        cookieDiagnostics: {
+          policy: "required",
+          verifiedCount: 2
+        }
+      }
+    });
+    expect(manager.goto).not.toHaveBeenCalled();
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("does not accept stale same-path shopping search tabs with a different query", async () => {
+    const requestUrl = "https://www.bestbuy.com/site/searchpage.jsp?st=mouse&intl=nosplash";
+    const staleUrl = "https://www.bestbuy.com/site/searchpage.jsp?st=keyboard&intl=nosplash";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-stale-search" })),
+      launch: vi.fn(),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><a href=\"https://www.bestbuy.com/site/mouse/1.p?skuId=1\">Best Buy mouse</a><div>$49.99 in stock</div></body></html>"
+        });
+      }),
+      status: vi.fn()
+        .mockResolvedValueOnce({ mode: "extension", url: staleUrl })
+        .mockResolvedValueOnce({ mode: "extension", url: requestUrl })
+        .mockResolvedValueOnce({ mode: "extension", url: requestUrl }),
+      disconnect: vi.fn(async () => undefined),
+      cookieList: vi.fn(async () => ({ requestId: "list", cookies: [], count: 2 }))
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, { policy: "required" }, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787"
+    });
+    const response = await port?.resolve({
+      provider: "shopping/bestbuy",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "shopping",
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }),
+      trace: { requestId: "rf-shopping-extension-stale-search", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        url: requestUrl
+      }
+    });
+    expect(manager.goto).toHaveBeenCalledWith("shopping-extension-stale-search", requestUrl, "load", 45000);
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("does not accept non-search shopping paths only because query intent matches", async () => {
+    const requestUrl = "https://www.bestbuy.com/site/searchpage.jsp?st=mouse&intl=nosplash";
+    const staleProductUrl = "https://www.bestbuy.com/site/stale-product/1.p?st=mouse&skuId=1";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-stale-product" })),
+      launch: vi.fn(),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><a href=\"https://www.bestbuy.com/site/mouse/1.p?skuId=1\">Best Buy mouse</a><div>$49.99 in stock</div></body></html>"
+        });
+      }),
+      status: vi.fn()
+        .mockResolvedValueOnce({ mode: "extension", url: staleProductUrl })
+        .mockResolvedValueOnce({ mode: "extension", url: requestUrl })
+        .mockResolvedValueOnce({ mode: "extension", url: requestUrl }),
+      disconnect: vi.fn(async () => undefined),
+      cookieList: vi.fn(async () => ({ requestId: "list", cookies: [], count: 2 }))
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, { policy: "required" }, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787"
+    });
+    const response = await port?.resolve({
+      provider: "shopping/bestbuy",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "env_limited",
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "shopping",
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }),
+      trace: { requestId: "rf-shopping-extension-stale-product", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        url: requestUrl
+      }
+    });
+    expect(manager.goto).toHaveBeenCalledWith("shopping-extension-stale-product", requestUrl, "load", 45000);
+    expect(manager.launch).not.toHaveBeenCalled();
+  });
+
   it("treats env-limited fallback pages as successful captures instead of blocker failures", async () => {
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "env-limited-page" })),
@@ -1869,6 +2269,54 @@ describe("provider runtime factory", () => {
       output: {
         html: "<html><body>This feature is not available in this environment.</body></html>",
         url: "https://example.com/protected"
+      }
+    });
+  });
+
+  it("accepts shopping extension search rewrites that keep provider host and query intent", async () => {
+    const requestUrl = "https://www.costco.com/CatalogSearch?dept=All&keyword=ergonomic%20wireless%20mouse";
+    const observedUrl = "https://www.costco.com/s?keyword=ergonomic%20wireless%20mouse";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "shopping-extension-search-rewrite" })),
+      launch: vi.fn(),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><a href=\"https://www.costco.com/logitech-mouse.product.4000000000.html\">Logitech ergonomic wireless mouse</a><div>$59.99 in stock</div></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension", url: observedUrl })),
+      disconnect: vi.fn(async () => undefined),
+      cookieList: vi.fn(async () => ({ requestId: "list", cookies: [], count: 2 }))
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, { policy: "required" }, {
+      extensionWsEndpoint: "ws://127.0.0.1:8787"
+    });
+    const response = await port?.resolve({
+      provider: "shopping/costco",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "auth_required",
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "shopping",
+        runtimePolicy: {
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        }
+      }),
+      trace: { requestId: "rf-shopping-extension-search-rewrite", ts: "2026-02-16T00:00:00.000Z" },
+      url: requestUrl
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        url: observedUrl
       }
     });
   });
@@ -3674,7 +4122,13 @@ describe("provider runtime factory", () => {
 
     expect(response).toMatchObject({
       ok: false,
-      reasonCode: "auth_required"
+      reasonCode: "auth_required",
+      details: {
+        cookieDiagnostics: {
+          sessionEvidence: "cookies_missing",
+          authStateVerified: false
+        }
+      }
     });
     expect(manager.cookieImport).not.toHaveBeenCalled();
     expect(manager.goto).not.toHaveBeenCalled();
@@ -3739,7 +4193,9 @@ describe("provider runtime factory", () => {
           source: "inline",
           injected: 1,
           rejected: 0,
-          verifiedCount: 1
+          verifiedCount: 1,
+          sessionEvidence: "cookies_observable",
+          authStateVerified: false
         }
       }
     });

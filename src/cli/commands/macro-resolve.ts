@@ -9,7 +9,7 @@ import {
   readWorkflowGuidanceNextStep
 } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
-import type { WorkflowBrowserMode } from "../../providers/types";
+import type { ProviderCookiePolicy, WorkflowBrowserMode } from "../../providers/types";
 
 type MacroResolveArgs = {
   expression?: string;
@@ -18,11 +18,15 @@ type MacroResolveArgs = {
   execute?: boolean;
   timeoutMs?: number;
   browserMode?: WorkflowBrowserMode;
+  useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
+  cookiePolicyOverride?: ProviderCookiePolicy;
+  cookiePolicyFlag?: "--cookie-policy" | "--cookie-policy-override";
 };
 
 const MACRO_TRANSPORT_TIMEOUT_BUFFER_MS = 60_000;
 const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
+const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
 
 const deriveMacroTransportTimeoutMs = (timeoutMs: number): number => {
   return Math.max(
@@ -36,6 +40,41 @@ const requireValue = (value: string | undefined, flag: string): string => {
     throw createUsageError(`Missing value for ${flag}`);
   }
   return value;
+};
+
+const parseBooleanFlag = (value: string, flag: string): boolean => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw createUsageError(`Invalid ${flag}: ${value}`);
+};
+
+const parseOptionalBooleanFlag = (
+  rawArgs: string[],
+  index: number,
+  flag: string
+): { value: boolean; nextIndex: number } => {
+  const next = rawArgs[index + 1];
+  if (typeof next !== "string" || next.startsWith("--")) {
+    return { value: true, nextIndex: index };
+  }
+  return {
+    value: parseBooleanFlag(next, flag),
+    nextIndex: index + 1
+  };
+};
+
+const splitEqualsFlag = (
+  arg: string,
+  candidates: readonly ["--cookie-policy-override", "--cookie-policy"]
+): { flag: "--cookie-policy" | "--cookie-policy-override"; value: string } => {
+  const flag = candidates.find((candidate) => arg.startsWith(`${candidate}=`));
+  if (!flag) {
+    throw createUsageError(`Unknown option: ${arg}`);
+  }
+  return {
+    flag,
+    value: requireValue(arg.slice(flag.length + 1), flag)
+  };
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -131,6 +170,17 @@ const parseMacroResolveArgs = (rawArgs: string[]): MacroResolveArgs => {
       continue;
     }
 
+    if (arg === "--use-cookies") {
+      const parsedFlag = parseOptionalBooleanFlag(rawArgs, index, "--use-cookies");
+      parsed.useCookies = parsedFlag.value;
+      index = parsedFlag.nextIndex;
+      continue;
+    }
+    if (arg?.startsWith("--use-cookies=")) {
+      parsed.useCookies = parseBooleanFlag(arg.split("=", 2)[1] ?? "", "--use-cookies");
+      continue;
+    }
+
     if (arg === "--challenge-automation-mode") {
       const value = requireValue(rawArgs[index + 1], "--challenge-automation-mode");
       if (!isChallengeAutomationMode(value)) {
@@ -148,6 +198,27 @@ const parseMacroResolveArgs = (rawArgs: string[]): MacroResolveArgs => {
       parsed.challengeAutomationMode = value;
       continue;
     }
+
+    if (arg === "--cookie-policy-override" || arg === "--cookie-policy") {
+      const value = requireValue(rawArgs[index + 1], arg).toLowerCase();
+      if (!COOKIE_POLICY_VALUES.has(value)) {
+        throw createUsageError(`Invalid ${arg}: ${value}`);
+      }
+      parsed.cookiePolicyOverride = value as ProviderCookiePolicy;
+      parsed.cookiePolicyFlag = arg;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--cookie-policy-override=") || arg?.startsWith("--cookie-policy=")) {
+      const { flag, value: rawValue } = splitEqualsFlag(arg, ["--cookie-policy-override", "--cookie-policy"]);
+      const value = rawValue.toLowerCase();
+      if (!COOKIE_POLICY_VALUES.has(value)) {
+        throw createUsageError(`Invalid ${flag}: ${value}`);
+      }
+      parsed.cookiePolicyOverride = value as ProviderCookiePolicy;
+      parsed.cookiePolicyFlag = flag;
+      continue;
+    }
   }
 
   return parsed;
@@ -161,8 +232,14 @@ export async function runMacroResolve(args: ParsedArgs) {
   if (!parsed.execute && parsed.browserMode) {
     throw createUsageError("--browser-mode requires --execute for macro-resolve");
   }
+  if (!parsed.execute && typeof parsed.useCookies === "boolean") {
+    throw createUsageError("--use-cookies requires --execute for macro-resolve");
+  }
   if (!parsed.execute && parsed.challengeAutomationMode) {
     throw createUsageError("--challenge-automation-mode requires --execute for macro-resolve");
+  }
+  if (!parsed.execute && parsed.cookiePolicyOverride) {
+    throw createUsageError(`${parsed.cookiePolicyFlag ?? "--cookie-policy-override"} requires --execute for macro-resolve`);
   }
 
   const params = {
@@ -172,7 +249,9 @@ export async function runMacroResolve(args: ParsedArgs) {
     execute: parsed.execute ?? false,
     ...(typeof parsed.timeoutMs === "number" ? { timeoutMs: parsed.timeoutMs } : {}),
     ...(parsed.browserMode ? { browserMode: parsed.browserMode } : {}),
-    ...(parsed.challengeAutomationMode ? { challengeAutomationMode: parsed.challengeAutomationMode } : {})
+    ...(typeof parsed.useCookies === "boolean" ? { useCookies: parsed.useCookies } : {}),
+    ...(parsed.challengeAutomationMode ? { challengeAutomationMode: parsed.challengeAutomationMode } : {}),
+    ...(parsed.cookiePolicyOverride ? { cookiePolicyOverride: parsed.cookiePolicyOverride } : {})
   };
   const result = typeof parsed.timeoutMs === "number"
     ? await callDaemon("macro.resolve", params, {

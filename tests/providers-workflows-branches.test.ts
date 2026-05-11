@@ -4293,6 +4293,46 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("keeps documentation research records that contain sign-in navigation plus substantial article content", async () => {
+    const docsContent = [
+      "Skip to main content Sign in Docs Chrome Extensions Reference API chrome.debugger",
+      "The chrome.debugger API serves as an alternate transport for Chrome's remote debugging protocol.",
+      "Use chrome.debugger to attach to one or more tabs, instrument network interaction, debug JavaScript, mutate the DOM and CSS, and route events by tabId.",
+      "Permissions require declaring the debugger permission in the extension manifest before calling attach, detach, getTargets, or sendCommand.",
+      "Targets include tabs, frames, workers, and other debuggable contexts exposed through the DevTools protocol.",
+      "Examples show how to attach to related targets and send protocol commands safely from an extension.",
+      "Debugger sessions are routed with session identifiers so an extension can distinguish root targets from child targets during protocol forwarding.",
+      "The article documents target discovery, restricted domains, frame handling, event delivery, and command routing for production extension debugging workflows."
+    ].join(" ");
+    const runtime = toRuntime({
+      search: async () => makeAggregate({
+        sourceSelection: "web",
+        providerOrder: ["web/default"],
+        records: [makeRecord({
+          id: "chrome-debugger-doc",
+          source: "web",
+          provider: "web/default",
+          url: "https://developer.chrome.com/docs/extensions/reference/api/debugger",
+          title: "chrome.debugger API",
+          content: docsContent,
+          attributes: {
+            retrievalPath: "web:fetch:url"
+          }
+        })]
+      })
+    });
+
+    const output = await runResearchWorkflow(runtime, {
+      topic: "Chrome extension debugger API",
+      sourceSelection: "web",
+      days: 30,
+      mode: "json"
+    });
+
+    expect((output.records as Array<{ id: string }>).map((record) => record.id)).toEqual(["chrome-debugger-doc"]);
+    expect(output.meta.metrics.sanitized_records).toBe(0);
+  });
+
   it("fails research runs when only privacy preference records are gathered", async () => {
     const runtime = toRuntime({
       search: async () => makeAggregate({

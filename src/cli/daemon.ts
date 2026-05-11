@@ -19,7 +19,8 @@ export const DAEMON_STOP_FINGERPRINT_HEADER = "x-opendevbrowser-stop-fingerprint
 
 const RECOVERABLE_PLAYWRIGHT_TRANSPORT_ERRORS = [
   "Cannot find context with specified id",
-  "Detached while handling command."
+  "Detached while handling command.",
+  "No frame with given id found"
 ] as const;
 const DAEMON_FINGERPRINT_VERSION = "v1";
 
@@ -189,7 +190,9 @@ export function isRecoverablePlaywrightTransportError(error: unknown): boolean {
 
 function isRecoverablePlaywrightTransportAssertion(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  if (!message.includes("Assertion error")) {
+  const isKnownTransportAssertion = message.includes("Assertion error")
+    || message.includes("No tab attached");
+  if (!isKnownTransportAssertion) {
     return false;
   }
   const stack = error instanceof Error && typeof error.stack === "string" ? error.stack : "";

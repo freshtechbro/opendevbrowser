@@ -813,7 +813,7 @@ describe("macro parser + registry", () => {
     expect(result.records[0]?.attributes.links).toContain("https://x.com/acct/status/1");
   });
 
-  it("keeps concrete X post records when fallback warning text remains on the row", async () => {
+  it("rejects concrete X post urls when expanded content is only a javascript shell", async () => {
     const runtime = {
       search: async () => ({
         ok: true,
@@ -824,7 +824,7 @@ describe("macro parser + registry", () => {
             provider: "social/x",
             url: "https://x.com/acct/status/1",
             title: "https://x.com/acct/status/1",
-            content: "JavaScript is disabled in this browser. Please enable JavaScript.",
+            content: "JavaScript is not available. Please enable JavaScript or switch to a supported browser. Something went wrong. Try again.",
             timestamp: "2026-01-01T00:00:00.000Z",
             confidence: 0.8,
             attributes: {
@@ -853,7 +853,7 @@ describe("macro parser + registry", () => {
       }
     };
 
-    const result = await executeMacroResolution({
+    await expect(executeMacroResolution({
       action: {
         source: "social",
         operation: "search",
@@ -869,10 +869,7 @@ describe("macro parser + registry", () => {
         pack: "core:media",
         args: { positional: [], named: {} }
       }
-    }, runtime);
-
-    expect(result.records).toHaveLength(1);
-    expect(result.records[0]?.url).toBe("https://x.com/acct/status/1");
+    }, runtime)).rejects.toThrow("Macro execution returned only shell records (social_js_required_shell).");
   });
 
   it("rejects shell-only X social macro results when only policy and help links are present", async () => {
@@ -1554,11 +1551,19 @@ describe("macro parser + registry", () => {
         pack: "core:web",
         args: { positional: [], named: {} }
       }
-    }, runtime, { challengeAutomationMode: "browser_with_helper" });
+    }, runtime, {
+      useCookies: true,
+      challengeAutomationMode: "browser_with_helper",
+      cookiePolicyOverride: "required"
+    });
 
     expect(receivedOptions).toMatchObject({
       source: "web",
-      challengeAutomationMode: "browser_with_helper"
+      challengeAutomationMode: "browser_with_helper",
+      runtimePolicy: {
+        useCookies: true,
+        cookiePolicyOverride: "required"
+      }
     });
   });
 

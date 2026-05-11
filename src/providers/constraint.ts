@@ -45,6 +45,7 @@ const CONSTRAINT_KINDS = new Set<ProviderConstraintKind>([
 
 const RENDER_REQUIRED_SHELLS = new Set<string>([
   "bestbuy_international_gate",
+  "bestbuy_pdp_error_shell",
   "duckduckgo_non_js_redirect",
   "macys_access_denied_shell",
   "social_first_party_help_shell",
@@ -314,8 +315,27 @@ const buildChallengeGuidance = (
 
 const buildRenderGuidance = (
   subject: string,
-  preservedBrowserState: boolean
+  preservedBrowserState: boolean,
+  constraint?: ProviderConstraint
 ): ProviderNextStepGuidance => {
+  if (constraint?.providerShell === "bestbuy_international_gate") {
+    return buildGuidance(
+      `${subject} needs the Best Buy country-selection interstitial cleared before retrying.`,
+      [
+        "Choose the shopping country or region in the preserved browser session.",
+        "Rerun the same provider or workflow after the Best Buy PDP or search results are visible."
+      ]
+    );
+  }
+  if (constraint?.providerShell === "bestbuy_pdp_error_shell") {
+    return buildGuidance(
+      `${subject} needs a valid Best Buy product detail page before retrying.`,
+      [
+        "Open the Best Buy product URL in the preserved browser session and confirm the PDP is visible.",
+        "Rerun the workflow after the product title, price, and media are visible instead of the generic error page."
+      ]
+    );
+  }
   return preservedBrowserState
     ? buildGuidance(
       `${subject} still needs a live browser-rendered page, but browser state is already preserved.`,
@@ -352,7 +372,7 @@ export const buildProviderIssueGuidance = (args: {
     return buildChallengeGuidance(subject, preservedBrowserState);
   }
   if (args.hint.constraint?.kind === "render_required" || args.hint.reasonCode === "env_limited") {
-    return buildRenderGuidance(subject, preservedBrowserState);
+    return buildRenderGuidance(subject, preservedBrowserState, args.hint.constraint);
   }
   return undefined;
 };
@@ -363,6 +383,19 @@ const summaryPriority = (hint: ProviderIssueHint): number => {
   if (hint.reasonCode === "challenge_detected") return 2;
   if (hint.constraint?.kind === "render_required") return 1;
   return 0;
+};
+
+const summarizeRenderConstraint = (
+  subject: string,
+  constraint?: ProviderConstraint
+): string => {
+  if (constraint?.providerShell === "bestbuy_international_gate") {
+    return `${subject} is blocked by the Best Buy country-selection interstitial.`;
+  }
+  if (constraint?.providerShell === "bestbuy_pdp_error_shell") {
+    return `${subject} is blocked by a Best Buy product-detail error shell.`;
+  }
+  return `${subject} requires a live browser-rendered page.`;
 };
 
 export const summarizeProviderIssue = (args: {
@@ -377,7 +410,7 @@ export const summarizeProviderIssue = (args: {
     return `${subject} hit an anti-bot challenge that requires manual completion.`;
   }
   if (args.hint.constraint?.kind === "render_required") {
-    return `${subject} requires a live browser-rendered page.`;
+    return summarizeRenderConstraint(subject, args.hint.constraint);
   }
   return `${subject} requires manual browser follow-up; this run did not determine whether login or page rendering is required.`;
 };

@@ -602,6 +602,38 @@ describe("parseMacroResolveArgs", () => {
     expect(equalsForm.challengeAutomationMode).toBe("browser");
   });
 
+  it("parses cookie reuse flags", () => {
+    const parsed = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--use-cookies",
+      "--cookie-policy",
+      "required"
+    ]);
+    expect(parsed.useCookies).toBe(true);
+    expect(parsed.cookiePolicyOverride).toBe("required");
+
+    const spacedFalse = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--use-cookies",
+      "false",
+      "--cookie-policy",
+      "auto"
+    ]);
+    expect(spacedFalse.useCookies).toBe(false);
+    expect(spacedFalse.cookiePolicyOverride).toBe("auto");
+
+    const equalsForm = macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--use-cookies=false",
+      "--cookie-policy-override=off"
+    ]);
+    expect(equalsForm.useCookies).toBe(false);
+    expect(equalsForm.cookiePolicyOverride).toBe("off");
+  });
+
   it("rejects invalid challenge automation mode", () => {
     expect(() => macroResolveTest.parseMacroResolveArgs([
       "--expression",
@@ -609,6 +641,34 @@ describe("parseMacroResolveArgs", () => {
       "--challenge-automation-mode",
       "invalid"
     ])).toThrow("Invalid --challenge-automation-mode: invalid");
+  });
+
+  it("rejects invalid cookie reuse flags", () => {
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--use-cookies=maybe"
+    ])).toThrow("Invalid --use-cookies: maybe");
+
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--use-cookies",
+      "maybe"
+    ])).toThrow("Invalid --use-cookies: maybe");
+
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--cookie-policy=invalid"
+    ])).toThrow("Invalid --cookie-policy: invalid");
+
+    expect(() => macroResolveTest.parseMacroResolveArgs([
+      "--expression",
+      "@community.search(\"openai\")",
+      "--cookie-policy",
+      "invalid"
+    ])).toThrow("Invalid --cookie-policy: invalid");
   });
 
   it("rejects invalid timeout-ms", () => {

@@ -46,7 +46,7 @@ describe("public surface manifest", () => {
 
     expect(macroResolve).toEqual(expect.objectContaining({
       cliEquivalent: "macro-resolve",
-      example: "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json"
+      example: "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json"
     }));
     expect(macroResolve?.notes).toBeUndefined();
   });

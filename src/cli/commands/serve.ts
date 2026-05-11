@@ -179,7 +179,8 @@ function isCurrentExecutableServeProcess(snapshot: ServeProcessSnapshot): boolea
   if (CURRENT_UID === null || snapshot.uid === null || snapshot.uid !== CURRENT_UID) {
     return false;
   }
-  if (!snapshot.command.includes(CURRENT_EXECUTABLE)) {
+  const executable = snapshot.command.trim().split(/\s+/, 1)[0] ?? "";
+  if (executable !== CURRENT_EXECUTABLE && !snapshot.command.includes(CURRENT_EXECUTABLE)) {
     return false;
   }
   if (!SERVE_COMMAND_PATTERN.test(snapshot.command)) {
@@ -245,6 +246,15 @@ function terminateServeProcessByPid(pid?: number): boolean {
   return snapshot ? isCurrentExecutableServeProcess(snapshot) && terminateProcess(pid) : false;
 }
 
+function isServeProcessRunningByPid(pid?: number): boolean {
+  if (!isPositivePid(pid)) {
+    return false;
+  }
+  return listServeProcessSnapshots().some((item) => {
+    return item.pid === pid && isCurrentExecutableServeProcess(item);
+  });
+}
+
 function buildStaleStopMessage(metadata: NonNullable<ReturnType<typeof readDaemonMetadata>>): string {
   const pid = isPositivePid(metadata.pid) ? ` pid=${metadata.pid}` : "";
   return `Daemon rejected stale stop request for 127.0.0.1:${metadata.port}${pid}. Run \`opendevbrowser status --daemon\` to inspect the active daemon, then restart from the current install if needed.`;
@@ -263,6 +273,25 @@ async function waitForDaemonShutdown(port: number, token: string): Promise<boole
     await new Promise((resolve) => setTimeout(resolve, DAEMON_SHUTDOWN_POLL_DELAY_MS));
   }
   return false;
+}
+
+async function waitForServeProcessExit(pid?: number): Promise<boolean> {
+  if (!isPositivePid(pid)) {
+    return true;
+  }
+  for (let attempt = 0; attempt < DAEMON_SHUTDOWN_POLL_ATTEMPTS; attempt += 1) {
+    if (!isServeProcessRunningByPid(pid)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, DAEMON_SHUTDOWN_POLL_DELAY_MS));
+  }
+  return false;
+}
+
+async function confirmStoppedDaemon(port: number, token: string, pid?: number): Promise<boolean> {
+  const statusStopped = await waitForDaemonShutdown(port, token);
+  const processStopped = await waitForServeProcessExit(pid);
+  return statusStopped && processStopped;
 }
 
 async function stopMismatchedDaemon(port: number, daemon: ExistingDaemon): Promise<string | null> {
@@ -352,7 +381,17 @@ export async function runServe(args: ParsedArgs) {
       if (!response.ok) {
         throw new Error(`Stop failed (${response.status})`);
       }
-      return { success: true, message: "Daemon stopped." };
+      if (await confirmStoppedDaemon(metadata.port, metadata.token, metadata.pid)) {
+        return { success: true, message: "Daemon stopped." };
+      }
+      if (terminateServeProcessByPid(metadata.pid)) {
+        return { success: true, message: "Daemon stopped." };
+      }
+      return {
+        success: false,
+        message: `Timed out waiting for daemon on 127.0.0.1:${metadata.port} to stop.`,
+        exitCode: EXIT_EXECUTION
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { success: false, message: `Failed to stop daemon: ${message}`, exitCode: EXIT_EXECUTION };

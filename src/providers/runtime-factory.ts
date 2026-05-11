@@ -47,6 +47,8 @@ type BrowserFallbackCookieDiagnostics = {
   rejected: number;
   verifiedCount: number;
   strict: boolean;
+  sessionEvidence: "not_checked" | "cookies_missing" | "cookies_observable";
+  authStateVerified: boolean;
   reasonCode?: BrowserFallbackResponse["reasonCode"];
   message?: string;
 };
@@ -73,10 +75,12 @@ const DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES = 5000;
 const DEFAULT_FALLBACK_SOCIAL_CLONE_MAX_NODES = 15000;
 const DEFAULT_FALLBACK_MAX_CAPTURE_ATTEMPTS = 3;
 const DEFAULT_FALLBACK_RECAPTURE_DELAY_MS = 250;
-const SOCIAL_EXTENSION_RETRY_DELAY_MS = 500;
+const EXTENSION_RETRY_DELAY_MS = 500;
 const FALLBACK_CAPTURE_MIN_CONTENT_BUDGET_MS = 250;
 const FALLBACK_CAPTURE_HTML_STABILITY_THRESHOLD = 256;
 const FALLBACK_CAPTURE_TEXT_STABILITY_THRESHOLD = 64;
+const SHOPPING_SEARCH_INTENT_KEYS = ["keyword", "st", "q", "searchTerm"];
+const SHOPPING_SEARCH_PATH_RE = /(?:search|sch|catalogsearch|\/s(?:\/|$)|featured)/iu;
 const SHOPPING_FALLBACK_FLAGS = ["--disable-http2"];
 const SHOPPING_INTERSTITIAL_DIALOG_RE = /\b(?:role\s*=\s*["'](?:dialog|alertdialog)["']|aria-modal\s*=\s*["']true["'])/i;
 const SHOPPING_INTERSTITIAL_TEXT_RE = /\b(?:choose where (?:you(?:'|’)d|you would|to) like to shop|how do you want your items|set your location|confirm your location|choose a store)\b/i;
@@ -100,8 +104,18 @@ const isExplicitSocialExtensionRequest = (request: BrowserFallbackRequest): bool
     && preferredModes[0] === "extension";
 };
 
+const isExplicitCommunityExtensionRequest = (request: BrowserFallbackRequest): boolean => {
+  const preferredModes = request.runtimePolicy?.browser.preferredModes ?? request.preferredModes;
+  return request.source === "community"
+    && request.runtimePolicy?.browser.forceTransport === true
+    && preferredModes?.length === 1
+    && preferredModes[0] === "extension";
+};
+
 const shouldVerifyExtensionRequestUrl = (request: BrowserFallbackRequest): boolean => (
-  isExplicitShoppingExtensionRequest(request) || isExplicitSocialExtensionRequest(request)
+  isExplicitShoppingExtensionRequest(request)
+  || isExplicitSocialExtensionRequest(request)
+  || isExplicitCommunityExtensionRequest(request)
 );
 
 const isRequiredExtensionSessionRequest = (
@@ -124,20 +138,22 @@ const requiresAuthenticatedExtensionSession = (
 
 const shouldAttachExtensionStartUrl = (request: BrowserFallbackRequest): boolean => (
   request.source === "social"
+  || request.source === "community"
   || request.source === "shopping"
 );
 
-const SOCIAL_EXTENSION_MODE_ATTEMPTS = 3;
+const EXTENSION_MODE_ATTEMPTS = 3;
 
-const resolveSocialExtensionModeAttempts = (
+const resolveExtensionModeAttempts = (
   request: BrowserFallbackRequest,
   preferredMode: string
-): number => preferredMode === "extension" && request.source === "social"
-  ? SOCIAL_EXTENSION_MODE_ATTEMPTS
+): number => preferredMode === "extension"
+  && (request.source === "social" || request.source === "community" || request.source === "shopping")
+  ? EXTENSION_MODE_ATTEMPTS
   : 1;
 
-const waitForSocialExtensionRetryGap = async (): Promise<void> => {
-  await new Promise((resolve) => setTimeout(resolve, SOCIAL_EXTENSION_RETRY_DELAY_MS));
+const waitForExtensionRetryGap = async (): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, EXTENSION_RETRY_DELAY_MS));
 };
 
 const resolveFallbackNavigationWaitUntil = (
@@ -157,11 +173,60 @@ const normalizeExtensionAttachUrl = (value?: string): string | undefined => {
 
 const didExtensionAttachReachRequestUrl = (
   requestUrl: string,
-  attachedUrl?: string
+  attachedUrl?: string,
+  options: { allowEquivalentPath?: boolean } = {}
 ): boolean => {
   const normalizedAttachedUrl = normalizeExtensionAttachUrl(attachedUrl);
-  return typeof normalizedAttachedUrl === "string"
-    && canonicalizeUrl(requestUrl) === canonicalizeUrl(normalizedAttachedUrl);
+  if (typeof normalizedAttachedUrl !== "string") {
+    return false;
+  }
+  return canonicalizeUrl(requestUrl) === canonicalizeUrl(normalizedAttachedUrl)
+    || (
+      options.allowEquivalentPath === true
+      && didShoppingAttachReachEquivalentPath(requestUrl, normalizedAttachedUrl)
+    );
+};
+
+const didShoppingAttachReachEquivalentPath = (
+  requestUrl: string,
+  attachedUrl: string
+): boolean => {
+  try {
+    const requested = new URL(requestUrl);
+    const attached = new URL(attachedUrl);
+    const sameProviderOrigin = requested.protocol === attached.protocol
+      && requested.hostname.toLowerCase() === attached.hostname.toLowerCase()
+      && requested.pathname !== "/"
+      && attached.pathname !== "/";
+    if (!sameProviderOrigin) {
+      return false;
+    }
+    const samePath = requested.pathname.replace(/\/+$/u, "") === attached.pathname.replace(/\/+$/u, "");
+    const requestedSearchIntent = readShoppingSearchIntent(requested);
+    const attachedSearchIntent = readShoppingSearchIntent(attached);
+    if (requestedSearchIntent !== null) {
+      return requestedSearchIntent === attachedSearchIntent
+        && (samePath || areShoppingSearchRouteRewrites(requested, attached));
+    }
+    return samePath;
+  } catch {
+    return false;
+  }
+};
+
+const areShoppingSearchRouteRewrites = (
+  requested: URL,
+  attached: URL
+): boolean => SHOPPING_SEARCH_PATH_RE.test(requested.pathname) && SHOPPING_SEARCH_PATH_RE.test(attached.pathname);
+
+const readShoppingSearchIntent = (url: URL): string | null => {
+  for (const key of SHOPPING_SEARCH_INTENT_KEYS) {
+    const value = url.searchParams.get(key);
+    if (value && value.trim().length > 0) {
+      return value.replace(/\s+/gu, " ").trim().toLowerCase();
+    }
+  }
+  return null;
 };
 
 const isRestrictedExtensionAttachUrl = (value?: string): boolean => {
@@ -236,7 +301,9 @@ const reconnectExplicitShoppingExtensionSession = async (args: {
   const attachedUrl = (await args.manager.status(attached.sessionId)).url;
   return {
     sessionId: attached.sessionId,
-    navigatedDuringAttach: didExtensionAttachReachRequestUrl(args.requestUrl, attachedUrl)
+    navigatedDuringAttach: didExtensionAttachReachRequestUrl(args.requestUrl, attachedUrl, {
+      allowEquivalentPath: true
+    })
   };
 };
 
@@ -253,7 +320,9 @@ const baseCookieDiagnostics = (
   injected: 0,
   rejected: 0,
   verifiedCount: 0,
-  strict: false
+  strict: false,
+  sessionEvidence: "not_checked",
+  authStateVerified: false
 });
 
 const fallbackFailure = (
@@ -723,16 +792,23 @@ const isFallbackCaptureStable = (
     && current.linkCount === previous.linkCount;
 };
 
+const isTransientFallbackCaptureError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:Frame with ID \d+ was removed|Execution context was destroyed|Cannot find context with specified id)\b/i.test(message);
+};
+
 const createFallbackCaptureDiagnostics = (
   snapshot: FallbackCaptureSnapshot,
   attempts: number,
-  stabilized: boolean
+  stabilized: boolean,
+  transientCaptureErrors = 0
 ): Record<string, JsonValue> => ({
   attempts,
   stabilized,
   finalHtmlLength: snapshot.htmlLength,
   finalTextLength: snapshot.textLength,
-  finalLinkCount: snapshot.linkCount
+  finalLinkCount: snapshot.linkCount,
+  ...(transientCaptureErrors > 0 ? { transientCaptureErrors } : {})
 });
 
 const captureStableFallbackHtml = async (args: {
@@ -749,9 +825,24 @@ const captureStableFallbackHtml = async (args: {
   let finalHtml = "";
   let finalBlocker: ReturnType<typeof detectFallbackPageBlocker> = null;
   let finalSnapshot = summarizeFallbackCapture("", args.url);
+  let transientCaptureErrors = 0;
 
   while (attempts < DEFAULT_FALLBACK_MAX_CAPTURE_ATTEMPTS) {
-    finalHtml = await args.capture(nextDelayMs);
+    try {
+      finalHtml = await args.capture(nextDelayMs);
+    } catch (error) {
+      attempts += 1;
+      if (!isTransientFallbackCaptureError(error) || attempts >= DEFAULT_FALLBACK_MAX_CAPTURE_ATTEMPTS) {
+        throw error;
+      }
+      transientCaptureErrors += 1;
+      const recaptureDelayMs = args.resolveNextDelayMs();
+      if (recaptureDelayMs === null) {
+        throw error;
+      }
+      nextDelayMs = recaptureDelayMs;
+      continue;
+    }
     finalSnapshot = summarizeFallbackCapture(finalHtml, args.url);
     finalBlocker = detectFallbackPageBlocker(args.source, finalHtml, args.url);
     attempts += 1;
@@ -775,7 +866,7 @@ const captureStableFallbackHtml = async (args: {
     html: finalHtml,
     blocker: finalBlocker,
     snapshot: finalSnapshot,
-    diagnostics: createFallbackCaptureDiagnostics(finalSnapshot, attempts, stabilized)
+    diagnostics: createFallbackCaptureDiagnostics(finalSnapshot, attempts, stabilized, transientCaptureErrors)
   };
 };
 
@@ -954,7 +1045,7 @@ export const createBrowserFallbackPort = (
       );
 
       for (const preferredMode of preferredModes) {
-        const maxModeAttempts = resolveSocialExtensionModeAttempts(request, preferredMode);
+        const maxModeAttempts = resolveExtensionModeAttempts(request, preferredMode);
         for (let modeAttempt = 1; modeAttempt <= maxModeAttempts; modeAttempt += 1) {
         let sessionId: string | null = null;
         let preserveSession = false;
@@ -991,7 +1082,9 @@ export const createBrowserFallbackPort = (
             sessionId = attached.sessionId;
             if (shouldVerifyExtensionRequestUrl(request)) {
               attachedUrl = (await manager.status(sessionId)).url;
-              navigatedDuringAttach = didExtensionAttachReachRequestUrl(requestUrl, attachedUrl);
+              navigatedDuringAttach = didExtensionAttachReachRequestUrl(requestUrl, attachedUrl, {
+                allowEquivalentPath: request.source === "shopping"
+              });
               if (request.source === "shopping" && isRestrictedExtensionAttachUrl(attachedUrl)) {
                 const recovered = await reconnectExplicitShoppingExtensionSession({
                   manager,
@@ -1031,6 +1124,7 @@ export const createBrowserFallbackPort = (
             const loaded = await readCookiesFromSource(defaults.source);
             cookieDiagnostics.available = loaded.available;
             cookieDiagnostics.loaded = loaded.cookies.length;
+            cookieDiagnostics.sessionEvidence = loaded.cookies.length > 0 ? "not_checked" : "cookies_missing";
             if (loaded.message) {
               cookieDiagnostics.message = loaded.message;
             }
@@ -1042,7 +1136,9 @@ export const createBrowserFallbackPort = (
               cookieDiagnostics.rejected = imported.rejected.length;
 
               const verified = await manager.cookieList(sessionId, [requestUrl]);
+              cookieDiagnostics.available = verified.count > 0;
               cookieDiagnostics.verifiedCount = verified.count;
+              cookieDiagnostics.sessionEvidence = verified.count > 0 ? "cookies_observable" : "cookies_missing";
             }
             ensureNotAborted("cookies_ready");
 
@@ -1107,7 +1203,9 @@ export const createBrowserFallbackPort = (
           ) {
             const resolvedAttachStatus = await runWithinFallbackDeadline("status", async () => manager.status(activeSessionId));
             const observedUrl = normalizeExtensionAttachUrl(resolvedAttachStatus.url);
-            if (!didExtensionAttachReachRequestUrl(requestUrl, resolvedAttachStatus.url)) {
+            if (!didExtensionAttachReachRequestUrl(requestUrl, resolvedAttachStatus.url, {
+              allowEquivalentPath: request.source === "shopping"
+            })) {
               const details = {
                 requestedUrl: requestUrl,
                 ...(observedUrl ? { observedUrl } : {})
@@ -1132,6 +1230,7 @@ export const createBrowserFallbackPort = (
             const verified = await manager.cookieList(activeSessionId, [requestUrl]);
             cookieDiagnostics.available = verified.count > 0;
             cookieDiagnostics.verifiedCount = verified.count;
+            cookieDiagnostics.sessionEvidence = verified.count > 0 ? "cookies_observable" : "cookies_missing";
             if (policy === "required" && verified.count === 0) {
               const reasonMessage = "Provider cookies were not observable in the live extension session.";
               cookieDiagnostics.reasonCode = "auth_required";
@@ -1368,7 +1467,6 @@ export const createBrowserFallbackPort = (
             }
             : undefined;
           retryModeAttempt = preferredMode === "extension"
-            && request.source === "social"
             && modeAttempt < maxModeAttempts;
           if (!retryModeAttempt) {
             lastFailure = isRequiredExtensionSessionRequest(request, runtimePolicy, preferredMode)
@@ -1392,7 +1490,7 @@ export const createBrowserFallbackPort = (
           }
         }
           if (retryModeAttempt) {
-            await waitForSocialExtensionRetryGap();
+            await waitForExtensionRetryGap();
             continue;
           }
           break;

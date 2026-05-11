@@ -134,6 +134,12 @@ describe("social search quality helpers", () => {
     })).toMatchObject({
       providerShell: "social_first_party_help_shell"
     });
+    expect(detectSocialSearchShell("x", {
+      url: "https://help.x.com/en/using-x",
+      content: "Something went wrong. JavaScript is disabled in this browser. Try again."
+    })).toMatchObject({
+      providerShell: "social_first_party_help_shell"
+    });
     expect(isAllowedSocialSearchExpansionUrl("x", "https://%zz")).toBe(false);
     expect(isAllowedSocialSearchExpansionUrl("x", "https://x.com/site.webmanifest")).toBe(false);
     expect(isAllowedSocialSearchExpansionUrl("x", "https://x.com/opendevbrowser/status/123")).toBe(true);
@@ -152,6 +158,11 @@ describe("social search quality helpers", () => {
     expect(detectSocialSearchShell("x", {
       url: baseUrl,
       content: "JavaScript is disabled in this browser",
+      links: ["https://x.com/opendevbrowser/status/123"]
+    })).toBeNull();
+    expect(detectSocialSearchShell("x", {
+      url: baseUrl,
+      content: "Something went wrong. JavaScript is disabled in this browser. Try again.",
       links: ["https://x.com/opendevbrowser/status/123"]
     })).toBeNull();
     expect(prioritizeSocialSearchLinks("x", baseUrl, [
@@ -309,6 +320,7 @@ describe("social search quality helpers", () => {
       "notaurl"
     ];
 
+    expect(isFirstPartySocialSearchRoute("youtube", "https://www.youtube.com/results?search_query=test")).toBe(false);
     expect(isAllowedSocialSearchExpansionUrl("youtube", "notaurl")).toBe(true);
     expect(detectSocialSearchShell("youtube", {
       url: "https://www.youtube.com/results?search_query=test",
@@ -522,6 +534,13 @@ describe("social search quality helpers", () => {
     })).toMatchObject({
       providerShell: "social_js_required_shell"
     });
+    expect(detectSocialSearchShell("bluesky", {
+      url: baseUrl,
+      content: "Search is currently unavailable when logged out",
+      links: [
+        "https://bsky.app/profile/test.bsky.social/post/abc123"
+      ]
+    })).toBeNull();
     expect(selectUsableSocialSearchLinks("bluesky", baseUrl, [
       "https://%zz",
       "https://example.com/profile/test.bsky.social/post/foreign",
@@ -574,6 +593,21 @@ describe("social search quality helpers", () => {
       links: []
     })).toMatchObject({
       providerShell: "social_render_shell"
+    });
+  });
+
+  it("classifies social javascript shell context even outside search routes", () => {
+    expect(detectSocialSearchShell("x", {
+      url: "https://x.com/opendevbrowser/status/123",
+      content: "Something went wrong. JavaScript is disabled in this browser. Try again."
+    })).toMatchObject({
+      providerShell: "social_js_required_shell"
+    });
+    expect(detectSocialSearchShell("bluesky", {
+      url: "https://bsky.app/profile/test.bsky.social/post/abc123",
+      content: "Please enable JavaScript. Supported browsers are listed in the help center."
+    })).toMatchObject({
+      providerShell: "social_js_required_shell"
     });
   });
 });

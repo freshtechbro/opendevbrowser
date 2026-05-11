@@ -1108,6 +1108,8 @@ const RESEARCH_CONDITIONAL_SANITIZED_PATHS = new Set<string>([
   "web:search:index"
 ]);
 const RESEARCH_LOGIN_SHELL_RE = /\b(?:log in|login|sign in|sign-in|please log in|continue with google|continue with apple)\b/i;
+const RESEARCH_LOGIN_SHELL_MAX_CONTENT_CHARS = 600;
+const RESEARCH_LOGIN_REQUIRED_RE = /\b(?:log in to continue|sign in to continue|authentication required|please log in|continue with google|continue with apple)\b/i;
 const RESEARCH_JS_REQUIRED_RE = /\b(?:enable javascript|javascript required|javascript is not available|javascript is disabled|you need to enable javascript)\b/i;
 const RESEARCH_GENERIC_SHELL_RE = /\b(?:skip to main content|the heart of the internet|open navigation|get the app|view in app|please wait for verification|verify you are human|security check)\b/i;
 const RESEARCH_NOT_FOUND_SHELL_RE = /\b(?:error 404|page not found|not found|can['’]t seem to find the page)\b/i;
@@ -1126,6 +1128,7 @@ const isDuckDuckGoResearchShellUrl = (url: string): boolean => {
   }
 };
 const PRODUCT_TARGET_NOT_FOUND_RE = /\b(?:error 404|page not found|not found|we can['’]t seem to find the page|can['’]t seem to find the page|return to homepage)\b/i;
+const BESTBUY_PDP_ERROR_SHELL_RE = /\b(?:something went wrong|use our search bar|pick a category below|typed in a url|check it for errors)\b/i;
 const resolveShoppingProviderIdForUrl = (url: string): string | null => {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -2706,6 +2709,21 @@ const classifyResearchDeadEndUrl = (value: string): ResearchSanitizeReason | nul
   return classifyResearchDestinationRejection(value);
 };
 
+const isResearchLoginShellRecord = (args: {
+  url: string;
+  combined: string;
+  content: string;
+}): boolean => {
+  if (args.url.includes("/login")) {
+    return true;
+  }
+  if (!RESEARCH_LOGIN_SHELL_RE.test(args.combined)) {
+    return false;
+  }
+  return args.content.length <= RESEARCH_LOGIN_SHELL_MAX_CONTENT_CHARS
+    || RESEARCH_LOGIN_REQUIRED_RE.test(args.combined);
+};
+
 const classifyResearchShellRecord = (record: NormalizedRecord): ResearchSanitizeReason | null => {
   const retrievalPath = typeof record.attributes.retrievalPath === "string"
     ? record.attributes.retrievalPath
@@ -2716,7 +2734,7 @@ const classifyResearchShellRecord = (record: NormalizedRecord): ResearchSanitize
   const content = normalizePlainText(record.content).toLowerCase();
   const combined = `${title} ${content}`.trim();
 
-  if (RESEARCH_LOGIN_SHELL_RE.test(combined) || url.includes("/login")) {
+  if (isResearchLoginShellRecord({ url, combined, content })) {
     return "login_shell";
   }
   if (RESEARCH_JS_REQUIRED_RE.test(combined)) {
@@ -2826,7 +2844,7 @@ const isValidHttpUrl = (url: string): boolean => {
 
 const classifyInvalidProductTarget = (
   record: NormalizedRecord
-): { reason: "http_status" | "not_found_shell"; message: string } | null => {
+): { reason: "http_status" | "not_found_shell" | "provider_error_shell"; message: string } | null => {
   const status = asNumber(record.attributes.status);
   if (status === 404 || status === 410) {
     return {
@@ -2842,6 +2860,17 @@ const classifyInvalidProductTarget = (
     return {
       reason: "not_found_shell",
       message: "Product target appears to be a not-found page"
+    };
+  }
+  const providerId = resolveShoppingProviderIdForUrl(record.url ?? "");
+  if (
+    providerId === "shopping/bestbuy"
+    && combined.toLowerCase().includes("something went wrong")
+    && BESTBUY_PDP_ERROR_SHELL_RE.test(combined)
+  ) {
+    return {
+      reason: "provider_error_shell",
+      message: "Best Buy product target returned a generic error shell"
     };
   }
   return null;

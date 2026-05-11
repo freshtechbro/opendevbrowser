@@ -13,6 +13,7 @@ import { resolveProviderRuntime } from "./workflow-runtime";
 const z = tool.schema;
 const browserModeSchema = z.enum(["auto", "extension", "managed"]);
 const challengeAutomationModeSchema = z.enum(CHALLENGE_AUTOMATION_MODES);
+const cookiePolicySchema = z.enum(["off", "auto", "required"]);
 
 type MacroRuntimeModule = {
   createDefaultMacroRegistry?: () => {
@@ -87,7 +88,9 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
       defaultProvider: z.string().optional().describe("Default provider fallback"),
       includeCatalog: z.boolean().optional().describe("Include available runtime macro names"),
       browserMode: browserModeSchema.optional().describe("Browser transport mode for executed macros: auto|extension|managed"),
+      useCookies: z.boolean().optional().describe("Enable or disable provider cookie reuse for executed macros"),
       challengeAutomationMode: challengeAutomationModeSchema.optional().describe("Challenge automation mode for executed macros: off|browser|browser_with_helper"),
+      cookiePolicyOverride: cookiePolicySchema.optional().describe("Per-run provider cookie policy override for executed macros: off|auto|required"),
       execute: z.boolean().optional().describe("Execute the resolved provider action and include execution payload")
     },
     async execute(args) {
@@ -118,8 +121,14 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
         if (!args.execute && args.browserMode) {
           throw new Error("browserMode requires execute=true for macro resolution");
         }
+        if (!args.execute && typeof args.useCookies === "boolean") {
+          throw new Error("useCookies requires execute=true for macro resolution");
+        }
         if (!args.execute && args.challengeAutomationMode) {
           throw new Error("challengeAutomationMode requires execute=true for macro resolution");
+        }
+        if (!args.execute && args.cookiePolicyOverride) {
+          throw new Error("cookiePolicyOverride requires execute=true for macro resolution");
         }
 
         if (!args.execute) {
@@ -142,7 +151,9 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
           resolution,
           runtime: providerRuntime,
           browserMode: args.browserMode,
-          challengeAutomationMode: args.challengeAutomationMode
+          useCookies: args.useCookies,
+          challengeAutomationMode: args.challengeAutomationMode,
+          cookiePolicyOverride: args.cookiePolicyOverride
         });
         const handoff = buildMacroResolveSuccessHandoff({
           expression: args.expression,

@@ -153,6 +153,150 @@ describe("serve command", () => {
     );
   });
 
+  it("terminates the recorded foreground serve process when HTTP stop succeeds but the pid remains alive", async () => {
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "current-fingerprint"
+    });
+    mocks.fetchDaemonStatus.mockResolvedValue(null);
+    mocks.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: makePsLine(8080)
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs(["--stop"]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Daemon stopped.");
+    expect(killSpy).toHaveBeenCalledWith(8080, "SIGTERM");
+    expect(killSpy).toHaveBeenCalledWith(8080, "SIGKILL");
+    killSpy.mockRestore();
+  });
+
+  it("does not terminate foreground serve processes reported only with a basename node executable", async () => {
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "current-fingerprint"
+    });
+    mocks.fetchDaemonStatus.mockResolvedValue(null);
+    mocks.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: makePsLine(8080, {
+        command: "node dist/cli/index.js serve --output-format json"
+      })
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs(["--stop"]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Daemon stopped.");
+    expect(killSpy).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+  });
+
+  it("does not clear competing serve processes reported only with a basename node executable", async () => {
+    const config = makeConfig("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString()
+    });
+    mocks.fetchDaemonStatus.mockResolvedValue({
+      ok: true,
+      pid: 8080,
+      fingerprint: "current-fingerprint",
+      hub: { instanceId: "hub-1" },
+      relay: {
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false,
+        port: 8787,
+        tokenConfigured: true,
+        health: { status: "ok", reason: "ready" }
+      },
+      binding: null
+    });
+    mocks.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: [
+        makePsLine(8080),
+        makePsLine(9999, { command: "node dist/cli/index.js serve --port 8788 --output-format json" })
+      ].join("")
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs([]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).not.toContain("Cleared 1 stale daemon process.");
+    expect(result.data).toMatchObject({
+      port: 8788,
+      pid: 8080,
+      staleDaemonsCleared: 0
+    });
+    expect(killSpy).not.toHaveBeenCalledWith(9999, "SIGTERM");
+    expect(killSpy).not.toHaveBeenCalledWith(9999, "SIGKILL");
+    killSpy.mockRestore();
+  });
+
+  it("reports a stop timeout when the daemon status remains reachable", async () => {
+    mocks.readDaemonMetadata.mockReturnValue({
+      port: 8788,
+      token: "daemon-token",
+      pid: 8080,
+      relayPort: 8787,
+      startedAt: new Date().toISOString(),
+      fingerprint: "current-fingerprint"
+    });
+    mocks.fetchDaemonStatus.mockResolvedValue({
+      ok: true,
+      pid: 8080,
+      fingerprint: "current-fingerprint",
+      hub: { instanceId: "hub-1" },
+      relay: {
+        extensionConnected: false,
+        extensionHandshakeComplete: false,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        pairingRequired: false,
+        port: 8787,
+        tokenConfigured: true,
+        health: { status: "ok", reason: "ready" }
+      },
+      binding: null
+    });
+    mocks.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: ""
+    });
+    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    const result = await runServe(makeArgs(["--stop"]));
+
+    expect(result.success).toBe(false);
+    expect(result.exitCode).toBe(2);
+    expect(result.message).toContain("Timed out waiting for daemon on 127.0.0.1:8788 to stop.");
+    expect(killSpy).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+  });
+
   it("reports stale fingerprint stop rejections with daemon details", async () => {
     mocks.readDaemonMetadata.mockReturnValue({
       port: 8788,

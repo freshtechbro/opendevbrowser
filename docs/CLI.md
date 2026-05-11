@@ -787,7 +787,7 @@ npx opendevbrowser macro-resolve --expression '@web.search("openai")'
 npx opendevbrowser macro-resolve --expression '@social.post("x", "ship it")' --default-provider social/x --include-catalog
 npx opendevbrowser macro-resolve --expression '@web.search("opendevbrowser")' --execute --output-format json
 npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000 --output-format json
-npx opendevbrowser macro-resolve --expression '@community.search("browser automation failures", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json
+npx opendevbrowser macro-resolve --expression '@community.search("browser automation failures", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json
 ```
 
 Notes:
@@ -795,7 +795,7 @@ Notes:
 - `--execute` runs the resolved provider action and returns additive execution metadata (`meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, `meta.provenance.retrievedAt`).
 - Resolve-only and execute responses now both emit `followthroughSummary`, `suggestedNextAction`, and `suggestedSteps` so the next rerun command stays explicit even when execution blocks.
 - `--timeout-ms` sets client-side daemon transport timeout for slow `--execute` runs.
-- `--browser-mode` is accepted for `--execute` runs and maps signed-in provider recovery to the same `auto|extension|managed` modes as workflow commands.
+- `--browser-mode` is accepted for `--execute` runs and maps provider recovery to the same `auto|extension|managed` modes as workflow commands.
 - `--challenge-automation-mode` is accepted for `--execute` runs and maps to `challengeAutomationMode` with the same `run > session > config` precedence as workflow commands.
 - `opendevbrowser --help` includes this timeout flag in the global flag inventory.
 
@@ -1536,11 +1536,11 @@ Notes:
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
-| `--browser-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Provider browser transport mode (`auto|extension|managed`); `extension` reuses relay-backed signed-in browser state, `managed` runs a deterministic managed browser |
-| `--use-cookies` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
+| `--browser-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Provider browser transport mode (`auto|extension|managed`); `extension` reuses relay-backed browser state, `managed` runs a deterministic managed browser |
+| `--use-cookies` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
 | `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
-| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Per-run provider cookie policy override (`off|auto|required`) |
-| `--cookie-policy` | `research run`, `shopping run`, `product-video run`, `inspiredesign run` | Alias of `--cookie-policy-override` |
+| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Per-run provider cookie policy override (`off|auto|required`) |
+| `--cookie-policy` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Alias of `--cookie-policy-override` |
 
 **Browser launch (launch/run)**
 

@@ -653,15 +653,6 @@ const resolveDefaultFallbackDocumentIfNeeded = async (args: {
       issueDetails: described
     });
   }
-  if (isResearchSearchDiscoveryRun(args.operation, args.context)) {
-    throw toDefaultFetchedIssueError({
-      providerId: args.providerId,
-      source: args.source,
-      document: currentDocument,
-      issueDetails: described
-    });
-  }
-
   const fallback = await resolveProviderBrowserFallback({
     browserFallbackPort: args.context.browserFallbackPort ?? args.browserFallbackPort,
     provider: args.providerId,
@@ -729,12 +720,34 @@ const resolveCommunitySearchLinks = (
 
 const shouldRejectBlockedCommunityFallback = (
   document: RuntimeFetchedDocument,
-  links: readonly string[]
+  links: readonly string[],
+  pageMessage: string
 ): boolean => (
   document.browserFallback !== undefined
   && isFirstPartySocialSearchRoute("reddit", document.url)
   && links.length === 0
+  && !hasUsableCommunityFallbackSearchContent(pageMessage)
 );
+
+const COMMUNITY_FALLBACK_SEARCH_MIN_CHARS = 120;
+const COMMUNITY_FALLBACK_SEARCH_EVIDENCE_RE = [
+  /\bshowing results for\b/i,
+  /\bsearch for\b/i,
+  /\banswers?\b/i,
+  /\bsources?:\s+/i,
+  /\br\/[a-z0-9_]+\b/i
+];
+
+const hasUsableCommunityFallbackSearchContent = (pageMessage: string): boolean => {
+  const trimmed = pageMessage.trim();
+  if (trimmed.length < COMMUNITY_FALLBACK_SEARCH_MIN_CHARS) {
+    return false;
+  }
+  const evidenceCount = COMMUNITY_FALLBACK_SEARCH_EVIDENCE_RE
+    .filter((pattern) => pattern.test(trimmed))
+    .length;
+  return evidenceCount >= 2;
+};
 
 const toCommunityFallbackSearchError = (args: {
   providerId: string;
@@ -1122,9 +1135,9 @@ const fetchRuntimeDocumentWithFallback = async (args: {
 }): Promise<RuntimeFetchedDocument> => {
   const researchSearchDiscovery = args.context !== undefined
     && isResearchSearchDiscoveryRun(args.operation, args.context);
-  const fallbackPort = researchSearchDiscovery ? undefined : args.context?.browserFallbackPort ?? args.browserFallbackPort;
+  const fallbackPort = args.context?.browserFallbackPort ?? args.browserFallbackPort;
   const runtimePolicy = args.context?.runtimePolicy;
-  const forcedBrowserTransport = !researchSearchDiscovery && runtimePolicy?.browser.forceTransport === true;
+  const forcedBrowserTransport = runtimePolicy?.browser.forceTransport === true;
   const forcedReasonCode: ProviderReasonCode = runtimePolicy?.cookies.policy === "required"
     ? "auth_required"
     : "env_limited";
@@ -1188,6 +1201,9 @@ const fetchRuntimeDocumentWithFallback = async (args: {
       source: args.source
     });
     if (args.recoverRuntimeErrors === false) {
+      throw error;
+    }
+    if (researchSearchDiscovery) {
       throw error;
     }
     if (!fallbackPort) {
@@ -2702,7 +2718,7 @@ const withDefaultCommunityOptions = (
         ownerReview: shouldOwnerReviewCommunityRedditSearchFallback
       });
       const links = resolveCommunitySearchLinks(resolvedDocument, limit, isResearchWorkflowContext(context));
-      if (shouldRejectBlockedCommunityFallback(resolvedDocument, links)) {
+      if (shouldRejectBlockedCommunityFallback(resolvedDocument, links, pageMessage)) {
         throw toCommunityFallbackSearchError({
           providerId,
           document: resolvedDocument,

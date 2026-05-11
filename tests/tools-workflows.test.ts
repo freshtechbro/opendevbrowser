@@ -511,13 +511,17 @@ describe("workflow tools", () => {
     await macroTool.execute({
       expression: "@community.search(\"browser automation\")",
       execute: true,
-      browserMode: "extension"
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required"
     } as never);
     expect(deps.providerRuntime.search).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
         runtimePolicy: expect.objectContaining({
-          browserMode: "extension"
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
         })
       })
     );
