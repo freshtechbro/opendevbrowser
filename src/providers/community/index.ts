@@ -231,13 +231,21 @@ export const createCommunityProvider = (options: CommunityProviderOptions = {}):
     const rows: CommunityRow[] = [];
 
     for (let page = 1; page <= traversal.pageLimit && rows.length < traversal.maxRecords; page += 1) {
-      const pageRows = await options.search({
-        ...input,
-        filters: {
-          ...(input.filters ?? {}),
-          page
+      let pageRows: CommunityRow[];
+      try {
+        pageRows = await options.search({
+          ...input,
+          filters: {
+            ...(input.filters ?? {}),
+            page
+          }
+        }, context);
+      } catch (error) {
+        if (rows.length > 0 && shouldSkipExpansionError(error)) {
+          break;
         }
-      }, context);
+        throw error;
+      }
       for (const row of sortRows(pageRows)) {
         const canonical = canonicalizeUrl(row.url);
         if (!isHttpUrl(canonical) || seen.has(canonical)) continue;

@@ -6,8 +6,12 @@ export type SocialSearchShellCode =
   | "social_first_party_help_shell"
   | "social_verification_wall";
 
-const TARGETED_PLATFORMS = new Set<SocialPlatform>(["x", "bluesky", "reddit", "facebook", "threads"]);
+type TargetedSocialSearchPlatform = Extract<SocialPlatform, "x" | "bluesky" | "reddit" | "facebook" | "threads">;
+type FirstPartySearchResultPlatform = Extract<TargetedSocialSearchPlatform, "x" | "bluesky">;
+
+const TARGETED_PLATFORMS = new Set<TargetedSocialSearchPlatform>(["x", "bluesky", "reddit", "facebook", "threads"]);
 const SOCIAL_JS_REQUIRED_RE = /\b(?:javascript (?:is not available|required|is disabled(?: in this browser)?)|you need to enable javascript|please enable javascript)\b/i;
+const SOCIAL_JS_REQUIRED_SHELL_CONTEXT_RE = /\b(?:supported browsers?|help center|something went wrong|try again|privacy policy|cookie policy|ads info)\b/i;
 const BLUESKY_LOGGED_OUT_SEARCH_RE = /\bsearch is currently unavailable when logged out\b/i;
 const BLUESKY_EMPTY_SEARCH_SHELL_RE = /\b(?:follow 10 people to get started|find people to follow)\b/i;
 const REDDIT_VERIFICATION_WALL_RE = /\b(?:please wait for verification|verify (?:you(?:'re| are) human|that you(?:'re| are) human)|security check)\b/i;
@@ -87,7 +91,9 @@ const isStaticMetadataPath = (pathname: string): boolean => {
     || normalized.endsWith(".ico");
 };
 
-const isTargetedPlatform = (platform: SocialPlatform): boolean => TARGETED_PLATFORMS.has(platform);
+const isTargetedPlatform = (platform: SocialPlatform): platform is TargetedSocialSearchPlatform => (
+  TARGETED_PLATFORMS.has(platform as TargetedSocialSearchPlatform)
+);
 
 const isFirstPartyHelpHost = (platform: SocialPlatform, host: string): boolean => {
   const candidates = FIRST_PARTY_HELP_HOSTS[platform];
@@ -173,7 +179,7 @@ const isBlockedRedditNonContentUrl = (
   return pathSegment !== null && REDDIT_BLOCKED_FIRST_SEGMENTS.has(pathSegment);
 };
 
-const isRootShellUrl = (platform: SocialPlatform, parsed: URL): boolean => {
+const isRootShellUrl = (platform: TargetedSocialSearchPlatform, parsed: URL): boolean => {
   const host = parsed.hostname.toLowerCase();
   const pathname = parsed.pathname.toLowerCase();
   switch (platform) {
@@ -190,12 +196,10 @@ const isRootShellUrl = (platform: SocialPlatform, parsed: URL): boolean => {
     case "threads":
       return isPrimaryThreadsHost(host)
         && (pathname === "/" || pathname === "/login" || pathname === "/login/");
-    default:
-      return false;
   }
 };
 
-const isBlockedExpansionPath = (platform: SocialPlatform, parsed: URL): boolean => {
+const isBlockedExpansionPath = (platform: TargetedSocialSearchPlatform, parsed: URL): boolean => {
   const host = parsed.hostname.toLowerCase();
   const pathname = parsed.pathname.toLowerCase();
   switch (platform) {
@@ -233,12 +237,10 @@ const isBlockedExpansionPath = (platform: SocialPlatform, parsed: URL): boolean 
           || pathname === "/search/"
           || isStaticMetadataPath(pathname)
         );
-    default:
-      return false;
   }
 };
 
-const isFirstPartySearchRoute = (platform: SocialPlatform, parsed: URL): boolean => {
+const isFirstPartySearchRoute = (platform: TargetedSocialSearchPlatform, parsed: URL): boolean => {
   const host = parsed.hostname.toLowerCase();
   const pathname = parsed.pathname.toLowerCase();
   switch (platform) {
@@ -252,13 +254,11 @@ const isFirstPartySearchRoute = (platform: SocialPlatform, parsed: URL): boolean
       return isPrimaryFacebookHost(host) && isFacebookSearchLikePath(pathname);
     case "threads":
       return isPrimaryThreadsHost(host) && (pathname === "/search" || pathname === "/search/");
-    default:
-      return false;
   }
 };
 
 const collectSocialSearchLinkEvidence = (
-  platform: SocialPlatform,
+  platform: TargetedSocialSearchPlatform,
   baseUrl: string,
   links: readonly string[]
 ): SocialSearchLinkEvidence => {
@@ -299,9 +299,9 @@ const collectSocialSearchLinkEvidence = (
   return evidence;
 };
 
-const isUsableFirstPartySearchResultUrl = (platform: SocialPlatform, url: string): boolean => {
+const isUsableFirstPartySearchResultUrl = (platform: FirstPartySearchResultPlatform, url: string): boolean => {
   const parsed = parseUrl(url);
-  if (!parsed) {
+  if (parsed === null) {
     return false;
   }
   const host = parsed.hostname.toLowerCase();
@@ -309,9 +309,6 @@ const isUsableFirstPartySearchResultUrl = (platform: SocialPlatform, url: string
     (platform === "x" && host !== "x.com")
     || (platform === "bluesky" && host !== "bsky.app")
   ) {
-    return false;
-  }
-  if (isFirstPartyHelpHost(platform, host)) {
     return false;
   }
   return !isBlockedExpansionPath(platform, parsed);
@@ -370,22 +367,13 @@ const isRetainableFacebookSearchSupportUrl = (url: string): boolean => {
   if (parsed === null || !isPrimaryFacebookHost(parsed.hostname)) {
     return false;
   }
-  if (isBlockedFacebookNonContentUrl(parsed, { includeSearchRoute: true })) {
-    return false;
-  }
-  if (isFirstPartySearchRoute("facebook", parsed)) {
-    return false;
-  }
   return !isUsableFacebookSearchEvidenceUrl(url);
 };
 
 const hasFacebookSearchResultSignals = (
+  parsed: URL,
   input: { url: string; title?: string; content?: string; links?: readonly string[] }
 ): boolean => {
-  const parsed = parseUrl(input.url);
-  if (parsed === null || !isFirstPartySearchRoute("facebook", parsed)) {
-    return false;
-  }
   const combined = `${normalizeText(input.title)} ${normalizeText(input.content)}`.trim();
   const hasSearchHeading = FACEBOOK_SEARCH_RESULTS_HEADING_RE.test(combined);
   const markerCount = FACEBOOK_SEARCH_RESULT_MARKERS.filter((pattern) => pattern.test(combined)).length;
@@ -405,7 +393,7 @@ const hasFacebookSearchResultSignals = (
 };
 
 const isUsableSocialSearchContentUrl = (
-  platform: SocialPlatform,
+  platform: TargetedSocialSearchPlatform,
   url: string
 ): boolean => {
   switch (platform) {
@@ -419,13 +407,11 @@ const isUsableSocialSearchContentUrl = (
       return isUsableFacebookSearchEvidenceUrl(url);
     case "threads":
       return isUsableThreadsSearchEvidenceUrl(url);
-    default:
-      return false;
   }
 };
 
 const hasUsableFirstPartySearchEvidence = (
-  platform: SocialPlatform,
+  platform: TargetedSocialSearchPlatform,
   parsed: URL | null,
   links: readonly string[]
 ): boolean => (
@@ -439,7 +425,7 @@ export const isFirstPartySocialSearchRoute = (
   url: string
 ): boolean => {
   const parsed = parseUrl(url);
-  return parsed !== null && isFirstPartySearchRoute(platform, parsed);
+  return parsed !== null && isTargetedPlatform(platform) && isFirstPartySearchRoute(platform, parsed);
 };
 
 export const detectSocialSearchShell = (
@@ -460,6 +446,19 @@ export const detectSocialSearchShell = (
     };
   }
 
+  if (
+    (platform === "x" || platform === "bluesky")
+    && parsed
+    && SOCIAL_JS_REQUIRED_RE.test(combined)
+    && SOCIAL_JS_REQUIRED_SHELL_CONTEXT_RE.test(combined)
+    && !hasUsableFirstPartySearchEvidence(platform, parsed, links)
+  ) {
+    return {
+      providerShell: "social_js_required_shell",
+      browserRequired: true
+    };
+  }
+
   if (platform === "reddit" && REDDIT_VERIFICATION_WALL_RE.test(combined)) {
     return {
       providerShell: "social_verification_wall",
@@ -472,6 +471,7 @@ export const detectSocialSearchShell = (
     && parsed
     && isFirstPartySearchRoute(platform, parsed)
     && BLUESKY_LOGGED_OUT_SEARCH_RE.test(combined)
+    && !hasUsableFirstPartySearchEvidence(platform, parsed, links)
   ) {
     return {
       providerShell: "social_js_required_shell",
@@ -515,7 +515,7 @@ export const detectSocialSearchShell = (
     parsed
     && isFirstPartySearchRoute(platform, parsed)
     && platform === "facebook"
-    && hasFacebookSearchResultSignals(input)
+    && hasFacebookSearchResultSignals(parsed, input)
   ) {
     return null;
   }
@@ -555,7 +555,7 @@ export const isAllowedSocialSearchExpansionUrl = (
 };
 
 const socialSearchLinkPriority = (
-  platform: SocialPlatform,
+  platform: TargetedSocialSearchPlatform,
   candidate: string,
   baseUrl: string
 ): number => {

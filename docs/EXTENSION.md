@@ -99,6 +99,9 @@ Expected extension-ready daemon fields:
 - `extensionHandshakeComplete=true`
 - `canvasConnected=false` unless a design-canvas session is actively using relay preview/overlay flows
 
+Auto-connect behavior:
+- If a second extension client replaces the current relay client, reconnect suppression lasts only while that replacement remains active. When the relay no longer reports an active extension client, the background auto-connect loop should retry the stored relay instead of requiring a manual popup click.
+
 ## Chrome version requirement
 
 Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versions will fail fast with a clear error.

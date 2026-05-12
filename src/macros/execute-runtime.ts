@@ -2,7 +2,7 @@ import type { BrowserManagerLike } from "../browser/manager-types";
 import type { ChallengeAutomationMode } from "../challenges";
 import type { BundledProviderRuntime, ProviderRuntimeBundleConfig } from "../providers/runtime-bundle";
 import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
-import type { BrowserFallbackPort, WorkflowBrowserMode } from "../providers/types";
+import type { BrowserFallbackPort, ProviderCookiePolicy, WorkflowBrowserMode } from "../providers/types";
 import type { RuntimeInit } from "../providers";
 import {
   executeMacroResolution,
@@ -52,7 +52,9 @@ export const executeMacroWithRuntime = async (args: {
   browserFallbackPort?: BrowserFallbackPort;
   timeoutMs?: number;
   browserMode?: WorkflowBrowserMode;
+  useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
+  cookiePolicyOverride?: ProviderCookiePolicy;
 }): Promise<MacroExecutionPayload> => {
   const runtime = args.runtime ?? resolveBundledProviderRuntime({
     existingRuntime: args.existingRuntime,
@@ -66,10 +68,15 @@ export const executeMacroWithRuntime = async (args: {
     await executeMacroResolution(
       args.resolution,
       runtime,
-      args.challengeAutomationMode || args.browserMode
+      args.challengeAutomationMode
+        || args.browserMode
+        || typeof args.useCookies === "boolean"
+        || args.cookiePolicyOverride
         ? {
           ...(args.browserMode ? { browserMode: args.browserMode } : {}),
-          ...(args.challengeAutomationMode ? { challengeAutomationMode: args.challengeAutomationMode } : {})
+          ...(typeof args.useCookies === "boolean" ? { useCookies: args.useCookies } : {}),
+          ...(args.challengeAutomationMode ? { challengeAutomationMode: args.challengeAutomationMode } : {}),
+          ...(args.cookiePolicyOverride ? { cookiePolicyOverride: args.cookiePolicyOverride } : {})
         }
         : undefined
     )

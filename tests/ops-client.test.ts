@@ -58,6 +58,94 @@ describe("OpsClient", () => {
     await new Promise((resolve) => server.wss.close(() => resolve(null)));
   });
 
+  it("ignores close events from a socket replaced by a newer connection", async () => {
+    const server = await createServer((socket, raw) => {
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      if (message.type === "ops_hello") {
+        send(socket, { type: "ops_hello_ack", version: "1", clientId: "client-replaced", maxPayloadBytes: 1024, capabilities: [] });
+      }
+      if (message.type === "ops_request") {
+        send(socket, { type: "ops_response", requestId: message.requestId, payload: { ok: true } });
+      }
+    });
+    const onClose = vi.fn();
+    const client = new OpsClient(server.url, { pingIntervalMs: 100000, onClose });
+    await client.connect();
+    const firstSocket = (client as unknown as { socket: WebSocket }).socket;
+    (client as unknown as { socket: WebSocket | null }).socket = null;
+    await client.connect();
+    const secondSocket = (client as unknown as { socket: WebSocket }).socket;
+
+    firstSocket.emit("message", Buffer.from(JSON.stringify({
+      type: "ops_response",
+      requestId: "stale-request",
+      payload: { ok: false }
+    })));
+    firstSocket.emit("close", 1000, Buffer.from("old"));
+    await expect(client.request<{ ok: boolean }>("session.status", {})).resolves.toEqual({ ok: true });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect((client as unknown as { socket: WebSocket }).socket).toBe(secondSocket);
+
+    await client.disconnect();
+    firstSocket.close();
+    await new Promise((resolve) => server.wss.close(() => resolve(null)));
+  });
+
+  it("rejects pending work before replacing a stale socket", async () => {
+    const server = await createServer((socket, raw) => {
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      if (message.type === "ops_hello") {
+        send(socket, { type: "ops_hello_ack", version: "1", clientId: "client-replaced-pending", maxPayloadBytes: 1024, capabilities: [] });
+      }
+    });
+    const client = new OpsClient(server.url, { pingIntervalMs: 100000 });
+    const staleSocket = new EventEmitter() as WebSocket;
+    Object.defineProperty(staleSocket, "readyState", { value: WebSocket.CLOSING });
+    (client as unknown as { socket: WebSocket }).socket = staleSocket;
+    const timeoutId = setTimeout(() => undefined, 100000);
+    const reject = vi.fn();
+    (client as unknown as { pendingRequests: Map<string, unknown> }).pendingRequests.set("stale-request", {
+      resolve: vi.fn(),
+      reject,
+      timeoutId
+    });
+
+    await expect(client.connect()).resolves.toMatchObject({ type: "ops_hello_ack", clientId: "client-replaced-pending" });
+    expect(reject).toHaveBeenCalledWith(expect.objectContaining({ message: "Ops socket replaced" }));
+
+    await client.disconnect();
+    await new Promise((resolve) => server.wss.close(() => resolve(null)));
+  });
+
+  it("disconnects cleanly when no socket is active", async () => {
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000 });
+
+    await expect(client.disconnect()).resolves.toBeUndefined();
+  });
+
+  it("ignores duplicate disconnect finalization signals", async () => {
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000 });
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      close: () => void;
+      terminate: () => void;
+    };
+    socket.readyState = WebSocket.OPEN;
+    socket.close = vi.fn();
+    socket.terminate = vi.fn();
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    const pending = client.disconnect();
+    const closeListener = socket.listeners("close")[0] as () => void;
+    const errorListener = socket.listeners("error")[0] as () => void;
+    closeListener();
+    errorListener();
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(socket.close).toHaveBeenCalledWith(1000, "Ops disconnect");
+  });
+
   it("shares a connect promise for concurrent callers", async () => {
     const server = await createServer((socket, raw) => {
       const message = JSON.parse(raw) as Record<string, unknown>;
@@ -199,6 +287,99 @@ describe("OpsClient", () => {
 
     const client = new OpsClient(server.url, { handshakeTimeoutMs: 50, pingIntervalMs: 100000 });
     await expect(client.connect()).rejects.toThrow("Ops handshake timeout");
+
+    client.disconnect();
+    await new Promise((resolve) => server.wss.close(() => resolve(null)));
+  });
+
+  it("cleans hello acknowledgement listeners when abandoned", () => {
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000 });
+    const socket = new EventEmitter() as EventEmitter & {
+      readyState: number;
+    };
+    socket.readyState = WebSocket.OPEN;
+    (client as unknown as { socket: unknown }).socket = socket;
+
+    const cleanup = (client as unknown as {
+      waitForHelloAck: (
+        handler: (message: unknown) => void,
+        reject: (error: Error) => void
+      ) => () => void;
+    }).waitForHelloAck(vi.fn(), vi.fn());
+
+    expect(socket.listenerCount("ops_hello_ack")).toBe(1);
+    expect(socket.listenerCount("ops_hello_error")).toBe(1);
+    expect(socket.listenerCount("close")).toBe(1);
+
+    cleanup();
+
+    expect(socket.listenerCount("ops_hello_ack")).toBe(0);
+    expect(socket.listenerCount("ops_hello_error")).toBe(0);
+    expect(socket.listenerCount("close")).toBe(0);
+  });
+
+  it("returns a no-op hello acknowledgement cleanup without an active socket", () => {
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000 });
+
+    const cleanup = (client as unknown as {
+      waitForHelloAck: (
+        handler: (message: unknown) => void,
+        reject: (error: Error) => void
+      ) => () => void;
+    }).waitForHelloAck(vi.fn(), vi.fn());
+
+    expect(cleanup()).toBeUndefined();
+  });
+
+  it("returns a no-op hello acknowledgement cleanup without a reject handler", () => {
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000 });
+    const socket = new EventEmitter() as EventEmitter & { readyState: number };
+    socket.readyState = WebSocket.OPEN;
+
+    const cleanup = (client as unknown as {
+      waitForHelloAck: (
+        socket: EventEmitter,
+        handler: (message: unknown) => void
+      ) => () => void;
+    }).waitForHelloAck(socket, vi.fn());
+
+    expect(cleanup()).toBeUndefined();
+    expect(socket.eventNames()).toEqual([]);
+  });
+
+  it("ignores duplicate hello acknowledgement settlement", () => {
+    const client = new OpsClient("ws://127.0.0.1:0", { pingIntervalMs: 100000 });
+    const socket = new EventEmitter() as EventEmitter & { readyState: number };
+    socket.readyState = WebSocket.OPEN;
+    const handler = vi.fn();
+
+    (client as unknown as {
+      waitForHelloAck: (
+        socket: EventEmitter,
+        handler: (message: unknown) => void,
+        reject: (error: Error) => void
+      ) => () => void;
+    }).waitForHelloAck(socket, handler, vi.fn());
+
+    const ackListener = socket.listeners("ops_hello_ack")[0] as (message: unknown) => void;
+    ackListener({ type: "ops_hello_ack", clientId: "client-dup" });
+    ackListener({ type: "ops_hello_ack", clientId: "client-dup" });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits long enough for delayed extension ops hello acknowledgements", async () => {
+    const server = await createServer((socket, raw) => {
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      if (message.type === "ops_hello") {
+        setTimeout(() => {
+          send(socket, { type: "ops_hello_ack", version: "1", clientId: "client-delayed", maxPayloadBytes: 1024, capabilities: [] });
+        }, 3500);
+      }
+    });
+
+    const client = new OpsClient(server.url, { pingIntervalMs: 100000 });
+    await expect(client.connect()).resolves.toMatchObject({ type: "ops_hello_ack", clientId: "client-delayed" });
 
     client.disconnect();
     await new Promise((resolve) => server.wss.close(() => resolve(null)));

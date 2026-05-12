@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PROVIDER_BUDGETS, ProviderRuntime, createDefaultRuntime, createProviderRuntime } from "../src/providers";
+import { createCommunityProvider } from "../src/providers/community";
 import { ProviderRuntimeError } from "../src/providers/errors";
 import { normalizeRecord } from "../src/providers/normalize";
 import type {
@@ -673,7 +674,7 @@ describe("provider runtime branches", () => {
     }
   });
 
-  it("does not use browser fallback for research community search discovery", async () => {
+  it("uses browser fallback for research community search discovery when page retrieval is blocked", async () => {
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
       ok: true,
       reasonCode: request.reasonCode,
@@ -706,15 +707,20 @@ describe("provider runtime branches", () => {
         { source: "community", providerIds: ["community/default"], suspendedIntent: researchSuspendedIntent }
       );
 
-      expect(result.ok).toBe(false);
-      expect(result.records).toEqual([]);
-      expect(result.failures[0]?.error).toMatchObject({
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.records[0]?.url).toBe("https://forum.example.com/t/browser-automation-checklist");
+      expect(result.records[0]?.attributes).toMatchObject({
+        retrievalPath: "community:search:index",
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "challenge_detected"
+      });
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
         provider: "community/default",
         source: "community",
+        operation: "search",
         reasonCode: "challenge_detected"
-      });
-      expect(result.failures[0]?.error.details).not.toHaveProperty("browserFallbackMode");
-      expect(fallbackResolve).not.toHaveBeenCalled();
+      }));
     } finally {
       vi.unstubAllGlobals();
     }
@@ -893,6 +899,83 @@ describe("provider runtime branches", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("keeps rendered Reddit answer content as community search evidence when no destination links survive filters", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode as "auth_required",
+      mode: "extension" as const,
+      output: {
+        url: request.url ?? "https://www.reddit.com/search/?q=popup%20attach%20failures&sort=relevance&t=all&page=1",
+        html: [
+          "<html><body><main>",
+          "Showing results for pop up attack failures Search for popup attach failures ",
+          "Answers Sources: r/brave_browser, r/cybersecurity Popup Attack Failures ",
+          "Aggressive pop-ups and redirects can be diagnosed by checking browser extensions and shields.",
+          "</main></body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Reddit</title></head><body>Please wait for verification.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "popup attach failures", limit: 4 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.records[0]?.url).toBe("https://www.reddit.com/search?page=1&q=popup+attach+failures&sort=relevance&t=all");
+      expect(result.records[0]?.content).toContain("Search for popup attach failures");
+      expect(result.records[0]?.attributes).toMatchObject({
+        retrievalPath: "community:search:index",
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "challenge_detected"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps recovered community search rows when a later traversal page hits an env-limited boundary", async () => {
+    const provider = createCommunityProvider({
+      search: async (input) => {
+        if (input.filters?.page === 2) {
+          throw new ProviderRuntimeError("unavailable", "Ops request timed out", {
+            provider: "community/default",
+            source: "community",
+            reasonCode: "env_limited"
+          });
+        }
+        return [{
+          url: "https://www.reddit.com/search/?q=popup%20attach%20failures&sort=relevance&t=all&page=1",
+          title: "Community search: popup attach failures",
+          content: "Showing results for popup attach failures with recovered Reddit answer content."
+        }];
+      }
+    });
+
+    const records = await provider.search!(
+      { query: "popup attach failures", limit: 4, filters: { pageLimit: 2 } },
+      makeProviderContext()
+    );
+
+    expect(records).toHaveLength(1);
+    expect(records[0]?.content).toContain("recovered Reddit answer content");
+    expect(records[0]?.attributes.traversal).toEqual({ page: 1, hop: 0 });
   });
 
   it("rejects soft env-limited community search shells even when no hard blocker is inferred", async () => {
@@ -2269,6 +2352,68 @@ describe("provider runtime branches", () => {
       expect(result.ok).toBe(false);
       expect(result.records).toEqual([]);
       expect(fallbackResolve).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("allows research search discovery to use explicitly requested browser transport", async () => {
+    const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true as const,
+      reasonCode: request.reasonCode as "env_limited",
+      mode: "managed_headed" as const,
+      output: {
+        url: request.url ?? "https://duckduckgo.com/html/?q=chrome+debugger+api&ia=web",
+        html: [
+          "<html><body><main>",
+          "<a href=\"https://developer.chrome.com/docs/extensions/reference/api/debugger\">Chrome debugger API</a>",
+          "<a href=\"https://developer.chrome.com/docs/devtools/protocol-monitor\">Protocol Monitor</a>",
+          "</main></body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("direct fetch should not run when browser transport is forced");
+    }) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "chrome debugger api", limit: 2 },
+        {
+          source: "web",
+          providerIds: ["web/default"],
+          suspendedIntent: researchSuspendedIntent,
+          runtimePolicy: {
+            browserMode: "managed",
+            challengeAutomationMode: "browser_with_helper"
+          }
+        }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.records.map((record) => record.url)).toEqual([
+        "https://developer.chrome.com/docs/extensions/reference/api/debugger",
+        "https://developer.chrome.com/docs/devtools/protocol-monitor"
+      ]);
+      expect(fallbackResolve).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "web/default",
+        source: "web",
+        operation: "search",
+        reasonCode: "env_limited",
+        runtimePolicy: expect.objectContaining({
+          browser: {
+            preferredModes: ["managed_headed"],
+            forceTransport: true
+          }
+        })
+      }));
     } finally {
       vi.unstubAllGlobals();
     }

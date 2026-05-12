@@ -53,7 +53,10 @@ const MAX_NETWORK_EVENTS = 300;
 const SESSION_TTL_MS = 20_000;
 const SCREENSHOT_TIMEOUT_MS = 8000;
 const TAB_CLOSE_TIMEOUT_MS = 5000;
+const OPS_SESSION_DETACH_TIMEOUT_MS = 3000;
 const POPUP_ATTACH_RETRY_DELAY_MS = 100;
+const ROOT_DETACH_VERIFY_DELAY_MS = 250;
+const ROOT_DETACH_VERIFY_ATTEMPTS = 4;
 const STALE_REF_ERROR_SUFFIX = "Take a new snapshot first.";
 
 const DOM_OUTER_HTML_DECLARATION = `
@@ -485,6 +488,13 @@ export class OpsRuntime {
           retryable: false
         });
       });
+    }
+  }
+
+  handleRelayDisconnected(): void {
+    this.cdp.markClientClosed();
+    for (const session of this.sessions.list()) {
+      void this.cleanupSession(session, "ops_session_expired");
     }
   }
 
@@ -2946,10 +2956,19 @@ export class OpsRuntime {
     try {
       await this.cdp.setDiscoverTargetsEnabled?.(true);
     } catch (error) {
+      if (isAttachBlockedError(error)) {
+        return;
+      }
       logError("ops.discover_targets", error, {
         code: "discover_targets_enable_failed",
         extra: baseDetails
       });
+      if (baseDetails.strict) {
+        throw this.decorateCdpFailure(error, {
+          ...baseDetails,
+          enablementStage: "set_discover_targets"
+        });
+      }
     }
   }
 
@@ -4615,7 +4634,7 @@ export class OpsRuntime {
     throw new Error("Wait for selector timed out");
   }
 
-  private cleanupSession(session: OpsSession, event: OpsEvent["event"]): void {
+  private async cleanupSession(session: OpsSession, event: OpsEvent["event"]): Promise<void> {
     this.clearClosingTimer(session.id);
     const waiters = this.parallelWaiters.get(session.id);
     if (waiters) {
@@ -4629,8 +4648,28 @@ export class OpsRuntime {
       this.parallelWaiters.delete(session.id);
     }
     this.sessions.delete(session.id);
-    for (const target of session.targets.values()) {
-      void this.cdp.detachTab(target.tabId).catch(() => undefined);
+    const targets = Array.from(session.targets.values());
+    try {
+      const results = await withTimeout(
+        Promise.allSettled(targets.map(async (target) => this.cdp.detachTab(target.tabId))),
+        OPS_SESSION_DETACH_TIMEOUT_MS,
+        "Ops session detach timed out"
+      );
+      const failedTabIds = results.flatMap((result, index) => {
+        const target = targets[index];
+        return result.status === "rejected" && target ? [target.tabId] : [];
+      });
+      if (failedTabIds.length > 0) {
+        logError("ops.session_detach", new Error("One or more ops session targets failed to detach"), {
+          code: "session_detach_failed",
+          extra: { sessionId: session.id, event, failedTabIds }
+        });
+      }
+    } catch (error) {
+      logError("ops.session_detach", error, {
+        code: "session_detach_failed",
+        extra: { sessionId: session.id, event }
+      });
     }
     this.emitSessionEvent(session, event);
   }
@@ -4643,7 +4682,7 @@ export class OpsRuntime {
     const removedTarget = this.sessions.removeTarget(session.id, targetId);
     if (!removedTarget) return;
     if (targetId === session.targetId || session.targets.size === 0) {
-      this.cleanupSession(session, event);
+      void this.cleanupSession(session, event);
     }
   }
 
@@ -4651,7 +4690,8 @@ export class OpsRuntime {
     const session = this.sessions.getByTabId(tabId);
     if (!session) return;
     if (tabId === session.tabId) {
-      // Root tab detach can be transient during child-target shutdown; tab removal handler owns root teardown.
+      // Root tab detach can be transient during child-target shutdown, but it must not retain ownership forever.
+      this.scheduleRootDebuggerDetachVerification(session.id, tabId);
       return;
     }
     const targetId = this.sessions.getTargetIdByTabId(session.id, tabId);
@@ -4672,6 +4712,49 @@ export class OpsRuntime {
     this.handleClosedTarget(tabId, "ops_session_closed");
   }
 
+  private scheduleRootDebuggerDetachVerification(sessionId: string, tabId: number): void {
+    if (typeof this.cdp.getTabDebuggee !== "function") {
+      return;
+    }
+    setTimeout(() => {
+      void this.verifyRootDebuggerDetach(sessionId, tabId, ROOT_DETACH_VERIFY_ATTEMPTS);
+    }, ROOT_DETACH_VERIFY_DELAY_MS);
+  }
+
+  private async verifyRootDebuggerDetach(sessionId: string, tabId: number, attemptsRemaining: number): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.tabId !== tabId) {
+      return;
+    }
+    if (this.isConcreteDebuggee(this.cdp.getTabDebuggee?.(tabId))) {
+      return;
+    }
+    let liveTab: chrome.tabs.Tab | null = null;
+    try {
+      liveTab = await this.tabs.getTab(tabId);
+    } catch {
+      liveTab = null;
+    }
+    const current = this.sessions.get(sessionId);
+    if (!current || current.tabId !== tabId) {
+      return;
+    }
+    if (!liveTab) {
+      void this.cleanupSession(current, "ops_session_closed");
+      return;
+    }
+    if (this.isConcreteDebuggee(this.cdp.getTabDebuggee?.(tabId))) {
+      return;
+    }
+    if (attemptsRemaining > 1) {
+      setTimeout(() => {
+        void this.verifyRootDebuggerDetach(sessionId, tabId, attemptsRemaining - 1);
+      }, ROOT_DETACH_VERIFY_DELAY_MS);
+      return;
+    }
+    void this.cleanupSession(current, "ops_session_closed");
+  }
+
   private async closeTabBestEffort(tabId: number): Promise<void> {
     try {
       await withTimeout(this.tabs.closeTab(tabId), TAB_CLOSE_TIMEOUT_MS, "Ops tab close timed out");
@@ -4689,7 +4772,7 @@ export class OpsRuntime {
       if (!session) {
         return;
       }
-      this.cleanupSession(session, event);
+      void this.cleanupSession(session, event);
     }, 0);
   }
 
@@ -4776,7 +4859,7 @@ export class OpsRuntime {
       this.closingTimers.delete(session.id);
       const current = this.sessions.get(session.id);
       if (current && current.state === "closing") {
-        this.cleanupSession(current, "ops_session_expired");
+        void this.cleanupSession(current, "ops_session_expired");
       }
     }, SESSION_TTL_MS);
     this.closingTimers.set(session.id, timeoutId as unknown as number);

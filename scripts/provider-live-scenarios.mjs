@@ -76,12 +76,10 @@ export function scenarioProviderIds({
   releaseGate
 }) {
   const social = socialPlatformsForMode(smoke).map((name) => `social/${name}`);
-  const shopping = shoppingProvidersForMode(smoke).filter((provider) => {
-    if (releaseGate) return true;
-    if (!runHighFriction && provider === "shopping/bestbuy") return false;
-    if (!runAuthGated && (provider === "shopping/costco" || provider === "shopping/macys")) return false;
-    return true;
-  });
+  void runAuthGated;
+  void runHighFriction;
+  void releaseGate;
+  const shopping = shoppingProvidersForMode(smoke);
 
   const web = ["web/default"];
   const community = ["community/default"];

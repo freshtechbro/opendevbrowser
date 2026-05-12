@@ -41,14 +41,16 @@ const DAEMON_SHUTDOWN_POLL_ATTEMPTS = 10;
 const DAEMON_SHUTDOWN_POLL_DELAY_MS = 100;
 const DAEMON_SHUTDOWN_STATUS_TIMEOUT_MS = 250;
 const DAEMON_STOP_TIMEOUT_MS = 1000;
+const PROCESS_TERMINATE_GRACE_MS = 250;
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
-const SERVE_COMMAND_PATTERN = /(?:^|\s)(?:\S*[\\/])?(?:opendevbrowser|dist[\\/]+cli[\\/]+index\.js)(?=\s|$).*?\bserve\b/;
+const SERVE_COMMAND_PATTERN = /(?:^|\s)serve(?=\s|$)/;
 const SERVE_PORT_SPLIT_PATTERN = /(?:^|\s)--port\s+(\d+)(?=\s|$)/;
 const SERVE_PORT_EQUALS_PATTERN = /(?:^|\s)--port=(\d+)(?=\s|$)/;
 const SERVE_STOP_PATTERN = /(?:^|\s)--stop(?:\s|$)/;
 const CURRENT_UID = typeof process.getuid === "function" ? process.getuid() : null;
 const CURRENT_EXECUTABLE = process.execPath;
+const CURRENT_CLI_ENTRYPOINT = process.argv[1] ?? "";
 
 function resolveTokenCandidates(
   requestedToken: string | undefined,
@@ -84,6 +86,9 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
     if (arg === "--stop") {
       parsed.stop = true;
       continue;
+    }
+    if (arg === "--daemon") {
+      throw createUsageError("`serve --daemon` is not supported. Use `serve` for foreground mode, `daemon install` for autostart, or `status --daemon` to inspect the daemon.");
     }
     if (arg === "--port") {
       const value = rawArgs[i + 1];
@@ -175,11 +180,21 @@ function listServeProcessSnapshots(): ServeProcessSnapshot[] {
     .filter((snapshot): snapshot is ServeProcessSnapshot => snapshot !== null);
 }
 
-function isCurrentExecutableServeProcess(snapshot: ServeProcessSnapshot): boolean {
+function readServeProcessEntrypoint(command: string): string | null {
+  const tokens = command.trim().split(/\s+/u);
+  const executable = tokens[0] ?? "";
+  if (executable.length === 0) {
+    return null;
+  }
+  return executable === CURRENT_EXECUTABLE ? (tokens[1] ?? null) : executable;
+}
+
+function isCurrentEntrypointServeProcess(snapshot: ServeProcessSnapshot): boolean {
   if (CURRENT_UID === null || snapshot.uid === null || snapshot.uid !== CURRENT_UID) {
     return false;
   }
-  if (!snapshot.command.includes(CURRENT_EXECUTABLE)) {
+  const entrypoint = readServeProcessEntrypoint(snapshot.command);
+  if (!CURRENT_CLI_ENTRYPOINT || entrypoint !== CURRENT_CLI_ENTRYPOINT) {
     return false;
   }
   if (!SERVE_COMMAND_PATTERN.test(snapshot.command)) {
@@ -189,11 +204,11 @@ function isCurrentExecutableServeProcess(snapshot: ServeProcessSnapshot): boolea
 }
 
 function isRequestedPortServeProcess(snapshot: ServeProcessSnapshot, requestedPort: number): boolean {
-  return isCurrentExecutableServeProcess(snapshot)
+  return isCurrentEntrypointServeProcess(snapshot)
     && parseServeCommandPort(snapshot.command) === requestedPort;
 }
 
-function terminateProcess(pid: number): boolean {
+async function terminateProcess(pid: number): Promise<boolean> {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || pid === process.ppid) {
     return false;
   }
@@ -201,6 +216,12 @@ function terminateProcess(pid: number): boolean {
     process.kill(pid, "SIGTERM");
   } catch {
     return false;
+  }
+  await new Promise((resolve) => setTimeout(resolve, PROCESS_TERMINATE_GRACE_MS));
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return true;
   }
   try {
     process.kill(pid, "SIGKILL");
@@ -210,7 +231,7 @@ function terminateProcess(pid: number): boolean {
   return true;
 }
 
-function cleanupCompetingServeProcesses(requestedPort: number, keepPid?: number): number[] {
+async function cleanupCompetingServeProcesses(requestedPort: number, keepPid?: number): Promise<number[]> {
   const candidates = listServeProcessSnapshots().filter((snapshot) => {
     if (!isRequestedPortServeProcess(snapshot, requestedPort)) {
       return false;
@@ -229,7 +250,7 @@ function cleanupCompetingServeProcesses(requestedPort: number, keepPid?: number)
 
   const clearedPids: number[] = [];
   for (const snapshot of candidates) {
-    if (terminateProcess(snapshot.pid)) {
+    if (await terminateProcess(snapshot.pid)) {
       clearedPids.push(snapshot.pid);
     }
   }
@@ -237,12 +258,21 @@ function cleanupCompetingServeProcesses(requestedPort: number, keepPid?: number)
   return clearedPids;
 }
 
-function terminateServeProcessByPid(pid?: number): boolean {
+async function terminateServeProcessByPid(pid?: number): Promise<boolean> {
   if (!isPositivePid(pid)) {
     return false;
   }
   const snapshot = listServeProcessSnapshots().find((item) => item.pid === pid);
-  return snapshot ? isCurrentExecutableServeProcess(snapshot) && terminateProcess(pid) : false;
+  return snapshot ? isCurrentEntrypointServeProcess(snapshot) && await terminateProcess(pid) : false;
+}
+
+function isServeProcessRunningByPid(pid?: number): boolean {
+  if (!isPositivePid(pid)) {
+    return false;
+  }
+  return listServeProcessSnapshots().some((item) => {
+    return item.pid === pid && isCurrentEntrypointServeProcess(item);
+  });
 }
 
 function buildStaleStopMessage(metadata: NonNullable<ReturnType<typeof readDaemonMetadata>>): string {
@@ -263,6 +293,25 @@ async function waitForDaemonShutdown(port: number, token: string): Promise<boole
     await new Promise((resolve) => setTimeout(resolve, DAEMON_SHUTDOWN_POLL_DELAY_MS));
   }
   return false;
+}
+
+async function waitForServeProcessExit(pid?: number): Promise<boolean> {
+  if (!isPositivePid(pid)) {
+    return true;
+  }
+  for (let attempt = 0; attempt < DAEMON_SHUTDOWN_POLL_ATTEMPTS; attempt += 1) {
+    if (!isServeProcessRunningByPid(pid)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, DAEMON_SHUTDOWN_POLL_DELAY_MS));
+  }
+  return false;
+}
+
+async function confirmStoppedDaemon(port: number, token: string, pid?: number): Promise<boolean> {
+  const statusStopped = await waitForDaemonShutdown(port, token);
+  const processStopped = await waitForServeProcessExit(pid);
+  return statusStopped && processStopped;
 }
 
 async function stopMismatchedDaemon(port: number, daemon: ExistingDaemon): Promise<string | null> {
@@ -291,7 +340,7 @@ async function stopMismatchedDaemon(port: number, daemon: ExistingDaemon): Promi
   if (await waitForDaemonShutdown(port, daemon.token)) {
     return null;
   }
-  if (terminateServeProcessByPid(daemon.status.pid)) {
+  if (await terminateServeProcessByPid(daemon.status.pid)) {
     return null;
   }
   return `Timed out waiting for mismatched daemon on 127.0.0.1:${port} to stop.`;
@@ -352,8 +401,21 @@ export async function runServe(args: ParsedArgs) {
       if (!response.ok) {
         throw new Error(`Stop failed (${response.status})`);
       }
-      return { success: true, message: "Daemon stopped." };
+      if (await confirmStoppedDaemon(metadata.port, metadata.token, metadata.pid)) {
+        return { success: true, message: "Daemon stopped." };
+      }
+      if (await terminateServeProcessByPid(metadata.pid)) {
+        return { success: true, message: "Daemon stopped." };
+      }
+      return {
+        success: false,
+        message: `Timed out waiting for daemon on 127.0.0.1:${metadata.port} to stop.`,
+        exitCode: EXIT_EXECUTION
+      };
     } catch (error) {
+      if (await terminateServeProcessByPid(metadata.pid)) {
+        return { success: true, message: "Daemon stopped." };
+      }
       const message = error instanceof Error ? error.message : String(error);
       return { success: false, message: `Failed to stop daemon: ${message}`, exitCode: EXIT_EXECUTION };
     }
@@ -374,14 +436,14 @@ export async function runServe(args: ParsedArgs) {
       return { success: false, message: mismatchMessage, exitCode: EXIT_EXECUTION };
     }
     if (isCurrentDaemonFingerprint(existingDaemon.status.fingerprint)) {
-      for (const pid of cleanupCompetingServeProcesses(requestedPort, existingDaemon.status.pid)) {
+      for (const pid of await cleanupCompetingServeProcesses(requestedPort, existingDaemon.status.pid)) {
         staleDaemonPids.add(pid);
       }
       return buildAlreadyRunningResult(requestedPort, existingDaemon.status, config.relayPort, staleCleared());
     }
   }
 
-  for (const pid of cleanupCompetingServeProcesses(requestedPort)) {
+  for (const pid of await cleanupCompetingServeProcesses(requestedPort)) {
     staleDaemonPids.add(pid);
   }
 
@@ -441,7 +503,7 @@ export async function runServe(args: ParsedArgs) {
       }
       if (attempt === 0) {
         let clearedNewPid = false;
-        for (const pid of cleanupCompetingServeProcesses(requestedPort)) {
+        for (const pid of await cleanupCompetingServeProcesses(requestedPort)) {
           const previousSize = staleDaemonPids.size;
           staleDaemonPids.add(pid);
           if (staleDaemonPids.size > previousSize) {

@@ -104,6 +104,39 @@ describe("shopping provider branches", () => {
     });
   });
 
+  it("surfaces Best Buy product-detail error shells during fetch", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => `
+        <html>
+          <head><title>Best Buy</title></head>
+          <body>
+            We’re sorry, something went wrong.
+            You can use our search bar or pick a category below.
+            If you typed in a URL, check it for errors.
+          </body>
+        </html>
+      `
+    })) as unknown as typeof fetch);
+    const provider = createShoppingProviderById("shopping/bestbuy");
+
+    await expect(provider.fetch?.({
+      url: "https://www.bestbuy.com/site/sample-product/6501234.p?skuId=6501234"
+    }, context)).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        constraint: {
+          kind: "render_required",
+          evidenceCode: "bestbuy_pdp_error_shell"
+        },
+        providerShell: "bestbuy_pdp_error_shell",
+        message: expect.stringContaining("something went wrong")
+      }
+    });
+  });
+
   it("skips rating-only Best Buy anchors when a later same-url anchor carries the real product title", async () => {
     const productUrl = "https://www.bestbuy.com/site/logitech-lift-vertical-wireless-optical-ergonomic-mouse-with-4-customizable-buttons-wireless-graphite/6501169.p?skuId=6501169";
     const provider = createShoppingProviderById("shopping/bestbuy", {
@@ -1447,6 +1480,33 @@ describe("shopping provider branches", () => {
         message: expect.stringContaining("don't have permission to access")
       }
     });
+  });
+
+  it("filters Macy's promo and category links that only expose category ids", async () => {
+    const provider = createShoppingProviderById("shopping/macys", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html><body>
+            <a href="https://www.macys.com/shop/sale?id=3536">Up to 50% off gifts for Mom</a>
+            <div>Today only $79.99</div>
+            <a href="https://www.macys.com/shop/brands/levis?id=337870">Last day! 30% off Levi's</a>
+            <div>$79.99 denim sale</div>
+            <a href="https://www.macys.com/shop/product/nike-womens-air-max-sneakers?ID=17911111">
+              Nike Women's Air Max Sneakers with cushioned everyday walking support
+            </a>
+            <div>$89.99 4.5 out of 5 120 reviews in stock</div>
+          </body></html>
+        `
+      })
+    });
+
+    const rows = await provider.search?.({ query: "women sneakers", limit: 5 }, context);
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.url).toBe("https://www.macys.com/shop/product/nike-womens-air-max-sneakers?ID=17911111");
+    expect(rows?.[0]?.title).toBe("Nike Women's Air Max Sneakers with cushioned everyday walking support");
   });
 
   it("promotes Macy's access denied shells from custom fetchers when search result extraction yields no candidates", async () => {

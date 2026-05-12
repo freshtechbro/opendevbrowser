@@ -272,18 +272,24 @@ const buildMacroResolveArgs = (
   options?: {
     execute?: boolean;
     browserMode?: "extension" | "managed";
+    useCookies?: boolean;
     challengeAutomationMode?: "browser" | "browser_with_helper";
+    cookiePolicyOverride?: "off" | "auto" | "required";
     includeOutputFormat?: boolean;
   }
 ): string => {
   const defaultProvider = input.defaultProvider ? ` --default-provider ${input.defaultProvider}` : "";
   const execute = options?.execute ? " --execute" : "";
   const browserMode = options?.browserMode ? ` --browser-mode ${options.browserMode}` : "";
+  const useCookies = options?.useCookies ? " --use-cookies" : "";
   const challenge = options?.challengeAutomationMode
     ? ` --challenge-automation-mode ${options.challengeAutomationMode}`
     : "";
+  const cookiePolicy = options?.cookiePolicyOverride
+    ? ` --cookie-policy ${options.cookiePolicyOverride}`
+    : "";
   const outputFormat = options?.includeOutputFormat === false ? "" : " --output-format json";
-  return `--expression ${quoteCliValue(input.expression)}${defaultProvider}${execute}${browserMode}${challenge}${outputFormat}`;
+  return `--expression ${quoteCliValue(input.expression)}${defaultProvider}${execute}${browserMode}${useCookies}${cookiePolicy}${challenge}${outputFormat}`;
 };
 
 const buildMacroPreviewCommand = (input: MacroResolveHandoffInput): string => (
@@ -298,6 +304,7 @@ const buildMacroExecuteCommand = (
   cliExample("macro-resolve", buildMacroResolveArgs(input, {
     execute: true,
     browserMode,
+    ...(browserMode === "extension" ? { useCookies: true, cookiePolicyOverride: "required" } : {}),
     challengeAutomationMode
   }))
 );

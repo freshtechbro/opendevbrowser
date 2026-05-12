@@ -9,6 +9,7 @@ const emptyStatus: RelayStatus = {
   cdpConnected: false,
   annotationConnected: false,
   opsConnected: false,
+  opsOwnedTargetCount: 0,
   canvasConnected: false,
   pairingRequired: false,
   instanceId: "",
@@ -21,6 +22,7 @@ const emptyStatus: RelayStatus = {
     cdpConnected: false,
     annotationConnected: false,
     opsConnected: false,
+    opsOwnedTargetCount: 0,
     canvasConnected: false,
     pairingRequired: false
   }

@@ -11,6 +11,10 @@ const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
 };
+const flushAsyncCleanup = async (): Promise<void> => {
+  await flushMicrotasks();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+};
 
 const concreteRootDebuggee = (
   tabId: number
@@ -120,6 +124,9 @@ describe("OpsRuntime target teardown", () => {
             title: "Example Domain"
           } as chrome.tabs.Tab);
         }),
+        captureVisibleTab: vi.fn((_windowId: number | undefined, _options: chrome.tabs.CaptureVisibleTabOptions, callback: (dataUrl?: string) => void) => {
+          callback("data:image/png;base64,AAAA");
+        }),
         onRemoved: {
           addListener: vi.fn((listener: TabRemovedListener) => {
             tabRemovedListener = listener;
@@ -154,6 +161,9 @@ describe("OpsRuntime target teardown", () => {
             debuggerDetachListener = listener;
           })
         }
+      },
+      windows: {
+        WINDOW_ID_CURRENT: -2
       },
       scripting: {
         executeScript: vi.fn()
@@ -327,7 +337,113 @@ describe("OpsRuntime target teardown", () => {
     );
   });
 
-  it("tears down the full session when root tab is removed", () => {
+  it("removes all ops sessions when the relay websocket disconnects", async () => {
+    const sent: Array<{ type?: string; event?: string; opsSessionId?: string; clientId?: string }> = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      markClientClosed: vi.fn()
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; event?: string; opsSessionId?: string; clientId?: string }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const first = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+    const second = sessions.createSession("client-2", 102, "lease-2", { url: "https://other.example" });
+
+    runtime.handleRelayDisconnected();
+
+    expect(sessions.get(first.id)).toBeNull();
+    expect(sessions.get(second.id)).toBeNull();
+    expect(cdp.markClientClosed).toHaveBeenCalledTimes(1);
+    expect(cdp.detachTab).toHaveBeenCalledWith(101);
+    expect(cdp.detachTab).toHaveBeenCalledWith(102);
+    await flushAsyncCleanup();
+    expect(sent).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "ops_session_expired", opsSessionId: first.id, clientId: "client-1" }),
+      expect.objectContaining({ event: "ops_session_expired", opsSessionId: second.id, clientId: "client-2" })
+    ]));
+  });
+
+  it("emits final ownership release only after debugger detach finishes", async () => {
+    const sent: Array<{ type?: string; event?: string; opsSessionId?: string; clientId?: string }> = [];
+    let resolveDetach: (() => void) | null = null;
+    const detachPromise = new Promise<void>((resolve) => {
+      resolveDetach = resolve;
+    });
+    const cdp = {
+      detachTab: vi.fn(() => detachPromise),
+      markClientClosed: vi.fn()
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; event?: string; opsSessionId?: string; clientId?: string }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+
+    runtime.handleRelayDisconnected();
+    await flushAsyncCleanup();
+
+    expect(sessions.get(session.id)).toBeNull();
+    expect(cdp.detachTab).toHaveBeenCalledWith(101);
+    expect(sent).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "ops_session_expired", opsSessionId: session.id })
+    ]));
+
+    resolveDetach?.();
+    await flushAsyncCleanup();
+
+    expect(sent).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "ops_session_expired", opsSessionId: session.id, clientId: "client-1" })
+    ]));
+  });
+
+  it("waits for remaining debugger detaches when one target detach rejects", async () => {
+    const sent: Array<{ type?: string; event?: string; opsSessionId?: string; clientId?: string }> = [];
+    let resolveChildDetach: (() => void) | null = null;
+    const childDetachPromise = new Promise<void>((resolve) => {
+      resolveChildDetach = resolve;
+    });
+    const cdp = {
+      detachTab: vi.fn((tabId: number) => (
+        tabId === 101 ? Promise.reject(new Error("stale root debugger")) : childDetachPromise
+      )),
+      markClientClosed: vi.fn()
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; event?: string; opsSessionId?: string; clientId?: string }),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+    sessions.addTarget(session.id, 202, { url: "https://child.example" });
+
+    runtime.handleRelayDisconnected();
+    await flushAsyncCleanup();
+
+    expect(sessions.get(session.id)).toBeNull();
+    expect(cdp.detachTab).toHaveBeenCalledWith(101);
+    expect(cdp.detachTab).toHaveBeenCalledWith(202);
+    expect(sent).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "ops_session_expired", opsSessionId: session.id })
+    ]));
+
+    resolveChildDetach?.();
+    await flushAsyncCleanup();
+
+    expect(sent).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "ops_session_expired", opsSessionId: session.id, clientId: "client-1" })
+    ]));
+  });
+
+  it("tears down the full session when root tab is removed", async () => {
     const sent: Array<{ type?: string; event?: string; opsSessionId?: string }> = [];
     const cdp = {
       detachTab: vi.fn(async () => undefined)
@@ -346,6 +462,7 @@ describe("OpsRuntime target teardown", () => {
 
     expect(sessions.get(session.id)).toBeNull();
     expect(cdp.detachTab).toHaveBeenCalledWith(202);
+    await flushAsyncCleanup();
     expect(sent).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "ops_event", event: "ops_tab_closed", opsSessionId: session.id })
@@ -600,6 +717,101 @@ describe("OpsRuntime target teardown", () => {
     expect(updated?.targets.has("tab-202")).toBe(true);
     expect(cdp.detachTab).not.toHaveBeenCalled();
     expect(sent).toEqual([]);
+  });
+
+  it("expires a root debugger detach when the root debuggee is not restored", async () => {
+    vi.useFakeTimers();
+    const sent: unknown[] = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      getTabDebuggee: vi.fn(() => null)
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+    sessions.addTarget(session.id, 202, { url: "https://child.example" });
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({ id: 101, url: "https://root.example" } as chrome.tabs.Tab);
+
+    debuggerDetachListener?.({ tabId: 101 });
+    await flushMicrotasks();
+
+    expect(sessions.get(session.id)).not.toBeNull();
+    expect(sent).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await flushMicrotasks();
+
+    expect(sessions.get(session.id)).toBeNull();
+    expect(cdp.detachTab).toHaveBeenCalledWith(101);
+    expect(cdp.detachTab).toHaveBeenCalledWith(202);
+    expect(sent).toEqual([
+      expect.objectContaining({ event: "ops_session_closed", opsSessionId: session.id })
+    ]);
+  });
+
+  it("retains a root debugger detach when the debuggee returns within the verification window", async () => {
+    vi.useFakeTimers();
+    const sent: unknown[] = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      getTabDebuggee: vi.fn()
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(null)
+        .mockReturnValue({ tabId: 101 })
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({ id: 101, url: "https://root.example" } as chrome.tabs.Tab);
+
+    debuggerDetachListener?.({ tabId: 101 });
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+
+    expect(sessions.get(session.id)).not.toBeNull();
+    expect(cdp.detachTab).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+  });
+
+  it("expires a root debugger detach when tab lookup rejects", async () => {
+    vi.useFakeTimers();
+    const sent: unknown[] = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      getTabDebuggee: vi.fn(() => null)
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockRejectedValue(new Error("No tab with id: 101."));
+
+    debuggerDetachListener?.({ tabId: 101 });
+    await vi.advanceTimersByTimeAsync(250);
+    await flushMicrotasks();
+
+    expect(sessions.get(session.id)).toBeNull();
+    expect(cdp.detachTab).toHaveBeenCalledWith(101);
+    expect(sent).toEqual([
+      expect.objectContaining({ event: "ops_session_closed", opsSessionId: session.id })
+    ]);
   });
 
   it("reattaches a retained target when targets.use selects it after debugger detach", async () => {
@@ -6547,6 +6759,7 @@ describe("OpsRuntime target teardown", () => {
   });
 
   it("still creates the ops session when Target.setDiscoverTargets stays blocked", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; message?: string } }> = [];
     const cdp = {
       attach: vi.fn(async () => undefined),
@@ -6615,6 +6828,84 @@ describe("OpsRuntime target teardown", () => {
 
     expect(sent.some((message) => message.type === "ops_error" && message.error?.code === "cdp_attach_failed")).toBe(false);
     expect(sessions.listOwnedBy("client-1")).toHaveLength(1);
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      "[opendevbrowser]",
+      expect.stringContaining("\"context\":\"ops.discover_targets\"")
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("fails strict session.launch enablement when Target.setDiscoverTargets has an unexpected error", async () => {
+    const sent: Array<{
+      type?: string;
+      requestId?: string;
+      payload?: unknown;
+      error?: { code?: string; message?: string; details?: Record<string, unknown> };
+    }> = [];
+    const cdp = {
+      attach: vi.fn(async () => undefined),
+      detachTab: vi.fn(async () => undefined),
+      markClientClosed: vi.fn(),
+      setDiscoverTargetsEnabled: vi.fn(async () => {
+        throw new Error("Protocol exploded");
+      }),
+      configureAutoAttach: vi.fn(async () => undefined),
+      primeAttachedRootSession: vi.fn(async () => undefined),
+      refreshTabAttachment: vi.fn(async () => undefined),
+      getTabDebuggee: vi.fn((tabId: number) => (
+        tabId === 214 ? concreteRootDebuggee(214) : null
+      )),
+      sendCommand: vi.fn(async () => ({}))
+    };
+
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 214,
+      status: "complete",
+      url: "https://example.com/discover-targets-unexpected",
+      title: "Discover Targets Unexpected"
+    } as chrome.tabs.Tab);
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as {
+        type?: string;
+        requestId?: string;
+        payload?: unknown;
+        error?: { code?: string; message?: string; details?: Record<string, unknown> };
+      }),
+      cdp: cdp as never
+    });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-session-root-discover-targets-unexpected",
+      clientId: "client-1",
+      command: "session.launch",
+      payload: {
+        tabId: 214
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "ops_error",
+            requestId: "req-session-root-discover-targets-unexpected",
+            error: expect.objectContaining({
+              code: "cdp_attach_failed",
+              message: expect.stringContaining("Protocol exploded"),
+              details: expect.objectContaining({
+                phase: "strict_enablement",
+                enablementStage: "set_discover_targets",
+                tabId: 214,
+                strict: true
+              })
+            })
+          })
+        ])
+      );
+    });
   });
 
   it("retries session.launch strict root-domain enablement when Page.enable returns Not allowed after attach recovery", async () => {
@@ -9196,6 +9487,105 @@ describe("OpsRuntime target teardown", () => {
     });
 
     expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("falls back to visible-tab capture when visible page screenshot capture fails", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: { base64?: string; warning?: string }; error?: { code?: string } }> = [];
+    const sendCommand = vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string) => {
+      if (method === "Page.captureScreenshot") {
+        throw new Error("CDP screenshot failed");
+      }
+      return {};
+    });
+    const getMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getMock.mockResolvedValue({
+      id: 101,
+      windowId: 7,
+      status: "complete",
+      url: "https://example.com/",
+      title: "Example Domain"
+    } as chrome.tabs.Tab);
+    const captureVisibleTab = globalThis.chrome.tabs.captureVisibleTab as unknown as ReturnType<typeof vi.fn>;
+    captureVisibleTab.mockImplementation((_windowId: number | undefined, _options: chrome.tabs.CaptureVisibleTabOptions, callback: (dataUrl?: string) => void) => {
+      callback("data:image/png;base64,RkFMTA==");
+    });
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: { base64?: string; warning?: string }; error?: { code?: string } }),
+      cdp: {
+        detachTab: vi.fn(async () => undefined),
+        sendCommand
+      } as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://example.com/" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-visible-fallback",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.screenshot",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(captureVisibleTab).toHaveBeenCalledWith(7, { format: "png" }, expect.any(Function));
+      expect(sent).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_response",
+          requestId: "req-visible-fallback",
+          payload: { base64: "RkFMTA==", warning: "visible_only_fallback" }
+        })
+      ]));
+    });
+  });
+
+  it("returns a clean screenshot error when cdp and visible-tab capture both fail", async () => {
+    const sent: Array<{ type?: string; requestId?: string; payload?: unknown; error?: { code?: string; message?: string } }> = [];
+    const sendCommand = vi.fn(async (_debuggee: chrome.debugger.Debuggee, method: string) => {
+      if (method === "Page.captureScreenshot") {
+        throw new Error("CDP screenshot failed");
+      }
+      return {};
+    });
+    const captureVisibleTab = globalThis.chrome.tabs.captureVisibleTab as unknown as ReturnType<typeof vi.fn>;
+    captureVisibleTab.mockImplementation((_windowId: number | undefined, _options: chrome.tabs.CaptureVisibleTabOptions, callback: (dataUrl?: string) => void) => {
+      globalThis.chrome.runtime.lastError = { message: "capture denied" };
+      callback(undefined);
+      globalThis.chrome.runtime.lastError = undefined;
+    });
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message as { type?: string; requestId?: string; payload?: unknown; error?: { code?: string; message?: string } }),
+      cdp: {
+        detachTab: vi.fn(async () => undefined),
+        sendCommand
+      } as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://example.com/" });
+
+    runtime.handleMessage({
+      type: "ops_request",
+      requestId: "req-visible-fallback-fail",
+      clientId: "client-1",
+      opsSessionId: session.id,
+      leaseId: session.leaseId,
+      command: "page.screenshot",
+      payload: {}
+    });
+
+    await vi.waitFor(() => {
+      expect(sent).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "ops_error",
+          requestId: "req-visible-fallback-fail",
+          error: { code: "execution_failed", message: "Screenshot failed", retryable: false }
+        })
+      ]));
+    });
   });
 
   it("allows follow-up page.screenshot commands on the synthetic root target after html data preview navigation", async () => {

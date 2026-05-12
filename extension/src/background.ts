@@ -69,9 +69,12 @@ let retryScheduled = false;
 let retryDelayMs = 5000;
 let autoConnectEnabled = DEFAULT_AUTO_CONNECT;
 let nativeEnabled = DEFAULT_NATIVE_ENABLED;
+let lastRelayCleanupStatus: ConnectionStatus | null = null;
 
 const RETRY_ALARM_NAME = "opendevbrowser-auto-connect";
+const WATCHDOG_ALARM_NAME = "opendevbrowser-auto-connect-watchdog";
 const RETRY_MAX_MS = 60_000;
+const WATCHDOG_PERIOD_MINUTES = 1;
 const ANNOTATION_CONTENT_SCRIPT = "dist/annotate-content.js";
 const ANNOTATION_CONTENT_STYLE = "dist/annotate-content.css";
 const ANNOTATION_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
@@ -189,7 +192,7 @@ const getEffectiveStatus = (): ConnectionStatus => {
 };
 
 const hasReadyRelayHandshake = (health: RelayHealthStatus | null): boolean => {
-  return health?.extensionConnected === true && health.extensionHandshakeComplete === true;
+  return health?.ok !== false && health?.extensionConnected === true && health.extensionHandshakeComplete === true;
 };
 
 const deriveBackgroundStatus = (
@@ -199,13 +202,16 @@ const deriveBackgroundStatus = (
   reconnectSuppressed: boolean
 ): ConnectionStatus => {
   if (relayStatus === "connected") {
-    return "connected";
-  }
-  if (nativeHealth?.status === "connected") {
+    if (relayHealth?.ok === false) {
+      return "disconnected";
+    }
     return "connected";
   }
   if (reconnectSuppressed) {
     return "disconnected";
+  }
+  if (nativeHealth?.status === "connected") {
+    return "connected";
   }
   return hasReadyRelayHandshake(relayHealth) ? "connected" : "disconnected";
 };
@@ -214,6 +220,9 @@ const deriveBadgeTone = (
   status: ConnectionStatus,
   relayHealth: RelayHealthStatus | null
 ): BadgeTone => {
+  if (relayHealth?.ok === false) {
+    return status === "connected" ? "warning" : "disconnected";
+  }
   if (status === "connected") {
     return "connected";
   }
@@ -247,16 +256,22 @@ const buildStatusMessage = async (): Promise<BackgroundMessage> => {
         note = `Connected to 127.0.0.1:${identity.relayPort}`;
       }
       relayHealth = await connection.relayHealthCheck();
-    } else if (nativeHealth?.status === "connected") {
-      note = "Connected via native host.";
+      if (relayHealth?.ok === false) {
+        note = statusNoteOverride ?? buildRelayHealthNote(relayHealth);
+      }
     } else {
       const stored = await new Promise<Record<string, unknown>>((resolve) => {
         chrome.storage.local.get(["relayPort"], (items) => resolve(items));
       });
       const port = parsePort(stored.relayPort) ?? DEFAULT_RELAY_PORT;
       relayHealth = await fetchRelayHealth(port);
-      if (hasReadyRelayHandshake(relayHealth)) {
+      if (reconnectSuppressed) {
+        note = statusNoteOverride
+          ?? "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly.";
+      } else if (hasReadyRelayHandshake(relayHealth)) {
         note = `Connected to 127.0.0.1:${port}`;
+      } else if (nativeHealth?.status === "connected") {
+        note = "Connected via native host.";
       } else {
         note = statusNoteOverride ?? buildRelayHealthNote(relayHealth);
       }
@@ -344,6 +359,8 @@ const buildRelayHealthNote = (health: RelayHealthStatus | null): string => {
       return "Canvas channel disconnected. Reopen the design canvas command and retry.";
     case "cdp_disconnected":
       return "No CDP clients connected. Start a session and retry.";
+    case "relay_dirty":
+      return "Relay has active CDP, annotation, canvas clients, or ops-owned targets. Disconnect the current run and retry.";
     case "relay_down":
       return "Relay down. Start the daemon and retry.";
     default:
@@ -376,6 +393,18 @@ const clearRetry = (): void => {
   retryDelayMs = 5000;
   if (chrome.alarms?.clear) {
     chrome.alarms.clear(RETRY_ALARM_NAME);
+  }
+};
+
+const scheduleWatchdog = (): void => {
+  if (chrome.alarms?.create) {
+    chrome.alarms.create(WATCHDOG_ALARM_NAME, { periodInMinutes: WATCHDOG_PERIOD_MINUTES });
+  }
+};
+
+const clearWatchdog = (): void => {
+  if (chrome.alarms?.clear) {
+    chrome.alarms.clear(WATCHDOG_ALARM_NAME);
   }
 };
 
@@ -480,24 +509,37 @@ const fetchRelayHealth = async (port: number): Promise<RelayHealthStatus | null>
     }
     const data = await response.json() as Record<string, unknown>;
     if (data.health && typeof data.health === "object") {
-      return data.health as RelayHealthStatus;
+      const health = data.health as Record<string, unknown>;
+      return typeof health.opsOwnedTargetCount === "number" && Number.isFinite(health.opsOwnedTargetCount)
+        ? health as RelayHealthStatus
+        : null;
     }
     const extensionConnected = data.extensionConnected === true;
     const handshake = data.extensionHandshakeComplete === true;
     const cdpConnected = data.cdpConnected === true;
     const annotationConnected = data.annotationConnected === true;
     const opsConnected = data.opsConnected === true;
+    const opsOwnedTargetCount = typeof data.opsOwnedTargetCount === "number" && Number.isFinite(data.opsOwnedTargetCount)
+      ? data.opsOwnedTargetCount
+      : null;
+    if (opsOwnedTargetCount === null || opsOwnedTargetCount < 0) {
+      return null;
+    }
     const canvasConnected = data.canvasConnected === true;
     const pairingRequired = data.pairingRequired === true;
-    const ok = extensionConnected && handshake;
+    const dirty = cdpConnected || annotationConnected || canvasConnected || opsOwnedTargetCount > 0;
+    const ok = extensionConnected && handshake && !dirty;
     return {
       ok,
-      reason: ok ? "ok" : (extensionConnected ? "handshake_incomplete" : "extension_disconnected"),
+      reason: ok
+        ? "ok"
+        : (dirty ? "relay_dirty" : (extensionConnected ? "handshake_incomplete" : "extension_disconnected")),
       extensionConnected,
       extensionHandshakeComplete: handshake,
       cdpConnected,
       annotationConnected,
       opsConnected,
+      opsOwnedTargetCount,
       canvasConnected,
       pairingRequired
     };
@@ -505,6 +547,11 @@ const fetchRelayHealth = async (port: number): Promise<RelayHealthStatus | null>
     logError("relay.health_fetch", error, { code: "relay_health_fetch_failed", extra: { port } });
     return null;
   }
+};
+
+const relayHasActiveExtensionClient = async (storedRelayPort: number): Promise<boolean> => {
+  const storedHealth = await fetchRelayHealth(storedRelayPort);
+  return hasReadyRelayHandshake(storedHealth);
 };
 
 const sendAnnotationResponse = (payload: AnnotationResponse, transport: AnnotationTransport = "relay"): void => {
@@ -1499,11 +1546,8 @@ const fetchTokenFromPlugin = async (
   }
 };
 
-const clearStoredRelayState = async (): Promise<void> => {
+const clearStoredRelayCredentials = async (): Promise<void> => {
   await setStorage({
-    relayPort: null,
-    relayInstanceId: null,
-    relayEpoch: null,
     pairingToken: null,
     tokenEpoch: null
   });
@@ -1531,10 +1575,16 @@ const attemptAutoConnect = async (): Promise<void> => {
 
   const autoConnect = typeof data.autoConnect === "boolean" ? data.autoConnect : DEFAULT_AUTO_CONNECT;
   autoConnectEnabled = autoConnect;
-  if (!autoConnect || connection.getStatus() === "connected" || connection.isReconnectSuppressed()) {
+  if (!autoConnect || connection.getStatus() === "connected") {
     clearRetry();
+    if (!autoConnect) {
+      clearWatchdog();
+    } else {
+      scheduleWatchdog();
+    }
     return;
   }
+  scheduleWatchdog();
 
   const autoPair = typeof data.autoPair === "boolean" ? data.autoPair : DEFAULT_AUTO_PAIR;
   const pairingEnabled = typeof data.pairingEnabled === "boolean" ? data.pairingEnabled : DEFAULT_PAIRING_ENABLED;
@@ -1543,6 +1593,15 @@ const attemptAutoConnect = async (): Promise<void> => {
   nativeEnabled = typeof data.nativeEnabled === "boolean" ? data.nativeEnabled : DEFAULT_NATIVE_ENABLED;
   if (typeof data.nativeEnabled !== "boolean") {
     await setStorage({ nativeEnabled });
+  }
+  if (connection.isReconnectSuppressed()) {
+    const activeExtensionClient = await relayHasActiveExtensionClient(storedRelayPort);
+    if (activeExtensionClient) {
+      setStatusNoteOverride("Another extension client is connected. Retrying when the relay is free.");
+      scheduleRetry();
+      return;
+    }
+    setStatusNoteOverride("Relay no longer has an active extension client. Reconnecting.");
   }
 
   if (autoPair && pairingEnabled) {
@@ -1572,12 +1631,12 @@ const attemptAutoConnect = async (): Promise<void> => {
     }
 
     if (hasEpoch && storedRelayEpoch !== null && storedRelayEpoch !== configEpoch) {
-      await clearStoredRelayState();
+      await clearStoredRelayCredentials();
       storedPairingToken = null;
       setStatusNoteOverride("Relay restarted. Refresh the connection.");
     }
     if (config.instanceId && storedRelayInstanceId && config.instanceId !== storedRelayInstanceId) {
-      await clearStoredRelayState();
+      await clearStoredRelayCredentials();
       storedPairingToken = null;
       setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
     }
@@ -1647,6 +1706,8 @@ const autoConnect = async () => {
 };
 
 connection.onStatus((status) => {
+  const shouldCleanupRelayDisconnect = status === "disconnected" && lastRelayCleanupStatus !== "disconnected";
+  lastRelayCleanupStatus = status;
   const effectiveStatus =
     status === "connected" ? "connected" : (nativeEnabled && nativePort.isConnected()) ? "connected" : "disconnected";
   updateBadge(effectiveStatus);
@@ -1656,11 +1717,21 @@ connection.onStatus((status) => {
     setStatusNoteOverride(null);
     clearRetry();
   }
-  if (status === "disconnected" && !nativePort.isConnected()) {
-    for (const session of annotationSessions.values()) {
-      clearTimeout(session.timeoutId);
+  if (status === "disconnected") {
+    if (shouldCleanupRelayDisconnect) {
+      for (const session of annotationSessions.values()) {
+        clearTimeout(session.timeoutId);
+      }
+      annotationSessions.clear();
+      opsRuntime.handleRelayDisconnected();
     }
-    annotationSessions.clear();
+    if (nativePort.isConnected()) {
+      return;
+    }
+    if (connection.isReconnectSuppressed() && autoConnectEnabled) {
+      scheduleRetry();
+      return;
+    }
     if (connection.isReconnectSuppressed()) {
       clearRetry();
       return;
@@ -1690,6 +1761,11 @@ if (chrome.alarms?.onAlarm) {
       retryScheduled = false;
       autoConnect().catch((error) => {
         logError("auto_connect.alarm", error, { code: "auto_connect_failed" });
+      });
+    }
+    if (alarm.name === WATCHDOG_ALARM_NAME) {
+      autoConnect().catch((error) => {
+        logError("auto_connect.watchdog", error, { code: "auto_connect_failed" });
       });
     }
   });
@@ -1761,11 +1837,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
       typeof changes.autoConnect.newValue === "boolean" ? changes.autoConnect.newValue : DEFAULT_AUTO_CONNECT;
   }
   if (changes.autoConnect?.newValue === true) {
+    scheduleWatchdog();
     autoConnect().catch((error) => {
       logError("auto_connect.setting", error, { code: "auto_connect_failed" });
     });
   } else if (changes.autoConnect?.newValue === false) {
     clearRetry();
+    clearWatchdog();
   }
   if (changes.pairingToken) {
     autoConnect().catch((error) => {

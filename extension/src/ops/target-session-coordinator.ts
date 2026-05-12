@@ -81,6 +81,10 @@ export class TargetSessionCoordinator<TExtra extends object> {
     return Array.from(this.sessions.values()).filter((session) => session.ownerClientId === clientId);
   }
 
+  list(): TargetSessionRecord<TExtra>[] {
+    return Array.from(this.sessions.values());
+  }
+
   delete(sessionId: string): TargetSessionRecord<TExtra> | null {
     const session = this.sessions.get(sessionId) ?? null;
     if (!session) {

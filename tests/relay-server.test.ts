@@ -952,6 +952,206 @@ describe("RelayServer", () => {
     expect(server.status().extensionHandshakeComplete).toBe(false);
   });
 
+  it("closes ops clients when the extension socket disconnects", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const ops = await connect(`${started.url}/ops`);
+
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 41 } }));
+    await waitForHandshakeAck(extension);
+
+    ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+    const forwardedHello = await nextMessage(extension);
+    const clientId = String(forwardedHello.clientId);
+    extension.send(JSON.stringify({
+      type: "ops_hello_ack",
+      version: "1",
+      clientId,
+      maxPayloadBytes: 1024,
+      capabilities: []
+    }));
+    await nextMessage(ops);
+    expect(server.status().opsConnected).toBe(true);
+
+    const opsClosed = waitForClose(ops);
+    extension.close();
+
+    await expect(opsClosed).resolves.toBe(1011);
+    expect(server.status().opsConnected).toBe(false);
+  });
+
+  it("closes ops clients when a replacement extension connects", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const firstExtension = await connect(`${started.url}/extension`);
+    const ops = await connect(`${started.url}/ops`);
+
+    firstExtension.send(JSON.stringify({ type: "handshake", payload: { tabId: 42 } }));
+    await waitForHandshakeAck(firstExtension);
+
+    ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+    const forwardedHello = await nextMessage(firstExtension);
+    const clientId = String(forwardedHello.clientId);
+    firstExtension.send(JSON.stringify({
+      type: "ops_hello_ack",
+      version: "1",
+      clientId,
+      maxPayloadBytes: 1024,
+      capabilities: []
+    }));
+    await nextMessage(ops);
+    expect(server.status().opsConnected).toBe(true);
+
+    const opsClosed = waitForClose(ops);
+    const replacementExtension = await connect(`${started.url}/extension`);
+    const replacementMessage = Promise.race([
+      new Promise((resolve) => {
+        replacementExtension.once("message", (data) => resolve(JSON.parse(data.toString())));
+      }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 50))
+    ]);
+
+    await expect(opsClosed).resolves.toBe(1011);
+    await expect(replacementMessage).resolves.toBeNull();
+    expect(server.status().opsConnected).toBe(false);
+
+    firstExtension.close();
+    replacementExtension.close();
+  });
+
+  it("does not notify a replacement extension when an old cdp client closes during takeover cleanup", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const firstExtension = await connect(`${started.url}/extension`);
+    firstExtension.send(JSON.stringify({ type: "handshake", payload: { tabId: 42 } }));
+    await waitForHandshakeAck(firstExtension);
+    const cdp = await connect(`${started.url}/cdp`);
+    const cdpClosed = waitForClose(cdp);
+    const replacementExtension = await connect(`${started.url}/extension`);
+    const replacementMessage = Promise.race([
+      new Promise((resolve) => {
+        replacementExtension.once("message", (data) => resolve(JSON.parse(data.toString())));
+      }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 50))
+    ]);
+
+    await expect(cdpClosed).resolves.toBe(1011);
+    await expect(replacementMessage).resolves.toBeNull();
+
+    firstExtension.close();
+    replacementExtension.close();
+  });
+
+  it("closes ops clients when status prunes a non-open extension socket", () => {
+    server = new RelayServer();
+    const close = vi.fn();
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      opsClients: Map<string, { readyState: number; close: (code: number, reason: string) => void }>;
+      readyOpsClients: Set<string>;
+    };
+    internal.extensionSocket = { readyState: WebSocket.CLOSING } as WebSocket;
+    internal.extensionHandshakeComplete = true;
+    internal.opsClients.set("ops-client", { readyState: WebSocket.OPEN, close });
+    internal.readyOpsClients.add("ops-client");
+
+    const status = server.status();
+
+    expect(status.extensionConnected).toBe(false);
+    expect(status.opsConnected).toBe(false);
+    expect(close).toHaveBeenCalledWith(1011, "Extension disconnected.");
+  });
+
+  it("closes ops clients when readiness checks prune a non-open extension socket", () => {
+    server = new RelayServer();
+    const close = vi.fn();
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      opsClients: Map<string, { readyState: number; close: (code: number, reason: string) => void }>;
+      readyOpsClients: Set<string>;
+      hasReadyExtensionSocket: () => boolean;
+    };
+    internal.extensionSocket = { readyState: WebSocket.CLOSING } as WebSocket;
+    internal.extensionHandshakeComplete = true;
+    internal.opsClients.set("ops-client", { readyState: WebSocket.OPEN, close });
+    internal.readyOpsClients.add("ops-client");
+
+    expect(internal.hasReadyExtensionSocket()).toBe(false);
+    expect(internal.opsClients.has("ops-client")).toBe(false);
+    expect(internal.readyOpsClients.has("ops-client")).toBe(false);
+    expect(close).toHaveBeenCalledWith(1011, "Extension disconnected.");
+  });
+
+  it("closes the current ops client after reporting unavailable during extension loss", () => {
+    server = new RelayServer();
+    const sent: unknown[] = [];
+    const close = vi.fn();
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      opsClients: Map<string, WebSocket>;
+      readyOpsClients: Set<string>;
+      handleOpsClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+    };
+    internal.extensionSocket = { readyState: WebSocket.CLOSING } as WebSocket;
+    internal.extensionHandshakeComplete = true;
+    internal.opsClients.set("ops-client", {
+      readyState: WebSocket.OPEN,
+      send: vi.fn((payload: string) => sent.push(JSON.parse(payload))),
+      close
+    } as unknown as WebSocket);
+    internal.readyOpsClients.add("ops-client");
+
+    internal.handleOpsClientMessage("ops-client", Buffer.from(JSON.stringify({
+      type: "ops_request",
+      requestId: "ops-request",
+      payloadId: "payload-1",
+      chunkIndex: 0,
+      totalChunks: 1,
+      data: "{}"
+    })));
+
+    expect(sent).toMatchObject([{ type: "ops_error", error: { code: "ops_unavailable" } }]);
+    expect(internal.opsClients.has("ops-client")).toBe(false);
+    expect(internal.readyOpsClients.has("ops-client")).toBe(false);
+    expect(close).toHaveBeenCalledWith(1011, "Extension disconnected.");
+  });
+
+  it("closes the current canvas client after reporting unavailable during extension loss", () => {
+    server = new RelayServer();
+    const sent: unknown[] = [];
+    const close = vi.fn();
+    const internal = server as unknown as {
+      extensionSocket: WebSocket | null;
+      extensionHandshakeComplete: boolean;
+      canvasClients: Map<string, WebSocket>;
+      handleCanvasClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+    };
+    internal.extensionSocket = { readyState: WebSocket.CLOSING } as WebSocket;
+    internal.extensionHandshakeComplete = true;
+    internal.canvasClients.set("canvas-client", {
+      readyState: WebSocket.OPEN,
+      send: vi.fn((payload: string) => sent.push(JSON.parse(payload))),
+      close
+    } as unknown as WebSocket);
+
+    internal.handleCanvasClientMessage("canvas-client", Buffer.from(JSON.stringify({
+      type: "canvas_request",
+      requestId: "canvas-request",
+      command: "document.snapshot"
+    })));
+
+    expect(sent).toMatchObject([{ type: "canvas_error", error: { code: "canvas_unavailable" } }]);
+    expect(internal.canvasClients.has("canvas-client")).toBe(false);
+    expect(close).toHaveBeenCalledWith(1011, "Extension disconnected.");
+  });
+
   it("parses buffer messages and forwards results", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -1089,6 +1289,23 @@ describe("RelayServer", () => {
       status: "error",
       error: { code: "relay_unavailable" }
     });
+  });
+
+  it("closes annotation clients when the extension disconnects", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    const annotation = await connect(`${started.url}/annotation`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 81 } }));
+    await waitForHandshakeAck(extension);
+    expect(server.status().annotationConnected).toBe(true);
+
+    const annotationClosed = waitForClose(annotation);
+    extension.close();
+
+    await expect(annotationClosed).resolves.toBe(1011);
+    expect(server.status().annotationConnected).toBe(false);
   });
 
   it("returns relay_unavailable for in-process annotation requests without a ready extension", async () => {
@@ -1232,6 +1449,37 @@ describe("RelayServer", () => {
       }
     });
     server = null;
+  });
+
+  it("clears pending websocket annotation requests when the relay stops", () => {
+    server = new RelayServer();
+    const send = vi.fn();
+    const close = vi.fn();
+    const directResolve = vi.fn();
+    const directTimeout = setTimeout(() => undefined, 1000);
+    const internal = server as unknown as {
+      annotationSocket: { readyState: number; send: (payload: string) => void; close: () => void } | null;
+      annotationPending: Map<string, { createdAt: number; readySeen: boolean }>;
+      annotationDirectPending: Map<string, { timeout: NodeJS.Timeout; resolve: (value: unknown) => void }>;
+    };
+    internal.annotationSocket = { readyState: WebSocket.OPEN, send, close };
+    internal.annotationPending.set("req-stop-ws", { createdAt: Date.now(), readySeen: false });
+    internal.annotationDirectPending.set("req-stop-direct", {
+      timeout: directTimeout,
+      resolve: directResolve
+    });
+
+    server.stop();
+
+    expect(send).toHaveBeenCalledWith(expect.stringContaining("\"requestId\":\"req-stop-ws\""));
+    expect(directResolve).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "req-stop-direct",
+      status: "error",
+      error: { code: "relay_unavailable", message: "Relay stopped." }
+    }));
+    expect(internal.annotationPending.size).toBe(0);
+    expect(internal.annotationDirectPending.size).toBe(0);
+    expect(close).toHaveBeenCalled();
   });
 
   it("accepts and forwards fetch_stored annotation commands", async () => {
@@ -1770,36 +2018,75 @@ describe("RelayServer", () => {
   });
 
   it("fails silent ops hello handshakes explicitly and clears relay readiness", async () => {
+    const relayServerCtor = RelayServer as unknown as { OPS_HELLO_ACK_TIMEOUT_MS: number };
+    const originalTimeoutMs = relayServerCtor.OPS_HELLO_ACK_TIMEOUT_MS;
+    relayServerCtor.OPS_HELLO_ACK_TIMEOUT_MS = 25;
+    server = new RelayServer();
+    try {
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      const ops = await connect(`${started.url}/ops`);
+
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 33 } }));
+      await waitForHandshakeAck(extension);
+
+      ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+      const forwardedHello = await nextMessage(extension);
+      expect(forwardedHello.type).toBe("ops_hello");
+
+      const statusResponse = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const statusData = await statusResponse.json();
+      expect(statusData.opsConnected).toBe(false);
+
+      const response = await nextMessageWithTimeout(ops, 1000);
+      expect(response).toMatchObject({
+        type: "ops_error",
+        requestId: "ops_hello",
+        error: {
+          code: "ops_unavailable",
+          message: "Extension did not acknowledge ops hello."
+        }
+      });
+      expect((response.error as { details?: { reason?: string } }).details?.reason).toBe("ops_hello_timeout");
+      expect(await waitForClose(ops)).toBe(1011);
+      expect(server.status().opsConnected).toBe(false);
+
+      extension.close();
+    } finally {
+      relayServerCtor.OPS_HELLO_ACK_TIMEOUT_MS = originalTimeoutMs;
+    }
+  });
+
+  it("allows delayed ops hello acknowledgements from a waking extension worker", async () => {
     server = new RelayServer();
     const started = await server.start(0);
 
     const extension = await connect(`${started.url}/extension`);
     const ops = await connect(`${started.url}/ops`);
 
-    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 33 } }));
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 34 } }));
     await waitForHandshakeAck(extension);
 
     ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
     const forwardedHello = await nextMessage(extension);
     expect(forwardedHello.type).toBe("ops_hello");
+    expect(typeof forwardedHello.clientId).toBe("string");
 
-    const statusResponse = await fetch(`http://127.0.0.1:${started.port}/status`);
-    const statusData = await statusResponse.json();
-    expect(statusData.opsConnected).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    extension.send(JSON.stringify({
+      type: "ops_hello_ack",
+      version: "1",
+      clientId: forwardedHello.clientId,
+      maxPayloadBytes: 1024,
+      capabilities: []
+    }));
 
-    const response = await nextMessageWithTimeout(ops, 3000);
-    expect(response).toMatchObject({
-      type: "ops_error",
-      requestId: "ops_hello",
-      error: {
-        code: "ops_unavailable",
-        message: "Extension did not acknowledge ops hello."
-      }
-    });
-    expect((response.error as { details?: { reason?: string } }).details?.reason).toBe("ops_hello_timeout");
-    expect(await waitForClose(ops)).toBe(1011);
-    expect(server.status().opsConnected).toBe(false);
+    const response = await nextMessageWithTimeout(ops, 2000);
+    expect(response.type).toBe("ops_hello_ack");
+    expect(server.status().opsConnected).toBe(true);
 
+    ops.close();
     extension.close();
   });
 
@@ -1906,6 +2193,10 @@ describe("RelayServer", () => {
       handleAnnotationMessage: (data: WebSocket.RawData) => void;
       handleOpsClientMessage: (clientId: string, data: WebSocket.RawData) => void;
       handleCanvasClientMessage: (clientId: string, data: WebSocket.RawData) => void;
+      closeOpsClient: (clientId: string, code: number, reason: string) => void;
+      closeCanvasClient: (clientId: string, code: number, reason: string) => void;
+      trackPendingOpsHelloAck: (clientId: string) => void;
+      clearPendingOpsHelloAck: (clientId: string) => void;
       sendAnnotationError: (requestId: string, code: string, message: string) => void;
       sendJson: (socket: unknown, payload: unknown) => void;
     };
@@ -1919,6 +2210,18 @@ describe("RelayServer", () => {
       message: "bad request",
       retryable: false
     });
+    internal.closeOpsClient("missing-client", 1011, "missing");
+    internal.closeCanvasClient("missing-client", 1011, "missing");
+    expect(sendJson).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    try {
+      internal.trackPendingOpsHelloAck("cleared-before-timeout");
+      internal.clearPendingOpsHelloAck("cleared-before-timeout");
+      vi.advanceTimersByTime((RelayServer as unknown as { OPS_HELLO_ACK_TIMEOUT_MS: number }).OPS_HELLO_ACK_TIMEOUT_MS);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(sendJson).not.toHaveBeenCalled();
 
     internal.extensionSocket = { readyState: WebSocket.CLOSED, send: vi.fn(), close: vi.fn() } as unknown as WebSocket;
@@ -2297,7 +2600,7 @@ describe("RelayServer", () => {
     extension.close();
   });
 
-  it("releases and restores cdp attach blocking across the ops reclaim lifecycle", async () => {
+  it("keeps cdp attach blocked while an ops session is released for reclaim", async () => {
     server = new RelayServer();
     const started = await server.start(0);
 
@@ -2323,13 +2626,10 @@ describe("RelayServer", () => {
       payload: { tabId: 777 }
     }));
 
-    const forwardedPromise = nextMessage(extension);
     cdp.send(JSON.stringify({ id: 5, method: "Target.attachToTarget", params: { targetId: "tab-777" } }));
-    const forwarded = await forwardedPromise;
-    expect(forwarded.method).toBe("forwardCDPCommand");
-    extension.send(JSON.stringify({ id: 5, result: { sessionId: "s-reclaimed" } }));
     const releasedResponse = await nextMessage(cdp);
-    expect(releasedResponse.result).toEqual({ sessionId: "s-reclaimed" });
+    expect(releasedResponse.error).toEqual({ message: "cdp_attach_blocked: target is owned by an ops session" });
+    expect(server.status().opsOwnedTargetCount).toBe(1);
 
     extension.send(JSON.stringify({
       type: "ops_event",
@@ -2340,6 +2640,20 @@ describe("RelayServer", () => {
     cdp.send(JSON.stringify({ id: 6, method: "Target.attachToTarget", params: { targetId: "tab-777" } }));
     const reblocked = await nextMessage(cdp);
     expect(reblocked.error).toEqual({ message: "cdp_attach_blocked: target is owned by an ops session" });
+
+    extension.send(JSON.stringify({
+      type: "ops_event",
+      event: "ops_session_expired",
+      payload: { tabId: 777 }
+    }));
+
+    const forwardedPromise = nextMessage(extension);
+    cdp.send(JSON.stringify({ id: 7, method: "Target.attachToTarget", params: { targetId: "tab-777" } }));
+    const forwarded = await forwardedPromise;
+    expect(forwarded.method).toBe("forwardCDPCommand");
+    extension.send(JSON.stringify({ id: 7, result: { sessionId: "s-expired" } }));
+    const expiredResponse = await nextMessage(cdp);
+    expect(expiredResponse.result).toEqual({ sessionId: "s-expired" });
 
     cdp.close();
     extension.close();
@@ -3526,6 +3840,91 @@ describe("RelayServer", () => {
       extension2.close();
     });
 
+    it("reports dirty health when ops-owned targets remain", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 1 } }));
+      await waitForHandshakeAck(extension);
+      extension.send(JSON.stringify({
+        type: "ops_event",
+        clientId: "client-1",
+        opsSessionId: "ops-1",
+        event: "ops_session_created",
+        payload: { tabId: 77, targetId: "tab-77" }
+      }));
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const data = await response.json();
+      expect(data.health).toMatchObject({
+        ok: false,
+        reason: "relay_dirty",
+        opsOwnedTargetCount: 1
+      });
+
+      extension.close();
+    });
+
+    it("keeps idle ready ops clients healthy when no ops-owned targets remain", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 1 } }));
+      await waitForHandshakeAck(extension);
+
+      const ops = await connect(`${started.url}/ops`);
+      ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+      const forwardedHello = await nextMessage(extension);
+      const clientId = String(forwardedHello.clientId);
+      extension.send(JSON.stringify({
+        type: "ops_hello_ack",
+        version: "1",
+        clientId,
+        maxPayloadBytes: 1024,
+        capabilities: []
+      }));
+      await nextMessage(ops);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const data = await response.json();
+      expect(data.health).toMatchObject({
+        ok: true,
+        reason: "ok",
+        opsConnected: true,
+        opsOwnedTargetCount: 0
+      });
+
+      ops.close();
+      extension.close();
+    });
+
+    it.each([
+      ["cdp", "cdpConnected"],
+      ["annotation", "annotationConnected"],
+      ["canvas", "canvasConnected"]
+    ] as const)("reports dirty health while a %s client is active", async (path, key) => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 1 } }));
+      await waitForHandshakeAck(extension);
+      const client = await connect(`${started.url}/${path}`);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const data = await response.json();
+      expect(data.health).toMatchObject({
+        ok: false,
+        reason: "relay_dirty",
+        [key]: true
+      });
+
+      client.close();
+      extension.close();
+    });
+
     it("reports pairing_invalid when the handshake token is wrong", async () => {
       server = new RelayServer();
       server.setToken("secret");
@@ -4327,6 +4726,11 @@ describe("RelayServer", () => {
       vi.runOnlyPendingTimers();
       vi.useRealTimers();
     }
+  });
+
+  it("keeps relay ops hello timeout within the default client handshake budget", () => {
+    expect((RelayServer as unknown as { OPS_HELLO_ACK_TIMEOUT_MS: number }).OPS_HELLO_ACK_TIMEOUT_MS)
+      .toBeLessThan(12000);
   });
 
   it("closes open ops clients when the hello acknowledgement times out", () => {

@@ -59,6 +59,7 @@ export type RelayHttpStatus = {
   cdpConnected: boolean;
   annotationConnected: boolean;
   opsConnected: boolean;
+  opsOwnedTargetCount: number;
   canvasConnected: boolean;
   pairingRequired: boolean;
   health?: RelayHealthStatus;
@@ -394,7 +395,8 @@ export type RelayHealthReason =
   | "cdp_disconnected"
   | "annotation_disconnected"
   | "ops_disconnected"
-  | "canvas_disconnected";
+  | "canvas_disconnected"
+  | "relay_dirty";
 
 export type RelayHealthStatus = {
   ok: boolean;
@@ -405,6 +407,7 @@ export type RelayHealthStatus = {
   cdpConnected: boolean;
   annotationConnected: boolean;
   opsConnected: boolean;
+  opsOwnedTargetCount: number;
   canvasConnected: boolean;
   pairingRequired: boolean;
   lastHandshakeError?: RelayHandshakeError;

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-05-09T17:48:24.119Z",
+  "generatedAt": "2026-05-11T13:02:13.972Z",
   "cli": {
     "groups": [
       {
@@ -609,7 +609,7 @@
       {
         "name": "macro-resolve",
         "description": "Resolve or execute a macro expression via provider actions",
-        "usage": "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute [--timeout-ms <ms>] [--browser-mode <mode>] [--challenge-automation-mode <mode>]]",
+        "usage": "npx opendevbrowser macro-resolve --expression <macro> [--default-provider <provider>] [--include-catalog] [--execute [--timeout-ms <ms>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]]",
         "flags": [
           "--expression",
           "--default-provider",
@@ -617,13 +617,17 @@
           "--execute",
           "--timeout-ms",
           "--browser-mode",
-          "--challenge-automation-mode"
+          "--use-cookies",
+          "--challenge-automation-mode",
+          "--cookie-policy-override",
+          "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json"
+          "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json"
         ],
         "notes": [
           "Use --browser-mode and --challenge-automation-mode only with --execute.",
+          "Use --browser-mode extension --use-cookies --cookie-policy required when provider macros must reuse relay-backed browser state and verify that provider cookies are observable.",
           "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete."
         ],
         "groupId": "provider_workflows",
@@ -2501,7 +2505,7 @@
         "name": "opendevbrowser_macro_resolve",
         "description": "Resolve or execute provider macro expressions.",
         "cliEquivalent": "macro-resolve",
-        "example": "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --challenge-automation-mode browser_with_helper --output-format json"
+        "example": "npx opendevbrowser macro-resolve --expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json"
       },
       {
         "name": "opendevbrowser_research_run",

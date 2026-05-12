@@ -777,13 +777,21 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
     {
       const execute = optionalBoolean(params.execute) ?? false;
       const browserMode = optionalWorkflowBrowserMode(params.browserMode);
+      const useCookies = optionalBoolean(params.useCookies);
       const challengeAutomationMode = optionalChallengeAutomationMode(params.challengeAutomationMode);
+      const cookiePolicyOverride = optionalCookiePolicy(params.cookiePolicyOverride);
 
       if (!execute && browserMode) {
         throw new Error("browserMode requires execute=true for macro resolution");
       }
+      if (!execute && typeof useCookies === "boolean") {
+        throw new Error("useCookies requires execute=true for macro resolution");
+      }
       if (!execute && challengeAutomationMode) {
         throw new Error("challengeAutomationMode requires execute=true for macro resolution");
+      }
+      if (!execute && cookiePolicyOverride) {
+        throw new Error("cookiePolicyOverride requires execute=true for macro resolution");
       }
 
       return resolveMacroExpression(
@@ -794,7 +802,9 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           execute,
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
           browserMode,
-          challengeAutomationMode
+          useCookies,
+          challengeAutomationMode,
+          cookiePolicyOverride
         },
         core.config,
         core.manager,
@@ -1928,7 +1938,9 @@ type MacroResolveOptions = {
   execute: boolean;
   timeoutMs?: number;
   browserMode?: WorkflowBrowserMode;
+  useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
+  cookiePolicyOverride?: "off" | "auto" | "required";
 };
 
 const MIN_WAIT_TIMEOUT_MS = 3000;
@@ -2152,7 +2164,9 @@ async function resolveMacroExpression(
     browserFallbackPort,
     timeoutMs: options.timeoutMs,
     browserMode: options.browserMode,
-    challengeAutomationMode: options.challengeAutomationMode
+    useCookies: options.useCookies,
+    challengeAutomationMode: options.challengeAutomationMode,
+    cookiePolicyOverride: options.cookiePolicyOverride
   });
   const handoff = buildMacroResolveSuccessHandoff({
     expression: options.expression,

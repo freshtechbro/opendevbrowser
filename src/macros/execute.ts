@@ -68,6 +68,22 @@ export type MacroExecutionPayload = {
 
 type MacroExecutionOverrides = Pick<ProviderRunOptions, "challengeAutomationMode"> & {
   browserMode?: WorkflowBrowserMode;
+  useCookies?: boolean;
+  cookiePolicyOverride?: ProviderRunOptions["cookiePolicyOverride"];
+};
+
+const buildRuntimePolicyOverrides = (
+  overrides?: MacroExecutionOverrides
+): ProviderRunOptions["runtimePolicy"] | undefined => {
+  if (!overrides) {
+    return undefined;
+  }
+  const runtimePolicy = {
+    ...(overrides.browserMode ? { browserMode: overrides.browserMode } : {}),
+    ...(typeof overrides.useCookies === "boolean" ? { useCookies: overrides.useCookies } : {}),
+    ...(overrides.cookiePolicyOverride ? { cookiePolicyOverride: overrides.cookiePolicyOverride } : {})
+  };
+  return Object.keys(runtimePolicy).length > 0 ? runtimePolicy : undefined;
 };
 
 const isRecordValue = (value: unknown): value is Record<string, unknown> =>
@@ -353,15 +369,14 @@ const buildRunOptions = (
     && resolution.action.input.providerId.trim()
     ? resolution.action.input.providerId.trim()
     : undefined;
+  const runtimePolicy = buildRuntimePolicyOverrides(overrides);
   return {
     source,
     ...(providerId ? { providerIds: [providerId] } : {}),
     ...(overrides?.challengeAutomationMode
       ? { challengeAutomationMode: overrides.challengeAutomationMode }
       : {}),
-    ...(overrides?.browserMode
-      ? { runtimePolicy: { browserMode: overrides.browserMode } }
-      : {})
+    ...(runtimePolicy ? { runtimePolicy } : {})
   };
 };
 

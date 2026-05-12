@@ -345,6 +345,34 @@ describe("provider constraint helpers", () => {
       }
     });
 
+    expect(summarizePrimaryProviderIssue([
+      {
+        provider: "shopping/bestbuy",
+        error: {
+          reasonCode: "env_limited",
+          details: {
+            constraint: {
+              kind: "render_required",
+              evidenceCode: "bestbuy_international_gate",
+              providerShell: "bestbuy_international_gate",
+              message: "Best Buy International: Select your Country"
+            }
+          }
+        }
+      }
+    ])).toMatchObject({
+      provider: "shopping/bestbuy",
+      reasonCode: "env_limited",
+      summary: "Bestbuy is blocked by the Best Buy country-selection interstitial.",
+      guidance: {
+        reason: "Bestbuy needs the Best Buy country-selection interstitial cleared before retrying.",
+        recommendedNextCommands: [
+          "Choose the shopping country or region in the preserved browser session.",
+          "Rerun the same provider or workflow after the Best Buy PDP or search results are visible."
+        ]
+      }
+    });
+
     expect(readProviderIssueHint({
       details: {
         browserRequired: true,

@@ -379,4 +379,50 @@ describe("daemon e2e", () => {
     expect(status.ok).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ignored recoverable Playwright transport follow-on"));
   });
+
+  it("keeps the daemon alive after Playwright no-tab transport assertions", async () => {
+    daemonPort = await getAvailablePort();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig(),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    const assertion = new Error("No tab attached");
+    assertion.stack = [
+      "Error: No tab attached",
+      "    at assert (/repo/node_modules/playwright-core/lib/utils/isomorphic/assert.js:26:11)",
+      "    at CRSession._onMessage (/repo/node_modules/playwright-core/lib/server/chromium/crConnection.js:129:31)",
+      "    at CRConnection._onMessage (/repo/node_modules/playwright-core/lib/server/chromium/crConnection.js:67:15)",
+      "    at Immediate.<anonymous> (/repo/node_modules/playwright-core/lib/server/transport.js:73:28)"
+    ].join("\n");
+    process.emit("uncaughtException", assertion);
+
+    const status = await fetchStatus(daemonPort, token);
+    expect(status.ok).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ignored recoverable Playwright transport follow-on"));
+  });
+
+  it("keeps the daemon alive after Playwright missing-frame transport errors", async () => {
+    daemonPort = await getAvailablePort();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { stop } = await startDaemon({
+      port: daemonPort,
+      token,
+      config: makeConfig(),
+      directory: tempRoot,
+      worktree: null
+    });
+    daemonStop = stop;
+
+    process.emit("unhandledRejection", new Error('{"code":-32000,"message":"No frame with given id found"}'), Promise.resolve());
+
+    const status = await fetchStatus(daemonPort, token);
+    expect(status.ok).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ignored recoverable Playwright transport error"));
+  });
 });

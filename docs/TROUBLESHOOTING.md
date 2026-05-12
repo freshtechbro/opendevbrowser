@@ -337,6 +337,10 @@ Fixes:
 - Ensure the daemon and extension are both using the same relay port
 - If needed, restart the daemon and reconnect the extension
 
+Expected recovery:
+- If a replacement extension client disconnects and the relay reports no active extension client, the background auto-connect loop should retry the stored relay automatically.
+- If the badge stays red after the relay is empty and the daemon is healthy, reload the unpacked extension and run `opendevbrowser status --daemon --output-format json`; capture `extensionConnected`, `extensionHandshakeComplete`, and `health.reason` before classifying the issue as environment-limited.
+
 If the daemon logs `handshake_failed` with `invalid_token`, the extension is using a stale pairing token:
 - Click **Connect** in the extension popup (auto-pair fetches the current token)
 - Verify `relayPort` matches the daemon’s relay port

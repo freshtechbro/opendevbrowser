@@ -23,6 +23,37 @@ describe("CDPRouter", () => {
     expect(chrome.debugger.detach).toHaveBeenCalled();
   });
 
+  it("does not log expected already-detached cleanup failures as extension errors", async () => {
+    const mock = createChromeMock({
+      activeTab: {
+        id: 43,
+        url: "https://example.com/already-detached",
+        title: "Already Detached",
+        groupId: 1,
+        status: "complete",
+        active: true
+      }
+    });
+    globalThis.chrome = mock.chrome;
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const detachMock = globalThis.chrome.debugger.detach as unknown as ReturnType<typeof vi.fn>;
+    detachMock.mockImplementation((_debuggee: chrome.debugger.Debuggee, callback: () => void) => {
+      mock.setRuntimeError("Debugger is not attached to the tab with id: 43.");
+      callback();
+      mock.setRuntimeError(null);
+    });
+
+    const router = new CDPRouter();
+    await router.attach(43);
+    await router.detachAll();
+
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      "[opendevbrowser]",
+      expect.stringContaining("\"context\":\"cdp.safe_detach\"")
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
   it("records root attach diagnostics when chrome.debugger.attach fails at tab attach", async () => {
     const mock = createChromeMock({
       activeTab: {

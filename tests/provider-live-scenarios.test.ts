@@ -25,7 +25,7 @@ describe("provider-live-scenarios", () => {
     expect(shoppingProvidersForMode(false)).toContain("shopping/bestbuy");
   });
 
-  it("excludes gated shopping providers in non-release mode by default", () => {
+  it("includes gated shopping diagnostics in non-release mode by default", () => {
     const scenarios = scenarioProviderIds({
       smoke: false,
       runAuthGated: false,
@@ -33,9 +33,9 @@ describe("provider-live-scenarios", () => {
       releaseGate: false
     });
 
-    expect(scenarios.shopping).not.toContain("shopping/costco");
-    expect(scenarios.shopping).not.toContain("shopping/macys");
-    expect(scenarios.shopping).not.toContain("shopping/bestbuy");
+    expect(scenarios.shopping).toContain("shopping/costco");
+    expect(scenarios.shopping).toContain("shopping/macys");
+    expect(scenarios.shopping).toContain("shopping/bestbuy");
   });
 
   it("ensures full provider coverage in release-gate mode", () => {

@@ -591,6 +591,44 @@ describe("product-video substrate adoption", () => {
     );
   });
 
+  it("rejects Best Buy error shells before emitting product-video assets", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "bestbuy-pdp-error-shell",
+        source: "shopping",
+        provider: "shopping/bestbuy",
+        url: "https://www.bestbuy.com/site/logitech-mx-master-3s/6502574.p?skuId=6502574",
+        title: "None Early Black Friday Deals New Doorbusters every Friday.",
+        content: [
+          "None Early Black Friday Deals New Doorbusters every Friday.",
+          "We’re sorry, something went wrong.",
+          "You can use our search bar or pick a category below.",
+          "If you typed in a URL, check it for errors."
+        ].join(" "),
+        attributes: {
+          links: ["https://pisces.bbystatic.com/image2/BestBuy_US/Gallery/GL-44932-vpt-error_lv-140337.jpg"],
+          shopping_offer: {
+            provider: "shopping/bestbuy",
+            product_id: "6502574",
+            title: "None Early Black Friday Deals New Doorbusters every Friday.",
+            url: "https://www.bestbuy.com/site/logitech-mx-master-3s/6502574.p?skuId=6502574",
+            price: { amount: 0, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            price_source: "unresolved",
+            price_is_trustworthy: false,
+            shipping: { amount: 0, currency: "USD", notes: "unknown" },
+            availability: "in_stock",
+            rating: 0,
+            reviews_count: 0
+          }
+        }
+      })]
+    }));
+
+    await expect(runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.bestbuy.com/site/logitech-mx-master-3s/6502574.p?skuId=6502574"
+    }))).rejects.toThrow("Best Buy product target returned a generic error shell");
+  });
+
   it("fails honestly when an external seller overlay suppresses the only product price on a marketplace PDP", async () => {
     const fetch = vi.fn(async () => makeAggregate({
       records: [makeRecord({

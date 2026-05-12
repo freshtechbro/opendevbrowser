@@ -31,10 +31,25 @@ function tailLog(chunks) {
   return chunks.join("").trim();
 }
 
+export function hasDaemonStartedOutput(chunks, expectedPort = null) {
+  const lines = chunks.join("").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.some((line) => {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed?.success !== true || parsed?.data?.port === undefined) {
+        return false;
+      }
+      return expectedPort === null || parsed.data.port === expectedPort;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function isCurrentHarnessDaemonStatus(status) {
   return status?.status === 0
     && status.json?.success === true
-    && status.json?.data?.fingerprintCurrent !== false;
+    && status.json?.data?.fingerprintCurrent === true;
 }
 
 export function currentHarnessDaemonStatusDetail(status) {
@@ -43,6 +58,9 @@ export function currentHarnessDaemonStatusDetail(status) {
   }
   if (status?.status === 0 && status.json?.data?.fingerprintCurrent === false) {
     return "daemon_fingerprint_mismatch";
+  }
+  if (status?.status === 0 && status.json?.success === true) {
+    return "daemon_fingerprint_missing";
   }
   return status?.detail ?? "daemon_status_unavailable";
 }
@@ -108,6 +126,7 @@ export async function createTempHarness(prefix) {
   const configDir = path.join(tempRoot, "config");
   const cacheDir = path.join(tempRoot, "cache");
   const daemonPort = await getFreePort();
+  const relayPort = await getFreePort();
   const relayToken = randomUUID().replaceAll("-", "");
   const daemonToken = randomUUID().replaceAll("-", "");
   fs.mkdirSync(configDir, { recursive: true });
@@ -115,7 +134,7 @@ export async function createTempHarness(prefix) {
   fs.writeFileSync(
     path.join(configDir, "opendevbrowser.jsonc"),
     `{
-  "relayPort": 8787,
+  "relayPort": ${relayPort},
   "relayToken": "${relayToken}",
   "daemonPort": ${daemonPort},
   "daemonToken": "${daemonToken}"
@@ -129,6 +148,7 @@ export async function createTempHarness(prefix) {
     configDir,
     cacheDir,
     daemonPort,
+    relayPort,
     env: {
       ...process.env,
       OPENCODE_CONFIG_DIR: configDir,
@@ -151,7 +171,9 @@ export async function startDaemon(env, daemonPort) {
   daemon.on("error", (error) => appendLogChunk(stderrChunks, error instanceof Error ? error.stack ?? error.message : String(error)));
 
   const timeoutAt = Date.now() + 15_000;
+  let startupOutputSeen = false;
   while (Date.now() < timeoutAt) {
+    startupOutputSeen ||= hasDaemonStartedOutput(stdoutChunks, daemonPort);
     const status = runCli(["status", "--daemon"], {
       env,
       allowFailure: true,
@@ -166,7 +188,9 @@ export async function startDaemon(env, daemonPort) {
   await terminateChild(daemon);
   const stderr = tailLog(stderrChunks);
   const stdout = tailLog(stdoutChunks);
-  const detail = stderr || stdout;
+  const detail = startupOutputSeen
+    ? "Daemon emitted startup output but status never reported the current build fingerprint."
+    : stderr || stdout;
   throw new Error(detail ? `Daemon did not become ready in time. ${detail}` : "Daemon did not become ready in time.");
 }
 
@@ -183,7 +207,9 @@ export async function startConfiguredDaemon(env) {
   daemon.on("error", (error) => appendLogChunk(stderrChunks, error instanceof Error ? error.stack ?? error.message : String(error)));
 
   const timeoutAt = Date.now() + 15_000;
+  let startupOutputSeen = false;
   while (Date.now() < timeoutAt) {
+    startupOutputSeen ||= hasDaemonStartedOutput(stdoutChunks);
     const status = runCli(["status", "--daemon"], {
       env,
       allowFailure: true,
@@ -198,7 +224,9 @@ export async function startConfiguredDaemon(env) {
   await terminateChild(daemon);
   const stderr = tailLog(stderrChunks);
   const stdout = tailLog(stdoutChunks);
-  const detail = stderr || stdout;
+  const detail = startupOutputSeen
+    ? "Configured daemon emitted startup output but status never reported the current build fingerprint."
+    : stderr || stdout;
   throw new Error(detail ? `Configured daemon did not become ready in time. ${detail}` : "Configured daemon did not become ready in time.");
 }
 
@@ -216,6 +244,19 @@ export async function stopDaemon(daemon, env, { uninstallAutostart = false } = {
     timeoutMs: 15_000
   });
   await terminateChild(daemon);
+}
+
+function stopConfiguredDaemonBeforeReplacement(env) {
+  const stop = runCli(["serve", "--stop"], {
+    env,
+    allowFailure: true,
+    timeoutMs: 15_000
+  });
+  if (stop?.status === 0 && stop.json?.success === true) {
+    return;
+  }
+  const detail = stop?.detail ?? "configured daemon stop failed";
+  throw new Error(`configured_daemon_stop_failed: ${detail}`);
 }
 
 export async function cleanupHarness(tempRoot) {
@@ -260,6 +301,9 @@ export async function withConfiguredDaemon(task, env = process.env) {
       daemon: null,
       startedDaemon: false
     });
+  }
+  if (status?.status === 0 && status.json?.success === true) {
+    stopConfiguredDaemonBeforeReplacement(env);
   }
 
   const daemon = await startConfiguredDaemon(env);
