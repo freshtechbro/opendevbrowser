@@ -133,6 +133,58 @@ describe("community provider", () => {
     }
   });
 
+  it("keeps usable reddit search fallback content even when result excerpts discuss bot challenges", async () => {
+    const fallbackResolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "challenge_detected" as const,
+      mode: "extension" as const,
+      output: {
+        url: "https://www.reddit.com/search/?q=browser+automation+failures",
+        html: [
+          "<html><head><title>browser automation failures - Reddit Search!</title></head><body>",
+          "<main>",
+          "Answers - browser automation failures Sources: r/automation, r/AI_Agents.",
+          "Common Causes of Browser Automation Failures.",
+          "Captcha and Bot Detection: Websites often implement captchas or other bot detection mechanisms.",
+          "Resource Exhaustion: Running multiple concurrent browser sessions can lead to sessions dying silently.",
+          "</main>",
+          "</body></html>"
+        ].join("")
+      },
+      details: {}
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><body>Please wait for verification before continuing.</body></html>"
+    })) as unknown as typeof fetch);
+
+    try {
+      const runtime = createDefaultRuntime({}, {
+        browserFallbackPort: {
+          resolve: fallbackResolve
+        }
+      });
+      const result = await runtime.search(
+        { query: "browser automation failures", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+      expect(result.records).toHaveLength(1);
+      expect(result.records[0]).toMatchObject({
+        provider: "community/default",
+        url: "https://www.reddit.com/search?q=browser+automation+failures"
+      });
+      expect(result.records[0]?.content).toContain("Common Causes of Browser Automation Failures");
+      expect(result.records[0]?.attributes?.browser_fallback_mode).toBe("extension");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("returns structured unavailable errors when retrieval is not configured", async () => {
     const provider = createCommunityProvider({ platform: "forums" });
 

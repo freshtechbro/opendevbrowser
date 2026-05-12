@@ -8,6 +8,7 @@ import { ChallengeOrchestrator, resolveChallengeAutomationPolicy, type Challenge
 import { createDefaultRuntime, type RuntimeDefaults, type RuntimeInit } from "./index";
 import { classifyBlockerSignal } from "./blocker";
 import { cookieSourceRef, readCookiesFromSource } from "./cookie-source";
+import { createLogger } from "../core/logging";
 import { ProviderRuntimeError } from "./errors";
 import { resolveProviderRuntimePolicy } from "./runtime-policy";
 import { canonicalizeUrl } from "./web/crawler";
@@ -75,8 +76,10 @@ const DEFAULT_FALLBACK_SHOPPING_CLONE_MAX_NODES = 5000;
 const DEFAULT_FALLBACK_SOCIAL_CLONE_MAX_NODES = 15000;
 const DEFAULT_FALLBACK_MAX_CAPTURE_ATTEMPTS = 3;
 const DEFAULT_FALLBACK_RECAPTURE_DELAY_MS = 250;
+const FALLBACK_SESSION_CLEANUP_TIMEOUT_MS = 5000;
 const EXTENSION_RETRY_DELAY_MS = 500;
 const FALLBACK_CAPTURE_MIN_CONTENT_BUDGET_MS = 250;
+const fallbackLogger = createLogger("provider-fallback");
 const FALLBACK_CAPTURE_HTML_STABILITY_THRESHOLD = 256;
 const FALLBACK_CAPTURE_TEXT_STABILITY_THRESHOLD = 64;
 const SHOPPING_SEARCH_INTENT_KEYS = ["keyword", "st", "q", "searchTerm"];
@@ -155,6 +158,32 @@ const resolveExtensionModeAttempts = (
 const waitForExtensionRetryGap = async (): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, EXTENSION_RETRY_DELAY_MS));
 };
+
+const awaitFallbackCleanupWithinBudget = async (cleanup: Promise<void>): Promise<void> => {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timeoutId = setTimeout(() => resolve("timeout"), FALLBACK_SESSION_CLEANUP_TIMEOUT_MS);
+  });
+  const completed = cleanup.then(
+    () => ({ status: "done" as const }),
+    (error: unknown) => ({ status: "failed" as const, error })
+  );
+  const result = await Promise.race([completed, timeout]);
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+  if (result === "timeout") {
+    throw new Error(`Browser fallback cleanup timed out after ${FALLBACK_SESSION_CLEANUP_TIMEOUT_MS}ms`);
+  }
+  if (result.status === "failed") {
+    const message = result.error instanceof Error ? result.error.message : String(result.error);
+    throw new Error(`Browser fallback cleanup failed: ${message}`);
+  }
+};
+
+const isFallbackCleanupFailure = (error: unknown): boolean => (
+  error instanceof Error && error.message.startsWith("Browser fallback cleanup ")
+);
 
 const resolveFallbackNavigationWaitUntil = (
   source: BrowserFallbackRequest["source"],
@@ -285,25 +314,6 @@ const createFallbackChallengeRuntimeHandle = (manager: BrowserManagerLike): Chal
     cookieImport: manager.cookieImport.bind(manager),
     debugTraceSnapshot: manager.debugTraceSnapshot.bind(manager),
     resolveRefPoint: resolveRefPoint.bind(manager)
-  };
-};
-
-const reconnectExplicitShoppingExtensionSession = async (args: {
-  manager: BrowserManagerLike;
-  sessionId: string;
-  extensionWsEndpoint: string;
-  requestUrl: string;
-}): Promise<{ sessionId: string; navigatedDuringAttach: boolean }> => {
-  await args.manager.disconnect(args.sessionId, true).catch(() => {
-    // Best effort cleanup before reconnecting a fresh extension attach session.
-  });
-  const attached = await args.manager.connectRelay(args.extensionWsEndpoint, { startUrl: args.requestUrl });
-  const attachedUrl = (await args.manager.status(attached.sessionId)).url;
-  return {
-    sessionId: attached.sessionId,
-    navigatedDuringAttach: didExtensionAttachReachRequestUrl(args.requestUrl, attachedUrl, {
-      allowEquivalentPath: true
-    })
   };
 };
 
@@ -879,10 +889,8 @@ export const createBrowserFallbackPort = (
   helperBridgeEnabled = true
 ): BrowserFallbackPort | undefined => {
   if (!manager) return undefined;
-  const disconnectFallbackSession = (sessionId: string) => {
-    void manager.disconnect(sessionId, true).catch(() => {
-      // Best effort cleanup for fallback sessions.
-    });
+  const disconnectFallbackSession = async (sessionId: string): Promise<void> => {
+    await manager.disconnect(sessionId, true);
   };
   const defaults: BrowserFallbackCookieConfig = {
     policy: cookieDefaults.policy ?? DEFAULT_COOKIE_POLICY,
@@ -1021,6 +1029,50 @@ export const createBrowserFallbackPort = (
           }
         }
       };
+      const runSessionStartWithinFallbackDeadline = async <T extends { sessionId?: string | null }>(
+        stage: string,
+        task: () => Promise<T>
+      ): Promise<T> => {
+        const taskPromise = Promise.resolve().then(task);
+        try {
+          return await runWithinFallbackDeadline(stage, async () => taskPromise);
+        } catch (error) {
+          const isDeadlineFailure = error instanceof ProviderRuntimeError && error.code === "timeout";
+          if (!isDeadlineFailure) {
+            throw error;
+          }
+          void taskPromise.then(async (result) => {
+            if (result.sessionId) {
+              try {
+                await awaitFallbackCleanupWithinBudget(disconnectFallbackSession(result.sessionId));
+              } catch (cleanupError) {
+                fallbackLogger.error("fallback.late_cleanup_failed", {
+                  requestId: request.trace?.requestId,
+                  sessionId: result.sessionId,
+                  data: {
+                    provider: request.provider,
+                    source: request.source,
+                    stage,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                  }
+                });
+              }
+            }
+          }).catch((lateError) => {
+            // The foreground failure already reports the timed-out session start.
+            fallbackLogger.error("fallback.late_session_start_failed", {
+              requestId: request.trace?.requestId,
+              data: {
+                provider: request.provider,
+                source: request.source,
+                stage,
+                error: lateError instanceof Error ? lateError.message : String(lateError)
+              }
+            });
+          });
+          throw error;
+        }
+      };
 
       const resolveFallbackRuntimePolicy = (sessionChallengeAutomationMode?: ChallengeAutomationMode) => (
         request.runtimePolicy ?? resolveProviderRuntimePolicy({
@@ -1056,16 +1108,21 @@ export const createBrowserFallbackPort = (
         let policy = runtimePolicy.cookies.policy;
         const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
         let retryModeAttempt = false;
+        let abortCleanup: Promise<void> | null = null;
         const abortListener = () => {
-          if (sessionId) {
-            disconnectFallbackSession(sessionId);
+          if (sessionId && !abortCleanup) {
+            abortCleanup = disconnectFallbackSession(sessionId);
+            void abortCleanup.catch(() => {
+              // The terminal fallback path awaits and reports this same cleanup promise.
+            });
           }
         };
         request.signal?.addEventListener("abort", abortListener, { once: true });
         try {
           ensureNotAborted("mode_start");
           if (preferredMode === "extension") {
-            if (!transportDefaults.extensionWsEndpoint) {
+            const extensionWsEndpoint = transportDefaults.extensionWsEndpoint;
+            if (!extensionWsEndpoint) {
               lastFailure = isRequiredExtensionSessionRequest(request, runtimePolicy, preferredMode)
                 ? extensionTransportUnavailableFailure(
                   "Extension fallback requires a relay endpoint.",
@@ -1078,34 +1135,44 @@ export const createBrowserFallbackPort = (
             const attachOptions = shouldAttachExtensionStartUrl(request)
               ? { startUrl: requestUrl }
               : undefined;
-            const attached = await manager.connectRelay(transportDefaults.extensionWsEndpoint, attachOptions);
+            const attached = await runSessionStartWithinFallbackDeadline("extension_connect", async () => manager.connectRelay(
+              extensionWsEndpoint,
+              attachOptions
+            ));
             sessionId = attached.sessionId;
+            const attachedSessionId = sessionId;
             if (shouldVerifyExtensionRequestUrl(request)) {
-              attachedUrl = (await manager.status(sessionId)).url;
+              attachedUrl = (await runWithinFallbackDeadline("extension_attach_status", async () => manager.status(attachedSessionId))).url;
               navigatedDuringAttach = didExtensionAttachReachRequestUrl(requestUrl, attachedUrl, {
                 allowEquivalentPath: request.source === "shopping"
               });
               if (request.source === "shopping" && isRestrictedExtensionAttachUrl(attachedUrl)) {
-                const recovered = await reconnectExplicitShoppingExtensionSession({
-                  manager,
-                  sessionId,
-                  extensionWsEndpoint: transportDefaults.extensionWsEndpoint,
-                  requestUrl
+                sessionId = null;
+                await runWithinFallbackDeadline("extension_reattach_cleanup", async () => {
+                  await awaitFallbackCleanupWithinBudget(disconnectFallbackSession(attachedSessionId));
                 });
+                const recovered = await runSessionStartWithinFallbackDeadline("extension_reattach", async () => manager.connectRelay(
+                  extensionWsEndpoint,
+                  { startUrl: requestUrl }
+                ));
                 sessionId = recovered.sessionId;
-                navigatedDuringAttach = recovered.navigatedDuringAttach;
+                const recoveredSessionId = sessionId;
+                attachedUrl = (await runWithinFallbackDeadline("extension_reattach_status", async () => manager.status(recoveredSessionId))).url;
+                navigatedDuringAttach = didExtensionAttachReachRequestUrl(requestUrl, attachedUrl, {
+                  allowEquivalentPath: true
+                });
               }
             } else {
               navigatedDuringAttach = Boolean(attachOptions?.startUrl);
             }
           } else {
-            const launched = await manager.launch({
+            const launched = await runSessionStartWithinFallbackDeadline("launch", async () => manager.launch({
               noExtension: true,
               headless: false,
               startUrl: "about:blank",
               persistProfile: false,
               ...(request.source === "shopping" ? { flags: SHOPPING_FALLBACK_FLAGS } : {})
-            });
+            }));
             sessionId = launched.sessionId;
           }
           if (sessionId) {
@@ -1120,7 +1187,8 @@ export const createBrowserFallbackPort = (
           }
           ensureNotAborted("session_ready");
 
-          if (policy !== "off" && preferredMode !== "extension") {
+          const cookieSessionId = sessionId;
+          if (cookieSessionId !== null && policy !== "off" && preferredMode !== "extension") {
             const loaded = await readCookiesFromSource(defaults.source);
             cookieDiagnostics.available = loaded.available;
             cookieDiagnostics.loaded = loaded.cookies.length;
@@ -1131,11 +1199,11 @@ export const createBrowserFallbackPort = (
 
             if (loaded.cookies.length > 0) {
               cookieDiagnostics.attempted = true;
-              const imported = await manager.cookieImport(sessionId, loaded.cookies, false);
+              const imported = await runWithinFallbackDeadline("cookie_import", async () => manager.cookieImport(cookieSessionId, loaded.cookies, false));
               cookieDiagnostics.injected = imported.imported;
               cookieDiagnostics.rejected = imported.rejected.length;
 
-              const verified = await manager.cookieList(sessionId, [requestUrl]);
+              const verified = await runWithinFallbackDeadline("cookie_verify", async () => manager.cookieList(cookieSessionId, [requestUrl]));
               cookieDiagnostics.available = verified.count > 0;
               cookieDiagnostics.verifiedCount = verified.count;
               cookieDiagnostics.sessionEvidence = verified.count > 0 ? "cookies_observable" : "cookies_missing";
@@ -1178,14 +1246,14 @@ export const createBrowserFallbackPort = (
           const activeSessionId = sessionId;
 
           if (!navigatedDuringAttach) {
-            await manager.goto(
+            await runWithinFallbackDeadline("goto", async () => manager.goto(
               activeSessionId,
               requestUrl,
               resolveFallbackNavigationWaitUntil(request.source, toFallbackMode(preferredMode)),
               clampStepTimeoutMs(DEFAULT_FALLBACK_NAVIGATION_TIMEOUT_MS, "goto")
-            );
+            ));
           }
-          await waitForFallbackPageToSettle(
+          await runWithinFallbackDeadline("settle", async () => waitForFallbackPageToSettle(
             manager,
             activeSessionId,
             request.source,
@@ -1196,7 +1264,7 @@ export const createBrowserFallbackPort = (
               ),
               "settle"
             )
-          );
+          ));
           if (
             preferredMode === "extension"
             && shouldVerifyExtensionRequestUrl(request)
@@ -1227,7 +1295,7 @@ export const createBrowserFallbackPort = (
             }
           }
           if (policy !== "off" && preferredMode === "extension") {
-            const verified = await manager.cookieList(activeSessionId, [requestUrl]);
+            const verified = await runWithinFallbackDeadline("extension_cookie_verify", async () => manager.cookieList(activeSessionId, [requestUrl]));
             cookieDiagnostics.available = verified.count > 0;
             cookieDiagnostics.verifiedCount = verified.count;
             cookieDiagnostics.sessionEvidence = verified.count > 0 ? "cookies_observable" : "cookies_missing";
@@ -1268,7 +1336,6 @@ export const createBrowserFallbackPort = (
             cookieDiagnostics.reasonCode = reasonCode;
             const disposition = resolveFallbackDisposition({ blocker, reasonCode });
             if (isPreserveEligibleBlocker(blocker)) {
-              preserveSession = true;
               const existingChallenge = (
                 status.meta?.challenge
                 && typeof status.meta.challenge === "object"
@@ -1329,6 +1396,7 @@ export const createBrowserFallbackPort = (
                       "capture_refresh"
                     )
                   });
+                  preserveSession = false;
                   return {
                     ok: true,
                     reasonCode,
@@ -1350,6 +1418,7 @@ export const createBrowserFallbackPort = (
                   };
                 }
               }
+              preserveSession = true;
               return {
                 ok: false,
                 reasonCode,
@@ -1455,6 +1524,9 @@ export const createBrowserFallbackPort = (
           if (error instanceof ProviderRuntimeError && error.code === "timeout") {
             throw error;
           }
+          if (isFallbackCleanupFailure(error)) {
+            throw error;
+          }
           const message = error instanceof Error ? error.message : String(error);
           const timeoutDetails = isOpsRequestTimeoutError(error)
             ? {
@@ -1486,7 +1558,8 @@ export const createBrowserFallbackPort = (
         } finally {
           request.signal?.removeEventListener("abort", abortListener);
           if (sessionId && !preserveSession) {
-            disconnectFallbackSession(sessionId);
+            const cleanup = abortCleanup ?? disconnectFallbackSession(sessionId);
+            await awaitFallbackCleanupWithinBudget(cleanup);
           }
         }
           if (retryModeAttempt) {

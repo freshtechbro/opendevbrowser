@@ -486,8 +486,13 @@ const shouldOwnerReviewCommunityRedditSearchFallback: CompletedFallbackOwnerRevi
   && input.source === "community"
   && input.operation === "search"
   && isFirstPartySocialSearchRoute("reddit", input.url)
-  && input.extracted.links.length > 0
-  && input.extracted.links.every(isBlockedRedditFallbackLink)
+  && (
+    hasUsableCommunityFallbackSearchContent(input.extracted.text)
+    || (
+      input.extracted.links.length > 0
+      && input.extracted.links.every(isBlockedRedditFallbackLink)
+    )
+  )
 );
 
 const shouldReturnCompletedFallbackForOwnerReview = (args: {
@@ -590,6 +595,19 @@ const shouldRecoverDefaultFetchedIssue = (issue: ProviderIssueHint): boolean => 
   || (issue.reasonCode === "env_limited" && !!issue.constraint)
 );
 
+const isUsableCommunityRedditSearchFallback = (args: {
+  source: ProviderSource;
+  operation: "search" | "fetch";
+  document: RuntimeFetchedDocument;
+  pageMessage: string;
+}): boolean => (
+  args.source === "community"
+  && args.operation === "search"
+  && args.document.browserFallback !== undefined
+  && isFirstPartySocialSearchRoute("reddit", args.document.url)
+  && hasUsableCommunityFallbackSearchContent(args.pageMessage)
+);
+
 const isResearchSearchDiscoveryRun = (
   operation: "search" | "fetch",
   context: ProviderContext
@@ -639,6 +657,14 @@ const resolveDefaultFallbackDocumentIfNeeded = async (args: {
   if (!initialIssue) {
     return { document: currentDocument, ...described };
   }
+  if (isUsableCommunityRedditSearchFallback({
+    source: args.source,
+    operation: args.operation,
+    document: currentDocument,
+    pageMessage: described.pageMessage
+  })) {
+    return { document: currentDocument, ...described, issue: null };
+  }
   if (shouldReturnCompletedFallbackForOwnerReview({ ...args, document: currentDocument })) {
     return { document: currentDocument, ...described };
   }
@@ -682,6 +708,14 @@ const resolveDefaultFallbackDocumentIfNeeded = async (args: {
       ownerReview: args.ownerReview
     });
     described = describeDefaultFetchedIssue(currentDocument);
+    if (isUsableCommunityRedditSearchFallback({
+      source: args.source,
+      operation: args.operation,
+      document: currentDocument,
+      pageMessage: described.pageMessage
+    })) {
+      return { document: currentDocument, ...described, issue: null };
+    }
     if (shouldReturnCompletedFallbackForOwnerReview({ ...args, document: currentDocument })) {
       return { document: currentDocument, ...described };
     }
