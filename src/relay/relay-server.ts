@@ -1611,7 +1611,7 @@ export class RelayServer {
       return {
         ok: false,
         reason: "relay_dirty",
-        detail: "Relay has active scenario clients or ops-owned targets",
+        detail: "Relay has active CDP, annotation, canvas clients, or ops-owned targets",
         extensionConnected: true,
         extensionHandshakeComplete: true,
         cdpConnected,

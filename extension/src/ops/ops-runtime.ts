@@ -56,6 +56,7 @@ const TAB_CLOSE_TIMEOUT_MS = 5000;
 const OPS_SESSION_DETACH_TIMEOUT_MS = 3000;
 const POPUP_ATTACH_RETRY_DELAY_MS = 100;
 const ROOT_DETACH_VERIFY_DELAY_MS = 250;
+const ROOT_DETACH_VERIFY_ATTEMPTS = 4;
 const STALE_REF_ERROR_SUFFIX = "Take a new snapshot first.";
 
 const DOM_OUTER_HTML_DECLARATION = `
@@ -4716,11 +4717,11 @@ export class OpsRuntime {
       return;
     }
     setTimeout(() => {
-      void this.verifyRootDebuggerDetach(sessionId, tabId);
+      void this.verifyRootDebuggerDetach(sessionId, tabId, ROOT_DETACH_VERIFY_ATTEMPTS);
     }, ROOT_DETACH_VERIFY_DELAY_MS);
   }
 
-  private async verifyRootDebuggerDetach(sessionId: string, tabId: number): Promise<void> {
+  private async verifyRootDebuggerDetach(sessionId: string, tabId: number, attemptsRemaining: number): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session || session.tabId !== tabId) {
       return;
@@ -4738,9 +4739,20 @@ export class OpsRuntime {
     if (!current || current.tabId !== tabId) {
       return;
     }
-    if (!liveTab || !this.isConcreteDebuggee(this.cdp.getTabDebuggee?.(tabId))) {
+    if (!liveTab) {
       void this.cleanupSession(current, "ops_session_closed");
+      return;
     }
+    if (this.isConcreteDebuggee(this.cdp.getTabDebuggee?.(tabId))) {
+      return;
+    }
+    if (attemptsRemaining > 1) {
+      setTimeout(() => {
+        void this.verifyRootDebuggerDetach(sessionId, tabId, attemptsRemaining - 1);
+      }, ROOT_DETACH_VERIFY_DELAY_MS);
+      return;
+    }
+    void this.cleanupSession(current, "ops_session_closed");
   }
 
   private async closeTabBestEffort(tabId: number): Promise<void> {

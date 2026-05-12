@@ -2018,37 +2018,44 @@ describe("RelayServer", () => {
   });
 
   it("fails silent ops hello handshakes explicitly and clears relay readiness", async () => {
+    const relayServerCtor = RelayServer as unknown as { OPS_HELLO_ACK_TIMEOUT_MS: number };
+    const originalTimeoutMs = relayServerCtor.OPS_HELLO_ACK_TIMEOUT_MS;
+    relayServerCtor.OPS_HELLO_ACK_TIMEOUT_MS = 25;
     server = new RelayServer();
-    const started = await server.start(0);
+    try {
+      const started = await server.start(0);
 
-    const extension = await connect(`${started.url}/extension`);
-    const ops = await connect(`${started.url}/ops`);
+      const extension = await connect(`${started.url}/extension`);
+      const ops = await connect(`${started.url}/ops`);
 
-    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 33 } }));
-    await waitForHandshakeAck(extension);
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 33 } }));
+      await waitForHandshakeAck(extension);
 
-    ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
-    const forwardedHello = await nextMessage(extension);
-    expect(forwardedHello.type).toBe("ops_hello");
+      ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+      const forwardedHello = await nextMessage(extension);
+      expect(forwardedHello.type).toBe("ops_hello");
 
-    const statusResponse = await fetch(`http://127.0.0.1:${started.port}/status`);
-    const statusData = await statusResponse.json();
-    expect(statusData.opsConnected).toBe(false);
+      const statusResponse = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const statusData = await statusResponse.json();
+      expect(statusData.opsConnected).toBe(false);
 
-    const response = await nextMessageWithTimeout(ops, 12000);
-    expect(response).toMatchObject({
-      type: "ops_error",
-      requestId: "ops_hello",
-      error: {
-        code: "ops_unavailable",
-        message: "Extension did not acknowledge ops hello."
-      }
-    });
-    expect((response.error as { details?: { reason?: string } }).details?.reason).toBe("ops_hello_timeout");
-    expect(await waitForClose(ops)).toBe(1011);
-    expect(server.status().opsConnected).toBe(false);
+      const response = await nextMessageWithTimeout(ops, 1000);
+      expect(response).toMatchObject({
+        type: "ops_error",
+        requestId: "ops_hello",
+        error: {
+          code: "ops_unavailable",
+          message: "Extension did not acknowledge ops hello."
+        }
+      });
+      expect((response.error as { details?: { reason?: string } }).details?.reason).toBe("ops_hello_timeout");
+      expect(await waitForClose(ops)).toBe(1011);
+      expect(server.status().opsConnected).toBe(false);
 
-    extension.close();
+      extension.close();
+    } finally {
+      relayServerCtor.OPS_HELLO_ACK_TIMEOUT_MS = originalTimeoutMs;
+    }
   });
 
   it("allows delayed ops hello acknowledgements from a waking extension worker", async () => {
@@ -3856,6 +3863,65 @@ describe("RelayServer", () => {
         opsOwnedTargetCount: 1
       });
 
+      extension.close();
+    });
+
+    it("keeps idle ready ops clients healthy when no ops-owned targets remain", async () => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 1 } }));
+      await waitForHandshakeAck(extension);
+
+      const ops = await connect(`${started.url}/ops`);
+      ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+      const forwardedHello = await nextMessage(extension);
+      const clientId = String(forwardedHello.clientId);
+      extension.send(JSON.stringify({
+        type: "ops_hello_ack",
+        version: "1",
+        clientId,
+        maxPayloadBytes: 1024,
+        capabilities: []
+      }));
+      await nextMessage(ops);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const data = await response.json();
+      expect(data.health).toMatchObject({
+        ok: true,
+        reason: "ok",
+        opsConnected: true,
+        opsOwnedTargetCount: 0
+      });
+
+      ops.close();
+      extension.close();
+    });
+
+    it.each([
+      ["cdp", "cdpConnected"],
+      ["annotation", "annotationConnected"],
+      ["canvas", "canvasConnected"]
+    ] as const)("reports dirty health while a %s client is active", async (path, key) => {
+      server = new RelayServer();
+      const started = await server.start(0);
+
+      const extension = await connect(`${started.url}/extension`);
+      extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 1 } }));
+      await waitForHandshakeAck(extension);
+      const client = await connect(`${started.url}/${path}`);
+
+      const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+      const data = await response.json();
+      expect(data.health).toMatchObject({
+        ok: false,
+        reason: "relay_dirty",
+        [key]: true
+      });
+
+      client.close();
       extension.close();
     });
 

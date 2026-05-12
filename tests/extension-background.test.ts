@@ -29,7 +29,11 @@ let lastConnectionManager: {
   emitCanvasMessage: (message: unknown) => void;
 } | null = null;
 let lastOpsRuntime: { handleRelayDisconnected: ReturnType<typeof vi.fn> } | null = null;
-let lastNativePort: { isConnected: ReturnType<typeof vi.fn> } | null = null;
+let lastNativePort: {
+  getHealth: ReturnType<typeof vi.fn>;
+  isConnected: ReturnType<typeof vi.fn>;
+  ping: ReturnType<typeof vi.fn>;
+} | null = null;
 let reconnectSuppressed = false;
 
 const registerLastConnectionManager = (manager: NonNullable<typeof lastConnectionManager>): void => {
@@ -331,6 +335,34 @@ describe("extension background auto-connect", () => {
     );
   });
 
+  it("reconnects when the stored relay extension client is unhealthy", async () => {
+    reconnectSuppressed = true;
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        health: {
+          ok: false,
+          reason: "handshake_incomplete",
+          extensionConnected: true,
+          extensionHandshakeComplete: false,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          opsOwnedTargetCount: 0,
+          canvasConnected: false,
+          pairingRequired: false
+        }
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    expect(lastConnectionManager?.connect).toHaveBeenCalledTimes(1);
+  });
+
   it("reconnects safely when suppressed relay health fetch rejects", async () => {
     reconnectSuppressed = true;
     const mock = createChromeMock({ autoConnect: true, autoPair: false });
@@ -491,6 +523,176 @@ describe("extension background auto-connect", () => {
     expect(response.note).toBe("Connected to 127.0.0.1:8787");
   });
 
+  it("describes relay dirty status without implying idle ops clients are dirty", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: false,
+        reason: "relay_dirty",
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: true,
+        opsOwnedTargetCount: 1,
+        canvasConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const response = await new Promise<{ note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { note?: string });
+      });
+    });
+
+    expect(response.note).toBe(
+      "Relay has active CDP, annotation, canvas clients, or ops-owned targets. Disconnect the current run and retry."
+    );
+  });
+
+  it("does not report connected popup status when a connected relay is dirty", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.relayHealthCheck.mockResolvedValue({
+      ok: false,
+      reason: "relay_dirty",
+      extensionConnected: true,
+      extensionHandshakeComplete: true,
+      cdpConnected: false,
+      annotationConnected: false,
+      opsConnected: false,
+      opsOwnedTargetCount: 1,
+      canvasConnected: false,
+      pairingRequired: false
+    });
+
+    const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { status?: string; note?: string });
+      });
+    });
+
+    expect(response.status).toBe("disconnected");
+    expect(response.note).toBe(
+      "Relay has active CDP, annotation, canvas clients, or ops-owned targets. Disconnect the current run and retry."
+    );
+  });
+
+  it("keeps relay dirty popup status disconnected even when native transport remains connected", async () => {
+    const mock = createChromeMock({ autoConnect: true, autoPair: false });
+    mock.chrome.storage.local.set({ nativeEnabled: true }, () => {});
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastNativePort?.isConnected.mockReturnValue(true);
+    lastNativePort?.getHealth.mockReturnValue({ status: "connected" });
+    lastConnectionManager?.relayHealthCheck.mockResolvedValue({
+      ok: false,
+      reason: "relay_dirty",
+      extensionConnected: true,
+      extensionHandshakeComplete: true,
+      cdpConnected: false,
+      annotationConnected: false,
+      opsConnected: false,
+      opsOwnedTargetCount: 1,
+      canvasConnected: false,
+      pairingRequired: false
+    });
+
+    const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { status?: string; note?: string });
+      });
+    });
+
+    expect(response.status).toBe("disconnected");
+    expect(response.note).toContain("Relay has active CDP, annotation, canvas clients, or ops-owned targets");
+  });
+
+  it("keeps reconnect-suppressed popup status disconnected even when native transport remains connected", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    mock.chrome.storage.local.set({ nativeEnabled: true }, () => {});
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        health: {
+          ok: true,
+          reason: "ok",
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          annotationConnected: false,
+          opsConnected: false,
+          opsOwnedTargetCount: 0,
+          canvasConnected: false,
+          pairingRequired: false
+        }
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastNativePort?.isConnected.mockReturnValue(true);
+    lastNativePort?.getHealth.mockReturnValue({ status: "connected" });
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+    lastConnectionManager?.getRelayNotice.mockReturnValue(null);
+
+    const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { status?: string; note?: string });
+      });
+    });
+
+    expect(response.status).toBe("disconnected");
+    expect(response.note).toContain("Another extension client took over the relay connection");
+  });
+
+  it("reports connected popup status when relay has only an idle ready ops client", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        reason: "ok",
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: true,
+        opsOwnedTargetCount: 0,
+        canvasConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { status?: string; note?: string });
+      });
+    });
+
+    expect(response.status).toBe("connected");
+    expect(response.note).toBe("Connected to 127.0.0.1:8787");
+  });
+
   it("keeps popup status disconnected when reconnect is suppressed even if daemon relay health is green", async () => {
     const mock = createChromeMock({ autoConnect: false });
     globalThis.chrome = mock.chrome;
@@ -515,6 +717,39 @@ describe("extension background auto-connect", () => {
     lastConnectionManager?.getRelayNotice.mockReturnValue(
       "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly."
     );
+
+    const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
+        resolve(payload as { status?: string; note?: string });
+      });
+    });
+
+    expect(response.status).toBe("disconnected");
+    expect(response.note).toContain("Another extension client took over the relay connection");
+  });
+
+  it("explains reconnect suppression even when no relay notice is cached", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected: false,
+        annotationConnected: false,
+        opsConnected: false,
+        opsOwnedTargetCount: 0,
+        canvasConnected: false,
+        pairingRequired: false
+      })
+    }) as unknown as typeof fetch;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.isReconnectSuppressed.mockReturnValue(true);
+    lastConnectionManager?.getRelayNotice.mockReturnValue(null);
 
     const response = await new Promise<{ status?: string; note?: string }>((resolve) => {
       globalThis.chrome.runtime.sendMessage({ type: "status" }, (payload) => {
@@ -559,7 +794,7 @@ describe("extension background auto-connect", () => {
     );
   });
 
-  it("clears stored relay state when epoch changes", async () => {
+  it("clears stored relay credentials while retaining current relay identity when epoch changes", async () => {
     const mock = createChromeMock({
       autoConnect: true,
       autoPair: true,
@@ -584,9 +819,11 @@ describe("extension background auto-connect", () => {
     await flushMicrotasks();
 
     expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({
-      relayPort: null,
-      relayInstanceId: null,
-      relayEpoch: null,
+      relayPort: 8787,
+      relayInstanceId: "relay-a",
+      relayEpoch: 2
+    }, expect.any(Function));
+    expect(globalThis.chrome.storage.local.set).toHaveBeenCalledWith({
       pairingToken: null,
       tokenEpoch: null
     }, expect.any(Function));

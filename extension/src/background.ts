@@ -192,7 +192,7 @@ const getEffectiveStatus = (): ConnectionStatus => {
 };
 
 const hasReadyRelayHandshake = (health: RelayHealthStatus | null): boolean => {
-  return health?.extensionConnected === true && health.extensionHandshakeComplete === true;
+  return health?.ok !== false && health?.extensionConnected === true && health.extensionHandshakeComplete === true;
 };
 
 const deriveBackgroundStatus = (
@@ -202,13 +202,16 @@ const deriveBackgroundStatus = (
   reconnectSuppressed: boolean
 ): ConnectionStatus => {
   if (relayStatus === "connected") {
-    return "connected";
-  }
-  if (nativeHealth?.status === "connected") {
+    if (relayHealth?.ok === false) {
+      return "disconnected";
+    }
     return "connected";
   }
   if (reconnectSuppressed) {
     return "disconnected";
+  }
+  if (nativeHealth?.status === "connected") {
+    return "connected";
   }
   return hasReadyRelayHandshake(relayHealth) ? "connected" : "disconnected";
 };
@@ -217,6 +220,9 @@ const deriveBadgeTone = (
   status: ConnectionStatus,
   relayHealth: RelayHealthStatus | null
 ): BadgeTone => {
+  if (relayHealth?.ok === false) {
+    return status === "connected" ? "warning" : "disconnected";
+  }
   if (status === "connected") {
     return "connected";
   }
@@ -250,16 +256,22 @@ const buildStatusMessage = async (): Promise<BackgroundMessage> => {
         note = `Connected to 127.0.0.1:${identity.relayPort}`;
       }
       relayHealth = await connection.relayHealthCheck();
-    } else if (nativeHealth?.status === "connected") {
-      note = "Connected via native host.";
+      if (relayHealth?.ok === false) {
+        note = statusNoteOverride ?? buildRelayHealthNote(relayHealth);
+      }
     } else {
       const stored = await new Promise<Record<string, unknown>>((resolve) => {
         chrome.storage.local.get(["relayPort"], (items) => resolve(items));
       });
       const port = parsePort(stored.relayPort) ?? DEFAULT_RELAY_PORT;
       relayHealth = await fetchRelayHealth(port);
-      if (hasReadyRelayHandshake(relayHealth)) {
+      if (reconnectSuppressed) {
+        note = statusNoteOverride
+          ?? "Another extension client took over the relay connection. This client will stay disconnected until you reconnect it explicitly.";
+      } else if (hasReadyRelayHandshake(relayHealth)) {
         note = `Connected to 127.0.0.1:${port}`;
+      } else if (nativeHealth?.status === "connected") {
+        note = "Connected via native host.";
       } else {
         note = statusNoteOverride ?? buildRelayHealthNote(relayHealth);
       }
@@ -348,7 +360,7 @@ const buildRelayHealthNote = (health: RelayHealthStatus | null): string => {
     case "cdp_disconnected":
       return "No CDP clients connected. Start a session and retry.";
     case "relay_dirty":
-      return "Relay has active clients or ops-owned targets. Disconnect the current run and retry.";
+      return "Relay has active CDP, annotation, canvas clients, or ops-owned targets. Disconnect the current run and retry.";
     case "relay_down":
       return "Relay down. Start the daemon and retry.";
     default:
@@ -539,7 +551,7 @@ const fetchRelayHealth = async (port: number): Promise<RelayHealthStatus | null>
 
 const relayHasActiveExtensionClient = async (storedRelayPort: number): Promise<boolean> => {
   const storedHealth = await fetchRelayHealth(storedRelayPort);
-  return storedHealth?.extensionConnected === true;
+  return hasReadyRelayHandshake(storedHealth);
 };
 
 const sendAnnotationResponse = (payload: AnnotationResponse, transport: AnnotationTransport = "relay"): void => {
@@ -1534,11 +1546,8 @@ const fetchTokenFromPlugin = async (
   }
 };
 
-const clearStoredRelayState = async (): Promise<void> => {
+const clearStoredRelayCredentials = async (): Promise<void> => {
   await setStorage({
-    relayPort: null,
-    relayInstanceId: null,
-    relayEpoch: null,
     pairingToken: null,
     tokenEpoch: null
   });
@@ -1622,12 +1631,12 @@ const attemptAutoConnect = async (): Promise<void> => {
     }
 
     if (hasEpoch && storedRelayEpoch !== null && storedRelayEpoch !== configEpoch) {
-      await clearStoredRelayState();
+      await clearStoredRelayCredentials();
       storedPairingToken = null;
       setStatusNoteOverride("Relay restarted. Refresh the connection.");
     }
     if (config.instanceId && storedRelayInstanceId && config.instanceId !== storedRelayInstanceId) {
-      await clearStoredRelayState();
+      await clearStoredRelayCredentials();
       storedPairingToken = null;
       setStatusNoteOverride("Relay instance mismatch. Open the popup and click Connect.");
     }

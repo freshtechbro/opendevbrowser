@@ -233,14 +233,38 @@ const didShoppingAttachReachEquivalentPath = (
     const samePath = requested.pathname.replace(/\/+$/u, "") === attached.pathname.replace(/\/+$/u, "");
     const requestedSearchIntent = readShoppingSearchIntent(requested);
     const attachedSearchIntent = readShoppingSearchIntent(attached);
-    if (requestedSearchIntent !== null) {
-      return requestedSearchIntent === attachedSearchIntent
-        && (samePath || areShoppingSearchRouteRewrites(requested, attached));
+    if (requestedSearchIntent === null) {
+      return false;
     }
-    return samePath;
+    return requestedSearchIntent === attachedSearchIntent
+      && (samePath || areShoppingSearchRouteRewrites(requested, attached));
   } catch {
     return false;
   }
+};
+
+const shouldFailClosedOnFallbackCleanup = (
+  request: BrowserFallbackRequest,
+  runtimePolicy: ReturnType<typeof resolveProviderRuntimePolicy>,
+  preferredMode: string
+): boolean => preferredMode === "extension"
+  || runtimePolicy.cookies.policy === "required"
+  || isRequiredExtensionSessionRequest(request, runtimePolicy, preferredMode);
+
+const logBestEffortFallbackCleanupFailure = (
+  error: unknown,
+  request: BrowserFallbackRequest,
+  sessionId: string
+): void => {
+  fallbackLogger.error("fallback.cleanup_failed", {
+    requestId: request.trace?.requestId,
+    sessionId,
+    data: {
+      provider: request.provider,
+      source: request.source,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  });
 };
 
 const areShoppingSearchRouteRewrites = (
@@ -1108,6 +1132,7 @@ export const createBrowserFallbackPort = (
         let policy = runtimePolicy.cookies.policy;
         const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
         let retryModeAttempt = false;
+        let cleanupFailureMustFail = false;
         let abortCleanup: Promise<void> | null = null;
         const abortListener = () => {
           if (sessionId && !abortCleanup) {
@@ -1325,6 +1350,7 @@ export const createBrowserFallbackPort = (
             resolveNextDelayMs: () => resolveFallbackRecaptureDelayMs(request.source, "capture")
           });
           const status = await runWithinFallbackDeadline("status", async () => manager.status(activeSessionId));
+          cleanupFailureMustFail = status.mode === "extension";
           const resolvedUrl = status.url ?? requestUrl;
           const captureDiagnostics = toJsonRecord(captured.diagnostics);
           const html = captured.html;
@@ -1375,6 +1401,7 @@ export const createBrowserFallbackPort = (
                 };
                 const verifiedBundle = orchestration.action.verification.bundle;
                 if (verifiedBundle?.blockerState === "clear") {
+                  cleanupFailureMustFail = shouldFailClosedOnFallbackCleanup(request, runtimePolicy, preferredMode);
                   const refreshedStatus = await runWithinFallbackDeadline("status_refresh", async () => manager.status(activeSessionId));
                   const refreshedUrl = refreshedStatus.url ?? resolvedUrl;
                   const refreshedCapture = await captureStableFallbackHtml({
@@ -1559,7 +1586,14 @@ export const createBrowserFallbackPort = (
           request.signal?.removeEventListener("abort", abortListener);
           if (sessionId && !preserveSession) {
             const cleanup = abortCleanup ?? disconnectFallbackSession(sessionId);
-            await awaitFallbackCleanupWithinBudget(cleanup);
+            try {
+              await awaitFallbackCleanupWithinBudget(cleanup);
+            } catch (cleanupError) {
+              if (cleanupFailureMustFail || shouldFailClosedOnFallbackCleanup(request, runtimePolicy, preferredMode)) {
+                throw cleanupError;
+              }
+              logBestEffortFallbackCleanupFailure(cleanupError, request, sessionId);
+            }
           }
         }
           if (retryModeAttempt) {

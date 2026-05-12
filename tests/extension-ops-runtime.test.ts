@@ -744,7 +744,7 @@ describe("OpsRuntime target teardown", () => {
     expect(sessions.get(session.id)).not.toBeNull();
     expect(sent).toEqual([]);
 
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(1000);
     await flushMicrotasks();
 
     expect(sessions.get(session.id)).toBeNull();
@@ -753,6 +753,36 @@ describe("OpsRuntime target teardown", () => {
     expect(sent).toEqual([
       expect.objectContaining({ event: "ops_session_closed", opsSessionId: session.id })
     ]);
+  });
+
+  it("retains a root debugger detach when the debuggee returns within the verification window", async () => {
+    vi.useFakeTimers();
+    const sent: unknown[] = [];
+    const cdp = {
+      detachTab: vi.fn(async () => undefined),
+      getTabDebuggee: vi.fn()
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(null)
+        .mockReturnValue({ tabId: 101 })
+    };
+
+    const runtime = new OpsRuntime({
+      send: (message) => sent.push(message),
+      cdp: cdp as never
+    });
+
+    const sessions = (runtime as unknown as { sessions: OpsSessionStore }).sessions;
+    const session = sessions.createSession("client-1", 101, "lease-1", { url: "https://root.example" });
+    const getTabMock = globalThis.chrome.tabs.get as unknown as ReturnType<typeof vi.fn>;
+    getTabMock.mockResolvedValue({ id: 101, url: "https://root.example" } as chrome.tabs.Tab);
+
+    debuggerDetachListener?.({ tabId: 101 });
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+
+    expect(sessions.get(session.id)).not.toBeNull();
+    expect(cdp.detachTab).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
   });
 
   it("expires a root debugger detach when tab lookup rejects", async () => {
