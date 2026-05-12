@@ -213,7 +213,7 @@ Additional artifacts:
 
 Findings:
 
-- The matrix harness now treats active `/ops` clients as dirty relay state, matching the direct-provider lifecycle fix. It also checks relay dirtiness before every extension-required row rather than only once at the shared-daemon preflight.
+- The matrix harness treats `/cdp`, canvas, and annotation clients as dirty relay state. `/ops` alone is an expected control-plane connection and no longer forces daemon recycle between lanes.
 - The harness now waits for extension reconnection after it starts or recycles a daemon. Fresh daemon starts no longer immediately classify extension rows as `extension_disconnected`.
 - The extension background auto-connect path no longer treats relay-takeover suppression as permanent. When the relay has no active extension client, auto-connect retries the relay instead of staying disconnected until a manual popup click.
 - Targeted canvas extension/CDP rerun passed with `2` pass, `0` env-limited, and `0` fail in `.opendevbrowser/real-world-surface-validation/validation-secondary-canvas-after-extension-fix.json`.
@@ -230,7 +230,7 @@ Conclusion:
 Additional fix:
 
 - Full secondary matrix runs now recycle any reused configured daemon at the start of the shared scenario block, even if the daemon is current and the relay looks clean. This makes the matrix own daemon lifetime instead of depending on a daemon process started from another shell.
-- The initial infra step records whether the previous relay was dirty and whether the daemon was recycled for ownership. Extension-required rows still re-check `/ops`, `/cdp`, canvas, and annotation clients before each row and recycle again if a prior row leaves the relay dirty.
+- The initial infra step records whether the previous relay was dirty and whether the daemon was recycled for ownership. Extension-required rows still re-check `/cdp`, canvas, and annotation clients before each row and recycle again if a prior row leaves scenario-local relay state dirty.
 - If the extension was ready before a recycle and does not reconnect after the harness-owned daemon starts, the matrix now classifies that as a harness or extension failure (`extension_disconnected_after_recycle`) instead of downgrading it to a provider or environment limit.
 
 Conclusion:
@@ -256,6 +256,7 @@ Verification:
 
 - Targeted secondary rerun for `workflow.macro.community_search` and `workflow.macro.media_search` passed with `2` pass, `0` expected timeout, `0` env-limited, and `0` fail.
 - Full secondary rerun passed with `15` pass, `2` expected timeouts, `0` env-limited, and `0` fail.
+- Final release-gate secondary evidence is `.opendevbrowser/real-world-surface-validation/validation-secondary-final-owned-runtime-fix.json` and `.opendevbrowser/real-world-surface-validation/validation-secondary-final-owned-runtime-fix.md`.
 - The only non-pass full-secondary rows are `feature.annotate.direct` and `feature.annotate.relay`, both expected manual annotation timeouts.
 - The final daemon cleanup check returned `Daemon not running. Start with opendevbrowser serve.`, so the harness did not leave an active daemon behind.
 
@@ -358,7 +359,8 @@ Cleanup note:
 
 - Current `node dist/cli/index.js serve --stop --output-format json` correctly rejected a stale foreground daemon with exit code `2` and `Daemon rejected stale stop request`.
 - The stale foreground daemon process ignored `SIGTERM` and exited after `SIGINT`.
-- This narrows the lifecycle concern to stale foreground signal handling, not the earlier false-success stop behavior. Reproduce with current-build foreground `serve` before filing a product defect.
+- Follow-up inspection found that `serve --daemon` is not a supported serve flag. Because `--daemon` is globally valid for `status`, the serve command previously ignored it and created a shell-owned foreground daemon.
+- The current fix rejects `serve --daemon` before startup and points operators to `serve`, `daemon install`, or `status --daemon` as appropriate.
 
 Additional Best Buy evidence:
 
@@ -383,7 +385,7 @@ Confirmed and fixed:
 
 Current lifecycle status:
 
-- Full validation-matrix runs now own the configured daemon for the shared scenario block and recycle between extension-required rows when relay clients remain active.
+- Full validation-matrix runs now own the configured daemon for the shared scenario block and recycle between extension-required rows when scenario-local relay clients remain active.
 - Controlled product-video managed headed reproduction with daemon stop debug enabled returned `auth_required` and kept the daemon alive while the owner shell remained active.
 
 ## Product Defects
@@ -391,8 +393,9 @@ Current lifecycle status:
 Fixed:
 
 - Daemon crash on Playwright Chromium `No tab attached` transport assertion during provider fallback.
-- Direct-provider harness relay lifecycle contamination: signed-in extension preflights now treat active `/ops`, `/cdp`, canvas, and annotation clients as dirty relay state; temporary launch sessions are disconnected before provider execution; stale fingerprint daemons are stopped before replacement; and owned daemons are recycled before transport retries.
-- Secondary matrix relay and daemon lifecycle contamination: full shared matrix runs now own the configured daemon lifecycle, extension-required rows start from a clean relay lease, active `/ops` clients are treated as dirty, and daemon restart/recycle paths wait for extension reconnect before classifying the row.
+- Direct-provider harness relay lifecycle contamination: signed-in extension preflights now ignore ops-only control-plane clients, treat `/cdp`, canvas, and annotation clients as dirty relay state, disconnect temporary launch sessions before provider execution, stop stale fingerprint daemons before replacement, and recycle owned daemons before transport retries.
+- Secondary matrix relay and daemon lifecycle contamination: full shared matrix runs now own the configured daemon lifecycle, extension-required rows start from a clean relay lease, ops-only clients do not force recycle, and daemon restart/recycle paths wait for extension reconnect before classifying the row.
+- Active extension drop during `/ops` requests: the relay now closes dependent ops and canvas clients when the extension socket disconnects or is pruned as non-open, so callers retry or fail promptly instead of hanging until the outer provider timeout.
 - Community extension fallback contamination: Reddit community searches now attach with the requested start URL, verify the attached URL for explicit extension runs, and retry bounded relay attachment failures before classification.
 - Extension auto-connect suppression after relay takeover: suppression now remains in effect only while another extension client is actually connected; if the relay has no extension client, auto-connect reconnects instead of requiring a manual popup click.
 
@@ -400,7 +403,7 @@ Not product defects on current evidence:
 
 - Old unsigned direct provider classifications for X, Reddit, Bluesky, Facebook, Instagram, and shopping are invalid as release-gate evidence because signed-in extension and cookie-required paths were not consistently exercised.
 - Best Buy product-video with a current Best Buy URL succeeds in extension signed-in mode. Managed headed mode without a reusable Best Buy session remains `auth_required`.
-- Best Buy, Costco, and Macys direct-provider search are not environment-limited on fresh current evidence. Full direct-provider rerun `.opendevbrowser/real-world-surface-validation/provider-direct-runs-after-lifecycle-fix.json` completed with `17` pass, `10` env-limited, `0` fail, and `0` skipped; Best Buy returned `1` offer, Costco returned `8`, and Macys returned `1`.
+- Best Buy, Costco, and Macys direct-provider search are not environment-limited on fresh current evidence. Full direct-provider rerun `.opendevbrowser/real-world-surface-validation-repeat/provider-direct-runs-after-dependent-client-close.json` completed with `20` pass, `7` env-limited, `0` fail, and `0` skipped; Best Buy, Costco, and Macys all passed.
 - The earlier Macys Access Denied / ops-handshake observation is superseded by prior isolated pass evidence and the full post-lifecycle-fix pass. Treat it as relay contamination, not a provider classification change.
 - Historical canvas and annotation full-matrix failures after a daemon loss were harness cascade evidence, not independent canvas or annotation defects; the harness now owns daemon lifecycle to prevent that cascade.
 - Historical secondary community and media `env_limited` rows were harness and runtime attach contamination. Current targeted and full secondary evidence passes those lanes.

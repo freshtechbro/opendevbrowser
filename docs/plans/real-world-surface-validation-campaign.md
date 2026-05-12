@@ -8,7 +8,8 @@ Latest secondary evidence:
 
 - Targeted community/media secondary rerun: `.opendevbrowser/real-world-surface-validation/validation-secondary-community-media-runtime-fix.json`, `2` pass, `0` env-limited, `0` fail.
 - Full secondary rerun: `.opendevbrowser/real-world-surface-validation/validation-secondary-final-owned-runtime-fix.json`, `15` pass, `2` expected manual annotation timeouts, `0` env-limited, `0` fail.
-- The secondary matrix harness now owns daemon lifetime and recycles dirty relay clients. Community extension fallback now attaches with `startUrl`, verifies explicit extension URLs, and retries bounded relay attachment failures.
+- Final release-gate secondary artifact: `.opendevbrowser/real-world-surface-validation/validation-secondary-final-owned-runtime-fix.json` with paired markdown `.opendevbrowser/real-world-surface-validation/validation-secondary-final-owned-runtime-fix.md`.
+- The secondary matrix harness now owns daemon lifetime and recycles scenario-local dirty relay clients without treating ops-only control-plane clients as dirty. Community extension fallback now attaches with `startUrl`, verifies explicit extension URLs, and retries bounded relay attachment failures.
 
 ## Scope
 
