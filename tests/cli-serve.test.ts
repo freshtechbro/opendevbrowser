@@ -153,6 +153,14 @@ describe("serve command", () => {
     );
   });
 
+  it("rejects unsupported daemon flag before starting a shell-owned foreground daemon", async () => {
+    await expect(runServe(makeArgs(["--daemon"]))).rejects.toMatchObject({
+      exitCode: 1,
+      message: expect.stringContaining("serve --daemon")
+    });
+    expect(mocks.startDaemon).not.toHaveBeenCalled();
+  });
+
   it("terminates the recorded foreground serve process when HTTP stop succeeds but the pid remains alive", async () => {
     mocks.readDaemonMetadata.mockReturnValue({
       port: 8788,

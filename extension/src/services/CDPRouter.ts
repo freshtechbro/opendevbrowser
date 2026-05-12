@@ -1133,6 +1133,9 @@ export class CDPRouter {
         await this.attachInternal(tabId, false);
         return;
       } catch (error) {
+        if (this.isExpectedDebuggerCleanupError(error)) {
+          continue;
+        }
         logError("cdp.restore_root_attach", error, {
           code: "restore_root_attach_failed",
           extra: { tabId }
@@ -2364,6 +2367,10 @@ export class CDPRouter {
     return STALE_TAB_ERROR_MARKERS.some((marker) => message.includes(marker));
   }
 
+  private isExpectedDebuggerCleanupError(error: unknown): boolean {
+    return this.isStaleTabError(error);
+  }
+
   private markExpectedRootDetach(tabId: number): void {
     this.expectedRootDetachDeadlines.set(tabId, Date.now() + 1000);
   }
@@ -2420,6 +2427,9 @@ export class CDPRouter {
         chrome.debugger.detach(this.toChromeDebuggee(debuggee), done);
       });
     } catch (error) {
+      if (this.isExpectedDebuggerCleanupError(error)) {
+        return;
+      }
       logError("cdp.safe_detach", error, { code: "detach_failed" });
     }
   }

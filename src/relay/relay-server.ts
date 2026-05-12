@@ -62,6 +62,7 @@ export type RelayStatus = {
   cdpConnected: boolean;
   annotationConnected: boolean;
   opsConnected: boolean;
+  opsOwnedTargetCount: number;
   canvasConnected: boolean;
   pairingRequired: boolean;
   instanceId: string;
@@ -116,7 +117,7 @@ export class RelayServer {
   private static readonly MAX_HANDSHAKE_ATTEMPTS = 5;
   private static readonly RATE_LIMIT_WINDOW_MS = 60_000;
   private static readonly MAX_HTTP_ATTEMPTS = 60;
-  private static readonly OPS_HELLO_ACK_TIMEOUT_MS = 1500;
+  private static readonly OPS_HELLO_ACK_TIMEOUT_MS = 10000;
   private static readonly MAX_ANNOTATION_PAYLOAD_BYTES = 12 * 1024 * 1024;
   private static readonly MAX_OPS_PAYLOAD_BYTES = MAX_OPS_PAYLOAD_BYTES;
   private static readonly MAX_CANVAS_PAYLOAD_BYTES = MAX_CANVAS_PAYLOAD_BYTES;
@@ -140,7 +141,9 @@ export class RelayServer {
 
     this.extensionWss.on("connection", (socket: WebSocket, request: IncomingMessage) => {
       if (this.extensionSocket) {
-        this.extensionSocket.close(1000, "Replaced by a new extension client");
+        const previousSocket = this.extensionSocket;
+        this.clearExtensionState("Extension replaced.");
+        previousSocket.close(1000, "Replaced by a new extension client");
       }
       this.extensionSocket = socket;
       this.extensionSocketIp = request.socket.remoteAddress ?? "unknown";
@@ -148,15 +151,7 @@ export class RelayServer {
       this.extensionHandshakeComplete = false;
       const releaseExtensionSocket = () => {
         if (this.extensionSocket === socket) {
-          this.extensionSocket = null;
-          this.extensionSocketIp = null;
-          this.extensionInfo = null;
-          this.extensionHandshakeComplete = false;
-          this.opsOwnedTabIds.clear();
-          this.failPendingAnnotations("relay_unavailable", "Extension disconnected.");
-        }
-        if (this.cdpSocket) {
-          this.cdpSocket.close(1011, "Extension disconnected");
+          this.clearExtensionState("Extension disconnected.");
         }
       };
       socket.on("message", (data: WebSocket.RawData) => {
@@ -520,6 +515,7 @@ export class RelayServer {
     this.extensionInfo = null;
     this.extensionHandshakeComplete = false;
     this.stopDiscoveryServer();
+    this.failPendingAnnotations("relay_unavailable", "Relay stopped.");
 
     if (this.extensionSocket) {
       this.extensionSocket.close(1000, "Relay stopped");
@@ -535,16 +531,6 @@ export class RelayServer {
       this.annotationSocket.close(1000, "Relay stopped");
       this.annotationSocket = null;
     }
-    for (const [requestId, pending] of this.annotationDirectPending.entries()) {
-      clearTimeout(pending.timeout);
-      pending.resolve({
-        version: 1,
-        requestId,
-        status: "error",
-        error: { code: "relay_unavailable", message: "Relay stopped." }
-      });
-    }
-    this.annotationDirectPending.clear();
 
     for (const socket of this.opsClients.values()) {
       socket.close(1000, "Relay stopped");
@@ -585,6 +571,7 @@ export class RelayServer {
       cdpConnected: connections.cdpConnected,
       annotationConnected: connections.annotationConnected,
       opsConnected: connections.opsConnected,
+      opsOwnedTargetCount: connections.opsOwnedTargetCount,
       canvasConnected: connections.canvasConnected,
       pairingRequired: Boolean(this.pairingToken),
       instanceId: this.instanceId,
@@ -844,6 +831,7 @@ export class RelayServer {
       cdpConnected: status.cdpConnected,
       annotationConnected: status.annotationConnected,
       opsConnected: status.opsConnected,
+      opsOwnedTargetCount: status.opsOwnedTargetCount,
       canvasConnected: status.canvasConnected,
       pairingRequired: status.pairingRequired,
       health: status.health,
@@ -1226,12 +1214,13 @@ export class RelayServer {
       return;
     }
 
-    if (!this.hasReadyExtensionSocket()) {
+    if (!this.hasReadyExtensionSocket({ opsClientId: clientId })) {
       this.sendOpsError(clientId, {
         code: "ops_unavailable",
         message: "Extension not connected to relay.",
         retryable: true
       }, getOpsRequestId(message), getOpsSessionId(message));
+      this.closeOpsClient(clientId, 1011, "Extension disconnected.");
       return;
     }
 
@@ -1269,12 +1258,13 @@ export class RelayServer {
       return;
     }
 
-    if (!this.hasReadyExtensionSocket()) {
+    if (!this.hasReadyExtensionSocket({ canvasClientId: clientId })) {
       this.sendCanvasError(clientId, {
         code: "canvas_unavailable",
         message: "Extension not connected to relay.",
         retryable: true
       }, getCanvasRequestId(message), getCanvasSessionId(message));
+      this.closeCanvasClient(clientId, 1011, "Extension disconnected.");
       return;
     }
 
@@ -1325,8 +1315,7 @@ export class RelayServer {
           this.opsOwnedTabIds.add(tabId);
         }
         if (
-          message.event === "ops_session_released"
-          || message.event === "ops_session_closed"
+          message.event === "ops_session_closed"
           || message.event === "ops_session_expired"
           || message.event === "ops_tab_closed"
         ) {
@@ -1507,9 +1496,10 @@ export class RelayServer {
     cdpConnected: boolean;
     annotationConnected: boolean;
     opsConnected: boolean;
+    opsOwnedTargetCount: number;
     canvasConnected: boolean;
   } {
-    this.pruneClosedSockets();
+    this.pruneClosedSockets(true);
     const extensionConnected = this.isSocketOpen(this.extensionSocket);
     return {
       extensionConnected,
@@ -1517,6 +1507,7 @@ export class RelayServer {
       cdpConnected: this.isSocketOpen(this.cdpSocket),
       annotationConnected: this.isSocketOpen(this.annotationSocket),
       opsConnected: this.readyOpsClients.size > 0,
+      opsOwnedTargetCount: this.opsOwnedTabIds.size,
       canvasConnected: this.canvasClients.size > 0
     };
   }
@@ -1528,6 +1519,7 @@ export class RelayServer {
       cdpConnected,
       annotationConnected,
       opsConnected,
+      opsOwnedTargetCount,
       canvasConnected
     } = snapshot;
     if (!this.running) {
@@ -1540,6 +1532,7 @@ export class RelayServer {
         cdpConnected,
         annotationConnected,
         opsConnected,
+        opsOwnedTargetCount,
         canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError ?? undefined
@@ -1556,6 +1549,7 @@ export class RelayServer {
         cdpConnected,
         annotationConnected,
         opsConnected,
+        opsOwnedTargetCount,
         canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError
@@ -1572,6 +1566,7 @@ export class RelayServer {
         cdpConnected,
         annotationConnected,
         opsConnected,
+        opsOwnedTargetCount,
         canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError
@@ -1588,6 +1583,7 @@ export class RelayServer {
         cdpConnected,
         annotationConnected,
         opsConnected,
+        opsOwnedTargetCount,
         canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError ?? undefined
@@ -1604,6 +1600,24 @@ export class RelayServer {
         cdpConnected,
         annotationConnected,
         opsConnected,
+        opsOwnedTargetCount,
+        canvasConnected,
+        pairingRequired: Boolean(this.pairingToken),
+        lastHandshakeError: this.lastHandshakeError ?? undefined
+      };
+    }
+
+    if (cdpConnected || annotationConnected || canvasConnected || opsOwnedTargetCount > 0) {
+      return {
+        ok: false,
+        reason: "relay_dirty",
+        detail: "Relay has active scenario clients or ops-owned targets",
+        extensionConnected: true,
+        extensionHandshakeComplete: true,
+        cdpConnected,
+        annotationConnected,
+        opsConnected,
+        opsOwnedTargetCount,
         canvasConnected,
         pairingRequired: Boolean(this.pairingToken),
         lastHandshakeError: this.lastHandshakeError ?? undefined
@@ -1618,6 +1632,7 @@ export class RelayServer {
       cdpConnected,
       annotationConnected,
       opsConnected,
+      opsOwnedTargetCount,
       canvasConnected,
       pairingRequired: Boolean(this.pairingToken),
       lastHandshakeError: this.lastHandshakeError ?? undefined
@@ -1647,12 +1662,19 @@ export class RelayServer {
     socket.send(JSON.stringify(payload));
   }
 
-  private pruneClosedSockets(): void {
+  private pruneClosedSockets(
+    closeDependentClients = false,
+    exemptClients: { opsClientId?: string; canvasClientId?: string } = {}
+  ): void {
     if (this.extensionSocket && !this.isSocketOpen(this.extensionSocket)) {
-      this.extensionSocket = null;
-      this.extensionInfo = null;
-      this.extensionHandshakeComplete = false;
-      this.opsOwnedTabIds.clear();
+      if (closeDependentClients) {
+        this.clearExtensionState("Extension disconnected.", exemptClients);
+      } else {
+        this.extensionSocket = null;
+        this.extensionInfo = null;
+        this.extensionHandshakeComplete = false;
+        this.opsOwnedTabIds.clear();
+      }
     }
     if (this.cdpSocket && !this.isSocketOpen(this.cdpSocket)) {
       this.cdpSocket = null;
@@ -1714,12 +1736,74 @@ export class RelayServer {
     this.pendingOpsHelloAcks.clear();
   }
 
+  private closeOpsClients(code: number, reason: string, exemptClientId?: string): void {
+    for (const [clientId, client] of this.opsClients.entries()) {
+      if (clientId === exemptClientId) {
+        continue;
+      }
+      this.closeOpsClient(clientId, code, reason, client);
+    }
+  }
+
+  private closeCanvasClients(code: number, reason: string, exemptClientId?: string): void {
+    for (const [clientId, client] of this.canvasClients.entries()) {
+      if (clientId === exemptClientId) {
+        continue;
+      }
+      this.closeCanvasClient(clientId, code, reason, client);
+    }
+  }
+
+  private closeOpsClient(clientId: string, code: number, reason: string, client = this.opsClients.get(clientId)): void {
+    if (!client) {
+      this.readyOpsClients.delete(clientId);
+      this.clearPendingOpsHelloAck(clientId);
+      return;
+    }
+    this.opsClients.delete(clientId);
+    this.readyOpsClients.delete(clientId);
+    this.clearPendingOpsHelloAck(clientId);
+    client.close(code, reason);
+  }
+
+  private closeCanvasClient(clientId: string, code: number, reason: string, client = this.canvasClients.get(clientId)): void {
+    if (!client) {
+      return;
+    }
+    this.canvasClients.delete(clientId);
+    client.close(code, reason);
+  }
+
+  private clearExtensionState(
+    reason: string,
+    exemptClients: { opsClientId?: string; canvasClientId?: string } = {}
+  ): void {
+    this.extensionSocket = null;
+    this.extensionSocketIp = null;
+    this.extensionInfo = null;
+    this.extensionHandshakeComplete = false;
+    this.opsOwnedTabIds.clear();
+    this.failPendingAnnotations("relay_unavailable", reason);
+    const annotationSocket = this.annotationSocket;
+    this.annotationSocket = null;
+    if (annotationSocket) {
+      annotationSocket.close(1011, reason);
+    }
+    this.closeOpsClients(1011, reason, exemptClients.opsClientId);
+    this.closeCanvasClients(1011, reason, exemptClients.canvasClientId);
+    const cdpSocket = this.cdpSocket;
+    this.cdpSocket = null;
+    if (cdpSocket) {
+      cdpSocket.close(1011, reason);
+    }
+  }
+
   private isSocketOpen(socket: WebSocket | null): socket is WebSocket {
     return Boolean(socket && socket.readyState === WebSocket.OPEN);
   }
 
-  private hasReadyExtensionSocket(): boolean {
-    this.pruneClosedSockets();
+  private hasReadyExtensionSocket(exemptClients: { opsClientId?: string; canvasClientId?: string } = {}): boolean {
+    this.pruneClosedSockets(true, exemptClients);
     return Boolean(this.extensionSocket && this.extensionHandshakeComplete);
   }
 

@@ -85,6 +85,9 @@ function parseServeArgs(rawArgs: string[]): ServeArgs {
       parsed.stop = true;
       continue;
     }
+    if (arg === "--daemon") {
+      throw createUsageError("`serve --daemon` is not supported. Use `serve` for foreground mode, `daemon install` for autostart, or `status --daemon` to inspect the daemon.");
+    }
     if (arg === "--port") {
       const value = rawArgs[i + 1];
       if (!value) {

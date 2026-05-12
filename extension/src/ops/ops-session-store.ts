@@ -178,6 +178,10 @@ export class OpsSessionStore {
     return this.coordinator.listOwnedBy(clientId);
   }
 
+  list(): OpsSession[] {
+    return this.coordinator.list();
+  }
+
   delete(sessionId: string): OpsSession | null {
     return this.coordinator.delete(sessionId);
   }

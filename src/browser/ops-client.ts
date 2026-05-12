@@ -121,7 +121,7 @@ export class OpsClient {
 
   constructor(url: string, options: OpsClientOptions = {}) {
     this.url = url;
-    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 3000;
+    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 12000;
     this.pingIntervalMs = options.pingIntervalMs ?? 25000;
     this.pingTimeoutMs = options.pingTimeoutMs ?? 2000;
     this.maxPayloadBytes = options.maxPayloadBytes ?? MAX_OPS_PAYLOAD_BYTES;
@@ -141,7 +141,11 @@ export class OpsClient {
     const run = (async () => {
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
         this.clearReconnectTimer();
-        this.socket = new WebSocket(this.url);
+        if (this.socket) {
+          this.rejectPendingTransportWork("Ops socket replaced");
+        }
+        const socket = new WebSocket(this.url);
+        this.socket = socket;
         await new Promise<void>((resolve, reject) => {
           /* c8 ignore next */
           if (!this.socket) {
@@ -157,22 +161,27 @@ export class OpsClient {
             reject(error);
           };
           const cleanup = () => {
-            this.socket?.removeListener("open", onOpen);
-            this.socket?.removeListener("error", onError);
+            socket.removeListener("open", onOpen);
+            socket.removeListener("error", onError);
           };
-          this.socket.once("open", onOpen);
-          this.socket.once("error", onError);
+          socket.once("open", onOpen);
+          socket.once("error", onError);
         });
 
-        this.socket.on("message", (data) => {
-          this.handleMessage(data);
+        socket.on("message", (data) => {
+          if (this.socket !== socket) return;
+          this.handleMessage(data, socket);
         });
-        this.socket.on("close", (code, reason) => {
-          this.handleClose({ code, reason: reason.toString() });
+        socket.on("close", (code, reason) => {
+          this.handleClose(socket, { code, reason: reason.toString() });
         });
-        this.socket.on("error", () => {
+        socket.on("error", () => {
           // Errors are surfaced via close or pending requests.
         });
+      }
+      const activeSocket = this.socket;
+      if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
+        throw new Error("Ops socket not open");
       }
 
       const hello: OpsHello = {
@@ -183,17 +192,21 @@ export class OpsClient {
 
       const ack = await new Promise<OpsHelloAck>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
+          cleanupHelloAck();
           reject(new Error("Ops handshake timeout"));
         }, this.handshakeTimeoutMs);
-        const handler = (message: OpsHelloAck) => {
+        const cleanupHelloAck = this.waitForHelloAck(activeSocket, (message: OpsHelloAck) => {
           clearTimeout(timeoutId);
           resolve(message);
-        };
-        this.waitForHelloAck(handler, reject);
+        }, (error: Error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        });
         try {
           this.send(hello);
         } catch (error) {
           clearTimeout(timeoutId);
+          cleanupHelloAck();
           reject(error instanceof Error ? error : new Error("Ops handshake failed"));
         }
       });
@@ -228,17 +241,7 @@ export class OpsClient {
     const socket = this.socket;
     this.socket = null;
     this.lastHelloAck = null;
-    for (const pending of this.pendingRequests.values()) {
-      clearTimeout(pending.timeoutId);
-      pending.reject(new Error("Ops socket closed"));
-    }
-    this.pendingRequests.clear();
-    this.pendingChunks.clear();
-    for (const ping of this.pendingPings.values()) {
-      clearTimeout(ping.timeoutId);
-      ping.reject(new Error("Ops socket closed"));
-    }
-    this.pendingPings.clear();
+    this.rejectPendingTransportWork("Ops socket closed");
     if (!socket || socket.readyState === WebSocket.CLOSED) {
       return;
     }
@@ -327,26 +330,55 @@ export class OpsClient {
     });
   }
 
-  private waitForHelloAck(handler: (message: OpsHelloAck) => void, reject: (error: Error) => void): void {
+  private waitForHelloAck(
+    socketOrHandler: WebSocket | ((message: OpsHelloAck) => void),
+    handlerOrReject: ((message: OpsHelloAck) => void) | ((error: Error) => void),
+    maybeReject?: (error: Error) => void
+  ): () => void {
+    const socket = typeof socketOrHandler === "function" ? this.socket : socketOrHandler;
+    const handler = typeof socketOrHandler === "function"
+      ? socketOrHandler
+      : handlerOrReject as (message: OpsHelloAck) => void;
+    const reject = typeof socketOrHandler === "function"
+      ? handlerOrReject as (error: Error) => void
+      : maybeReject;
+    if (!socket || !reject) {
+      return () => undefined;
+    }
+    let settled = false;
+    const cleanup = () => {
+      socket.off("ops_hello_ack", onAck as unknown as (...args: unknown[]) => void);
+      socket.off("ops_hello_error", onError as unknown as (...args: unknown[]) => void);
+      socket.off("close", onClose);
+    };
+    const settle = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      callback();
+    };
     const onAck = (message: OpsHelloAck) => {
-      this.socket?.off("close", onClose);
-      this.socket?.off("ops_hello_error", onError);
-      handler(message);
+      settle(() => handler(message));
     };
     const onError = (message: OpsErrorResponse) => {
-      this.socket?.off("close", onClose);
       const error = buildOpsError(message.error);
-      reject(error);
+      settle(() => reject(error));
     };
     const onClose = () => {
-      reject(new Error("Ops socket closed before handshake"));
+      settle(() => reject(new Error("Ops socket closed before handshake")));
     };
-    this.socket?.once("ops_hello_ack", onAck as unknown as (...args: unknown[]) => void);
-    this.socket?.once("ops_hello_error", onError as unknown as (...args: unknown[]) => void);
-    this.socket?.once("close", onClose);
+    socket.once("ops_hello_ack", onAck as unknown as (...args: unknown[]) => void);
+    socket.once("ops_hello_error", onError as unknown as (...args: unknown[]) => void);
+    socket.once("close", onClose);
+    return () => {
+      settled = true;
+      cleanup();
+    };
   }
 
-  private handleMessage(data: WebSocket.RawData): void {
+  private handleMessage(data: WebSocket.RawData, socket = this.socket): void {
     const message = parseJson(data);
     if (!message || typeof message !== "object") {
       return;
@@ -355,7 +387,7 @@ export class OpsClient {
     const type = record.type;
 
     if (type === "ops_hello_ack" && isOpsHelloAck(record)) {
-      this.socket?.emit("ops_hello_ack", record);
+      socket?.emit("ops_hello_ack", record);
       return;
     }
 
@@ -411,7 +443,7 @@ export class OpsClient {
 
     if (type === "ops_error" && isOpsErrorResponse(record)) {
       if (record.requestId === "ops_hello") {
-        this.socket?.emit("ops_hello_error", record);
+        socket?.emit("ops_hello_error", record);
         return;
       }
       const pending = this.pendingRequests.get(record.requestId);
@@ -428,20 +460,14 @@ export class OpsClient {
     }
   }
 
-  private handleClose(detail?: { code?: number; reason?: string }): void {
+  private handleClose(socket: WebSocket, detail?: { code?: number; reason?: string }): void {
+    if (this.socket !== socket) {
+      return;
+    }
+    this.socket = null;
     this.stopHeartbeat();
     this.lastHelloAck = null;
-    for (const pending of this.pendingRequests.values()) {
-      clearTimeout(pending.timeoutId);
-      pending.reject(new Error("Ops socket closed"));
-    }
-    this.pendingRequests.clear();
-    this.pendingChunks.clear();
-    for (const ping of this.pendingPings.values()) {
-      clearTimeout(ping.timeoutId);
-      ping.reject(new Error("Ops socket closed"));
-    }
-    this.pendingPings.clear();
+    this.rejectPendingTransportWork("Ops socket closed");
     this.onClose?.(detail);
     if (this.autoReconnect && this.shouldReconnectOnClose) {
       this.scheduleReconnect();
@@ -466,6 +492,21 @@ export class OpsClient {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+  }
+
+  private rejectPendingTransportWork(reason: string): void {
+    const error = new Error(reason);
+    for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timeoutId);
+      pending.reject(error);
+    }
+    this.pendingRequests.clear();
+    this.pendingChunks.clear();
+    for (const ping of this.pendingPings.values()) {
+      clearTimeout(ping.timeoutId);
+      ping.reject(error);
+    }
+    this.pendingPings.clear();
   }
 
   private async sendPing(): Promise<void> {
