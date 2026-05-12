@@ -22,6 +22,7 @@ import {
   pushStep,
   readCliFlagValue,
   runCli,
+  sleep,
   summarizeFailures,
   writeJson
 } from "./live-direct-utils.mjs";
@@ -50,8 +51,12 @@ const MACRO_CHALLENGE_ARGS = ["--challenge-automation-mode", MACRO_REQUESTED_CHA
 const SIGNED_IN_BROWSER_ARGS = ["--browser-mode", "extension", "--use-cookies", "--cookie-policy", "required"];
 const LINKEDIN_TIMEOUT_RETRY_DETAIL_RE = /\b(?:request|provider request) timed out after \d+ms\b/i;
 const YOUTUBE_SITE_CHROME_SHELL_RETRY_DETAIL = "shell_only_records=youtube_site_chrome_shell";
+const DIRECT_SOCIAL_SEARCH_LIMIT = 3;
+const DIRECT_SOCIAL_SEARCH_TIMEOUT_MS = "180000";
 const EXTENSION_PREFLIGHT_WAIT_TIMEOUT_MS = 15_000;
 const EXTENSION_PREFLIGHT_CLI_TIMEOUT_MS = 75_000;
+const EXTENSION_PREFLIGHT_STABILIZE_MS = 20_000;
+const EXTENSION_PREFLIGHT_POLL_MS = 1_000;
 const EXTENSION_TRANSPORT_RETRY_DETAIL_RE = /\b(?:ops request timed out|ops handshake timeout|ops socket closed before handshake|ops client not connected|extension not connected|extension relay connection failed|daemon not running)\b/i;
 const PROVIDER_PREFLIGHT_START_URLS = new Map([
   ["community/default", "https://www.reddit.com/"],
@@ -106,10 +111,17 @@ function readDaemonStatus(env = process.env) {
 }
 
 function hasDirtyRelayClients(relay) {
+  // `/ops` is the control plane used by live harness work. It is only clean
+  // when the relay proves no ops-owned browser targets survived a scenario.
+  const opsOwnedTargetCount = relay?.opsOwnedTargetCount;
+  const opsOwnershipUnknown = typeof opsOwnedTargetCount !== "number"
+    || !Number.isFinite(opsOwnedTargetCount)
+    || opsOwnedTargetCount < 0;
   return relay?.canvasConnected === true
     || relay?.annotationConnected === true
     || relay?.cdpConnected === true
-    || relay?.opsConnected === true;
+    || opsOwnershipUnknown
+    || opsOwnedTargetCount > 0;
 }
 
 function shouldRecycleProviderDaemon(status) {
@@ -122,7 +134,7 @@ function hasConfiguredDaemonProcess(status) {
 }
 
 function assertConfiguredDaemonStopSucceeded(result) {
-  const success = result?.status === 0 && result.json?.success !== false;
+  const success = result?.status === 0 && result.json?.success === true;
   if (success) {
     return;
   }
@@ -145,6 +157,21 @@ export function isExtensionRelayReady(status) {
     && relay?.extensionConnected === true
     && relay?.extensionHandshakeComplete === true
     && !hasDirtyRelayClients(relay);
+}
+
+function isExtensionRelayUsableAfterOwnedPreflight(status) {
+  const relay = status?.json?.data?.relay ?? null;
+  const opsOwnedTargetCount = relay?.opsOwnedTargetCount;
+  const opsTargetsClean = typeof opsOwnedTargetCount === "number"
+    && Number.isFinite(opsOwnedTargetCount)
+    && opsOwnedTargetCount === 0;
+  return isCurrentHarnessDaemonStatus(status)
+    && relay?.extensionConnected === true
+    && relay?.extensionHandshakeComplete === true
+    && relay?.canvasConnected !== true
+    && relay?.annotationConnected !== true
+    && relay?.cdpConnected !== true
+    && opsTargetsClean;
 }
 
 export function buildSignedInExtensionPreflightArgs(testCase) {
@@ -181,6 +208,17 @@ function disconnectPreflightSession(result, env, runCliImpl) {
   });
 }
 
+function isPreflightDisconnectConfirmed(launch, disconnect) {
+  if (!readLaunchSessionId(launch)) {
+    return true;
+  }
+  return disconnect?.status === 0 && disconnect.json?.success === true;
+}
+
+function isPreflightLaunchConfirmed(launch) {
+  return launch?.status === 0 && launch.json?.success === true;
+}
+
 async function recycleProviderDaemon(
   daemonState,
   env,
@@ -215,6 +253,30 @@ function shouldRecycleExtensionRelay(status) {
     && hasDirtyRelayClients(relay);
 }
 
+async function waitForCleanExtensionRelay(
+  env,
+  {
+    readDaemonStatusImpl = readDaemonStatus,
+    stabilizeMs = EXTENSION_PREFLIGHT_STABILIZE_MS,
+    pollMs = EXTENSION_PREFLIGHT_POLL_MS
+  } = {}
+) {
+  let status = readDaemonStatusImpl(env);
+  if (isExtensionRelayReady(status)) {
+    return status;
+  }
+
+  const deadline = Date.now() + stabilizeMs;
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    status = readDaemonStatusImpl(env);
+    if (!isCurrentHarnessDaemonStatus(status) || isExtensionRelayReady(status)) {
+      break;
+    }
+  }
+  return status;
+}
+
 export async function ensureSignedInExtensionReady(
   testCase,
   env = process.env,
@@ -229,7 +291,9 @@ export async function ensureSignedInExtensionReady(
       env: daemonEnv,
       allowFailure: true,
       timeoutMs: 15_000
-    })
+    }),
+    preflightStabilizeMs = EXTENSION_PREFLIGHT_STABILIZE_MS,
+    preflightPollMs = EXTENSION_PREFLIGHT_POLL_MS
   } = {}
 ) {
   if (!isSignedInExtensionCase(testCase)) {
@@ -250,7 +314,7 @@ export async function ensureSignedInExtensionReady(
   if (!forceLaunch && isExtensionRelayReady(before)) {
     return { ready: true, launched: false, status: before, launch: null };
   }
-  if ((forceLaunch && daemonState && isCurrentHarnessDaemonStatus(before)) || shouldRecycleExtensionRelay(before)) {
+  if (shouldRecycleExtensionRelay(before)) {
     await recycleProviderDaemon(daemonState, env, {
       startConfiguredDaemonImpl,
       stopOwnedDaemonImpl,
@@ -264,13 +328,21 @@ export async function ensureSignedInExtensionReady(
     timeoutMs: EXTENSION_PREFLIGHT_CLI_TIMEOUT_MS
   });
   const disconnect = disconnectPreflightSession(launch, env, runCliImpl);
-  const after = readDaemonStatusImpl(env);
+  const after = await waitForCleanExtensionRelay(env, {
+    readDaemonStatusImpl,
+    stabilizeMs: preflightStabilizeMs,
+    pollMs: preflightPollMs
+  });
+  const launchConfirmed = isPreflightLaunchConfirmed(launch);
+  const disconnectConfirmed = isPreflightDisconnectConfirmed(launch, disconnect);
   return {
-    ready: isExtensionRelayReady(after),
+    ready: launchConfirmed && disconnectConfirmed && isExtensionRelayUsableAfterOwnedPreflight(after),
     launched: true,
     status: after,
     launch,
-    disconnect
+    disconnect,
+    launchConfirmed,
+    disconnectConfirmed
   };
 }
 
@@ -291,7 +363,9 @@ export function withExtensionPreflightMetadata(step, preflight) {
       ...(step.data ?? {}),
       extensionPreflightAttempted: true,
       extensionPreflightStatus: preflight.launch?.status ?? null,
+      extensionPreflightLaunchConfirmed: preflight.launchConfirmed ?? null,
       extensionPreflightSessionDisconnected: preflight.disconnect?.status === 0,
+      extensionPreflightDisconnectConfirmed: preflight.disconnectConfirmed ?? null,
       extensionPreflightReady: preflight.ready
     }
   };
@@ -1240,7 +1314,7 @@ function buildProviderCases(options) {
     cases.push({
       id: `provider.social.${platform}.search`,
       providerId: `social/${platform}`,
-      args: ["macro-resolve", "--execute", "--expression", `@media.search("browser automation ${platform}", "${platform}", 5)`, "--timeout-ms", options.releaseGate ? "180000" : "120000", ...SIGNED_IN_BROWSER_ARGS, ...MACRO_CHALLENGE_ARGS]
+      args: ["macro-resolve", "--execute", "--expression", `@media.search("browser automation ${platform}", "${platform}", ${DIRECT_SOCIAL_SEARCH_LIMIT})`, "--timeout-ms", DIRECT_SOCIAL_SEARCH_TIMEOUT_MS, ...SIGNED_IN_BROWSER_ARGS, ...MACRO_CHALLENGE_ARGS]
     });
   }
 
@@ -1488,8 +1562,16 @@ export function mergeRetriedMacroStep(initialStep, retriedStep) {
   return mergeRetriedStep(initialStep, retriedStep);
 }
 
+export function mergeRetryPreflightBlockedStep(testCase, initialStep, initialPreflight, retryPreflight) {
+  return mergeRetriedStep(
+    withExtensionPreflightMetadata(initialStep, initialPreflight),
+    buildExtensionPreflightBlockedStep(testCase, retryPreflight)
+  );
+}
+
 export function shouldRetryShoppingTimeoutCase(testCase, step) {
-  return testCase?.providerId === "shopping/temu"
+  return typeof testCase?.providerId === "string"
+    && testCase.providerId.startsWith("shopping/")
     && step?.status === "fail"
     && (
       (
@@ -1658,20 +1740,21 @@ async function main() {
           await ensureProviderDaemon(daemonState);
           const retryPreflight = await ensureSignedInExtensionReady(testCase, process.env, { forceLaunch: true, daemonState });
           if (!retryPreflight.ready) {
-            await ensureProviderDaemon(daemonState);
+            step = mergeRetryPreflightBlockedStep(testCase, step, extensionPreflight, retryPreflight);
+          } else {
+            const retriedResult = runCli(testCase.args, {
+              env: process.env,
+              allowFailure: true,
+              timeoutMs
+            });
+            const retriedStep = testCase.providerId.startsWith("shopping/")
+              ? evaluateShoppingCase(testCase, retriedResult)
+              : evaluateMacroCase(testCase, retriedResult);
+            step = mergeRetriedStep(
+              withExtensionPreflightMetadata(step, extensionPreflight),
+              withExtensionPreflightMetadata(retriedStep, retryPreflight)
+            );
           }
-          const retriedResult = runCli(testCase.args, {
-            env: process.env,
-            allowFailure: true,
-            timeoutMs
-          });
-          const retriedStep = testCase.providerId.startsWith("shopping/")
-            ? evaluateShoppingCase(testCase, retriedResult)
-            : evaluateMacroCase(testCase, retriedResult);
-          step = mergeRetriedStep(
-            withExtensionPreflightMetadata(step, extensionPreflight),
-            withExtensionPreflightMetadata(retriedStep, retryPreflight)
-          );
         } else if (testCase.providerId.startsWith("shopping/") && shouldRetryShoppingTimeoutCase(testCase, step)) {
           const retriedResult = runCli(testCase.args, {
             env: process.env,

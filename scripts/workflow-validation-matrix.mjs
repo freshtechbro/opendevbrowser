@@ -18,6 +18,7 @@ import { VALIDATION_SCENARIOS } from "./shared/workflow-inventory.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const KNOWN_SCENARIO_IDS = new Set(VALIDATION_SCENARIOS.map((scenario) => scenario.id));
 const CLI_TIMEOUT_HEADROOM_MS = 15_000;
+const EXTENSION_RECONNECT_GRACE_MS = 20_000;
 
 export function parseWorkflowValidationArgs(argv) {
   const options = {
@@ -149,14 +150,21 @@ function readDaemonStatus(env = process.env) {
 }
 
 function hasDirtyRelayClients(relay) {
+  // `/ops` is expected during matrix orchestration. It is clean only when the
+  // relay proves no ops-owned browser targets survived a scenario.
+  const opsOwnedTargetCount = relay?.opsOwnedTargetCount;
+  const opsOwnershipUnknown = typeof opsOwnedTargetCount !== "number"
+    || !Number.isFinite(opsOwnedTargetCount)
+    || opsOwnedTargetCount < 0;
   return relay?.canvasConnected === true
     || relay?.annotationConnected === true
     || relay?.cdpConnected === true
-    || relay?.opsConnected === true;
+    || opsOwnershipUnknown
+    || opsOwnedTargetCount > 0;
 }
 
 function assertConfiguredDaemonStopSucceeded(result) {
-  const success = result?.status === 0 && result.json?.success !== false;
+  const success = result?.status === 0 && result.json?.success === true;
   if (success) {
     return;
   }
@@ -233,7 +241,7 @@ async function waitForRequiredExtension({
   startedDaemon,
   relayWasDirty,
   env,
-  reconnectGraceMs = 8_000,
+  reconnectGraceMs = EXTENSION_RECONNECT_GRACE_MS,
   pollMs = 1_000
 }) {
   let currentDaemonStatus = readDaemonStatus(env);

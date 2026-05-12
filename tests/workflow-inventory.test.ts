@@ -130,11 +130,22 @@ describe("workflow inventory", () => {
     const inspiredesign = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.inspiredesign.run");
 
     expect(community?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(community?.requiresExtension).toBe(true);
     expect(media?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(media?.requiresExtension).toBe(true);
+    expect(media?.primaryArgs).toEqual(expect.arrayContaining(["--timeout-ms", "180000"]));
+    expect(media?.secondaryArgs).toEqual(expect.arrayContaining(["--timeout-ms", "180000"]));
+    expect(media?.primaryArgs).toContain('@media.search("browser automation x", "x", 3)');
+    expect(media?.secondaryArgs).toContain('@media.search("browser automation reddit", "reddit", 3)');
+    expect(media?.timeoutMs).toBe(180_000);
     expect(productVideoUrl?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoName?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(productVideoUrl?.primaryArgs).toEqual(expect.arrayContaining(["--browser-mode", "managed"]));
     expect(productVideoName?.primaryArgs).toEqual(expect.arrayContaining(["--browser-mode", "managed"]));
+    expect(productVideoUrl?.primaryArgs).toContain("https://www.bestbuy.com/product/logitech-mx-master-3s-bluetooth-edition-performance-wireless-optical-mouse-with-ultra-fast-scrolling-and-quiet-clicks-wireless-black/J7H7ZYG559");
+    expect(productVideoUrl?.secondaryArgs).toContain("https://www.bestbuy.com/product/sony-wh-1000xm5-wireless-noise-cancelling-over-the-ear-headphones-black/J7XSRH5CXG");
+    expect(productVideoUrl?.primaryArgs.join(" ")).not.toContain("/site/");
+    expect(productVideoUrl?.secondaryArgs.join(" ")).not.toContain("/site/");
     expect(productVideoUrl?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
     expect(productVideoName?.envLimitedDetailMatchers).toEqual(PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS);
     expect(inspiredesign?.allowedStatuses).toEqual(["pass", "env_limited"]);
@@ -264,6 +275,20 @@ describe("workflow validation matrix helpers", () => {
       status: "env_limited",
       detail: "Bestbuy requires a live browser-rendered page.",
       ok: true
+    });
+
+    expect(determineScenarioStatus({
+      status: 1,
+      timedOut: false,
+      detail: "Bestbuy is blocked by a Best Buy product-detail error shell.",
+      json: { status: "fail" }
+    }, {
+      allowedStatuses: ["pass", "env_limited"],
+      envLimitedDetailMatchers: PRODUCT_VIDEO_ENV_LIMITED_DETAIL_MATCHERS
+    })).toMatchObject({
+      status: "fail",
+      detail: "Bestbuy is blocked by a Best Buy product-detail error shell.",
+      ok: false
     });
   });
 

@@ -17,6 +17,7 @@ import {
   evaluateMacroCase,
   evaluateShoppingCase,
   isExtensionRelayReady,
+  mergeRetryPreflightBlockedStep,
   mergeRetriedMacroStep,
   mergeRetriedShoppingStep,
   parseArgs,
@@ -135,6 +136,18 @@ describe("provider-direct-runs", () => {
     }
   });
 
+  it("keeps direct social provider searches bounded for signed-in runs", () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const reddit = cases.find((entry) => entry.id === "provider.social.reddit.search");
+    const expressionIndex = reddit?.args.indexOf("--expression") ?? -1;
+    const timeoutIndex = reddit?.args.indexOf("--timeout-ms") ?? -1;
+
+    expect(expressionIndex).toBeGreaterThanOrEqual(0);
+    expect(reddit?.args[expressionIndex + 1]).toBe('@media.search("browser automation reddit", "reddit", 3)');
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    expect(reddit?.args[timeoutIndex + 1]).toBe("180000");
+  });
+
   it("uses the Target-specific timeout without widening other slow shopping providers", () => {
     const cases = buildProviderCases(parseArgs(["--include-high-friction", "--include-auth-gated"]));
     const ebay = cases.find((entry) => entry.id === "provider.shopping.ebay.search");
@@ -213,7 +226,7 @@ describe("provider-direct-runs", () => {
     })).toBe(false);
   });
 
-  it("rejects dirty extension relay clients before signed-in provider cases", () => {
+  it("allows ops-only relay clients before signed-in provider cases", () => {
     const baseStatus = {
       status: 0,
       json: {
@@ -225,6 +238,7 @@ describe("provider-direct-runs", () => {
             extensionConnected: true,
             extensionHandshakeComplete: true,
             opsConnected: false,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: false,
             cdpConnected: false
@@ -242,11 +256,12 @@ describe("provider-direct-runs", () => {
           ...baseStatus.json.data,
           relay: {
             ...baseStatus.json.data.relay,
-            opsConnected: true
+            opsConnected: true,
+            opsOwnedTargetCount: 0
           }
         }
       }
-    })).toBe(false);
+    })).toBe(true);
     expect(isExtensionRelayReady({
       ...baseStatus,
       json: {
@@ -260,9 +275,63 @@ describe("provider-direct-runs", () => {
         }
       }
     })).toBe(false);
+    expect(isExtensionRelayReady({
+      ...baseStatus,
+      json: {
+        ...baseStatus.json,
+        data: {
+          ...baseStatus.json.data,
+          relay: {
+            ...baseStatus.json.data.relay,
+            opsConnected: true,
+            opsOwnedTargetCount: undefined
+          }
+        }
+      }
+    })).toBe(false);
+    expect(isExtensionRelayReady({
+      ...baseStatus,
+      json: {
+        ...baseStatus.json,
+        data: {
+          ...baseStatus.json.data,
+          relay: {
+            ...baseStatus.json.data.relay,
+            opsConnected: false,
+            opsOwnedTargetCount: undefined
+          }
+        }
+      }
+    })).toBe(false);
+    expect(isExtensionRelayReady({
+      ...baseStatus,
+      json: {
+        ...baseStatus.json,
+        data: {
+          ...baseStatus.json.data,
+          relay: {
+            ...baseStatus.json.data.relay,
+            opsOwnedTargetCount: null
+          }
+        }
+      }
+    })).toBe(false);
+    expect(isExtensionRelayReady({
+      ...baseStatus,
+      json: {
+        ...baseStatus.json,
+        data: {
+          ...baseStatus.json.data,
+          relay: {
+            ...baseStatus.json.data.relay,
+            opsOwnedTargetCount: "0"
+          }
+        }
+      }
+    })).toBe(false);
   });
 
-  it("recycles the daemon before forced signed-in extension transport retries", async () => {
+  it("does not recycle a clean daemon before forced signed-in extension transport retries", async () => {
     const cases = buildProviderCases(parseArgs([]));
     const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
     const readyStatus = {
@@ -275,6 +344,7 @@ describe("provider-direct-runs", () => {
             extensionConnected: true,
             extensionHandshakeComplete: true,
             opsConnected: false,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: false,
             cdpConnected: false
@@ -283,13 +353,12 @@ describe("provider-direct-runs", () => {
       }
     };
     const state = { ownedDaemon: { pid: 1234 } };
-    const replacementDaemon = { pid: 5678 };
     const readDaemonStatusImpl = vi.fn()
       .mockReturnValueOnce(readyStatus)
       .mockReturnValueOnce(readyStatus);
     const runCliImpl = vi.fn(() => ({ status: 0, json: { success: true } }));
     const stopOwnedDaemonImpl = vi.fn(async () => undefined);
-    const startConfiguredDaemonImpl = vi.fn(async () => replacementDaemon);
+    const startConfiguredDaemonImpl = vi.fn(async () => ({ pid: 5678 }));
 
     await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
       forceLaunch: true,
@@ -303,13 +372,13 @@ describe("provider-direct-runs", () => {
       launched: true
     });
 
-    expect(stopOwnedDaemonImpl).toHaveBeenCalledWith({ pid: 1234 }, process.env);
-    expect(startConfiguredDaemonImpl).toHaveBeenCalledWith(process.env);
+    expect(stopOwnedDaemonImpl).not.toHaveBeenCalled();
+    expect(startConfiguredDaemonImpl).not.toHaveBeenCalled();
     expect(runCliImpl).toHaveBeenCalledWith(
       expect.arrayContaining(["launch", "--extension-only", "--wait-for-extension"]),
       expect.objectContaining({ allowFailure: true })
     );
-    expect(state.ownedDaemon).toBe(replacementDaemon);
+    expect(state.ownedDaemon).toEqual({ pid: 1234 });
   });
 
   it("disconnects signed-in extension preflight sessions before provider execution", async () => {
@@ -325,6 +394,7 @@ describe("provider-direct-runs", () => {
             extensionConnected: true,
             extensionHandshakeComplete: true,
             opsConnected: true,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: false,
             cdpConnected: false
@@ -375,6 +445,432 @@ describe("provider-direct-runs", () => {
       ["disconnect", "--session-id", "preflight-session"],
       expect.objectContaining({ allowFailure: true })
     );
+  });
+
+  it("blocks signed-in provider execution when preflight session cleanup is not confirmed", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const readyStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: true,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 2, json: { success: false }, detail: "disconnect_failed" };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(readyStatus)
+      .mockReturnValueOnce(readyStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightStabilizeMs: 0
+    })).resolves.toMatchObject({
+      ready: false,
+      launched: true,
+      disconnect: { status: 2 },
+      disconnectConfirmed: false
+    });
+  });
+
+  it("keeps preflight ready when only an ops client remains", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const dirtyStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: true,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const cleanStatus = {
+      ...dirtyStatus,
+      json: {
+        ...dirtyStatus.json,
+        data: {
+          ...dirtyStatus.json.data,
+          relay: {
+            ...dirtyStatus.json.data.relay,
+            opsConnected: false
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 0, json: { success: true } };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(dirtyStatus)
+      .mockReturnValueOnce(cleanStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightPollMs: 0,
+      preflightStabilizeMs: 10
+    })).resolves.toMatchObject({
+      ready: true,
+      launched: true,
+      disconnect: { status: 0 },
+      status: dirtyStatus
+    });
+
+    expect(readDaemonStatusImpl).toHaveBeenCalledTimes(2);
+    expect(runCliImpl).toHaveBeenCalledWith(
+      ["disconnect", "--session-id", "preflight-session"],
+      expect.objectContaining({ allowFailure: true })
+    );
+  });
+
+  it("accepts an owned preflight when only the reusable ops client remains connected", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const cleanStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const reusableOpsStatus = {
+      ...cleanStatus,
+      json: {
+        ...cleanStatus.json,
+        data: {
+          ...cleanStatus.json.data,
+          relay: {
+            ...cleanStatus.json.data.relay,
+            opsConnected: true
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 0, json: { success: true } };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(reusableOpsStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightStabilizeMs: 0
+    })).resolves.toMatchObject({
+      ready: true,
+      launched: true,
+      status: reusableOpsStatus
+    });
+  });
+
+  it("blocks owned preflight when an ops-owned target remains connected", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const cleanStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const leakedTargetStatus = {
+      ...cleanStatus,
+      json: {
+        ...cleanStatus.json,
+        data: {
+          ...cleanStatus.json.data,
+          relay: {
+            ...cleanStatus.json.data.relay,
+            opsConnected: true,
+            opsOwnedTargetCount: 1
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 0, json: { success: true } };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(leakedTargetStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightStabilizeMs: 0
+    })).resolves.toMatchObject({
+      ready: false,
+      launched: true,
+      status: leakedTargetStatus
+    });
+  });
+
+  it("blocks owned preflight when an ops-owned target remains after ops disconnect", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const cleanStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const leakedTargetStatus = {
+      ...cleanStatus,
+      json: {
+        ...cleanStatus.json,
+        data: {
+          ...cleanStatus.json.data,
+          relay: {
+            ...cleanStatus.json.data.relay,
+            opsConnected: false,
+            opsOwnedTargetCount: 1
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 0, json: { success: true } };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(leakedTargetStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightStabilizeMs: 0
+    })).resolves.toMatchObject({
+      ready: false,
+      launched: true,
+      status: leakedTargetStatus
+    });
+  });
+
+  it("blocks owned preflight when disconnect success cannot be proven", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const cleanStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 0, detail: "unparseable disconnect output" };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(cleanStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightStabilizeMs: 0
+    })).resolves.toMatchObject({
+      ready: false,
+      launched: true,
+      disconnectConfirmed: false,
+      status: cleanStatus
+    });
+  });
+
+  it("blocks owned preflight when launch success cannot be proven", async () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const cleanStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn(() => ({
+      status: 2,
+      detail: "launch failed"
+    }));
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(cleanStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightStabilizeMs: 0
+    })).resolves.toMatchObject({
+      ready: false,
+      launched: true,
+      launchConfirmed: false,
+      disconnectConfirmed: true,
+      status: cleanStatus
+    });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["string zero", "0"]
+  ])("blocks owned preflight when ops-owned target count is %s", async (_label, opsOwnedTargetCount) => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search");
+    const cleanStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const malformedOwnershipStatus = {
+      ...cleanStatus,
+      json: {
+        ...cleanStatus.json,
+        data: {
+          ...cleanStatus.json.data,
+          relay: {
+            ...cleanStatus.json.data.relay,
+            opsOwnedTargetCount
+          }
+        }
+      }
+    };
+    const runCliImpl = vi.fn((args) => {
+      if (args[0] === "launch") {
+        return { status: 0, json: { success: true, data: { sessionId: "preflight-session" } } };
+      }
+      return { status: 0, json: { success: true } };
+    });
+    const readDaemonStatusImpl = vi.fn()
+      .mockReturnValueOnce(cleanStatus)
+      .mockReturnValueOnce(malformedOwnershipStatus);
+
+    await expect(ensureSignedInExtensionReady(bestbuy, process.env, {
+      forceLaunch: true,
+      readDaemonStatusImpl,
+      runCliImpl,
+      preflightStabilizeMs: 0
+    })).resolves.toMatchObject({
+      ready: false,
+      launched: true,
+      status: malformedOwnershipStatus
+    });
   });
 
   it("builds an env-limited skip when signed-in extension preflight remains unready", () => {
@@ -437,6 +933,54 @@ describe("provider-direct-runs", () => {
       offers: 3
     });
     expect(recoveredRetry.data).not.toHaveProperty("extensionPreflightStatus");
+  });
+
+  it("keeps signed-in retry blocked when forced extension preflight is not ready", () => {
+    const cases = buildProviderCases(parseArgs([]));
+    const bestbuy = cases.find((entry) => entry.id === "provider.shopping.bestbuy.search")!;
+    const initialStep = {
+      id: bestbuy?.id,
+      providerId: bestbuy?.providerId,
+      status: "env_limited",
+      detail: "Ops request timed out",
+      data: {
+        failureSamples: [{ message: "Ops handshake timeout" }]
+      }
+    };
+    const initialPreflight = {
+      launched: true,
+      ready: true,
+      launch: { status: 0 },
+      disconnect: { status: 0 },
+      disconnectConfirmed: true
+    };
+    const retryPreflight = {
+      launched: true,
+      ready: false,
+      launch: { status: 0 },
+      disconnect: { status: 2 },
+      disconnectConfirmed: false,
+      status: {
+        status: 0,
+        json: { success: true, data: { fingerprintCurrent: true } }
+      }
+    };
+
+    expect(mergeRetryPreflightBlockedStep(bestbuy, initialStep, initialPreflight, retryPreflight)).toMatchObject({
+      status: "env_limited",
+      detail: "Ops request timed out",
+      data: {
+        retryAttempted: true,
+        retryRecovered: false,
+        retryFinalStatus: "env_limited",
+        retryFinalDetail: "extension_preflight_not_ready",
+        retryFinalData: {
+          skippedProviderExecution: true,
+          extensionPreflightReady: false,
+          extensionPreflightDisconnectConfirmed: false
+        }
+      }
+    });
   });
 
   it("classifies daemon preflight failures before provider cases run", () => {
@@ -520,6 +1064,25 @@ describe("provider-direct-runs", () => {
     expect(state.ownedDaemon).toBeNull();
   });
 
+  it("fails closed when a configured stale daemon stop omits success JSON", async () => {
+    const stale = { status: 0, json: { success: true, data: { fingerprintCurrent: false } } };
+    const state = { ownedDaemon: null };
+    const readDaemonStatusImpl = vi.fn().mockReturnValue(stale);
+    const startConfiguredDaemonImpl = vi.fn(async () => ({ pid: 1234 }));
+    const stopConfiguredDaemonImpl = vi.fn(() => ({
+      status: 0,
+      detail: "unparseable stop output"
+    }));
+
+    await expect(ensureProviderDaemon(state, {
+      readDaemonStatusImpl,
+      startConfiguredDaemonImpl,
+      stopConfiguredDaemonImpl
+    })).rejects.toThrow("configured_daemon_stop_failed: unparseable stop output");
+    expect(startConfiguredDaemonImpl).not.toHaveBeenCalled();
+    expect(state.ownedDaemon).toBeNull();
+  });
+
   it("recycles a current daemon when relay clients are dirty", async () => {
     const dirty = {
       status: 0,
@@ -531,6 +1094,7 @@ describe("provider-direct-runs", () => {
             extensionConnected: true,
             extensionHandshakeComplete: true,
             opsConnected: true,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: true,
             cdpConnected: false
@@ -574,6 +1138,43 @@ describe("provider-direct-runs", () => {
     expect(stopConfiguredDaemonImpl).toHaveBeenCalledTimes(1);
     expect(startConfiguredDaemonImpl).toHaveBeenCalledTimes(1);
     expect(state.ownedDaemon).toBe(started);
+  });
+
+  it("does not recycle a current daemon for an ops-only relay client", async () => {
+    const opsOnly = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          fingerprintCurrent: true,
+          relay: {
+            extensionConnected: true,
+            extensionHandshakeComplete: true,
+            opsConnected: true,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    const state = { ownedDaemon: null };
+    const readDaemonStatusImpl = vi.fn(() => opsOnly);
+    const stopConfiguredDaemonImpl = vi.fn(() => ({ status: 0, json: { success: true } }));
+    const startConfiguredDaemonImpl = vi.fn(async () => ({ pid: 5678 }));
+
+    await expect(ensureProviderDaemon(state, {
+      readDaemonStatusImpl,
+      startConfiguredDaemonImpl,
+      stopConfiguredDaemonImpl
+    })).resolves.toEqual({
+      daemonStatus: opsOnly,
+      startedDaemon: false
+    });
+    expect(stopConfiguredDaemonImpl).not.toHaveBeenCalled();
+    expect(startConfiguredDaemonImpl).not.toHaveBeenCalled();
+    expect(state.ownedDaemon).toBeNull();
   });
 
   it("downgrades non-release provider coverage gaps into explicit skipped advisories", () => {
@@ -1162,7 +1763,7 @@ describe("provider-direct-runs", () => {
     });
   });
 
-  it("retries Temu timeout rows when the first pass fails with provider timeout reason codes", () => {
+  it("retries shopping timeout rows when the first pass fails with provider timeout reason codes", () => {
     expect(shouldRetryShoppingTimeoutCase({
       providerId: "shopping/temu"
     }, {
@@ -1175,6 +1776,16 @@ describe("provider-direct-runs", () => {
 
     expect(shouldRetryShoppingTimeoutCase({
       providerId: "shopping/walmart"
+    }, {
+      status: "fail",
+      detail: "unexpected_reason_codes=timeout",
+      data: {
+        reasonCodes: ["timeout"]
+      }
+    })).toBe(true);
+
+    expect(shouldRetryShoppingTimeoutCase({
+      providerId: "social/x"
     }, {
       status: "fail",
       detail: "unexpected_reason_codes=timeout",

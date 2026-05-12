@@ -145,6 +145,7 @@ describe("workflow validation matrix daemon ownership", () => {
         relay: {
           extensionHandshakeComplete: true,
           opsConnected: true,
+          opsOwnedTargetCount: 0,
           canvasConnected: false,
           annotationConnected: false,
           cdpConnected: false
@@ -183,7 +184,7 @@ describe("workflow validation matrix daemon ownership", () => {
     });
   });
 
-  it("recycles extension-required scenarios when the reused relay has an active ops client", async () => {
+  it("does not classify an active ops client as dirty during ownership recycle", async () => {
     runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
       expect(options.env).toBe(envToken);
       if (args[0] === "status") {
@@ -198,6 +199,7 @@ describe("workflow validation matrix daemon ownership", () => {
               relay: {
                 extensionHandshakeComplete: true,
                 opsConnected: false,
+                opsOwnedTargetCount: 0,
                 canvasConnected: false,
                 annotationConnected: false,
                 cdpConnected: false
@@ -228,11 +230,11 @@ describe("workflow validation matrix daemon ownership", () => {
     expect(report.infraSteps[0]).toMatchObject({
       id: "infra.daemon.recycle",
       status: "pass",
-      detail: "recycled configured daemon to own matrix lifecycle and clear dirty relay clients",
+      detail: "recycled configured daemon to own matrix lifecycle",
       data: {
         mode: "owned_recycled",
         relayWasDirty: false,
-        previousRelayWasDirty: true,
+        previousRelayWasDirty: false,
         recycledForOwnership: true,
         startedDaemon: true
       }
@@ -256,6 +258,7 @@ describe("workflow validation matrix daemon ownership", () => {
           relay: {
             extensionHandshakeComplete: true,
             opsConnected: true,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: true,
             cdpConnected: false
@@ -271,6 +274,7 @@ describe("workflow validation matrix daemon ownership", () => {
             relay: {
               extensionHandshakeComplete: true,
               opsConnected: false,
+              opsOwnedTargetCount: 0,
               canvasConnected: false,
               annotationConnected: false,
               cdpConnected: false
@@ -329,6 +333,151 @@ describe("workflow validation matrix daemon ownership", () => {
     expect(runNode).toHaveBeenCalledTimes(1);
   });
 
+  it("recycles a reused relay when ops ownership count is unknown", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: true,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    let statusCalls = 0;
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          return currentRelayStatus;
+        }
+        return {
+          status: 0,
+          json: {
+            success: true,
+            data: {
+              relay: {
+                extensionHandshakeComplete: true,
+                opsConnected: false,
+                opsOwnedTargetCount: 0,
+                canvasConnected: false,
+                annotationConnected: false,
+                cdpConnected: false
+              }
+            }
+          }
+        };
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        return { status: 0, json: { success: true } };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+    runNode.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(args).toEqual(["scripts/annotate-live-probe.mjs", "--transport", "relay"]);
+      expect(options.env).toBe(envToken);
+      return {
+        status: 0,
+        timedOut: false,
+        json: { success: true }
+      };
+    });
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay"]
+    });
+
+    expect(report.infraSteps[0]).toMatchObject({
+      id: "infra.daemon.recycle",
+      status: "pass",
+      data: {
+        previousRelayWasDirty: true,
+        recycledDirtyRelay: true,
+        startedDaemon: true
+      }
+    });
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(1);
+  });
+
+  it("recycles a reused relay when ops ownership count is malformed even without an active ops client", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: "0",
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    let statusCalls = 0;
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          return currentRelayStatus;
+        }
+        return {
+          status: 0,
+          json: {
+            success: true,
+            data: {
+              relay: {
+                extensionHandshakeComplete: true,
+                opsConnected: false,
+                opsOwnedTargetCount: 0,
+                canvasConnected: false,
+                annotationConnected: false,
+                cdpConnected: false
+              }
+            }
+          }
+        };
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        return { status: 0, json: { success: true } };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+    runNode.mockReturnValue({
+      status: 0,
+      timedOut: false,
+      json: { success: true }
+    });
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay"]
+    });
+
+    expect(report.infraSteps[0]).toMatchObject({
+      id: "infra.daemon.recycle",
+      status: "pass",
+      data: {
+        previousRelayWasDirty: true,
+        recycledDirtyRelay: true,
+        startedDaemon: true
+      }
+    });
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(1);
+  });
+
   it("fails infra before scenario execution when the configured daemon fingerprint is stale", async () => {
     currentRelayStatus = {
       status: 0,
@@ -339,6 +488,7 @@ describe("workflow validation matrix daemon ownership", () => {
           relay: {
             extensionHandshakeComplete: true,
             opsConnected: true,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: false,
             cdpConnected: false
@@ -411,6 +561,7 @@ describe("workflow validation matrix daemon ownership", () => {
           relay: {
             extensionHandshakeComplete: true,
             opsConnected: false,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: false,
             cdpConnected: false
@@ -469,6 +620,7 @@ describe("workflow validation matrix daemon ownership", () => {
           relay: {
             extensionHandshakeComplete: true,
             opsConnected: false,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: false,
             cdpConnected: false
@@ -497,6 +649,51 @@ describe("workflow validation matrix daemon ownership", () => {
         id: "infra.daemon.recycle",
         status: "fail",
         detail: "configured_daemon_stop_failed: stale daemon rejected stop"
+      })
+    ]);
+    expect(report.steps).toEqual([]);
+    expect(startConfiguredDaemon).not.toHaveBeenCalled();
+    expect(runNode).not.toHaveBeenCalled();
+  });
+
+  it("fails infra when configured daemon stop omits success JSON", async () => {
+    currentRelayStatus = {
+      status: 0,
+      json: {
+        success: true,
+        data: {
+          relay: {
+            extensionHandshakeComplete: true,
+            opsConnected: false,
+            opsOwnedTargetCount: 0,
+            canvasConnected: false,
+            annotationConnected: false,
+            cdpConnected: false
+          }
+        }
+      }
+    };
+    runCli.mockImplementation((args: string[], options: { env: typeof envToken }) => {
+      expect(options.env).toBe(envToken);
+      if (args[0] === "status") {
+        return currentRelayStatus;
+      }
+      if (args[0] === "serve" && args[1] === "--stop") {
+        return { status: 0, detail: "unparseable stop output" };
+      }
+      throw new Error(`Unexpected CLI call: ${args.join(" ")}`);
+    });
+
+    const report = await runWorkflowValidationMatrix({
+      variant: "primary",
+      scenarioIds: ["feature.annotate.relay"]
+    });
+
+    expect(report.infraSteps).toEqual([
+      expect.objectContaining({
+        id: "infra.daemon.recycle",
+        status: "fail",
+        detail: "configured_daemon_stop_failed: unparseable stop output"
       })
     ]);
     expect(report.steps).toEqual([]);
@@ -538,6 +735,7 @@ describe("workflow validation matrix daemon ownership", () => {
           relay: {
             extensionHandshakeComplete: true,
             opsConnected: false,
+            opsOwnedTargetCount: 0,
             canvasConnected: false,
             annotationConnected: false,
             cdpConnected: false
@@ -588,7 +786,7 @@ describe("workflow validation matrix daemon ownership", () => {
     ]);
   });
 
-  it("recycles the shared daemon between extension-required scenarios when a row leaves ops dirty", async () => {
+  it("keeps the shared daemon between extension-required scenarios when only ops remains connected", async () => {
     currentRelayStatus = {
       status: 0,
       json: {
@@ -618,6 +816,7 @@ describe("workflow validation matrix daemon ownership", () => {
               relay: {
                 extensionHandshakeComplete: true,
                 opsConnected: false,
+                opsOwnedTargetCount: 0,
                 canvasConnected: false,
                 annotationConnected: false,
                 cdpConnected: false
@@ -640,6 +839,7 @@ describe("workflow validation matrix daemon ownership", () => {
               relay: {
                 extensionHandshakeComplete: true,
                 opsConnected: true,
+                opsOwnedTargetCount: 0,
                 canvasConnected: false,
                 annotationConnected: false,
                 cdpConnected: false
@@ -660,12 +860,10 @@ describe("workflow validation matrix daemon ownership", () => {
       scenarioIds: ["feature.annotate.relay", "feature.canvas.extension"]
     });
 
-    expect(startConfiguredDaemon).toHaveBeenCalledTimes(2);
-    expect(stopDaemon).toHaveBeenCalledTimes(2);
-    expect(report.infraSteps).toContainEqual(expect.objectContaining({
+    expect(startConfiguredDaemon).toHaveBeenCalledTimes(1);
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
+    expect(report.infraSteps).not.toContainEqual(expect.objectContaining({
       id: "infra.daemon.recycle.feature.canvas.extension",
-      status: "pass",
-      detail: "recycled configured daemon before extension scenario"
     }));
     expect(report.steps).toMatchObject([
       { id: "feature.annotate.relay", status: "pass", ok: true },
@@ -690,6 +888,7 @@ describe("workflow validation matrix daemon ownership", () => {
               relay: {
                 extensionHandshakeComplete: statusCalls >= 4,
                 opsConnected: false,
+                opsOwnedTargetCount: 0,
                 canvasConnected: false,
                 annotationConnected: false,
                 cdpConnected: false
