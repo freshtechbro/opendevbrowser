@@ -101,13 +101,32 @@ Tracks the `0.0.30` release cycle for uniform workflow output roots across CLI, 
 
 ## External Release Workflow Evidence
 
-- [ ] Release workflow run URL
-- [ ] npm publish verification
-- [ ] Registry consumer smoke
-- [ ] GitHub release URL
-- [ ] GitHub release asset verification
+- [x] Release workflow run URL
+  - Initial tag run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/25971173850`
+  - Result: quality gates, extension packaging, checksum, and npm publish passed; registry consumer smoke failed before GitHub release because the npm registry had not yet propagated `opendevbrowser@0.0.30` to fresh installs.
+  - Fallback GitHub release run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/25971343576`
+  - Result: `publish_npm=false`, `publish_github_release=true`, `draft_release=false`; passed and published GitHub release assets.
+- [x] npm publish verification
+  - Command: `npm view opendevbrowser version dist-tags --json`
+  - Result: `version=0.0.30`, `latest=0.0.30`.
+- [x] Registry consumer smoke
+  - Command: `node scripts/registry-consumer-smoke.mjs --version 0.0.30 --output artifacts/release/v0.0.30/registry-consumer-smoke.json`
+  - Result: passed on first install attempt after registry propagation.
+  - Evidence file: `artifacts/release/v0.0.30/registry-consumer-smoke.json`
+  - Checks: help alias matched, packaged extension directory existed, packaged skills directory existed, and CLI `version` matched `0.0.30`.
+  - Consumer graph: `opendevbrowser=0.0.30`, `@opencode-ai/plugin=1.15.3`, `ws=8.20.1`, `zod=3.25.76`, nested plugin `zod=4.1.8`.
+- [x] GitHub release URL
+  - URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.30`
+  - Result: published, non-draft, non-prerelease.
+- [x] GitHub release asset verification
+  - Assets:
+    - `opendevbrowser-extension.zip`
+    - `opendevbrowser-extension.zip.sha256`
+  - Download verification: `gh release download v0.0.30 --repo freshtechbro/opendevbrowser --pattern 'opendevbrowser-extension.zip*'`, then `shasum -a 256 -c opendevbrowser-extension.zip.sha256`.
+  - Result: `opendevbrowser-extension.zip: OK`.
 
 ## Notes
 
-- Strict live gates are separate from release quality gates. They remain deferred for this release unless explicitly enabled.
-- If GitHub Actions npm publication fails despite `NPM_TOKEN` being configured, local authenticated npm publish is available as fallback and must be recorded here.
+- Strict live gates are separate from release quality gates and were deferred for this release.
+- `NPM_TOKEN` was configured and npm publication succeeded in the initial tag-driven workflow.
+- The initial tag-driven workflow failed only because registry consumer smoke ran before npm propagation completed. The registry smoke passed locally after propagation, and the GitHub release was completed through a workflow dispatch with npm publication disabled to avoid republishing the already-live version.
