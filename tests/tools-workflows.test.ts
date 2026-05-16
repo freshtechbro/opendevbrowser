@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { basename, dirname, join } from "path";
 import { ConfigStore, resolveConfig } from "../src/config";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../src/cli/transport-timeouts";
 import { PRODUCT_VIDEO_BRIEF_HELPER_PATH } from "../src/providers/workflow-handoff";
@@ -12,7 +15,7 @@ vi.mock("@opencode-ai/plugin", async () => {
 
 const parse = (value: string): Record<string, unknown> => JSON.parse(value) as Record<string, unknown>;
 
-const makeDeps = () => {
+const makeDeps = (workspaceRoot?: string) => {
   const manager = {
     launch: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
     cookieImport: vi.fn().mockResolvedValue({ imported: 1, rejected: [] }),
@@ -121,13 +124,189 @@ const makeDeps = () => {
     runner: {} as never,
     config,
     skills: {} as never,
-    providerRuntime
+    providerRuntime,
+    ...(workspaceRoot ? { workspaceRoot } : {})
   };
 };
 
 describe("workflow tools", () => {
-  afterEach(() => {
+  const originalCwd = process.cwd();
+  const createdDirs: string[] = [];
+
+  const makeTempDir = async (prefix: string): Promise<string> => {
+    const directory = await mkdtemp(join(tmpdir(), prefix));
+    createdDirs.push(directory);
+    return directory;
+  };
+
+  const expectArtifactPath = (artifactPath: string, root: string, namespace: string): void => {
+    expect(dirname(artifactPath)).toBe(join(root, namespace));
+    expect(basename(artifactPath)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
+    );
+  };
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
     vi.restoreAllMocks();
+    while (createdDirs.length > 0) {
+      const directory = createdDirs.pop();
+      if (directory) {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("uses workspace .opendevbrowser for omitted direct research output roots", async () => {
+    const invocationRoot = await makeTempDir("odb-direct-research-cwd-");
+    const workspaceRoot = await makeTempDir("odb-direct-research-workspace-");
+    process.chdir(invocationRoot);
+    const deps = makeDeps(workspaceRoot);
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const tool = createResearchRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      topic: "automation",
+      mode: "compact",
+      sourceSelection: "web",
+      days: 30
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expectArtifactPath(response.artifact_path as string, join(workspaceRoot, ".opendevbrowser"), "research");
+  });
+
+  it("uses workspace .opendevbrowser for omitted direct shopping output roots", async () => {
+    const invocationRoot = await makeTempDir("odb-direct-shopping-cwd-");
+    const workspaceRoot = await makeTempDir("odb-direct-shopping-workspace-");
+    process.chdir(invocationRoot);
+    const deps = makeDeps(workspaceRoot);
+    const { createShoppingRunTool } = await import("../src/tools/shopping_run");
+    const tool = createShoppingRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      query: "usb microphone",
+      providers: ["shopping/amazon"],
+      mode: "json"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expectArtifactPath(response.artifact_path as string, join(workspaceRoot, ".opendevbrowser"), "shopping");
+  });
+
+  it("uses workspace .opendevbrowser for omitted direct inspiredesign output roots", async () => {
+    const invocationRoot = await makeTempDir("odb-direct-inspiredesign-cwd-");
+    const workspaceRoot = await makeTempDir("odb-direct-inspiredesign-workspace-");
+    process.chdir(invocationRoot);
+    const deps = makeDeps(workspaceRoot);
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      mode: "json"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expectArtifactPath(response.artifact_path as string, join(workspaceRoot, ".opendevbrowser"), "inspiredesign");
+  });
+
+  it("uses workspace .opendevbrowser for omitted direct product-video output roots", async () => {
+    const invocationRoot = await makeTempDir("odb-direct-product-video-cwd-");
+    const workspaceRoot = await makeTempDir("odb-direct-product-video-workspace-");
+    process.chdir(invocationRoot);
+    const deps = makeDeps(workspaceRoot);
+    const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+    const tool = createProductVideoRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      product_url: "https://example.com/product",
+      include_screenshots: false
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expectArtifactPath(response.artifact_path as string, join(workspaceRoot, ".opendevbrowser"), "product-video");
+  });
+
+  it("leaves omitted direct workflow output roots unresolved without a workspace root", async () => {
+    const { resolveWorkflowToolOutputDir } = await import("../src/tools/workflow-output");
+
+    expect(resolveWorkflowToolOutputDir({ workspaceRoot: undefined })).toBeUndefined();
+  });
+
+  it("preserves explicit relative direct workflow output roots", async () => {
+    const invocationRoot = await makeTempDir("odb-direct-explicit-cwd-");
+    const workspaceRoot = await makeTempDir("odb-direct-explicit-workspace-");
+    process.chdir(invocationRoot);
+    const invocationCwd = process.cwd();
+    const deps = makeDeps(workspaceRoot);
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const { createShoppingRunTool } = await import("../src/tools/shopping_run");
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+
+    const researchResponse = parse(await createResearchRunTool(deps as never).execute({
+      topic: "automation",
+      mode: "compact",
+      sourceSelection: "web",
+      outputDir: "custom-output"
+    } as never));
+    const shoppingResponse = parse(await createShoppingRunTool(deps as never).execute({
+      query: "usb microphone",
+      providers: ["shopping/amazon"],
+      mode: "json",
+      outputDir: "custom-output"
+    } as never));
+    const inspiredesignResponse = parse(await createInspiredesignRunTool(deps as never).execute({
+      brief: "Design a premium docs website",
+      mode: "json",
+      outputDir: "custom-output"
+    } as never));
+    const productVideoResponse = parse(await createProductVideoRunTool(deps as never).execute({
+      product_url: "https://example.com/product",
+      include_screenshots: false,
+      output_dir: "custom-output"
+    } as never));
+
+    expect(researchResponse.ok).toBe(true);
+    expect(shoppingResponse.ok).toBe(true);
+    expect(inspiredesignResponse.ok).toBe(true);
+    expect(productVideoResponse.ok).toBe(true);
+    expectArtifactPath(researchResponse.artifact_path as string, join(invocationCwd, "custom-output"), "research");
+    expectArtifactPath(shoppingResponse.artifact_path as string, join(invocationCwd, "custom-output"), "shopping");
+    expectArtifactPath(inspiredesignResponse.artifact_path as string, join(invocationCwd, "custom-output"), "inspiredesign");
+    expectArtifactPath(productVideoResponse.artifact_path as string, join(invocationCwd, "custom-output"), "product-video");
+  });
+
+  it("rejects blank direct workflow output roots", async () => {
+    const workspaceRoot = await makeTempDir("odb-direct-blank-workspace-");
+    const deps = makeDeps(workspaceRoot);
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const { createShoppingRunTool } = await import("../src/tools/shopping_run");
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+
+    const researchResponse = parse(await createResearchRunTool(deps as never).execute({
+      topic: "automation",
+      outputDir: ""
+    } as never));
+    const shoppingResponse = parse(await createShoppingRunTool(deps as never).execute({
+      query: "usb microphone",
+      outputDir: "   "
+    } as never));
+    const inspiredesignResponse = parse(await createInspiredesignRunTool(deps as never).execute({
+      brief: "Design a premium docs website",
+      outputDir: ""
+    } as never));
+    const productVideoResponse = parse(await createProductVideoRunTool(deps as never).execute({
+      product_url: "https://example.com/product",
+      output_dir: "   "
+    } as never));
+
+    for (const response of [researchResponse, shoppingResponse, inspiredesignResponse, productVideoResponse]) {
+      expect(response.ok).toBe(false);
+      expect((response.error as { message?: string }).message).toBe("outputDir cannot be empty");
+    }
   });
 
   it("executes research and shopping workflow tools", async () => {

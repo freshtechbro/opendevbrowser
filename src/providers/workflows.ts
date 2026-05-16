@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
-import { join } from "path";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
+import { resolveWorkflowArtifactRoot } from "./workflow-output-root";
 import {
   readProviderIssueHintFromRecord,
   summarizePrimaryProviderIssue,
@@ -2061,16 +2061,6 @@ const buildInspiredesignMeta = (
     deepCaptureRecommendation: followthrough.deepCaptureRecommendation,
     contractScope: followthrough.contractScope
   };
-};
-
-const resolveWorkflowArtifactRoot = (outputDir?: string): string => {
-  if (outputDir === undefined) {
-    return join(process.cwd(), ".opendevbrowser");
-  }
-  if (outputDir.trim() === "") {
-    throw new Error("outputDir cannot be empty");
-  }
-  return outputDir;
 };
 
 const inferBrandFromContent = (content: string | undefined, productUrl?: string): string | undefined => {

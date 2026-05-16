@@ -76,6 +76,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
 
   const toolDeps: ToolDeps = {
     manager,
+    workspaceRoot: core.cacheRoot,
     canvasManager,
     annotationManager,
     runner,

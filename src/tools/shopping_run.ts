@@ -3,6 +3,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
+import { resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 
 const z = tool.schema;
@@ -41,7 +42,7 @@ export function createShoppingRunTool(deps: ToolDeps): ToolDefinition {
           browserMode: args.browserMode,
           sort: args.sort,
           mode: args.mode ?? "compact",
-          outputDir: args.outputDir,
+          outputDir: resolveWorkflowToolOutputDir(deps, args.outputDir),
           ttlHours: args.ttlHours,
           useCookies: args.useCookies,
           challengeAutomationMode: args.challengeAutomationMode,

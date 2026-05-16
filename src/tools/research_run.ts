@@ -3,6 +3,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
+import { resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 
 const z = tool.schema;
@@ -47,7 +48,7 @@ export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
           mode: args.mode ?? "compact",
           includeEngagement: args.includeEngagement,
           limitPerSource: args.limitPerSource,
-          outputDir: args.outputDir,
+          outputDir: resolveWorkflowToolOutputDir(deps, args.outputDir),
           ttlHours: args.ttlHours,
           browserMode: args.browserMode,
           useCookies: args.useCookies,

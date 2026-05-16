@@ -143,6 +143,8 @@ const makeCore = (overrides: {
     requestAnnotation: vi.fn()
   };
   const agentInbox = new AgentInbox(inboxRoot);
+  const cacheRoot = mkdtempSync(join(tmpdir(), "odb-daemon-cache-root-"));
+  tempRoots.push(cacheRoot);
   const desktopRuntime = {
     status: vi.fn().mockResolvedValue({
       platform: "darwin",
@@ -220,6 +222,7 @@ const makeCore = (overrides: {
     agentInbox,
     annotationManager,
     desktopRuntime,
+    cacheRoot,
     config: makeConfig(overrides.config)
   } as unknown as OpenDevBrowserCore;
 };
@@ -1956,6 +1959,29 @@ describe("daemon-commands integration", () => {
     );
   });
 
+  it("uses core cache root for omitted daemon research output roots", async () => {
+    const core = makeCore();
+    const workflowSpy = vi.spyOn(workflowModule, "runResearchWorkflow").mockResolvedValue({
+      records: [],
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "research.run",
+      params: {
+        topic: "Workspace Research",
+        mode: "json"
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outputDir: join(core.cacheRoot, ".opendevbrowser")
+      })
+    );
+  });
+
   it("forwards inspiredesign timeout and capture mode through the daemon router", async () => {
     const core = makeCore();
     const manager = core.manager as OpenDevBrowserCore["manager"] & {
@@ -2061,6 +2087,33 @@ describe("daemon-commands integration", () => {
     );
   });
 
+  it("uses core cache root for omitted daemon inspiredesign output roots", async () => {
+    const core = makeCore();
+    const workflowSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
+      mode: "json",
+      designContract: {},
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        mode: "json"
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outputDir: join(core.cacheRoot, ".opendevbrowser")
+      }),
+      expect.objectContaining({
+        captureReference: expect.any(Function)
+      })
+    );
+  });
+
   it("routes daemon export.clonePageHtml to the manager helper", async () => {
     const core = makeCore();
     const manager = core.manager as OpenDevBrowserCore["manager"] & {
@@ -2148,6 +2201,173 @@ describe("daemon-commands integration", () => {
         query: "macbook pro m4 32gb ram",
         browserMode: "extension"
       })
+    );
+  });
+
+  it("uses core cache root for omitted daemon shopping output roots", async () => {
+    const core = makeCore();
+    const workflowSpy = vi.spyOn(workflowModule, "runShoppingWorkflow").mockResolvedValue({
+      mode: "json",
+      offers: [],
+      meta: {}
+    } as never);
+
+    await handleDaemonCommand(core, {
+      name: "shopping.run",
+      params: {
+        query: "workspace shopping"
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outputDir: join(core.cacheRoot, ".opendevbrowser")
+      })
+    );
+  });
+
+  it("uses core cache root for omitted daemon product-video output roots", async () => {
+    const core = makeCore();
+    const workflowSpy = vi.spyOn(workflowModule, "runProductVideoWorkflow").mockResolvedValue({
+      artifact_path: "/tmp/product-video",
+      manifest: {},
+      product: {},
+      pricing: {},
+      screenshots: [],
+      images: [],
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "product.video.run",
+      params: {
+        product_name: "Workspace Product"
+      }
+    });
+
+    expect(workflowSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        output_dir: join(core.cacheRoot, ".opendevbrowser")
+      }),
+      expect.any(Object)
+    );
+  });
+
+  it("rejects blank daemon workflow output roots", async () => {
+    const core = makeCore();
+
+    await expect(handleDaemonCommand(core, {
+      name: "research.run",
+      params: {
+        topic: "Blank Research",
+        outputDir: ""
+      }
+    })).rejects.toThrow("outputDir cannot be empty");
+    await expect(handleDaemonCommand(core, {
+      name: "shopping.run",
+      params: {
+        query: "blank shopping",
+        outputDir: "   "
+      }
+    })).rejects.toThrow("outputDir cannot be empty");
+    await expect(handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Blank design",
+        outputDir: ""
+      }
+    })).rejects.toThrow("outputDir cannot be empty");
+    await expect(handleDaemonCommand(core, {
+      name: "product.video.run",
+      params: {
+        product_name: "Blank Product",
+        output_dir: "   "
+      }
+    })).rejects.toThrow("outputDir cannot be empty");
+  });
+
+  it("preserves explicit daemon workflow output roots", async () => {
+    const core = makeCore();
+    const researchSpy = vi.spyOn(workflowModule, "runResearchWorkflow").mockResolvedValue({
+      records: [],
+      meta: {}
+    });
+    const shoppingSpy = vi.spyOn(workflowModule, "runShoppingWorkflow").mockResolvedValue({
+      mode: "json",
+      offers: [],
+      meta: {}
+    } as never);
+    const inspiredesignSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
+      mode: "json",
+      designContract: {},
+      meta: {}
+    });
+    const productVideoSpy = vi.spyOn(workflowModule, "runProductVideoWorkflow").mockResolvedValue({
+      artifact_path: "/tmp/product-video",
+      manifest: {},
+      product: {},
+      pricing: {},
+      screenshots: [],
+      images: [],
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "research.run",
+      params: {
+        topic: "Explicit Research",
+        outputDir: "custom-output"
+      }
+    });
+    await handleDaemonCommand(core, {
+      name: "shopping.run",
+      params: {
+        query: "Explicit Shopping",
+        outputDir: "custom-output"
+      }
+    });
+    await handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Explicit Design",
+        outputDir: "custom-output"
+      }
+    });
+    await handleDaemonCommand(core, {
+      name: "product.video.run",
+      params: {
+        product_name: "Explicit Product",
+        output_dir: "custom-product-output"
+      }
+    });
+
+    expect(researchSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outputDir: "custom-output"
+      })
+    );
+    expect(shoppingSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outputDir: "custom-output"
+      })
+    );
+    expect(inspiredesignSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outputDir: "custom-output"
+      }),
+      expect.any(Object)
+    );
+    expect(productVideoSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        output_dir: "custom-product-output"
+      }),
+      expect.any(Object)
     );
   });
 

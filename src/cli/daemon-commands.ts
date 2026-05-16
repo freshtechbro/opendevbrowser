@@ -14,6 +14,7 @@ import {
   runResearchWorkflow,
   runShoppingWorkflow
 } from "../providers/workflows";
+import { resolveWorkflowArtifactRoot } from "../providers/workflow-output-root";
 import { buildMacroResolveSuccessHandoff } from "../providers/workflow-handoff";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
@@ -63,6 +64,11 @@ const createDaemonWorkflowRuntime = (
   browserFallbackPort: core.browserFallbackPort,
   init: options?.init
 });
+
+const resolveDaemonWorkflowOutputDir = (
+  core: OpenDevBrowserCore,
+  outputDir?: string
+): string => resolveWorkflowArtifactRoot(outputDir, { workspaceRoot: core.cacheRoot });
 
 export async function handleDaemonCommand(core: OpenDevBrowserCore, request: DaemonCommandRequest): Promise<unknown> {
   const params = request.params ?? {};
@@ -826,7 +832,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           includeEngagement: optionalBoolean(params.includeEngagement),
           limitPerSource: optionalNumber(params.limitPerSource, "limitPerSource"),
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
-          outputDir: optionalString(params.outputDir),
+          outputDir: resolveDaemonWorkflowOutputDir(core, optionalString(params.outputDir)),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           browserMode: optionalWorkflowBrowserMode(params.browserMode),
           useCookies: optionalBoolean(params.useCookies),
@@ -846,7 +852,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           sort: optionalShoppingSort(params.sort),
           mode: optionalRenderMode(params.mode) ?? "compact",
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
-          outputDir: optionalString(params.outputDir),
+          outputDir: resolveDaemonWorkflowOutputDir(core, optionalString(params.outputDir)),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
@@ -864,7 +870,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           includePrototypeGuidance: optionalBoolean(params.includePrototypeGuidance),
           mode: optionalRenderMode(params.mode) ?? "compact",
           timeoutMs: inspiredesignTimeoutMs,
-          outputDir: optionalString(params.outputDir),
+          outputDir: resolveDaemonWorkflowOutputDir(core, optionalString(params.outputDir)),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           browserMode: optionalWorkflowBrowserMode(params.browserMode),
           useCookies: optionalBoolean(params.useCookies),
@@ -891,7 +897,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           include_screenshots: optionalBoolean(params.include_screenshots),
           include_all_images: optionalBoolean(params.include_all_images),
           include_copy: optionalBoolean(params.include_copy),
-          output_dir: optionalString(params.output_dir),
+          output_dir: resolveDaemonWorkflowOutputDir(core, optionalString(params.output_dir)),
           ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
           timeoutMs: productVideoTimeoutMs,
           browserMode: optionalWorkflowBrowserMode(params.browserMode),
