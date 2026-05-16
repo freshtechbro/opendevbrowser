@@ -2032,6 +2032,8 @@ describe("RelayServer", () => {
       await waitForHandshakeAck(extension);
 
       ops.send(JSON.stringify({ type: "ops_hello", version: "1", maxPayloadBytes: 1024 }));
+      const opsErrorPromise = nextMessageWithTimeout(ops, 1000);
+      const opsClosePromise = waitForClose(ops);
       const forwardedHello = await nextMessage(extension);
       expect(forwardedHello.type).toBe("ops_hello");
 
@@ -2039,7 +2041,7 @@ describe("RelayServer", () => {
       const statusData = await statusResponse.json();
       expect(statusData.opsConnected).toBe(false);
 
-      const response = await nextMessageWithTimeout(ops, 1000);
+      const response = await opsErrorPromise;
       expect(response).toMatchObject({
         type: "ops_error",
         requestId: "ops_hello",
@@ -2049,7 +2051,7 @@ describe("RelayServer", () => {
         }
       });
       expect((response.error as { details?: { reason?: string } }).details?.reason).toBe("ops_hello_timeout");
-      expect(await waitForClose(ops)).toBe(1011);
+      expect(await opsClosePromise).toBe(1011);
       expect(server.status().opsConnected).toBe(false);
 
       extension.close();
