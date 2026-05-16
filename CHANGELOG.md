@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.30] - 2026-05-16
+
+### Changed
+- Workflow-generated artifacts now use one output-root contract across CLI, daemon RPC, OpenCode direct tools, and provider workflows.
+- Omitted workflow outputs resolve under the project `.opendevbrowser/<workflow>/<uuid>` tree while preserving explicit output directories.
+
+### Fixed
+- Direct OpenCode-style workflow calls no longer drift into transient `/var/folders` or other process temp roots when `outputDir` is omitted.
+
 ## [0.0.21] - 2026-04-19
 
 ### Added

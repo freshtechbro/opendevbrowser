@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-04-12
+Last updated: 2026-05-16
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/public-surface/source.ts`
@@ -220,6 +220,8 @@ Operational note:
 - `opendevbrowser_prompting_guide` - Return best-practice prompting guidance and the bundled quick start. Tool-only.
 - `opendevbrowser_skill_list` - List available bundled and discovered skill packs. Tool-only.
 - `opendevbrowser_skill_load` - Load a specific skill pack locally without browser work. Tool-only.
+
+Workflow output note: omitted direct workflow tool output roots resolve through the workspace root to `.opendevbrowser/<workflow>/<runId>`. Explicit output roots are preserved as caller intent.
 
 ---
 

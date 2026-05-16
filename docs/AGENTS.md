@@ -1,4 +1,4 @@
-# docs/ — Agent Guidelines
+# docs/ - Agent Guidelines
 
 Documentation source-of-truth scope. Extends root `AGENTS.md`.
 
@@ -64,7 +64,7 @@ When release-gate automation changes:
 - `docs/RELEASE_RUNBOOK.md`
 - `docs/EXTENSION_RELEASE_RUNBOOK.md`
 - `docs/DISTRIBUTION_PLAN.md`
-- the current version-scoped release evidence doc (for this release: `docs/RELEASE_0.0.27_EVIDENCE.md`)
+- the current version-scoped release evidence doc (for this release: `docs/RELEASE_0.0.30_EVIDENCE.md`)
 - older ledgers stay historical-only and should receive explicit status clarifications only
 - automation scripts:
   - `scripts/audit-zombie-files.mjs`

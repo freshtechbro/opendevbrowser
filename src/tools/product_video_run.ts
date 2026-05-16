@@ -3,6 +3,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
+import { resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 
 const z = tool.schema;
@@ -64,7 +65,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
           include_screenshots: includeScreenshots,
           include_all_images: args.include_all_images,
           include_copy: args.include_copy,
-          output_dir: args.output_dir,
+          output_dir: resolveWorkflowToolOutputDir(deps, args.output_dir),
           ttl_hours: args.ttl_hours,
           timeoutMs: args.timeoutMs,
           browserMode: args.browserMode,

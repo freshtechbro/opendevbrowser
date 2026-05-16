@@ -35,6 +35,7 @@ export type ProviderRuntimeLike = {
 
 export type ToolDeps = {
   manager: BrowserManagerLike;
+  workspaceRoot?: string;
   canvasManager?: CanvasManagerLike;
   annotationManager: AnnotationManager;
   runner: ScriptRunner;

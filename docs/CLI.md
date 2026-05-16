@@ -61,7 +61,7 @@ export CLAUDECODE_HOME="$ISOLATED_ROOT/claudecode-home"
 export AMP_CLI_HOME="$ISOLATED_ROOT/ampcli-home"
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.29.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.30.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -550,7 +550,7 @@ Wrapper behavior:
 - Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
 - Successful research, shopping, inspiredesign, and product-video artifact-bearing outputs include `artifact_path`.
 - `inspiredesign run` returns a reusable design contract plus a Canvas-first handoff bundle; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
-- Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata in manifest files. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `.opendevbrowser/<namespace>/<runId>` from the current workspace. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-video`. Direct tool or daemon callers should pass an absolute output directory when they need caller-specific placement.
+- Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata in manifest files. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `<invocation-or-workspace-root>/.opendevbrowser/<namespace>/<runId>`. CLI runs use the process invocation directory, while direct OpenCode tools and daemon direct RPC use the workspace root equivalent from `core.cacheRoot`. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-video`. Direct tool or daemon callers can still pass an explicit output directory for caller-specific placement.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.
@@ -582,7 +582,7 @@ Script helper:
 
 Notes:
 - `--expired-only` is required.
-- Default cleanup root is `${TMPDIR:-/tmp}/opendevbrowser`. To clean workspace-local workflow artifacts, pass `--output-dir ./.opendevbrowser`.
+- Default cleanup root is `${TMPDIR:-/tmp}/opendevbrowser`. This helper cleanup default is separate from omitted workflow output roots. To clean workspace-local workflow artifacts, pass `--output-dir ./.opendevbrowser`.
 - Output includes `removed` and `skipped` run paths.
 
 ### Run (single-shot script)
@@ -1756,7 +1756,7 @@ npm run test -- tests/providers-performance-gate.test.ts
 
 These commands are release guards, not the live release-proof lane. Use the direct-run harness commands above for release evidence.
 
-Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.28_EVIDENCE.md`.
+Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.30_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
 ---
