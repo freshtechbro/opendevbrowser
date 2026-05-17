@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-11T13:02:13.972Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-17T00:30:43.249Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-05-11T13:02:13.972Z",
+  "generatedAt": "2026-05-17T00:30:43.249Z",
   "cli": {
     "groups": [
       {
@@ -215,7 +215,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "update",
-        "description": "Repair cached plugin pins and refresh managed skill packs",
+        "description": "Repair OpenCode package caches and refresh managed skill packs",
         "usage": "npx opendevbrowser update [--global|--local] [--skills-global|--skills-local|--no-skills]",
         "flags": [
           "--global",

@@ -31,7 +31,7 @@ First-contact note:
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
-- `update` - Repair cached plugin pins.
+- `update` - Repair OpenCode package caches and refresh managed skill packs.
 - `uninstall` - Remove plugin from config.
 - `help` - Show help.
 - `version` - Show version.

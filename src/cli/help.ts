@@ -86,7 +86,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
     flags: [
       { flag: "--global", alias: "-g", description: "Install into ~/.config/opencode/opencode.json.", example: "npx opendevbrowser --global --with-config" },
       { flag: "--local", alias: "-l", description: "Install into ./opencode.json for this project.", example: "npx opendevbrowser --local --skills-local" },
-      { flag: "--update", alias: "-u", description: "Alias for the update command." },
+      { flag: "--update", alias: "-u", description: "Repair OpenCode package caches, plugin pins, and managed skill packs." },
       { flag: "--uninstall", description: "Alias for the uninstall command." },
       { flag: "--with-config", description: "Also create opendevbrowser.jsonc defaults.", example: "npx opendevbrowser --global --with-config" },
       { flag: "--full", alias: "-f", description: "Install config and pre-extract extension assets.", example: "npx opendevbrowser --full" },

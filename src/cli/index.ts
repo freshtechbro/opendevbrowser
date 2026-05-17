@@ -211,7 +211,7 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "update",
-      description: "Repair cached plugin pins and refresh managed skill packs",
+      description: "Repair OpenCode package caches and refresh managed skill packs",
       run: async () => {
         const [
           { runUpdate },

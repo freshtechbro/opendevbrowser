@@ -298,6 +298,8 @@ When validating local fixes in OpenCode, verify both plugin registration and res
 
 If OpenCode is still resolving an old cached install:
 - Repair the OpenCode package cache: `npx opendevbrowser --update`
+- This clears stale `opendevbrowser` pins plus package caches such as `~/.cache/opencode/packages/opendevbrowser@latest/`.
+- If you run OpenCode with an isolated cache, set `OPENCODE_CACHE_DIR` before running the update command.
 - Restart OpenCode and re-run `opencode debug config`.
 
 ## Relay binding busy
