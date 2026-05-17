@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.31] - 2026-05-17
+
+### Changed
+- `opendevbrowser --update` now describes its repair scope consistently across CLI help, public-surface metadata, and troubleshooting docs.
+
+### Fixed
+- OpenCode cache repair now documents and validates the active `packages/opendevbrowser@latest` alias cache path.
+- The update command has real CLI entrypoint regression coverage proving isolated `OPENCODE_CACHE_DIR` repair removes only opendevbrowser cache entries while preserving unrelated package aliases.
+
 ## [0.0.30] - 2026-05-16
 
 ### Changed
@@ -221,7 +230,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.21...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.31...HEAD
+[0.0.31]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.30...v0.0.31
+[0.0.30]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.29...v0.0.30
 [0.0.21]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.20...v0.0.21
 [0.0.20]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.19...v0.0.20
 [0.0.19]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.18...v0.0.19
