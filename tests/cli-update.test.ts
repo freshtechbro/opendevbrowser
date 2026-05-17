@@ -58,6 +58,8 @@ describe("runUpdate", () => {
     });
     mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
     mkdirSync(makePath("node_modules", "oh-my-opencode"), { recursive: true });
+    mkdirSync(makePath("packages", "opendevbrowser@latest"), { recursive: true });
+    mkdirSync(makePath("packages", "oh-my-opencode@latest"), { recursive: true });
     writeFileSync(makePath("package-lock.json"), "{\"lockfileVersion\":3}\n", "utf8");
 
     const result = runUpdate();
@@ -69,6 +71,8 @@ describe("runUpdate", () => {
     });
     expect(existsSync(makePath("node_modules", "opendevbrowser"))).toBe(false);
     expect(existsSync(makePath("node_modules", "oh-my-opencode"))).toBe(true);
+    expect(existsSync(makePath("packages", "opendevbrowser@latest"))).toBe(false);
+    expect(existsSync(makePath("packages", "oh-my-opencode@latest"))).toBe(true);
     expect(existsSync(makePath("package-lock.json"))).toBe(false);
     expect(readManifest()).toEqual({
       dependencies: {
@@ -107,9 +111,25 @@ describe("runUpdate", () => {
     expect(existsSync(makePath("package-lock.json"))).toBe(false);
   });
 
+  it("repairs OpenCode package alias cache state", () => {
+    mkdirSync(makePath("packages", "opendevbrowser@latest"), { recursive: true });
+    mkdirSync(makePath("packages", "yaml-language-server"), { recursive: true });
+
+    const result = runUpdate();
+
+    expect(result).toEqual({
+      success: true,
+      message: "Cache repaired. OpenCode will install the latest version on next run.",
+      cleared: true
+    });
+    expect(existsSync(makePath("packages", "opendevbrowser@latest"))).toBe(false);
+    expect(existsSync(makePath("packages", "yaml-language-server"))).toBe(true);
+  });
+
   it("refuses to mutate cache state while another update lock is held", () => {
     writeManifest({ dependencies: { opendevbrowser: "0.0.24" } });
     mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
+    mkdirSync(makePath("packages", "opendevbrowser@latest"), { recursive: true });
     writeFileSync(makePath("package-lock.json"), "{\"lockfileVersion\":3}\n", "utf8");
     writeFileSync(
       makePath(".opendevbrowser-update.lock"),
@@ -124,6 +144,7 @@ describe("runUpdate", () => {
     expect(result.message).toContain("another update is already running");
     expect(readManifest()).toEqual({ dependencies: { opendevbrowser: "0.0.24" } });
     expect(existsSync(makePath("node_modules", "opendevbrowser"))).toBe(true);
+    expect(existsSync(makePath("packages", "opendevbrowser@latest"))).toBe(true);
     expect(existsSync(makePath("package-lock.json"))).toBe(true);
   });
 
@@ -252,6 +273,7 @@ describe("runUpdate", () => {
 
   it("does not delete package cache before validating a malformed manifest", () => {
     mkdirSync(makePath("node_modules", "opendevbrowser"), { recursive: true });
+    mkdirSync(makePath("packages", "opendevbrowser@latest"), { recursive: true });
     writeFileSync(makePath("package.json"), "{bad-json}", "utf8");
 
     const result = runUpdate();
@@ -259,6 +281,7 @@ describe("runUpdate", () => {
     expect(result.success).toBe(false);
     expect(result.cleared).toBe(false);
     expect(existsSync(makePath("node_modules", "opendevbrowser"))).toBe(true);
+    expect(existsSync(makePath("packages", "opendevbrowser@latest"))).toBe(true);
   });
 
   it("refuses to rewrite symlinked cache manifests", () => {
@@ -296,6 +319,33 @@ describe("runUpdate", () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("refusing to modify symlinked cache path");
+  });
+
+  it("refuses to delete through a symlinked packages parent", () => {
+    const outsidePackages = join(cacheDir, "..", "outside-packages");
+    mkdirSync(outsidePackages, { recursive: true });
+    writeFileSync(join(outsidePackages, "sentinel.txt"), "keep\n", "utf8");
+    symlinkSync(outsidePackages, makePath("packages"));
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("refusing to modify symlinked cache path");
+    expect(readFileSync(join(outsidePackages, "sentinel.txt"), "utf8")).toBe("keep\n");
+  });
+
+  it("refuses to delete a symlinked package alias cache", () => {
+    const outsideAlias = join(cacheDir, "..", "outside-opendevbrowser-alias");
+    mkdirSync(makePath("packages"), { recursive: true });
+    mkdirSync(outsideAlias, { recursive: true });
+    writeFileSync(join(outsideAlias, "sentinel.txt"), "keep\n", "utf8");
+    symlinkSync(outsideAlias, makePath("packages", "opendevbrowser@latest"));
+
+    const result = runUpdate();
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("refusing to modify symlinked cache path");
+    expect(readFileSync(join(outsideAlias, "sentinel.txt"), "utf8")).toBe("keep\n");
   });
 
   it("preflights symlinked cache paths before rewriting stale manifest pins", () => {
