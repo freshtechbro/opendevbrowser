@@ -236,8 +236,9 @@ npx opendevbrowser --update
 npx opendevbrowser -u
 ```
 
-This removes cached files from `~/.cache/opencode/node_modules/opendevbrowser/`, removes stale `opendevbrowser`
-dependency pins from `~/.cache/opencode/package.json`, and deletes the OpenCode cache lockfile when present. OpenCode
+This removes cached files from `~/.cache/opencode/node_modules/opendevbrowser/` and
+`~/.cache/opencode/packages/opendevbrowser@latest/`, removes stale `opendevbrowser`
+dependency pins from `~/.cache/opencode/package.json`, and deletes `~/.cache/opencode/package-lock.json` when present. OpenCode
 will download the latest version on next run.
 
 ### Uninstall

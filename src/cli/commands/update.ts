@@ -7,6 +7,7 @@ const PLUGIN_NAME = "opendevbrowser";
 const CACHE_MANIFEST = "package.json";
 const CACHE_LOCKFILE = "package-lock.json";
 const CACHE_UPDATE_LOCK = ".opendevbrowser-update.lock";
+const OPENCODE_PACKAGE_ALIAS = `${PLUGIN_NAME}@latest`;
 const CACHE_LOCK_STALE_MS = 30 * 60 * 1000;
 const DEPENDENCY_SECTIONS = [
   "dependencies",
@@ -308,6 +309,7 @@ export function runUpdate(): UpdateResult {
   const cacheDir = getCacheDir();
   const nodeModulesDir = path.join(cacheDir, "node_modules");
   const pluginCacheDir = path.join(nodeModulesDir, PLUGIN_NAME);
+  const pluginPackageCacheDir = path.join(cacheDir, "packages", OPENCODE_PACKAGE_ALIAS);
   const lockfilePath = path.join(cacheDir, CACHE_LOCKFILE);
 
   try {
@@ -322,14 +324,16 @@ export function runUpdate(): UpdateResult {
     preflightCacheMutationPaths(cacheDir, [
       path.join(cacheDir, CACHE_MANIFEST),
       pluginCacheDir,
+      pluginPackageCacheDir,
       lockfilePath,
       path.join(cacheDir, CACHE_UPDATE_LOCK)
     ]);
     const cleared = withCacheMutationLock(cacheDir, () => {
       const manifestPinRemoved = removeManifestPin(cacheDir);
       const packageRemoved = removePathIfExists(pluginCacheDir, cacheDir);
+      const aliasedPackageRemoved = removePathIfExists(pluginPackageCacheDir, cacheDir);
       const lockfileRemoved = removePathIfExists(lockfilePath, cacheDir);
-      return packageRemoved || manifestPinRemoved || lockfileRemoved;
+      return packageRemoved || aliasedPackageRemoved || manifestPinRemoved || lockfileRemoved;
     });
 
     if (!cleared) {
