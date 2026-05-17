@@ -7,6 +7,8 @@ const PLUGIN_NAME = "opendevbrowser";
 const CACHE_MANIFEST = "package.json";
 const CACHE_LOCKFILE = "package-lock.json";
 const CACHE_UPDATE_LOCK = ".opendevbrowser-update.lock";
+// OpenCode's active package alias cache uses the npm spec directory name.
+// Keep this exact so update repair cannot delete unrelated package aliases.
 const OPENCODE_PACKAGE_ALIAS = `${PLUGIN_NAME}@latest`;
 const CACHE_LOCK_STALE_MS = 30 * 60 * 1000;
 const DEPENDENCY_SECTIONS = [

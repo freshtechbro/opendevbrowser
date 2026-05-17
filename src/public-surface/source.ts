@@ -147,7 +147,7 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       },
       {
         name: "update",
-        description: "Repair cached plugin pins and refresh managed skill packs",
+        description: "Repair OpenCode package caches and refresh managed skill packs",
         usage: "npx opendevbrowser update [--global|--local] [--skills-global|--skills-local|--no-skills]",
         flags: ["--global", "--local", "--skills-global", "--skills-local", "--no-skills"]
       },

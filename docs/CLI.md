@@ -229,7 +229,7 @@ still succeeds, but auto-start repair warns and you must rerun `opendevbrowser d
 
 ### Update
 
-Clear the OpenCode cache to trigger reinstallation of the latest version.
+Repair OpenCode package caches and stale plugin pins, then refresh managed skill packs unless `--no-skills` is used.
 
 ```bash
 npx opendevbrowser --update
@@ -1487,7 +1487,7 @@ Notes:
 |------|-------|-------------|
 | `--global` | `-g` | Install to `~/.config/opencode/opencode.json` |
 | `--local` | `-l` | Install to `./opencode.json` |
-| `--update` | `-u` | Clear cache to trigger reinstall |
+| `--update` | `-u` | Repair OpenCode package caches and managed skill packs |
 | `--uninstall` | | Remove plugin from config and clean managed skills |
 | `--with-config` | | Also create `opendevbrowser.jsonc` |
 | `--full` | `-f` | Create config and pre-extract extension assets |
