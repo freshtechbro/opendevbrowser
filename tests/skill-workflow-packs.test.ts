@@ -325,6 +325,59 @@ describe("workflow skill packs", () => {
     }
   });
 
+  it("prints install-safe motion workflow paths from outside the repo root", async () => {
+    if (process.platform === "win32") return;
+
+    const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-motion-installed-workflow-"));
+    const tempSkillsDir = join(tempRoot, "managed-skills");
+    const motionSkillRoot = join(tempSkillsDir, "opendevbrowser-motion-design");
+
+    try {
+      await mkdir(tempSkillsDir, { recursive: true });
+      await cp(join(bundledSkillsDir, "opendevbrowser-motion-design"), motionSkillRoot, { recursive: true });
+      await cp(
+        join(bundledSkillsDir, "opendevbrowser-best-practices"),
+        join(tempSkillsDir, "opendevbrowser-best-practices"),
+        { recursive: true }
+      );
+      await cp(
+        join(bundledSkillsDir, "opendevbrowser-design-agent"),
+        join(tempSkillsDir, "opendevbrowser-design-agent"),
+        { recursive: true }
+      );
+
+      const workflowPath = join(motionSkillRoot, "scripts", "motion-workflow.sh");
+      const workflows = ["contract-first", "temporal-proof", "scroll-stage-audit", "release-gate"];
+
+      for (const workflow of workflows) {
+        const result = spawnSync("/bin/bash", [workflowPath, workflow], {
+          cwd: tempRoot,
+          encoding: "utf8",
+          env: process.env
+        });
+
+        expect(result.status, `${workflow}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+        expect(result.stdout).toContain(motionSkillRoot);
+        expect(result.stdout).not.toContain("cat skills/opendevbrowser-motion-design");
+        expect(result.stdout).not.toContain("./skills/opendevbrowser-motion-design");
+      }
+
+      const contractResult = spawnSync("/bin/bash", [workflowPath, "contract-first"], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: process.env
+      });
+      expect(contractResult.stdout).toContain(
+        join(motionSkillRoot, "assets", "templates", "motion-contract.v1.json")
+      );
+      expect(contractResult.stdout).toContain(
+        join(tempSkillsDir, "opendevbrowser-design-agent", "assets", "templates", "design-contract.v1.json")
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("resolves a repo-local CLI before PATH and npx for installed workflow copies", async () => {
     if (process.platform === "win32") return;
 

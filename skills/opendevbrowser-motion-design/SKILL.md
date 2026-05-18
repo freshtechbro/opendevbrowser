@@ -31,12 +31,12 @@ Use this skill when a task asks for animation, motion language, transition syste
 1. Load `opendevbrowser-best-practices` first for OpenDevBrowser runtime rules.
 2. Load `opendevbrowser-design-agent` for the parent UI implementation workflow, design contract, `/canvas`, and real-surface validation.
 3. Load `opendevbrowser-motion-design` for motion language, pattern selection, platform policy, device posture, reduced motion, frame budget, and temporal proof.
-4. Validate this pack before relying on its assets.
+4. Validate this pack before relying on its assets. From the loaded `opendevbrowser-motion-design` skill root, run:
 
 ```bash
-./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
-./skills/opendevbrowser-motion-design/scripts/motion-workflow.sh contract-first
-./skills/opendevbrowser-motion-design/scripts/motion-workflow.sh temporal-proof
+./scripts/validate-skill-assets.sh
+./scripts/motion-workflow.sh contract-first
+./scripts/motion-workflow.sh temporal-proof
 ```
 
 ## Motion Contract

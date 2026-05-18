@@ -2,8 +2,12 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+skill_root="$(cd "$script_dir/.." && pwd)"
+skills_root="$(cd "$skill_root/.." && pwd)"
+best_practices_root="$skills_root/opendevbrowser-best-practices"
+design_agent_root="$skills_root/opendevbrowser-design-agent"
 # shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
-source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+source "$best_practices_root/scripts/resolve-odb-cli.sh"
 
 render_cli_prefix() {
   local rendered=()
@@ -16,12 +20,24 @@ render_cli_prefix() {
 
 CLI_PREFIX="$(render_cli_prefix)"
 
+quote_path() {
+  printf '%q' "$1"
+}
+
+print_cat() {
+  printf 'cat %s\n' "$(quote_path "$1")"
+}
+
+print_validator() {
+  printf '%s\n' "$(quote_path "$skill_root/scripts/validate-skill-assets.sh")"
+}
+
 print_help() {
-  cat <<'EOF'
+  cat <<EOF
 OpenDevBrowser motion-design workflow router
 
 Usage:
-  ./skills/opendevbrowser-motion-design/scripts/motion-workflow.sh <workflow>
+  $(quote_path "$script_dir/motion-workflow.sh") <workflow>
 
 Workflows:
   contract-first
@@ -44,26 +60,26 @@ case "$workflow" in
     print_help
     ;;
   contract-first)
+    print_cat "$skill_root/assets/templates/motion-contract.v1.json"
+    print_cat "$skill_root/artifacts/motion-terminology.md"
+    print_cat "$skill_root/artifacts/platform-framework-guide.md"
+    print_cat "$design_agent_root/assets/templates/design-contract.v1.json"
     cat <<'EOF'
-cat skills/opendevbrowser-motion-design/assets/templates/motion-contract.v1.json
-cat skills/opendevbrowser-motion-design/artifacts/motion-terminology.md
-cat skills/opendevbrowser-motion-design/artifacts/platform-framework-guide.md
-cat skills/opendevbrowser-design-agent/assets/templates/design-contract.v1.json
 # Fill the motion contract before implementation and connect it to design-agent motionSystem.
 EOF
     ;;
   pattern-select)
+    print_cat "$skill_root/artifacts/motion-pattern-catalog.md"
+    print_cat "$skill_root/artifacts/motion-anti-patterns.md"
+    print_cat "$skill_root/assets/templates/motion-contract.v1.json"
     cat <<'EOF'
-cat skills/opendevbrowser-motion-design/artifacts/motion-pattern-catalog.md
-cat skills/opendevbrowser-motion-design/artifacts/motion-anti-patterns.md
-cat skills/opendevbrowser-motion-design/assets/templates/motion-contract.v1.json
 # Select only patterns with user value, fallback, device posture, and evidence.
 EOF
     ;;
   viewport-matrix)
+    print_cat "$skill_root/assets/templates/motion-viewport-matrix.v1.json"
+    print_cat "$skill_root/artifacts/device-breakpoint-posture.md"
     cat <<EOF
-cat skills/opendevbrowser-motion-design/assets/templates/motion-viewport-matrix.v1.json
-cat skills/opendevbrowser-motion-design/artifacts/device-breakpoint-posture.md
 $CLI_PREFIX launch --no-extension --start-url <url> --output-format json
 $CLI_PREFIX screenshot --session-id <session-id>
 $CLI_PREFIX snapshot --session-id <session-id>
@@ -71,9 +87,9 @@ $CLI_PREFIX snapshot --session-id <session-id>
 EOF
     ;;
   reduced-motion-check)
+    print_cat "$skill_root/artifacts/accessibility-reduced-motion.md"
+    print_cat "$skill_root/assets/templates/motion-audit-report.v1.md"
     cat <<EOF
-cat skills/opendevbrowser-motion-design/artifacts/accessibility-reduced-motion.md
-cat skills/opendevbrowser-motion-design/assets/templates/motion-audit-report.v1.md
 $CLI_PREFIX launch --no-extension --start-url <url> --output-format json
 $CLI_PREFIX snapshot --session-id <session-id>
 $CLI_PREFIX screenshot --session-id <session-id>
@@ -82,8 +98,8 @@ $CLI_PREFIX debug-trace-snapshot --session-id <session-id>
 EOF
     ;;
   temporal-proof)
+    print_cat "$skill_root/artifacts/open-dev-browser-motion-evidence.md"
     cat <<EOF
-cat skills/opendevbrowser-motion-design/artifacts/open-dev-browser-motion-evidence.md
 $CLI_PREFIX launch --no-extension --start-url <url> --output-format json
 $CLI_PREFIX snapshot --session-id <session-id>
 $CLI_PREFIX screenshot --session-id <session-id>
@@ -97,10 +113,10 @@ $CLI_PREFIX debug-trace-snapshot --session-id <session-id>
 EOF
     ;;
   scroll-stage-audit)
+    print_cat "$skill_root/artifacts/motion-pattern-catalog.md"
+    print_cat "$design_agent_root/artifacts/scroll-reveal-surface-planning.md"
+    print_cat "$skill_root/artifacts/device-breakpoint-posture.md"
     cat <<EOF
-cat skills/opendevbrowser-motion-design/artifacts/motion-pattern-catalog.md
-cat skills/opendevbrowser-design-agent/artifacts/scroll-reveal-surface-planning.md
-cat skills/opendevbrowser-motion-design/artifacts/device-breakpoint-posture.md
 $CLI_PREFIX launch --no-extension --start-url <url> --output-format json
 $CLI_PREFIX screencast-start --session-id <session-id> --output-dir <artifact-dir>
 $CLI_PREFIX scroll --session-id <session-id> --dy 900
@@ -109,9 +125,9 @@ $CLI_PREFIX debug-trace-snapshot --session-id <session-id>
 EOF
     ;;
   gesture-motion)
+    print_cat "$skill_root/artifacts/motion-pattern-catalog.md"
+    print_cat "$skill_root/artifacts/device-breakpoint-posture.md"
     cat <<EOF
-cat skills/opendevbrowser-motion-design/artifacts/motion-pattern-catalog.md
-cat skills/opendevbrowser-motion-design/artifacts/device-breakpoint-posture.md
 $CLI_PREFIX launch --no-extension --start-url <url> --output-format json
 $CLI_PREFIX pointer-move --session-id <session-id> --x <x> --y <y>
 $CLI_PREFIX pointer-down --session-id <session-id>
@@ -121,9 +137,9 @@ $CLI_PREFIX snapshot --session-id <session-id>
 EOF
     ;;
   performance-audit)
+    print_cat "$skill_root/artifacts/performance-frame-budget.md"
+    print_cat "$skill_root/assets/templates/motion-audit-report.v1.md"
     cat <<EOF
-cat skills/opendevbrowser-motion-design/artifacts/performance-frame-budget.md
-cat skills/opendevbrowser-motion-design/assets/templates/motion-audit-report.v1.md
 $CLI_PREFIX launch --no-extension --start-url <url> --output-format json
 $CLI_PREFIX debug-trace-snapshot --session-id <session-id>
 $CLI_PREFIX screenshot --session-id <session-id>
@@ -131,11 +147,11 @@ $CLI_PREFIX screenshot --session-id <session-id>
 EOF
     ;;
   release-gate)
+    print_validator
+    print_cat "$skill_root/artifacts/motion-release-gate.md"
+    print_cat "$skill_root/assets/templates/motion-release-gate.v1.json"
+    print_cat "$skill_root/assets/templates/motion-audit-report.v1.md"
     cat <<'EOF'
-./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
-cat skills/opendevbrowser-motion-design/artifacts/motion-release-gate.md
-cat skills/opendevbrowser-motion-design/assets/templates/motion-release-gate.v1.json
-cat skills/opendevbrowser-motion-design/assets/templates/motion-audit-report.v1.md
 # Mark every blocking check pass/fail with evidence. Missing temporal proof blocks release.
 EOF
     ;;
