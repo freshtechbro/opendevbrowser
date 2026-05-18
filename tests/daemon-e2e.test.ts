@@ -8,6 +8,7 @@ import type { OpenDevBrowserConfig } from "../src/config";
 import { createDaemonStopHeaders, startDaemon } from "../src/cli/daemon";
 import { DaemonClient } from "../src/cli/daemon-client";
 import { fetchDaemonStatusFromMetadata } from "../src/cli/daemon-status";
+import { DAEMON_FINGERPRINT_MISMATCH_REASON } from "../src/cli/daemon-mismatch";
 
 const getAvailablePort = async (): Promise<number> => {
   const tempServer = http.createServer();
@@ -157,6 +158,10 @@ describe("daemon e2e", () => {
     const response = await postStop(daemonPort, { Authorization: `Bearer ${token}` });
 
     expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      reason: DAEMON_FINGERPRINT_MISMATCH_REASON
+    });
     const status = await fetchStatus(daemonPort, token);
     expect(status.ok).toBe(true);
   });

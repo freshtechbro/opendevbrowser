@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CANVAS_LIVE_TIMEOUTS_MS, parseJsonFromStdout } from "../scripts/live-direct-utils.mjs";
 import {
+  DAEMON_STATUS_ARGS,
   buildChildArgs,
   buildScenarioCases,
   buildScenarioDaemonRecoveryStep,
@@ -10,6 +11,7 @@ import {
   daemonStatusDetail,
   isCurrentDaemonStatus,
   parseCliOptions,
+  recoverDaemonStatus,
   resolveChildStep,
   resolveInitialDaemonStatus,
   waitForExtensionReconnect
@@ -48,6 +50,10 @@ describe("live-regression-direct", () => {
     expect(buildChildArgs(annotate, true)).toEqual(["--transport", "relay", "--release-gate"]);
   });
 
+  it("requests JSON daemon status for live preflight", () => {
+    expect(DAEMON_STATUS_ARGS).toEqual(["status", "--daemon", "--output-format", "json"]);
+  });
+
   it("fails extension scenarios when the relay disconnects after a healthy initial preflight", () => {
     const result = classifyScenarioPreflight({
       scenario: { id: "feature.canvas.cdp", requiresExtension: true },
@@ -57,6 +63,7 @@ describe("live-regression-direct", () => {
         status: 0,
         json: {
           data: {
+            fingerprintCurrent: true,
             relay: {
               extensionHandshakeComplete: false
             }
@@ -82,6 +89,7 @@ describe("live-regression-direct", () => {
         status: 0,
         json: {
           data: {
+            fingerprintCurrent: true,
             relay: {
               extensionHandshakeComplete: false
             }
@@ -92,6 +100,7 @@ describe("live-regression-direct", () => {
         status: 0,
         json: {
           data: {
+            fingerprintCurrent: true,
             relay: {
               extensionHandshakeComplete: true
             }
@@ -112,6 +121,7 @@ describe("live-regression-direct", () => {
       status: 0,
       json: {
         data: {
+          fingerprintCurrent: true,
           relay: {
             extensionHandshakeComplete: true
           }
@@ -130,6 +140,7 @@ describe("live-regression-direct", () => {
       status: 0,
       json: {
         data: {
+          fingerprintCurrent: true,
           relay: {
             extensionHandshakeComplete: true
           }
@@ -195,6 +206,50 @@ describe("live-regression-direct", () => {
       status: "fail",
       detail: "daemon_fingerprint_mismatch"
     });
+  });
+
+  it("classifies missing daemon fingerprints as not current", () => {
+    const missingFingerprintStatus = {
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            extensionHandshakeComplete: true
+          }
+        }
+      }
+    };
+
+    expect(isCurrentDaemonStatus(missingFingerprintStatus)).toBe(false);
+    expect(daemonStatusDetail(missingFingerprintStatus)).toBe("daemon_fingerprint_missing");
+  });
+
+  it("does not treat missing fingerprint recovery as recovered", async () => {
+    const missingFingerprintStatus = {
+      status: 0,
+      json: {
+        data: {
+          relay: {
+            extensionHandshakeComplete: true
+          }
+        }
+      }
+    };
+    let started = false;
+
+    const result = await recoverDaemonStatus({
+      statusReader: () => missingFingerprintStatus,
+      daemonStarter: () => {
+        started = true;
+      },
+      recoverTimeoutMs: 1,
+      pollMs: 0
+    });
+
+    expect(started).toBe(true);
+    expect(result).toBe(missingFingerprintStatus);
+    expect(isCurrentDaemonStatus(result)).toBe(false);
+    expect(daemonStatusDetail(result)).toBe("daemon_fingerprint_missing");
   });
 
   it("does not retry daemon-loss child failures under release gate", () => {
@@ -301,6 +356,7 @@ describe("live-regression-direct", () => {
         status: 0,
         json: {
           data: {
+            fingerprintCurrent: true,
             relay: {
               extensionHandshakeComplete: true
             }
@@ -321,6 +377,7 @@ describe("live-regression-direct", () => {
       status: 0,
       json: {
         data: {
+          fingerprintCurrent: true,
           relay: {
             extensionHandshakeComplete: true
           }

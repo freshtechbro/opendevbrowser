@@ -17,9 +17,10 @@ import {
 const DAEMON_RECOVERY_TIMEOUT_MS = 45_000;
 const DAEMON_RECOVERY_POLL_MS = 1_000;
 const EXTENSION_RECONNECT_GRACE_MS = 30_000;
+export const DAEMON_STATUS_ARGS = ["status", "--daemon", "--output-format", "json"];
 
 function readDaemonStatus() {
-  return runCli(["status", "--daemon"], {
+  return runCli(DAEMON_STATUS_ARGS, {
     allowFailure: true,
     timeoutMs: 15_000
   });
@@ -36,16 +37,19 @@ function startDetachedDaemon() {
 }
 
 export function isCurrentDaemonStatus(status) {
-  return status?.status === 0 && status.json?.data?.fingerprintCurrent !== false;
+  return status?.status === 0 && status.json?.data?.fingerprintCurrent === true;
 }
 
 export function daemonStatusDetail(status) {
   if (status?.status !== 0) {
     return status?.detail ?? "daemon_status_unavailable";
   }
-  return status.json?.data?.fingerprintCurrent === false
-    ? "daemon_fingerprint_mismatch"
-    : null;
+  if (status.json?.data?.fingerprintCurrent === false) {
+    return "daemon_fingerprint_mismatch";
+  }
+  return status.json?.data?.fingerprintCurrent === true
+    ? null
+    : "daemon_fingerprint_missing";
 }
 
 export function detailSuggestsDaemonLoss(detail) {
@@ -113,7 +117,7 @@ export async function recoverDaemonStatus({
   pollMs = DAEMON_RECOVERY_POLL_MS
 } = {}) {
   let currentStatus = statusReader();
-  if (currentStatus.status === 0) {
+  if (isCurrentDaemonStatus(currentStatus)) {
     return currentStatus;
   }
 
@@ -122,7 +126,7 @@ export async function recoverDaemonStatus({
   while (Date.now() < deadline) {
     await sleep(pollMs);
     currentStatus = statusReader();
-    if (currentStatus.status === 0) {
+    if (isCurrentDaemonStatus(currentStatus)) {
       return currentStatus;
     }
   }
@@ -147,7 +151,7 @@ export async function resolveInitialDaemonStatus({
   return {
     initialStatus,
     currentStatus,
-    recovered: currentStatus.status === 0
+    recovered: isCurrentDaemonStatus(currentStatus)
   };
 }
 
@@ -287,7 +291,8 @@ export function classifyScenarioPreflight({
   if (!currentDaemonOk) {
     return {
       status: initialDaemonOk ? "fail" : "env_limited",
-      detail: initialDaemonOk ? "daemon_not_running_after_start" : "daemon_not_running",
+      detail: daemonStatusDetail(currentDaemonStatus)
+        ?? (initialDaemonOk ? "daemon_not_running_after_start" : "daemon_not_running"),
       data: { relay: null }
     };
   }
@@ -442,7 +447,7 @@ async function main() {
           initialExtensionReady,
           currentDaemonStatus: retryStatus
         });
-        if (recoveredAfterFailure.status === 0 && !retryPreflight) {
+        if (isCurrentDaemonStatus(recoveredAfterFailure) && !retryPreflight) {
           const retryChild = runNode(
             [
               scriptPath,

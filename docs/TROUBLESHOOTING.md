@@ -33,6 +33,22 @@ If `opsConnected` stays `false` after extension-mode `launch`/`connect`, restart
 If `canvasConnected` stays `false` during `opendevbrowser canvas` preview/overlay work, confirm the extension is connected and retry the canvas command after `status --daemon`.
 `cdpConnected` remaining `false` is normal for default `/ops` sessions.
 
+### Protected daemon fingerprint mismatch
+
+Before daemon-backed workflows, run:
+
+```bash
+npx opendevbrowser status --daemon --output-format json
+```
+
+Proceed only when `data.fingerprintCurrent === true`. If JSON output reports `data.reason="daemon_fingerprint_mismatch"` or `data.fingerprintCurrent === false`, the running daemon was started by a different OpenDevBrowser build than the current CLI.
+
+Recovery:
+1. Use the binary that started the running daemon, or restart the daemon from the current install.
+2. If protected stop is rejected, do not treat it as native-host drift; it is a daemon build mismatch.
+3. In shared machines, first-run smoke tests, or CI, isolate with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports.
+4. Re-run `npx opendevbrowser status --daemon --output-format json` and continue only after `data.fingerprintCurrent === true`.
+
 ## Desktop observation returns `desktop_unsupported` on macOS
 
 If `desktop-status` or another `desktop-*` command reports `reason=desktop_unsupported` on macOS:
@@ -163,7 +179,9 @@ npx opendevbrowser serve --output-format json
 npx opendevbrowser status --daemon --output-format json
 ```
 
-Without isolation, existing daemon metadata can cause session/token/port collisions and misleading `Unknown sessionId` errors.
+Require `data.fingerprintCurrent === true` before running launch, connect, canvas, provider, or release-harness commands. If the field is missing or `false`, treat the daemon as not current, restart from the same isolated shell, and retry the status check.
+
+Without isolation, existing daemon metadata can cause session/token/port collisions, protected fingerprint mismatches, and misleading `Unknown sessionId` errors.
 
 ## Managed or CDP session is missing expected login cookies
 
@@ -406,3 +424,4 @@ Extension relay requires **Chrome 125+** for flat CDP sessions. Upgrade Chrome i
 When hub mode is enabled, the plugin will not fall back to a local relay. If the hub daemon cannot be reached:
 - Start it: `npx opendevbrowser serve`
 - Verify `/status` with the configured `daemonPort`/`daemonToken`
+- For daemon-backed workflows, verify `npx opendevbrowser status --daemon --output-format json` reports `data.fingerprintCurrent === true`

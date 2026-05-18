@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { join, normalize } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { getCurrentDaemonFingerprint, resolveCurrentDaemonEntrypointPath } from "../src/cli/daemon";
+import { DAEMON_FINGERPRINT_MISMATCH_REASON } from "../src/cli/daemon-mismatch";
 import * as daemonStatusModule from "../src/cli/daemon-status";
 import { DaemonClient, __test__ as daemonClientTest } from "../src/cli/daemon-client";
 
@@ -1078,7 +1079,10 @@ describe("daemon-client error parsing", () => {
       const resultPromise = expect(client.call("canvas.execute", {
         command: "document.load",
         params: { canvasSessionId: "canvas-1", leaseId: "lease-1" }
-      })).rejects.toThrow("protected by a different opendevbrowser build");
+      })).rejects.toMatchObject({
+        message: expect.stringContaining("opendevbrowser status --daemon --output-format json"),
+        reason: DAEMON_FINGERPRINT_MISMATCH_REASON
+      });
       await vi.advanceTimersByTimeAsync(6_000);
       await resultPromise;
 
@@ -1619,7 +1623,10 @@ describe("daemon-client error parsing", () => {
 
     try {
       const client = new DaemonClient({ autoRenew: false });
-      await expect(client.call("some.command")).rejects.toThrow("protected by a different opendevbrowser build");
+      await expect(client.call("some.command")).rejects.toMatchObject({
+        message: expect.stringContaining("opendevbrowser status --daemon --output-format json"),
+        reason: DAEMON_FINGERPRINT_MISMATCH_REASON
+      });
       expect(statusSpy).toHaveBeenCalledTimes(1);
       expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([
         "http://127.0.0.1:23456/stop"

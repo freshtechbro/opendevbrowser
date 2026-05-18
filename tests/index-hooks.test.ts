@@ -381,7 +381,9 @@ describe("plugin inbox hooks", () => {
     };
 
     isHubEnabledMock.mockReturnValue(true);
-    await expect(deps.ensureHub?.()).rejects.toThrow("protected by a different opendevbrowser build");
+    await expect(deps.ensureHub?.()).rejects.toThrow(
+      /protected by a different opendevbrowser build[\s\S]*opendevbrowser status --daemon --output-format json[\s\S]*data\.fingerprintCurrent === true/
+    );
     expect(startDaemonMock).toHaveBeenCalledTimes(1);
     expect(fetchWithTimeoutMock).toHaveBeenCalledWith(
       "http://127.0.0.1:8788/stop",
@@ -476,7 +478,9 @@ describe("plugin inbox hooks", () => {
     };
 
     isHubEnabledMock.mockReturnValue(true);
-    await expect(deps.ensureHub?.()).rejects.toThrow("protected by a different opendevbrowser build");
+    await expect(deps.ensureHub?.()).rejects.toThrow(
+      /protected by a different opendevbrowser build[\s\S]*opendevbrowser status --daemon --output-format json[\s\S]*data\.fingerprintCurrent === true/
+    );
     expect(startDaemonMock).not.toHaveBeenCalled();
     expect(remoteRelayRefreshMock).not.toHaveBeenCalled();
   });

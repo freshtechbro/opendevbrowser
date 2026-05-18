@@ -2,6 +2,10 @@ import type { ParsedArgs } from "../args";
 import { createDisconnectedError, createUsageError } from "../errors";
 import { fetchDaemonStatusFromMetadata } from "../daemon-status";
 import { DEFAULT_DAEMON_STATUS_FETCH_OPTIONS } from "../daemon-status-policy";
+import {
+  buildDaemonFingerprintMismatchStatusGuidance,
+  DAEMON_FINGERPRINT_MISMATCH_REASON
+} from "../daemon-mismatch";
 import { runSessionStatus } from "./session/status";
 import { assessNativeStatus, getNativeStatusSnapshot } from "./native";
 
@@ -61,7 +65,8 @@ export async function runStatus(args: ParsedArgs) {
 
   const nativeStatus = getNativeStatusSnapshot();
   const nativeAssessment = assessNativeStatus(nativeStatus);
-  const fingerprintLine = daemonStatus.fingerprintCurrent === false
+  const daemonFingerprintMismatch = daemonStatus.fingerprintCurrent === false;
+  const fingerprintLine = daemonFingerprintMismatch
     ? "Daemon fingerprint: mismatch with current build"
     : "Daemon fingerprint: current";
 
@@ -80,6 +85,7 @@ export async function runStatus(args: ParsedArgs) {
     daemonStatus.relay.lastHandshakeError
       ? `Relay last handshake error: ${daemonStatus.relay.lastHandshakeError.code} (${daemonStatus.relay.lastHandshakeError.message})`
       : "Relay last handshake error: none",
+    ...(daemonFingerprintMismatch ? [buildDaemonFingerprintMismatchStatusGuidance()] : []),
     "Legend: ext=extension websocket, handshake=extension handshake, cdp=active /cdp client, annotate=annotation channel, ops=ops clients, canvas=canvas clients, pairing=token required, health=relay status"
   ];
   if (!nativeAssessment.success) {
@@ -97,6 +103,10 @@ export async function runStatus(args: ParsedArgs) {
   return {
     success: true,
     message,
-    data: { ...daemonStatus, native: nativeStatus }
+    data: {
+      ...daemonStatus,
+      ...(daemonFingerprintMismatch ? { reason: DAEMON_FINGERPRINT_MISMATCH_REASON } : {}),
+      native: nativeStatus
+    }
   };
 }

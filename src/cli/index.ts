@@ -169,6 +169,7 @@ async function main(): Promise<void> {
           message: result.message,
           ...(result.success || !result.message ? {} : { error: result.message }),
           ...(result.success || exitCode === null ? {} : { exitCode }),
+          ...(result.reason ? { reason: result.reason } : {}),
           ...payload
         }, outputOptions);
       }

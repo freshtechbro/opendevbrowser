@@ -5,6 +5,10 @@ import { DEFAULT_DAEMON_STATUS_FETCH_OPTIONS } from "../daemon-status-policy";
 import { createDaemonStopHeaders, readDaemonMetadata } from "../daemon";
 import { fetchWithTimeout } from "../utils/http";
 import {
+  buildDaemonFingerprintMismatchMessage,
+  DAEMON_FINGERPRINT_MISMATCH_REASON
+} from "../daemon-mismatch";
+import {
   getAutostartStatus,
   installAutostart,
   isTransientAutostartInstallError,
@@ -27,6 +31,7 @@ type StopDaemonResult = {
   port?: number;
   status?: number;
   error?: string;
+  reason?: string;
 };
 
 const parseDaemonArgs = (rawArgs: string[]): { subcommand: DaemonSubcommand } => {
@@ -48,7 +53,12 @@ const stopDaemonIfRunning = async (): Promise<StopDaemonResult> => {
       headers: createDaemonStopHeaders(metadata.token, "daemon.uninstall")
     });
     if (response.status === 409) {
-      return { outcome: "fingerprint_rejected", pid: metadata.pid, port: metadata.port };
+      return {
+        outcome: "fingerprint_rejected",
+        pid: metadata.pid,
+        port: metadata.port,
+        reason: DAEMON_FINGERPRINT_MISMATCH_REASON
+      };
     }
     return response.ok
       ? { outcome: "stopped", pid: metadata.pid, port: metadata.port }
@@ -66,8 +76,12 @@ const stopDaemonIfRunning = async (): Promise<StopDaemonResult> => {
 const buildStopFailureMessage = (stop: StopDaemonResult): string => {
   const target = stop.port ? `127.0.0.1:${stop.port}` : "recorded daemon";
   const pid = stop.pid ? ` pid=${stop.pid}` : "";
-  if (stop.outcome === "fingerprint_rejected") {
-    return `Daemon autostart removed, but the running daemon at ${target}${pid} rejected the stop request as stale. Run \`opendevbrowser status --daemon\` to inspect it and restart from the current install if needed.`;
+  if (stop.outcome === "fingerprint_rejected" && stop.port) {
+    return `Daemon autostart removed, but ${buildDaemonFingerprintMismatchMessage({
+      label: "the running daemon",
+      port: stop.port,
+      pid: stop.pid
+    })}`;
   }
   const reason = stop.error ?? (stop.status ? `HTTP ${stop.status}` : "unknown error");
   return `Daemon autostart removed, but stopping ${target}${pid} failed (${reason}).`;
@@ -170,10 +184,12 @@ export async function runDaemonCommand(args: ParsedArgs) {
     }
     const stop = await stopDaemonIfRunning();
     if (shouldFailUninstallStop(stop)) {
+      const data = stop.reason ? { ...result, reason: stop.reason, stop } : { ...result, stop };
       return {
         success: false,
         message: buildStopFailureMessage(stop),
-        data: { ...result, stop },
+        ...(stop.reason ? { reason: stop.reason } : {}),
+        data,
         exitCode: EXIT_EXECUTION
       };
     }

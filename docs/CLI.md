@@ -322,7 +322,8 @@ The daemon listens on `127.0.0.1` and starts the relay the extension connects to
 returning "already running"), while preserving the active daemon on the requested port.
 
 If you run onboarding tests alongside an existing daemon, isolate config/cache via `OPENCODE_CONFIG_DIR` and `OPENCODE_CACHE_DIR`
-to avoid token/port collisions between sessions.
+to avoid token/port collisions between sessions. Before daemon-backed workflows, run
+`npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`.
 
 If `nativeExtensionId` is set in `opendevbrowser.jsonc`, `serve` will auto-install the native messaging host when it is missing.
 If it is not set, `serve` attempts to auto-detect the extension ID from Chrome, Brave, or Chromium profiles; if detection fails it continues startup.
@@ -339,7 +340,22 @@ npx opendevbrowser serve
 
 # Stop/kill an existing daemon before restarting
 npx opendevbrowser serve --stop
+
+# Verify the daemon matches the current CLI build
+npx opendevbrowser status --daemon --output-format json
 ```
+
+Proceed with daemon-backed automation only when the JSON response has `data.fingerprintCurrent === true`.
+
+#### Protected fingerprint mismatch
+
+A protected daemon fingerprint mismatch means the running daemon was started by a different OpenDevBrowser build than the CLI now issuing daemon-backed commands. It is separate from native messaging host drift. JSON surfaces use `daemon_fingerprint_mismatch` as the stable reason when available.
+
+Recovery sequence:
+1. Run `npx opendevbrowser status --daemon --output-format json` and inspect `data.fingerprintCurrent`.
+2. If it is `false`, use the binary that started the running daemon, or restart the daemon from the current install.
+3. In shared first-run or CI environments, isolate with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports before retrying.
+4. Continue only after `data.fingerprintCurrent === true`.
 
 ### Daemon auto-start
 
@@ -732,7 +748,14 @@ npx opendevbrowser status               # daemon status (default)
 npx opendevbrowser status --daemon      # daemon status (explicit)
 npx opendevbrowser status --session-id <session-id>
 npx opendevbrowser status --transport native
+npx opendevbrowser status --daemon --output-format json
 ```
+
+Daemon JSON semantics:
+- `data.fingerprintCurrent === true`: the running daemon fingerprint matches the current CLI build and daemon-backed workflows may proceed.
+- `data.fingerprintCurrent === false`: the daemon is reachable but protected operations may reject reuse or stop; recovery should follow the protected fingerprint mismatch runbook.
+- `data.reason === "daemon_fingerprint_mismatch"`: a stable automation reason for a protected mismatch when surfaced by the command.
+- Missing `data.fingerprintCurrent` should be treated as not current by release and validation harnesses until a fresh daemon status proves otherwise.
 
 ### Status capabilities
 

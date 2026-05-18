@@ -221,6 +221,10 @@ Run a local daemon for persistent sessions, then drive automation via CLI comman
 # Start daemon
 npx opendevbrowser serve
 
+# Preflight daemon-backed workflows
+npx opendevbrowser status --daemon --output-format json
+# Proceed only when data.fingerprintCurrent === true
+
 # Install auto-start (recommended for resilience)
 opendevbrowser daemon install
 
@@ -238,7 +242,14 @@ npx opendevbrowser click --session-id <session-id> --ref r12
 ```
 
 `opendevbrowser serve` includes stale-daemon preflight cleanup by default, so orphan daemon processes are terminated automatically
-before startup while preserving the active daemon on the requested port.
+before startup while preserving the active daemon on the requested port. For daemon-backed workflows, run
+`npx opendevbrowser status --daemon --output-format json` first and require `data.fingerprintCurrent === true` before issuing
+launch, connect, canvas, provider, or release-harness commands.
+
+If protected stop or reuse fails with `daemon_fingerprint_mismatch`, the running daemon was started by a different OpenDevBrowser
+build than the current CLI. Use the matching binary for the running daemon, restart it from the current install, or isolate shared
+environments with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports before retrying.
+
 If you are running from a temporary onboarding workspace, rerun `opendevbrowser daemon install` from a stable install location
 before expecting auto-start to survive login. macOS auto-start also writes `WorkingDirectory=~/.cache/opendevbrowser`
 so launchd does not start the daemon from `/`.
