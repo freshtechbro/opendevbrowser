@@ -76,6 +76,24 @@ const requiredFilesBySkill: Record<string, string[]> = {
     "scripts/extract-canvas-plan.sh",
     "scripts/validate-skill-assets.sh"
   ],
+  "opendevbrowser-motion-design": [
+    "SKILL.md",
+    "artifacts/motion-terminology.md",
+    "artifacts/motion-pattern-catalog.md",
+    "artifacts/platform-framework-guide.md",
+    "artifacts/device-breakpoint-posture.md",
+    "artifacts/accessibility-reduced-motion.md",
+    "artifacts/performance-frame-budget.md",
+    "artifacts/open-dev-browser-motion-evidence.md",
+    "artifacts/motion-release-gate.md",
+    "artifacts/motion-anti-patterns.md",
+    "assets/templates/motion-contract.v1.json",
+    "assets/templates/motion-audit-report.v1.md",
+    "assets/templates/motion-viewport-matrix.v1.json",
+    "assets/templates/motion-release-gate.v1.json",
+    "scripts/motion-workflow.sh",
+    "scripts/validate-skill-assets.sh"
+  ],
   "opendevbrowser-login-automation": [
     "SKILL.md",
     "artifacts/login-workflows.md",
@@ -171,6 +189,7 @@ describe("workflow skill packs", () => {
 
       expect(names).toContain("opendevbrowser-login-automation");
       expect(names).toContain("opendevbrowser-design-agent");
+      expect(names).toContain("opendevbrowser-motion-design");
       expect(names).toContain("opendevbrowser-form-testing");
       expect(names).toContain("opendevbrowser-data-extraction");
       expect(names).toContain("opendevbrowser-research");
@@ -208,6 +227,7 @@ describe("workflow skill packs", () => {
 
     expect(names).toContain("opendevbrowser-login-automation");
     expect(names).toContain("opendevbrowser-design-agent");
+    expect(names).toContain("opendevbrowser-motion-design");
     expect(names).toContain("opendevbrowser-form-testing");
     expect(names).toContain("opendevbrowser-data-extraction");
     expect(names).toContain("opendevbrowser-research");
@@ -294,7 +314,8 @@ describe("workflow skill packs", () => {
   it("uses the shared CLI resolver for router workflows across agent packs", async () => {
     const routerScriptPaths = [
       "opendevbrowser-best-practices/scripts/odb-workflow.sh",
-      "opendevbrowser-design-agent/scripts/design-workflow.sh"
+      "opendevbrowser-design-agent/scripts/design-workflow.sh",
+      "opendevbrowser-motion-design/scripts/motion-workflow.sh"
     ];
 
     for (const relativePath of routerScriptPaths) {
@@ -366,6 +387,7 @@ describe("workflow skill packs", () => {
       "skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-research/scripts/validate-skill-assets.sh",

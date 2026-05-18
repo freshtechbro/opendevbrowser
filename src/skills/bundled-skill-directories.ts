@@ -7,6 +7,7 @@ export const bundledSkillDirectories: BundledSkillDirectory[] = [
   { name: "opendevbrowser-continuity-ledger" },
   { name: "opendevbrowser-data-extraction" },
   { name: "opendevbrowser-design-agent" },
+  { name: "opendevbrowser-motion-design" },
   { name: "opendevbrowser-form-testing" },
   { name: "opendevbrowser-login-automation" },
   { name: "opendevbrowser-product-presentation-asset" },

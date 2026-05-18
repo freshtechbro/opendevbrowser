@@ -79,6 +79,7 @@ const workflowMarkers = [
   "npx opendevbrowser help",
   "./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh",
   "resolve-odb-cli.sh",
+  "./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh",
   "CLI_PREFIX"
 ];
 

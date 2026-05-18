@@ -111,7 +111,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # 11 bundled skill directories (9 canonical packs + 2 compatibility aliases)
+├── skills/           # 10 canonical bundled skill directories
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, plans, and version-scoped evidence
 ```

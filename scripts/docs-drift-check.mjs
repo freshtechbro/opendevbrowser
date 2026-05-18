@@ -111,6 +111,7 @@ export function runDocsDriftChecks() {
   const parityGatesDoc = read("skills/opendevbrowser-best-practices/artifacts/parity-gates.md");
   const surfaceAuditChecklist = JSON.parse(read("skills/opendevbrowser-best-practices/assets/templates/surface-audit-checklist.json"));
   const designSkill = read("skills/opendevbrowser-design-agent/SKILL.md");
+  const motionSkill = read("skills/opendevbrowser-motion-design/SKILL.md");
   const continuitySkill = read("skills/opendevbrowser-continuity-ledger/SKILL.md");
   const dataExtractionSkill = read("skills/opendevbrowser-data-extraction/SKILL.md");
   const loginSkill = read("skills/opendevbrowser-login-automation/SKILL.md");
@@ -390,8 +391,9 @@ export function runDocsDriftChecks() {
 
   checks.push({
     id: "doc.readme.skill_inventory_split_documented",
-    ok: publicReadme.includes("9 OpenDevBrowser-specific skill packs")
-      && publicReadme.includes("sync the 9 canonical `opendevbrowser-*` packs")
+    ok: publicReadme.includes("10 OpenDevBrowser-specific skill packs")
+      && publicReadme.includes("sync the 10 canonical `opendevbrowser-*` packs")
+      && publicReadme.includes("opendevbrowser-motion-design")
       && publicReadme.includes("Reinstall and update refresh drifted managed copies")
       && publicReadme.includes("Uninstall removes managed canonical packs"),
     detail: "README.md must document the canonical skill-pack lifecycle."
@@ -444,7 +446,8 @@ export function runDocsDriftChecks() {
 
   checks.push({
     id: "doc.cli.skill_inventory_split_documented",
-    ok: cliDoc.includes("sync the 9 canonical `opendevbrowser-*` packs")
+    ok: cliDoc.includes("sync the 10 canonical `opendevbrowser-*` packs")
+      && cliDoc.includes("opendevbrowser-motion-design")
       && cliDoc.includes("Reinstall and update refresh drifted managed copies")
       && cliDoc.includes("Uninstall removes managed canonical packs"),
     detail: "docs/CLI.md must document the canonical skill-pack lifecycle."
@@ -685,6 +688,27 @@ export function runDocsDriftChecks() {
     ok: bestPracticesSkill.includes("npx opendevbrowser inspiredesign run")
       && bestPracticesSkill.includes("./skills/opendevbrowser-best-practices/scripts/odb-workflow.sh inspiredesign"),
     detail: "skills/opendevbrowser-best-practices/SKILL.md must expose the inspiredesign lane in both validated capability guidance and router usage."
+  });
+
+  checks.push({
+    id: "doc.motion_design_skill.documented",
+    ok: publicReadme.includes("opendevbrowser-motion-design")
+      && cliDoc.includes("opendevbrowser_skill_load opendevbrowser-motion-design \"quick start\"")
+      && architectureDoc.includes("skills/opendevbrowser-motion-design/")
+      && architectureDoc.includes("artifacts/motion-pattern-catalog.md")
+      && architectureDoc.includes("scripts/validate-skill-assets.sh"),
+    detail: "README.md, docs/CLI.md, and docs/ARCHITECTURE.md must document the motion-design pack and validator."
+  });
+
+  checks.push({
+    id: "skill.motion_design.cross_links_and_evidence_documented",
+    ok: designSkill.includes("opendevbrowser-motion-design")
+      && motionSkill.includes("opendevbrowser-design-agent")
+      && motionSkill.includes("prefers-reduced-motion")
+      && motionSkill.includes("screencast-start")
+      && motionSkill.includes("screencast-stop")
+      && motionSkill.includes("debug-trace-snapshot"),
+    detail: "motion-design and design-agent must cross-link, and motion-design must document reduced-motion plus temporal proof commands."
   });
 
   checks.push({

@@ -5,7 +5,7 @@ Status: active
 Last updated: 2026-04-13
 
 OpenDevBrowser exposes 70 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
-Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
+Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Load `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"` after design-agent for motion-heavy UI work, animation systems, scroll motion, gesture motion, reduced-motion audits, or motion release evidence. Use continuity guidance only for long-running handoff or compaction.
 That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -22,6 +22,7 @@ npm run test -- tests/cli-help-parity.test.ts
 npm run test -- tests/parity-matrix.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/design-workflow.sh research-harvest
 ./skills/opendevbrowser-design-agent/scripts/design-workflow.sh release-gate
 ```
@@ -74,7 +75,7 @@ Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if yo
 By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
-- `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
+- `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
 - Managed installs write a target-level ownership marker, so default updates and uninstall only act on CLI-managed targets or older config installs that already contain canonical packs.
 - Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
 - Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
@@ -543,7 +544,7 @@ Notes:
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
 - Successful runs now emit `advanced-brief.md`, `canvas-plan.request.json`, and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
-- The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
+- The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, add `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"` when motion, scroll choreography, gesture motion, reduced motion, or temporal proof is part of the design, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
 - `--browser-mode` applies to provider-backed reference retrieval. Deep capture still uses the browser manager capture lane.
 
 Wrapper behavior:

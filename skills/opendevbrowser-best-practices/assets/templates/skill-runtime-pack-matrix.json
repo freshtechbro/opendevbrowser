@@ -173,6 +173,45 @@
       ]
     },
     {
+      "packId": "opendevbrowser-motion-design",
+      "packType": "browser_surface",
+      "docOnly": false,
+      "validatorCommands": [
+        "./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh"
+      ],
+      "sharedEvidenceIds": [
+        "live-regression",
+        "canvas-competitive",
+        "skill-discovery"
+      ],
+      "runtimeSurfaces": {
+        "cliCommands": [
+          "canvas",
+          "screenshot",
+          "debug-trace-snapshot",
+          "screencast-start",
+          "screencast-stop"
+        ],
+        "tools": [
+          "opendevbrowser_canvas",
+          "opendevbrowser_screenshot",
+          "opendevbrowser_debug_trace_snapshot",
+          "opendevbrowser_screencast_start",
+          "opendevbrowser_screencast_stop"
+        ],
+        "modes": [
+          "managed",
+          "extension",
+          "cdpConnect"
+        ]
+      },
+      "allowsEnvLimited": true,
+      "envLimitedReasons": [
+        "extension_unavailable",
+        "reduced_motion_emulation_unavailable"
+      ]
+    },
+    {
       "packId": "opendevbrowser-form-testing",
       "packType": "workflow",
       "docOnly": false,
@@ -335,6 +374,7 @@
         "opendevbrowser-continuity-ledger",
         "opendevbrowser-data-extraction",
         "opendevbrowser-design-agent",
+        "opendevbrowser-motion-design",
         "opendevbrowser-form-testing",
         "opendevbrowser-login-automation",
         "opendevbrowser-product-presentation-asset",
@@ -361,6 +401,7 @@
       ],
       "targetedRerunCommands": [
         "./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh",
+        "./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh",
         "node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json"
       ]
     },
@@ -470,7 +511,8 @@
       "label": "Canvas, annotate, and design surfaces",
       "priority": 5,
       "packIds": [
-        "opendevbrowser-design-agent"
+        "opendevbrowser-design-agent",
+        "opendevbrowser-motion-design"
       ],
       "proofLanes": [
         "live-regression",
@@ -488,13 +530,16 @@
         "src/tools/index.ts",
         "src/public-surface/source.ts",
         "extension/src/canvas/canvas-runtime.ts",
-        "extension/src/annotate-content.ts"
+        "extension/src/annotate-content.ts",
+        "skills/opendevbrowser-motion-design/SKILL.md",
+        "skills/opendevbrowser-motion-design/artifacts/open-dev-browser-motion-evidence.md"
       ],
       "targetedRerunCommands": [
         "node scripts/live-regression-direct.mjs --out artifacts/skill-runtime-audit/lanes/live-regression.json",
         "node scripts/canvas-competitive-validation.mjs --out artifacts/skill-runtime-audit/lanes/canvas-competitive.json",
         "node scripts/canvas-live-workflow.mjs --surface managed-headless",
-        "node scripts/annotate-live-probe.mjs --transport direct"
+        "node scripts/annotate-live-probe.mjs --transport direct",
+        "./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh"
       ]
     },
     {
@@ -504,6 +549,7 @@
       "packIds": [
         "opendevbrowser-best-practices",
         "opendevbrowser-design-agent",
+        "opendevbrowser-motion-design",
         "opendevbrowser-shopping"
       ],
       "proofLanes": [

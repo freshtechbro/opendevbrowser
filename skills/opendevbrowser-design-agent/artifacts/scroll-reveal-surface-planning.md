@@ -2,6 +2,8 @@
 
 Use this when narrative sequencing, pinned sections, or viewport-driven motion is part of the design instead of decorative afterthought.
 
+For broader motion language, pattern selection, device posture, reduced-motion rules, performance budgets, and temporal proof, also load `../opendevbrowser-motion-design/SKILL.md`.
+
 ## 1. Declare The Driver First
 
 Choose one progress owner before writing animation code:

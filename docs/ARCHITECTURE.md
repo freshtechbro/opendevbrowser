@@ -494,6 +494,25 @@ Template assets for parity and channel checks live under
 - `scripts/design-workflow.sh`
 - `scripts/extract-canvas-plan.sh`
 
+`opendevbrowser-motion-design` adds contract-first motion and animation assets under
+`skills/opendevbrowser-motion-design/`, including:
+
+- `artifacts/motion-terminology.md`
+- `artifacts/motion-pattern-catalog.md`
+- `artifacts/platform-framework-guide.md`
+- `artifacts/device-breakpoint-posture.md`
+- `artifacts/accessibility-reduced-motion.md`
+- `artifacts/performance-frame-budget.md`
+- `artifacts/open-dev-browser-motion-evidence.md`
+- `artifacts/motion-release-gate.md`
+- `artifacts/motion-anti-patterns.md`
+- `assets/templates/motion-contract.v1.json`
+- `assets/templates/motion-audit-report.v1.md`
+- `assets/templates/motion-viewport-matrix.v1.json`
+- `assets/templates/motion-release-gate.v1.json`
+- `scripts/motion-workflow.sh`
+- `scripts/validate-skill-assets.sh`
+
 Skill install/discovery sync covers the canonical `opencode`, `codex`, `claudecode`,
 and `ampcli` ecosystems, and path discovery is documented in `README.md` and
 `docs/CLI.md`.
@@ -503,6 +522,7 @@ Validation script:
 ```bash
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
 ```
 
 ---

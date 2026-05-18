@@ -106,9 +106,13 @@ function parseTransport(args: string[]): TransportMode {
 const VALID_FLAG_SET = new Set<string>(VALID_FLAGS);
 const VALID_EQUALS_FLAG_SET = new Set<string>(VALID_EQUALS_FLAGS);
 const SIGNED_VALUE_FLAG_SET = new Set<string>(["--dy"]);
+const PASSTHROUGH_VALUE_FLAG_SET = new Set<string>(["--flag"]);
 const SIGNED_INTEGER_VALUE = /^-\d+$/;
 
 function shouldSkipValueToken(flag: string, value: string | undefined): boolean {
+  if (PASSTHROUGH_VALUE_FLAG_SET.has(flag) && value !== undefined) {
+    return true;
+  }
   if (!VALID_EQUALS_FLAG_SET.has(flag) || value === undefined) {
     return false;
   }

@@ -472,12 +472,13 @@ Desktop observation currently ships as a public read-only macOS surface. Availab
 
 ## Bundled Skills
 
-OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs**. Install, update, and uninstall own the managed skill lifecycle across OpenCode, Codex, ClaudeCode, and AmpCLI targets:
+OpenDevBrowser includes **10 OpenDevBrowser-specific skill packs**. Install, update, and uninstall own the managed skill lifecycle across OpenCode, Codex, ClaudeCode, and AmpCLI targets:
 
 | Skill | Purpose |
 |-------|---------|
 | `opendevbrowser-best-practices` | Core prompting patterns and workflow guidance |
 | `opendevbrowser-design-agent` | Contract-first, research-backed frontend and `/canvas` design execution |
+| `opendevbrowser-motion-design` | Contract-first motion language, pattern selection, reduced-motion, performance, and temporal proof |
 | `opendevbrowser-continuity-ledger` | Long-running task state management |
 | `opendevbrowser-login-automation` | Authentication flow patterns |
 | `opendevbrowser-form-testing` | Form validation and submission workflows |
@@ -487,7 +488,7 @@ OpenDevBrowser includes **9 OpenDevBrowser-specific skill packs**. Install, upda
 | `opendevbrowser-product-presentation-asset` | Product screenshot/copy asset collection for presentation pipelines |
 
 Installer note:
-- `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs into managed global or project-local agent directories.
+- `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs into managed global or project-local agent directories.
 - Managed installs write a target-level ownership marker, so later update and uninstall only act on CLI-managed skill targets or older config installs that already contain canonical packs.
 - Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
 - Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
@@ -897,7 +898,7 @@ Tool Call → Zod Validation → Manager/Runner → CDP/Playwright → Response
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # Bundled skill directories (11 total; 9 canonical OpenDevBrowser packs + 2 shared compatibility packs)
+├── skills/           # Bundled skill directories (10 canonical OpenDevBrowser packs)
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, distribution plans
 ```
@@ -933,6 +934,7 @@ Uniform versioning is required (source of truth: `package.json`):
    - `node scripts/docs-drift-check.mjs`
    - `node scripts/chrome-store-compliance-check.mjs`
    - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+   - `./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh`
 8. Run strict live release gates:
    - `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json`
    - `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json`

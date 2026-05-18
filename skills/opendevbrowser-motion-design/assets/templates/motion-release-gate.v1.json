@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0.0",
+  "decision": "block",
+  "checks": [
+    { "id": "contract", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "pattern-justification", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "reduced-motion", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "keyboard", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "viewports", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "temporal-proof", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "debug-trace", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "console-network", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "performance", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "overflow", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "focus", "status": "pending", "blocking": true, "evidence": "" },
+    { "id": "library-policy", "status": "pending", "blocking": true, "evidence": "" }
+  ]
+}

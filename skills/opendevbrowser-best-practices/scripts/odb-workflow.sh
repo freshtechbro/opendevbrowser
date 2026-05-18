@@ -174,6 +174,7 @@ OPENCODE_CONFIG_DIR="$WORKDIR/config" CODEX_HOME="$WORKDIR/codex-home" CLAUDECOD
 ./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh

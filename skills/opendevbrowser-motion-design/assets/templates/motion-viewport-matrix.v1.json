@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0.0",
+  "rows": [
+    {
+      "id": "phone-portrait",
+      "viewport": { "width": 390, "height": 844 },
+      "pointer": "coarse",
+      "requirements": ["short travel", "no default parallax", "no pinned scroll by default"]
+    },
+    {
+      "id": "phone-landscape",
+      "viewport": { "width": 844, "height": 390 },
+      "pointer": "coarse",
+      "requirements": ["short viewport safe", "primary actions visible"]
+    },
+    {
+      "id": "tablet-portrait",
+      "viewport": { "width": 820, "height": 1180 },
+      "pointer": "coarse",
+      "requirements": ["touch thresholds", "moderate travel"]
+    },
+    {
+      "id": "tablet-landscape",
+      "viewport": { "width": 1180, "height": 820 },
+      "pointer": "coarse",
+      "requirements": ["touch and keyboard parity"]
+    },
+    {
+      "id": "desktop",
+      "viewport": { "width": 1440, "height": 900 },
+      "pointer": "fine",
+      "requirements": ["local transitions", "keyboard parity"]
+    },
+    {
+      "id": "large-monitor",
+      "viewport": { "width": 1920, "height": 1080 },
+      "pointer": "fine",
+      "requirements": ["avoid excessive travel", "anchor to local regions"]
+    },
+    {
+      "id": "short-viewport",
+      "viewport": { "width": 1280, "height": 560 },
+      "pointer": "fine",
+      "requirements": ["no pinning", "no required tall-stage animation"]
+    },
+    {
+      "id": "reduced-motion",
+      "viewport": { "width": 1440, "height": 900 },
+      "media": { "prefersReducedMotion": "reduce" },
+      "requirements": ["meaning preserved", "task completion preserved"]
+    },
+    {
+      "id": "coarse-pointer",
+      "pointer": "coarse",
+      "requirements": ["no hover-only affordance", "large touch targets"]
+    },
+    {
+      "id": "fine-pointer",
+      "pointer": "fine",
+      "requirements": ["hover has focus equivalent"]
+    },
+    {
+      "id": "keyboard-only",
+      "input": "keyboard",
+      "requirements": ["focus visible", "focus order stable", "escape paths work"]
+    },
+    {
+      "id": "reduced-power",
+      "requirements": ["fewer simultaneous animations", "static skeletons preferred"]
+    },
+    {
+      "id": "foldable-adaptive",
+      "requirements": ["device-posture progressive enhancement only", "default responsive path works first"]
+    }
+  ]
+}

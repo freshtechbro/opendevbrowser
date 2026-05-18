@@ -88,7 +88,10 @@ jobs:
         run: npm ci
 
       - name: Validate bundled skill assets
-        run: ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+        run: |
+          ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+          ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+          ./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
 
   chrome-store-compliance-check:
     name: chrome-store-compliance-check

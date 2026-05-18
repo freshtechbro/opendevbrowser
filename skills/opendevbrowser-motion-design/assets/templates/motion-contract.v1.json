@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0.0",
+  "intent": {
+    "surface": "<page-or-component>",
+    "userValue": "<what-motion-clarifies>",
+    "nonGoals": []
+  },
+  "motionLanguage": {
+    "personality": "<precise-motion-language>",
+    "timingTokens": {
+      "instantMs": 0,
+      "microMs": 120,
+      "standardMs": 220,
+      "expressiveMs": 420
+    },
+    "easingTokens": {
+      "standard": "cubic-bezier(0.2, 0, 0, 1)",
+      "emphasized": "cubic-bezier(0.2, 0, 0, 1)",
+      "exit": "cubic-bezier(0.4, 0, 1, 1)"
+    },
+    "springTokens": {
+      "settle": {
+        "stiffness": 260,
+        "damping": 28,
+        "mass": 1
+      }
+    }
+  },
+  "selectedPatterns": [
+    {
+      "pattern": "no-motion stability",
+      "userValue": "protect task speed",
+      "driver": "state",
+      "owner": "<component-or-route>"
+    }
+  ],
+  "devicePosture": {
+    "mobilePortrait": "short travel, no pinning",
+    "mobileLandscape": "short viewport safe",
+    "tablet": "moderate travel",
+    "desktop": "local transitions",
+    "largeMonitor": "anchor to local region",
+    "foldable": "progressive enhancement only"
+  },
+  "accessibility": {
+    "prefersReducedMotion": "meaning-preserving static or opacity-only path",
+    "keyboardOrder": "unchanged",
+    "focusPolicy": "visible and stable",
+    "motionOnlyFeedback": false
+  },
+  "performance": {
+    "frameBudget": "transform and opacity first",
+    "layoutAnimationAllowed": false,
+    "scrollListenerPolicy": "bounded and passive",
+    "cleanupRequired": true
+  },
+  "libraryPolicy": {
+    "approvedExistingLibraries": [],
+    "newRuntimeDependencies": [],
+    "approvalReference": null
+  },
+  "verificationPlan": {
+    "viewports": [
+      "phone-portrait",
+      "tablet",
+      "desktop",
+      "short-viewport",
+      "reduced-motion"
+    ],
+    "opendevbrowserEvidence": [
+      "snapshot",
+      "screenshot",
+      "debug-trace-snapshot",
+      "screencast-start",
+      "screencast-stop"
+    ],
+    "releaseGate": "assets/templates/motion-release-gate.v1.json"
+  }
+}

@@ -129,6 +129,26 @@ describe("parseArgs", () => {
     expect(parsed.rawArgs).toEqual(["--session-id", "s1", "--dy", "-240"]);
   });
 
+  it("accepts Chrome passthrough flags that start with dashes", () => {
+    const parsed = parseArgs([
+      "node",
+      "cli",
+      "launch",
+      "--no-extension",
+      "--headless",
+      "--flag",
+      "--window-size=390,844"
+    ]);
+
+    expect(parsed.command).toBe("launch");
+    expect(parsed.rawArgs).toEqual([
+      "--no-extension",
+      "--headless",
+      "--flag",
+      "--window-size=390,844"
+    ]);
+  });
+
   it("rejects unknown flags after a value flag", () => {
     expect(() => parseArgs(["node", "cli", "snapshot", "--session-id", "--bad-flag"])).toThrow("Unknown flag: --bad-flag");
   });

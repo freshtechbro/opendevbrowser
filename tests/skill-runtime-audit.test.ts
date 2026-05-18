@@ -322,7 +322,11 @@ describe("skill runtime audit status modeling", () => {
   it("keeps the runtime matrix aligned with inspiredesign and first-contact governance", () => {
     const matrix = loadSkillRuntimeMatrix();
     const bestPractices = matrix.canonicalPacks.find((entry) => entry.packId === "opendevbrowser-best-practices");
+    const motionDesign = matrix.canonicalPacks.find((entry) => entry.packId === "opendevbrowser-motion-design");
     const cliToolsSurface = matrix.auditDomains.find((entry) => entry.id === "cli-tools-surface");
+    const skillsAssetsDiscovery = matrix.auditDomains.find((entry) => entry.id === "skills-assets-discovery");
+    const canvasAnnotateDesign = matrix.auditDomains.find((entry) => entry.id === "canvas-annotate-design");
+    const extensionRelayCdp = matrix.auditDomains.find((entry) => entry.id === "extension-relay-cdp");
     const providersWorkflows = matrix.auditDomains.find((entry) => entry.id === "providers-macros-workflows");
     const replayDesktopFamily = matrix.runtimeFamilies.find((entry) => entry.id === "browser-replay-desktop-observation");
 
@@ -341,6 +345,30 @@ describe("skill runtime audit status modeling", () => {
       "docs/FIRST_RUN_ONBOARDING.md",
       "docs/README.md"
     ]));
+    expect(motionDesign).toMatchObject({
+      packType: "browser_surface",
+      validatorCommands: ["./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh"],
+      runtimeSurfaces: {
+        cliCommands: expect.arrayContaining([
+          "canvas",
+          "screenshot",
+          "debug-trace-snapshot",
+          "screencast-start",
+          "screencast-stop"
+        ]),
+        tools: expect.arrayContaining([
+          "opendevbrowser_canvas",
+          "opendevbrowser_screenshot",
+          "opendevbrowser_debug_trace_snapshot",
+          "opendevbrowser_screencast_start",
+          "opendevbrowser_screencast_stop"
+        ]),
+        modes: expect.arrayContaining(["managed", "extension", "cdpConnect"])
+      }
+    });
+    expect(skillsAssetsDiscovery?.packIds).toContain("opendevbrowser-motion-design");
+    expect(canvasAnnotateDesign?.packIds).toContain("opendevbrowser-motion-design");
+    expect(extensionRelayCdp?.packIds).toContain("opendevbrowser-motion-design");
     expect(providersWorkflows?.contractTests).toContain("tests/providers-inspiredesign-workflow.test.ts");
     expect(providersWorkflows?.sourceSeams).toEqual(expect.arrayContaining([
       "src/cli/commands/inspiredesign.ts",

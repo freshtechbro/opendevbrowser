@@ -124,6 +124,7 @@ jobs:
           node scripts/docs-drift-check.mjs
           node scripts/chrome-store-compliance-check.mjs
           ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+          ./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
           npm run lint
           npm run typecheck
           npm run test
