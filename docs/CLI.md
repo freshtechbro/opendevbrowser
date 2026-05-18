@@ -5,7 +5,7 @@ Status: active
 Last updated: 2026-04-13
 
 OpenDevBrowser exposes 70 `opendevbrowser_*` tools; see `README.md` and `docs/SURFACE_REFERENCE.md` for the full inventories.
-Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Use continuity guidance only for long-running handoff or compaction.
+Generated help is the primary first-contact inventory and onboarding surface. Agent runs should start with `opendevbrowser_prompting_guide` or `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` before low-level browser commands, then load `opendevbrowser_skill_load opendevbrowser-best-practices "validated capability lanes"` when they need the currently proven transcript, research, and shopping workflows. Load `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"` immediately after that baseline for frontend, screenshot-to-code, or `/canvas` design work. Load `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"` after design-agent for motion-heavy UI work, animation systems, scroll motion, gesture motion, reduced-motion audits, or motion release evidence. Use continuity guidance only for long-running handoff or compaction.
 That generated help surface now leads with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`. It maps replay to `screencast-start` / `screencast-stop`, desktop observation to the public read-only `desktop-*` family, and browser-scoped computer use to `--challenge-automation-mode` on `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute`, with `research run --topic ... --challenge-automation-mode browser` as the first entry command.
 Tool-only commands `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` run locally via the skill loader. They are onboarding helpers, not browser-runtime commands, and they do not require relay or daemon bootstrap.
 CLI-only power command `rpc` intentionally has no tool equivalent; it is an internal daemon escape hatch behind an explicit safety flag and should be used with extreme caution.
@@ -22,6 +22,7 @@ npm run test -- tests/cli-help-parity.test.ts
 npm run test -- tests/parity-matrix.test.ts
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/design-workflow.sh research-harvest
 ./skills/opendevbrowser-design-agent/scripts/design-workflow.sh release-gate
 ```
@@ -74,7 +75,7 @@ Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if yo
 By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
-- `--skills-global` and `--skills-local` sync the 9 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
+- `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
 - Managed installs write a target-level ownership marker, so default updates and uninstall only act on CLI-managed targets or older config installs that already contain canonical packs.
 - Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
 - Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
@@ -321,7 +322,8 @@ The daemon listens on `127.0.0.1` and starts the relay the extension connects to
 returning "already running"), while preserving the active daemon on the requested port.
 
 If you run onboarding tests alongside an existing daemon, isolate config/cache via `OPENCODE_CONFIG_DIR` and `OPENCODE_CACHE_DIR`
-to avoid token/port collisions between sessions.
+to avoid token/port collisions between sessions. Before daemon-backed workflows, run
+`npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`.
 
 If `nativeExtensionId` is set in `opendevbrowser.jsonc`, `serve` will auto-install the native messaging host when it is missing.
 If it is not set, `serve` attempts to auto-detect the extension ID from Chrome, Brave, or Chromium profiles; if detection fails it continues startup.
@@ -338,7 +340,22 @@ npx opendevbrowser serve
 
 # Stop/kill an existing daemon before restarting
 npx opendevbrowser serve --stop
+
+# Verify the daemon matches the current CLI build
+npx opendevbrowser status --daemon --output-format json
 ```
+
+Proceed with daemon-backed automation only when the JSON response has `data.fingerprintCurrent === true`.
+
+#### Protected fingerprint mismatch
+
+A protected daemon fingerprint mismatch means the running daemon was started by a different OpenDevBrowser build than the CLI now issuing daemon-backed commands. It is separate from native messaging host drift. JSON surfaces use `daemon_fingerprint_mismatch` as the stable reason when available.
+
+Recovery sequence:
+1. Run `npx opendevbrowser status --daemon --output-format json` and inspect `data.fingerprintCurrent`.
+2. If it is `false`, use the binary that started the running daemon, or restart the daemon from the current install.
+3. In shared first-run or CI environments, isolate with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports before retrying.
+4. Continue only after `data.fingerprintCurrent === true`.
 
 ### Daemon auto-start
 
@@ -543,7 +560,7 @@ Notes:
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
 - Successful runs now emit `advanced-brief.md`, `canvas-plan.request.json`, and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
-- The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
+- The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, add `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"` when motion, scroll choreography, gesture motion, reduced motion, or temporal proof is part of the design, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
 - `--browser-mode` applies to provider-backed reference retrieval. Deep capture still uses the browser manager capture lane.
 
 Wrapper behavior:
@@ -731,7 +748,14 @@ npx opendevbrowser status               # daemon status (default)
 npx opendevbrowser status --daemon      # daemon status (explicit)
 npx opendevbrowser status --session-id <session-id>
 npx opendevbrowser status --transport native
+npx opendevbrowser status --daemon --output-format json
 ```
+
+Daemon JSON semantics:
+- `data.fingerprintCurrent === true`: the running daemon fingerprint matches the current CLI build and daemon-backed workflows may proceed.
+- `data.fingerprintCurrent === false`: the daemon is reachable but protected operations may reject reuse or stop; recovery should follow the protected fingerprint mismatch runbook.
+- `data.reason === "daemon_fingerprint_mismatch"`: a stable automation reason for a protected mismatch when surfaced by the command.
+- Missing `data.fingerprintCurrent` should be treated as not current by release and validation harnesses until a fresh daemon status proves otherwise.
 
 ### Status capabilities
 

@@ -1,5 +1,12 @@
 {
   "schemaVersion": "1.0",
+  "daemonPreflight": {
+    "command": "npx opendevbrowser status --daemon --output-format json",
+    "required": true,
+    "statusExpectations": {
+      "fingerprintCurrent": true
+    }
+  },
   "modes": [
     {
       "name": "managed",

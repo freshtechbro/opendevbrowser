@@ -21,6 +21,10 @@ import {
   type DaemonStatusPayload
 } from "./daemon-status";
 import {
+  buildDaemonFingerprintMismatchMessage,
+  DAEMON_FINGERPRINT_MISMATCH_REASON
+} from "./daemon-mismatch";
+import {
   fetchWithTimeout,
   fetchWithTimeoutContext,
   readResponseJsonWithTimeout,
@@ -998,7 +1002,12 @@ const resolveFreshDaemonConnection = async (
     );
     if (stopOutcome === "fingerprint_rejected") {
       throw createDisconnectedError(
-        `Daemon on 127.0.0.1:${staleConnection.connection.port} pid=${staleConnection.status.pid} is protected by a different opendevbrowser build. Start with \`opendevbrowser serve\`.`
+        buildDaemonFingerprintMismatchMessage({
+          label: "Daemon",
+          port: staleConnection.connection.port,
+          pid: staleConnection.status.pid
+        }),
+        DAEMON_FINGERPRINT_MISMATCH_REASON
       );
     }
   }

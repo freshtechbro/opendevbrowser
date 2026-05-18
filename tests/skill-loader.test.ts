@@ -179,9 +179,37 @@ Global content.
     expect(getBundledSkillDirectory("opendevbrowser-best-practices")).toEqual({
       name: "opendevbrowser-best-practices"
     });
+    expect(getBundledSkillDirectory("opendevbrowser-motion-design")).toEqual({
+      name: "opendevbrowser-motion-design"
+    });
     expect(getBundledSkillDirectory("missing-skill")).toBeNull();
     expect(isBundledSkillName("opendevbrowser-best-practices")).toBe(true);
+    expect(isBundledSkillName("opendevbrowser-motion-design")).toBe(true);
     expect(isBundledSkillName("missing-skill")).toBe(false);
+  });
+
+  it("loads and validates the bundled motion-design skill", async () => {
+    if (process.platform === "win32") return;
+
+    const missingRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-motion-"));
+    const loader = new SkillLoader(missingRoot);
+    const quickStart = await loader.loadSkill("opendevbrowser-motion-design", "quick start");
+    const skillRoot = join(process.cwd(), "skills", "opendevbrowser-motion-design");
+    const workflowPath = join(skillRoot, "scripts", "motion-workflow.sh");
+    const validatorPath = join(skillRoot, "scripts", "validate-skill-assets.sh");
+
+    expect(quickStart).toContain("## Quick Start");
+    expect(quickStart).toContain("opendevbrowser-design-agent");
+    expect(await readFile(join(skillRoot, "SKILL.md"), "utf8")).toContain("assets/templates/motion-contract.v1.json");
+    expect((await stat(workflowPath)).mode & 0o111).not.toBe(0);
+    expect((await stat(validatorPath)).mode & 0o111).not.toBe(0);
+
+    const result = spawnSync("/bin/bash", [validatorPath], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: process.env
+    });
+    expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
   });
 
   it("loads the canonical quick start topic from the real bundled best-practices skill", async () => {

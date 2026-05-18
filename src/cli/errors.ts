@@ -7,10 +7,12 @@ export const EXIT_DISCONNECTED = 10;
 
 export class CliError extends Error {
   exitCode: number;
+  reason?: string;
 
-  constructor(message: string, exitCode: number) {
+  constructor(message: string, exitCode: number, reason?: string) {
     super(message);
     this.exitCode = exitCode;
+    this.reason = reason;
   }
 }
 
@@ -18,8 +20,8 @@ export function createUsageError(message: string): CliError {
   return new CliError(message, EXIT_USAGE);
 }
 
-export function createDisconnectedError(message: string): CliError {
-  return new CliError(message, EXIT_DISCONNECTED);
+export function createDisconnectedError(message: string, reason?: string): CliError {
+  return new CliError(message, EXIT_DISCONNECTED, reason);
 }
 
 export function toCliError(error: unknown, fallbackExitCode = EXIT_EXECUTION): CliError {
@@ -34,13 +36,15 @@ export type ErrorPayload = {
   success: false;
   error: string;
   exitCode: number;
+  reason?: string;
 };
 
 export function formatErrorPayload(error: CliError): ErrorPayload {
   return {
     success: false,
     error: error.message,
-    exitCode: error.exitCode
+    exitCode: error.exitCode,
+    ...(error.reason ? { reason: error.reason } : {})
   };
 }
 

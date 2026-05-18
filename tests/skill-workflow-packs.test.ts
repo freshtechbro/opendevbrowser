@@ -76,6 +76,24 @@ const requiredFilesBySkill: Record<string, string[]> = {
     "scripts/extract-canvas-plan.sh",
     "scripts/validate-skill-assets.sh"
   ],
+  "opendevbrowser-motion-design": [
+    "SKILL.md",
+    "artifacts/motion-terminology.md",
+    "artifacts/motion-pattern-catalog.md",
+    "artifacts/platform-framework-guide.md",
+    "artifacts/device-breakpoint-posture.md",
+    "artifacts/accessibility-reduced-motion.md",
+    "artifacts/performance-frame-budget.md",
+    "artifacts/open-dev-browser-motion-evidence.md",
+    "artifacts/motion-release-gate.md",
+    "artifacts/motion-anti-patterns.md",
+    "assets/templates/motion-contract.v1.json",
+    "assets/templates/motion-audit-report.v1.md",
+    "assets/templates/motion-viewport-matrix.v1.json",
+    "assets/templates/motion-release-gate.v1.json",
+    "scripts/motion-workflow.sh",
+    "scripts/validate-skill-assets.sh"
+  ],
   "opendevbrowser-login-automation": [
     "SKILL.md",
     "artifacts/login-workflows.md",
@@ -171,6 +189,7 @@ describe("workflow skill packs", () => {
 
       expect(names).toContain("opendevbrowser-login-automation");
       expect(names).toContain("opendevbrowser-design-agent");
+      expect(names).toContain("opendevbrowser-motion-design");
       expect(names).toContain("opendevbrowser-form-testing");
       expect(names).toContain("opendevbrowser-data-extraction");
       expect(names).toContain("opendevbrowser-research");
@@ -208,6 +227,7 @@ describe("workflow skill packs", () => {
 
     expect(names).toContain("opendevbrowser-login-automation");
     expect(names).toContain("opendevbrowser-design-agent");
+    expect(names).toContain("opendevbrowser-motion-design");
     expect(names).toContain("opendevbrowser-form-testing");
     expect(names).toContain("opendevbrowser-data-extraction");
     expect(names).toContain("opendevbrowser-research");
@@ -294,13 +314,67 @@ describe("workflow skill packs", () => {
   it("uses the shared CLI resolver for router workflows across agent packs", async () => {
     const routerScriptPaths = [
       "opendevbrowser-best-practices/scripts/odb-workflow.sh",
-      "opendevbrowser-design-agent/scripts/design-workflow.sh"
+      "opendevbrowser-design-agent/scripts/design-workflow.sh",
+      "opendevbrowser-motion-design/scripts/motion-workflow.sh"
     ];
 
     for (const relativePath of routerScriptPaths) {
       const content = await readFile(join(bundledSkillsDir, relativePath), "utf8");
       expect(content).toContain("resolve-odb-cli.sh");
       expect(content).toContain("CLI_PREFIX");
+    }
+  });
+
+  it("prints install-safe motion workflow paths from outside the repo root", async () => {
+    if (process.platform === "win32") return;
+
+    const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-motion-installed-workflow-"));
+    const tempSkillsDir = join(tempRoot, "managed-skills");
+    const motionSkillRoot = join(tempSkillsDir, "opendevbrowser-motion-design");
+
+    try {
+      await mkdir(tempSkillsDir, { recursive: true });
+      await cp(join(bundledSkillsDir, "opendevbrowser-motion-design"), motionSkillRoot, { recursive: true });
+      await cp(
+        join(bundledSkillsDir, "opendevbrowser-best-practices"),
+        join(tempSkillsDir, "opendevbrowser-best-practices"),
+        { recursive: true }
+      );
+      await cp(
+        join(bundledSkillsDir, "opendevbrowser-design-agent"),
+        join(tempSkillsDir, "opendevbrowser-design-agent"),
+        { recursive: true }
+      );
+
+      const workflowPath = join(motionSkillRoot, "scripts", "motion-workflow.sh");
+      const workflows = ["contract-first", "temporal-proof", "scroll-stage-audit", "release-gate"];
+
+      for (const workflow of workflows) {
+        const result = spawnSync("/bin/bash", [workflowPath, workflow], {
+          cwd: tempRoot,
+          encoding: "utf8",
+          env: process.env
+        });
+
+        expect(result.status, `${workflow}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+        expect(result.stdout).toContain(motionSkillRoot);
+        expect(result.stdout).not.toContain("cat skills/opendevbrowser-motion-design");
+        expect(result.stdout).not.toContain("./skills/opendevbrowser-motion-design");
+      }
+
+      const contractResult = spawnSync("/bin/bash", [workflowPath, "contract-first"], {
+        cwd: tempRoot,
+        encoding: "utf8",
+        env: process.env
+      });
+      expect(contractResult.stdout).toContain(
+        join(motionSkillRoot, "assets", "templates", "motion-contract.v1.json")
+      );
+      expect(contractResult.stdout).toContain(
+        join(tempSkillsDir, "opendevbrowser-design-agent", "assets", "templates", "design-contract.v1.json")
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
     }
   });
 
@@ -366,6 +440,7 @@ describe("workflow skill packs", () => {
       "skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh",
+      "skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh",
       "skills/opendevbrowser-research/scripts/validate-skill-assets.sh",

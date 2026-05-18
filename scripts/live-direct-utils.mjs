@@ -85,6 +85,25 @@ export function summarizeFailure(result) {
     : result?.stderr || result?.stdout || result?.error || "Unknown failure";
 }
 
+export function withJsonOutputFormat(args) {
+  const normalizedArgs = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--output-format") {
+      const nextArg = args[index + 1];
+      if (nextArg && !nextArg.startsWith("-")) {
+        index += 1;
+      }
+      continue;
+    }
+    if (arg.startsWith("--output-format=")) {
+      continue;
+    }
+    normalizedArgs.push(arg);
+  }
+  return [...normalizedArgs, "--output-format", "json"];
+}
+
 function appendOutput(buffer, chunk) {
   const next = buffer + String(chunk ?? "");
   if (next.length <= MAX_BUFFER) {
@@ -180,7 +199,8 @@ export function runCli(args, {
   timeoutMs = DEFAULT_CLI_TIMEOUT_MS
 } = {}) {
   const start = Date.now();
-  const result = spawnSync(process.execPath, [CLI, ...args, "--output-format", "json"], {
+  const cliArgs = withJsonOutputFormat(args);
+  const result = spawnSync(process.execPath, [CLI, ...cliArgs], {
     cwd: ROOT,
     encoding: "utf-8",
     timeout: timeoutMs,
@@ -200,11 +220,11 @@ export function runCli(args, {
     ...(result.error ? { error: String(result.error) } : {})
   };
   payload.detail = timedOut
-    ? `CLI timed out after ${timeoutMs}ms (${args.join(" ")}).`
+    ? `CLI timed out after ${timeoutMs}ms (${cliArgs.join(" ")}).`
     : summarizeFailure(payload);
 
   if (!allowFailure && payload.status !== 0) {
-    throw new Error(`CLI failed (${args.join(" ")}): ${payload.detail}`);
+    throw new Error(`CLI failed (${cliArgs.join(" ")}): ${payload.detail}`);
   }
   return payload;
 }
@@ -249,7 +269,7 @@ export function runCliAsync(args, {
   env = process.env,
   timeoutMs = DEFAULT_CLI_TIMEOUT_MS
 } = {}) {
-  return runProcessAsync(process.execPath, [CLI, ...args, "--output-format", "json"], {
+  return runProcessAsync(process.execPath, [CLI, ...withJsonOutputFormat(args)], {
     allowFailure,
     env,
     timeoutLabel: "CLI",

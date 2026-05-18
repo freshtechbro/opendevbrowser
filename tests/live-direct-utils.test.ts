@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runNodeAsync } from "../scripts/live-direct-utils.mjs";
+import { runNodeAsync, withJsonOutputFormat } from "../scripts/live-direct-utils.mjs";
 
 const tempDirs = [];
 
@@ -24,6 +24,53 @@ afterEach(() => {
 });
 
 describe("live-direct-utils", () => {
+  it("adds JSON output format only when missing", () => {
+    expect(withJsonOutputFormat(["status", "--daemon"])).toEqual([
+      "status",
+      "--daemon",
+      "--output-format",
+      "json"
+    ]);
+    expect(withJsonOutputFormat(["status", "--output-format", "json"])).toEqual([
+      "status",
+      "--output-format",
+      "json"
+    ]);
+    expect(withJsonOutputFormat(["status", "--output-format=json"])).toEqual([
+      "status",
+      "--output-format",
+      "json"
+    ]);
+  });
+
+  it("normalizes non-JSON and malformed output format flags to JSON", () => {
+    expect(withJsonOutputFormat(["status", "--output-format", "text"])).toEqual([
+      "status",
+      "--output-format",
+      "json"
+    ]);
+    expect(withJsonOutputFormat(["status", "--output-format"])).toEqual([
+      "status",
+      "--output-format",
+      "json"
+    ]);
+    expect(withJsonOutputFormat(["status", "--output-format=", "--daemon"])).toEqual([
+      "status",
+      "--daemon",
+      "--output-format",
+      "json"
+    ]);
+  });
+
+  it("keeps following flags when normalizing malformed output format", () => {
+    expect(withJsonOutputFormat(["status", "--output-format", "--daemon"])).toEqual([
+      "status",
+      "--daemon",
+      "--output-format",
+      "json"
+    ]);
+  });
+
   it("parses trailing pretty-printed JSON from async child runs", async () => {
     const scriptPath = writeTempScript(`
       console.log("/tmp/fixture-artifact.json");

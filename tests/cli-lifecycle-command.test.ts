@@ -5,11 +5,14 @@ import { join } from "path";
 import type { ParsedArgs } from "../src/cli/args";
 import type { CommandDefinition } from "../src/cli/commands/types";
 import type { SkillTarget } from "../src/cli/utils/skills";
+import { DAEMON_FINGERPRINT_MISMATCH_REASON } from "../src/cli/daemon-mismatch";
+import { EXIT_DISCONNECTED } from "../src/cli/errors";
 
 const writeOutput = vi.fn();
 const flushOutputAndExit = vi.fn(async () => {});
 const runUpdate = vi.fn();
 const runUninstall = vi.fn();
+const runStatus = vi.fn();
 const resolveUpdateSkillModes = vi.fn();
 const hasBundledSkillArtifacts = vi.fn();
 const getBundledSkillLifecycleTargets = vi.fn();
@@ -53,6 +56,7 @@ async function runCliWithMocks(args: ParsedArgs): Promise<void> {
   flushOutputAndExit.mockClear();
   runUpdate.mockClear();
   runUninstall.mockClear();
+  runStatus.mockClear();
   resolveUpdateSkillModes.mockClear();
   hasBundledSkillArtifacts.mockClear();
   getBundledSkillLifecycleTargets.mockClear();
@@ -72,6 +76,7 @@ async function runCliWithMocks(args: ParsedArgs): Promise<void> {
     flushOutputAndExit
   }));
   vi.doMock("../src/cli/commands/update", () => ({ runUpdate }));
+  vi.doMock("../src/cli/commands/status", () => ({ runStatus }));
   vi.doMock("../src/cli/commands/uninstall", () => ({
     runUninstall,
     findInstalledConfigs: () => ({ global: false, local: false }),
@@ -133,6 +138,30 @@ afterEach(() => {
 });
 
 describe("cli lifecycle command wiring", () => {
+  it("keeps command result reasons in JSON output", async () => {
+    const message = "Daemon is protected by a different opendevbrowser build.";
+    runStatus.mockReturnValue({
+      success: false,
+      message,
+      reason: DAEMON_FINGERPRINT_MISMATCH_REASON,
+      exitCode: EXIT_DISCONNECTED
+    });
+
+    await runCliWithMocks(makeArgs("status", ["--daemon"]));
+
+    expect(writeOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        message,
+        error: message,
+        reason: DAEMON_FINGERPRINT_MISMATCH_REASON,
+        exitCode: EXIT_DISCONNECTED
+      }),
+      expect.objectContaining({ format: "json", quiet: false })
+    );
+    expect(flushOutputAndExit).toHaveBeenCalledWith(EXIT_DISCONNECTED);
+  });
+
   it("keeps update refresh scoped to marker-managed targets when config is absent", async () => {
     const targets: SkillTarget[] = [{ agents: ["codex"], dir: "/tmp/update-skill-target" }];
     runUpdate.mockReturnValue({ success: true, message: "updated", cleared: true });

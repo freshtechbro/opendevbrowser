@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
 import { CliError, EXIT_DISCONNECTED } from "../src/cli/errors";
+import { DAEMON_FINGERPRINT_MISMATCH_REASON } from "../src/cli/daemon-mismatch";
 
 const mocks = vi.hoisted(() => ({
   fetchDaemonStatusFromMetadata: vi.fn(),
@@ -149,6 +150,11 @@ describe("status command", () => {
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("Daemon fingerprint: mismatch with current build");
-    expect(result.data).toMatchObject({ fingerprintCurrent: false });
+    expect(result.message).toContain("opendevbrowser status --daemon --output-format json");
+    expect(result.message).toContain("data.fingerprintCurrent === true");
+    expect(result.data).toMatchObject({
+      fingerprintCurrent: false,
+      reason: DAEMON_FINGERPRINT_MISMATCH_REASON
+    });
   });
 });

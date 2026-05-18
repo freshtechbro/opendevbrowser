@@ -10,6 +10,10 @@ import { loadGlobalConfig } from "../../config";
 import { createUsageError, EXIT_DISCONNECTED, EXIT_EXECUTION } from "../errors";
 import { parseNumberFlag } from "../utils/parse";
 import { fetchWithTimeout } from "../utils/http";
+import {
+  buildDaemonFingerprintMismatchMessage,
+  DAEMON_FINGERPRINT_MISMATCH_REASON
+} from "../daemon-mismatch";
 import { discoverExtensionId, getNativeStatusSnapshot, installNativeHost } from "./native";
 import type { DaemonStatusPayload } from "../daemon-status";
 import { fetchDaemonStatus } from "../daemon-status";
@@ -27,6 +31,11 @@ type DaemonHandle = {
 type ExistingDaemon = {
   token: string;
   status: DaemonStatusPayload;
+};
+
+type ExistingDaemonPreparationFailure = {
+  message: string;
+  reason?: string;
 };
 
 type ServeProcessSnapshot = {
@@ -276,12 +285,15 @@ function isServeProcessRunningByPid(pid?: number): boolean {
 }
 
 function buildStaleStopMessage(metadata: NonNullable<ReturnType<typeof readDaemonMetadata>>): string {
-  const pid = isPositivePid(metadata.pid) ? ` pid=${metadata.pid}` : "";
-  return `Daemon rejected stale stop request for 127.0.0.1:${metadata.port}${pid}. Run \`opendevbrowser status --daemon\` to inspect the active daemon, then restart from the current install if needed.`;
+  return buildDaemonFingerprintMismatchMessage({
+    label: "Daemon",
+    port: metadata.port,
+    pid: metadata.pid
+  });
 }
 
 function buildProtectedMismatchMessage(port: number, status: DaemonStatusPayload): string {
-  return `Daemon on 127.0.0.1:${port} pid=${status.pid} is protected by a different opendevbrowser build. Run \`opendevbrowser status --daemon\` to inspect it, then restart from the current install.`;
+  return buildDaemonFingerprintMismatchMessage({ label: "Daemon", port, pid: status.pid });
 }
 
 async function waitForDaemonShutdown(port: number, token: string): Promise<boolean> {
@@ -314,7 +326,10 @@ async function confirmStoppedDaemon(port: number, token: string, pid?: number): 
   return statusStopped && processStopped;
 }
 
-async function stopMismatchedDaemon(port: number, daemon: ExistingDaemon): Promise<string | null> {
+async function stopMismatchedDaemon(
+  port: number,
+  daemon: ExistingDaemon
+): Promise<ExistingDaemonPreparationFailure | null> {
   let response: Response;
   try {
     response = await fetchWithTimeout(`http://127.0.0.1:${port}/stop`, {
@@ -329,13 +344,16 @@ async function stopMismatchedDaemon(port: number, daemon: ExistingDaemon): Promi
       return null;
     }
     const message = error instanceof Error ? error.message : String(error);
-    return `Failed to stop mismatched daemon on 127.0.0.1:${port}: ${message}.`;
+    return { message: `Failed to stop mismatched daemon on 127.0.0.1:${port}: ${message}.` };
   }
   if (response.status === 409) {
-    return buildProtectedMismatchMessage(port, daemon.status);
+    return {
+      message: buildProtectedMismatchMessage(port, daemon.status),
+      reason: DAEMON_FINGERPRINT_MISMATCH_REASON
+    };
   }
   if (!response.ok) {
-    return `Failed to stop mismatched daemon on 127.0.0.1:${port}: stop returned ${response.status}.`;
+    return { message: `Failed to stop mismatched daemon on 127.0.0.1:${port}: stop returned ${response.status}.` };
   }
   if (await waitForDaemonShutdown(port, daemon.token)) {
     return null;
@@ -343,10 +361,13 @@ async function stopMismatchedDaemon(port: number, daemon: ExistingDaemon): Promi
   if (await terminateServeProcessByPid(daemon.status.pid)) {
     return null;
   }
-  return `Timed out waiting for mismatched daemon on 127.0.0.1:${port} to stop.`;
+  return { message: `Timed out waiting for mismatched daemon on 127.0.0.1:${port} to stop.` };
 }
 
-async function prepareExistingDaemon(port: number, daemon: ExistingDaemon): Promise<string | null> {
+async function prepareExistingDaemon(
+  port: number,
+  daemon: ExistingDaemon
+): Promise<ExistingDaemonPreparationFailure | null> {
   if (isCurrentDaemonFingerprint(daemon.status.fingerprint)) {
     return null;
   }
@@ -396,7 +417,13 @@ export async function runServe(args: ParsedArgs) {
         headers: createDaemonStopHeaders(metadata.token, "serve.stop")
       });
       if (response.status === 409) {
-        return { success: false, message: buildStaleStopMessage(metadata), exitCode: EXIT_EXECUTION };
+        return {
+          success: false,
+          message: buildStaleStopMessage(metadata),
+          reason: DAEMON_FINGERPRINT_MISMATCH_REASON,
+          data: { reason: DAEMON_FINGERPRINT_MISMATCH_REASON },
+          exitCode: EXIT_EXECUTION
+        };
       }
       if (!response.ok) {
         throw new Error(`Stop failed (${response.status})`);
@@ -431,9 +458,14 @@ export async function runServe(args: ParsedArgs) {
   const staleCleared = () => staleDaemonPids.size;
 
   if (existingDaemon) {
-    const mismatchMessage = await prepareExistingDaemon(requestedPort, existingDaemon);
-    if (mismatchMessage) {
-      return { success: false, message: mismatchMessage, exitCode: EXIT_EXECUTION };
+    const mismatchFailure = await prepareExistingDaemon(requestedPort, existingDaemon);
+    if (mismatchFailure) {
+      return {
+        success: false,
+        message: mismatchFailure.message,
+        ...(mismatchFailure.reason ? { reason: mismatchFailure.reason, data: { reason: mismatchFailure.reason } } : {}),
+        exitCode: EXIT_EXECUTION
+      };
     }
     if (isCurrentDaemonFingerprint(existingDaemon.status.fingerprint)) {
       for (const pid of await cleanupCompetingServeProcesses(requestedPort, existingDaemon.status.pid)) {
@@ -493,9 +525,14 @@ export async function runServe(args: ParsedArgs) {
       }
       const runningDaemon = await resolveExistingDaemon(requestedPort, tokenCandidates);
       if (runningDaemon) {
-        const mismatchMessage = await prepareExistingDaemon(requestedPort, runningDaemon);
-        if (mismatchMessage) {
-          return { success: false, message: mismatchMessage, exitCode: EXIT_EXECUTION };
+        const mismatchFailure = await prepareExistingDaemon(requestedPort, runningDaemon);
+        if (mismatchFailure) {
+          return {
+            success: false,
+            message: mismatchFailure.message,
+            ...(mismatchFailure.reason ? { reason: mismatchFailure.reason, data: { reason: mismatchFailure.reason } } : {}),
+            exitCode: EXIT_EXECUTION
+          };
         }
         if (isCurrentDaemonFingerprint(runningDaemon.status.fingerprint)) {
           return buildAlreadyRunningResult(requestedPort, runningDaemon.status, config.relayPort, staleCleared());

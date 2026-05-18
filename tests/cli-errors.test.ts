@@ -16,6 +16,18 @@ describe("cli error helpers", () => {
     expect(error.exitCode).toBe(EXIT_USAGE);
   });
 
+  it("formats JSON error payload reasons when present", () => {
+    const error = new Error("daemon mismatch");
+    const cliError = toCliError(error, EXIT_DISCONNECTED);
+    cliError.reason = "daemon_fingerprint_mismatch";
+    expect(formatErrorPayload(cliError)).toEqual({
+      success: false,
+      error: "daemon mismatch",
+      exitCode: EXIT_DISCONNECTED,
+      reason: "daemon_fingerprint_mismatch"
+    });
+  });
+
   it("coerces unknown errors with fallback exit codes", () => {
     const error = toCliError(new Error("boom"), EXIT_EXECUTION);
     expect(error.exitCode).toBe(EXIT_EXECUTION);

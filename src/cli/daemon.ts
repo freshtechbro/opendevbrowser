@@ -9,6 +9,7 @@ import { createOpenDevBrowserCore } from "../core";
 import { loadGlobalConfig, resolveConfig, type OpenDevBrowserConfig } from "../config";
 import { handleDaemonCommand, type DaemonCommandRequest } from "./daemon-commands";
 import { clearBinding, getBindingDiagnostics, getHubInstanceId } from "./daemon-state";
+import { DAEMON_FINGERPRINT_MISMATCH_REASON } from "./daemon-mismatch";
 
 const DEFAULT_DAEMON_PORT = 8788;
 export const DAEMON_STOP_DEBUG_ENV = "OPDEVBROWSER_DEBUG_DAEMON_STOP";
@@ -308,7 +309,11 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<{ state:
         fingerprintMatches: stopFingerprint === fingerprint
       });
       if (stopFingerprint !== fingerprint) {
-        sendJson(response, 409, { ok: false, error: "Stale daemon stop request." });
+        sendJson(response, 409, {
+          ok: false,
+          error: "Stale daemon stop request.",
+          reason: DAEMON_FINGERPRINT_MISMATCH_REASON
+        });
         return;
       }
       sendJson(response, 200, { ok: true });

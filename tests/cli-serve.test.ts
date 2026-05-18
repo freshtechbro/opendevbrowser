@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
 import type { OpenDevBrowserConfig } from "../src/config";
+import { DAEMON_FINGERPRINT_MISMATCH_REASON } from "../src/cli/daemon-mismatch";
 
 const mocks = vi.hoisted(() => ({
   startDaemon: vi.fn(),
@@ -351,9 +352,12 @@ describe("serve command", () => {
 
     expect(result.success).toBe(false);
     expect(result.exitCode).toBe(2);
-    expect(result.message).toContain("rejected stale stop request");
+    expect(result.message).toContain("protected by a different opendevbrowser build");
     expect(result.message).toContain("127.0.0.1:8788 pid=8080");
-    expect(result.message).toContain("opendevbrowser status --daemon");
+    expect(result.message).toContain("opendevbrowser status --daemon --output-format json");
+    expect(result.message).toContain("data.fingerprintCurrent === true");
+    expect(result.reason).toBe(DAEMON_FINGERPRINT_MISMATCH_REASON);
+    expect(result.data).toMatchObject({ reason: DAEMON_FINGERPRINT_MISMATCH_REASON });
     expect(killSpy).not.toHaveBeenCalled();
     killSpy.mockRestore();
   });
@@ -557,6 +561,10 @@ describe("serve command", () => {
     expect(result.success).toBe(false);
     expect(result.exitCode).toBe(2);
     expect(result.message).toContain("protected by a different opendevbrowser build");
+    expect(result.message).toContain("opendevbrowser status --daemon --output-format json");
+    expect(result.message).toContain("data.fingerprintCurrent === true");
+    expect(result.reason).toBe(DAEMON_FINGERPRINT_MISMATCH_REASON);
+    expect(result.data).toMatchObject({ reason: DAEMON_FINGERPRINT_MISMATCH_REASON });
     expect(mocks.startDaemon).not.toHaveBeenCalled();
     expect(killSpy).not.toHaveBeenCalled();
     killSpy.mockRestore();

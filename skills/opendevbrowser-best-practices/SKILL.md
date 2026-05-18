@@ -168,6 +168,9 @@ Install and update refresh managed copies of these canonical packs; uninstall re
 - Prefer refs from `opendevbrowser_snapshot` over raw selectors.
 - Use one action per decision loop: snapshot -> action -> snapshot.
 - Keep a single correlation context (`requestId`, `sessionId`) across a run.
+- Before daemon-backed workflows, run `opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`.
+- Treat missing or false `data.fingerprintCurrent` as not current; use the matching binary, restart from the current install, or isolate shared runs with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports.
+- Do not conflate `daemon_fingerprint_mismatch` with native messaging host drift.
 - Run the same workflow shape across all three modes before claiming parity.
 - Default to read/research workflows. Social posting probes remain disabled unless explicitly requested via direct-run opt-in (`--include-social-posts`).
 - Apply rate-limit/backoff discipline (`Retry-After` aware) whenever 429 pressure appears.
@@ -181,7 +184,7 @@ Install and update refresh managed copies of these canonical packs; uninstall re
 - Use default extension `/ops` for relay-backed concurrency; use `/cdp` only for legacy compatibility paths.
 - For managed parallel runs with persisted profiles, use unique profile paths per session (or disable persistence) to avoid profile lock collisions.
 - Treat extension headless attempts (`--extension-only --headless`) as expected `unsupported_mode`; route headless workloads through managed/cdpConnect instead.
-- Before extension-mode runs, preflight `npx opendevbrowser status --daemon` and require `extensionConnected=true` plus `extensionHandshakeComplete=true`.
+- Before extension-mode runs, preflight `npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
 
 Operational references:
 - `artifacts/provider-workflows.md` (see Workflow E)

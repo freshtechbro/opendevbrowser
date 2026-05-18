@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
 import { resolveExitCode } from "../src/cli/errors";
 import type { AutostartStatus } from "../src/cli/daemon-autostart";
+import { DAEMON_FINGERPRINT_MISMATCH_REASON } from "../src/cli/daemon-mismatch";
 
 const makeAutostartStatus = (overrides: Partial<AutostartStatus> = {}): AutostartStatus => ({
   platform: "darwin",
@@ -169,14 +170,18 @@ describe("daemon command", () => {
 
     expect(result.success).toBe(false);
     expect(resolveExitCode(result)).toBe(2);
-    expect(result.message).toContain("rejected the stop request as stale");
+    expect(result.message).toContain("protected by a different opendevbrowser build");
     expect(result.message).toContain("127.0.0.1:8788 pid=8080");
-    expect(result.message).toContain("opendevbrowser status --daemon");
+    expect(result.message).toContain("opendevbrowser status --daemon --output-format json");
+    expect(result.message).toContain("data.fingerprintCurrent === true");
+    expect(result.reason).toBe(DAEMON_FINGERPRINT_MISMATCH_REASON);
     expect(result.data).toMatchObject({
+      reason: DAEMON_FINGERPRINT_MISMATCH_REASON,
       stop: {
         outcome: "fingerprint_rejected",
         pid: 8080,
-        port: 8788
+        port: 8788,
+        reason: DAEMON_FINGERPRINT_MISMATCH_REASON
       }
     });
   });

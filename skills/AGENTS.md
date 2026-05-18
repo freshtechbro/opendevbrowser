@@ -1,6 +1,6 @@
 # skills/ — Agent Guidelines
 
-Bundled OpenDevBrowser skill directories (9 canonical packs). Extends root `AGENTS.md`.
+Bundled OpenDevBrowser skill directories (10 canonical packs). Extends root `AGENTS.md`.
 
 ## Structure
 
@@ -8,6 +8,7 @@ Bundled OpenDevBrowser skill directories (9 canonical packs). Extends root `AGEN
 skills/
 ├── opendevbrowser-best-practices/SKILL.md
 ├── opendevbrowser-design-agent/SKILL.md
+├── opendevbrowser-motion-design/SKILL.md
 ├── opendevbrowser-continuity-ledger/SKILL.md
 ├── opendevbrowser-login-automation/SKILL.md
 ├── opendevbrowser-form-testing/SKILL.md

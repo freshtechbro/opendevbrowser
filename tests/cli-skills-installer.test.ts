@@ -185,7 +185,9 @@ describe("bundled skill lifecycle sync", () => {
 
     for (const target of getGlobalSkillTargets()) {
       const bestPracticesPath = path.join(target.dir, "opendevbrowser-best-practices", "SKILL.md");
+      const motionDesignPath = path.join(target.dir, "opendevbrowser-motion-design", "SKILL.md");
       expect(fs.existsSync(bestPracticesPath)).toBe(true);
+      expect(fs.existsSync(motionDesignPath)).toBe(true);
       expect(fs.existsSync(path.join(target.dir, "research"))).toBe(false);
       expect(fs.existsSync(path.join(target.dir, "shopping"))).toBe(false);
     }
@@ -200,7 +202,9 @@ describe("bundled skill lifecycle sync", () => {
 
     for (const target of getLocalSkillTargets()) {
       const bestPracticesPath = path.join(target.dir, "opendevbrowser-best-practices", "SKILL.md");
+      const motionDesignPath = path.join(target.dir, "opendevbrowser-motion-design", "SKILL.md");
       expect(fs.existsSync(bestPracticesPath)).toBe(true);
+      expect(fs.existsSync(motionDesignPath)).toBe(true);
     }
   }, 60_000);
 

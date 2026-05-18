@@ -84,6 +84,12 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 - `cdpConnected`: At least one active `/cdp` client; false is normal until a tool/CLI connects.
 - `pairingRequired`: Relay requires pairing token; extension auto-pair should handle this.
 
+### Daemon-Backed Workflow Preflight
+
+Before launch, connect, canvas, provider, release-harness, or other daemon-backed commands, run `npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`.
+If the value is `false` or missing, treat the daemon as not current. Use the matching binary for the running daemon, restart it from the current install, or isolate shared runs with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports.
+Do not conflate `daemon_fingerprint_mismatch` with native messaging host drift.
+
 ## Structure
 
 ```
@@ -111,7 +117,7 @@ Extension relay requires **Chrome 125+** and uses flat CDP sessions with Debugge
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # 11 bundled skill directories (9 canonical packs + 2 compatibility aliases)
+├── skills/           # 10 canonical bundled skill directories
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, plans, and version-scoped evidence
 ```

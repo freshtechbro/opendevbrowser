@@ -40,6 +40,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - `scripts/design-workflow.sh`
 - `scripts/extract-canvas-plan.sh`
 - `scripts/validate-skill-assets.sh`
+- Motion authority: `../opendevbrowser-motion-design/SKILL.md`
 - Shared robustness matrix: `../opendevbrowser-best-practices/artifacts/browser-agent-known-issues-matrix.md`
 - Shared canvas workflow baseline: `../opendevbrowser-best-practices/SKILL.md`
 
@@ -72,6 +73,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 ## Supporting Surfaces
 
 - Use browser replay (`screencast-start` / `screencast-stop`) during real-surface validation when motion, sequencing, or transition timing matters.
+- Load `opendevbrowser-motion-design` when motion-heavy work needs terminology, pattern catalog decisions, platform/framework policy, device posture, reduced-motion rules, performance budgets, or temporal proof.
 - Treat shader, WebGL, Spline-style, and custom 3D motion references as advisory cues unless current runtime evidence proves support.
 - Desktop observation stays read-only and is only for external window or OS-level evidence around the workflow; it is not a design-surface control lane.
 - Browser-scoped computer use remains a challenge posture knob via `--challenge-automation-mode`, not a desktop-agent capability.
@@ -98,6 +100,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - For non-canvas frontend work, still fill the same design-contract fields before coding so decisions stay consistent across code, preview, and docs.
 - Use one owner for overlays, drawers, sheets, and detail panels; prefer item-backed state over boolean sprawl.
 - If motion depends on scroll or viewport progress, define the driver and reduced-motion fallback before implementation.
+- For animation systems, route the motion-specific decisions through `../opendevbrowser-motion-design/artifacts/motion-pattern-catalog.md`, `../opendevbrowser-motion-design/artifacts/platform-framework-guide.md`, `../opendevbrowser-motion-design/artifacts/performance-frame-budget.md`, and `../opendevbrowser-motion-design/artifacts/open-dev-browser-motion-evidence.md`.
 - Carry advanced motion cues through `designVectors` and `motionSystem` as design intent only; they do not authorize new runtime libraries.
 - Keep `libraryPolicy.motion` and `libraryPolicy.threeD` empty in samples unless a separate runtime change explicitly approves those lanes.
 - Use `artifacts/scroll-reveal-surface-planning.md` whenever the design depends on pinned sections, reveal stages, or viewport-driven sequencing.

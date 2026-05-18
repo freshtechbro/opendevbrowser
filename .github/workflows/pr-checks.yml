@@ -88,7 +88,36 @@ jobs:
         run: npm ci
 
       - name: Validate bundled skill assets
-        run: ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+        run: |
+          ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+          ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+          ./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
+
+  focused-regression-tests:
+    name: focused-regression-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused skill and parser regressions
+        run: >
+          npm run test --
+          tests/cli-args.test.ts
+          tests/skill-loader.test.ts
+          tests/cli-skills-installer.test.ts
+          tests/skill-runtime-audit.test.ts
+          tests/skill-workflow-packs.test.ts
+          tests/docs-drift-check.test.ts
 
   chrome-store-compliance-check:
     name: chrome-store-compliance-check

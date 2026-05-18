@@ -18,6 +18,14 @@ CLI_PREFIX="$(render_cli_prefix)"
 PACKAGE_ROOT="$(cd "$script_dir/../../.." && pwd)"
 TRANSCRIPT_PROBE_PATH="$(printf '%q' "$PACKAGE_ROOT/scripts/youtube-transcript-live-probe.mjs")"
 
+print_daemon_preflight() {
+  cat <<EOF
+# Daemon preflight for daemon-backed workflows:
+$CLI_PREFIX status --daemon --output-format json
+# Continue only when data.fingerprintCurrent === true.
+EOF
+}
+
 print_help() {
   cat <<'EOF'
 OpenDevBrowser workflow router
@@ -73,6 +81,7 @@ opendevbrowser_wait sessionId="<session-id>" until="networkidle"
 EOF
     ;;
   inspiredesign)
+    print_daemon_preflight
     cat <<EOF
 # Pair with opendevbrowser-design-agent when the contract will flow into implementation or /canvas work.
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
@@ -118,6 +127,7 @@ opendevbrowser_network_poll sessionId="<session-id>" max=100
 EOF
     ;;
   canvas-preflight)
+    print_daemon_preflight
     cat <<EOF
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
@@ -132,6 +142,7 @@ $CLI_PREFIX canvas --command canvas.plan.set --params-file skills/opendevbrowser
 EOF
     ;;
   canvas-feedback-eval)
+    print_daemon_preflight
     cat <<EOF
 cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-feedback-eval.json
@@ -151,6 +162,7 @@ npm run test -- tests/tools.test.ts tests/daemon-commands.integration.test.ts
 EOF
     ;;
   release-direct-gates)
+    print_daemon_preflight
     cat <<'EOF'
 mkdir -p artifacts/release/vX.Y.Z
 node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json
@@ -158,6 +170,7 @@ node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/v
 EOF
     ;;
   skill-runtime-audit)
+    print_daemon_preflight
     cat <<'EOF'
 npm run build
 node scripts/docs-drift-check.mjs
@@ -174,6 +187,7 @@ OPENCODE_CONFIG_DIR="$WORKDIR/config" CODEX_HOME="$WORKDIR/codex-home" CLAUDECOD
 ./skills/opendevbrowser-continuity-ledger/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-data-extraction/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-design-agent/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-form-testing/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-login-automation/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh
@@ -184,6 +198,7 @@ node scripts/skill-runtime-audit.mjs --out artifacts/skill-runtime-audit/full.js
 EOF
     ;;
   validated-capabilities)
+    print_daemon_preflight
     cat <<EOF
 # Public-first YouTube transcript probe
 node $TRANSCRIPT_PROBE_PATH --url "https://www.youtube.com/watch?v=aircAruvnKk" --youtube-mode auto --out artifacts/capability-fix/youtube-transcript-auto.json
@@ -214,22 +229,29 @@ EOF
   ops-channel-check)
     cat <<EOF
 $CLI_PREFIX serve
+# Daemon preflight for daemon-backed workflows:
+$CLI_PREFIX status --daemon --output-format json
+# Continue only when data.fingerprintCurrent === true.
 $CLI_PREFIX launch --extension-only --wait-for-extension --output-format json
 $CLI_PREFIX status --daemon --output-format json
-# Verify opsConnected=true and extensionHandshakeComplete=true
+# Verify fingerprintCurrent=true, opsConnected=true, and extensionHandshakeComplete=true
 cat skills/opendevbrowser-best-practices/assets/templates/ops-request-envelope.json
 EOF
     ;;
   cdp-channel-check)
     cat <<EOF
 $CLI_PREFIX serve
+# Daemon preflight for daemon-backed workflows:
+$CLI_PREFIX status --daemon --output-format json
+# Continue only when data.fingerprintCurrent === true.
 $CLI_PREFIX launch --extension-only --extension-legacy --wait-for-extension --output-format json
 $CLI_PREFIX status --daemon --output-format json
-# Verify cdpConnected=true while legacy session is active
+# Verify fingerprintCurrent=true and cdpConnected=true while legacy session is active
 cat skills/opendevbrowser-best-practices/assets/templates/cdp-forward-envelope.json
 EOF
     ;;
   mode-flag-matrix)
+    print_daemon_preflight
     cat <<EOF
 cat skills/opendevbrowser-best-practices/assets/templates/mode-flag-matrix.json
 $CLI_PREFIX launch --no-extension --output-format json

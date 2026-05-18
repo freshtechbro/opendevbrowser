@@ -4,6 +4,7 @@ export type CommandResult = {
   success: boolean;
   message?: string;
   data?: unknown;
+  reason?: string;
   exitCode?: number | null;
 };
 

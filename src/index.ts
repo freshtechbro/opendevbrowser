@@ -15,6 +15,7 @@ import { RemoteRelay } from "./cli/remote-relay";
 import { fetchDaemonStatus, fetchDaemonStatusFromMetadata, type DaemonStatusPayload } from "./cli/daemon-status";
 import { DEFAULT_DAEMON_STATUS_FETCH_OPTIONS } from "./cli/daemon-status-policy";
 import { fetchWithTimeout } from "./cli/utils/http";
+import { buildDaemonFingerprintMismatchMessage } from "./cli/daemon-mismatch";
 import {
   buildSkillNudgeMessage,
   clearSkillNudge,
@@ -196,7 +197,11 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
       if (!configuredConnection) {
         return;
       }
-      throw new Error(`Hub daemon on 127.0.0.1:${connection.port} pid=${status.pid} is protected by a different opendevbrowser build.`);
+      throw new Error(buildDaemonFingerprintMismatchMessage({
+        label: "Hub daemon",
+        port: connection.port,
+        pid: status.pid
+      }));
     }
     if (!response.ok) {
       if (!configuredConnection) {

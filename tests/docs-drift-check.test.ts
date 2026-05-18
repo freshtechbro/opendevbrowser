@@ -66,6 +66,8 @@ describe("docs-drift-check", () => {
       "doc.cutover.challenge_override_sync_documented",
       "skill.best_practices.canvas_plan_guidance_documented",
       "skill.best_practices.inspiredesign_lane_documented",
+      "doc.motion_design_skill.documented",
+      "skill.motion_design.cross_links_and_evidence_documented",
       "skill.command_channel_reference.canvas_and_annotation_markers_documented",
       "skill.parity_gates.replay_and_desktop_observation_documented",
       "skill.design_agent.canvas_validation_markers_documented",
