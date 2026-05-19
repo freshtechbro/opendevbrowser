@@ -475,6 +475,11 @@ describe("workflow CLI commands", () => {
 
     expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", {
       brief: "Build a docs landing page contract",
+      harvest: false,
+      query: undefined,
+      providers: undefined,
+      maxReferences: undefined,
+      visualEvidence: "off",
       urls: ["https://example.com/a", "https://example.com/b"],
       captureMode: "deep",
       includePrototypeGuidance: true,
@@ -482,10 +487,91 @@ describe("workflow CLI commands", () => {
       timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
       outputDir: defaultWorkflowOutputDir,
       ttlHours: undefined,
+      browserMode: undefined,
       useCookies: undefined,
       challengeAutomationMode: undefined,
       cookiePolicyOverride: undefined
     });
+  });
+
+  it("parses and dispatches inspiredesign harvest payload through inspiredesign.run", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=premium docs references",
+      "--provider=web/default",
+      "--provider=community/reddit",
+      "--max-references=4",
+      "--visual-evidence=auto"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      brief: "Build a docs landing page contract",
+      harvest: true,
+      query: "premium docs references",
+      providers: ["web/default", "community/reddit"],
+      maxReferences: 4,
+      visualEvidence: "auto",
+      captureMode: "off",
+      mode: "path"
+    }));
+  });
+
+  it("applies inspiredesign harvest defaults", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=premium docs references"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      harvest: true,
+      query: "premium docs references",
+      maxReferences: 5,
+      visualEvidence: "required",
+      mode: "path"
+    }));
+  });
+
+  it("rejects inspiredesign harvest without query or URLs", async () => {
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract"
+    ]))).rejects.toThrow("inspiredesign harvest requires --query or --url");
+  });
+
+  it("rejects query discovery on inspiredesign run", async () => {
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "run",
+      "--brief=Build a docs landing page contract",
+      "--query=premium docs references"
+    ]))).rejects.toThrow("--query is only supported by inspiredesign harvest");
+  });
+
+  it("rejects inspiredesign providers without query", async () => {
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--provider=web/default"
+    ]))).rejects.toThrow("--provider requires --query");
+  });
+
+  it("rejects invalid inspiredesign harvest bounds and visual modes", async () => {
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--max-references=11"
+    ]))).rejects.toThrow("Invalid --max-references: 11");
+
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--visual-evidence=always"
+    ]))).rejects.toThrow("Invalid --visual-evidence: always");
   });
 
   it("defaults inspiredesign capture mode to off when no urls are supplied", async () => {

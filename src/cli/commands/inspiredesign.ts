@@ -11,11 +11,16 @@ import {
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
 import { resolveInspiredesignCaptureMode } from "../../inspiredesign/capture-mode";
+import type { InspiredesignVisualEvidenceMode } from "../../inspiredesign/visual-evidence";
 import type { WorkflowBrowserMode } from "../../providers/types";
 import { resolveWorkflowOutputDirFlag } from "./workflow-output";
 
 type InspiredesignCommandArgs = {
   brief?: string;
+  query?: string;
+  providers?: string[];
+  maxReferences?: number;
+  visualEvidence?: InspiredesignVisualEvidenceMode;
   urls?: string[];
   captureMode?: "off" | "deep";
   includePrototypeGuidance?: boolean;
@@ -33,6 +38,9 @@ const MODE_VALUES = new Set(["compact", "json", "md", "context", "path"]);
 const CAPTURE_MODE_VALUES = new Set(["off", "deep"]);
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
 const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
+const VISUAL_EVIDENCE_VALUES = new Set(["off", "auto", "required"]);
+const HARVEST_DEFAULT_MAX_REFERENCES = 5;
+const MAX_REFERENCES_LIMIT = 10;
 
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
@@ -42,20 +50,27 @@ const requireValue = (rawArgs: string[], index: number, flag: string): string =>
   return value;
 };
 
-const parseInspiredesignRunArgs = (rawArgs: string[]): InspiredesignCommandArgs => {
+const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => {
   const parsed: InspiredesignCommandArgs = {
     brief: parseOptionalStringFlag(rawArgs, "--brief"),
+    query: parseOptionalStringFlag(rawArgs, "--query"),
+    providers: parseRepeatedStringFlag(rawArgs, "--provider"),
     urls: parseRepeatedStringFlag(rawArgs, "--url")
   };
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
 
-    if (arg === "--brief" || arg === "--url") {
+    if (arg === "--brief" || arg === "--query" || arg === "--provider" || arg === "--url") {
       index += 1;
       continue;
     }
-    if (arg?.startsWith("--brief=") || arg?.startsWith("--url=")) {
+    if (
+      arg?.startsWith("--brief=")
+      || arg?.startsWith("--query=")
+      || arg?.startsWith("--provider=")
+      || arg?.startsWith("--url=")
+    ) {
       continue;
     }
 
@@ -101,6 +116,40 @@ const parseInspiredesignRunArgs = (rawArgs: string[]): InspiredesignCommandArgs 
         throw createUsageError(`Invalid --mode: ${value}`);
       }
       parsed.mode = value as InspiredesignCommandArgs["mode"];
+      continue;
+    }
+
+    if (arg === "--max-references") {
+      parsed.maxReferences = parseNumberFlag(requireValue(rawArgs, index, "--max-references"), "--max-references", {
+        min: 1,
+        max: MAX_REFERENCES_LIMIT
+      });
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--max-references=")) {
+      parsed.maxReferences = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max-references", {
+        min: 1,
+        max: MAX_REFERENCES_LIMIT
+      });
+      continue;
+    }
+
+    if (arg === "--visual-evidence") {
+      const value = requireValue(rawArgs, index, "--visual-evidence").toLowerCase();
+      if (!VISUAL_EVIDENCE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --visual-evidence: ${value}`);
+      }
+      parsed.visualEvidence = value as InspiredesignVisualEvidenceMode;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--visual-evidence=")) {
+      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      if (!VISUAL_EVIDENCE_VALUES.has(value)) {
+        throw createUsageError(`Invalid --visual-evidence: ${value}`);
+      }
+      parsed.visualEvidence = value as InspiredesignVisualEvidenceMode;
       continue;
     }
 
@@ -202,22 +251,37 @@ const parseInspiredesignRunArgs = (rawArgs: string[]): InspiredesignCommandArgs 
 
 export async function runInspiredesignCommand(args: ParsedArgs) {
   const [subcommand, ...rest] = args.rawArgs;
-  if (subcommand !== "run") {
-    throw createUsageError("Usage: opendevbrowser inspiredesign run --brief <value> [--url <url>] [options]");
+  if (subcommand !== "run" && subcommand !== "harvest") {
+    throw createUsageError("Usage: opendevbrowser inspiredesign <run|harvest> --brief <value> [--url <url>] [options]");
   }
 
-  const parsed = parseInspiredesignRunArgs(rest);
+  const parsed = parseInspiredesignArgs(rest);
   if (!parsed.brief?.trim()) {
     throw createUsageError("Missing --brief");
+  }
+  if (subcommand === "run" && parsed.query) {
+    throw createUsageError("--query is only supported by inspiredesign harvest");
+  }
+  const isHarvest = subcommand === "harvest";
+  if (parsed.providers && parsed.providers.length > 0 && !parsed.query) {
+    throw createUsageError("--provider requires --query");
+  }
+  if (isHarvest && !parsed.query && (!parsed.urls || parsed.urls.length === 0)) {
+    throw createUsageError("inspiredesign harvest requires --query or --url");
   }
   const captureMode = resolveInspiredesignCaptureMode(parsed.captureMode, parsed.urls);
 
   const data = await callDaemon("inspiredesign.run", {
     brief: parsed.brief,
+    harvest: isHarvest,
+    query: parsed.query,
+    providers: parsed.providers,
+    maxReferences: parsed.maxReferences ?? (isHarvest ? HARVEST_DEFAULT_MAX_REFERENCES : undefined),
+    visualEvidence: parsed.visualEvidence ?? (isHarvest ? "required" : "off"),
     urls: parsed.urls,
     captureMode,
     includePrototypeGuidance: parsed.includePrototypeGuidance,
-    mode: parsed.mode ?? "compact",
+    mode: parsed.mode ?? (isHarvest ? "path" : "compact"),
     timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,
     outputDir: resolveWorkflowOutputDirFlag(parsed.outputDir),
     ttlHours: parsed.ttlHours,
@@ -235,5 +299,5 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
 }
 
 export const __test__ = {
-  parseInspiredesignRunArgs
+  parseInspiredesignArgs
 };

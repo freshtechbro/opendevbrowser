@@ -262,6 +262,7 @@ type InspiredesignSuccessHandoffInput = {
   commandExamples: {
     loadBestPractices: string;
     loadDesignAgent: string;
+    loadMotionDesign: string;
     continueInCanvas: string;
   };
   deepCaptureRecommendation: string;
@@ -441,6 +442,11 @@ export const buildInspiredesignSuccessHandoff = (
       reason: "Load the Canvas contract lane before patching.",
       command: input.commandExamples.loadDesignAgent
     },
+    {
+      reason: "Load the motion-design lane before translating visual evidence into animation, timing, or reduced-motion behavior.",
+      command: input.commandExamples.loadMotionDesign
+    },
+    { reason: INSPIREDESIGN_HANDOFF_GUIDANCE.visualArtifactRecommendation },
     {
       reason: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest,
       command: input.commandExamples.continueInCanvas

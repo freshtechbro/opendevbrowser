@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import type {
   InspiredesignBriefExpansion,
@@ -50,10 +51,20 @@ type InspiredesignEvidenceJson = {
   referencePatternBoard?: {
     references: Array<{
       id: string;
+      rank?: number;
+      score?: number;
+      confidence?: number;
       capturedVia: string[];
+      visualStrengths?: string[];
+      visualRisks?: string[];
       layoutRecipe: string;
       patternsToBorrow: string[];
       patternsToReject: string[];
+    }>;
+    rejectedReferences?: Array<{
+      id: string;
+      fetchStatus: string;
+      captureStatus: string;
     }>;
     synthesis: {
       dominantDirection: string;
@@ -61,6 +72,21 @@ type InspiredesignEvidenceJson = {
       contractDeltas: string[];
     };
   };
+  rankedReferences?: NonNullable<InspiredesignEvidenceJson["referencePatternBoard"]>["references"];
+  visualEvidence?: Array<{
+    referenceId: string;
+    visual: {
+      path?: string;
+      sha256?: string;
+      bytes?: number;
+    };
+  }>;
+  screenshotIndex?: Array<{
+    referenceId: string;
+    path: string;
+    sha256: string;
+    bytes: number;
+  }>;
   designVectors?: {
     sourcePriority: string;
     directionLabel: string;
@@ -339,6 +365,7 @@ describe("inspiredesign packet + renderer", () => {
       commandExamples: {
         loadBestPractices: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices,
         loadDesignAgent: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent,
+        loadMotionDesign: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign,
         continueInCanvas: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
       },
       deepCaptureRecommendation: INSPIREDESIGN_HANDOFF_GUIDANCE.deepCaptureRecommendation,
@@ -544,6 +571,324 @@ describe("inspiredesign packet + renderer", () => {
     }
   });
 
+  it("ranks screenshot-backed references deterministically and builds metadata-only meta prompts", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public launch page with cinematic reference evidence.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public launch page with cinematic reference evidence."
+      }),
+      urls: ["https://example.com/text-first", "https://example.com/visual-first"],
+      references: [
+        makeReference({
+          id: "text-first",
+          url: "https://example.com/text-first",
+          title: "Text First Reference",
+          excerpt: "Editorial hero with proof bands and CTA clarity.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Editorial hero and proof bands.",
+              refCount: 4,
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "visual-first",
+          url: "https://example.com/visual-first",
+          title: "Visual First Reference",
+          excerpt: "Full-bleed hero with cinematic product staging and refined CTA.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Full-bleed hero, cinematic product staging, refined CTA, gallery proof.",
+              refCount: 7,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "<main>cinematic product staging</main>",
+              cssPreview: ".hero { min-height: 100vh; }",
+              warnings: []
+            },
+            visual: {
+              status: "captured",
+              kind: "viewport",
+              fullPage: false,
+              capturedAt: "2026-05-18T00:00:00.000Z",
+              path: "visual-evidence/visual-first/viewport.png",
+              sha256: "a".repeat(64),
+              bytes: 123,
+              warnings: ["cdp fallback"]
+            }
+          }
+        }),
+        makeReference({
+          id: "blocked",
+          url: "https://example.com/blocked",
+          fetchStatus: "failed",
+          captureStatus: "failed",
+          fetchFailure: "Authentication required"
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.referencePatternBoard?.references.map((reference) => reference.id)).toEqual([
+      "visual-first",
+      "text-first"
+    ]);
+    expect(evidence.referencePatternBoard?.references[0]).toMatchObject({
+      rank: 1,
+      score: expect.any(Number),
+      confidence: expect.any(Number),
+      capturedVia: expect.arrayContaining(["visual"]),
+      visualStrengths: expect.arrayContaining([
+        "Screenshot artifact is available for direct visual inspection."
+      ]),
+      visualRisks: expect.arrayContaining([
+        "Screenshot warning: cdp fallback."
+      ])
+    });
+    expect(evidence.referencePatternBoard?.synthesis.dominantDirection).toBe(
+      evidence.referencePatternBoard?.references[0]?.layoutRecipe
+    );
+    expect(evidence.referencePatternBoard?.rejectedReferences).toEqual([
+      expect.objectContaining({
+        id: "blocked",
+        fetchStatus: "failed",
+        captureStatus: "failed"
+      })
+    ]);
+    expect(evidence.rankedReferences).toEqual(evidence.referencePatternBoard?.references);
+    expect(evidence.visualEvidence).toEqual([
+      expect.objectContaining({
+        referenceId: "visual-first",
+        visual: expect.objectContaining({
+          path: "visual-evidence/visual-first/viewport.png",
+          sha256: "a".repeat(64),
+          bytes: 123
+        })
+      })
+    ]);
+    expect(evidence.screenshotIndex).toEqual([
+      expect.objectContaining({
+        referenceId: "visual-first",
+        path: "visual-evidence/visual-first/viewport.png",
+        sha256: "a".repeat(64),
+        bytes: 123
+      })
+    ]);
+    const evidenceText = JSON.stringify(evidence);
+    expect(evidenceText).not.toContain("/tmp/");
+    expect(evidenceText).not.toContain("base64");
+    expect(packet.metaPromptMarkdown).toContain("# InspireDesign Meta Prompt");
+    expect(packet.metaPromptMarkdown).toContain("Rank 1: Visual First Reference");
+    expect(packet.metaPromptMarkdown).toContain("Borrow Guidance");
+    expect(packet.metaPromptMarkdown).toContain("Reject Guidance");
+    expect(packet.metaPromptMarkdown).toContain("Motion Posture");
+    expect(packet.metaPromptMarkdown).toContain("Accessibility Constraints");
+    expect(packet.metaPromptMarkdown).toContain("Do not copy logos");
+    expect(packet.metaPromptMarkdown).toContain("Validation Gates");
+  });
+
+  it("keeps the reference pattern board template aligned with emitted board keys", () => {
+    const template = JSON.parse(
+      readFileSync("skills/opendevbrowser-design-agent/assets/templates/reference-pattern-board.v1.json", "utf8")
+    ) as {
+      references: Array<Record<string, unknown>>;
+      rejectedReferences: Array<Record<string, unknown>>;
+      synthesis: Record<string, unknown>;
+    };
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium coffee landing page.",
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://example.com/visual", "https://example.com/blocked"],
+      references: [
+        makeReference({
+          id: "visual",
+          url: "https://example.com/visual",
+          title: "Visual reference",
+          excerpt: "Premium full-bleed hero, editorial sections, CTA rhythm.",
+          capture: {
+            snapshot: {
+              content: "Premium full-bleed hero, editorial sections, CTA rhythm.",
+              refCount: 4,
+              warnings: []
+            },
+            visual: {
+              status: "captured",
+              kind: "viewport",
+              fullPage: false,
+              capturedAt: "2026-05-18T00:00:00.000Z",
+              path: "visual-evidence/visual/viewport.png",
+              sha256: "b".repeat(64),
+              bytes: 321,
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "blocked",
+          url: "https://example.com/blocked",
+          fetchStatus: "failed",
+          captureStatus: "failed",
+          fetchFailure: "Authentication required"
+        })
+      ]
+    });
+    const board = (packet.evidence as InspiredesignEvidenceJson).referencePatternBoard;
+
+    expect(board?.references[0]).toBeDefined();
+    expect(board?.rejectedReferences[0]).toBeDefined();
+    expect(Object.keys(template.references[0] ?? {}).sort()).toEqual(Object.keys(board?.references[0] ?? {}).sort());
+    expect(Object.keys(template.rejectedReferences[0] ?? {}).sort()).toEqual(
+      Object.keys(board?.rejectedReferences[0] ?? {}).sort()
+    );
+    expect(Object.keys(template.synthesis).sort()).toEqual(Object.keys(board?.synthesis ?? {}).sort());
+  });
+
+  it("keeps provider UI chrome out of ranked creative guidance", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public landing page for a ceramic coffee roaster.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public landing page for a ceramic coffee roaster."
+      }),
+      urls: ["https://www.pinterest.com/search/pins?q=coffee", "https://example.com/coffee-roaster"],
+      references: [
+        makeReference({
+          id: "pinterest-shell",
+          url: "https://www.pinterest.com/search/pins?q=coffee",
+          title: "Your profile",
+          excerpt: "Skip to content Your profile Accounts Home Your boards Create Settings & Support Remove search input Explore Updates Messages Pin card Pin card",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: ":root --gestalt-theme: calico --gestalt-color-scheme: lightMode; Skip to content Your profile Accounts Home Your boards Create Settings & Support Remove search input Explore Updates Messages Pin card Pin card",
+              refCount: 8,
+              warnings: []
+            },
+            visual: {
+              status: "captured",
+              kind: "viewport",
+              fullPage: false,
+              capturedAt: "2026-05-18T00:00:00.000Z",
+              path: "visual-evidence/pinterest-shell/viewport.png",
+              sha256: "c".repeat(64),
+              bytes: 456,
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "coffee-roaster",
+          url: "https://example.com/coffee-roaster",
+          title: "Ceramic Coffee Roaster Landing Page",
+          excerpt: "Full-bleed landing page hero with tactile ceramic product staging, origin story, roast notes, and conversion CTA.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Full-bleed landing page hero, tactile ceramic product staging, origin story, roast notes, subscription CTA, and editorial section rhythm.",
+              refCount: 7,
+              warnings: []
+            },
+            visual: {
+              status: "captured",
+              kind: "viewport",
+              fullPage: false,
+              capturedAt: "2026-05-18T00:00:00.000Z",
+              path: "visual-evidence/coffee-roaster/viewport.png",
+              sha256: "d".repeat(64),
+              bytes: 789,
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const guidanceText = [
+      JSON.stringify(evidence.referencePatternBoard),
+      packet.metaPromptMarkdown,
+      evidence.designVectors?.directionLabel,
+      ...(evidence.designVectors?.referenceInfluence ?? [])
+    ].join(" ");
+
+    expect(evidence.referencePatternBoard?.references.map((reference) => reference.id)).toEqual(["coffee-roaster"]);
+    expect(evidence.referencePatternBoard?.rejectedReferences).toEqual([
+      expect.objectContaining({ id: "pinterest-shell" })
+    ]);
+    expect(guidanceText).not.toContain("Your profile");
+    expect(guidanceText).not.toContain("Pin card");
+    expect(guidanceText).not.toContain("--gestalt-theme");
+  });
+
+  it("ranks strong structural references without screenshot evidence and records low-risk visual guidance", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public landing page for an enterprise AI advisory firm.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public landing page for an enterprise AI advisory firm."
+      }),
+      urls: ["https://example.com/visual-clean", "https://example.com/structural"],
+      references: [
+        makeReference({
+          id: "visual-clean",
+          url: "https://example.com/visual-clean",
+          title: "Visual Clean Reference",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Full-bleed public landing page hero, service narrative, client proof, and conversion CTA.",
+              refCount: 6,
+              warnings: []
+            },
+            visual: {
+              status: "captured",
+              kind: "viewport",
+              fullPage: false,
+              capturedAt: "2026-05-18T00:00:00.000Z",
+              path: "visual-evidence/visual-clean/viewport.png",
+              sha256: "b".repeat(64),
+              bytes: 321,
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "structural",
+          url: "https://example.com/structural",
+          title: "Structural Reference",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Premium consulting public landing page with service narrative, client proof, case studies, industries, and conversion CTAs.",
+              refCount: 8,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "<main><section>Enterprise AI transformation advisory</section><section>Client services</section></main>",
+              cssPreview: ".hero { display: grid; }",
+              warnings: []
+            },
+            dom: {
+              outerHTML: "<main><h1>Enterprise AI transformation</h1><section>Case studies and industries</section></main>",
+              truncated: false
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    const visualEntry = evidence.referencePatternBoard?.references.find((reference) => reference.id === "visual-clean");
+    const structuralEntry = evidence.referencePatternBoard?.references.find((reference) => reference.id === "structural");
+
+    expect(visualEntry?.visualRisks).toEqual([
+      "No major visual evidence risk detected in the captured reference."
+    ]);
+    expect(structuralEntry?.selectionReason).toContain("Ranked for strong text and structural evidence");
+    expect(structuralEntry?.capturedVia).toEqual(expect.arrayContaining(["fetch", "snapshot", "clone", "dom"]));
+    expect(structuralEntry?.capturedVia).not.toContain("visual");
+  });
+
   it("finalizes advanced briefs from reference evidence before fixed route guardrails", () => {
     const packet = buildInspiredesignPacket({
       brief: "Create a launch page inspired by an architectural lighting studio.",
@@ -690,8 +1035,12 @@ describe("inspiredesign packet + renderer", () => {
     }
     expect(packet.generationPlan.contentStrategy.source).toMatch(/^evidence\.json, advanced-brief\.md, design\.md\./);
     expect(packet.canvasPlanRequest.generationPlan.contentStrategy.source).toMatch(/^evidence\.json, advanced-brief\.md, design\.md\./);
-    expect(packet.followthrough.implementationContext.referenceSynthesis.requiredArtifacts.slice(0, 3)).toEqual([
+    expect(packet.followthrough.implementationContext.referenceSynthesis.requiredArtifacts.slice(0, 7)).toEqual([
       "evidence.json",
+      "visual-evidence.json",
+      "screenshot-index.json",
+      "ranked-references.json",
+      "meta-prompt.md",
       "advanced-brief.md",
       "design.md"
     ]);
@@ -1097,6 +1446,58 @@ describe("inspiredesign packet + renderer", () => {
     );
     expect(packet.prototypeGuidanceMarkdown).toContain("Page prototype target");
     expect(packet.prototypeGuidanceMarkdown).not.toContain("Component prototype target");
+  });
+
+  it("keeps component-first briefs classified as page when page confidence is stronger", () => {
+    const brief = "Prototype a component with props for a landing page website homepage dashboard microsite surface.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: [],
+      includePrototypeGuidance: true,
+      references: []
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.component).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toContain(
+      "page default: non-page targets did not beat page confidence"
+    );
+    expect(packet.prototypeGuidanceMarkdown).toContain("Page prototype target");
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Component prototype target");
+  });
+
+  it("uses page tie-break when eligible component and asset targets have equal confidence", () => {
+    const brief = "Prototype a component and asset for a landing page with props and usage rules.";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls: [],
+      includePrototypeGuidance: true,
+      references: []
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.targetAnalysis).toMatchObject({
+      primaryKind: "page",
+      kinds: ["page"]
+    });
+    expect(evidence.targetAnalysis?.component).toBeUndefined();
+    expect(evidence.targetAnalysis?.asset).toBeUndefined();
+    expect(evidence.targetAnalysis?.triggeringSignals).toEqual(
+      expect.arrayContaining([
+        "page default: page intent won a tied non-page confidence score",
+        expect.stringContaining("component intent"),
+        expect.stringContaining("asset intent")
+      ])
+    );
+    expect(packet.prototypeGuidanceMarkdown).toContain("Page prototype target");
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Component prototype target");
+    expect(packet.prototypeGuidanceMarkdown).not.toContain("Asset prototype target");
   });
 
   it("emits mixed component and asset details only when both targets clear evidence gates", () => {
@@ -2115,6 +2516,10 @@ describe("inspiredesign packet + renderer", () => {
         implementationPlanMarkdown: packet.implementationPlanMarkdown,
         prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
         evidence: packet.evidence,
+        visualEvidence: packet.visualEvidence,
+        screenshotIndex: packet.screenshotIndex,
+        rankedReferences: packet.rankedReferences,
+        metaPromptMarkdown: packet.metaPromptMarkdown,
         meta: {
           requestId: "req-1",
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
@@ -2130,6 +2535,12 @@ describe("inspiredesign packet + renderer", () => {
       expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(true);
       expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(true);
       expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff)).toBe(true);
+      expect(rendered.files).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.visualEvidence }),
+        expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.screenshotIndex }),
+        expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.rankedReferences }),
+        expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.metaPrompt })
+      ]));
 
       if (mode === "compact") {
         expect(rendered.response).toMatchObject({
@@ -2152,10 +2563,16 @@ describe("inspiredesign packet + renderer", () => {
         expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[1]?.command).toBe(
           packet.followthrough.commandExamples.loadBestPractices
         );
-        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[3]?.reason).toBe(
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[3]?.command).toBe(
+          packet.followthrough.commandExamples.loadMotionDesign
+        );
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[4]?.reason).toBe(
+          INSPIREDESIGN_HANDOFF_GUIDANCE.visualArtifactRecommendation
+        );
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[5]?.reason).toBe(
           INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest
         );
-        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[3]?.command).toBe(
+        expect((rendered.response.suggestedSteps as Array<Record<string, unknown>>)[5]?.command).toBe(
           INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
         );
         expect(rendered.response.suggestedSteps).toEqual(buildInspiredesignSuccessHandoff({
@@ -2197,7 +2614,8 @@ describe("inspiredesign packet + renderer", () => {
             designContract: packet.designContract,
             evidence: packet.evidence,
             canvasPlanRequest: packet.canvasPlanRequest,
-            designAgentHandoff: packet.followthrough
+            designAgentHandoff: packet.followthrough,
+            metaPromptMarkdown: packet.metaPromptMarkdown
           }),
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
@@ -2216,6 +2634,74 @@ describe("inspiredesign packet + renderer", () => {
         });
       }
     }
+  });
+
+  it("renders rejected references and synthesis in the ranked references artifact", () => {
+    const brief = "Design a premium reference-led landing page";
+    const usableUrl = "https://example.com/usable";
+    const rejectedUrl = "https://example.com/rejected";
+    const urls = [usableUrl, rejectedUrl];
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion({ sourceBrief: brief }),
+      urls,
+      references: [
+        makeReference({
+          id: "usable-reference",
+          url: usableUrl,
+          title: "Usable reference",
+          excerpt: "Full-bleed public landing page with strong image hierarchy.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Hero, CTA, proof strip",
+              refCount: 4,
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "rejected-reference",
+          url: rejectedUrl,
+          fetchStatus: "failed",
+          captureStatus: "failed",
+          fetchFailure: "Provider unavailable",
+          captureFailure: "No visual evidence available"
+        })
+      ]
+    });
+
+    const rendered = renderInspiredesign({
+      mode: "path",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      rankedReferences: packet.rankedReferences,
+      referencePatternBoard: packet.generationPlan.referencePatternBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      meta: { requestId: "ranked-artifact" }
+    });
+    const rankedReferencesFile = rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.rankedReferences);
+
+    expect(rankedReferencesFile?.content).toMatchObject({
+      references: [expect.objectContaining({ id: "usable-reference", rank: 1 })],
+      rejectedReferences: [expect.objectContaining({ id: "rejected-reference" })],
+      synthesis: expect.objectContaining({
+        dominantDirection: expect.any(String),
+        sharedFailuresToAvoid: expect.any(Array)
+      })
+    });
   });
 
   it("prefers the provided capture attempt summary and derives a fallback from the report when needed", () => {
@@ -2373,6 +2859,10 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.followthrough.implementationContext.referenceSynthesis).toMatchObject({
       requiredArtifacts: [
         INSPIREDESIGN_HANDOFF_FILES.evidence,
+        INSPIREDESIGN_HANDOFF_FILES.visualEvidence,
+        INSPIREDESIGN_HANDOFF_FILES.screenshotIndex,
+        INSPIREDESIGN_HANDOFF_FILES.rankedReferences,
+        INSPIREDESIGN_HANDOFF_FILES.metaPrompt,
         INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
         INSPIREDESIGN_HANDOFF_FILES.designMarkdown,
         INSPIREDESIGN_HANDOFF_FILES.generationPlan,

@@ -522,6 +522,108 @@ describe("workflow tools", () => {
     expect(response.mode).toBe("compact");
   });
 
+  it("forwards inspiredesign harvest discovery fields and defaults to path mode", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      query: "premium docs references",
+      providers: ["web/default"],
+      maxReferences: 2,
+      visualEvidence: "auto"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(response.mode).toBe("path");
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      { query: "premium docs references", limit: 2 },
+      expect.objectContaining({ providerIds: ["web/default"] })
+    );
+    expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
+      { url: "https://example.com/web/default" },
+      expect.any(Object)
+    );
+    expect(deps.manager.launch).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies inspiredesign harvest defaults for references and required visual evidence", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      query: "premium docs references"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(response.mode).toBe("path");
+    expect(deps.providerRuntime.search).toHaveBeenCalledWith(
+      { query: "premium docs references", limit: 5 },
+      expect.any(Object)
+    );
+    expect(deps.manager.screenshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects inspiredesign tool query unless harvest is enabled", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      query: "premium docs references"
+    } as never));
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toEqual({
+      code: "inspiredesign_run_failed",
+      message: "query is only supported when harvest is true."
+    });
+    expect(deps.providerRuntime.search).not.toHaveBeenCalled();
+  });
+
+  it("rejects inspiredesign tool providers without a query", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      providers: ["web/default"]
+    } as never));
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toEqual({
+      code: "inspiredesign_run_failed",
+      message: "providers require query."
+    });
+    expect(deps.providerRuntime.search).not.toHaveBeenCalled();
+  });
+
+  it("rejects inspiredesign tool harvest without query or URLs", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true
+    } as never));
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toEqual({
+      code: "inspiredesign_run_failed",
+      message: "inspiredesign harvest requires query or URLs."
+    });
+    expect(deps.providerRuntime.search).not.toHaveBeenCalled();
+  });
+
   it("uses the CLI default workflow timeout for inspiredesign tool runs", async () => {
     const deps = makeDeps();
     const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");

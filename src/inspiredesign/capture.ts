@@ -1,8 +1,14 @@
+import { mkdir } from "fs/promises";
+import { dirname, resolve } from "path";
 import type { BrowserManagerLike } from "../browser/manager-types";
 import { redactSensitive } from "../core/logging";
 import type { ChallengeAutomationMode } from "../challenges/types";
 import { readCookiesFromSource } from "../providers/cookie-source";
 import type { ProviderCookiePolicy, ProviderCookieSourceConfig } from "../providers/types";
+import type {
+  InspiredesignVisualEvidenceMode,
+  InspiredesignVisualEvidenceRuntimeMetadata
+} from "./visual-evidence";
 import type {
   InspiredesignCaptureAttemptEvidence,
   InspiredesignCaptureAttemptStatus,
@@ -63,6 +69,10 @@ type InspiredesignCaptureManagerLike = Omit<
     options?: Parameters<NonNullable<BrowserManagerLike["clonePageHtmlWithOptions"]>>[2],
     timeoutMs?: number
   ) => ReturnType<NonNullable<BrowserManagerLike["clonePageHtmlWithOptions"]>>;
+  screenshot?: (
+    sessionId: string,
+    options?: Parameters<BrowserManagerLike["screenshot"]>[1]
+  ) => ReturnType<BrowserManagerLike["screenshot"]>;
   setSessionChallengeAutomationMode?: (sessionId: string, mode?: ChallengeAutomationMode) => void;
 };
 
@@ -72,6 +82,8 @@ export type InspiredesignCaptureOptions = {
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
   cookieSource?: ProviderCookieSourceConfig;
+  visualEvidence?: InspiredesignVisualEvidenceMode;
+  visualEvidencePath?: string;
 };
 
 type CaptureCookieImportState = {
@@ -84,6 +96,9 @@ const INSPIREDESIGN_CAPTURE_TIMEOUT_MS = 30_000;
 const INSPIREDESIGN_CAPTURE_MAX_CHARS = 12_000;
 const ACTIVE_SESSION_COOKIE_REUSE_UNAVAILABLE_MESSAGE = "Deep capture only honors configured provider cookie sources; active session cookies are not reused.";
 const DOM_CAPTURE_HELPER_UNAVAILABLE_MESSAGE = "DOM capture helper unavailable in this execution lane.";
+const VISUAL_CAPTURE_HELPER_UNAVAILABLE_MESSAGE = "Visual evidence screenshot helper unavailable in this execution lane.";
+const VISUAL_CAPTURE_PATH_UNAVAILABLE_MESSAGE = "Visual evidence path was not configured for screenshot capture.";
+const VISUAL_CAPTURE_EMPTY_MESSAGE = "Visual evidence screenshot did not return a file path.";
 const SNAPSHOT_CAPTURE_EMPTY_MESSAGE = "Snapshot capture returned empty content.";
 const CLONE_CAPTURE_EMPTY_MESSAGE = "Clone capture returned empty component and CSS previews.";
 const DOM_CAPTURE_EMPTY_MESSAGE = "DOM capture returned empty HTML.";
@@ -239,6 +254,7 @@ type CaptureArtifactResult = {
   snapshot?: InspiredesignCaptureEvidence["snapshot"];
   clone?: InspiredesignCaptureEvidence["clone"];
   dom?: InspiredesignCaptureEvidence["dom"];
+  visual?: InspiredesignVisualEvidenceRuntimeMetadata;
 };
 
 const captureSnapshotArtifact = async (
@@ -355,10 +371,71 @@ const captureDomArtifact = async (
   }
 };
 
+const buildVisualEvidenceMetadata = (
+  status: InspiredesignVisualEvidenceRuntimeMetadata["status"],
+  detail?: string,
+  warnings: string[] = [],
+  tempPath?: string
+): InspiredesignVisualEvidenceRuntimeMetadata => ({
+  status,
+  kind: "viewport",
+  fullPage: false,
+  capturedAt: new Date().toISOString(),
+  ...(tempPath ? { tempPath } : {}),
+  warnings,
+  ...(detail ? { failure: sanitizeInspiredesignCaptureText(detail) } : {})
+});
+
+const captureVisualEvidenceArtifact = async (
+  manager: InspiredesignCaptureManagerLike,
+  sessionId: string,
+  options: InspiredesignCaptureOptions,
+  remainingTimeoutMs: () => number
+): Promise<InspiredesignVisualEvidenceRuntimeMetadata | undefined> => {
+  const visualEvidence = options.visualEvidence ?? "off";
+  if (visualEvidence === "off") return undefined;
+  if (!options.visualEvidencePath) {
+    return buildVisualEvidenceMetadata(
+      visualEvidence === "required" ? "failed" : "skipped",
+      VISUAL_CAPTURE_PATH_UNAVAILABLE_MESSAGE
+    );
+  }
+  if (typeof manager.screenshot !== "function") {
+    return buildVisualEvidenceMetadata(
+      visualEvidence === "required" ? "failed" : "skipped",
+      VISUAL_CAPTURE_HELPER_UNAVAILABLE_MESSAGE
+    );
+  }
+  try {
+    await mkdir(dirname(options.visualEvidencePath), { recursive: true });
+    const screenshot = await withCaptureDeadline(
+      manager.screenshot(sessionId, {
+        path: options.visualEvidencePath,
+        fullPage: false
+      }),
+      remainingTimeoutMs(),
+      "visual evidence screenshot"
+    );
+    if (!screenshot.path) {
+      return buildVisualEvidenceMetadata("failed", VISUAL_CAPTURE_EMPTY_MESSAGE);
+    }
+    if (resolve(screenshot.path) !== resolve(options.visualEvidencePath)) {
+      return buildVisualEvidenceMetadata("failed", "Visual evidence screenshot path did not match the requested artifact path.");
+    }
+    return buildVisualEvidenceMetadata("captured", undefined, screenshot.warnings ?? [], options.visualEvidencePath);
+  } catch (error) {
+    return buildVisualEvidenceMetadata(
+      "failed",
+      detailFromCaptureError(error, "Visual evidence screenshot failed.")
+    );
+  }
+};
+
 const buildCaptureEvidence = (
   snapshot: CaptureArtifactResult,
   clone: CaptureArtifactResult,
-  dom: CaptureArtifactResult
+  dom: CaptureArtifactResult,
+  visual?: InspiredesignVisualEvidenceRuntimeMetadata
 ): InspiredesignCaptureEvidence => {
   const attempts: InspiredesignCaptureAttempts = {
     snapshot: snapshot.attempt,
@@ -369,6 +446,7 @@ const buildCaptureEvidence = (
     ...(snapshot.snapshot ? { snapshot: snapshot.snapshot } : {}),
     ...(dom.dom ? { dom: dom.dom } : {}),
     ...(clone.clone ? { clone: clone.clone } : {}),
+    ...(visual ? { visual } : {}),
     attempts
   };
 };
@@ -393,7 +471,8 @@ const buildTransportTimeoutCaptureEvidence = (
 const captureInspiredesignArtifacts = async (
   manager: InspiredesignCaptureManagerLike,
   sessionId: string,
-  remainingTimeoutMs: () => number
+  remainingTimeoutMs: () => number,
+  options: InspiredesignCaptureOptions
 ): Promise<InspiredesignCaptureEvidence> => {
   const snapshot = await captureSnapshotArtifact(manager, sessionId, remainingTimeoutMs);
   if (snapshot.transportTimedOut) {
@@ -404,7 +483,8 @@ const captureInspiredesignArtifacts = async (
     return buildTransportTimeoutCaptureEvidence(snapshot, clone, "clone capture");
   }
   const dom = await captureDomArtifact(manager, sessionId, remainingTimeoutMs);
-  return buildCaptureEvidence(snapshot, clone, dom);
+  const visual = await captureVisualEvidenceArtifact(manager, sessionId, options, remainingTimeoutMs);
+  return buildCaptureEvidence(snapshot, clone, dom, visual);
 };
 
 export async function captureInspiredesignReferenceFromManager(
@@ -463,7 +543,7 @@ export async function captureInspiredesignReferenceFromManager(
         throw error;
       }
     }
-    return await captureInspiredesignArtifacts(manager, session.sessionId, remainingTimeoutMs);
+    return await captureInspiredesignArtifacts(manager, session.sessionId, remainingTimeoutMs, options);
   } finally {
     await manager.disconnect(session.sessionId, true).catch(() => undefined);
   }

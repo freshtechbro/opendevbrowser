@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,10 +23,16 @@ import type {
   ProviderAggregateResult,
   ProviderError,
   ProviderFailureEntry,
+  ProviderReasonCode,
   ProviderSource
 } from "../src/providers/types";
 
 type InspiredesignWorkflowMeta = {
+  primaryConstraintSummary?: string;
+  primaryConstraint?: {
+    reasonCode?: string;
+    summary?: string;
+  };
   captureAttemptSummary?: string;
   captureAttemptReport?: {
     worked: string[];
@@ -36,11 +42,21 @@ type InspiredesignWorkflowMeta = {
   followthroughSummary?: string;
   recommendedSkills?: string[];
   deepCaptureRecommendation?: string;
+  discovery?: {
+    requested: boolean;
+    searchAvailable: boolean;
+    acceptedUrls?: string[];
+    failure?: string;
+  };
   contractScope?: {
     note?: string;
   };
   selection: {
     urls: string[];
+    query?: string;
+    providers?: string[];
+    max_references?: number;
+    visual_evidence?: string;
     capture_mode: string;
     requested_browser_mode?: string;
     include_prototype_guidance: boolean;
@@ -237,9 +253,11 @@ const makeAggregate = (overrides: Partial<ProviderAggregateResult> = {}): Provid
 
 const toRuntime = (handlers: {
   fetch?: ReferenceRetrievalPort["fetch"];
+  search?: ReferenceRetrievalPort["search"];
   getAntiBotSnapshots?: ReferenceRetrievalPort["getAntiBotSnapshots"];
 }): ReferenceRetrievalPort => ({
   fetch: handlers.fetch ?? (async () => makeAggregate()),
+  ...(handlers.search ? { search: handlers.search } : {}),
   ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
 });
 
@@ -347,7 +365,8 @@ describe("inspiredesign workflow", () => {
     expect(meta.followthroughSummary).toEqual(expect.stringContaining("canvas-plan.request.json"));
     expect(meta.recommendedSkills).toEqual([
       'opendevbrowser-best-practices "quick start"',
-      'opendevbrowser-design-agent "canvas-contract"'
+      'opendevbrowser-design-agent "canvas-contract"',
+      'opendevbrowser-motion-design "quick start"'
     ]);
     expect(meta.contractScope).toEqual(expect.objectContaining({
       note: expect.stringContaining("design-contract.json is the narrowed canvas governance contract")
@@ -388,6 +407,62 @@ describe("inspiredesign workflow", () => {
 
     expectArtifactPath(artifactPath, join(workspaceDir, ".opendevbrowser"), "inspiredesign");
     expect(readFileSync(join(artifactPath, "canvas-plan.request.json"), "utf8")).toContain("canvasSessionId");
+  });
+
+  it("defaults direct harvest workflow callers to path output and required visual evidence", async () => {
+    const outputDir = makeOutputDir();
+    let receivedVisualPath = "";
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Default harvest reference",
+            content: "Full-bleed landing page reference with strong hero imagery."
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a harvest-backed landing page",
+      harvest: true,
+      urls: ["https://example.com/default-harvest"],
+      outputDir
+    }, {
+      captureReference: async (_url, options) => {
+        if (!options?.visualEvidencePath) {
+          throw new Error("visual evidence path missing");
+        }
+        receivedVisualPath = options.visualEvidencePath;
+        writeFileSync(options.visualEvidencePath, Buffer.from("default harvest png"));
+        return {
+          ...makeCapture("Default harvest reference full-bleed hero"),
+          visual: {
+            status: "captured",
+            kind: "viewport",
+            fullPage: false,
+            capturedAt: "2026-05-18T00:00:00.000Z",
+            tempPath: options.visualEvidencePath,
+            warnings: []
+          }
+        };
+      }
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+
+    expect(output.mode).toBe("path");
+    expect(meta.selection).toEqual(expect.objectContaining({
+      visual_evidence: "required",
+      capture_mode: "deep"
+    }));
+    expect(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")).toContain(
+      `"bytes": ${Buffer.from("default harvest png").byteLength}`
+    );
+    expect(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")).toContain("visual-evidence/");
+    expect(existsSync(receivedVisualPath)).toBe(false);
   });
 
   it("emits URL-backed artifact files and capture telemetry together for workflow runs", async () => {
@@ -570,6 +645,473 @@ describe("inspiredesign workflow", () => {
     expect(handoff.implementationContext.designVectors).toEqual(evidence.designVectors);
   });
 
+  it("finalizes visual screenshot PNG artifacts and serializes metadata without temp paths or base64", async () => {
+    const outputDir = makeOutputDir();
+    let stagedTempPath = "";
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Visual reference",
+            content: "Full-bleed hero with cinematic product staging and refined CTA."
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/visual"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureReference: async (_url, options) => {
+        if (!options?.visualEvidencePath) {
+          throw new Error("visual evidence path missing");
+        }
+        stagedTempPath = options.visualEvidencePath;
+        writeFileSync(options.visualEvidencePath, Buffer.from("png bytes"));
+        return {
+          ...makeCapture("Visual reference full-bleed hero cinematic product staging refined CTA"),
+          visual: {
+            status: "captured",
+            kind: "viewport",
+            fullPage: false,
+            capturedAt: "2026-05-18T00:00:00.000Z",
+            tempPath: options.visualEvidencePath,
+            warnings: ["cdp fallback"]
+          }
+        };
+      }
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const visualEvidenceJson = readFileSync(join(artifactPath, "visual-evidence.json"), "utf8");
+    const screenshotIndexJson = readFileSync(join(artifactPath, "screenshot-index.json"), "utf8");
+    const rankedReferencesJson = readFileSync(join(artifactPath, "ranked-references.json"), "utf8");
+    const metaPrompt = readFileSync(join(artifactPath, "meta-prompt.md"), "utf8");
+    const visualEvidence = JSON.parse(visualEvidenceJson) as {
+      visualEvidence: Array<{ visual: { path: string; sha256: string; bytes: number } }>;
+    };
+    const screenshotIndex = JSON.parse(screenshotIndexJson) as {
+      screenshots: Array<{ path: string; sha256: string; bytes: number }>;
+    };
+
+    expect(meta.selection).toEqual(expect.objectContaining({
+      visual_evidence: "required",
+      capture_mode: "deep"
+    }));
+    expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "visual-evidence.json",
+      "screenshot-index.json",
+      "ranked-references.json",
+      "meta-prompt.md",
+      "visual-evidence/b710f7bd0da7/viewport.png"
+    ]));
+    expect(visualEvidence.visualEvidence[0]?.visual).toMatchObject({
+      path: "visual-evidence/b710f7bd0da7/viewport.png",
+      bytes: Buffer.from("png bytes").byteLength
+    });
+    expect(visualEvidence.visualEvidence[0]?.visual.sha256).toHaveLength(64);
+    expect(screenshotIndex.screenshots[0]).toEqual(expect.objectContaining({
+      path: "visual-evidence/b710f7bd0da7/viewport.png",
+      sha256: visualEvidence.visualEvidence[0]?.visual.sha256,
+      bytes: Buffer.from("png bytes").byteLength
+    }));
+    expect(readFileSync(join(artifactPath, "visual-evidence/b710f7bd0da7/viewport.png"))).toEqual(Buffer.from("png bytes"));
+    expect(rankedReferencesJson).toContain("\"rank\": 1");
+    expect(metaPrompt).toContain("Rank 1: Visual reference");
+    for (const jsonText of [visualEvidenceJson, screenshotIndexJson, rankedReferencesJson]) {
+      expect(jsonText).not.toContain(stagedTempPath);
+      expect(jsonText).not.toContain("base64");
+    }
+    expect(existsSync(stagedTempPath)).toBe(false);
+  });
+
+  it("fails zero-byte required screenshot artifacts without indexing them", async () => {
+    const outputDir = makeOutputDir();
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Empty visual reference",
+            content: "Cinematic hero reference"
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/empty-visual"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureReference: async (_url, options) => {
+        if (!options?.visualEvidencePath) {
+          throw new Error("visual evidence path missing");
+        }
+        writeFileSync(options.visualEvidencePath, Buffer.alloc(0));
+        return {
+          ...makeCapture("Empty visual reference"),
+          visual: {
+            status: "captured",
+            kind: "viewport",
+            fullPage: false,
+            capturedAt: "2026-05-18T00:00:00.000Z",
+            tempPath: options.visualEvidencePath,
+            warnings: []
+          }
+        };
+      }
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+    const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
+      screenshots: unknown[];
+    };
+
+    expect(meta.metrics.failed_captures).toBe(1);
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence screenshot file was empty.",
+      warnings: expect.arrayContaining(["finalize_failed"])
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+    expect(screenshotIndex.screenshots).toEqual([]);
+  });
+
+  it.each<ProviderReasonCode>([
+    "policy_blocked",
+    "auth_required",
+    "challenge_detected",
+    "rate_limited"
+  ])("does not deep capture top-level %s visual blockers", async (reasonCode) => {
+    const outputDir = makeOutputDir();
+    const captureReference = vi.fn(async () => makeCapture("Blocked reference"));
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        ok: false,
+        records: [],
+        error: {
+          code: reasonCode === "auth_required" ? "auth" : "unavailable",
+          message: `${reasonCode} blocked reference`,
+          retryable: false,
+          reasonCode
+        },
+        metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: [`https://example.com/${reasonCode}`],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+
+    expect(captureReference).not.toHaveBeenCalled();
+    expect(meta.metrics.captured_references).toBe(0);
+    expect(meta.metrics.failed_captures).toBe(0);
+    expect(meta.metrics.reasonCodeDistribution).toEqual(expect.objectContaining({
+      [reasonCode]: 1
+    }));
+    expect(meta.primaryConstraint).toEqual(expect.objectContaining({
+      reasonCode
+    }));
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      fetchStatus: "failed",
+      captureStatus: "off",
+      fetchFailure: expect.any(String)
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "skipped",
+      warnings: [`policy:${reasonCode}`]
+    }));
+  });
+
+  it("captures partial success records even when another provider reports a blocker", async () => {
+    const outputDir = makeOutputDir();
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        partial: true,
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Usable visual reference",
+            content: "Full-bleed landing page reference"
+          })
+        ],
+        failures: [
+          makeFailure("social/pinterest", "social", {
+            reasonCode: "auth_required",
+            message: "Pinterest auth required"
+          })
+        ],
+        metrics: { attempted: 2, succeeded: 1, failed: 1, retries: 0, latencyMs: 1 }
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/partial-success"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "auto"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+
+    expect(captureReference).toHaveBeenCalledTimes(1);
+    expect(meta.metrics.captured_references).toBe(1);
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      fetchStatus: "captured",
+      captureStatus: "captured"
+    }));
+  });
+
+  it("rejects invalid workflow harvest discovery inputs without clamping", async () => {
+    const runtime = toRuntime({});
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      query: "premium references"
+    })).rejects.toThrow("query is only supported when harvest is true");
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      harvest: true,
+      providers: ["web/default"]
+    })).rejects.toThrow("providers require query");
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      harvest: true,
+      query: "premium references",
+      maxReferences: 11
+    })).rejects.toThrow("maxReferences must be an integer from 1 to 10");
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      harvest: true,
+      query: "premium references",
+      maxReferences: 1.5
+    })).rejects.toThrow("maxReferences must be an integer from 1 to 10");
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      harvest: true
+    })).rejects.toThrow("harvest requires query or URL references");
+  });
+
+  it("marks required visual evidence as failed when screenshot metadata is unavailable", async () => {
+    const outputDir = makeOutputDir();
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Visual reference",
+          content: "Cinematic hero reference"
+        })]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/visual-unavailable"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureReference: async () => makeCapture("Visual reference without screenshot")
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+
+    expect(meta.metrics.failed_captures).toBe(1);
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Required visual evidence was not captured."
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Required visual evidence was not captured.",
+      warnings: ["required_visual_evidence_missing"]
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+  });
+
+  it("records required visual evidence failure when the capture lane is unavailable", async () => {
+    const outputDir = makeOutputDir();
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Visual reference",
+          content: "Cinematic hero reference"
+        })]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/no-capture-lane"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Deep capture requested, but browser capture is unavailable in this execution lane."
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Deep capture requested, but browser capture is unavailable in this execution lane.",
+      warnings: ["required_visual_evidence_missing"]
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+  });
+
+  it("marks required visual evidence as failed when screenshot finalization fails", async () => {
+    const outputDir = makeOutputDir();
+    let plannedTempPath = "";
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Visual reference",
+          content: "Cinematic hero reference"
+        })]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/visual-finalize-failure"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureReference: async (_url, options) => {
+        plannedTempPath = options?.visualEvidencePath ?? "/tmp/missing-inspiredesign-visual.png";
+        return {
+          ...makeCapture("Visual reference finalize failure"),
+          visual: {
+            status: "captured",
+            kind: "viewport",
+            fullPage: false,
+            capturedAt: "2026-05-18T00:00:00.000Z",
+            tempPath: plannedTempPath,
+            warnings: "/tmp/private/warning.png" as unknown as string[]
+          }
+        };
+      }
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidenceJson = readFileSync(join(artifactPath, "evidence.json"), "utf8");
+    const visualEvidenceJson = readFileSync(join(artifactPath, "visual-evidence.json"), "utf8");
+    const screenshotIndexJson = readFileSync(join(artifactPath, "screenshot-index.json"), "utf8");
+    const evidence = JSON.parse(evidenceJson) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(visualEvidenceJson) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+    const screenshotIndex = JSON.parse(screenshotIndexJson) as {
+      screenshots: unknown[];
+    };
+
+    expect(meta.metrics.failed_captures).toBe(1);
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed"
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual.status).toBe("failed");
+    expect(visualEvidence.visualEvidence[0]?.visual.failure).toBe("Visual evidence screenshot file was unavailable.");
+    expect(visualEvidence.visualEvidence[0]?.visual.warnings).toContain("finalize_failed");
+    expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+    expect(screenshotIndex.screenshots).toEqual([]);
+    for (const jsonText of [evidenceJson, visualEvidenceJson, screenshotIndexJson]) {
+      expect(jsonText).not.toContain(plannedTempPath);
+      expect(jsonText).not.toContain(tmpdir());
+    }
+  });
+
+  it("records required visual evidence failure when transport times out before visual capture", async () => {
+    const outputDir = makeOutputDir();
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Visual reference",
+          content: "Cinematic hero reference"
+        })]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/visual-timeout"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureReference: async () => ({
+        attempts: {
+          snapshot: { status: "failed", detail: "Deep capture snapshot exceeded timeout budget." },
+          clone: { status: "skipped", detail: "Skipped after snapshot capture transport timeout." },
+          dom: { status: "skipped", detail: "Skipped after snapshot capture transport timeout." }
+        }
+      })
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; failure?: string; warnings: string[] } }>;
+    };
+
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Deep capture did not return usable snapshot, DOM, or clone evidence."
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Required visual evidence was not captured.",
+      warnings: ["required_visual_evidence_missing"]
+    }));
+  });
+
   it("persists component target analysis through workflow artifacts without adding Canvas request fields", async () => {
     const outputDir = makeOutputDir();
     const componentBrief = "Prototype a reusable checkout card component with price props, badge slot, media slot, hover focus disabled loading and error states plus an asset pack with responsive variants and usage rules.";
@@ -680,6 +1222,17 @@ describe("inspiredesign workflow", () => {
     expect(output.mode).toBe("compact");
   });
 
+  it("rejects invalid visual evidence modes from direct workflow callers", async () => {
+    const runtime = toRuntime({});
+
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a compact default output",
+      visualEvidence: "sometimes"
+    } as unknown as Parameters<typeof runInspiredesignWorkflow>[1])).rejects.toThrow(
+      "Inspiredesign workflow visualEvidence must be one of off, auto, or required."
+    );
+  });
+
   it("forces deep capture when urls are present without an explicit capture mode", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       records: [
@@ -704,6 +1257,439 @@ describe("inspiredesign workflow", () => {
 
     expect(captureReference).toHaveBeenCalledTimes(1);
     expect(meta.selection.capture_mode).toBe("deep");
+  });
+
+  it("discovers query references and keeps explicit URLs first", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: `Fetched ${input.url}`,
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const search = vi.fn(async () => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: "https://example.com/shared",
+          title: "Shared result",
+          content: "Shared discovered content."
+        }),
+        normalizeRecord("web/default", "web", {
+          url: "https://example.com/discovered",
+          title: "Discovered result",
+          content: "Discovered content."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+    const runtime = toRuntime({ fetch, search });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a docs workspace",
+      harvest: true,
+      query: "premium docs references",
+      providers: ["web/default", "web/default"],
+      maxReferences: 3,
+      visualEvidence: "auto",
+      urls: ["https://example.com/explicit", "https://example.com/shared"],
+      mode: "context"
+    }, {
+      captureReference
+    });
+
+    const context = output.context as InspiredesignWorkflowContext;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(search).toHaveBeenCalledWith(
+      { query: "premium docs references", limit: 3 },
+      expect.objectContaining({ providerIds: ["web/default"] })
+    );
+    expect(fetch.mock.calls.map((call) => call[0].url)).toEqual([
+      "https://example.com/explicit",
+      "https://example.com/shared",
+      "https://example.com/discovered"
+    ]);
+    expect(context.urls).toEqual([
+      "https://example.com/explicit",
+      "https://example.com/shared",
+      "https://example.com/discovered"
+    ]);
+    expect(meta.selection).toEqual(expect.objectContaining({
+      query: "premium docs references",
+      providers: ["web/default"],
+      max_references: 3,
+      visual_evidence: "auto",
+      capture_mode: "deep"
+    }));
+    expect(meta.discovery).toEqual(expect.objectContaining({
+      requested: true,
+      searchAvailable: true,
+      acceptedUrls: ["https://example.com/shared", "https://example.com/discovered"]
+    }));
+  });
+
+  it("reports unavailable query discovery without crashing", async () => {
+    const output = await runInspiredesignWorkflow(toRuntime({}), {
+      brief: "Design a docs workspace",
+      harvest: true,
+      query: "premium docs references",
+      mode: "json"
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    expect(meta.selection.urls).toEqual([]);
+    expect(meta.discovery).toEqual(expect.objectContaining({
+      requested: true,
+      searchAvailable: false,
+      failure: "Reference discovery requested, but provider search is unavailable in this execution lane."
+    }));
+    expect(meta.primaryConstraintSummary).toBe("Reference discovery requested, but provider search is unavailable in this execution lane.");
+    expect(meta.primaryConstraint?.summary).toBe("Reference discovery requested, but provider search is unavailable in this execution lane.");
+  });
+
+  it("promotes provider search failures into discovery constraints", async () => {
+    const searchFailure = makeFailure("social/pinterest", "social", {
+      code: "auth",
+      message: "Pinterest login is required before search results are visible.",
+      reasonCode: "auth_required"
+    });
+    const search = vi.fn(async () => makeAggregate({
+      ok: false,
+      records: [],
+      failures: [searchFailure],
+      error: searchFailure.error,
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({ search }), {
+      brief: "Design a docs workspace",
+      harvest: true,
+      query: "premium docs references",
+      providers: ["social/pinterest"],
+      mode: "json"
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    expect(meta.metrics.reasonCodeDistribution).toEqual(expect.objectContaining({
+      auth_required: 1
+    }));
+    expect(meta.primaryConstraint).toEqual(expect.objectContaining({
+      reasonCode: "auth_required"
+    }));
+    expect(meta.primaryConstraintSummary).toBe("Pinterest requires login or an existing session.");
+  });
+
+  it("keeps provider search failures diagnostic when explicit references succeed", async () => {
+    const searchFailure = makeFailure("social/pinterest", "social", {
+      code: "auth",
+      message: "Pinterest login is required before search results are visible.",
+      reasonCode: "auth_required"
+    });
+    const search = vi.fn(async () => makeAggregate({
+      ok: false,
+      records: [],
+      failures: [searchFailure],
+      error: searchFailure.error,
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Explicit reference",
+          content: "Explicit captured reference content."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch, search }), {
+      brief: "Design a coffee roaster landing page",
+      harvest: true,
+      query: "premium ceramic coffee roaster landing page design",
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/61572719900827789/"],
+      visualEvidence: "off",
+      mode: "json"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      reference_count: 1,
+      fetched_references: 1,
+      captured_references: 1
+    }));
+    expect(meta.metrics.reasonCodeDistribution).toEqual(expect.objectContaining({
+      auth_required: 1
+    }));
+    expect(meta.discovery).toEqual(expect.objectContaining({
+      requested: true,
+      searchAvailable: true,
+      failure: "Pinterest login is required before search results are visible."
+    }));
+    expect(meta.primaryConstraintSummary).toBeUndefined();
+    expect(meta.primaryConstraint).toBeUndefined();
+  });
+
+  it("does not cap explicit non-harvest URLs when visual evidence is enabled", async () => {
+    const urls = Array.from({ length: 11 }, (_, index) => `https://example.com/reference-${index + 1}`);
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: `Fetched ${input.url}`,
+          content: "Reference content with enough detail for a design excerpt."
+        })
+      ]
+    }));
+    const captureReference = vi.fn(async (url: string) => makeCapture(`Captured ${url}`));
+
+    await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a docs workspace",
+      urls,
+      visualEvidence: "auto",
+      mode: "json"
+    }, {
+      captureReference
+    });
+
+    expect(fetch.mock.calls.map((call) => call[0].url)).toEqual(urls);
+  });
+
+  it("rejects workflow visual temp paths that do not match the capture plan", async () => {
+    const outputDir = makeOutputDir();
+    const roguePath = join(outputDir, "rogue.png");
+    writeFileSync(roguePath, Buffer.from("rogue png bytes"));
+    const captureReference = vi.fn(async () => ({
+      ...makeCapture("Captured mismatched visual"),
+      visual: {
+        status: "captured" as const,
+        kind: "viewport" as const,
+        fullPage: false,
+        capturedAt: "2026-05-18T00:00:00.000Z",
+        tempPath: roguePath,
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content with enough detail for a design excerpt."
+          })
+        ]
+      })
+    }), {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference"],
+      outputDir,
+      visualEvidence: "required",
+      mode: "path"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+    const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
+      screenshots: unknown[];
+    };
+
+    expect(meta.metrics.failed_captures).toBe(1);
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence temp path did not match the workflow capture plan.",
+      warnings: ["visual_temp_path_mismatch"]
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+    expect(screenshotIndex.screenshots).toEqual([]);
+  });
+
+  it("rejects captured visual metadata that lacks the planned temp path", async () => {
+    const outputDir = makeOutputDir();
+    const rogueArtifactPath = "visual-evidence/attacker/viewport.png";
+    const captureReference = vi.fn(async () => ({
+      ...makeCapture("Captured visual without planned temp path"),
+      visual: {
+        status: "captured" as const,
+        kind: "viewport" as const,
+        fullPage: false,
+        capturedAt: "2026-05-18T00:00:00.000Z",
+        artifactPath: rogueArtifactPath,
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content with enough detail for a design excerpt."
+          })
+        ]
+      })
+    }), {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference-without-temp-path"],
+      outputDir,
+      visualEvidence: "required",
+      mode: "path"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const visualEvidenceJson = readFileSync(join(artifactPath, "visual-evidence.json"), "utf8");
+    const screenshotIndexJson = readFileSync(join(artifactPath, "screenshot-index.json"), "utf8");
+    const evidenceJson = readFileSync(join(artifactPath, "evidence.json"), "utf8");
+    const visualEvidence = JSON.parse(visualEvidenceJson) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+    const screenshotIndex = JSON.parse(screenshotIndexJson) as {
+      screenshots: unknown[];
+    };
+
+    expect(meta.metrics.failed_captures).toBe(1);
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence temp path did not match the workflow capture plan.",
+      warnings: ["visual_temp_path_mismatch"]
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+    expect(screenshotIndex.screenshots).toEqual([]);
+    for (const jsonText of [visualEvidenceJson, screenshotIndexJson, evidenceJson]) {
+      expect(jsonText).not.toContain(rogueArtifactPath);
+      expect(jsonText).not.toContain("attacker");
+    }
+  });
+
+  it("rejects captured visual metadata with an invalid visual kind", async () => {
+    const outputDir = makeOutputDir();
+    const maliciousKind = "../outside";
+    const captureReference = vi.fn(async (_url: string, options?: { visualEvidencePath?: string }) => {
+      if (!options?.visualEvidencePath) {
+        throw new Error("visual evidence path missing");
+      }
+      writeFileSync(options.visualEvidencePath, Buffer.from("valid planned png bytes"));
+      return {
+        ...makeCapture("Captured visual with invalid kind"),
+        visual: {
+          status: "captured" as const,
+          kind: maliciousKind as "viewport",
+          fullPage: false,
+          capturedAt: "2026-05-18T00:00:00.000Z",
+          tempPath: options.visualEvidencePath,
+          warnings: []
+        }
+      };
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content with enough detail for a design excerpt."
+          })
+        ]
+      })
+    }), {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference-invalid-kind"],
+      outputDir,
+      visualEvidence: "required",
+      mode: "path"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const visualEvidenceJson = readFileSync(join(artifactPath, "visual-evidence.json"), "utf8");
+    const screenshotIndexJson = readFileSync(join(artifactPath, "screenshot-index.json"), "utf8");
+    const evidenceJson = readFileSync(join(artifactPath, "evidence.json"), "utf8");
+    const visualEvidence = JSON.parse(visualEvidenceJson) as {
+      visualEvidence: Array<{ visual: { status: string; kind: string; path?: string; failure?: string; warnings: string[] } }>;
+    };
+    const screenshotIndex = JSON.parse(screenshotIndexJson) as {
+      screenshots: unknown[];
+    };
+
+    expect(meta.metrics.failed_captures).toBe(1);
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      kind: "viewport",
+      failure: "Visual evidence kind did not match the workflow capture contract.",
+      warnings: ["visual_kind_mismatch"]
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+    expect(screenshotIndex.screenshots).toEqual([]);
+    for (const jsonText of [visualEvidenceJson, screenshotIndexJson, evidenceJson]) {
+      expect(jsonText).not.toContain(maliciousKind);
+    }
+  });
+
+  it("rejects unplanned workflow visual temp paths when visual evidence is disabled", async () => {
+    const outputDir = makeOutputDir();
+    const roguePath = join(outputDir, "unplanned-rogue.png");
+    writeFileSync(roguePath, Buffer.from("unplanned rogue png bytes"));
+    const captureReference = vi.fn(async () => ({
+      ...makeCapture("Captured unplanned visual"),
+      visual: {
+        status: "captured" as const,
+        kind: "viewport" as const,
+        fullPage: false,
+        capturedAt: "2026-05-18T00:00:00.000Z",
+        tempPath: roguePath,
+        warnings: []
+      }
+    }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("web/default", "web", {
+            url: input.url,
+            title: "Reference title",
+            content: "Reference content with enough detail for a design excerpt."
+          })
+        ]
+      })
+    }), {
+      brief: "Design a docs workspace",
+      urls: ["https://example.com/reference"],
+      outputDir,
+      visualEvidence: "off",
+      mode: "path"
+    }, {
+      captureReference
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const evidenceText = JSON.stringify(evidence);
+
+    expect(evidence.references[0]?.capture?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence temp path did not match the workflow capture plan.",
+      warnings: ["visual_temp_path_mismatch"]
+    }));
+    expect(evidenceText).not.toContain(roguePath);
+    expect(evidenceText).not.toContain("unplanned rogue png bytes");
   });
 
   it("overrides explicit off to deep capture when urls are present", async () => {

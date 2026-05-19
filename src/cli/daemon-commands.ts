@@ -865,10 +865,15 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         createDaemonWorkflowRuntime(core),
         {
           brief: requireString(params.brief, "brief"),
+          harvest: optionalBoolean(params.harvest),
+          query: optionalString(params.query),
+          providers: optionalStringArray(params.providers),
+          maxReferences: optionalNumber(params.maxReferences, "maxReferences"),
+          visualEvidence: optionalInspiredesignVisualEvidence(params.visualEvidence),
           urls: optionalStringArray(params.urls),
           captureMode: optionalInspiredesignCaptureMode(params.captureMode),
           includePrototypeGuidance: optionalBoolean(params.includePrototypeGuidance),
-          mode: optionalRenderMode(params.mode) ?? "compact",
+          mode: optionalRenderMode(params.mode),
           timeoutMs: inspiredesignTimeoutMs,
           outputDir: resolveDaemonWorkflowOutputDir(core, optionalString(params.outputDir)),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
@@ -1843,6 +1848,14 @@ function optionalInspiredesignCaptureMode(value: unknown): "off" | "deep" | unde
     return value;
   }
   throw new Error("Invalid captureMode");
+}
+
+function optionalInspiredesignVisualEvidence(value: unknown): "off" | "auto" | "required" | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === "off" || value === "auto" || value === "required") {
+    return value;
+  }
+  throw new Error("Invalid visualEvidence");
 }
 
 function requireWaitUntil(value: unknown): "domcontentloaded" | "load" | "networkidle" {

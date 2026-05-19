@@ -139,7 +139,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
     title: "Navigation / Interaction / Diagnostics Flags",
     summary: "Command-specific flags for page actions, reads, and diagnostics.",
     flags: [
-      { flag: "--url", description: "Target URL for navigation, connect, or workflow commands; repeat for multi-reference inspiredesign runs.", example: "opendevbrowser goto --session-id s1 --url https://example.com" },
+      { flag: "--url", description: "Target URL for navigation, connect, or workflow commands; repeat for multi-reference inspiredesign run or harvest inputs.", example: "opendevbrowser goto --session-id s1 --url https://example.com" },
       { flag: "--wait-until", description: "Navigation wait strategy such as load or domcontentloaded." },
       { flag: "--timeout-ms", description: "Operation timeout in milliseconds.", example: "opendevbrowser canvas --timeout-ms 120000 --command canvas.session.open ..." },
       { flag: "--ref", description: "Snapshot ref id for element-targeted commands.", example: "opendevbrowser click --session-id s1 --ref r12" },
@@ -213,8 +213,11 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--sources", description: "Explicit source-family selectors such as web,community. Use shopping only when commercial intent is explicit." },
       { flag: "--include-engagement", description: "Include engagement metrics in research output." },
       { flag: "--limit-per-source", description: "Per-source result cap for research runs." },
-      { flag: "--query", description: "Shopping query input." },
+      { flag: "--query", description: "Shopping query input or inspiredesign harvest discovery query." },
       { flag: "--providers", description: "Comma-separated provider ids for shopping or artifact commands." },
+      { flag: "--provider", description: "Repeatable provider id for inspiredesign harvest discovery." },
+      { flag: "--max-references", description: "Maximum inspiredesign harvest references to keep after explicit URL and query discovery merge." },
+      { flag: "--visual-evidence", description: "Inspiredesign visual evidence mode: off, auto, or required. Harvest defaults to required." },
       { flag: "--budget", description: "Budget filter for shopping workflows." },
       { flag: "--region", description: "Region or country hint for provider selection. Treat it as advisory unless output metadata reports `region_authoritative=true`." },
       { flag: "--sort", description: "Sort mode for shopping results." },
@@ -266,7 +269,7 @@ export const HELP_CAPABILITY_ENTRIES: readonly FormattableRow[] = [
     description: "Control the bounded browser-scoped computer-use challenge lane with --challenge-automation-mode; the optional helper is not a desktop agent.",
     details: [
       { label: "flag:", value: "--challenge-automation-mode off|browser|browser_with_helper" },
-      { label: "works:", value: "research run, shopping run, product-video run, inspiredesign run, macro-resolve --execute" },
+      { label: "works:", value: "research run, shopping run, product-video run, inspiredesign run, inspiredesign harvest, macro-resolve --execute" },
       { label: "entry:", value: onboardingMetadata.quickStartCommands.computerUseEntry },
       { label: "proof:", value: "review, session-inspector, workflow fallback metadata" }
     ]
@@ -306,10 +309,11 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "inspiredesign_followthrough",
-    description: "After inspiredesign finishes, read advanced-brief.md first, then continue in Canvas with the emitted request template and load the canvas-contract design-agent lane before patching.",
+    description: "After inspiredesign finishes, read advanced-brief.md and meta-prompt.md first, inspect screenshot metadata, then continue in Canvas with design-agent and motion-design loaded before patching.",
     details: [
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
+      { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }

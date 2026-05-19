@@ -124,6 +124,10 @@ describe("cli help parity", () => {
     expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
       "--brief",
       "--url",
+      "--query",
+      "--provider",
+      "--max-references",
+      "--visual-evidence",
       "--capture-mode",
       "--include-prototype-guidance",
       "--browser-mode"
@@ -184,11 +188,16 @@ describe("cli help parity", () => {
     expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
       "--brief",
       "--url",
+      "--query",
+      "--provider",
+      "--max-references",
+      "--visual-evidence",
       "--capture-mode",
       "--include-prototype-guidance",
       "--browser-mode"
     ]));
     expect(COMMAND_HELP_DETAILS.inspiredesign.examples[0]).toContain("inspiredesign run");
+    expect(COMMAND_HELP_DETAILS.inspiredesign.examples[1]).toContain("inspiredesign harvest");
     expect(HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands])).toContain("inspiredesign");
     expect(HELP_TOOL_ENTRIES.map((entry) => entry.name)).toContain("opendevbrowser_inspiredesign_run");
   });
@@ -235,6 +244,7 @@ describe("cli help parity", () => {
     expect(inspiredesignEntry?.description).toContain("Shared inspiredesign follow-through commands");
     expect(INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices).toContain("opendevbrowser-best-practices");
     expect(INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent).toContain("opendevbrowser-design-agent");
+    expect(INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign).toContain("opendevbrowser-motion-design");
     expect(INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief).toContain("advanced-brief.md");
     expect(INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest).toContain("canvas-plan.request.json");
     expect(INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas).toContain("canvas.plan.set");

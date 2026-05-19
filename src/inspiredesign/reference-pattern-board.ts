@@ -21,6 +21,14 @@ type ReferenceInput = {
       componentPreview: string;
       cssPreview: string;
     };
+    visual?: {
+      status: "captured" | "skipped" | "failed";
+      path?: string;
+      sha256?: string;
+      bytes?: number;
+      failure?: string;
+      warnings: string[];
+    };
   } | null;
 };
 
@@ -29,10 +37,16 @@ export type InspiredesignReferencePatternBoard = {
   targetSurface: string;
   references: Array<{
     id: string;
+    rank: number;
+    score: number;
+    confidence: number;
     name: string;
     url: string;
     surfaceType: string;
     capturedVia: string[];
+    selectionReason: string;
+    visualStrengths: string[];
+    visualRisks: string[];
     layoutRecipe: string;
     contentHierarchy: string[];
     componentFamilies: string[];
@@ -41,6 +55,13 @@ export type InspiredesignReferencePatternBoard = {
     patternsToBorrow: string[];
     patternsToReject: string[];
     whyItWorks: string;
+  }>;
+  rejectedReferences: Array<{
+    id: string;
+    url: string;
+    reason: string;
+    fetchStatus: ReferenceStatus;
+    captureStatus: "off" | "captured" | "failed";
   }>;
   synthesis: {
     dominantDirection: string;
@@ -74,6 +95,15 @@ export type InspiredesignDesignVectors = {
 const SIGNAL_LIMIT = 5;
 const SIGNAL_CLIP = 180;
 const PATTERN_LIMIT = 6;
+const SCORE_FETCH_CAPTURED = 20;
+const SCORE_CAPTURE_CAPTURED = 20;
+const SCORE_VISUAL_CAPTURED = 30;
+const SCORE_SNAPSHOT = 10;
+const SCORE_CLONE = 8;
+const SCORE_DOM = 8;
+const SCORE_PUBLIC_LANDING = 6;
+const SCORE_SIGNAL_CAP = 12;
+const MAX_REFERENCE_SCORE = 100;
 const ADVANCED_MOTION_FIELDS = [
   "Advisory shader-style gradients: specify effect type, uniforms, static fallback, and reduced-motion replacement as design language only.",
   "Advisory WebGL-style depth cues: describe layered depth, camera-like parallax, and spatial hierarchy without requiring WebGL runtime.",
@@ -104,7 +134,9 @@ const isCodeOrCssPreview = (value: string): boolean => {
   const lower = value.toLowerCase();
   return lower.includes("dangerouslysetinnerhtml")
     || lower.includes("opendevbrowser-root")
+    || lower.includes("--gestalt-")
     || lower.includes("align-content:")
+    || lower.startsWith(":root")
     || lower.startsWith("import ")
     || /^[.#][a-z0-9_-]+\s*\{/.test(lower)
     || (lower.includes("{") && /[a-z-]+:\s*[^;]+;/.test(lower));
@@ -129,6 +161,24 @@ const DIAGNOSTIC_TEXT_MARKERS = [
   "checking if the site connection is secure",
   "complete the verification",
   "blocked reference"
+] as const;
+
+const INTERFACE_CHROME_TEXT_MARKERS = [
+  "your profile",
+  "your boards",
+  "remove search input",
+  "settings & support",
+  "pin card",
+  "voice search",
+  "lens",
+  "back to home page",
+  "toggle mobile menu",
+  "facebook",
+  "instagram",
+  "updates",
+  "messages",
+  "when autocomplete results are available",
+  "touch device users"
 ] as const;
 
 const PUBLIC_LANDING_TEXT_MARKERS = [
@@ -173,6 +223,23 @@ const isDiagnosticText = (value: string): boolean => {
   return DIAGNOSTIC_TEXT_MARKERS.some((marker) => lower.includes(marker));
 };
 
+const isInterfaceChromeText = (value: string): boolean => {
+  const lower = value.toLowerCase();
+  if (
+    lower === "your profile"
+    || lower === "adobe, inc."
+    || lower === "dribbble: the community for graphic design"
+    || /^https?:\/\/\S+$/.test(lower)
+    || (lower.includes("when autocomplete results are available") && lower.includes("touch device users"))
+    || (lower.includes("get 20%") && lower.includes("dribbble: the community for graphic design"))
+    || (lower.includes("our free wordpress themes are downloaded") && lower.includes("get them now"))
+  ) {
+    return true;
+  }
+  const markerCount = INTERFACE_CHROME_TEXT_MARKERS.filter((marker) => lower.includes(marker)).length;
+  return markerCount >= 3 || (lower.includes("pin card") && lower.includes("your profile"));
+};
+
 const hasPublicLandingSignal = (value: string): boolean => {
   const lower = value.toLowerCase();
   const strongCount = PUBLIC_LANDING_TEXT_MARKERS.filter((marker) => lower.includes(marker)).length;
@@ -185,7 +252,7 @@ const hasPublicLandingSignal = (value: string): boolean => {
 const pushSignal = (signals: string[], value: string | undefined): void => {
   if (!value || isCodeOrCssPreview(value)) return;
   const text = cleanEvidenceText(value);
-  if (isCodeOrCssPreview(text) || isDiagnosticText(text)) return;
+  if (isCodeOrCssPreview(text) || isDiagnosticText(text) || isInterfaceChromeText(text)) return;
   if (text.length > 0 && !signals.includes(text)) {
     signals.push(text);
   }
@@ -206,7 +273,7 @@ export const getInspiredesignReferenceSignals = (reference: ReferenceInput): str
 const hasCleanSignal = (value: string | undefined): boolean => {
   if (!value || isCodeOrCssPreview(value)) return false;
   const text = cleanEvidenceText(value);
-  return text.length > 0 && !isCodeOrCssPreview(text) && !isDiagnosticText(text);
+  return text.length > 0 && !isCodeOrCssPreview(text) && !isDiagnosticText(text) && !isInterfaceChromeText(text);
 };
 
 const hasUsableCloneCreativeEvidence = (reference: ReferenceInput): boolean => (
@@ -234,9 +301,17 @@ const firstSignal = (reference: ReferenceInput): string => {
     reference.excerpt,
     reference.title
   ].map((value) => value ? cleanEvidenceText(value) : "").find((value) => (
-    value.length > 0 && !isCodeOrCssPreview(value) && !isDiagnosticText(value)
+    value.length > 0 && !isCodeOrCssPreview(value) && !isDiagnosticText(value) && !isInterfaceChromeText(value)
   ));
   return preferred ? clipText(preferred, SIGNAL_CLIP) : reference.url;
+};
+
+const displayNameForReference = (reference: ReferenceInput, primarySignal: string): string => {
+  const title = reference.title ? cleanEvidenceText(reference.title) : "";
+  if (title && !isDiagnosticText(title) && !isInterfaceChromeText(title)) {
+    return clipText(title, SIGNAL_CLIP);
+  }
+  return primarySignal !== reference.url ? primarySignal : reference.url;
 };
 
 type ReferencePatternRule = {
@@ -307,7 +382,76 @@ const deriveCapturedVia = (reference: ReferenceInput): string[] => {
     methods.push("clone");
   }
   if (reference.capture?.dom?.outerHTML.trim()) methods.push("dom");
+  if (reference.capture?.visual?.status === "captured") methods.push("visual");
   return methods;
+};
+
+const scoreReference = (
+  reference: ReferenceInput,
+  signals: string[],
+  isPublicLanding: boolean
+): number => {
+  let score = 0;
+  if (reference.fetchStatus === "captured") score += SCORE_FETCH_CAPTURED;
+  if (reference.captureStatus === "captured") score += SCORE_CAPTURE_CAPTURED;
+  if (reference.capture?.visual?.status === "captured") score += SCORE_VISUAL_CAPTURED;
+  if (reference.capture?.snapshot?.content.trim()) score += SCORE_SNAPSHOT;
+  if (hasUsableCloneCreativeEvidence(reference)) score += SCORE_CLONE;
+  if (reference.capture?.dom?.outerHTML.trim()) score += SCORE_DOM;
+  if (isPublicLanding) score += SCORE_PUBLIC_LANDING;
+  score += Math.min(SCORE_SIGNAL_CAP, signals.length * 2);
+  return Math.min(MAX_REFERENCE_SCORE, score);
+};
+
+const confidenceFromScore = (score: number): number => (
+  Number((score / MAX_REFERENCE_SCORE).toFixed(2))
+);
+
+const deriveVisualStrengths = (
+  reference: ReferenceInput,
+  patterns: string[]
+): string[] => {
+  const strengths = [
+    ...(reference.capture?.visual?.status === "captured"
+      ? ["Screenshot artifact is available for direct visual inspection."]
+      : []),
+    ...(reference.capture?.snapshot?.content.trim()
+      ? ["Snapshot text confirms visible hierarchy and interaction targets."]
+      : []),
+    ...(hasUsableCloneCreativeEvidence(reference)
+      ? ["Clone preview exposes reusable component and styling cues."]
+      : []),
+    ...patterns.slice(0, 2).map((pattern) => `Reusable visual cue: ${pattern}.`)
+  ];
+  return strengths.slice(0, PATTERN_LIMIT);
+};
+
+const deriveVisualRisks = (reference: ReferenceInput): string[] => {
+  const risks = [
+    ...(reference.capture?.visual?.status !== "captured"
+      ? ["No finalized screenshot artifact, so visual claims must stay conservative."]
+      : []),
+    ...(reference.capture?.visual?.status === "failed" && reference.capture.visual.failure
+      ? [`Screenshot failure: ${reference.capture.visual.failure}.`]
+      : []),
+    ...(reference.capture?.visual?.warnings ?? []).map((warning) => `Screenshot warning: ${warning}.`),
+    ...(reference.fetchStatus !== "captured"
+      ? ["Fetch evidence failed or was skipped, so use browser capture cautiously."]
+      : [])
+  ];
+  return risks.length > 0
+    ? risks.slice(0, PATTERN_LIMIT)
+    : ["No major visual evidence risk detected in the captured reference."];
+};
+
+const selectionReasonForScore = (score: number, capturedVia: string[]): string => {
+  if (capturedVia.includes("visual")) {
+    return `Ranked for screenshot-backed visual evidence plus ${capturedVia.join(", ")} capture.`;
+  }
+  if (score >= 50) {
+    return `Ranked for strong text and structural evidence from ${capturedVia.join(", ") || "reference metadata"}.`;
+  }
+  return "Ranked for limited but usable reference cues.";
 };
 
 const deriveComponentFamilies = (
@@ -354,17 +498,24 @@ const hasEvidenceCue = (text: string, matches: readonly string[]): boolean => (
 const deriveReferenceEntry = (
   reference: ReferenceInput,
   format: InspiredesignBriefFormat
-): InspiredesignReferencePatternBoard["references"][number] => {
+): Omit<InspiredesignReferencePatternBoard["references"][number], "rank"> => {
   const signals = getInspiredesignReferenceSignals(reference);
   const primarySignal = firstSignal(reference);
   const patterns = appendSourceDetail(derivePatternSummaries(signals, primarySignal), primarySignal);
   const isPublicLanding = signals.some(hasPublicLandingSignal);
+  const capturedVia = deriveCapturedVia(reference);
+  const score = scoreReference(reference, signals, isPublicLanding);
   return {
     id: reference.id,
-    name: reference.title ?? reference.url,
+    score,
+    confidence: confidenceFromScore(score),
+    name: displayNameForReference(reference, primarySignal),
     url: reference.url,
     surfaceType: isPublicLanding ? "public landing page" : format.archetype,
-    capturedVia: deriveCapturedVia(reference),
+    capturedVia,
+    selectionReason: selectionReasonForScore(score, capturedVia),
+    visualStrengths: deriveVisualStrengths(reference, patterns),
+    visualRisks: deriveVisualRisks(reference),
     layoutRecipe: patterns.join("; "),
     contentHierarchy: patterns.slice(0, 4),
     componentFamilies: deriveComponentFamilies(format, patterns, isPublicLanding),
@@ -378,6 +529,45 @@ const deriveReferenceEntry = (
   };
 };
 
+const sortReferenceEntries = (
+  entries: Array<Omit<InspiredesignReferencePatternBoard["references"][number], "rank">>
+): Array<InspiredesignReferencePatternBoard["references"][number]> => entries
+  .slice()
+  .sort((left, right) => (
+    right.score - left.score
+      || left.id.localeCompare(right.id)
+      || left.url.localeCompare(right.url)
+  ))
+  .map((entry, index) => ({
+    rank: index + 1,
+    ...entry
+  }));
+
+const rejectionReasonForReference = (reference: ReferenceInput): string => {
+  if (reference.fetchStatus === "failed" && reference.captureStatus === "failed") {
+    return "Fetch and capture did not produce usable creative evidence.";
+  }
+  if (reference.captureStatus === "failed") {
+    return "Capture did not produce usable creative evidence.";
+  }
+  if (reference.fetchStatus === "failed") {
+    return "Fetch did not produce usable creative evidence.";
+  }
+  return "Reference evidence was diagnostic, empty, or too weak for creative synthesis.";
+};
+
+const buildRejectedReferences = (
+  references: ReferenceInput[]
+): InspiredesignReferencePatternBoard["rejectedReferences"] => references
+  .filter((reference) => !hasInspiredesignUsableReferenceEvidence(reference))
+  .map((reference) => ({
+    id: reference.id,
+    url: reference.url,
+    reason: rejectionReasonForReference(reference),
+    fetchStatus: reference.fetchStatus,
+    captureStatus: reference.captureStatus
+  }));
+
 export const buildInspiredesignReferencePatternBoard = (
   briefId: string,
   format: InspiredesignBriefFormat,
@@ -386,16 +576,18 @@ export const buildInspiredesignReferencePatternBoard = (
   const entries = references
     .filter(hasInspiredesignUsableReferenceEvidence)
     .map((reference) => deriveReferenceEntry(reference, format));
-  const sharedStrengths = entries.flatMap((entry) => entry.patternsToBorrow).slice(0, 6);
-  const targetSurface = entries.some((entry) => entry.surfaceType === "public landing page")
+  const rankedEntries = sortReferenceEntries(entries);
+  const sharedStrengths = rankedEntries.flatMap((entry) => entry.patternsToBorrow).slice(0, 6);
+  const targetSurface = rankedEntries.some((entry) => entry.surfaceType === "public landing page")
     ? "reference-led public landing page"
     : format.layoutArchetype;
   return {
     briefId,
     targetSurface,
-    references: entries,
+    references: rankedEntries,
+    rejectedReferences: buildRejectedReferences(references),
     synthesis: {
-      dominantDirection: entries[0]?.layoutRecipe ?? format.archetype,
+      dominantDirection: rankedEntries[0]?.layoutRecipe ?? format.archetype,
       sharedStrengths,
       sharedFailuresToAvoid: [...format.antiPatterns],
       contractDeltas: [
