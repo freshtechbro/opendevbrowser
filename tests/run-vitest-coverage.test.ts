@@ -4,6 +4,7 @@ import {
   buildVitestArgs,
   isRetryableCoverageCleanupError,
   isRetryableCoverageShardError,
+  removeRedundantCoverageArgs,
   resetCoverageRoot,
   shouldRelaxCoverageThresholds
 } from "../scripts/run-vitest-coverage.mjs";
@@ -52,6 +53,14 @@ describe("run-vitest-coverage", () => {
 
     expect(shouldRelaxCoverageThresholds(args)).toBe(false);
     expect(buildVitestArgs(args)).toEqual(args);
+  });
+
+  it("drops redundant coverage enablement before spawning vitest", () => {
+    expect(removeRedundantCoverageArgs(["--coverage", "--coverage=true", "--coverage.thresholds.lines", "97"])).toEqual([
+      "--coverage.thresholds.lines",
+      "97"
+    ]);
+    expect(buildVitestArgs(["--coverage"])).toEqual([]);
   });
 
   it("retries coverage cleanup for transient non-empty directory errors", async () => {

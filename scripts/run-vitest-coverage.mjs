@@ -76,11 +76,16 @@ export function shouldRelaxCoverageThresholds(args = []) {
   );
 }
 
+export function removeRedundantCoverageArgs(args = []) {
+  return args.filter((arg) => arg !== "--coverage" && arg !== "--coverage=true");
+}
+
 export function buildVitestArgs(args = []) {
-  if (!shouldRelaxCoverageThresholds(args)) {
-    return [...args];
+  const vitestArgs = removeRedundantCoverageArgs(args);
+  if (!shouldRelaxCoverageThresholds(vitestArgs)) {
+    return vitestArgs;
   }
-  return [...args, ...FOCUSED_COVERAGE_THRESHOLD_ARGS];
+  return [...vitestArgs, ...FOCUSED_COVERAGE_THRESHOLD_ARGS];
 }
 
 async function spawnVitest(args) {
