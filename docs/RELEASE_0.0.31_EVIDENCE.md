@@ -1,6 +1,6 @@
 # v0.0.31 Release Evidence
 
-Status: active current release ledger
+Status: historical release ledger
 Target release date: 2026-05-17
 Target tag: `v0.0.31`
 
@@ -8,9 +8,9 @@ Target tag: `v0.0.31`
 
 Tracks the `0.0.31` release cycle for the PR #58/#59 OpenCode update-cache hardening follow-up.
 
-Current status note:
-- As of the 2026-05-19 package metadata audit, `package.json`, `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json` remain aligned at `0.0.31`.
-- This note clarifies current ledger ownership only. It does not add new validation evidence beyond the results already recorded below.
+Historical status note:
+- This ledger is no longer the current package release ledger. As of the 2026-05-19 package metadata audit, `package.json`, `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json` are aligned at `0.0.32`.
+- Keep the `0.0.31` validation results below as historical evidence for `v0.0.31`; do not reinterpret them as current release validation.
 
 ## Reference State
 
