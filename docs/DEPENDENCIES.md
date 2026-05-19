@@ -1,9 +1,22 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-05-19
 
 This document tracks runtime and build dependencies across the repository.
+
+## Source metadata audit (2026-05-19)
+
+Verified source files:
+- `package.json` version: `0.0.31`
+- `package-lock.json` top-level version and `packages[""]` version: `0.0.31`
+- `extension/manifest.json` version: `0.0.31`
+- `extension/package.json` version: `0.0.31`
+- `eslint.config.js`: flat config for `src/**/*.ts` and `tests/**/*.ts`, using `@typescript-eslint/parser`, `ecmaVersion: "latest"`, module source type, and no custom rules
+- public repo config files found for this audit: `eslint.config.js`, `tsconfig.json`, `vitest.config.ts`, and `extension/tsconfig.json`
+- no public Vite config and no public `frontend/` application directory are present in this repo
+
+`npm run version:check` is the source-backed version parity gate for root package, lockfile, extension manifest, and extension package metadata.
 
 ## Root package (`/package.json`)
 
@@ -45,8 +58,8 @@ This public repository no longer tracks website package manifests or lockfiles. 
 
 ## Extension package (`/extension`)
 
-The extension is built with the root toolchain (`npm run extension:build`) and does not maintain an independent runtime dependency graph.
-Version synchronization is handled by `npm run extension:sync`, which keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version.
+The extension is built with the root toolchain (`npm run extension:build`) and does not maintain an independent runtime dependency graph. The extension package is private and only declares `type: "module"` plus a local `build` script.
+Version synchronization is handled by `npm run extension:sync`, which keeps `extension/manifest.json` and `extension/package.json` aligned with the root package version. `npm run extension:pack` zips the built manifest, popup, canvas page, `dist/`, and icons into `opendevbrowser-extension.zip`.
 
 ## Challenge override rollout audit
 
@@ -54,11 +67,11 @@ Version synchronization is handled by `npm run extension:sync`, which keeps `ext
 - No package.json, tsconfig.json, eslint.config.js, or vitest.config.ts changes were required for this rollout.
 - No Vite config exists in the public repo, so no Vite update was required.
 
-## Documentation sweep config audit (2026-04-11)
+## Documentation sweep config audit (2026-05-19)
 
-- Reviewed `package.json`, `package-lock.json`, `eslint.config.js`, `tsconfig.json`, and `vitest.config.ts` as part of the repo-wide docs sweep.
-- No dependency version, lockfile, or toolchain config changes were required after the source-backed audit; only package metadata text was refreshed separately.
-- The live config filenames in this repo are `eslint.config.js` and `tsconfig.json`; there is no `eslintconfig.js`, `tsconfig.js`, or Vite config in the public repo.
+- Reviewed `package.json`, `package-lock.json`, `eslint.config.js`, `tsconfig.json`, `vitest.config.ts`, `extension/manifest.json`, and `extension/package.json` as part of this release documentation lane.
+- No dependency version, lockfile, or toolchain config changes were required after the source-backed audit.
+- The live root config filenames in this repo are `eslint.config.js`, `tsconfig.json`, and `vitest.config.ts`; extension TypeScript config lives at `extension/tsconfig.json`. There is no `eslintconfig.js`, `tsconfig.js`, public Vite config, or public `frontend/` app directory in the public repo.
 
 ## Dependency update workflow
 
@@ -67,7 +80,7 @@ Version synchronization is handled by `npm run extension:sync`, which keeps `ext
    - public repo: `npm install`
    - private website repo: `npm install --prefix frontend`
 3. Run validation gates:
-   - Root: `npm run lint`, `npm run typecheck`, `npm run build`, `npm run extension:build`, `npm run test`
+   - Root: `npm run version:check`, `npm run lint`, `npm run typecheck`, `npm run build`, `npm run extension:build`, `npm run test`
    - Private website repo: `npm run lint --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend`
 4. Update this document when dependency purpose or versions change.
 

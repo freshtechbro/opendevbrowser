@@ -1,12 +1,16 @@
 # v0.0.30 Release Evidence
 
-Status: active release ledger
+Status: historical release ledger
 Target release date: 2026-05-16
 Target tag: `v0.0.30`
 
 ## Scope
 
 Tracks the `0.0.30` release cycle for uniform workflow output roots across CLI, daemon RPC, OpenCode direct tools, and provider workflow fallbacks.
+
+Historical status note:
+- This ledger is no longer the current package release ledger. As of the 2026-05-19 package metadata audit, `package.json`, `package-lock.json`, `extension/manifest.json`, and `extension/package.json` are aligned at `0.0.31`.
+- Keep the `0.0.30` validation results below as historical evidence for `v0.0.30`; do not reinterpret them as current release validation.
 
 ## Reference State
 

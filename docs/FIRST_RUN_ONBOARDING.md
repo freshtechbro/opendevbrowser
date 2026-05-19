@@ -1,7 +1,7 @@
 # First-Run Onboarding (Local Artifact Validation)
 
 Status: active  
-Last updated: 2026-04-20
+Last updated: 2026-05-19
 
 This guide is the shipping checklist for validating OpenDevBrowser as a new user from a local package artifact. Use `docs/RELEASE_RUNBOOK.md` for the separate published npm registry-consumer proof lane.
 
@@ -88,12 +88,12 @@ npx --no-install opendevbrowser --help | grep -E "screencast / browser replay|de
 
 ## 2c) Validate the current workflow lanes
 
-These are repeatable capability checks from the April 6 validation pass, with research treated as an evidence-gated primitive. Load `opendevbrowser-research` before research tasks and inspect returned artifacts before final claims.
+These are repeatable capability checks from `src/cli/onboarding-metadata.json`, with research treated as an evidence-gated primitive. The metadata owns the command shapes; this local-artifact checklist adds `--no-install` so the temp install is exercised. Load `opendevbrowser-research` before research tasks and inspect returned artifacts before final claims.
 
 ```bash
-npx --no-install opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --sources web,community --mode json --output-format json
-npx --no-install opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
-npx --no-install opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+npx --no-install opendevbrowser research run --topic "Chrome extension debugging workflows" --days 30 --sources web,community --browser-mode managed --mode json --output-format json
+npx --no-install opendevbrowser shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx --no-install opendevbrowser research run --topic "account recovery flow" --sources web,community --challenge-automation-mode browser --mode json --output-format json
 ```
 
 Use the bundled best-practices runbook for the full current lane set, including the public-first YouTube transcript probe:
@@ -214,9 +214,8 @@ Ready state for extension workflows:
 ## 6) First task command chain (managed mode)
 
 ```bash
-SESSION_JSON=$(npx --no-install opendevbrowser launch --no-extension --headless --output-format json)
+SESSION_JSON=$(npx --no-install opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json)
 SESSION_ID=<session-id-from-output>
-npx --no-install opendevbrowser goto --session-id "$SESSION_ID" --url https://example.com --wait-until load --timeout-ms 60000 --output-format json
 npx --no-install opendevbrowser snapshot --session-id "$SESSION_ID" --output-format json
 npx --no-install opendevbrowser disconnect --session-id "$SESSION_ID" --close-browser --output-format json
 ```

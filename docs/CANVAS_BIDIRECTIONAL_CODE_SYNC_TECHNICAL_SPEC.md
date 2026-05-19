@@ -1,7 +1,7 @@
 # Canvas Bidirectional Code Sync Technical Spec
 
 Status: active  
-Last updated: 2026-03-27
+Last updated: 2026-05-19
 
 ## Overview
 
@@ -51,6 +51,10 @@ Legacy `tsx-react-v1` bindings and manifests migrate on load to `builtin:react-t
 - Binding metadata is normalized through `normalizeCodeSyncBindingMetadata()` in `src/canvas/code-sync/types.ts`.
 - Drift/conflict state is computed from source hashes, manifest data, and current document revision.
 - `canvas.code.status` is the primary audit surface for `frameworkAdapterId`, granted capabilities, denials, and typed `reasonCode` values.
+
+## Preview projection boundary
+
+Code sync can bind a canvas document to source files, but preview/export still defaults to core-generated `canvas_html`. `bound_app_runtime` is opt-in and only applies when the binding grants runtime preview capability and the target app instrumentation passes preflight. Runtime bridge failure must degrade back to `canvas_html`, not silently claim app-runtime parity.
 
 ## Conflict model
 

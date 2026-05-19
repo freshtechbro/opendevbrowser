@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Status: active  
-Last updated: 2026-04-06
+Last updated: 2026-05-19
 
 ## Hub daemon status
 
@@ -96,7 +96,7 @@ Quick checks:
 ## Annotation send fallback and shared inbox
 
 Popup, canvas, and in-page annotation `Send` actions now attempt shared inbox delivery through `/annotation` before they fall back to local storage.
-The extension background owns the `annotation:sendPayload` bridge, posts `store_agent_payload`, and the relay resolves the shared path through `AgentInbox` before falling back to local storage.
+The extension background owns the `annotation:sendPayload` bridge and posts `store_agent_payload`. The relay handles that command locally through the core `AgentInbox` store handler; the extension uses local sanitized storage only when relay enqueue fails or as its explicit fallback copy.
 
 Quick checks:
 
@@ -108,9 +108,9 @@ Quick checks:
 
 Common reasons for stored-only receipts:
 
-- `no_active_scope` — no current chat scope was registered for the worktree.
-- `ambiguous_scope` — more than one active chat scope exists for the same worktree.
-- Relay enqueue failed — the extension could still keep the payload available via the local stored fallback path.
+- `no_active_scope`: no current chat scope was registered for the worktree.
+- `ambiguous_scope`: more than one active chat scope exists for the same worktree.
+- Relay enqueue failed: the extension can still keep the payload available via the local stored fallback path.
 
 ## Popup annotation start failures
 

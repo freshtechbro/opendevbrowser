@@ -2,21 +2,23 @@
 
 Status: historical snapshot
 Snapshot date: 2026-02-16
-Last audited against repo: 2026-03-18
+Last audited against repo: 2026-05-19
 Owner: maintainer
 
 Current audit note:
-- this roadmap predates the shipped skill-pack surface already present in the repo and should not be treated as current `/open-source` landing copy without a refresh.
-- the current public repo already ships nine canonical `opendevbrowser-*` skill packs under `skills/`.
-- the M1 window below is already in progress relative to this historical snapshot; keep the milestone body as planning history until a fresh live roadmap replaces it.
+- this roadmap predates the shipped skill-pack surface already present in the repo and should not be treated as current `/open-source` landing copy without a fresh maintainer-approved roadmap source.
+- the current public repo ships 10 canonical `opendevbrowser-*` skill packs under `skills/`, including `opendevbrowser-motion-design`.
+- no same-day source-backed roadmap decision was found in this public repo audit, so the milestone body remains planning history instead of current roadmap guidance.
+- the M1 and M2 windows below are historical relative to the 2026-05-19 audit date, and M3 remains unverified planning history despite still being in-window because no fresh maintainer-approved roadmap source was found; keep the milestone body as planning history until a fresh live roadmap replaces it.
 - preserve the milestone body below as planning history; refresh statuses/windows before reusing it for public roadmap claims.
 
 Purpose:
-- canonical roadmap source for landing `/open-source` copy.
-- keep public roadmap aligned with actual release direction.
+- historical roadmap source for landing `/open-source` copy until a fresh current roadmap is approved.
+- keep public roadmap aligned with actual release direction by refusing to reuse stale milestone windows as current claims.
 
 Update rules:
 - update this file before publishing landing copy changes that reference roadmap tracks.
+- do not publish the historical milestone table as current landing copy.
 - each roadmap item must represent realistic, in-scope work.
 - when priorities change, update this file first, then update landing copy.
 

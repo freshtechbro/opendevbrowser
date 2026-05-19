@@ -1,7 +1,7 @@
 # Workflow Surface Map
 
 Status: active
-Last updated: 2026-04-30
+Last updated: 2026-05-19
 
 Canonical code-derived workflow inventory across CLI commands, tool surfaces, and executable validation scenarios.
 

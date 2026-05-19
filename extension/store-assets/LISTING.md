@@ -35,7 +35,7 @@ What it delivers today:
 - Attaches Chrome DevTools Protocol with `debugger` for inspect and action loops
 - Injects page-side helpers with `scripting` for annotation, DOM capture, and in-tab automation
 - Participates in user-triggered local browser replay capture through the existing screenshot lane
-- Stores relay settings plus the last local annotation payload metadata so the popup can reconnect and reopen recent results
+- Stores relay settings plus screenshot-free local annotation payload metadata and payload copies so the popup can reconnect and reopen recent results
 - Shows relay, handshake, annotate, injected, `CDP`, pairing, and native fallback health directly in the popup
 
 Important behavior notes:
@@ -110,7 +110,7 @@ Use these answers as the starting point for the current Chrome Web Store dashboa
 - The extension may access page URLs, titles, page content, and screenshots locally when the user runs automation or annotation flows.
 - The extension may participate in user-triggered browser replay capture locally; replay manifests, preview images, and sampled frames stay on-device in the chosen output directory.
 - The extension does not capture desktop data; any separate desktop observation flow is read-only and handled by the local core runtime rather than the extension.
-- The extension stores relay settings, pairing state, relay identity metadata, and the last local annotation payload metadata on-device.
+- The extension stores relay settings, pairing state, relay identity metadata, and the last local annotation payload metadata plus screenshot-free payload copies on-device.
 - The extension does not sell browsing data.
 - The extension does not send browsing data, page content, or annotation payloads to the developer or third-party analytics services.
 
@@ -130,7 +130,7 @@ Use these answers as the starting point for the current Chrome Web Store dashboa
 - User-triggered screenshots / visible-tab captures
 - Local replay artifacts
 - Extension settings and pairing state
-- Local annotation payload metadata
+- Local annotation payload metadata and screenshot-free payload copies
 
 ## Reviewer Test Instructions
 

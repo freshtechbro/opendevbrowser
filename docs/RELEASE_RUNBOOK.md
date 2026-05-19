@@ -1,8 +1,14 @@
 # Public Release Runbook
 
-Last updated: 2026-04-13
+Last updated: 2026-05-19
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
+
+## Current source-backed release reference
+
+As of the 2026-05-19 package metadata audit, the checked-in release version is `0.0.31` across `package.json`, root `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json`. The current version-scoped release ledger is `docs/RELEASE_0.0.31_EVIDENCE.md`; `docs/RELEASE_0.0.30_EVIDENCE.md` is historical.
+
+Use `npm run version:check` as the authoritative local parity check for those five version fields before tagging or publishing.
 
 ## Scope
 
@@ -47,6 +53,7 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
   - `node scripts/docs-drift-check.mjs`
   - `node scripts/chrome-store-compliance-check.mjs`
   - `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+  - `./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh`
   - `npx opendevbrowser --help`
   - `npx opendevbrowser help`
   - Treat the two help commands above as release-facing wording proof for `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
@@ -72,6 +79,7 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 - [ ] `node scripts/docs-drift-check.mjs`
 - [ ] `node scripts/chrome-store-compliance-check.mjs`
 - [ ] `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+- [ ] `./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh`
 - [ ] `npm run lint`
 - [ ] `npm run typecheck`
 - [ ] `npm run test`
@@ -108,6 +116,7 @@ git push origin vX.Y.Z
 - runs `node scripts/docs-drift-check.mjs`
 - runs `node scripts/chrome-store-compliance-check.mjs`
 - runs `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+- runs `./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh`
 - runs `npm run lint`
 - runs `npm run typecheck`
 - runs `npm run test`
@@ -188,6 +197,7 @@ npm deprecate opendevbrowser@X.Y.Z "deprecated: use <fixed-version>"
 
 ## Evidence to retain
 
+- Active version-scoped release evidence ledger path, currently `docs/RELEASE_0.0.31_EVIDENCE.md` for package version `0.0.31`
 - Release workflow run URL
 - npm published version output (or explicit publish deferral for manual dry runs)
 - `artifacts/release/vX.Y.Z/registry-consumer-smoke.json`

@@ -1,8 +1,14 @@
 # Extension Release Runbook
 
-Last updated: 2026-04-13
+Last updated: 2026-05-19
 
 Operational runbook for publishing extension artifacts from the public repo.
+
+## Current source-backed extension reference
+
+As of the 2026-05-19 package metadata audit, `package.json`, `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json` are all aligned at `0.0.31`. `extension/manifest.json` is MV3, names the extension `OpenDevBrowser Relay`, and packages the background service worker at `dist/background.js`.
+
+Use `npm run extension:sync` before release prep to write extension version metadata from the root package version. Use `npm run version:check` after sync to verify the root package, lockfile, manifest, and extension package agree.
 
 ## Distribution lanes
 
@@ -12,7 +18,7 @@ Always produced from `.github/workflows/release-public.yml`:
 - `opendevbrowser-extension.zip`
 - `opendevbrowser-extension.zip.sha256`
 
-This is the canonical extension release lane.
+This is the canonical extension release lane. The public release workflow also runs docs drift, Chrome Store compliance, best-practices skill assets, motion-design skill assets, lint, typecheck, tests, build, generated help, and extension build before packing the zip.
 
 ### Lane B (optional): Chrome Web Store publish
 
@@ -41,7 +47,7 @@ Configure in public GitHub repo secrets:
 - [ ] Verify the generated store assets and listing copy still reflect the shipped popup plus `canvas.html` surfaces, including token authoring, lease-aware history, and annotation flows when those screens are part of the release capture set, while keeping the extension in the relay-backed browser lane: local browser replay participation is allowed, public read-only desktop observation remains separate core runtime behavior, and neither the extension nor the optional helper is described as a desktop agent.
 - [ ] Review `extension/store-assets/LISTING.md` for current homepage, privacy URL, upload copy, and permission/privacy answers.
 - [ ] `node scripts/chrome-store-compliance-check.mjs` passes.
-- [ ] `npm run extension:pack` creates `opendevbrowser-extension.zip`.
+- [ ] `npm run extension:pack` creates `opendevbrowser-extension.zip` from `manifest.json`, `popup.html`, `canvas.html`, `dist/`, and `icons/`.
 - [ ] `npm run version:check` passes.
 
 ## Lane A execution
@@ -49,7 +55,8 @@ Configure in public GitHub repo secrets:
 1. Run tag-driven public release flow (`docs/RELEASE_RUNBOOK.md`).
 2. Confirm the release workflow completed the registry-consumer smoke lane for the published npm package before treating the extension artifact as fully released.
 3. Confirm GitHub release includes extension zip + checksum.
-4. Verify checksum locally if required:
+4. Confirm the active release evidence ledger, currently `docs/RELEASE_0.0.31_EVIDENCE.md` for package version `0.0.31`, records whether external release workflow evidence is complete or deferred.
+5. Verify checksum locally if required:
 
 ```bash
 shasum -a 256 opendevbrowser-extension.zip

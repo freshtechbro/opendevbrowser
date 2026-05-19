@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-05-16
+Last updated: 2026-05-19
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/public-surface/source.ts`
@@ -14,6 +14,7 @@ This reference is intentionally exhaustive and should stay synchronized with:
 - `src/tools/index.ts`
 - `extension/src/ops/ops-runtime.ts`
 - `extension/src/canvas/canvas-runtime.ts`
+- `src/browser/canvas-manager.ts`
 - `src/relay/protocol.ts`
 
 Operational mirror:
@@ -397,12 +398,7 @@ Envelope contract:
 - `canvas.code.resolve`
 
 Extension runtime subset (internal relay helpers, not public agent commands):
-- `canvas.tab.open`
-- `canvas.tab.close`
 - `canvas.tab.sync`
-- `canvas.overlay.mount`
-- `canvas.overlay.unmount`
-- `canvas.overlay.select`
 - `canvas.overlay.sync`
 
 Behavior notes:
