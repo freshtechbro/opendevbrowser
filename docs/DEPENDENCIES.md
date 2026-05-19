@@ -8,10 +8,10 @@ This document tracks runtime and build dependencies across the repository.
 ## Source metadata audit (2026-05-19)
 
 Verified source files:
-- `package.json` version: `0.0.31`
-- `package-lock.json` top-level version and `packages[""]` version: `0.0.31`
-- `extension/manifest.json` version: `0.0.31`
-- `extension/package.json` version: `0.0.31`
+- `package.json` version: `0.0.32`
+- `package-lock.json` top-level version and `packages[""]` version: `0.0.32`
+- `extension/manifest.json` version: `0.0.32`
+- `extension/package.json` version: `0.0.32`
 - `eslint.config.js`: flat config for `src/**/*.ts` and `tests/**/*.ts`, using `@typescript-eslint/parser`, `ecmaVersion: "latest"`, module source type, and no custom rules
 - public repo config files found for this audit: `eslint.config.js`, `tsconfig.json`, `vitest.config.ts`, and `extension/tsconfig.json`
 - no public Vite config and no public `frontend/` application directory are present in this repo

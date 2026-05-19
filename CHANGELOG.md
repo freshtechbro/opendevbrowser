@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.32] - 2026-05-19
+
+### Removed
+- Removed tracked planning and investigation artifacts from `docs/plans` and `docs/investigations`.
+
+### Changed
+- Refreshed package, lockfile, extension manifest, extension package metadata, and release-facing docs for `0.0.32`.
+
 ## [0.0.31] - 2026-05-17
 
 ### Changed
@@ -230,7 +238,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.31...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.32...HEAD
+[0.0.32]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.31...v0.0.32
 [0.0.31]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.30...v0.0.31
 [0.0.30]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.29...v0.0.30
 [0.0.21]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.20...v0.0.21
