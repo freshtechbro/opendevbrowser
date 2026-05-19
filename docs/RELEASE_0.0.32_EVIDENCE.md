@@ -1,6 +1,6 @@
 # v0.0.32 Release Evidence
 
-Status: active current release ledger
+Status: released
 Target release date: 2026-05-19
 Target tag: `v0.0.32`
 
@@ -11,6 +11,7 @@ Tracks the `0.0.32` release cycle for documentation artifact cleanup and package
 Current status note:
 - As of the 2026-05-19 package metadata audit, `package.json`, `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json` are aligned at `0.0.32`.
 - Chrome Web Store publication is explicitly skipped for this release. This release targets npm and GitHub only.
+- The tag-driven public release workflow completed successfully on 2026-05-19, publishing npm package `opendevbrowser@0.0.32` and GitHub release `v0.0.32`.
 
 ## Reference State
 
@@ -92,12 +93,22 @@ Current status note:
 
 ## External Release Workflow Evidence
 
-- [ ] Release workflow run URL
-- [ ] npm publish verification
-- [ ] Registry consumer smoke
-- [ ] GitHub release URL
-- [ ] GitHub release asset verification
+- [x] Release workflow run URL: `https://github.com/freshtechbro/opendevbrowser/actions/runs/26095138803`
+- [x] npm publish verification: `npm view opendevbrowser version dist-tags --json` returned version `0.0.32` and `latest: 0.0.32`.
+- [x] Registry consumer smoke: workflow smoke passed; local post-publish smoke also passed with `helpLineCount: 807`, `versionMatches: true`, `extensionDirExists: true`, and `skillsDirExists: true`.
+- [x] GitHub release URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.32`
+- [x] GitHub release asset verification: release is not draft, not prerelease, published at `2026-05-19T11:52:45Z`, and includes `opendevbrowser-extension.zip` plus `opendevbrowser-extension.zip.sha256`.
 - [x] Chrome Web Store manual publish status: skipped by request for `v0.0.32`.
+
+Release workflow result:
+- Run `26095138803`: completed with conclusion `success`.
+- Event: tag push for `v0.0.32`.
+- Head SHA: `c5c4a37f705050eebff1486022f2c05f79b1549f`.
+- Completed at: `2026-05-19T11:52:50Z`.
+
+GitHub release assets:
+- `opendevbrowser-extension.zip`: size `176329`, digest `sha256:0741f25b00df7c0c52a8b93549ca91b5502e9ccfe80b358cf296c83f5fc4e232`.
+- `opendevbrowser-extension.zip.sha256`: size `95`, digest `sha256:e738bd3106a8d653c3da53d12030377a9484a38e41f03f80ed49306f1ebb136f`.
 
 ## Notes
 
