@@ -145,12 +145,16 @@ Rules:
 
 ```bash
 npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --mode json --output-format json
+npx opendevbrowser inspiredesign harvest --brief "Design a premium docs workspace" --query "best docs product landing pages" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --mode path --output-format json
 ```
 
 Rules:
 - keep inspiredesign references public-first; any supplied `--url` now forces deep capture so the workflow can collect DOM/layout evidence
 - use repeated `--url` flags instead of packed URL strings
-- after a successful run, read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`
+- provide `--query` or at least one `--url` for `inspiredesign harvest`; use `--query` when provider discovery is part of the task
+- use `inspiredesign harvest` when visual reference discovery, screenshot PNG artifacts, ranked references, metadata-only visual JSON, `meta-prompt.md`, or motion-design follow-through is required
+- visual harvest must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; inspect diagnostics instead of forcing screenshots through blocked references
+- after a successful run or harvest, read `advanced-brief.md` first, inspect `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`
 - pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 
 ## Agent Sync Targets

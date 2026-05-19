@@ -356,7 +356,9 @@ sequenceDiagram
   - `research.run` / `opendevbrowser_research_run` / `opendevbrowser research run`
   - `shopping.run` / `opendevbrowser_shopping_run` / `opendevbrowser shopping run`
   - `product.video.run` / `opendevbrowser_product_video_run` / `opendevbrowser product-video run`
-  - `inspiredesign.run` / `opendevbrowser_inspiredesign_run` / `opendevbrowser inspiredesign run`
+  - `inspiredesign.run` / `opendevbrowser_inspiredesign_run` / `opendevbrowser inspiredesign run` and `opendevbrowser inspiredesign harvest`
+- `inspiredesign harvest` is an explicit visual-reference mode on the existing `inspiredesign.run` wrapper. It adds bounded query discovery, ranked references, metadata-only visual evidence JSON, screenshot PNG artifacts under `visual-evidence/<referenceId>/`, `meta-prompt.md`, and motion-design follow-through while preserving default `inspiredesign run` behavior.
+- Visual harvest policy preserves provider blockers: it does not use browser screenshots to bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited` outcomes.
 - Those workflow wrappers also expose `challengeAutomationMode` (`off|browser|browser_with_helper`) as a run-scoped override with `run > session > config` precedence.
 - Workflow runtime primitives are layered as:
   - `timebox` (strict `days|from|to` resolution)

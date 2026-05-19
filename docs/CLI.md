@@ -533,19 +533,24 @@ Flags:
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
-#### Inspiredesign (`inspiredesign run`)
+#### Inspiredesign (`inspiredesign run`) and `inspiredesign harvest`
 
 ```bash
 npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing page from calm editorial references" --url https://stripe.com --url https://vercel.com
 npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign
+npx opendevbrowser inspiredesign harvest --brief "Synthesize a premium docs workspace" --query "best docs product landing pages" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --mode json
 ```
 
 Flags:
 - `--brief` (required)
-- `--url` (repeatable inspiration URL input)
+- `--url` (repeatable inspiration URL input; explicit URLs are kept before discovered URLs)
+- `--query` (`harvest` only; discovers bounded public references through provider search when available)
+- `--provider` (repeatable `harvest` provider id used with `--query`)
+- `--max-references` (`1` to `10`; `harvest` defaults to `5`)
+- `--visual-evidence` (`off|auto|required`; `run` defaults to `off`, `harvest` defaults to `required`)
 - `--capture-mode` (`off|deep`; `off` is ignored when any `--url` is provided)
 - `--include-prototype-guidance` (`true|false`; bare flag means `true`)
-- `--mode` (`compact|json|md|context|path`)
+- `--mode` (`compact|json|md|context|path`; `harvest` defaults to `path`)
 - `--timeout-ms`
 - `--output-dir`
 - `--ttl-hours`
@@ -556,11 +561,17 @@ Flags:
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
 Notes:
+- `inspiredesign harvest` is an explicit entrypoint on the existing `inspiredesign.run` daemon method. It does not create a new daemon method.
+- `inspiredesign harvest` requires either `--query` or at least one `--url`; use `--query` for provider discovery and `--url` for explicit visual references.
+- `run` keeps compact text output and visual evidence off unless the caller opts in. `harvest` defaults to path output, visual evidence required, and `maxReferences=5`.
 - Any `--url` forces deep capture so inspiredesign can collect DOM/layout evidence. Without URLs, `--capture-mode` defaults to `off`.
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
+- `harvest` merges explicit URLs before discovered URLs, trims and de-duplicates references, and stores rejected reference diagnostics in generated metadata.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
-- Successful runs now emit `advanced-brief.md`, `canvas-plan.request.json`, and `design-agent-handoff.json` alongside the existing design contract and implementation artifacts.
-- The follow-through path is explicit: read `advanced-brief.md` first, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"` plus `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, add `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"` when motion, scroll choreography, gesture motion, reduced motion, or temporal proof is part of the design, fill the session ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks called out by `design-agent-handoff.json`.
+- Successful runs emit `advanced-brief.md`, `canvas-plan.request.json`, `design-agent-handoff.json`, `visual-evidence.json`, `screenshot-index.json`, `ranked-references.json`, and `meta-prompt.md` alongside the existing design contract and implementation artifacts. Harvest PNG files are written under `visual-evidence/<referenceId>/viewport.png`.
+- Visual JSON is metadata-only: it contains artifact-relative paths, hashes, byte counts, viewport metadata when available, reference id and URL, and warnings. It must not contain base64 screenshots, temp paths, full DOM, or full snapshot text.
+- Policy boundaries are preserved: visual capture must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited` provider outcomes.
+- The follow-through path is explicit: read `advanced-brief.md`, `meta-prompt.md`, `ranked-references.json`, and screenshot metadata first; load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`; fill the session ids in `canvas-plan.request.json`; run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`; confirm `planStatus=accepted`; then patch only the governance blocks called out by `design-agent-handoff.json`.
 - `--browser-mode` applies to provider-backed reference retrieval. Deep capture still uses the browser manager capture lane.
 
 Wrapper behavior:
@@ -568,6 +579,7 @@ Wrapper behavior:
 - Render modes for `research`, `shopping`, and `inspiredesign` are shared: `compact|json|md|context|path`.
 - Successful research, shopping, inspiredesign, and product-video artifact-bearing outputs include `artifact_path`.
 - `inspiredesign run` returns a reusable design contract plus a Canvas-first handoff bundle; `--include-prototype-guidance` adds prototype structure guidance to the same workflow output.
+- `inspiredesign harvest` extends the same workflow with query discovery, ranked references, visual evidence metadata, screenshot PNG artifacts, and a motion-design-aware `meta-prompt.md`.
 - Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata in manifest files. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `<invocation-or-workspace-root>/.opendevbrowser/<namespace>/<runId>`. CLI runs use the process invocation directory, while direct OpenCode tools and daemon direct RPC use the workspace root equivalent from `core.cacheRoot`. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-video`. Direct tool or daemon callers can still pass an explicit output directory for caller-specific placement.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.

@@ -23,7 +23,7 @@ Operational mirror:
 First-contact note:
 - Start with generated help and `docs/FIRST_RUN_ONBOARDING.md`; this page stays inventory-only.
 - Generated help now leads with a `Find It Fast` block for `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; this page stays inventory-only.
-- Installer lifecycle owns refresh and cleanup of the 9 canonical bundled skill packs; this page stays inventory-only.
+- Installer lifecycle owns refresh and cleanup of the canonical bundled skill packs; this page stays inventory-only.
 
 ---
 
@@ -52,7 +52,7 @@ First-contact note:
 - `research` - Run research workflows.
 - `shopping` - Run shopping workflows.
 - `product-video` - Run product presentation asset workflows.
-- `inspiredesign` - Run inspiredesign workflows.
+- `inspiredesign` - Run inspiredesign workflows and visual reference harvests.
 
 ### Navigation (5)
 - `goto` - Navigate the current session to a URL.
@@ -216,7 +216,7 @@ Operational note:
 - `opendevbrowser_research_run` - Run the research workflow directly.
 - `opendevbrowser_shopping_run` - Run the shopping workflow directly.
 - `opendevbrowser_product_video_run` - Run the product-video asset workflow directly.
-- `opendevbrowser_inspiredesign_run` - Run the inspiredesign workflow directly.
+- `opendevbrowser_inspiredesign_run` - Run the inspiredesign workflow directly, including harvest query discovery and visual evidence capture.
 - `opendevbrowser_prompting_guide` - Return best-practice prompting guidance and the bundled quick start. Tool-only.
 - `opendevbrowser_skill_list` - List available bundled and discovered skill packs. Tool-only.
 - `opendevbrowser_skill_load` - Load a specific skill pack locally without browser work. Tool-only.
@@ -548,9 +548,12 @@ Auth and policy:
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
-- Workflow and macro execute browser options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--browser-mode auto|extension|managed`; `extension` reuses relay-backed browser state, while `managed` runs a deterministic managed browser.
-- Workflow and macro execute cookie options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--use-cookies` and `--cookie-policy-override off|auto|required` (`--cookie-policy` alias) so provider macros can require observable cookie-backed browser sessions.
-- Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
+- Workflow and macro execute browser options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--browser-mode auto|extension|managed`; `extension` reuses relay-backed browser state, while `managed` runs a deterministic managed browser.
+- Workflow and macro execute cookie options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--use-cookies` and `--cookie-policy-override off|auto|required` (`--cookie-policy` alias) so provider macros can require observable cookie-backed browser sessions.
+- Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
+- Inspiredesign harvest flags: `--query`, repeatable `--provider`, `--max-references 1..10`, and `--visual-evidence off|auto|required`. Harvest requires `--query` or at least one `--url`, keeps the daemon method as `inspiredesign.run`, defaults to `mode=path`, `visualEvidence=required`, and `maxReferences=5`, and keeps explicit `--url` references before discovered references.
+- Inspiredesign harvest artifacts: `visual-evidence.json`, `screenshot-index.json`, `ranked-references.json`, and `meta-prompt.md` are emitted with screenshot PNGs under `visual-evidence/<referenceId>/viewport.png`. JSON remains metadata-only with artifact-relative paths, hashes, byte counts, viewport metadata when available, reference id and URL, and warnings.
+- Inspiredesign visual policy boundaries: visual capture must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; blocked references surface diagnostics instead of browser screenshot fallback.
 - Workflow response keys: artifact-bearing workflow success payloads use `artifact_path`; provider follow-up summaries use `meta.primaryConstraintSummary`.
 - Research and shopping guidance uses `meta.primaryConstraint.guidance.reason` plus `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.
 - Failure tallies use `meta.metrics.reasonCodeDistribution` for research/shopping and `meta.reasonCodeDistribution` for product-video.

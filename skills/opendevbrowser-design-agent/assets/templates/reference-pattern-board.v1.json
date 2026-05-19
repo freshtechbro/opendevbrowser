@@ -4,30 +4,45 @@
   "references": [
     {
       "id": "ref-001",
+      "rank": 1,
+      "score": 86,
+      "confidence": 0.86,
       "name": "Example product page",
       "url": "https://example.com",
       "surfaceType": "marketing",
       "capturedVia": [
+        "fetch",
         "snapshot",
-        "screenshot"
+        "clone",
+        "dom",
+        "visual"
       ],
       "layoutRecipe": "",
       "contentHierarchy": [],
       "componentFamilies": [],
-      "motionPosture": "",
-      "advancedMotionAdvisory": [],
-      "loadingStrategy": "",
+      "motionPosture": [],
       "tokenNotes": [],
+      "visualStrengths": [],
+      "visualRisks": [],
+      "selectionReason": "",
       "patternsToBorrow": [],
       "patternsToReject": [],
       "whyItWorks": ""
+    }
+  ],
+  "rejectedReferences": [
+    {
+      "id": "ref-rejected-001",
+      "url": "https://example.com/rejected",
+      "reason": "policy_blocked|auth_required|challenge_detected|rate_limited|not_relevant|duplicate",
+      "fetchStatus": "failed",
+      "captureStatus": "off"
     }
   ],
   "synthesis": {
     "dominantDirection": "",
     "sharedStrengths": [],
     "sharedFailuresToAvoid": [],
-    "motionContractDeltas": [],
     "contractDeltas": []
   }
 }
