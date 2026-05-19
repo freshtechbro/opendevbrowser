@@ -3,8 +3,11 @@ import type { ResearchRecord } from "./enrichment";
 import {
   formatInspiredesignCaptureAttemptSummary,
   type InspiredesignFollowthrough,
-  type InspiredesignImplementationPlan
+  type InspiredesignImplementationPlan,
+  type InspiredesignScreenshotIndexEntry,
+  type InspiredesignVisualEvidenceJson
 } from "../inspiredesign/contract";
+import type { InspiredesignReferencePatternBoard } from "../inspiredesign/reference-pattern-board";
 import type { CanvasDesignGovernance, CanvasGenerationPlan } from "../canvas/types";
 import {
   INSPIREDESIGN_HANDOFF_FILES
@@ -712,6 +715,11 @@ export const renderInspiredesign = (args: {
   implementationPlanMarkdown: string;
   prototypeGuidanceMarkdown: string | null;
   evidence: Record<string, unknown>;
+  visualEvidence?: InspiredesignVisualEvidenceJson[];
+  screenshotIndex?: InspiredesignScreenshotIndexEntry[];
+  rankedReferences?: InspiredesignReferencePatternBoard["references"];
+  referencePatternBoard?: InspiredesignReferencePatternBoard;
+  metaPromptMarkdown?: string;
   meta: Record<string, unknown>;
 }): {
   response: Record<string, unknown>;
@@ -719,6 +727,20 @@ export const renderInspiredesign = (args: {
 } => {
   const captureAttemptReport = inspiredesignCaptureAttemptReportFromMeta(args.meta);
   const captureAttemptSummary = inspiredesignCaptureAttemptSummaryFromMeta(args.meta);
+  const visualEvidence = args.visualEvidence ?? [];
+  const screenshotIndex = args.screenshotIndex ?? [];
+  const rankedReferences = args.rankedReferences ?? [];
+  const rankedReferencesArtifact = args.referencePatternBoard
+    ? {
+      references: args.referencePatternBoard.references,
+      rejectedReferences: args.referencePatternBoard.rejectedReferences,
+      synthesis: args.referencePatternBoard.synthesis
+    }
+    : {
+      references: rankedReferences,
+      rejectedReferences: []
+    };
+  const metaPromptMarkdown = args.metaPromptMarkdown ?? "";
   const summary = buildInspiredesignSummary({
     brief: args.brief,
     referenceCount: args.urls.length,
@@ -739,6 +761,10 @@ export const renderInspiredesign = (args: {
     implementationPlanMarkdown: args.implementationPlanMarkdown,
     prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
     evidence: args.evidence,
+    visualEvidence,
+    screenshotIndex,
+    rankedReferences,
+    metaPromptMarkdown,
     meta: args.meta
   };
   const handoff = buildInspiredesignSuccessHandoff({
@@ -756,7 +782,11 @@ export const renderInspiredesign = (args: {
     { path: INSPIREDESIGN_HANDOFF_FILES.generationPlan, content: args.generationPlan },
     { path: INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown, content: args.implementationPlanMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.implementationPlan, content: args.implementationPlan },
-    { path: INSPIREDESIGN_HANDOFF_FILES.evidence, content: args.evidence }
+    { path: INSPIREDESIGN_HANDOFF_FILES.evidence, content: args.evidence },
+    { path: INSPIREDESIGN_HANDOFF_FILES.visualEvidence, content: { visualEvidence } },
+    { path: INSPIREDESIGN_HANDOFF_FILES.screenshotIndex, content: { screenshots: screenshotIndex } },
+    { path: INSPIREDESIGN_HANDOFF_FILES.rankedReferences, content: rankedReferencesArtifact },
+    { path: INSPIREDESIGN_HANDOFF_FILES.metaPrompt, content: metaPromptMarkdown }
   ];
   if (args.prototypeGuidanceMarkdown) {
     files.push({ path: INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance, content: args.prototypeGuidanceMarkdown });
@@ -792,6 +822,10 @@ export const renderInspiredesign = (args: {
         implementationPlan: args.implementationPlan,
         prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
         evidence: args.evidence,
+        visualEvidence,
+        screenshotIndex,
+        rankedReferences,
+        metaPromptMarkdown,
         ...handoff,
         ...captureAttemptFields,
         meta: args.meta

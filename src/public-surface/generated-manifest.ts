@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-17T00:30:43.249Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-19T01:32:34.617Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-05-17T00:30:43.249Z",
+  "generatedAt": "2026-05-19T01:32:34.617Z",
   "cli": {
     "groups": [
       {
@@ -579,11 +579,15 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "inspiredesign",
-        "description": "Run inspiredesign workflows",
-        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "description": "Run inspiredesign workflows and visual reference harvests",
+        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] | npx opendevbrowser inspiredesign harvest --brief <text> (--query <text> | --url <url>) [--provider <id>]... [--url <url>]... [--max-references <n>] [--visual-evidence <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--brief",
+          "--query",
+          "--provider",
           "--url",
+          "--max-references",
+          "--visual-evidence",
           "--capture-mode",
           "--include-prototype-guidance",
           "--mode",
@@ -597,11 +601,15 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
+          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json",
+          "npx opendevbrowser inspiredesign harvest --brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json"
         ],
         "notes": [
           "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
-          "Repeat --url for multiple references. There is no --urls alias."
+          "Repeat --url for multiple references. There is no --urls alias.",
+          "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
+          "Harvest JSON is metadata-only: screenshots are artifact PNG files referenced by relative paths, hashes, viewport metadata, and warnings.",
+          "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
@@ -2067,6 +2075,18 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "kind": "value"
       },
       {
+        "name": "--provider",
+        "kind": "value"
+      },
+      {
+        "name": "--max-references",
+        "kind": "value"
+      },
+      {
+        "name": "--visual-evidence",
+        "kind": "value"
+      },
+      {
         "name": "--budget",
         "kind": "value"
       },
@@ -2196,6 +2216,9 @@ export const PUBLIC_SURFACE_MANIFEST = {
       "--limit-per-source",
       "--query",
       "--providers",
+      "--provider",
+      "--max-references",
+      "--visual-evidence",
       "--budget",
       "--region",
       "--sort",
@@ -2544,7 +2567,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "opendevbrowser_inspiredesign_run",
-        "description": "Run the inspiredesign workflow directly.",
+        "description": "Run the inspiredesign workflow directly, including harvest query discovery and visual evidence capture.",
         "cliEquivalent": "inspiredesign",
         "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
       },

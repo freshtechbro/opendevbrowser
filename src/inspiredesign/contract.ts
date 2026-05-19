@@ -36,6 +36,12 @@ import {
   type InspiredesignDesignVectors,
   type InspiredesignReferencePatternBoard
 } from "./reference-pattern-board";
+import { buildInspiredesignMetaPrompt } from "./meta-prompt";
+import {
+  persistInspiredesignVisualEvidence,
+  type InspiredesignPersistedVisualEvidence,
+  type InspiredesignVisualEvidenceRuntimeMetadata
+} from "./visual-evidence";
 import type { JsonValue } from "../providers/types";
 
 type JsonRecord = Record<string, JsonValue>;
@@ -112,6 +118,7 @@ export type InspiredesignCaptureEvidence = {
     cssPreview: string;
     warnings: string[];
   };
+  visual?: InspiredesignVisualEvidenceRuntimeMetadata | InspiredesignPersistedVisualEvidence;
   attempts?: InspiredesignCaptureAttempts;
 };
 
@@ -255,7 +262,8 @@ export const normalizeInspiredesignCaptureEvidence = (
     ...(capture.title ? { title: capture.title } : {}),
     ...(hasUsableInspiredesignSnapshot(capture) && capture.snapshot ? { snapshot: capture.snapshot } : {}),
     ...(hasUsableInspiredesignDom(capture) && capture.dom ? { dom: capture.dom } : {}),
-    ...(hasUsableInspiredesignClone(capture) && capture.clone ? { clone: capture.clone } : {})
+    ...(hasUsableInspiredesignClone(capture) && capture.clone ? { clone: capture.clone } : {}),
+    ...(capture.visual ? { visual: persistInspiredesignVisualEvidence(capture.visual) } : {})
   };
   const attempts = reconcileInspiredesignCaptureAttempts(
     normalizedBase,
@@ -324,6 +332,23 @@ type InspiredesignGenerationPlan = CanvasGenerationPlan & {
   materialEffects: string[];
 };
 
+export type InspiredesignVisualEvidenceJson = {
+  referenceId: string;
+  url: string;
+  visual: InspiredesignPersistedVisualEvidence;
+};
+
+export type InspiredesignScreenshotIndexEntry = {
+  referenceId: string;
+  url: string;
+  path: string;
+  sha256: string;
+  bytes: number;
+  kind: InspiredesignPersistedVisualEvidence["kind"];
+  fullPage: boolean;
+  capturedAt: string;
+};
+
 export type InspiredesignPacket = {
   advancedBriefMarkdown: string;
   designContract: CanvasDesignGovernance;
@@ -335,6 +360,10 @@ export type InspiredesignPacket = {
   implementationPlanMarkdown: string;
   prototypeGuidanceMarkdown: string | null;
   evidence: JsonRecord;
+  visualEvidence: InspiredesignVisualEvidenceJson[];
+  screenshotIndex: InspiredesignScreenshotIndexEntry[];
+  rankedReferences: InspiredesignReferencePatternBoard["references"];
+  metaPromptMarkdown: string;
 };
 
 export type InspiredesignContractScope = {
@@ -425,6 +454,7 @@ export type InspiredesignFollowthrough = {
   commandExamples: {
     loadBestPractices: string;
     loadDesignAgent: string;
+    loadMotionDesign: string;
     continueInCanvas: string;
   };
   deepCaptureRecommendation: string;
@@ -1514,6 +1544,10 @@ const buildBriefExpansionMetadata = (
 const buildRequiredReferenceArtifacts = (includePrototypeGuidance: boolean): string[] => {
   const files = [
     INSPIREDESIGN_HANDOFF_FILES.evidence,
+    INSPIREDESIGN_HANDOFF_FILES.visualEvidence,
+    INSPIREDESIGN_HANDOFF_FILES.screenshotIndex,
+    INSPIREDESIGN_HANDOFF_FILES.rankedReferences,
+    INSPIREDESIGN_HANDOFF_FILES.metaPrompt,
     INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
     INSPIREDESIGN_HANDOFF_FILES.designMarkdown,
     INSPIREDESIGN_HANDOFF_FILES.generationPlan,
@@ -2046,9 +2080,45 @@ const buildEvidencePayload = ({
   referenceCount: references.length,
   references: references.map((reference) => toReferenceEvidenceJson(reference)),
   referencePatternBoard: referencePatternBoard as JsonRecord,
+  rankedReferences: referencePatternBoard.references as unknown as JsonValue,
   designVectors: designVectors as JsonRecord,
-  targetAnalysis: targetAnalysis as JsonRecord
+  targetAnalysis: targetAnalysis as JsonRecord,
+  visualEvidence: buildVisualEvidencePayload(references) as unknown as JsonValue,
+  screenshotIndex: buildScreenshotIndex(references) as unknown as JsonValue
 });
+
+const buildVisualEvidencePayload = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignVisualEvidenceJson[] => references.flatMap((reference) => {
+  const visual = normalizeInspiredesignCaptureEvidence(reference.capture)?.visual;
+  return visual ? [{
+    referenceId: reference.id,
+    url: reference.url,
+    visual: persistInspiredesignVisualEvidence(visual)
+  }] : [];
+});
+
+const buildScreenshotIndex = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignScreenshotIndexEntry[] => buildVisualEvidencePayload(references)
+  .filter((entry): entry is InspiredesignVisualEvidenceJson & {
+    visual: InspiredesignPersistedVisualEvidence & { path: string; sha256: string; bytes: number };
+  } => (
+    entry.visual.status === "captured"
+    && typeof entry.visual.path === "string"
+    && typeof entry.visual.sha256 === "string"
+    && typeof entry.visual.bytes === "number"
+  ))
+  .map((entry) => ({
+    referenceId: entry.referenceId,
+    url: entry.url,
+    path: entry.visual.path,
+    sha256: entry.visual.sha256,
+    bytes: entry.visual.bytes,
+    kind: entry.visual.kind,
+    fullPage: entry.visual.fullPage,
+    capturedAt: entry.visual.capturedAt
+  }));
 
 const toCaptureEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonValue => {
   const normalized = normalizeInspiredesignCaptureEvidence(reference.capture);
@@ -2057,6 +2127,7 @@ const toCaptureEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonV
   return {
     ...(normalized.title ? { title: normalized.title } : {}),
     ...(signals.length > 0 ? { signals } : {}),
+    ...(normalized.visual ? { visual: normalized.visual as JsonRecord } : {}),
     ...(normalized.attempts ? { attempts: normalized.attempts } : {})
   };
 };
@@ -2106,6 +2177,12 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       : input.briefExpansion.advancedBrief,
     format: effectiveFormat
   };
+  const metaPromptMarkdown = buildInspiredesignMetaPrompt({
+    brief,
+    briefExpansion: effectiveBriefExpansion,
+    referencePatternBoard,
+    designVectors
+  });
   const advancedBriefMarkdown = renderReferenceFirstAdvancedBrief(
     effectiveBriefExpansion,
     referencePatternBoard,
@@ -2218,6 +2295,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     renderDeliverablesSummary(Boolean(input.includePrototypeGuidance))
   ].join("\n");
 
+  const visualEvidence = buildVisualEvidencePayload(references);
+  const screenshotIndex = buildScreenshotIndex(references);
   return {
     advancedBriefMarkdown,
     designContract,
@@ -2228,6 +2307,10 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     implementationPlan,
     implementationPlanMarkdown,
     prototypeGuidanceMarkdown,
+    visualEvidence,
+    screenshotIndex,
+    rankedReferences: referencePatternBoard.references,
+    metaPromptMarkdown,
     evidence: buildEvidencePayload({
       brief,
       briefExpansion: effectiveBriefExpansion,

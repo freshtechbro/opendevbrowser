@@ -25,7 +25,7 @@ export const VALID_FLAGS = [
   "--screenshot-mode", "--debug", "--context",
   "--stored",
   "--topic", "--days", "--from", "--to", "--source-selection", "--sources", "--include-engagement", "--limit-per-source",
-  "--query", "--providers", "--budget", "--region", "--browser-mode", "--sort",
+  "--query", "--providers", "--provider", "--max-references", "--visual-evidence", "--budget", "--region", "--browser-mode", "--sort",
   "--brief", "--capture-mode", "--include-prototype-guidance",
   "--product-url", "--product-name", "--provider-hint", "--include-screenshots", "--include-all-images", "--include-copy",
   "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy",
@@ -89,6 +89,9 @@ export const VALID_EQUALS_FLAGS = [
   "--limit-per-source",
   "--query",
   "--providers",
+  "--provider",
+  "--max-references",
+  "--visual-evidence",
   "--budget",
   "--region",
   "--sort",
@@ -276,9 +279,9 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       },
       {
         name: "inspiredesign",
-        description: "Run inspiredesign workflows",
-        usage: "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
-        flags: ["--brief", "--url", "--capture-mode", "--include-prototype-guidance", "--mode", "--timeout-ms", "--output-dir", "--ttl-hours", "--browser-mode", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
+        description: "Run inspiredesign workflows and visual reference harvests",
+        usage: "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] | npx opendevbrowser inspiredesign harvest --brief <text> (--query <text> | --url <url>) [--provider <id>]... [--url <url>]... [--max-references <n>] [--visual-evidence <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        flags: ["--brief", "--query", "--provider", "--url", "--max-references", "--visual-evidence", "--capture-mode", "--include-prototype-guidance", "--mode", "--timeout-ms", "--output-dir", "--ttl-hours", "--browser-mode", "--use-cookies", "--challenge-automation-mode", "--cookie-policy-override", "--cookie-policy"]
       },
       {
         name: "artifacts",
@@ -727,7 +730,10 @@ const CLI_COMMAND_EXAMPLES = {
   research: [cliExample("research run", "--topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json")],
   shopping: [cliExample("shopping run", "--query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json")],
   "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json")],
-  inspiredesign: [cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json")],
+  inspiredesign: [
+    cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"),
+    cliExample("inspiredesign harvest", "--brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json")
+  ],
   artifacts: [cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")],
   "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json")],
   canvas: [cliExample("canvas", "--command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json")],
@@ -808,7 +814,10 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   ],
   inspiredesign: [
     "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
-    "Repeat --url for multiple references. There is no --urls alias."
+    "Repeat --url for multiple references. There is no --urls alias.",
+    "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
+    "Harvest JSON is metadata-only: screenshots are artifact PNG files referenced by relative paths, hashes, viewport metadata, and warnings.",
+    "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
   ],
   "macro-resolve": [
     "Use --browser-mode and --challenge-automation-mode only with --execute.",
@@ -908,7 +917,7 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceDefinition[] = [
   { name: "opendevbrowser_research_run", description: "Run the research workflow directly.", cliEquivalent: "research" },
   { name: "opendevbrowser_shopping_run", description: "Run the shopping workflow directly.", cliEquivalent: "shopping" },
   { name: "opendevbrowser_product_video_run", description: "Run the product-video asset workflow directly.", cliEquivalent: "product-video" },
-  { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly.", cliEquivalent: "inspiredesign" },
+  { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly, including harvest query discovery and visual evidence capture.", cliEquivalent: "inspiredesign" },
   { name: "opendevbrowser_canvas", description: "Execute a typed design-canvas command surface call.", cliEquivalent: "canvas" },
   { name: "opendevbrowser_clone_page", description: "Export the active page into React code.", cliEquivalent: "clone-page" },
   { name: "opendevbrowser_clone_component", description: "Export a component by ref into React code.", cliEquivalent: "clone-component" },

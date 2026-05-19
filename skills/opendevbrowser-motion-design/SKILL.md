@@ -39,6 +39,10 @@ Use this skill when a task asks for animation, motion language, transition syste
 ./scripts/motion-workflow.sh temporal-proof
 ```
 
+## InspireDesign Harvest Inputs
+
+When an InspireDesign harvest bundle is available, read `meta-prompt.md`, `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, and the referenced PNG files before selecting motion patterns. Treat harvested motion posture as evidence-backed design intent, not permission to add dependencies or copy source-brand choreography. Carry accepted cues into the motion contract with explicit reduced-motion behavior, device posture, frame budget, and temporal proof requirements.
+
 ## Motion Contract
 
 Motion is a contract field, not decoration. Before implementation, fill `assets/templates/motion-contract.v1.json` and connect it to the design-agent `motionSystem`, `performanceModel`, `responsiveSystem`, and `accessibilityPolicy` fields.
@@ -121,5 +125,5 @@ Use `artifacts/motion-anti-patterns.md` before release.
 ## Related Skills
 
 - `opendevbrowser-best-practices`: runtime, CLI, browser, evidence, and release governance.
-- `opendevbrowser-design-agent`: parent UI design and `/canvas` implementation workflow.
+- `opendevbrowser-design-agent`: parent UI design, InspireDesign harvest review, and `/canvas` implementation workflow.
 - `opendevbrowser-motion-design`: motion-specific terminology, pattern catalog, platform policy, device posture, reduced motion, performance, and temporal evidence.

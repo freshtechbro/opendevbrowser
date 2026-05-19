@@ -1435,6 +1435,280 @@ describe("workflow branch coverage", () => {
     )).toBe("bestbuy");
   });
 
+  it("covers product-video source and copy fallback branches", () => {
+    expect(workflowTestUtils.resolveShoppingSourceForUrl("https://www.amazon.com/dp/B0TEST1234"))
+      .toBe("shopping");
+    expect(workflowTestUtils.resolveShoppingSourceForUrl("https://editorial.example/review"))
+      .toBe("web");
+    expect(workflowTestUtils.resolveShoppingSourceForUrl("not-a-valid-url"))
+      .toBe("web");
+
+    expect(workflowTestUtils.resolveProductCopy(makeRecord({
+      content: "Free shipping!",
+      attributes: {
+        description: "Free shipping!"
+      }
+    }), "https://www.walmart.com/ip/example", undefined, [])).toBe("Free shipping!");
+    expect(workflowTestUtils.resolveProductCopy(makeRecord({
+      content: [
+        "Introductory storefront copy.",
+        "About this item",
+        "Feature 01 keeps setup simple for travel teams.",
+        "Feature 02 keeps cable routing clean on shared desks.",
+        "Technical details should not be included."
+      ].join(" ")
+    }), "not-a-valid-url", undefined, [])).toBe(
+      "Feature 01 keeps setup simple for travel teams. Feature 02 keeps cable routing clean on shared desks."
+    );
+  });
+
+  it("rejects malformed product-video execution plans missing required steps", () => {
+    expect(() => workflowTestUtils.getRequiredProductVideoExecutionStep([], "fetchProductDetail"))
+      .toThrow("Product-video workflow plan is missing required step fetchProductDetail.");
+    expect(workflowTestUtils.getRequiredProductVideoExecutionStep([{
+      id: "fetchProductDetail",
+      kind: "fetch_product_detail",
+      input: {
+        url: "https://example.com/product"
+      }
+    }], "fetchProductDetail")).toMatchObject({
+      id: "fetchProductDetail",
+      kind: "fetch_product_detail"
+    });
+  });
+
+  it("covers workflow metadata and reason distribution helper branches", () => {
+    expect(workflowTestUtils.withPrimaryConstraintSummaryOverride(
+      {},
+      "Manual review required."
+    )).toMatchObject({
+      primaryConstraint: {
+        reasonCode: "env_limited",
+        summary: "Manual review required."
+      },
+      primaryConstraintSummary: "Manual review required."
+    });
+    expect(workflowTestUtils.withPrimaryConstraintSummaryOverride(
+      {
+        primaryConstraint: {
+          reasonCode: "rate_limited",
+          guidance: {
+            reason: "Retry later.",
+            recommendedNextCommands: ["retry command"]
+          }
+        }
+      },
+      "Provider is cooling down."
+    )).toMatchObject({
+      primaryConstraint: {
+        reasonCode: "rate_limited",
+        summary: "Provider is cooling down.",
+        guidance: {
+          reason: "Retry later.",
+          recommendedNextCommands: ["retry command"]
+        }
+      }
+    });
+    expect(workflowTestUtils.withPrimaryConstraintSummaryOverride(
+      { primaryConstraint: "bad-shape" },
+      "Explicit guidance.",
+      {
+        reason: "Use explicit references.",
+        recommendedNextCommands: ["opendevbrowser inspiredesign harvest --url https://example.com"]
+      }
+    )).toMatchObject({
+      primaryConstraint: {
+        reasonCode: "env_limited",
+        summary: "Explicit guidance.",
+        guidance: {
+          reason: "Use explicit references."
+        }
+      }
+    });
+
+    expect(workflowTestUtils.withReasonCodeDistributionMeta(
+      { metrics: { attempted: 1 } },
+      { rate_limited: 2 }
+    )).toMatchObject({
+      metrics: {
+        attempted: 1,
+        reasonCodeDistribution: { rate_limited: 2 }
+      },
+      reasonCodeDistribution: { rate_limited: 2 }
+    });
+    expect(workflowTestUtils.withReasonCodeDistributionMeta(
+      { metrics: "bad-shape" },
+      { env_limited: 1 }
+    )).toMatchObject({
+      metrics: {
+        reasonCodeDistribution: { env_limited: 1 }
+      }
+    });
+    expect(workflowTestUtils.incrementReasonCodeDistribution(
+      { auth_required: 1 },
+      "rate_limited",
+      0
+    )).toEqual({ auth_required: 1 });
+    expect(workflowTestUtils.incrementReasonCodeDistribution(
+      { auth_required: 1 },
+      "rate_limited",
+      2
+    )).toEqual({ auth_required: 1, rate_limited: 2 });
+  });
+
+  it("summarizes shopping offer filter constraints across region, budget, and zero-price exclusions", () => {
+    const baseDiagnostic = {
+      providerId: "shopping/example",
+      candidateOffers: 2,
+      pricedOffers: 2,
+      regionMatchedOffers: 2,
+      zeroPriceExcluded: 0,
+      regionCurrencyExcluded: 0,
+      budgetExcluded: 0,
+      finalOffers: 0,
+      requestedRegion: "CA",
+      expectedCurrency: "CAD",
+      allCandidateOffersDroppedByZeroPrice: false,
+      allCandidateOffersDroppedByRegionCurrency: false,
+      allCandidateOffersDroppedByBudget: false
+    };
+
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{ ...baseDiagnostic, candidateOffers: 0 }],
+      regionEnforced: false,
+      failures: []
+    })).toBeNull();
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{ ...baseDiagnostic, finalOffers: 1 }],
+      regionEnforced: false,
+      failures: []
+    })).toBeNull();
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{
+        ...baseDiagnostic,
+        regionMatchedOffers: 0,
+        regionCurrencyExcluded: 2
+      }],
+      regionEnforced: false,
+      failures: []
+    })).toContain("Requested region CA was not enforced");
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{
+        ...baseDiagnostic,
+        budgetExcluded: 2
+      }],
+      budget: 150,
+      regionEnforced: true,
+      failures: []
+    })).toBe("All candidate offers exceeded the requested budget of CAD 150.00.");
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{
+        ...baseDiagnostic,
+        pricedOffers: 0,
+        regionMatchedOffers: 0,
+        zeroPriceExcluded: 2
+      }],
+      regionEnforced: true,
+      failures: []
+    })).toBe("Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.");
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [baseDiagnostic],
+      regionEnforced: true,
+      failures: [makeFailure("shopping/example", "shopping", {
+        code: "rate_limited",
+        reasonCode: "rate_limited"
+      })]
+    })).toBeNull();
+  });
+
+  it("covers inspiredesign resume and provider failure normalization branches", () => {
+    const parsed = workflowTestUtils.parseInspiredesignEnvelopeInput({
+      brief: "  Build a ceramic studio page  ",
+      harvest: true,
+      query: "  ceramic studio landing pages  ",
+      providers: ["web/default", 42, "social/pinterest"],
+      maxReferences: 4,
+      visualEvidence: "required",
+      urls: ["https://example.com/reference", 7],
+      captureMode: "deep",
+      includePrototypeGuidance: true
+    });
+    expect(parsed).toMatchObject({
+      brief: "  Build a ceramic studio page  ",
+      harvest: true,
+      query: "ceramic studio landing pages",
+      providers: ["web/default", "social/pinterest"],
+      maxReferences: 4,
+      visualEvidence: "required",
+      urls: ["https://example.com/reference"],
+      captureMode: "deep",
+      includePrototypeGuidance: true
+    });
+
+    const workflowInput = {
+      brief: "Build a ceramic studio page",
+      briefExpansion: {},
+      providers: ["social/pinterest"],
+      maxReferences: 5,
+      visualEvidence: "off",
+      urls: [],
+      captureMode: "off",
+      mode: "compact"
+    } as Parameters<typeof workflowTestUtils.failureFromInspiredesignDiscoveryError>[0];
+    expect(workflowTestUtils.failureFromInspiredesignDiscoveryError(workflowInput, undefined)).toEqual([]);
+    expect(workflowTestUtils.failureFromInspiredesignDiscoveryError(workflowInput, {
+      code: "unavailable",
+      message: "provider failed",
+      retryable: false
+    })).toEqual([expect.objectContaining({
+      provider: "social/pinterest",
+      source: "social"
+    })]);
+    expect(workflowTestUtils.failureFromInspiredesignDiscoveryError({
+      ...workflowInput,
+      providers: []
+    }, {
+      code: "unavailable",
+      message: "provider failed",
+      retryable: false
+    })).toEqual([]);
+
+    expect(workflowTestUtils.failureFromInspiredesignFetchError(makeAggregate({
+      error: {
+        code: "unavailable",
+        message: "fetch failed",
+        retryable: false
+      },
+      providerOrder: ["web/default"]
+    }))).toEqual([expect.objectContaining({
+      provider: "web/default",
+      source: "web"
+    })]);
+    expect(workflowTestUtils.failureFromInspiredesignFetchError(makeAggregate({
+      error: {
+        code: "unavailable",
+        message: "fetch failed",
+        retryable: false
+      },
+      failures: [makeFailure("web/default", "web")]
+    }))).toEqual([]);
+    expect(workflowTestUtils.failureFromInspiredesignFetchError(makeAggregate({
+      error: {
+        code: "unavailable",
+        message: "fetch failed",
+        retryable: false
+      },
+      providerOrder: []
+    }))).toEqual([]);
+  });
+
+  it("covers product brand extraction fallbacks when URLs are malformed", () => {
+    expect(workflowTestUtils.extractProductBrandFromTitle("Creator Camera - Acme", "not-a-valid-url"))
+      .toBe("Acme");
+    expect(workflowTestUtils.extractProductBrandFromTitle("Bose Headphones for sale online | eBay", "https://www.ebay.com/p/bose-headphones"))
+      .toBe("Bose");
+  });
+
   it("covers transcript success, brand inference, and offer-record gating helpers", () => {
     expect(workflowTestUtils.hasTranscriptSuccess(makeRecord({
       attributes: {

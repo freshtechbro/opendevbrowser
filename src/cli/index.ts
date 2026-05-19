@@ -826,7 +826,7 @@ async function main(): Promise<void> {
 
     registerCommand({
       name: "inspiredesign",
-      description: "Run inspiredesign workflows",
+      description: "Run inspiredesign workflows and visual reference harvests",
       run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/inspiredesign"), "runInspiredesignCommand")
     });
 

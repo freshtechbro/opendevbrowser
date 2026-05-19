@@ -347,6 +347,11 @@ describe("workflow handoff builders", () => {
         command: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent
       },
       {
+        reason: "Load the motion-design lane before translating visual evidence into animation, timing, or reduced-motion behavior.",
+        command: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign
+      },
+      { reason: INSPIREDESIGN_HANDOFF_GUIDANCE.visualArtifactRecommendation },
+      {
         reason: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest,
         command: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
       },

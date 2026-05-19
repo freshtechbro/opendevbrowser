@@ -90,6 +90,7 @@ describe("CLI help surface", () => {
     expect(HELP_ONBOARDING_ENTRIES[6]?.details).toEqual([
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
+      { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
@@ -135,6 +136,7 @@ describe("CLI help surface", () => {
     expect(output).toContain(onboardingMetadata.quickStartCommands.validatedShopping);
     expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices);
     expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent);
+    expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign);
     expect(output).toContain(INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest);
     expect(output).toContain(INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas);
     expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
@@ -158,7 +160,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("swift command");
     expect(output).toContain("screencapture");
     expect(output).toContain("--challenge-automation-mode off|browser|browser_with_helper");
-    expect(output).toContain("research run, shopping run, product-video run, inspiredesign run, macro-resolve --execute");
+    expect(output).toContain("research run, shopping run, product-video run, inspiredesign run, inspiredesign harvest, macro-resolve --execute");
     expect(output).toContain(onboardingMetadata.quickStartCommands.computerUseEntry);
     expect(output).toContain("not a desktop agent");
     expect(output).toContain("surface_split");
@@ -193,6 +195,7 @@ describe("CLI help surface", () => {
     expect(output).toContain("src/inspiredesign/handoff.ts");
     expect(output).toContain("src/public-surface/generated-manifest.ts");
     expect(output).toContain(COMMAND_HELP_DETAILS.inspiredesign.examples[0]);
+    expect(output).toContain(COMMAND_HELP_DETAILS.inspiredesign.examples[1]);
     expect(output).toContain(HELP_TOOL_ENTRIES.find((entry) => entry.name === "opendevbrowser_skill_load")?.example ?? "");
     expect(output).not.toContain("src/tools/surface.ts");
   });

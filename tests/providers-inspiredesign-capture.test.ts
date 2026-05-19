@@ -149,6 +149,305 @@ describe("inspiredesign capture helper", () => {
     });
   });
 
+  it("captures visual evidence screenshots when a screenshot path is configured", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        content: "hero snapshot",
+        refCount: 4,
+        warnings: []
+      }),
+      clonePage: vi.fn().mockResolvedValue({
+        component: "<section>Hero</section>",
+        css: ".hero { display: grid; }",
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<main>Hero</main>"
+      }),
+      screenshot: vi.fn().mockResolvedValue({
+        path: "/tmp/inspiredesign-visual/reference.png",
+        warnings: ["cdp fallback"]
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual",
+      {
+        visualEvidence: "required",
+        visualEvidencePath: "/tmp/inspiredesign-visual/reference.png"
+      }
+    );
+
+    expect(manager.screenshot).toHaveBeenCalledWith("session-visual", {
+      path: "/tmp/inspiredesign-visual/reference.png",
+      fullPage: false
+    });
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "captured",
+      kind: "viewport",
+      fullPage: false,
+      tempPath: "/tmp/inspiredesign-visual/reference.png",
+      warnings: ["cdp fallback"]
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-visual", true);
+  });
+
+  it("captures visual evidence without warnings when screenshot metadata is minimal", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-minimal" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        content: "hero snapshot",
+        refCount: 4,
+        warnings: []
+      }),
+      clonePage: vi.fn().mockResolvedValue({
+        component: "<section>Hero</section>",
+        css: ".hero { display: grid; }",
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<main>Hero</main>"
+      }),
+      screenshot: vi.fn().mockResolvedValue({
+        path: "/tmp/inspiredesign-visual/minimal.png"
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-minimal",
+      {
+        visualEvidence: "required",
+        visualEvidencePath: "/tmp/inspiredesign-visual/minimal.png"
+      }
+    );
+
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "captured",
+      tempPath: "/tmp/inspiredesign-visual/minimal.png",
+      warnings: []
+    }));
+  });
+
+  it("fails visual evidence when the screenshot helper writes a different path", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-mismatch" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        content: "hero snapshot",
+        refCount: 4,
+        warnings: []
+      }),
+      clonePage: vi.fn().mockResolvedValue({
+        component: "<section>Hero</section>",
+        css: ".hero { display: grid; }",
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<main>Hero</main>"
+      }),
+      screenshot: vi.fn().mockResolvedValue({
+        path: "/tmp/inspiredesign-visual/other.png"
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-mismatch",
+      {
+        visualEvidence: "required",
+        visualEvidencePath: "/tmp/inspiredesign-visual/expected.png"
+      }
+    );
+
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence screenshot path did not match the requested artifact path."
+    }));
+  });
+
+  it("skips optional visual evidence when no screenshot path is configured", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-auto-no-path" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({ content: "hero snapshot", refCount: 4 }),
+      clonePage: vi.fn().mockResolvedValue({ component: "<section>Hero</section>", css: ".hero{}", warnings: undefined }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({ html: undefined }),
+      screenshot: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-auto-no-path",
+      { visualEvidence: "auto" }
+    );
+
+    expect(manager.screenshot).not.toHaveBeenCalled();
+    expect(result.snapshot?.warnings).toEqual([]);
+    expect(result.clone?.warnings).toEqual([]);
+    expect(result.dom).toBeUndefined();
+    expect(result.attempts.dom).toEqual({
+      status: "failed",
+      detail: "DOM capture returned empty HTML."
+    });
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "skipped",
+      failure: "Visual evidence path was not configured for screenshot capture."
+    }));
+  });
+
+  it("skips unavailable screenshot helpers in auto mode", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-auto" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({ content: "hero snapshot", refCount: 4, warnings: [] }),
+      clonePage: vi.fn().mockResolvedValue({ component: "<section>Hero</section>", css: "", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-auto",
+      {
+        visualEvidence: "auto",
+        visualEvidencePath: "/tmp/inspiredesign-visual/auto.png"
+      }
+    );
+
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "skipped",
+      failure: "Visual evidence screenshot helper unavailable in this execution lane."
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-visual-auto", true);
+  });
+
+  it("fails unavailable screenshot helpers in required mode", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-required" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({ content: "hero snapshot", refCount: 4, warnings: [] }),
+      clonePage: vi.fn().mockResolvedValue({ component: "<section>Hero</section>", css: "", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-required",
+      {
+        visualEvidence: "required",
+        visualEvidencePath: "/tmp/inspiredesign-visual/required.png"
+      }
+    );
+
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence screenshot helper unavailable in this execution lane."
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-visual-required", true);
+  });
+
+  it("fails required visual capture when the screenshot path is missing", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-no-path" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({ content: "hero snapshot", refCount: 4, warnings: [] }),
+      clonePage: vi.fn().mockResolvedValue({ component: "<section>Hero</section>", css: "", warnings: [] }),
+      screenshot: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-no-path",
+      { visualEvidence: "required" }
+    );
+
+    expect(manager.screenshot).not.toHaveBeenCalled();
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence path was not configured for screenshot capture."
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-visual-no-path", true);
+  });
+
+  it("records empty screenshot path responses as failed visual evidence", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-empty-path" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({ content: "hero snapshot", refCount: 4, warnings: [] }),
+      clonePage: vi.fn().mockResolvedValue({ component: "<section>Hero</section>", css: "", warnings: [] }),
+      screenshot: vi.fn().mockResolvedValue({ warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-empty-path",
+      {
+        visualEvidence: "required",
+        visualEvidencePath: "/tmp/inspiredesign-visual/empty.png"
+      }
+    );
+
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Visual evidence screenshot did not return a file path."
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-visual-empty-path", true);
+  });
+
+  it("records screenshot failures without suppressing disconnect", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-visual-failure" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({ content: "hero snapshot", refCount: 4, warnings: [] }),
+      clonePage: vi.fn().mockResolvedValue({ component: "<section>Hero</section>", css: "", warnings: [] }),
+      screenshot: vi.fn().mockRejectedValue(new Error("screenshot failed")),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/visual-failure",
+      {
+        visualEvidence: "required",
+        visualEvidencePath: "/tmp/inspiredesign-visual/failure.png"
+      }
+    );
+
+    expect(result.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "screenshot failed"
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-visual-failure", true);
+  });
+
   it("falls back to the original text when redaction does not return a string", async () => {
     vi.doMock("../src/core/logging", () => ({
       redactSensitive: () => ({ masked: true })
@@ -250,6 +549,40 @@ describe("inspiredesign capture helper", () => {
     expect(result.attempts.dom).toEqual({
       status: "failed",
       detail: "DOM capture returned empty HTML."
+    });
+  });
+
+  it("treats undefined snapshot and clone payloads as empty capture attempts", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-undefined-payloads" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        refCount: 0,
+        warnings: []
+      }),
+      clonePage: vi.fn().mockResolvedValue({
+        warnings: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignReferenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignReferenceFromManager(
+      manager as never,
+      "https://example.com/undefined-payloads",
+      {}
+    );
+
+    expect(result.snapshot).toBeUndefined();
+    expect(result.clone).toBeUndefined();
+    expect(result.attempts.snapshot).toEqual({
+      status: "failed",
+      detail: "Snapshot capture returned empty content."
+    });
+    expect(result.attempts.clone).toEqual({
+      status: "failed",
+      detail: "Clone capture returned empty component and CSS previews."
     });
   });
 

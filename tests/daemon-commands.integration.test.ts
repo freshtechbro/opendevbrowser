@@ -2087,6 +2087,55 @@ describe("daemon-commands integration", () => {
     );
   });
 
+  it("rejects invalid daemon inspiredesign harvest discovery inputs", async () => {
+    const core = makeCore();
+
+    await expect(handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        query: "premium references"
+      }
+    })).rejects.toThrow("query is only supported when harvest is true");
+
+    await expect(handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        harvest: true,
+        providers: ["web/default"]
+      }
+    })).rejects.toThrow("providers require query");
+
+    await expect(handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        harvest: true,
+        query: "premium references",
+        maxReferences: 11
+      }
+    })).rejects.toThrow("maxReferences must be an integer from 1 to 10");
+
+    await expect(handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        harvest: true,
+        query: "premium references",
+        maxReferences: 1.5
+      }
+    })).rejects.toThrow("maxReferences must be an integer from 1 to 10");
+
+    await expect(handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        harvest: true
+      }
+    })).rejects.toThrow("harvest requires query or URL references");
+  });
+
   it("uses core cache root for omitted daemon inspiredesign output roots", async () => {
     const core = makeCore();
     const workflowSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
