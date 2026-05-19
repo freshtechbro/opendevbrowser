@@ -1,7 +1,7 @@
 # Annotate
 
 Status: active  
-Last updated: 2026-04-11
+Last updated: 2026-05-19
 
 OpenDevBrowser can capture interactive annotations either directly via CDP/Playwright or through the extension relay, and
 return a markdown summary plus structured data and screenshots. This is exposed through both the `annotate` CLI command
@@ -73,9 +73,10 @@ If the popup reports `Annotation UI did not load in the page. Reload the tab and
 Send behavior:
 - Popup, canvas, and in-page `Send` actions dispatch `annotation:sendPayload` to the extension background.
 - The extension background posts `store_agent_payload` through the existing `/annotation` relay lane.
-- The relay handles that command locally, enqueues the sanitized payload into the shared `AgentInbox`, and returns a typed receipt.
-- When a single active chat scope is registered for the current worktree, the UI reports `Delivered to agent`.
-- When scope is missing or ambiguous, or when relay enqueue fails, the UI degrades to `Stored only; fetch with annotate --stored` and keeps the payload available for explicit retrieval.
+- The relay handles that command locally through the core `AgentInbox` store handler, enqueues the sanitized payload into the shared inbox, and returns a typed receipt.
+- When a single active chat scope is registered for the current worktree, the receipt is `delivered` and the UI reports `Delivered to agent`.
+- When scope is missing or ambiguous, the receipt is `stored_only` with `no_active_scope` or `ambiguous_scope` and the UI reports `Stored only; fetch with annotate --stored`.
+- When relay enqueue fails, the extension keeps a sanitized local fallback payload for explicit retrieval.
 
 ## Tool Usage
 
@@ -143,7 +144,7 @@ Screenshots are written to the system temp directory (example: `/tmp/opendevbrow
 Stored payload retrieval notes:
 - `--stored` / `stored: true` checks the shared repo-local agent inbox first, then falls back to the extension-local stored payload if no shared entry exists.
 - Shared inbox items are written under `.opendevbrowser/annotate/agent-inbox.jsonl` and `.opendevbrowser/annotate/agent-scopes.json`.
-- Shared inbox persistence always strips screenshots and forces `screenshotMode: "none"`; screenshot refs stay in extension-local memory/storage only.
+- Shared inbox persistence always strips screenshot image bytes, forces `screenshotMode: "none"`, and stores only screenshot asset metadata (`assetRefs`). Full screenshot bytes stay extension-local or in-memory only.
 - Browser replay artifacts from `screencast-start` / `screencast-stop` stay in the replay lane and are never written into the shared inbox or stored annotate payloads.
 - `--include-screenshots` / `includeScreenshots: true` only changes the extension-local fallback path; it prefers the in-memory payload when screenshots are still available and otherwise falls back to the sanitized stored payload without screenshots.
 - Shared inbox retention is bounded to `200` entries total, `50` unread entries, `7` days TTL, and duplicate suppression on the same `(payloadHash, source, label)` within `60` seconds.

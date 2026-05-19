@@ -3,7 +3,7 @@
 Optional Chrome extension that enables relay mode (attach to existing logged-in tabs).
 
 Status: active  
-Last updated: 2026-04-12
+Last updated: 2026-05-19
 
 Quick file-level overview: `<public-repo-root>/extension/README.md`
 
@@ -17,7 +17,7 @@ Quick file-level overview: `<public-repo-root>/extension/README.md`
 - Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
 - Hosts the dedicated design-canvas runtime used by `/canvas` for design-tab and overlay operations.
 - Preserves additive canvas session-summary metadata such as `availableInventoryCount`, `catalogKitIds`, `availableStarterCount`, and the currently applied starter so the design tab stays in sync with starter and kit availability without introducing a second starter execution path in the extension.
-- Routes popup/canvas/in-page annotation `Send` actions through `/annotation` `store_agent_payload` so the active chat can receive repo-local shared inbox entries when scope is safe.
+- Routes popup/canvas/in-page annotation `Send` actions through `/annotation` `store_agent_payload`; core enqueues screenshot-free payloads into `AgentInbox`, delivering to one active chat scope or returning a stored-only receipt.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
 - Extension mode is headed-only; extension-intent headless launch/connect is rejected with `unsupported_mode`.
 - Desktop observation is not an extension feature; the shipped desktop commands and tools stay daemon/core-owned, public, and observe-only.
@@ -79,7 +79,7 @@ When auto-pair is enabled:
 
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`. The CLI/tool `connect` command accepts base relay WS URLs
 (for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/ops`.
-Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for live design-canvas preview and overlay commands.
+Relay canvas endpoint: `ws://127.0.0.1:<relayPort>/canvas` for live design-canvas preview and overlay commands. Public canvas commands are still the `canvas.*` commands exposed by the CLI/tool; extension `canvas.tab.sync` and `canvas.overlay.sync` are internal runtime capabilities.
 Relay annotation endpoint: `ws://127.0.0.1:<relayPort>/annotation` for interactive annotate capture plus one-off `store_agent_payload` and `fetch_stored` requests.
 Legacy relay `/cdp` is still available but must be explicitly opted in (CLI: `--extension-legacy`).
 Legacy `/cdp` is mutually exclusive with an active `/ops` lease on the extension target. If the CLI returns `cdp_attach_blocked`, disconnect the `/ops` session first, then retry the legacy path.
@@ -97,7 +97,9 @@ node scripts/chrome-store-compliance-check.mjs
 Expected extension-ready daemon fields:
 - `extensionConnected=true`
 - `extensionHandshakeComplete=true`
+- `opsConnected=false` until a default extension session connects through `/ops`
 - `canvasConnected=false` unless a design-canvas session is actively using relay preview/overlay flows
+- `annotationConnected=false` unless annotation capture or stored-payload retrieval is active
 
 Auto-connect behavior:
 - If a second extension client replaces the current relay client, reconnect suppression lasts only while that replacement remains active. When the relay no longer reports an active extension client, the background auto-connect loop should retry the stored relay instead of requiring a manual popup click.
@@ -119,9 +121,10 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 
 - Popup `Annotate` resolves against the opener window's active http(s) tab first. If the focused surface is `canvas.html`, another extension page, or a restricted tab, the background falls back to the last annotatable web tab it stored instead of trying to inject into the extension page itself, so popup annotate can recover after an MV3 service-worker restart.
 - Popup, canvas, and in-page annotation `Send` actions dispatch `annotation:sendPayload` to the background, and the background then posts `/annotation` `store_agent_payload`.
-- The relay handles `store_agent_payload` locally and returns a shared-inbox receipt sourced from `AgentInbox`.
+- The relay handles `store_agent_payload` locally through core bootstrap's `AgentInbox` handler and returns a shared-inbox receipt.
 - Successful scoped delivery reports `Delivered to agent`.
-- When delivery cannot be scoped safely or the relay path fails, the extension stores the sanitized payload locally and reports `Stored only; fetch with annotate --stored`.
+- When delivery cannot be scoped safely, the receipt includes `stored_only` with `no_active_scope` or `ambiguous_scope`.
+- When the relay path fails, the extension stores the sanitized payload locally and reports `Stored only; fetch with annotate --stored`.
 - Shared inbox persistence strips screenshots; `annotate --stored --include-screenshots` only affects the extension-local fallback copy when it is still available in memory.
 
 ## Security notes

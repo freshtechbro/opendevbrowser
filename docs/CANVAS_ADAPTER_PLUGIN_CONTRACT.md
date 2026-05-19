@@ -1,7 +1,7 @@
 # Canvas Adapter Plugin Contract
 
 Status: active  
-Last updated: 2026-03-19
+Last updated: 2026-05-19
 
 Repo-local canvas adapter plugins extend the `canvas.code.*` surface without core edits. They are local-only and participate in the same framework-adapter, library-adapter, preview, inventory, and validator contracts as built-in lanes.
 
@@ -95,7 +95,7 @@ Plugin packages may load only from:
 - the worktree `node_modules`
 - explicit config-declared absolute paths
 
-The loader canonicalizes package roots with `realpath` and rejects package declarations that escape those roots. `trustedWorkspaceRoots` does not widen package-root trust; it is metadata for cooperative plugin behavior. Capability gating limits what core invokes, but it does not sandbox in-process plugin code.
+The loader canonicalizes package roots with `realpath` and rejects package declarations that escape those roots. `trustedWorkspaceRoots` does not widen package-root trust; it is metadata for cooperative plugin behavior. Capability gating limits what core invokes, but it does not sandbox in-process plugin code. Plugin capabilities also do not widen the default preview/export contract: `canvas_html` remains the compatibility projection unless a binding opts into runtime preview and the target app instrumentation passes preflight.
 
 ## Runtime hooks
 

@@ -22,10 +22,11 @@ src/annotate/
 ## Key Classes
 
 ### AgentInbox
-- **Purpose:** Chat-scoped annotation queue with persistence
-- **Limits:** 20 items max, 256KB max payload per scope
-- **Retention:** 200 entries, 7-day TTL
-- **Deduplication:** 60-second window for identical payloads
+- **Purpose:** Chat-scoped annotation queue with repo-local persistence for explicit Send actions
+- **Limits:** 20 injected items max, 256KB max serialized system block per scope
+- **Retention:** 200 entries total, 50 unread entries, 7-day TTL
+- **Scope TTL:** 10 minutes for active chat scope registrations
+- **Deduplication:** 60-second window for identical payload, source, and label
 
 ```typescript
 const inbox = new AgentInbox(worktree);
@@ -35,14 +36,17 @@ const entries = inbox.consumeScope(chatScopeKey);
 ```
 
 ### DirectAnnotator
-- **Purpose:** Inject annotation UI into pages via CDP
+- **Purpose:** Inject annotation UI into pages via CDP and return the captured payload to the caller
 - **Assets:** `annotate-content.js`, `annotate-content.css` from extension build
 - **Timeout:** Default 120s
-- **Modes:** Screenshot capture (full|viewport|none)
+- **Modes:** Screenshot capture (`visible`|`full`|`none`)
 
 ```typescript
-const result = await directAnnotate(manager, {
-  sessionId, targetId, screenshotMode: "viewport"
+const { assets } = resolveDirectAnnotateAssets();
+if (!assets) throw new Error("Direct annotate assets unavailable.");
+
+const result = await runDirectAnnotate(manager, assets, {
+  sessionId, targetId, screenshotMode: "visible"
 });
 ```
 
@@ -55,10 +59,12 @@ const result = await directAnnotate(manager, {
 ## Patterns
 
 ### Annotation Flow
-1. User triggers annotation (extension popup or canvas)
-2. **Direct path:** CDP injection → user draws → payload captured → stored in inbox
-3. **Relay path:** Extension captures → relay dispatch → inbox store
-4. Agent consumes scope → system block injected → acknowledged
+1. User triggers annotation from the CLI/tool, extension popup, in-page UI, or canvas surface.
+2. **Direct capture path:** CDP/Playwright injection lets the user select elements and returns the payload to the requesting CLI/tool call.
+3. **Relay capture path:** `/annotation` forwards `start` and `cancel` commands to the extension and returns annotation events/responses.
+4. **Send path:** popup, canvas, and in-page `Send` actions dispatch `annotation:sendPayload` to extension background, which posts `store_agent_payload` on `/annotation`.
+5. **Shared inbox path:** core bootstrap handles `store_agent_payload` locally with `AgentInbox.enqueue(...)`; one active scope becomes `delivered`, zero or multiple active scopes become `stored_only` with `no_active_scope` or `ambiguous_scope`.
+6. Agent consumes the matching scope through the system block and acknowledges consumed receipts.
 
 ### System Block Format
 ```
@@ -94,9 +100,10 @@ When public annotation capture, relay delivery, or stored-payload behavior chang
 
 | Never | Why |
 |-------|-----|
-| Store screenshots in JSONL | Asset refs only; screenshots stored separately |
+| Store screenshots in JSONL | Shared persistence strips screenshots and keeps only screenshot asset metadata |
 | Skip hash deduplication | Creates duplicate entries |
-| Bypass scope registration | Entries need chat scope for routing |
+| Treat stored-only receipts as delivery | Stored-only means explicit `annotate --stored` retrieval is required |
+| Bypass scope registration | Entries need one active chat scope for delivered routing |
 
 ## Dependencies
 

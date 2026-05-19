@@ -2,7 +2,7 @@
 
 **OpenDevBrowser Chrome Extension**
 
-Last updated: April 11, 2026
+Last updated: May 19, 2026
 
 ## Overview
 
@@ -22,8 +22,8 @@ The extension:
 - May honor a local `challengeAutomationMode` setting (`off`, `browser`, or `browser_with_helper`) so bounded browser challenge handling can stand down or proceed on your machine without sending challenge state to OpenDevBrowser-operated services
 - The extension itself does not capture desktop data. If you separately invoke daemon or core-owned desktop commands or tools with the shipped default or explicit `desktop.permissionLevel=observe`, the local OpenDevBrowser runtime may use the public read-only desktop observation plane to capture local desktop or window screenshots plus accessibility snapshots on-device and write repo-local audit artifacts under `.opendevbrowser/desktop-runtime`; OS-level desktop permissions still apply
 - May, when you explicitly start a browser replay capture, sample screenshots locally and write replay artifacts such as `replay.json`, `replay.html`, `frames/`, and `preview.png` to the chosen local output directory on-device
-- May store relay settings and the last user-triggered annotation payload locally on-device so the popup can reconnect and reopen recent annotation results
-- May store screenshot-free annotation payloads in a repo-local shared inbox when you explicitly use popup/canvas/in-page `Send` actions so the active chat for that worktree can consume them, or so the payload can be retrieved later when safe chat scoping is unavailable
+- May store relay settings, pairing state, relay identity metadata, and the last user-triggered annotation payload without screenshots locally on-device so the popup can reconnect and reopen recent annotation results
+- May store screenshot-free annotation payloads in a repo-local shared inbox when you explicitly use popup/canvas/in-page `Send` actions. A single active chat scope for that worktree can consume them; missing or ambiguous chat scope keeps them stored-only for explicit `annotate --stored` retrieval
 - May keep extension-hosted canvas stage annotation selections, region metadata, and optional local crop references on-device only when you explicitly capture or send them during a canvas session
 
 ## How the Extension Works
@@ -38,7 +38,7 @@ The extension operates entirely on your local machine:
 
 4. **Popup Navigation Tracking**: The `webNavigation` permission is used only to detect new top-level navigation targets opened from an existing tab so the extension can preserve popup opener ownership when Chrome omits `tabs.onCreated.openerTabId`.
 
-5. **Local Storage**: The `storage` permission stores your relay configuration (port, pairing token, pairing toggle) and the last annotation payload metadata locally in Chrome. When you explicitly capture or send annotation results, the extension can also persist a local copy of the last annotation payload without screenshots so the popup can reopen it. If you explicitly use a `Send` action, OpenDevBrowser can also write a screenshot-free copy into `.opendevbrowser/annotate/agent-inbox.jsonl` in the current worktree so the intended active chat can consume it, or so the payload can be retrieved later with `annotate --stored` when safe chat scoping is unavailable. This data stays local to your machine and repository.
+5. **Local Storage**: The `storage` permission stores your relay configuration (port, pairing token, pairing toggle), relay identity metadata, and last annotation payload metadata locally in Chrome. When you explicitly capture or send annotation results, the extension can also persist a local copy of the last annotation payload without screenshots so the popup can reopen it. If you explicitly use a `Send` action, OpenDevBrowser can also write a screenshot-free copy into `.opendevbrowser/annotate/agent-inbox.jsonl` in the current worktree so the intended active chat can consume it, or so the payload can be retrieved later with `annotate --stored` when safe chat scoping is unavailable. This data stays local to your machine and repository.
 
 User-triggered browser replay capture also stays local. Extension-backed sessions reuse the existing screenshot primitive, while replay manifests, preview images, and sampled frames are written only to the output directory you selected for that capture.
 

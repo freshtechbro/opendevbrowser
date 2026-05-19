@@ -1,7 +1,7 @@
 # Design Canvas Technical Spec
 
 Status: active  
-Last updated: 2026-03-27
+Last updated: 2026-05-19
 
 ## Overview
 
@@ -40,18 +40,18 @@ Advisory motion cues do not add runtime support, authorize new dependencies, or 
 
 ## Public canvas command families
 
-Canonical inventory lives in `docs/SURFACE_REFERENCE.md`. High-level families:
+Canonical inventory lives in `src/browser/canvas-manager.ts` (`PUBLIC_CANVAS_COMMANDS`) and is mirrored in `docs/SURFACE_REFERENCE.md`. Current public families:
 
-- `canvas.session.*` — open, attach, inspect, close
-- `canvas.document.*` — load, import, patch, save, export
-- `canvas.history.*` — undo, redo
-- `canvas.inventory.*` — list, insert
-- `canvas.starter.*` — list, apply
-- `canvas.tab.*` — open, close, sync extension-hosted design tabs
-- `canvas.overlay.*` — mount, unmount, select, sync
-- `canvas.preview.*` — render, refresh
-- `canvas.feedback.*` — poll, subscribe, consume feedback
-- `canvas.code.*` — bind, unbind, pull, push, status, resolve
+- `canvas.session.*`: open, attach, status, close
+- `canvas.document.*`: load, import, patch, save, export
+- `canvas.history.*`: undo, redo
+- `canvas.inventory.*`: list, insert
+- `canvas.starter.*`: list, apply
+- `canvas.tab.*`: public tab commands are open and close; extension `canvas.tab.sync` is an internal runtime capability, not a public command
+- `canvas.overlay.*`: public overlay commands are mount, unmount, and select; extension `canvas.overlay.sync` is an internal runtime capability, not a public command
+- `canvas.preview.*`: render, refresh
+- `canvas.feedback.*`: poll, subscribe, next, unsubscribe
+- `canvas.code.*`: bind, unbind, pull, push, status, resolve
 
 ## Operator loop
 
@@ -99,6 +99,7 @@ Canvas guidance is centrally constructed with shared next-step advisory builders
 
 - `canvas_html` is the default preview/export contract and compatibility fallback.
 - `bound_app_runtime` is opt-in only and requires the binding plus target app instrumentation to satisfy preflight.
+- If runtime bridge preflight fails, the manager falls back to core-generated `canvas_html` projection.
 - Docs and AGENTS must not over-claim `bound_app_runtime` parity when the safe fallback is still `canvas_html`.
 
 ## Inventory and starter model

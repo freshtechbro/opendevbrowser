@@ -1,6 +1,6 @@
 # OpenDevBrowser Distribution Plan
 
-Last updated: 2026-04-13
+Last updated: 2026-05-19
 
 This document is the active distribution plan for the split model:
 - public repo for runtime + release artifacts
@@ -15,11 +15,22 @@ This document is the active distribution plan for the split model:
 
 Public repo no longer carries the `frontend/` application directory.
 
+### Current public package baseline
+
+As of the 2026-05-19 package metadata audit:
+- root package version: `0.0.31`
+- root lockfile version and root package entry: `0.0.31`
+- extension manifest and extension package version: `0.0.31`
+- package binary: `opendevbrowser` -> `dist/cli/index.js`
+- package file allowlist includes `dist`, bundled `skills`, native scripts, and built extension assets listed in `package.json`
+
+`npm run version:check` verifies the package, lockfile, manifest, and extension package version alignment before release.
+
 ### Public workflow inventory
 - `.github/workflows/release-public.yml`
   - tag/manual release workflow
   - validates version alignment
-  - runs quality gates
+  - runs docs drift, chrome store compliance, best-practices skill assets, motion-design skill assets, lint, typecheck, tests, build, generated help, and extension build gates
   - publishes npm package and GitHub release assets
 - `.github/workflows/dispatch-private-sync.yml`
   - dispatches `repository_dispatch` to private website repo on docs/skills/assets/changelog/help metadata/tool metadata updates
@@ -47,6 +58,7 @@ node scripts/audit-zombie-files.mjs
 node scripts/docs-drift-check.mjs
 node scripts/chrome-store-compliance-check.mjs
 ./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh
+./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh
 npx opendevbrowser --help
 npx opendevbrowser help
 npm run lint
@@ -162,6 +174,7 @@ npm run build --prefix frontend
 - [x] Public repo frontend source was extracted after private validation baseline.
 - [ ] Hosting production branch is enforced to `website-production`.
 - [x] Public first tagged release completed through new workflow path.
+- [x] Current public package metadata is aligned at `0.0.31` across root package, root lockfile, extension manifest, and extension package.
 
 ## Operational references
 

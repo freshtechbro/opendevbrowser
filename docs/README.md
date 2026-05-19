@@ -18,7 +18,7 @@ Generated help is the canonical first-contact discovery surface and must keep th
 - `<public-repo-root>/docs/ANNOTATE.md` - annotation workflows and artifact expectations
 - `<public-repo-root>/docs/privacy.md` - extension privacy policy
 - `<public-repo-root>/docs/LANDING_METRICS_SOURCE_OF_TRUTH.md` - landing metrics verification register
-- `<public-repo-root>/docs/OPEN_SOURCE_ROADMAP.md` - public roadmap register
+- `<public-repo-root>/docs/OPEN_SOURCE_ROADMAP.md` - historical public roadmap snapshot and future-feature register
 - `<public-repo-root>/docs/DEPENDENCIES.md` - dependency inventory and update policy
 - `<public-repo-root>/docs/ASSET_INVENTORY.md` - brand, extension, and generated help/public-surface asset inventory
 - `<public-repo-root>/docs/DISTRIBUTION_PLAN.md` - active public/private distribution strategy
@@ -34,7 +34,8 @@ Generated help is the canonical first-contact discovery surface and must keep th
 
 ## Version-scoped evidence
 
-- `<public-repo-root>/docs/RELEASE_0.0.30_EVIDENCE.md` - current release evidence ledger for the active ship cycle
+- `<public-repo-root>/docs/RELEASE_0.0.31_EVIDENCE.md` - current release evidence ledger for the active ship cycle confirmed by `package.json` version `0.0.31`
+- `<public-repo-root>/docs/RELEASE_0.0.30_EVIDENCE.md` - historical v0.0.30 release evidence ledger
 - `<public-repo-root>/docs/RELEASE_0.0.28_EVIDENCE.md` - historical v0.0.28 release evidence ledger
 - `<public-repo-root>/docs/RELEASE_0.0.27_EVIDENCE.md` - historical v0.0.27 release evidence ledger
 - `<public-repo-root>/docs/RELEASE_0.0.26_EVIDENCE.md` - historical v0.0.26 release evidence ledger

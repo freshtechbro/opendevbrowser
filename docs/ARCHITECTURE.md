@@ -2,7 +2,7 @@
 
 This document describes the architecture of OpenDevBrowser across plugin, CLI, and extension distributions, with a security-first focus.
 Status: active  
-Last updated: 2026-04-12
+Last updated: 2026-05-19
 
 ---
 
@@ -35,10 +35,10 @@ Human-facing inventory metadata now composes through one generated manifest:
 - `docs/CLI.md` carries the longer operator guide and help parity runbook
 - `src/tools/index.ts` remains the runtime tool registry authority
 
-The shared runtime core is in `src/core/` and wires `BrowserManager`, `CanvasManager`, `AnnotationManager`, `AgentInbox`, `ScriptRunner`, `SkillLoader`, and `RelayServer`.
+The shared runtime core is in `src/core/` and wires `BrowserManager`, `OpsBrowserManager`, `CanvasManager`, `AnnotationManager`, `AgentInbox`, `ScriptRunner`, `SkillLoader`, `RelayServer`, `desktopRuntime`, and the automation coordinator.
 `CanvasManager` lives in `src/browser/canvas-manager.ts` and composes dedicated session-sync, code-sync, starter-catalog, and runtime-preview bridge helpers while delegating document, export, framework-adapter, library-adapter, plugin, starter, kit, and token primitives to `src/canvas/` plus deterministic Figma import helpers under `src/integrations/figma/`.
 Daemon-backed `canvas` CLI requests inject the caller worktree as `repoRoot`; `CanvasManager` persists that root per canvas session so relative document saves, exports, imported asset materialization, and code-sync manifest/source paths resolve against the caller repo instead of the daemon process cwd.
-`AgentInbox` provides repo-local, chat-scoped delivery for popup/canvas annotation sends and the shared `annotate --stored` retrieval path.
+`AgentInbox` provides repo-local, chat-scoped delivery for explicit popup/canvas/in-page annotation sends. Core bootstrap registers the relay `store_agent_payload` handler, enqueues screenshot-free payloads, and supports shared `annotate --stored` retrieval.
 Canonical inventory and channel contracts: `docs/SURFACE_REFERENCE.md`.
 Frontend architecture and generation flow are documented in `docs/FRONTEND.md`.
 
@@ -319,7 +319,7 @@ sequenceDiagram
 - `/ops` is the default high-level extension channel with explicit commands (`session.*`, `targets.*`, `page.*`, `nav.*`, `interact.*`, `dom.*`, `export.*`, `devtools.*`).
 - `/ops` envelopes: `ops_hello`, `ops_request`, `ops_response`, `ops_error`, `ops_event`, `ops_chunk`, `ops_ping`, `ops_pong`.
 - `/canvas` is a dedicated design-canvas channel for session handshakes, governance-plan gating, canonical document mutation requests, extension-hosted design-tab editor sync, overlay selection, preview refresh, and feedback events.
-- `/canvas` design tabs consume a canonical HTML preview generated in core. `canvas.tab.open` is the public command; internal `canvas.tab.sync` keeps extension-hosted design tabs aligned with the same core-rendered materialization after public mutations. Extension history clicks emit the internal `canvas_event` type `canvas_history_requested`, but the lease-governed mutation still runs through public `canvas.history.undo` or `canvas.history.redo`.
+- `/canvas` design tabs consume a canonical HTML preview generated in core. `canvas.tab.open` is the public command for opening design tabs; internal `canvas.tab.sync` keeps extension-hosted design tabs aligned with the same core-rendered materialization after public mutations. Internal `canvas.overlay.sync` keeps page overlays aligned. Extension history clicks emit the internal `canvas_event` type `canvas_history_requested`, but the lease-governed mutation still runs through public `canvas.history.undo` or `canvas.history.redo`.
 - `/canvas` envelopes: `canvas_hello`, `canvas_request`, `canvas_response`, `canvas_error`, `canvas_event`, `canvas_chunk`, `canvas_ping`, `canvas_pong`.
 - `/cdp` is legacy and forwards raw CDP commands via `forwardCDPCommand` envelopes (`id`, `method`, `params`, optional `sessionId`) and relays events/responses back.
 - `/annotation` remains a dedicated channel for annotation command/event/response flow. It carries capture commands (`start`, `cancel`), shared stored retrieval (`fetch_stored`), and extension send delivery (`store_agent_payload`).
@@ -330,7 +330,7 @@ sequenceDiagram
 - `chat.message` and `experimental.chat.system.transform` register active `sessionID` values as chat scope keys for the current worktree.
 - Extension popup, canvas, and in-page annotation `Send` actions dispatch `annotation:sendPayload` to the extension background, which calls `store_agent_payload` over `/annotation`.
 - During core bootstrap, the relay registers a local store handler; that handler calls `AgentInbox.enqueue(...)`. Shared entries are written under `.opendevbrowser/annotate/agent-inbox.jsonl`; active scope metadata is stored in `.opendevbrowser/annotate/agent-scopes.json`.
-- Shared persistence strips screenshots, keeps asset refs only, and bounds storage to `200` entries total, `50` unread entries, `7` days TTL, and duplicate suppression within `60` seconds.
+- Shared persistence strips screenshots, stores screenshot asset metadata only, and bounds storage to `200` entries total, `50` unread entries, `7` days TTL, and duplicate suppression within `60` seconds.
 - `experimental.chat.system.transform` peeks only the current scope, injects up to `20` items or `256 KiB` of serialized system text, and marks injected items consumed.
 - `annotate --stored` reads the shared inbox first and falls back to the extension-local stored payload when no shared item is available.
 
@@ -461,7 +461,7 @@ When hub mode is enabled, the hub daemon is the **sole relay owner** and enforce
 - **Parity gate** via `tests/parity-matrix.test.ts` (contract coverage for CLI/tool/runtime surface checks + mode coverage).
 - **Provider performance gate** via `tests/providers-performance-gate.test.ts` (deterministic fixture SLO checks).
 - **Strict live release gates** via `node scripts/provider-direct-runs.mjs --release-gate` and `node scripts/live-regression-direct.mjs --release-gate` (active live release proof layer).
-- **Release checklist** in `docs/RELEASE_RUNBOOK.md` with evidence tracking in the current version-scoped release ledger (for this cycle: `docs/RELEASE_0.0.30_EVIDENCE.md`).
+- **Release checklist** in `docs/RELEASE_RUNBOOK.md` with evidence tracking in the current version-scoped release ledger (for this cycle: `docs/RELEASE_0.0.31_EVIDENCE.md`).
 - **Benchmark fixture manifest** in `docs/benchmarks/provider-fixtures.md`.
 - **First-run onboarding checklist** in `docs/FIRST_RUN_ONBOARDING.md`.
 

@@ -2,13 +2,13 @@
 
 Status: blocked (historical snapshot)
 Snapshot date: 2026-02-23
-Last audited against repo: 2026-04-11
+Last audited against repo: 2026-05-19
 Owner: product-marketing + maintainer reviewer
 
 Current audit note:
 - the register below is preserved as 2026-02-23 evidence and no longer satisfies this file's 24-hour freshness rule.
-- current source-verified public-surface counts are `72` CLI commands, `65` tools, `59` `/ops` commands, and `35` `/canvas` commands (validated from `src/public-surface/source.ts` via `node scripts/docs-drift-check.mjs`).
-- branch coverage and any landing proof-strip publish values were not re-verified in this pass, so landing publication should remain blocked until same-day evidence is regenerated.
+- current source-verified public-surface counts are `77` CLI commands, `70` tools, `59` `/ops` commands, and `35` `/canvas` commands (validated from `src/public-surface` generated manifest data and `scripts/docs-drift-check.mjs` count extraction on 2026-05-19).
+- branch coverage and any private landing proof-strip publish values were not re-verified in this pass, and the public repo has no accessible current frontend source of truth, so landing publication remains blocked until same-day evidence is regenerated in the owning frontend source.
 
 Purpose:
 - canonical verification register for landing proof-strip metrics.
@@ -32,6 +32,7 @@ Freshness rules:
 
 | verified_at_utc | verifier | review_owner | notes |
 |----------------|----------|--------------|-------|
+| 2026-05-19T00:00:00Z | codex source re-audit | maintainer reviewer | Re-verified the current repo source-backed surface counts as `77` CLI commands, `70` tools, `59` `/ops`, and `35` `/canvas` from generated public-surface data plus docs-drift count extraction. Kept status `blocked (historical snapshot)` because branch coverage and private landing proof-strip values were not regenerated from a current frontend source of truth. |
 | 2026-04-11T00:00:00Z | codex source re-audit | maintainer reviewer | Re-verified the current repo source-backed surface via `node scripts/docs-drift-check.mjs`, updated the current audit note to `72` CLI commands, `65` tools, `59` `/ops`, and `35` `/canvas`, kept status `blocked (historical snapshot)`, and retained the 2026-02-23 table as archival evidence pending a fresh landing-metrics verification pass. |
 | 2026-04-05T00:00:00Z | codex source re-audit | maintainer reviewer | Re-verified the current repo source-backed surface via `node scripts/docs-drift-check.mjs`, updated the current audit note to `64` CLI commands, `57` tools, `59` `/ops`, and `35` `/canvas`, kept status `blocked (historical snapshot)`, and retained the 2026-02-23 table as archival evidence pending a fresh landing-metrics verification pass. |
 | 2026-03-23T05:55:36Z | codex source re-audit | maintainer reviewer | Re-verified the current repo source files, corrected the current audit note to `61` CLI commands and `54` tools, kept status `blocked (historical snapshot)`, and retained the 2026-02-23 table as archival evidence pending a fresh landing-metrics verification pass. |

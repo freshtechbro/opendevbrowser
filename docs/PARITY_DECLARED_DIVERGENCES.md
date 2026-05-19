@@ -3,8 +3,13 @@
 Intentional parity mismatches that are allowed by contract.
 Any parity mismatch not listed here must fail parity gates.
 
+Current audit note:
+- `tests/parity-matrix.test.ts` loads this registry and rejects unknown declared divergence IDs.
+- `docs/ARCHITECTURE.md`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md` still document legacy `/cdp` as sequential with `effectiveParallelCap=1` and require declared exceptions for intentional mismatches.
+- No additional declared divergence was found in the 2026-05-19 source audit; keep this list short and explicit.
+
 Status: active  
-Last updated: 2026-02-23
+Last updated: 2026-05-19
 
 | ID | Scope | Declared divergence | Rationale |
 |---|---|---|---|
