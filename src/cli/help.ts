@@ -309,12 +309,13 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "inspiredesign_followthrough",
-    description: "After inspiredesign finishes, read advanced-brief.md and meta-prompt.md first, inspect screenshot metadata, then continue in Canvas with design-agent and motion-design loaded before patching.",
+    description: "After inspiredesign finishes, inspect nextStepGuidance.readiness, read required artifacts, and continue in Canvas only when guidance is ready.",
     details: [
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
       { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
+      { label: "gate:", value: "Require nextStepGuidance.readiness=ready and no matching doNotProceedIf blockers before Canvas continuation." },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
     ]

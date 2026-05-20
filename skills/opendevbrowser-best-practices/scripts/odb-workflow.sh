@@ -85,6 +85,9 @@ EOF
     cat <<EOF
 # Pair with opendevbrowser-design-agent when the contract will flow into implementation or /canvas work.
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
+$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+# Inspect nextStepGuidance.readiness and doNotProceedIf before Canvas continuation. For non-ready evidence, follow recovery-first guidance.
+# Review visual-evidence.json, screenshot-index.json, ranked-references.json, and meta-prompt.md before design or Canvas work.
 EOF
     ;;
   parallel-multipage-safe)
@@ -136,6 +139,7 @@ $CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_ope
 $CLI_PREFIX canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
 # Replace placeholders in the plan file with canvasSessionId, leaseId, and documentId from the open response.
 # If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
+# If canvas.plan.set returns generation_plan_invalid, read guidance.nextStepGuidance, guidance.paramsExamples, guidance.fieldExamples, guidance.validationChecks, and guidance.doNotProceedIf, then repair the params file and retry.
 # Optional diagnostics after generation_plan_invalid:
 # $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
 # or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
@@ -213,6 +217,9 @@ $CLI_PREFIX shopping run --query "27 inch 4k monitor" --providers shopping/bestb
 
 # Public-reference inspiredesign contract synthesis
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
+
+# Browser-native Pinterest recipe. Continue only when nextStepGuidance.readiness is ready.
+$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 
 # Region note: advisory unless output reports meta.selection.region_authoritative=true
 $CLI_PREFIX shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json

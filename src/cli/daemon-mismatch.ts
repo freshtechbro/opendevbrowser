@@ -1,3 +1,7 @@
+import { createDaemonGuidanceContext, renderWorkflowGuidance, routeNextStepGuidance } from "../guidance";
+import type { NextStepGuidance } from "../guidance";
+import type { JsonValue } from "../providers/types";
+
 export const DAEMON_FINGERPRINT_MISMATCH_REASON = "daemon_fingerprint_mismatch";
 
 export type DaemonFingerprintMismatchMessageInput = {
@@ -6,8 +10,8 @@ export type DaemonFingerprintMismatchMessageInput = {
   pid?: number;
 };
 
-const STATUS_PREFLIGHT_COMMAND = "opendevbrowser status --daemon --output-format json";
-const FINGERPRINT_CURRENT_ASSERTION = "data.fingerprintCurrent === true";
+export const STATUS_PREFLIGHT_COMMAND = "opendevbrowser status --daemon --output-format json";
+export const FINGERPRINT_CURRENT_ASSERTION = "data.fingerprintCurrent === true";
 
 const formatPid = (pid?: number): string => {
   return Number.isInteger(pid) && Number(pid) > 0 ? ` pid=${pid}` : "";
@@ -23,4 +27,12 @@ export function buildDaemonFingerprintMismatchMessage({
 
 export function buildDaemonFingerprintMismatchStatusGuidance(): string {
   return `Recovery: run \`${STATUS_PREFLIGHT_COMMAND}\` and proceed only when \`${FINGERPRINT_CURRENT_ASSERTION}\`; use the matching binary, restart the daemon from the current install, or isolate OPENCODE_CONFIG_DIR, OPENCODE_CACHE_DIR, daemon port, and relay port.`;
+}
+
+export function buildDaemonFingerprintMismatchNextStepGuidance(): NextStepGuidance {
+  return routeNextStepGuidance(createDaemonGuidanceContext(DAEMON_FINGERPRINT_MISMATCH_REASON));
+}
+
+export function buildDaemonFingerprintMismatchGuidancePayload(): Record<string, JsonValue> {
+  return renderWorkflowGuidance(buildDaemonFingerprintMismatchNextStepGuidance());
 }

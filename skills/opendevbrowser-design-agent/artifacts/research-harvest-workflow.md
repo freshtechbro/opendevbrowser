@@ -32,6 +32,23 @@ npx opendevbrowser inspiredesign harvest \
   --mode json
 ```
 
+Use the browser-native Pinterest site recipe when the brief specifically needs logged-in Pinterest search. Pinterest is not a default full social provider, and the workflow should not widen to unrelated sources without user confirmation:
+
+```bash
+npx opendevbrowser inspiredesign harvest \
+  --brief "Premium digital photography studio landing page" \
+  --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" \
+  --provider social/pinterest \
+  --max-references 5 \
+  --visual-evidence required \
+  --browser-mode extension \
+  --use-cookies \
+  --cookie-policy required \
+  --challenge-automation-mode browser_with_helper \
+  --mode json \
+  --output-format json
+```
+
 Use explicit references when the team already knows the right examples:
 
 ```bash
@@ -53,14 +70,21 @@ Harvest defaults:
 
 ## Required Artifact Review
 
-After a successful harvest, inspect these files before `/canvas` or code changes:
+After every harvest, inspect `nextStepGuidance` before `/canvas` or code changes:
+
+- `readiness="ready"`: continue only after artifact review.
+- `readiness="needs_recovery"`, `"blocked"`, or `"diagnostic_only"`: follow the primary recovery action first.
+- `doNotProceedIf`: treat each matching condition as a hard stop for Canvas continuation.
+- `paramsExamples` and `validationChecks`: use these as the next command and proof checklist.
+
+Then inspect these files before `/canvas` or code changes:
 
 1. `advanced-brief.md` for the reference-first creative brief.
 2. `ranked-references.json` for rank, score, confidence, visual strengths, visual risks, rejected references, and selection reasons.
 3. `visual-evidence.json` and `screenshot-index.json` for artifact-relative PNG paths, hashes, byte counts, viewport metadata when available, provenance, and warnings.
 4. PNG files under `visual-evidence/<referenceId>/viewport.png` for actual visual review.
 5. `meta-prompt.md` for borrow guidance, reject guidance, motion posture, accessibility constraints, no-copy warning, and validation gates.
-6. `canvas-plan.request.json` and `design-agent-handoff.json` only after the visual synthesis is accepted.
+6. `canvas-plan.request.json` and `design-agent-handoff.json` only after the visual synthesis is accepted and `nextStepGuidance.readiness` is `ready`.
 
 JSON files are metadata-only. They must not contain base64 screenshots, absolute temp paths, full DOM, or full snapshot text.
 
@@ -118,9 +142,9 @@ Load `opendevbrowser-motion-design` before translating harvest motion posture in
 
 ## Exit Criteria
 
-- The pattern board lists at least `3` live references unless provider policy or discovery diagnostics explain the smaller set.
+- The pattern board lists at least `3` live references unless provider policy, browser-native recipe diagnostics, or recovery guidance explain the smaller set.
 - Borrowed and rejected patterns are both explicit.
 - Rank 1 justifies the dominant direction.
 - Screenshot metadata points to existing PNG artifacts or explains skipped or failed visual evidence.
-- The chosen design direction is justified by evidence, not taste alone.
+- The chosen design direction is justified by ready evidence, not taste alone or diagnostic-only artifacts.
 - The resulting design contract names component families, state ownership, motion posture, and validation targets before implementation starts.

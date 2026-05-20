@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolve } from "path";
 import type { ParsedArgs } from "../src/cli/args";
+import { runCanvas } from "../src/cli/commands/canvas";
 import { runInspiredesignCommand } from "../src/cli/commands/inspiredesign";
 import { runMacroResolve } from "../src/cli/commands/macro-resolve";
 import { runProductVideoCommand } from "../src/cli/commands/product-video";
@@ -39,6 +40,45 @@ const defaultWorkflowOutputDir = resolve(".opendevbrowser");
 describe("workflow CLI commands", () => {
   beforeEach(() => {
     callDaemon.mockReset();
+  });
+
+  it("returns Canvas pre-session repair guidance without daemon dispatch", async () => {
+    const result = await runCanvas(makeArgs("canvas", [
+      "--command",
+      "canvas.plan.set",
+      "--params",
+      "{}"
+    ]));
+
+    expect(result).toMatchObject({
+      success: false,
+      message: expect.stringContaining("Missing canvasSessionId"),
+      exitCode: 2,
+      data: {
+        command: "canvas.plan.set",
+        result: expect.objectContaining({
+          code: "missing_canvas_session_id",
+          nextStepGuidance: expect.objectContaining({
+            workflow: "canvas",
+            reasonCode: "missing_canvas_session_id"
+          }),
+          guidance: expect.objectContaining({
+            recommendedNextCommands: ["canvas.session.open", "canvas.plan.set"],
+            reason: expect.stringContaining("Missing canvasSessionId"),
+            nextStepGuidance: expect.objectContaining({
+              workflow: "canvas",
+              reasonCode: "missing_canvas_session_id"
+            }),
+            paramsExamples: expect.arrayContaining([
+              expect.objectContaining({ command: "canvas.plan.set" })
+            ])
+          }),
+          paramsExamples: expect.arrayContaining([
+            expect.objectContaining({ command: "canvas.plan.set" })
+          ])
+        })
+      }
+    });
   });
 
   it("parses and dispatches research run payload", async () => {
@@ -377,7 +417,7 @@ describe("workflow CLI commands", () => {
     ]));
 
     expect(result.message).toBe(
-      "Shopping workflow completed with provider follow-up required: Costco requires login or an existing session. Next step: Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+      "Shopping workflow completed with provider follow-up required: Costco requires login or an existing session. Next step: Reuse a user-authorized signed-in browser session, load cookies only from that authorized session, or use the provider sign-in flow."
     );
   });
 
@@ -408,7 +448,7 @@ describe("workflow CLI commands", () => {
     ]));
 
     expect(result.message).toBe(
-      "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue. Next step: Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+      "Shopping workflow completed with provider follow-up required: Manual browser follow-up is required before provider resolution can continue. Next step: Reuse a user-authorized signed-in browser session, load cookies only from that authorized session, or use the provider sign-in flow."
     );
   });
 

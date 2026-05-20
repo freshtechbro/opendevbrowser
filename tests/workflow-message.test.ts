@@ -53,7 +53,7 @@ describe("workflow message helpers", () => {
     expect(buildProviderFollowupErrorMessage(
       "Costco requires login or an existing session."
     )).toBe(
-      "Costco requires login or an existing session. Next step: Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+      "Costco requires login or an existing session. Next step: Reuse a user-authorized signed-in browser session, load cookies only from that authorized session, or use the provider sign-in flow."
     );
     expect(buildProviderFollowupErrorMessage(
       "Costco requires login or an existing session. Next step: Retry."
@@ -171,6 +171,132 @@ describe("workflow message helpers", () => {
         followthroughSummary: "Review workflow metadata."
       }
     })).toBe("Review workflow metadata.");
+  });
+
+  it("prefers typed nextStepGuidance primary action before compatibility fields", () => {
+    const data = {
+      followthroughSummary: "Review gated-provider diagnostics.",
+      suggestedNextAction: "Legacy next action",
+      nextStepGuidance: {
+        primaryAction: {
+          summary: "Typed primary recovery action"
+        }
+      }
+    };
+
+    expect(readWorkflowGuidanceNextStep(data)).toBe("Typed primary recovery action");
+    expect(buildWorkflowCompletionMessage("Research workflow", data)).toBe(
+      "Research workflow completed. Review gated-provider diagnostics. Next step: Typed primary recovery action"
+    );
+  });
+
+  it("prefers typed nextStepGuidance when provider follow-up summaries are present", () => {
+    const data = {
+      meta: {
+        primaryConstraintSummary: "Pinterest requires login or an existing session.",
+        primaryConstraint: {
+          guidance: {
+            recommendedNextCommands: [
+              "Legacy provider recovery command"
+            ]
+          }
+        }
+      },
+      nextStepGuidance: {
+        primaryAction: {
+          summary: "Use the Pinterest browser-native recipe with extension cookies."
+        }
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
+      "Inspiredesign workflow completed with provider follow-up required: Pinterest requires login or an existing session. Next step: Use the Pinterest browser-native recipe with extension cookies."
+    );
+  });
+
+  it("reads typed nextStepGuidance from workflow metadata", () => {
+    expect(readWorkflowGuidanceNextStep({
+      meta: {
+        nextStepGuidance: {
+          primaryAction: {
+            summary: "Typed metadata recovery action"
+          }
+        }
+      }
+    })).toBe("Typed metadata recovery action");
+  });
+
+  it("prefers typed nextStepGuidance when provider failures are inferred without a primary summary", () => {
+    const data = {
+      nextStepGuidance: {
+        workflow: "shopping",
+        primaryAction: {
+          summary: "Use the shared typed recovery recipe."
+        }
+      },
+      meta: {
+        failures: [{
+          provider: "shopping/costco",
+          error: {
+            reasonCode: "auth_required"
+          }
+        }]
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Shopping workflow", data)).toBe(
+      "Shopping workflow completed with provider follow-up required: Costco requires login or an existing session. Next step: Use the shared typed recovery recipe."
+    );
+  });
+
+  it("ignores typed guidance when it belongs to a different workflow", () => {
+    const shoppingData = {
+      followthroughSummary: "Review shopping diagnostics.",
+      suggestedNextAction: "Run shopping follow-up",
+      nextStepGuidance: {
+        workflow: "inspiredesign",
+        primaryAction: {
+          summary: "Use Pinterest browser-native recovery."
+        }
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Shopping workflow", shoppingData)).toBe(
+      "Shopping workflow completed. Review shopping diagnostics."
+    );
+
+    expect(buildWorkflowCompletionMessage("Product video workflow", {
+      followthroughSummary: "Review product-video artifacts.",
+      suggestedNextAction: "Legacy Canvas next action",
+      nextStepGuidance: {
+        workflow: "canvas",
+        primaryAction: {
+          summary: "Open Canvas session."
+        }
+      }
+    })).toBe("Product video workflow completed. Review product-video artifacts.");
+
+    expect(buildWorkflowCompletionMessage("Product-video workflow", {
+      followthroughSummary: "Review product-video artifacts.",
+      suggestedNextAction: "Use Pinterest browser-native recovery.",
+      nextStepGuidance: {
+        workflow: "inspiredesign",
+        primaryAction: {
+          summary: "Use Pinterest browser-native recovery."
+        }
+      }
+    })).toBe("Product-video workflow completed. Review product-video artifacts.");
+
+    expect(buildWorkflowCompletionMessage("product_video workflow", {
+      followthroughSummary: "Review product-video artifacts.",
+      suggestedNextAction: "Use Pinterest browser-native recovery.",
+      nextStepGuidance: {
+        workflow: "inspiredesign",
+        primaryAction: {
+          summary: "Use Pinterest browser-native recovery."
+        }
+      }
+    })).toBe("product_video workflow completed. Review product-video artifacts.");
   });
 
   it("exports shared next-step reading with placeholder command skipping", () => {

@@ -7,11 +7,11 @@ Use this playbook before any `/canvas` mutation and during every design-feedback
 ## Required command order
 
 1. `canvas.session.open`
-2. Read the handshake and inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `guidance.recommendedNextCommands`, and `guidance.reason`
+2. Read the handshake and inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `guidance.recommendedNextCommands`, `guidance.reason`, `guidance.nextStepGuidance`, `guidance.paramsExamples`, `guidance.fieldExamples`, `guidance.validationChecks`, and `guidance.doNotProceedIf` when present
 3. Follow `guidance.recommendedNextCommands` from the handshake before choosing the next command
 4. `canvas.plan.set`
 5. If the response is accepted, follow the returned guidance into `canvas.document.patch`
-6. If the response fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, and `generationPlanIssues`, then optionally re-read with `canvas.plan.get` or `canvas.capabilities.get`
+6. If the response fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, `generationPlanIssues`, and the typed repair examples, then repair the params file before retrying
 7. `canvas.preview.render` or `canvas.tab.open`
 8. `canvas.feedback.poll`
 9. `canvas.document.save` or `canvas.document.export`
@@ -112,9 +112,9 @@ If `canvas.document.patch` or `canvas.document.save` returns a blocker, stop mut
 
 | Audit ID | Failure class | Typical signal | Required response |
 |---|---|---|---|
-| `CANVAS-01` | Handshake missing or unread before mutation | `plan_required`, missing `handshake_read` evidence | Re-run `canvas.session.open` or `canvas.capabilities.get`, then `canvas.plan.set` |
+| `CANVAS-01` | Handshake missing or unread before mutation | `plan_required`, missing `handshake_read` evidence | Run `canvas.session.open`, then use `canvas.capabilities.get` only with the returned `canvasSessionId` if more diagnostics are needed |
 | `CANVAS-02` | Required governance block missing | save blocker, empty `requiredBeforeSave`, validation warning | Fill missing `designGovernance.*` fields before save/export |
-| `CANVAS-03` | Required `generationPlan` field missing or malformed | `canvas.plan.set` rejected with `generation_plan_invalid`, plus `generationPlanIssues` or issue details | Submit a complete plan and wait for acceptance |
+| `CANVAS-03` | Required `generationPlan` field missing or malformed | `canvas.plan.set` rejected with `generation_plan_invalid`, plus `generationPlanIssues` or issue details | Submit a complete plan from `guidance.paramsExamples` and wait for acceptance |
 | `CANVAS-04` | Library or icon-policy violation | validation warning, policy blocker, downgraded export | Adjust component/library choice to match `libraryPolicy` and `iconSystem` |
 | `CANVAS-05` | Unsupported target or overlay mount failure | `unsupported_target`, `restricted_url`, overlay mount error | Move to a normal http(s) preview target or managed mode |
 | `CANVAS-06` | Runtime budget exceeded or preview downgrade ignored | degrade warning, overflowed media/fonts/telemetry budget | Reduce preview cost or accept the downgrade before proceeding |

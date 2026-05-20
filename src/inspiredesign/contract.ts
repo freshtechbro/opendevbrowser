@@ -443,6 +443,7 @@ type InspiredesignTargetAnalysis = {
 export type InspiredesignFollowthrough = {
   summary: string;
   nextStep: string;
+  nextStepGuidance?: Record<string, JsonValue>;
   artifactGuide: InspiredesignArtifactGuide;
   contractSectionGuide: InspiredesignContractSectionGuide;
   briefExpansion: {
@@ -2159,7 +2160,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   const referencePatternBoard = buildInspiredesignReferencePatternBoard(
     referenceFingerprint(brief),
     selectedFormat,
-    references
+    references,
+    brief
   );
   const designVectors = buildInspiredesignDesignVectors(selectedFormat, referencePatternBoard);
   const effectiveFormat = buildEvidenceDerivedFormat(selectedFormat, designVectors);

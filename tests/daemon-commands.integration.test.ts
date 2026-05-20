@@ -7,6 +7,11 @@ import type { OpenDevBrowserConfig } from "../src/config";
 import type { OpenDevBrowserCore } from "../src/core";
 import { handleDaemonCommand } from "../src/cli/daemon-commands";
 import {
+  buildDaemonFingerprintMismatchGuidancePayload,
+  FINGERPRINT_CURRENT_ASSERTION,
+  STATUS_PREFLIGHT_COMMAND
+} from "../src/cli/daemon-mismatch";
+import {
   bindRelay,
   clearBinding,
   completeScreencastOwner,
@@ -243,6 +248,22 @@ describe("daemon-commands integration", () => {
     clearBinding();
     clearScreencastOwners();
     clearSessionLeases();
+  });
+
+  it("exposes typed daemon fingerprint mismatch guidance", () => {
+    expect(buildDaemonFingerprintMismatchGuidancePayload()).toMatchObject({
+      workflow: "daemon",
+      reasonCode: "daemon_fingerprint_mismatch",
+      commands: expect.arrayContaining([
+        expect.objectContaining({ command: STATUS_PREFLIGHT_COMMAND })
+      ]),
+      validationChecks: expect.arrayContaining([
+        expect.objectContaining({ assertion: FINGERPRINT_CURRENT_ASSERTION })
+      ]),
+      doNotProceedIf: expect.arrayContaining([
+        "data.fingerprintCurrent is false or missing"
+      ])
+    });
   });
 
   afterEach(() => {

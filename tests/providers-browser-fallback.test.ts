@@ -140,7 +140,7 @@ describe("provider browser fallback helpers", () => {
       guidance: {
         reason: "Youtube needs an authenticated session before retrying.",
         recommendedNextCommands: [
-          "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow.",
+          "Reuse a user-authorized signed-in browser session, load cookies only from that authorized session, or use the provider sign-in flow.",
           "Rerun the same provider or workflow once the session is active."
         ]
       }

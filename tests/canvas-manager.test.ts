@@ -5,7 +5,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Window } from "happy-dom";
 import { resolveConfig } from "../src/config";
-import { CANVAS_PROJECT_DEFAULTS, createDefaultCanvasDocument } from "../src/canvas/document-store";
+import { CANVAS_PROJECT_DEFAULTS, createDefaultCanvasDocument, validateGenerationPlan } from "../src/canvas/document-store";
+import { buildCanvasPlanSetParamsExample } from "../src/canvas/repair-examples";
 import { saveCanvasDocument } from "../src/canvas/repo-store";
 
 const canvasClientConnectMock = vi.fn().mockResolvedValue({
@@ -202,6 +203,66 @@ describe("CanvasManager", () => {
     vi.unstubAllGlobals();
   });
 
+  it("returns typed repair guidance for missing Canvas command identifiers", async () => {
+    const manager = new CanvasManager({
+      worktree,
+      browserManager: {} as never,
+      config
+    });
+
+    await expect(manager.execute("canvas.plan.set", {})).rejects.toMatchObject({
+      code: "missing_canvas_session_id",
+      details: expect.objectContaining({
+        code: "missing_canvas_session_id",
+        recommendedNextCommands: ["canvas.session.open", "canvas.plan.set"],
+        nextStepGuidance: expect.objectContaining({
+          workflow: "canvas",
+          reasonCode: "missing_canvas_session_id",
+          paramsExamples: expect.arrayContaining([
+            expect.objectContaining({ command: "canvas.plan.set" })
+          ])
+        }),
+        paramsExamples: expect.arrayContaining([
+          expect.objectContaining({ command: "canvas.plan.set" })
+        ]),
+        validationChecks: expect.arrayContaining([
+          expect.objectContaining({ assertion: "typeof canvasSessionId === \"string\" && typeof leaseId === \"string\"" })
+        ])
+      })
+    });
+
+    const opened = await manager.execute("canvas.session.open", {}) as Record<string, unknown>;
+    await expect(manager.execute("canvas.plan.set", {
+      canvasSessionId: opened.canvasSessionId,
+      generationPlan: structuredClone(validGenerationPlan)
+    })).rejects.toMatchObject({
+      code: "missing_lease_id",
+      details: expect.objectContaining({
+        nextStepGuidance: expect.objectContaining({ reasonCode: "missing_lease_id" }),
+        paramsExamples: expect.arrayContaining([
+          expect.objectContaining({ command: "canvas.session.attach" })
+        ])
+      })
+    });
+
+    await expect(manager.execute("canvas.document.load", {
+      canvasSessionId: opened.canvasSessionId,
+      leaseId: opened.leaseId,
+      repoPath: " "
+    })).rejects.toMatchObject({
+      code: "missing_document_id",
+      details: expect.objectContaining({
+        nextStepGuidance: expect.objectContaining({ reasonCode: "missing_document_id" })
+      })
+    });
+  });
+
+  it("builds schema-valid Canvas repair examples", () => {
+    const planSetParams = buildCanvasPlanSetParamsExample();
+    const generationPlan = planSetParams.generationPlan ?? null;
+    expect(validateGenerationPlan(generationPlan).ok).toBe(true);
+  });
+
   it("runs the managed canvas flow end to end", async () => {
     const dom = createDomHarness();
     vi.stubGlobal("document", dom.documentStub);
@@ -326,6 +387,7 @@ describe("CanvasManager", () => {
         reason: "generationPlan is accepted. Patch the document, render the preview, inspect feedback, and save when the iteration is stable."
       }
     });
+    expect((planResult.guidance as Record<string, unknown>).nextStepGuidance).toBeUndefined();
 
     const patchResult = await manager.execute("canvas.document.patch", {
       canvasSessionId,
@@ -3074,7 +3136,15 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       canvasSessionId,
       leaseId,
       generationPlan: []
-    })).rejects.toThrow("Missing generationPlan");
+    })).rejects.toMatchObject({
+      code: "generation_plan_invalid",
+      details: expect.objectContaining({
+        nextStepGuidance: expect.objectContaining({ reasonCode: "generation_plan_invalid" }),
+        paramsExamples: expect.arrayContaining([
+          expect.objectContaining({ command: "canvas.plan.set" })
+        ])
+      })
+    });
     await expect(manager.execute("canvas.plan.set", {
       canvasSessionId,
       leaseId,
@@ -3087,6 +3157,25 @@ it("resets history when inverse patches cannot be synthesized for duplicate or m
       }),
       details: expect.objectContaining({
         auditId: "CANVAS-03",
+        nextStepGuidance: expect.objectContaining({
+          workflow: "canvas",
+          reasonCode: "generation_plan_invalid",
+          paramsExamples: expect.arrayContaining([
+            expect.objectContaining({ command: "canvas.plan.set" })
+          ]),
+          fieldExamples: expect.arrayContaining([
+            expect.objectContaining({ path: "generationPlan.targetOutcome.mode" })
+          ]),
+          validationChecks: expect.arrayContaining([
+            expect.objectContaining({ assertion: "validateGenerationPlan(generationPlan).ok === true" })
+          ]),
+          doNotProceedIf: expect.arrayContaining([
+            "generationPlan validation still reports missing or invalid fields"
+          ])
+        }),
+        paramsExamples: expect.arrayContaining([
+          expect.objectContaining({ command: "canvas.plan.set" })
+        ]),
         missingFields: expect.arrayContaining([
           "visualDirection",
           "layoutStrategy",

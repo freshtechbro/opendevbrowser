@@ -96,6 +96,19 @@ describe("workflow handoff builders", () => {
     expect(handoff.suggestedNextAction).toContain("--challenge-automation-mode browser_with_helper");
     expect(handoff.suggestedNextAction).toContain("Add --use-cookies only when legitimate provider cookies are available.");
     expect(handoff.suggestedSteps[1]?.command).not.toContain("--use-cookies");
+    expect(handoff.nextStepGuidance).toMatchObject({
+      workflow: "research",
+      reasonCode: "gated_provider",
+      primaryAction: expect.objectContaining({
+        summary: expect.stringContaining("community/reddit")
+      }),
+      commands: expect.arrayContaining([
+        expect.objectContaining({ command: expect.stringContaining("--challenge-automation-mode browser_with_helper") })
+      ]),
+      doNotProceedIf: expect.arrayContaining([
+        "gated provider failures remain unresolved"
+      ])
+    });
   });
 
   it("adds gated research recovery guidance for details-only challenge codes", () => {
@@ -357,6 +370,80 @@ describe("workflow handoff builders", () => {
       },
       { reason: "Rerun only when reference evidence must be refreshed." }
     ]);
+  });
+
+  it("builds inspiredesign typed guidance compatibility fields", () => {
+    const handoff = buildInspiredesignSuccessHandoff({
+      summary: "Evidence is blocked.",
+      nextStep: "Legacy next step",
+      commandExamples: INSPIREDESIGN_HANDOFF_COMMANDS,
+      deepCaptureRecommendation: "Rerun only when reference evidence must be refreshed.",
+      nextStepGuidance: {
+        id: "inspiredesign.harvest.zero_references",
+        recipeType: "evidence_recovery",
+        workflow: "inspiredesign",
+        severity: "warning",
+        readiness: "needs_recovery",
+        reasonCode: "zero_references",
+        primaryAction: {
+          id: "recover_reference_evidence",
+          label: "Collect reference evidence",
+          summary: "Collect reference evidence before Canvas."
+        },
+        commands: [{ id: "rerun", label: "Rerun harvest", command: "npx opendevbrowser inspiredesign harvest --brief \"<brief>\" --query \"<query>\"" }],
+        paramsExamples: [{ id: "params", label: "Params", params: { brief: "<brief>" } }],
+        fieldExamples: [],
+        artifactInputs: [{ path: "ranked-references.json", purpose: "Verify ranked references.", required: true }],
+        validationChecks: [{ id: "ranked", description: "References are ranked.", assertion: "rankedReferences.length > 0" }],
+        fallbackPolicy: { allowed: false, requiresUserConfirmation: true, reason: "Do not widen scope." },
+        doNotProceedIf: ["reference_count is 0"]
+      }
+    });
+
+    expect(handoff.nextStepGuidance).toEqual(expect.objectContaining({
+      readiness: "needs_recovery",
+      reasonCode: "zero_references"
+    }));
+    expect(handoff.followthroughSummary).toBe("Collect reference evidence before Canvas.");
+    expect(handoff.suggestedNextAction).toBe("Collect reference evidence before Canvas.");
+    expect(handoff.suggestedSteps[0]?.command).toContain("inspiredesign harvest");
+  });
+
+  it("preserves ready inspiredesign handoff steps while serializing typed guidance", () => {
+    const handoff = buildInspiredesignSuccessHandoff({
+      summary: "Read the generated artifacts before continuing.",
+      nextStep: "Continue in Canvas after loading skills.",
+      commandExamples: INSPIREDESIGN_HANDOFF_COMMANDS,
+      deepCaptureRecommendation: "Rerun only when reference evidence must be refreshed.",
+      nextStepGuidance: {
+        id: "inspiredesign.canvas_ready_handoff",
+        recipeType: "artifact_handoff",
+        workflow: "inspiredesign",
+        severity: "info",
+        readiness: "ready",
+        reasonCode: "design_ready",
+        primaryAction: {
+          id: "continue_in_canvas",
+          label: "Continue in Canvas",
+          summary: "Continue in Canvas."
+        },
+        commands: [],
+        paramsExamples: [],
+        fieldExamples: [],
+        artifactInputs: [],
+        validationChecks: [],
+        fallbackPolicy: { allowed: true, requiresUserConfirmation: false, reason: "Ready." },
+        doNotProceedIf: []
+      }
+    });
+
+    expect(handoff.followthroughSummary).toBe("Read the generated artifacts before continuing.");
+    expect(handoff.suggestedNextAction).toBe("Continue in Canvas after loading skills.");
+    expect(handoff.suggestedSteps[1]?.command).toBe(INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices);
+    expect(handoff.nextStepGuidance).toEqual(expect.objectContaining({
+      readiness: "ready",
+      reasonCode: "design_ready"
+    }));
   });
 
   it.each([

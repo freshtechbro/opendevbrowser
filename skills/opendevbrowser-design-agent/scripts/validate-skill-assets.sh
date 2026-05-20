@@ -100,6 +100,8 @@ const skillDocMarkers = [
   "plan_invalid",
   "plan_accepted",
   "recommendedNextCommands",
+  "nextStepGuidance.readiness",
+  "social/pinterest",
   "canvas.plan.set",
   "canvas.history.undo",
   "canvas.history.redo",
@@ -129,7 +131,9 @@ const designWorkflowMarkers = [
   "handshake_read",
   "plan_invalid",
   "plan_accepted",
-  "recommendedNextCommands"
+  "recommendedNextCommands",
+  "guidance.nextStepGuidance",
+  "guidance.paramsExamples"
 ];
 
 const workflowOutputMarkers = {
@@ -145,7 +149,9 @@ const workflowOutputMarkers = {
     "handshake_read",
     "plan_invalid",
     "plan_accepted",
-    "recommendedNextCommands"
+    "recommendedNextCommands",
+    "guidance.nextStepGuidance",
+    "guidance.paramsExamples"
   ]
 };
 

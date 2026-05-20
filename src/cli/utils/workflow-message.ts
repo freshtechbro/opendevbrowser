@@ -40,6 +40,10 @@ const readMeta = (data: unknown): Record<string, unknown> | null => {
   return asRecord(asRecord(data)?.meta);
 };
 
+const readTypedGuidance = (data: unknown): Record<string, unknown> | null => (
+  asRecord(asRecord(data)?.nextStepGuidance) ?? asRecord(readMeta(data)?.nextStepGuidance)
+);
+
 const readPrimaryConstraint = (data: unknown): Record<string, unknown> | null => {
   const meta = readMeta(data);
   if (!meta) return null;
@@ -49,6 +53,41 @@ const readPrimaryConstraint = (data: unknown): Record<string, unknown> | null =>
 const readPrimarySummary = (data: unknown): string | null => {
   const meta = readMeta(data);
   return readNonEmptyString(meta?.primaryConstraintSummary);
+};
+
+const WORKFLOW_LABEL_MATCHERS: ReadonlyArray<readonly [string, string]> = [
+  ["inspiredesign", "inspiredesign"],
+  ["product video", "product_video"],
+  ["shopping", "shopping"],
+  ["research", "research"],
+  ["canvas", "canvas"],
+  ["macro", "macro"]
+];
+
+const workflowFromLabel = (workflowLabel: string): string | null => {
+  const normalized = workflowLabel.toLowerCase().replace(/[-_]+/g, " ");
+  return WORKFLOW_LABEL_MATCHERS.find(([label]) => normalized.includes(label))?.[1] ?? null;
+};
+
+const guidanceMatchesWorkflow = (
+  guidance: Record<string, unknown> | null,
+  expectedWorkflow: string | null
+): boolean => {
+  if (!expectedWorkflow) return true;
+  const workflow = readNonEmptyString(guidance?.workflow);
+  return !workflow || workflow === expectedWorkflow || workflow === "provider";
+};
+
+const typedGuidanceMismatchesWorkflow = (data: unknown, expectedWorkflow: string | null): boolean => {
+  const guidance = readTypedGuidance(data);
+  return Boolean(guidance) && !guidanceMatchesWorkflow(guidance, expectedWorkflow);
+};
+
+const readTypedGuidancePrimaryAction = (data: unknown, expectedWorkflow: string | null = null): string | null => {
+  const guidance = readTypedGuidance(data);
+  if (typedGuidanceMismatchesWorkflow(data, expectedWorkflow)) return null;
+  const primaryAction = asRecord(guidance?.primaryAction);
+  return readDisplayableNextStep(primaryAction?.summary);
 };
 
 const readPrimaryNextStep = (data: unknown): string | null => {
@@ -102,7 +141,7 @@ export const buildProviderFollowupErrorMessage = (message: string): string => {
   if (normalized.includes("requires login or an existing session")) {
     return buildNextStepMessage(
       message,
-      "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+      "Reuse a user-authorized signed-in browser session, load cookies only from that authorized session, or use the provider sign-in flow."
     );
   }
   if (
@@ -151,30 +190,35 @@ export const readSuggestedStepReason = (data: unknown): string | null => {
   return null;
 };
 
-export const readWorkflowGuidanceNextStep = (data: unknown): string | null => (
-  readSuggestedNextAction(data) ?? readSuggestedStepCommand(data) ?? readSuggestedStepReason(data)
-);
+export const readWorkflowGuidanceNextStep = (data: unknown, expectedWorkflow: string | null = null): string | null => {
+  if (typedGuidanceMismatchesWorkflow(data, expectedWorkflow)) return null;
+  return readTypedGuidancePrimaryAction(data, expectedWorkflow)
+    ?? readSuggestedNextAction(data)
+    ?? readSuggestedStepCommand(data)
+    ?? readSuggestedStepReason(data);
+};
 
 export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unknown): string => {
+  const expectedWorkflow = workflowFromLabel(workflowLabel);
   const explicitSummary = readPrimarySummary(data);
   if (explicitSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed with provider follow-up required: ${explicitSummary}`,
-      readPrimaryNextStep(data) ?? inferPrimaryIssueNextStep(data)
+      readTypedGuidancePrimaryAction(data, expectedWorkflow) ?? readPrimaryNextStep(data) ?? inferPrimaryIssueNextStep(data)
     );
   }
   const inferred = summarizePrimaryProviderIssue(readFailures(data));
   if (inferred) {
     return buildNextStepMessage(
       `${workflowLabel} completed with provider follow-up required: ${inferred.summary}`,
-      inferred.guidance?.recommendedNextCommands[0] ?? null
+      readTypedGuidancePrimaryAction(data, expectedWorkflow) ?? inferred.guidance?.recommendedNextCommands[0] ?? null
     );
   }
   const followthroughSummary = readFollowthroughSummary(data);
   if (followthroughSummary) {
     return buildNextStepMessage(
       `${workflowLabel} completed. ${followthroughSummary}`,
-      readWorkflowGuidanceNextStep(data)
+      readWorkflowGuidanceNextStep(data, expectedWorkflow)
     );
   }
   return `${workflowLabel} completed.`;

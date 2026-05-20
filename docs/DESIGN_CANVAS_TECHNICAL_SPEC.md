@@ -67,6 +67,8 @@ Use this runtime-backed sequence when an agent needs next-step guidance instead 
    - `mutationPolicy.allowedBeforePlan`
    - `guidance.recommendedNextCommands`
    - `guidance.reason`
+   - `guidance.nextStepGuidance` when present
+   - `guidance.paramsExamples`, `guidance.fieldExamples`, `guidance.validationChecks`, and `guidance.doNotProceedIf` when a repair envelope is present
 3. `canvas.plan.set`
 4. If the plan is accepted, follow the returned guidance into `canvas.document.patch`
 5. `canvas.preview.render`
@@ -74,7 +76,7 @@ Use this runtime-backed sequence when an agent needs next-step guidance instead 
 7. `canvas.document.save` or `canvas.document.export`
 
 Canvas guidance is centrally constructed with shared next-step advisory builders, but the public Canvas response stays Canvas-shaped:
-`guidance.recommendedNextCommands`, `guidance.reason`, and blocker `requiredNextCommands`.
+`guidance.recommendedNextCommands`, `guidance.reason`, and blocker `requiredNextCommands`. Repairable responses also expose typed `nextStepGuidance`, params examples, field examples, validation checks, and do-not-proceed blockers under `guidance`.
 
 `canvas.plan.get` and `canvas.capabilities.get` remain useful when an invalid plan response needs to be re-read after failure or attach, but they are not required after a successful `canvas.plan.set`.
 
@@ -84,16 +86,80 @@ Canvas guidance is centrally constructed with shared next-step advisory builders
   - `planStatus: "missing"`
   - `preflightState: "handshake_read"`
   - next step is `canvas.plan.set`
+  - repair guidance includes a valid params-file shape with `canvasSessionId`, `leaseId`, and `generationPlan`
 - Invalid plan:
   - `planStatus: "invalid"`
   - `preflightState: "plan_invalid"`
   - handshake and capabilities calls expose `generationPlanIssues`
   - `canvas.plan.set` fails with `generation_plan_invalid` and returns `details.missingFields` plus `details.issues`
+  - repair guidance includes `guidance.paramsExamples`, issue-specific `guidance.fieldExamples`, `guidance.validationChecks`, and `guidance.doNotProceedIf`
   - `canvas.feedback.poll` synthesizes the same preflight blocker until the plan is fixed
 - Accepted plan:
   - `planStatus: "accepted"`
   - `preflightState: "plan_accepted"`
   - mutation guidance moves to patch -> preview -> feedback -> save/export
+  - save/export can still be blocked by missing governance, so follow `governance.update` field examples before treating the document as complete
+
+## Repair examples
+
+When `canvas.plan.set` returns `generation_plan_invalid`, do not continue to patch, preview, or save. Read `guidance.nextStepGuidance.readiness`, then copy the closest `guidance.paramsExamples[]` entry into a params file and retry:
+
+```bash
+npx opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.repaired.json --output-format json
+```
+
+A minimal repair params file must keep these identifiers from `canvas.session.open` and include every required generation-plan block:
+
+```json
+{
+  "canvasSessionId": "<canvas-session-id>",
+  "leaseId": "<lease-id>",
+  "generationPlan": {
+    "targetOutcome": {
+      "mode": "high-fi-live-edit",
+      "summary": "Produce an evidence-backed, responsive landing page iteration."
+    },
+    "visualDirection": { "profile": "cinematic-minimal", "themeStrategy": "single-theme" },
+    "layoutStrategy": {
+      "approach": "hero-led composition with clear content sections",
+      "navigationModel": "global-header"
+    },
+    "contentStrategy": {
+      "source": "design brief, harvested references, and current project content"
+    },
+    "componentStrategy": {
+      "mode": "reuse existing components before creating new primitives",
+      "interactionStates": ["default", "hover", "focus", "disabled"]
+    },
+    "motionPosture": { "level": "subtle", "reducedMotion": "respect-user-preference" },
+    "responsivePosture": {
+      "primaryViewport": "desktop",
+      "requiredViewports": ["desktop", "tablet", "mobile"]
+    },
+    "accessibilityPosture": { "target": "WCAG_2_2_AA", "keyboardNavigation": "full" },
+    "validationTargets": {
+      "blockOn": ["contrast-failure", "missing-intent", "missing-design-language"],
+      "requiredThemes": ["light"],
+      "browserValidation": "required",
+      "maxInteractionLatencyMs": 150
+    },
+    "interactionMoments": ["primary CTA hover", "keyboard focus ring", "mobile navigation open"],
+    "materialEffects": ["soft depth on primary surfaces"],
+    "designVectors": {
+      "density": "editorial",
+      "imagery": "dominant first-viewport visual plane"
+    }
+  }
+}
+```
+
+When save/export reports missing governance, patch the named blocks before saving:
+
+```bash
+npx opendevbrowser canvas --command canvas.document.patch \
+  --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","baseRevision":1,"patches":[{"op":"governance.update","block":"intent","changes":{"summary":"Evidence-backed landing page direction","audience":"Primary buyer","successCriteria":["Ready references are reflected in hero hierarchy"]}}]}' \
+  --output-format json
+```
 
 ## Projection boundary
 

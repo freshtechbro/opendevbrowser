@@ -77,22 +77,23 @@ Use when the work should flow through the OpenDevBrowser design canvas.
 
 1. Open a canvas session.
 2. Read the handshake and document context.
-3. Inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, and `guidance.recommendedNextCommands` before moving on.
+3. Inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `guidance.recommendedNextCommands`, `guidance.nextStepGuidance`, params examples, field examples, validation checks, and do-not-proceed blockers before moving on.
 4. Treat `preflightState="handshake_read"` as the normal first-step checkpoint; if the handshake is already reporting `plan_invalid`, repair the plan instead of mutating.
 5. Fill the full design contract.
 6. Extract the `generationPlan`.
 7. Send `canvas.plan.set`.
 8. If the response is accepted, read `guidance.recommendedNextCommands` again and mutate with `canvas.document.patch`.
-9. If the response fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, and `generationPlanIssues`, then optionally re-read with `canvas.plan.get` or `canvas.capabilities.get`.
+9. If the response fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, `generationPlanIssues`, and typed repair examples, then fix the params file before retrying.
 10. Render preview, poll feedback, and save or export until the contract and runtime match.
 
 Canonical command order:
 
 ```bash
 npx opendevbrowser canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
-# Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, and guidance.recommendedNextCommands before continuing.
+# Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, guidance.recommendedNextCommands, guidance.nextStepGuidance, guidance.paramsExamples, guidance.fieldExamples, guidance.validationChecks, and guidance.doNotProceedIf before continuing.
 npx opendevbrowser canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json
 # If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
+# If canvas.plan.set returns generation_plan_invalid, repair ./tmp/canvas-plan.json from guidance.paramsExamples before retrying.
 # Optional diagnostics after generation_plan_invalid:
 # npx opendevbrowser canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
 # or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
