@@ -4,6 +4,7 @@ import type {
   InspiredesignBriefExpansion,
   InspiredesignBriefFormat
 } from "../src/inspiredesign/brief-expansion";
+import type { NextStepGuidance } from "../src/guidance/types";
 import type { JsonValue } from "../src/providers/types";
 import {
   buildInspiredesignPacket,
@@ -23,6 +24,7 @@ import {
   buildInspiredesignFollowthroughSummary,
   buildInspiredesignNextStep
 } from "../src/inspiredesign/handoff";
+import { hasInspiredesignUsableReferenceEvidence } from "../src/inspiredesign/reference-pattern-board";
 import { renderInspiredesign } from "../src/providers/renderer";
 import { buildInspiredesignSuccessHandoff } from "../src/providers/workflow-handoff";
 
@@ -889,6 +891,42 @@ describe("inspiredesign packet + renderer", () => {
     expect(structuralEntry?.capturedVia).not.toContain("visual");
   });
 
+  it("downgrades references with weak brief intent overlap", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Design a premium photography studio landing page with cinematic portraits.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Design a premium photography studio landing page with cinematic portraits."
+      }),
+      urls: ["https://example.com/photo", "https://example.com/unrelated"],
+      references: [
+        makeReference({
+          id: "photo-studio",
+          url: "https://example.com/photo",
+          title: "Photography studio landing page",
+          excerpt: "Premium portrait gallery, cinematic studio hero, booking CTA, and editorial project rhythm.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: { content: "Photography studio portrait grid with cinematic image sequencing.", refCount: 8, warnings: [] }
+          }
+        }),
+        makeReference({
+          id: "unrelated",
+          url: "https://example.com/unrelated",
+          title: "Inventory analytics control room",
+          excerpt: "Warehouse operational dashboards, SKU tables, and logistics exception alerts.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: { content: "Dense inventory tables and supply-chain monitoring widgets.", refCount: 8, warnings: [] }
+          }
+        })
+      ]
+    });
+    const references = (packet.evidence as InspiredesignEvidenceJson).referencePatternBoard?.references ?? [];
+
+    expect(references[0]?.id).toBe("photo-studio");
+    expect(references.find((reference) => reference.id === "unrelated")?.selectionReason).toContain("Intent overlap with the brief is weak");
+  });
+
   it("finalizes advanced briefs from reference evidence before fixed route guardrails", () => {
     const packet = buildInspiredesignPacket({
       brief: "Create a launch page inspired by an architectural lighting studio.",
@@ -1134,6 +1172,67 @@ describe("inspiredesign packet + renderer", () => {
       "URL reference evidence is the creative source of truth when references are supplied."
     );
     expect(packet.advancedBriefMarkdown).not.toContain("admin dashboard analytics");
+  });
+
+  it("rejects login and challenge pages even when they contain otherwise clean text", () => {
+    expect(hasInspiredesignUsableReferenceEvidence(makeReference({
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Premium studio photography editorial layout",
+      excerpt: "Full-bleed hero treatment with cinematic portrait galleries.",
+      capture: {
+        title: "Premium studio photography",
+        snapshot: {
+          content: "Sign in to continue. Premium studio photography editorial layout with cinematic galleries."
+        }
+      }
+    }))).toBe(false);
+
+    expect(hasInspiredesignUsableReferenceEvidence(makeReference({
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Cinematic landing page",
+      capture: {
+        dom: {
+          outerHTML: "<main>Complete the verification challenge to continue. Cinematic landing page with parallax hero.</main>"
+        }
+      }
+    }))).toBe(false);
+
+    for (const content of [
+      "Authentication required before viewing this premium editorial studio layout.",
+      "Access denied for a cinematic portrait landing page reference.",
+      "Enable cookies to view this full-bleed photography website.",
+      "Complete the verification before opening this gallery reference."
+    ]) {
+      expect(hasInspiredesignUsableReferenceEvidence(makeReference({
+        fetchStatus: "captured",
+        captureStatus: "off",
+        title: "Premium studio photography editorial layout",
+        excerpt: content
+      }))).toBe(false);
+    }
+  });
+
+  it("rejects captured interface chrome instead of falling back to clean metadata", () => {
+    expect(hasInspiredesignUsableReferenceEvidence(makeReference({
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Premium studio photography editorial layout",
+      excerpt: "Full-bleed hero treatment with cinematic portrait galleries.",
+      capture: {
+        snapshot: {
+          content: "Your profile. Pin card. Search results for premium studio photography.",
+          refCount: 4,
+          warnings: []
+        },
+        visual: {
+          status: "captured",
+          path: "/tmp/pinterest-shell.png",
+          sha256: "abc123"
+        }
+      }
+    }))).toBe(false);
   });
 
   it("classifies page, component, and asset prototype targets without changing the Canvas request shape", () => {
@@ -2500,6 +2599,27 @@ describe("inspiredesign packet + renderer", () => {
       ]
     });
 
+    const readyNextStepGuidance = {
+      id: "inspiredesign.design_ready",
+      recipeType: "artifact_handoff",
+      workflow: "inspiredesign",
+      severity: "info",
+      readiness: "ready",
+      reasonCode: "design_ready",
+      primaryAction: {
+        id: "continue_to_canvas",
+        label: "Continue in Canvas",
+        summary: "Continue in Canvas with the generated request."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+      doNotProceedIf: []
+    } satisfies NextStepGuidance;
+
     const modes = ["compact", "json", "md", "context", "path"] as const;
     for (const mode of modes) {
       const rendered = renderInspiredesign({
@@ -2520,6 +2640,7 @@ describe("inspiredesign packet + renderer", () => {
         screenshotIndex: packet.screenshotIndex,
         rankedReferences: packet.rankedReferences,
         metaPromptMarkdown: packet.metaPromptMarkdown,
+        nextStepGuidance: readyNextStepGuidance,
         meta: {
           requestId: "req-1",
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
@@ -2589,7 +2710,11 @@ describe("inspiredesign packet + renderer", () => {
           urls,
           prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
           canvasPlanRequest: packet.canvasPlanRequest,
-          designAgentHandoff: packet.followthrough,
+          designAgentHandoff: expect.objectContaining({
+            commandExamples: expect.objectContaining({
+              continueInCanvas: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
+            })
+          }),
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
@@ -2614,7 +2739,11 @@ describe("inspiredesign packet + renderer", () => {
             designContract: packet.designContract,
             evidence: packet.evidence,
             canvasPlanRequest: packet.canvasPlanRequest,
-            designAgentHandoff: packet.followthrough,
+            designAgentHandoff: expect.objectContaining({
+              commandExamples: expect.objectContaining({
+                continueInCanvas: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
+              })
+            }),
             metaPromptMarkdown: packet.metaPromptMarkdown
           }),
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
@@ -2876,6 +3005,147 @@ describe("inspiredesign packet + renderer", () => {
       mode: "json",
       prototypeGuidanceMarkdown: null
     });
+  });
+
+  it("blocks legacy Canvas command examples when typed guidance is not ready", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a photography studio landing page",
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://example.com/blocked"],
+      references: []
+    });
+    const nextStepGuidance = {
+      id: "inspiredesign.harvest.zero_references",
+      recipeType: "evidence_recovery",
+      workflow: "inspiredesign",
+      severity: "warning",
+      readiness: "needs_recovery",
+      reasonCode: "zero_references",
+      primaryAction: {
+        id: "recover_reference_evidence",
+        label: "Recover reference evidence",
+        summary: "Collect usable reference evidence before Canvas."
+      },
+      commands: [{
+        id: "rerun",
+        label: "Rerun harvest",
+        command: "npx opendevbrowser inspiredesign harvest --brief \"Create a photography studio landing page\""
+      }],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: true, reason: "Do not continue yet." },
+      doNotProceedIf: ["reference_count is 0"]
+    } satisfies NextStepGuidance;
+
+    const rendered = renderInspiredesign({
+      mode: "json",
+      brief: "Create a photography studio landing page",
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: ["https://example.com/blocked"],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      nextStepGuidance,
+      meta: {}
+    });
+    const response = rendered.response as Record<string, unknown>;
+    const responseHandoff = response.designAgentHandoff as { commandExamples: { continueInCanvas: string } };
+    const handoffFile = rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff)?.content as { commandExamples: { continueInCanvas: string } } | undefined;
+
+    expect(responseHandoff.commandExamples.continueInCanvas).not.toContain("canvas.plan.set");
+    expect(responseHandoff.commandExamples.continueInCanvas).toContain("nextStepGuidance.readiness");
+    expect(handoffFile?.commandExamples.continueInCanvas).toBe(responseHandoff.commandExamples.continueInCanvas);
+    expect(response.suggestedNextAction).toBe("Collect usable reference evidence before Canvas.");
+
+    const renderedWithoutGuidance = renderInspiredesign({
+      mode: "json",
+      brief: "Create a photography studio landing page",
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: ["https://example.com/blocked"],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      meta: {}
+    });
+    const responseWithoutGuidance = renderedWithoutGuidance.response as Record<string, unknown>;
+    const handoffWithoutGuidance = responseWithoutGuidance.designAgentHandoff as { commandExamples: { continueInCanvas: string } };
+
+    expect(handoffWithoutGuidance.commandExamples.continueInCanvas).toBe(
+      "Unavailable until nextStepGuidance.readiness is ready."
+    );
+  });
+
+  it.each([
+    { readiness: "blocked", reasonCode: "provider_unavailable" },
+    { readiness: "needs_recovery", reasonCode: "zero_ranked_references" },
+    { readiness: "diagnostic_only", reasonCode: "diagnostic_only" }
+  ] as const)("blocks Canvas continuation for $readiness handoff guidance", ({ readiness, reasonCode }) => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a photography studio landing page",
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://example.com/blocked"],
+      references: []
+    });
+    const nextStepGuidance = {
+      id: `inspiredesign.harvest.${reasonCode}`,
+      recipeType: "evidence_recovery",
+      workflow: "inspiredesign",
+      severity: readiness === "blocked" ? "blocked" : "warning",
+      readiness,
+      reasonCode,
+      primaryAction: {
+        id: "recover_reference_evidence",
+        label: "Recover reference evidence",
+        summary: "Collect usable reference evidence before Canvas."
+      },
+      commands: [{
+        id: "rerun",
+        label: "Rerun harvest",
+        command: "npx opendevbrowser inspiredesign harvest --brief \"Create a photography studio landing page\" --query \"cinematic studio references\""
+      }],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: true, reason: "Do not continue yet." },
+      doNotProceedIf: ["reference_count is 0"]
+    } satisfies NextStepGuidance;
+
+    const rendered = renderInspiredesign({
+      mode: "json",
+      brief: "Create a photography studio landing page",
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: ["https://example.com/blocked"],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      nextStepGuidance,
+      meta: {}
+    });
+
+    const response = rendered.response as Record<string, unknown>;
+    const responseHandoff = response.designAgentHandoff as { commandExamples: { continueInCanvas: string } };
+    expect(responseHandoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
   });
 
   it("handles sparse capture evidence, empty task summaries, and truncated excerpts", () => {

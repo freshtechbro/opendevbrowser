@@ -1,4 +1,7 @@
 import { INSPIREDESIGN_HANDOFF_GUIDANCE } from "../inspiredesign/handoff";
+import { renderWorkflowCompatibility, renderWorkflowGuidance } from "../guidance/renderers";
+import { routeNextStepGuidance } from "../guidance/router";
+import type { NextStepGuidance } from "../guidance/types";
 import { isProviderReasonCode, normalizeProviderReasonCode } from "./errors";
 import type { JsonValue, ProviderFailureEntry, ProviderReasonCode } from "./types";
 
@@ -11,6 +14,7 @@ export type WorkflowSuccessHandoff = {
   followthroughSummary: string;
   suggestedNextAction: string;
   suggestedSteps: WorkflowSuccessStep[];
+  nextStepGuidance?: Record<string, JsonValue>;
 };
 
 export const PRODUCT_VIDEO_BRIEF_HELPER_PATH = "./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh";
@@ -27,8 +31,8 @@ export const createSuccessHandoff = (
   suggestedSteps
 });
 
-const cliExample = (command: string, args = ""): string => (
-  `npx opendevbrowser ${command}${args ? ` ${args}` : ""}`
+const cliExample = (command: string, args: string): string => (
+  `npx opendevbrowser ${command} ${args}`
 );
 
 const quoteCliValue = (value: string): string => JSON.stringify(value);
@@ -266,6 +270,7 @@ type InspiredesignSuccessHandoffInput = {
     continueInCanvas: string;
   };
   deepCaptureRecommendation: string;
+  nextStepGuidance?: NextStepGuidance;
 };
 
 const buildMacroResolveArgs = (
@@ -276,7 +281,6 @@ const buildMacroResolveArgs = (
     useCookies?: boolean;
     challengeAutomationMode?: "browser" | "browser_with_helper";
     cookiePolicyOverride?: "off" | "auto" | "required";
-    includeOutputFormat?: boolean;
   }
 ): string => {
   const defaultProvider = input.defaultProvider ? ` --default-provider ${input.defaultProvider}` : "";
@@ -289,7 +293,7 @@ const buildMacroResolveArgs = (
   const cookiePolicy = options?.cookiePolicyOverride
     ? ` --cookie-policy ${options.cookiePolicyOverride}`
     : "";
-  const outputFormat = options?.includeOutputFormat === false ? "" : " --output-format json";
+  const outputFormat = " --output-format json";
   return `--expression ${quoteCliValue(input.expression)}${defaultProvider}${execute}${browserMode}${useCookies}${cookiePolicy}${challenge}${outputFormat}`;
 };
 
@@ -319,7 +323,7 @@ const buildResearchGatedSuccessHandoff = (
   const cookieNote = signal.useCookies
     ? " The command includes --use-cookies because cookie diagnostics show available cookies."
     : " Add --use-cookies only when legitimate provider cookies are available.";
-  return createSuccessHandoff(
+  const handoff = createSuccessHandoff(
     `Review ranked records, artifact metadata, and gated-provider diagnostics for ${providers} before publishing claims.`,
     `Open the returned artifact path, inspect records.json, context.json, meta.json, and report.md, then rerun ${recoveryCommand} only with a user-authorized signed-in relay session.${cookieNote}`,
     [
@@ -331,6 +335,21 @@ const buildResearchGatedSuccessHandoff = (
       { reason: "Keep SERPs discovery-only and publish only claims supported by destination records that passed review." }
     ]
   );
+  const guidance = routeNextStepGuidance({
+    workflow: "research",
+    reasonCode: "gated_provider",
+    requestedProviders: signal.providers,
+    browserMode: "extension",
+    useCookies: signal.useCookies,
+    details: {
+      topic: input.topic,
+      reasonCodes: signal.reasonCodes
+    }
+  });
+  return {
+    ...handoff,
+    nextStepGuidance: renderWorkflowGuidance(guidance)
+  };
 };
 
 const buildResearchDefaultSuccessHandoff = (input: ResearchHandoffInput): WorkflowSuccessHandoff => {
@@ -429,10 +448,21 @@ export const buildMacroResolveSuccessHandoff = (input: MacroResolveHandoffInput)
 
 export const buildInspiredesignSuccessHandoff = (
   input: InspiredesignSuccessHandoffInput
-): WorkflowSuccessHandoff => createSuccessHandoff(
-  input.summary,
-  input.nextStep,
-  [
+): WorkflowSuccessHandoff => {
+  if (input.nextStepGuidance && input.nextStepGuidance.readiness !== "ready") {
+    const summary = input.summary.startsWith("Primary constraint:")
+      ? `${input.summary} ${input.nextStepGuidance.primaryAction.summary}`
+      : undefined;
+    const compatibility = renderWorkflowCompatibility(input.nextStepGuidance, summary);
+    return {
+      ...compatibility,
+      nextStepGuidance: renderWorkflowGuidance(input.nextStepGuidance)
+    };
+  }
+  const handoff = createSuccessHandoff(
+    input.summary,
+    input.nextStep,
+    [
     { reason: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
     {
       reason: "Load the baseline workflow runbook before implementation.",
@@ -452,5 +482,9 @@ export const buildInspiredesignSuccessHandoff = (
       command: input.commandExamples.continueInCanvas
     },
     { reason: input.deepCaptureRecommendation }
-  ]
-);
+    ]
+  );
+  return input.nextStepGuidance
+    ? { ...handoff, nextStepGuidance: renderWorkflowGuidance(input.nextStepGuidance) }
+    : handoff;
+};

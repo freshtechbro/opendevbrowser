@@ -1,6 +1,19 @@
+import type { JsonValue } from "../providers/types";
+import type {
+  GuidanceFieldExample,
+  GuidanceParamsExample,
+  GuidanceValidationCheck
+} from "../guidance/types";
+import { buildCanvasRepairEnvelope } from "./repair-examples";
+
 export type CanvasNextStepGuidance = {
   recommendedNextCommands: string[];
   reason: string;
+  nextStepGuidance?: Record<string, JsonValue>;
+  paramsExamples?: GuidanceParamsExample[];
+  fieldExamples?: GuidanceFieldExample[];
+  validationChecks?: GuidanceValidationCheck[];
+  doNotProceedIf?: string[];
 };
 
 export type CanvasGuidanceCommand =
@@ -24,15 +37,27 @@ type CanvasBlockerGuidanceCode =
   | "unsupported_target"
   | "lease_reclaim_required";
 
-export const PREPLAN_CANVAS_GUIDANCE: CanvasNextStepGuidance = {
+const withRepairEnvelope = (
+  guidance: Pick<CanvasNextStepGuidance, "recommendedNextCommands" | "reason">,
+  envelope: ReturnType<typeof buildCanvasRepairEnvelope>
+): CanvasNextStepGuidance => ({
+  ...guidance,
+  nextStepGuidance: envelope.nextStepGuidance,
+  paramsExamples: envelope.paramsExamples,
+  fieldExamples: envelope.fieldExamples,
+  validationChecks: envelope.validationChecks,
+  doNotProceedIf: envelope.doNotProceedIf
+});
+
+export const PREPLAN_CANVAS_GUIDANCE: CanvasNextStepGuidance = withRepairEnvelope({
   recommendedNextCommands: ["canvas.plan.set"],
   reason: "Handshake is complete. Submit a complete generationPlan before mutation."
-};
+}, buildCanvasRepairEnvelope({ reasonCode: "plan_required" }));
 
-export const INVALID_PLAN_CANVAS_GUIDANCE: CanvasNextStepGuidance = {
+export const INVALID_PLAN_CANVAS_GUIDANCE: CanvasNextStepGuidance = withRepairEnvelope({
   recommendedNextCommands: ["canvas.plan.set"],
   reason: "generationPlan is invalid. Submit a supported plan before mutation."
-};
+}, buildCanvasRepairEnvelope({ reasonCode: "generation_plan_invalid" }));
 
 export const PLAN_ACCEPTED_CANVAS_GUIDANCE: CanvasNextStepGuidance = {
   recommendedNextCommands: ["canvas.document.patch", "canvas.preview.render", "canvas.feedback.poll", "canvas.document.save"],
@@ -84,7 +109,12 @@ const CANVAS_REQUIRED_COMMANDS_BY_BLOCKER: Record<CanvasBlockerGuidanceCode, str
 
 const cloneCanvasGuidance = (guidance: CanvasNextStepGuidance): CanvasNextStepGuidance => ({
   recommendedNextCommands: [...guidance.recommendedNextCommands],
-  reason: guidance.reason
+  reason: guidance.reason,
+  ...(guidance.nextStepGuidance ? { nextStepGuidance: structuredClone(guidance.nextStepGuidance) } : {}),
+  ...(guidance.paramsExamples ? { paramsExamples: structuredClone(guidance.paramsExamples) } : {}),
+  ...(guidance.fieldExamples ? { fieldExamples: structuredClone(guidance.fieldExamples) } : {}),
+  ...(guidance.validationChecks ? { validationChecks: structuredClone(guidance.validationChecks) } : {}),
+  ...(guidance.doNotProceedIf ? { doNotProceedIf: [...guidance.doNotProceedIf] } : {})
 });
 
 export const buildCanvasCommandGuidance = (input: {

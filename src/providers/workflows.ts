@@ -30,7 +30,20 @@ import {
   normalizeInspiredesignCaptureEvidence,
   type InspiredesignReferenceEvidence
 } from "../inspiredesign/contract";
-import { hasInspiredesignUsableReferenceEvidence } from "../inspiredesign/reference-pattern-board";
+import {
+  hasInspiredesignUsableReferenceEvidence,
+  summarizeInspiredesignReferenceQuality,
+  type InspiredesignReferencePatternBoard
+} from "../inspiredesign/reference-pattern-board";
+import {
+  createInspiredesignGuidanceContext,
+  renderWorkflowCompatibility,
+  routeNextStepGuidance,
+  type InspiredesignGuidanceSource,
+  type NextStepGuidance,
+  type SiteRecipe
+} from "../guidance";
+import { resolveSiteRecipeForProvider } from "../guidance/recipes/site-registry";
 import {
   mergeInspiredesignReferenceUrls,
   normalizeInspiredesignDiscoveryRecords,
@@ -125,6 +138,7 @@ import {
   type WorkflowTraceEntry
 } from "./workflow-contracts";
 import { resolveInspiredesignCaptureMode } from "../inspiredesign/capture-mode";
+import { runBrowserNativeDiscovery, type BrowserNativeDiscoveryResult } from "./browser-native-discovery";
 import type {
   BrowserFallbackMode,
   JsonValue,
@@ -615,9 +629,15 @@ const readPrimaryConstraintGuidance = (
   constraint: Record<string, unknown>
 ): ProviderNextStepGuidance | undefined => {
   const guidance = constraint.guidance;
-  return guidance && typeof guidance === "object" && !Array.isArray(guidance)
-    ? guidance as ProviderNextStepGuidance
-    : undefined;
+  if (!guidance || typeof guidance !== "object" || Array.isArray(guidance)) return undefined;
+  const record = guidance as Record<string, unknown>;
+  if (typeof record.reason !== "string") return undefined;
+  if (!Array.isArray(record.recommendedNextCommands)) return undefined;
+  if (!record.recommendedNextCommands.every((command) => typeof command === "string")) return undefined;
+  return {
+    reason: record.reason,
+    recommendedNextCommands: record.recommendedNextCommands
+  };
 };
 
 const withPrimaryConstraintSummaryOverride = (
@@ -1814,6 +1834,8 @@ type InspiredesignDiscoveryDiagnostics = {
   rejected: InspiredesignDiscoveryResult["rejected"];
   failures: ProviderFailureEntry[];
   failure?: string;
+  siteRecipeId?: string;
+  browserNativeDiagnostics?: Record<string, JsonValue>;
 };
 
 const emptyInspiredesignDiscoveryDiagnostics = (
@@ -1875,6 +1897,27 @@ const failureFromInspiredesignFetchError = (
   }];
 };
 
+const normalizeSiteRecipeFetchFailures = (
+  siteRecipe: SiteRecipe,
+  failures: ProviderFailureEntry[]
+): ProviderFailureEntry[] => {
+  const source = toProviderSource(siteRecipe.id) ?? "web";
+  return failures.map((failure) => ({
+    provider: siteRecipe.id,
+    source,
+    error: {
+      ...failure.error,
+      provider: siteRecipe.id,
+      source,
+      details: {
+        ...(failure.error.details ?? {}),
+        upstreamProvider: failure.provider,
+        upstreamSource: failure.source
+      }
+    }
+  }));
+};
+
 const discoverInspiredesignReferences = async (
   runtime: ReferenceRetrievalPort,
   workflowInput: InspiredesignResolvedInput,
@@ -1883,6 +1926,104 @@ const discoverInspiredesignReferences = async (
 ): Promise<InspiredesignDiscoveryDiagnostics> => {
   if (!workflowInput.query) {
     return emptyInspiredesignDiscoveryDiagnostics(workflowInput, typeof runtime.search === "function");
+  }
+  const query = workflowInput.query;
+  const siteRecipe = workflowInput.providers
+    .map((providerId) => resolveSiteRecipeForProvider(providerId))
+    .find((recipe) => recipe !== undefined);
+  const siteRecipeProviderIds = new Set(
+    workflowInput.providers.filter((providerId) => resolveSiteRecipeForProvider(providerId) !== undefined)
+  );
+  const standardProviderIds = workflowInput.providers.filter((providerId) => !siteRecipeProviderIds.has(providerId));
+  if (siteRecipe) {
+    const runSiteRecipeDiscovery = async (): Promise<BrowserNativeDiscoveryResult> => runBrowserNativeDiscovery({
+      recipe: siteRecipe,
+      query,
+      maxReferences: workflowInput.referenceLimit ?? workflowInput.maxReferences,
+      ...(workflowInput.browserMode ? { browserMode: workflowInput.browserMode } : {}),
+      ...(typeof workflowInput.useCookies === "boolean" ? { useCookies: workflowInput.useCookies } : {}),
+      ...(workflowInput.cookiePolicyOverride ? { cookiePolicy: workflowInput.cookiePolicyOverride } : {}),
+      fetchSearchPage: async (url) => {
+        const result = normalizeInspiredesignFetchResult(await runtime.fetch(
+          { url },
+          buildInspiredesignFetchOptions(workflowInput, envelope, timeoutMs)
+        ));
+        const failures = result.failures.length > 0 ? result.failures : failureFromInspiredesignFetchError(result);
+        return {
+          records: result.records,
+          failures: normalizeSiteRecipeFetchFailures(siteRecipe, failures),
+          ...(result.error?.message ? { errorMessage: result.error.message } : {})
+        };
+      }
+    });
+    if (standardProviderIds.length > 0 && typeof runtime.search === "function") {
+      try {
+        const searchResult = await runtime.search(
+          {
+            query,
+            limit: workflowInput.maxReferences
+          },
+          {
+            ...buildInspiredesignFetchOptions(workflowInput, envelope, timeoutMs),
+            providerIds: standardProviderIds
+          }
+        );
+        const searchFailures = searchResult.failures.length > 0
+          ? searchResult.failures
+          : failureFromInspiredesignDiscoveryError({ ...workflowInput, providers: standardProviderIds }, searchResult.error);
+        const discovery = normalizeInspiredesignDiscoveryRecords(searchResult.records);
+        const siteResult = await runSiteRecipeDiscovery();
+        const siteDiscovery = normalizeInspiredesignDiscoveryRecords(siteResult.records);
+        const combinedDiscovery = normalizeInspiredesignDiscoveryRecords([...siteResult.records, ...searchResult.records]);
+        const failures = [...searchFailures, ...siteResult.failures];
+        return {
+          requested: true,
+          searchAvailable: true,
+          query,
+          providers: workflowInput.providers,
+          acceptedUrls: combinedDiscovery.accepted.map((candidate) => candidate.url),
+          rejected: combinedDiscovery.rejected,
+          failures,
+          ...(failures[0]?.error.message ? { failure: failures[0].error.message } : {}),
+          siteRecipeId: siteRecipe.id,
+          browserNativeDiagnostics: {
+            ...siteResult.diagnostics,
+            standardAcceptedCount: discovery.accepted.length,
+            standardRejectedCount: discovery.rejected.length,
+            siteAcceptedCount: siteDiscovery.accepted.length
+          }
+        };
+      } catch (error) {
+        const siteResult = await runSiteRecipeDiscovery();
+        const discovery = normalizeInspiredesignDiscoveryRecords(siteResult.records);
+        return {
+          requested: true,
+          searchAvailable: true,
+          query,
+          providers: workflowInput.providers,
+          acceptedUrls: discovery.accepted.map((candidate) => candidate.url),
+          rejected: discovery.rejected,
+          failures: siteResult.failures,
+          failure: error instanceof Error ? error.message : "Reference discovery failed.",
+          siteRecipeId: siteRecipe.id,
+          browserNativeDiagnostics: siteResult.diagnostics
+        };
+      }
+    }
+    const siteResult = await runSiteRecipeDiscovery();
+    const discovery = normalizeInspiredesignDiscoveryRecords(siteResult.records);
+    return {
+      requested: true,
+      searchAvailable: true,
+      query,
+      providers: workflowInput.providers,
+      acceptedUrls: discovery.accepted.map((candidate) => candidate.url),
+      rejected: discovery.rejected,
+      failures: siteResult.failures,
+      ...(siteResult.failures[0]?.error.message ? { failure: siteResult.failures[0].error.message } : {}),
+      siteRecipeId: siteRecipe.id,
+      browserNativeDiagnostics: siteResult.diagnostics
+    };
   }
   if (typeof runtime.search !== "function") {
     return emptyInspiredesignDiscoveryDiagnostics(
@@ -2591,6 +2732,70 @@ const selectInspiredesignPrimaryConstraintFailures = (
   return failures.slice(discovery.failures.length);
 };
 
+const readMetaPrimaryConstraint = (
+  meta: Record<string, unknown>
+): InspiredesignGuidanceSource["primaryConstraint"] => {
+  const value = meta.primaryConstraint;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const primaryConstraint = {
+    ...(typeof record.reasonCode === "string" ? { reasonCode: record.reasonCode } : {}),
+    ...(typeof record.summary === "string" ? { summary: record.summary } : {})
+  };
+  return Object.keys(primaryConstraint).length > 0 ? primaryConstraint : undefined;
+};
+
+const isInspiredesignReferenceEvidenceRequired = (workflowInput: InspiredesignResolvedInput): boolean => (
+  workflowInput.harvest === true
+  || workflowInput.urls.length > 0
+  || workflowInput.providers.length > 0
+  || typeof workflowInput.query === "string"
+  || workflowInput.visualEvidence === "required"
+);
+
+const buildInspiredesignGuidanceSource = (
+  workflowInput: InspiredesignResolvedInput,
+  discovery: InspiredesignDiscoveryDiagnostics,
+  meta: Record<string, unknown>,
+  referencePatternBoard: InspiredesignReferencePatternBoard
+): InspiredesignGuidanceSource => {
+  const quality = summarizeInspiredesignReferenceQuality(referencePatternBoard);
+  const primaryConstraint = readMetaPrimaryConstraint(meta);
+  return {
+    brief: workflowInput.brief,
+    ...(workflowInput.query ? { query: workflowInput.query } : {}),
+    urls: workflowInput.urls,
+    requestedProviders: workflowInput.providers,
+    ...(workflowInput.browserMode ? { browserMode: workflowInput.browserMode } : {}),
+    ...(workflowInput.cookiePolicyOverride ? { cookiePolicy: workflowInput.cookiePolicyOverride } : {}),
+    ...(typeof workflowInput.useCookies === "boolean" ? { useCookies: workflowInput.useCookies } : {}),
+    discovery: {
+      requested: discovery.requested,
+      acceptedUrls: discovery.acceptedUrls,
+      failures: discovery.failures.length,
+      ...(discovery.failure ? { failure: discovery.failure } : {})
+    },
+    metrics: {
+      referenceCount: referencePatternBoard.references.length + referencePatternBoard.rejectedReferences.length,
+      referenceEvidenceRequired: isInspiredesignReferenceEvidenceRequired(workflowInput),
+      failedCaptureCount: quality.failedCaptureCount,
+      visualEvidenceRequired: workflowInput.visualEvidence === "required"
+    },
+    quality: {
+      rankedReferenceCount: quality.rankedReferenceCount,
+      rejectedReferenceCount: quality.rejectedReferenceCount,
+      missingScreenshotCount: quality.missingScreenshotCount,
+      diagnosticOnlyReasons: quality.diagnosticOnlyReasons,
+      ...(typeof quality.topReferenceScore === "number" ? { topReferenceScore: quality.topReferenceScore } : {}),
+      ...(typeof quality.topReferenceConfidence === "number" ? { topReferenceConfidence: quality.topReferenceConfidence } : {}),
+      ...(typeof quality.topReferenceIntentMatched === "boolean"
+        ? { topReferenceIntentMatched: quality.topReferenceIntentMatched }
+        : {})
+    },
+    ...(primaryConstraint ? { primaryConstraint } : {})
+  };
+};
+
 const buildInspiredesignMeta = (
   runtime: ReferenceRetrievalPort,
   workflowInput: InspiredesignResolvedInput,
@@ -2707,6 +2912,23 @@ const summarizeInspiredesignDiscoveryConstraint = (
     summary,
     guidance: buildInspiredesignDiscoveryGuidance(discovery)
   };
+};
+
+const buildInspiredesignGuidanceFollowthroughSummary = (
+  followthrough: InspiredesignFollowthrough,
+  meta: Record<string, unknown>,
+  nextStepGuidance: NextStepGuidance
+): string => {
+  const primaryConstraintSummary = typeof meta.primaryConstraintSummary === "string"
+    ? meta.primaryConstraintSummary.trim()
+    : "";
+  const constrainedSummary = primaryConstraintSummary
+    ? `Primary constraint: ${primaryConstraintSummary} ${followthrough.summary}`
+    : followthrough.summary;
+  const fallbackSummary = constrainedSummary.startsWith("Primary constraint:")
+    ? `${constrainedSummary} ${nextStepGuidance.primaryAction.summary}`
+    : undefined;
+  return renderWorkflowCompatibility(nextStepGuidance, fallbackSummary).followthroughSummary;
 };
 
 const inferBrandFromContent = (content: string | undefined, productUrl?: string): string | undefined => {
@@ -4057,6 +4279,25 @@ export const runInspiredesignWorkflow = async (
     packet.followthrough,
     discovery
   );
+  const nextStepGuidance = routeNextStepGuidance(createInspiredesignGuidanceContext(
+    buildInspiredesignGuidanceSource(
+      workflowInput,
+      discovery,
+      meta,
+      packet.generationPlan.referencePatternBoard
+    )
+  ));
+  const metaWithGuidance = {
+    ...meta,
+    followthroughSummary: nextStepGuidance.readiness === "ready"
+      ? meta.followthroughSummary
+      : buildInspiredesignGuidanceFollowthroughSummary(
+        packet.followthrough,
+        meta,
+        nextStepGuidance
+      ),
+    nextStepGuidance
+  };
   const rendered = renderInspiredesign({
     mode: workflowInput.mode,
     brief: workflowInput.brief,
@@ -4076,7 +4317,8 @@ export const runInspiredesignWorkflow = async (
     rankedReferences: packet.rankedReferences,
     referencePatternBoard: packet.generationPlan.referencePatternBoard,
     metaPromptMarkdown: packet.metaPromptMarkdown,
-    meta
+    nextStepGuidance,
+    meta: metaWithGuidance
   });
   const bundle = await createArtifactBundle({
     namespace: "inspiredesign",
@@ -4090,7 +4332,7 @@ export const runInspiredesignWorkflow = async (
       ...rendered.response,
       artifact_path: bundle.basePath,
       meta: {
-        ...meta,
+        ...metaWithGuidance,
         artifact_manifest: bundle.manifest
       }
     };
@@ -4100,7 +4342,7 @@ export const runInspiredesignWorkflow = async (
     ...rendered.response,
     artifact_path: bundle.basePath,
     meta: {
-      ...meta,
+      ...metaWithGuidance,
       artifact_manifest: bundle.manifest
     }
   };

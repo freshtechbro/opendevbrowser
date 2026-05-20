@@ -428,10 +428,15 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
-    expect(response.suggestedNextAction).toContain("canvas.plan.set");
+    expect(response.suggestedNextAction).toContain("canvas-plan.request.json");
+    expect(response.nextStepGuidance).toEqual(expect.objectContaining({
+      readiness: "ready",
+      reasonCode: "design_ready"
+    }));
     expect(response.followthroughSummary).toContain("canvas-plan.request.json");
     expect(response.meta).toEqual(expect.objectContaining({
-      followthroughSummary: expect.stringContaining("OpenDevBrowser Canvas")
+      followthroughSummary: expect.stringContaining("canvas-plan.request.json"),
+      nextStepGuidance: expect.objectContaining({ readiness: "ready" })
     }));
     expect(deps.manager.launch).not.toHaveBeenCalled();
     expect(deps.providerRuntime.fetch).not.toHaveBeenCalled();

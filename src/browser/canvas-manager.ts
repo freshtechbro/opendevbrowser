@@ -125,6 +125,10 @@ import {
   type CanvasGuidanceCommand,
   type CanvasNextStepGuidance
 } from "../canvas/guidance";
+import {
+  buildCanvasCommandValidationEnvelope,
+  buildCanvasRepairEnvelope
+} from "../canvas/repair-examples";
 
 type CanvasCommandParams = Record<string, unknown>;
 
@@ -339,6 +343,13 @@ export class CanvasManager implements CanvasManagerLike {
   }
 
   async execute(command: string, params: CanvasCommandParams = {}): Promise<unknown> {
+    const validationEnvelope = buildCanvasCommandValidationEnvelope(command, params);
+    if (validationEnvelope) {
+      throw attachDetails(new Error(validationEnvelope.message), {
+        code: validationEnvelope.code,
+        details: validationEnvelope
+      });
+    }
     switch (command) {
       case "canvas.session.open":
         return await this.openSession(params);
@@ -545,10 +556,9 @@ export class CanvasManager implements CanvasManagerLike {
   private setPlan(params: CanvasCommandParams): unknown {
     const session = this.requireSession(params);
     this.assertLease(session, params);
-    const plan = requireRecord(params.generationPlan, "generationPlan");
     session.planStatus = "submitted";
     session.preflightState = "plan_submitted";
-    const validation = validateGenerationPlan(plan);
+    const validation = validateGenerationPlan(params.generationPlan);
     if (!validation.ok) {
       session.planStatus = "invalid";
       session.preflightState = "plan_invalid";
@@ -2658,7 +2668,14 @@ export class CanvasManager implements CanvasManagerLike {
       latestRevision: session.store.getRevision(),
       message: "generationPlan must be accepted before mutation."
     };
-    return attachDetails(new Error(blocker.message), { code: blocker.code, blocker, details: { auditId: "CANVAS-01" } });
+    return attachDetails(new Error(blocker.message), {
+      code: blocker.code,
+      blocker,
+      details: {
+        auditId: "CANVAS-01",
+        ...buildCanvasRepairEnvelope({ reasonCode: "plan_required" })
+      }
+    });
   }
 
   private invalidGenerationPlan(
@@ -2680,7 +2697,13 @@ export class CanvasManager implements CanvasManagerLike {
       details: {
         auditId: "CANVAS-03",
         missingFields,
-        issues
+        issues,
+        ...buildCanvasRepairEnvelope({
+          reasonCode: "generation_plan_invalid",
+          missingFields,
+          issues,
+          message: blocker.message
+        })
       }
     });
   }

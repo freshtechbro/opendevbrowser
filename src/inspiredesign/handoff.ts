@@ -59,7 +59,7 @@ export const INSPIREDESIGN_HANDOFF_COMMANDS = {
   loadBestPractices: formatSkillLoadCommand(INSPIREDESIGN_HANDOFF_SKILLS.bestPractices),
   loadDesignAgent: formatSkillLoadCommand(INSPIREDESIGN_HANDOFF_SKILLS.designAgent),
   loadMotionDesign: formatSkillLoadCommand(INSPIREDESIGN_HANDOFF_SKILLS.motionDesign),
-  continueInCanvas: `opendevbrowser canvas --command canvas.plan.set --params-file ./${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest}`
+  continueInCanvas: `opendevbrowser canvas --command canvas.plan.set --params-file ./${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} --output-format json`
 } as const;
 
 export const INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS = [

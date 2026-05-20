@@ -50,4 +50,18 @@ describe("public surface manifest", () => {
     }));
     expect(macroResolve?.notes).toBeUndefined();
   });
+
+  it("documents typed Canvas guidance fields and params-file handoff examples", () => {
+    const canvasCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "canvas");
+
+    expect(canvasCommand).toBeDefined();
+    expect(canvasCommand?.examples).toContain(
+      "npx opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json --output-format json"
+    );
+    expect(canvasCommand?.notes.join(" ")).toContain("nextStepGuidance");
+    expect(canvasCommand?.notes.join(" ")).toContain("paramsExamples");
+    expect(canvasCommand?.notes.join(" ")).toContain("fieldExamples");
+    expect(canvasCommand?.notes.join(" ")).toContain("validationChecks");
+    expect(canvasCommand?.notes.join(" ")).toContain("doNotProceedIf");
+  });
 });

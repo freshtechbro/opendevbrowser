@@ -1,7 +1,8 @@
 import { readFileSync } from "fs";
 import type { ParsedArgs } from "../args";
 import { DaemonClient } from "../daemon-client";
-import { createUsageError } from "../errors";
+import { createUsageError, EXIT_EXECUTION } from "../errors";
+import { buildCanvasCommandValidationEnvelope } from "../../canvas/repair-examples";
 import { writeOutput } from "../output";
 import { parseNumberFlag } from "../utils/parse";
 
@@ -276,6 +277,18 @@ export async function runCanvas(args: ParsedArgs) {
   const client = new DaemonClient({ autoRenew: true });
   try {
     const params = attachRepoRoot(resolveCanvasParams(canvasArgs));
+    const validationEnvelope = buildCanvasCommandValidationEnvelope(canvasArgs.command, params);
+    if (validationEnvelope) {
+      return {
+        success: false,
+        message: validationEnvelope.message,
+        exitCode: EXIT_EXECUTION,
+        data: {
+          command: canvasArgs.command,
+          result: validationEnvelope
+        }
+      };
+    }
     const result = await client.call<unknown>(
       "canvas.execute",
       {

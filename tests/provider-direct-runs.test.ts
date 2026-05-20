@@ -1280,7 +1280,7 @@ describe("provider-direct-runs", () => {
                     guidance: {
                       reason: "Linkedin needs an authenticated session before retrying.",
                       recommendedNextCommands: [
-                        "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+                        "Reuse a user-authorized signed-in browser session, load cookies only from that authorized session, or use the provider sign-in flow."
                       ]
                     }
                   }
@@ -1303,7 +1303,7 @@ describe("provider-direct-runs", () => {
 
     expect(step.data.guidanceReason).toBe("Linkedin needs an authenticated session before retrying.");
     expect(step.data.recommendedNextCommand).toBe(
-      "Reuse an authenticated browser session, import logged-in cookies, or use the provider sign-in flow."
+      "Reuse a user-authorized signed-in browser session, load cookies only from that authorized session, or use the provider sign-in flow."
     );
   });
 

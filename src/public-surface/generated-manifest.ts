@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-19T01:32:34.617Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-20T18:36:56.052Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-05-19T01:32:34.617Z",
+  "generatedAt": "2026-05-20T18:36:56.052Z",
   "cli": {
     "groups": [
       {
@@ -602,12 +602,16 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "examples": [
           "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json",
-          "npx opendevbrowser inspiredesign harvest --brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json"
+          "npx opendevbrowser inspiredesign harvest --brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json",
+          "npx opendevbrowser inspiredesign harvest --brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
           "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
           "Repeat --url for multiple references. There is no --urls alias.",
           "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
+          "Inspect nextStepGuidance.readiness before continuing. Only readiness=ready makes Canvas continuation the primary action.",
+          "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshots, provider unavailability, or diagnostic-only captures.",
+          "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Use extension mode, cookies, and recovery-first guidance when session evidence is not ready.",
           "Harvest JSON is metadata-only: screenshots are artifact PNG files referenced by relative paths, hashes, viewport metadata, and warnings.",
           "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
         ],
@@ -662,18 +666,22 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "canvas",
         "description": "Execute a design-canvas command",
-        "usage": "npx opendevbrowser canvas --command <canvas.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>]",
+        "usage": "npx opendevbrowser canvas --command <canvas.command> [--params <json> | --params-file <path>] [--timeout-ms <ms>] [--output-format json]",
         "flags": [
           "--command",
           "--params",
           "--params-file",
-          "--timeout-ms"
+          "--timeout-ms",
+          "--output-format"
         ],
         "examples": [
-          "npx opendevbrowser canvas --command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json"
+          "npx opendevbrowser canvas --command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json",
+          "npx opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json --output-format json"
         ],
         "notes": [
-          "Use --params-file for strict request envelopes such as canvas.plan.set or governance handoff payloads."
+          "Use --params-file for strict request envelopes such as canvas.plan.set or governance handoff payloads.",
+          "Canvas guidance preserves guidance.recommendedNextCommands and adds nextStepGuidance, paramsExamples, fieldExamples, validationChecks, and doNotProceedIf when a repair envelope exists.",
+          "For generation_plan_invalid or missing session identifiers, follow returned paramsExamples before retrying canvas.plan.set."
         ],
         "groupId": "design_canvas",
         "groupTitle": "Design Canvas",

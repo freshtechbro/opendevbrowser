@@ -32,9 +32,21 @@ type ReferenceInput = {
   } | null;
 };
 
+export type InspiredesignReferenceQualitySummary = {
+  rankedReferenceCount: number;
+  rejectedReferenceCount: number;
+  topReferenceScore?: number;
+  topReferenceConfidence?: number;
+  topReferenceIntentMatched?: boolean;
+  failedCaptureCount: number;
+  missingScreenshotCount: number;
+  diagnosticOnlyReasons: string[];
+};
+
 export type InspiredesignReferencePatternBoard = {
   briefId: string;
   targetSurface: string;
+  qualitySummary: InspiredesignReferenceQualitySummary;
   references: Array<{
     id: string;
     rank: number;
@@ -44,6 +56,7 @@ export type InspiredesignReferencePatternBoard = {
     url: string;
     surfaceType: string;
     capturedVia: string[];
+    intentMatched: boolean;
     selectionReason: string;
     visualStrengths: string[];
     visualRisks: string[];
@@ -103,6 +116,7 @@ const SCORE_CLONE = 8;
 const SCORE_DOM = 8;
 const SCORE_PUBLIC_LANDING = 6;
 const SCORE_SIGNAL_CAP = 12;
+const SCORE_INTENT_MISMATCH_PENALTY = 55;
 const MAX_REFERENCE_SCORE = 100;
 const ADVANCED_MOTION_FIELDS = [
   "Advisory shader-style gradients: specify effect type, uniforms, static fallback, and reduced-motion replacement as design language only.",
@@ -153,6 +167,15 @@ const DIAGNOSTIC_TEXT_MARKERS = [
   "challenge page",
   "access denied",
   "browser capture unavailable",
+  "404",
+  "page not found",
+  "not found",
+  "unavailable page",
+  "accept all cookies",
+  "cookie consent",
+  "cookie preferences",
+  "privacy settings",
+  "consent modal",
   "javascript required",
   "javascript is required",
   "captcha",
@@ -161,6 +184,34 @@ const DIAGNOSTIC_TEXT_MARKERS = [
   "checking if the site connection is secure",
   "complete the verification",
   "blocked reference"
+] as const;
+
+const SEARCH_OR_LISTING_SHELL_MARKERS = [
+  "search results for",
+  "related searches",
+  "sort by",
+  "filter by"
+] as const;
+
+const MARKETPLACE_CHROME_MARKERS = [
+  "add to cart",
+  "marketplace",
+  "envato",
+  "etsy",
+  "template kits"
+] as const;
+
+const HARD_DIAGNOSTIC_PAGE_MARKERS = [
+  "404",
+  "page not found",
+  "this page is unavailable",
+  "accept all cookies",
+  "manage cookies",
+  "cookie consent",
+  "sign in to continue",
+  "log in to continue",
+  "captcha",
+  "verification challenge"
 ] as const;
 
 const INTERFACE_CHROME_TEXT_MARKERS = [
@@ -223,6 +274,49 @@ const isDiagnosticText = (value: string): boolean => {
   return DIAGNOSTIC_TEXT_MARKERS.some((marker) => lower.includes(marker));
 };
 
+const diagnosticPageReasons = (value: string): string[] => {
+  const lower = value.toLowerCase();
+  const reasons: string[] = [];
+  if (["404", "page not found", "this page is unavailable"].some((marker) => lower.includes(marker))) {
+    reasons.push("unavailable_page");
+  }
+  if (["accept all cookies", "manage cookies", "cookie consent", "privacy settings", "enable cookies"].some((marker) => lower.includes(marker))) {
+    reasons.push("cookie_or_consent_modal");
+  }
+  if ([
+    "sign in to continue",
+    "log in to continue",
+    "authentication required",
+    "access denied",
+    "captcha",
+    "verification challenge",
+    "complete the verification"
+  ].some((marker) => lower.includes(marker))) {
+    reasons.push("login_or_challenge_state");
+  }
+  const searchShellCount = SEARCH_OR_LISTING_SHELL_MARKERS.filter((marker) => lower.includes(marker)).length;
+  if (searchShellCount >= 2 || lower.includes("search results for") || lower.includes("related searches")) {
+    reasons.push("search_or_listing_shell");
+  }
+  const marketplaceChromeCount = MARKETPLACE_CHROME_MARKERS.filter((marker) => lower.includes(marker)).length;
+  if (
+    marketplaceChromeCount >= 2
+    || ((lower.includes("envato") || lower.includes("etsy")) && (lower.includes("template kits") || searchShellCount > 0))
+  ) {
+    reasons.push("marketplace_or_template_chrome");
+  }
+  if (isInterfaceChromeText(value)) {
+    reasons.push("interface_chrome_shell");
+  }
+  return [...new Set(reasons)];
+};
+
+const isDiagnosticPageText = (value: string): boolean => {
+  const lower = value.toLowerCase();
+  return HARD_DIAGNOSTIC_PAGE_MARKERS.some((marker) => lower.includes(marker))
+    || diagnosticPageReasons(value).length > 0;
+};
+
 const isInterfaceChromeText = (value: string): boolean => {
   const lower = value.toLowerCase();
   if (
@@ -273,11 +367,20 @@ export const getInspiredesignReferenceSignals = (reference: ReferenceInput): str
 const hasCleanSignal = (value: string | undefined): boolean => {
   if (!value || isCodeOrCssPreview(value)) return false;
   const text = cleanEvidenceText(value);
-  return text.length > 0 && !isCodeOrCssPreview(text) && !isDiagnosticText(text) && !isInterfaceChromeText(text);
+  return text.length > 0
+    && !isCodeOrCssPreview(text)
+    && !isDiagnosticText(text)
+    && !isDiagnosticPageText(text)
+    && !isInterfaceChromeText(text);
 };
 
 const hasUsableCloneCreativeEvidence = (reference: ReferenceInput): boolean => (
   hasCleanSignal(reference.capture?.clone?.componentPreview)
+);
+
+const hasUsableRecoveredCreativeEvidence = (reference: ReferenceInput): boolean => (
+  hasUsableCloneCreativeEvidence(reference)
+  || hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))
 );
 
 const hasUsableCaptureEvidence = (reference: ReferenceInput): boolean => (
@@ -286,9 +389,34 @@ const hasUsableCaptureEvidence = (reference: ReferenceInput): boolean => (
   || hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))
 );
 
+const referenceDiagnosticReasons = (reference: ReferenceInput): string[] => {
+  const text = [
+    reference.title,
+    reference.excerpt,
+    reference.capture?.title,
+    reference.capture?.snapshot?.content,
+    textFromHtml(reference.capture?.clone?.componentPreview),
+    reference.capture?.clone?.cssPreview,
+    textFromHtml(reference.capture?.dom?.outerHTML),
+    reference.capture?.visual?.failure,
+    ...(reference.capture?.visual?.warnings ?? [])
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" ");
+  return diagnosticPageReasons(text);
+};
+
+const hasBlockingDiagnosticReason = (reasons: string[]): boolean => (
+  reasons.some((reason) => reason !== "login_or_challenge_state")
+);
+
 export const hasInspiredesignUsableReferenceEvidence = (reference: ReferenceInput): boolean => {
+  const diagnosticReasons = referenceDiagnosticReasons(reference);
+  if (hasBlockingDiagnosticReason(diagnosticReasons)) return false;
+  if (diagnosticReasons.includes("login_or_challenge_state") && !hasUsableRecoveredCreativeEvidence(reference)) {
+    return false;
+  }
   if (reference.captureStatus === "captured" && hasUsableCaptureEvidence(reference)) return true;
   return reference.fetchStatus === "captured"
+    && diagnosticReasons.length === 0
     && (hasCleanSignal(reference.title) || hasCleanSignal(reference.excerpt));
 };
 
@@ -377,12 +505,12 @@ const appendSourceDetail = (patterns: string[], primarySignal: string): string[]
 const deriveCapturedVia = (reference: ReferenceInput): string[] => {
   const methods: string[] = [];
   if (reference.fetchStatus === "captured") methods.push("fetch");
-  if (reference.capture?.snapshot?.content.trim()) methods.push("snapshot");
+  if (hasCleanSignal(reference.capture?.snapshot?.content)) methods.push("snapshot");
   if (hasUsableCloneCreativeEvidence(reference)) {
     methods.push("clone");
   }
-  if (reference.capture?.dom?.outerHTML.trim()) methods.push("dom");
-  if (reference.capture?.visual?.status === "captured") methods.push("visual");
+  if (hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))) methods.push("dom");
+  if (reference.capture?.visual?.status === "captured" && hasUsableCaptureEvidence(reference)) methods.push("visual");
   return methods;
 };
 
@@ -393,11 +521,11 @@ const scoreReference = (
 ): number => {
   let score = 0;
   if (reference.fetchStatus === "captured") score += SCORE_FETCH_CAPTURED;
-  if (reference.captureStatus === "captured") score += SCORE_CAPTURE_CAPTURED;
-  if (reference.capture?.visual?.status === "captured") score += SCORE_VISUAL_CAPTURED;
-  if (reference.capture?.snapshot?.content.trim()) score += SCORE_SNAPSHOT;
+  if (reference.captureStatus === "captured" && hasUsableCaptureEvidence(reference)) score += SCORE_CAPTURE_CAPTURED;
+  if (reference.capture?.visual?.status === "captured" && hasUsableCaptureEvidence(reference)) score += SCORE_VISUAL_CAPTURED;
+  if (hasCleanSignal(reference.capture?.snapshot?.content)) score += SCORE_SNAPSHOT;
   if (hasUsableCloneCreativeEvidence(reference)) score += SCORE_CLONE;
-  if (reference.capture?.dom?.outerHTML.trim()) score += SCORE_DOM;
+  if (hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))) score += SCORE_DOM;
   if (isPublicLanding) score += SCORE_PUBLIC_LANDING;
   score += Math.min(SCORE_SIGNAL_CAP, signals.length * 2);
   return Math.min(MAX_REFERENCE_SCORE, score);
@@ -495,16 +623,84 @@ const hasEvidenceCue = (text: string, matches: readonly string[]): boolean => (
   matches.some((match) => text.includes(match))
 );
 
+const INTENT_STOP_WORDS = new Set([
+  "and",
+  "cinematic",
+  "dark",
+  "digital",
+  "for",
+  "from",
+  "landing",
+  "light",
+  "microinteractions",
+  "motion",
+  "page",
+  "parallax",
+  "premium",
+  "reveal",
+  "site",
+  "scroll",
+  "theme",
+  "with",
+  "design",
+  "website"
+]);
+
+const tokenizeIntent = (value: string): string[] => (
+  value.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? []
+).filter((token) => !INTENT_STOP_WORDS.has(token));
+
+const formatIntentTokens = (format: InspiredesignBriefFormat): string[] => [
+  ...format.keywords,
+  ...format.businessFocus,
+  ...format.bestFor,
+  ...(format.focusAreas ?? []),
+  format.archetype,
+  format.layoutArchetype,
+  format.surfaceTreatment,
+  format.motionGrammar,
+  format.paletteIntent
+].flatMap(tokenizeIntent);
+
+const intentTokenVariants = (token: string): string[] => {
+  if (token === "photo" || token === "photos" || token === "photography" || token === "photographer" || token === "photographic") {
+    return ["photo", "photos", "photography", "photographer", "photographic"];
+  }
+  return [token];
+};
+
+const countMatchedIntentTokens = (signals: string[], intentTokens: string[]): number => {
+  const evidenceTokens = new Set(signals.flatMap(tokenizeIntent));
+  return intentTokens.filter((token) => intentTokenVariants(token).some((variant) => evidenceTokens.has(variant))).length;
+};
+
+const hasBriefIntentMatch = (
+  signals: string[],
+  format: InspiredesignBriefFormat,
+  briefText: string
+): boolean => {
+  const briefTokens = tokenizeIntent(briefText);
+  const hasBriefIntentTokens = briefTokens.length > 0;
+  const intentTokens = [...new Set(hasBriefIntentTokens ? briefTokens : formatIntentTokens(format))];
+  if (intentTokens.length === 0) return true;
+  const matchCount = countMatchedIntentTokens(signals, intentTokens);
+  if (!hasBriefIntentTokens) return matchCount > 0;
+  return matchCount >= Math.min(2, intentTokens.length);
+};
+
 const deriveReferenceEntry = (
   reference: ReferenceInput,
-  format: InspiredesignBriefFormat
+  format: InspiredesignBriefFormat,
+  briefText: string
 ): Omit<InspiredesignReferencePatternBoard["references"][number], "rank"> => {
   const signals = getInspiredesignReferenceSignals(reference);
   const primarySignal = firstSignal(reference);
   const patterns = appendSourceDetail(derivePatternSummaries(signals, primarySignal), primarySignal);
   const isPublicLanding = signals.some(hasPublicLandingSignal);
   const capturedVia = deriveCapturedVia(reference);
-  const score = scoreReference(reference, signals, isPublicLanding);
+  const intentMatched = hasBriefIntentMatch(signals, format, briefText);
+  const rawScore = scoreReference(reference, signals, isPublicLanding);
+  const score = intentMatched ? rawScore : Math.max(0, rawScore - SCORE_INTENT_MISMATCH_PENALTY);
   return {
     id: reference.id,
     score,
@@ -513,7 +709,10 @@ const deriveReferenceEntry = (
     url: reference.url,
     surfaceType: isPublicLanding ? "public landing page" : format.archetype,
     capturedVia,
-    selectionReason: selectionReasonForScore(score, capturedVia),
+    intentMatched,
+    selectionReason: intentMatched
+      ? selectionReasonForScore(score, capturedVia)
+      : `${selectionReasonForScore(score, capturedVia)} Intent overlap with the brief is weak, so the score was downgraded.`,
     visualStrengths: deriveVisualStrengths(reference, patterns),
     visualRisks: deriveVisualRisks(reference),
     layoutRecipe: patterns.join("; "),
@@ -544,6 +743,10 @@ const sortReferenceEntries = (
   }));
 
 const rejectionReasonForReference = (reference: ReferenceInput): string => {
+  const diagnosticReasons = referenceDiagnosticReasons(reference);
+  if (diagnosticReasons.length > 0) {
+    return `Reference evidence is diagnostic-only: ${diagnosticReasons.join(", ")}.`;
+  }
   if (reference.fetchStatus === "failed" && reference.captureStatus === "failed") {
     return "Fetch and capture did not produce usable creative evidence.";
   }
@@ -568,15 +771,48 @@ const buildRejectedReferences = (
     captureStatus: reference.captureStatus
   }));
 
+const buildQualitySummary = (
+  references: ReferenceInput[],
+  rankedEntries: InspiredesignReferencePatternBoard["references"],
+  rejectedReferences: InspiredesignReferencePatternBoard["rejectedReferences"]
+): InspiredesignReferenceQualitySummary => {
+  const diagnosticOnlyReasons = [...new Set(references.flatMap(referenceDiagnosticReasons))];
+  const rankedIds = new Set(rankedEntries.map((entry) => entry.id));
+  const rankedReferences = references.filter((reference) => rankedIds.has(reference.id));
+  const failedCaptureCount = rankedReferences.filter((reference) => reference.captureStatus === "failed").length;
+  const missingScreenshotCount = rankedReferences.filter((reference) => reference.capture?.visual?.status !== "captured").length;
+  const topReference = rankedEntries[0];
+  return {
+    rankedReferenceCount: rankedEntries.length,
+    rejectedReferenceCount: rejectedReferences.length,
+    failedCaptureCount,
+    missingScreenshotCount,
+    diagnosticOnlyReasons,
+    ...(topReference
+      ? {
+        topReferenceScore: topReference.score,
+        topReferenceConfidence: topReference.confidence,
+        topReferenceIntentMatched: topReference.intentMatched
+      }
+      : {})
+  };
+};
+
+export const summarizeInspiredesignReferenceQuality = (
+  board: InspiredesignReferencePatternBoard
+): InspiredesignReferenceQualitySummary => ({ ...board.qualitySummary });
+
 export const buildInspiredesignReferencePatternBoard = (
   briefId: string,
   format: InspiredesignBriefFormat,
-  references: ReferenceInput[]
+  references: ReferenceInput[],
+  briefText = ""
 ): InspiredesignReferencePatternBoard => {
   const entries = references
     .filter(hasInspiredesignUsableReferenceEvidence)
-    .map((reference) => deriveReferenceEntry(reference, format));
+    .map((reference) => deriveReferenceEntry(reference, format, briefText));
   const rankedEntries = sortReferenceEntries(entries);
+  const rejectedReferences = buildRejectedReferences(references);
   const sharedStrengths = rankedEntries.flatMap((entry) => entry.patternsToBorrow).slice(0, 6);
   const targetSurface = rankedEntries.some((entry) => entry.surfaceType === "public landing page")
     ? "reference-led public landing page"
@@ -584,8 +820,9 @@ export const buildInspiredesignReferencePatternBoard = (
   return {
     briefId,
     targetSurface,
+    qualitySummary: buildQualitySummary(references, rankedEntries, rejectedReferences),
     references: rankedEntries,
-    rejectedReferences: buildRejectedReferences(references),
+    rejectedReferences,
     synthesis: {
       dominantDirection: rankedEntries[0]?.layoutRecipe ?? format.archetype,
       sharedStrengths,

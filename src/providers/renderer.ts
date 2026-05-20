@@ -13,6 +13,7 @@ import {
   INSPIREDESIGN_HANDOFF_FILES
 } from "../inspiredesign/handoff";
 import { buildInspiredesignSuccessHandoff } from "./workflow-handoff";
+import type { NextStepGuidance } from "../guidance/types";
 
 export type RenderMode = "compact" | "json" | "md" | "context" | "path";
 
@@ -178,6 +179,12 @@ const researchFailureMessage = (content: string | undefined): string => (
     limit: RESEARCH_REPORT_LIMITS.failureMessageCharacters,
     target: "meta.json"
   })
+);
+
+const CANVAS_CONTINUATION_BLOCKED_COMMAND = "Unavailable until nextStepGuidance.readiness is ready.";
+
+const canContinueInspiredesignInCanvas = (guidance: NextStepGuidance | undefined): boolean => (
+  guidance?.readiness === "ready"
 );
 
 const limitedCount = (total: number, limit: number): number => Math.min(total, limit);
@@ -720,6 +727,7 @@ export const renderInspiredesign = (args: {
   rankedReferences?: InspiredesignReferencePatternBoard["references"];
   referencePatternBoard?: InspiredesignReferencePatternBoard;
   metaPromptMarkdown?: string;
+  nextStepGuidance?: NextStepGuidance;
   meta: Record<string, unknown>;
 }): {
   response: Record<string, unknown>;
@@ -748,13 +756,33 @@ export const renderInspiredesign = (args: {
     meta: args.meta
   });
   const followthroughSummary = prependPrimaryConstraint(args.designAgentHandoff.summary, args.meta);
+  const commandExamples = {
+    ...args.designAgentHandoff.commandExamples,
+    continueInCanvas: canContinueInspiredesignInCanvas(args.nextStepGuidance)
+      ? args.designAgentHandoff.commandExamples.continueInCanvas
+      : CANVAS_CONTINUATION_BLOCKED_COMMAND
+  };
+  const handoff = buildInspiredesignSuccessHandoff({
+    summary: followthroughSummary,
+    nextStep: args.designAgentHandoff.nextStep,
+    commandExamples,
+    deepCaptureRecommendation: args.designAgentHandoff.deepCaptureRecommendation,
+    ...(args.nextStepGuidance ? { nextStepGuidance: args.nextStepGuidance } : {})
+  });
+  const renderedDesignAgentHandoff = {
+    ...args.designAgentHandoff,
+    ...handoff,
+    nextStep: handoff.suggestedNextAction,
+    commandExamples
+  };
   const contextPayload = {
     brief: args.brief,
     advancedBriefMarkdown: args.advancedBriefMarkdown,
     urls: args.urls,
     designContract: args.designContract,
     canvasPlanRequest: args.canvasPlanRequest,
-    designAgentHandoff: args.designAgentHandoff,
+    designAgentHandoff: renderedDesignAgentHandoff,
+    ...(args.nextStepGuidance ? { nextStepGuidance: args.nextStepGuidance } : {}),
     generationPlan: args.generationPlan,
     implementationPlan: args.implementationPlan,
     designMarkdown: args.designMarkdown,
@@ -767,18 +795,15 @@ export const renderInspiredesign = (args: {
     metaPromptMarkdown,
     meta: args.meta
   };
-  const handoff = buildInspiredesignSuccessHandoff({
-    summary: followthroughSummary,
-    nextStep: args.designAgentHandoff.nextStep,
-    commandExamples: args.designAgentHandoff.commandExamples,
-    deepCaptureRecommendation: args.designAgentHandoff.deepCaptureRecommendation
-  });
   const files: Array<{ path: string; content: string | Record<string, unknown> }> = [
     { path: INSPIREDESIGN_HANDOFF_FILES.designMarkdown, content: args.designMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.advancedBrief, content: args.advancedBriefMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.designContract, content: args.designContract },
     { path: INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest, content: args.canvasPlanRequest },
-    { path: INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff, content: args.designAgentHandoff },
+    {
+      path: INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff,
+      content: renderedDesignAgentHandoff
+    },
     { path: INSPIREDESIGN_HANDOFF_FILES.generationPlan, content: args.generationPlan },
     { path: INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown, content: args.implementationPlanMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.implementationPlan, content: args.implementationPlan },
@@ -816,7 +841,8 @@ export const renderInspiredesign = (args: {
         advancedBriefMarkdown: args.advancedBriefMarkdown,
         urls: args.urls,
         canvasPlanRequest: args.canvasPlanRequest,
-        designAgentHandoff: args.designAgentHandoff,
+        designAgentHandoff: renderedDesignAgentHandoff,
+        ...(args.nextStepGuidance ? { nextStepGuidance: args.nextStepGuidance } : {}),
         designContract: args.designContract,
         generationPlan: args.generationPlan,
         implementationPlan: args.implementationPlan,
