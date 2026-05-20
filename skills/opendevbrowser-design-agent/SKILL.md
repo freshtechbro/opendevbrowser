@@ -81,7 +81,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 ## Core Rules
 
 - Start with a design contract, not ad-hoc implementation.
-- Build a reference pattern board before locking a new direction when external inspiration matters.
+- Build a reference pattern board before locking a new direction when external inspiration matters, and inspect `nextStepGuidance.readiness` before treating a harvest as design-ready.
 - Choose a component family from `artifacts/component-pattern-index.md` before inventing a new screen structure.
 - Start from the closest shipped OpenDevBrowser example in `artifacts/opendevbrowser-ui-example-map.md` when the repo already has a related surface.
 - Route repo-first redesigns through `artifacts/existing-surface-adaptation.md` before changing shells or component anatomy.
@@ -95,7 +95,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 - Keep one visual direction per task. Do not mix unrelated design languages.
 - Prefer real content, realistic states, and explicit user journeys over placeholder copy.
 - Preserve the repo's existing design system when one already exists. Only introduce a new direction when the brief or product gap justifies it.
-- Treat `/canvas` governance as the strongest contract in the repo: read the handshake, respect `generationPlanRequirements`, and do not mutate before the plan is accepted.
+- Treat `/canvas` governance as the strongest contract in the repo: read the handshake, respect `generationPlanRequirements`, inspect typed repair examples, and do not mutate before the plan is accepted.
 - Treat `preflightState="handshake_read"` as the required ready state for the first post-open decision loop unless the handshake is already reporting an invalid-plan repair path.
 - For non-canvas frontend work, still fill the same design-contract fields before coding so decisions stay consistent across code, preview, and docs.
 - Use one owner for overlays, drawers, sheets, and detail panels; prefer item-backed state over boolean sprawl.
@@ -168,7 +168,9 @@ Use when a redesign needs external references or when the brief explicitly asks 
 
 - Start with `artifacts/research-harvest-workflow.md`.
 - Capture `3` to `5` live references with OpenDevBrowser.
-- Record them in `assets/templates/reference-pattern-board.v1.json`.
+- For Pinterest, use the browser-native `social/pinterest` recipe with extension mode and cookies instead of treating Pinterest as a default full provider.
+- Inspect `nextStepGuidance.readiness`, `doNotProceedIf`, and recovery commands before using the bundle.
+- Record ready evidence in `assets/templates/reference-pattern-board.v1.json`.
 - Turn the synthesis into contract deltas before implementation.
 
 ### `screenshot-audit`
@@ -185,13 +187,13 @@ Use when starting from screenshots, mocks, or an existing page.
 
 Use when the task should run through the design canvas.
 
-- Start with `canvas.session.open` or `canvas.capabilities.get`.
-- Read the handshake and inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, and `guidance.recommendedNextCommands` before choosing the next command.
+- Start with `canvas.session.open`; use `canvas.capabilities.get` only after you have a `canvasSessionId`.
+- Read the handshake and inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `guidance.recommendedNextCommands`, `guidance.nextStepGuidance`, params examples, field examples, validation checks, and do-not-proceed blockers before choosing the next command.
 - Treat `preflightState="handshake_read"` as the normal first-step checkpoint before `canvas.plan.set`; if the handshake already reports `plan_invalid`, repair the plan instead of mutating.
 - Fill the full design contract and extract the `generationPlan`.
 - Submit `canvas.plan.set`.
 - If `canvas.plan.set` succeeds with `planStatus="accepted"` or `preflightState="plan_accepted"`, follow the returned `guidance.recommendedNextCommands`, then mutate with `canvas.document.patch`.
-- If `canvas.plan.set` fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, and `generationPlanIssues`, then optionally re-read with `canvas.plan.get` or `canvas.capabilities.get` before resubmitting.
+- If `canvas.plan.set` fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, `guidance.paramsExamples`, `guidance.fieldExamples`, `guidance.validationChecks`, `guidance.doNotProceedIf`, and `generationPlanIssues`, then repair and resubmit the params file. Use `canvas.plan.get` or `canvas.capabilities.get` only when diagnostics are still needed after reading repair examples.
 - After every successful `canvas.document.patch`, `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.document.save`, or `canvas.document.export`, read `guidance.recommendedNextCommands` and `guidance.reason` before choosing the next step.
 - Validate extension-stage history controls against public `canvas.history.undo` and `canvas.history.redo`; design-tab clicks emit the internal `canvas_history_requested` event, but acceptance is still on the public command outcomes.
 - When token work is in scope, validate collection or mode authoring, token value or alias edits, selected-node binding, and token usage inspection in the extension stage.

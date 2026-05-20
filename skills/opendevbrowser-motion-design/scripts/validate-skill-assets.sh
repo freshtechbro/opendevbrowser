@@ -78,6 +78,7 @@ for (const marker of [
   "opendevbrowser-best-practices",
   "opendevbrowser-design-agent",
   "Motion Contract",
+  "nextStepGuidance.readiness",
   "Pattern Selection",
   "Platform And Framework Policy",
   "Device Posture",

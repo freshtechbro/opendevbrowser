@@ -41,7 +41,7 @@ Use this skill when a task asks for animation, motion language, transition syste
 
 ## InspireDesign Harvest Inputs
 
-When an InspireDesign harvest bundle is available, read `meta-prompt.md`, `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, and the referenced PNG files before selecting motion patterns. Treat harvested motion posture as evidence-backed design intent, not permission to add dependencies or copy source-brand choreography. Carry accepted cues into the motion contract with explicit reduced-motion behavior, device posture, frame budget, and temporal proof requirements.
+When an InspireDesign harvest bundle is available, inspect `nextStepGuidance.readiness` and `doNotProceedIf` before selecting motion patterns. Read `meta-prompt.md`, `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, and the referenced PNG files only after the bundle is ready or while following recovery guidance. Treat harvested motion posture as evidence-backed design intent, not permission to add dependencies or copy source-brand choreography. Carry accepted cues into the motion contract with explicit reduced-motion behavior, device posture, frame budget, and temporal proof requirements.
 
 ## Motion Contract
 

@@ -17,6 +17,7 @@
         "dom",
         "visual"
       ],
+      "intentMatched": true,
       "layoutRecipe": "",
       "contentHierarchy": [],
       "componentFamilies": [],

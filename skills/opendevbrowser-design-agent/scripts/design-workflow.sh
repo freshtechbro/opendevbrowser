@@ -67,12 +67,14 @@ cat skills/opendevbrowser-design-agent/assets/templates/reference-pattern-board.
 cat skills/opendevbrowser-design-agent/artifacts/external-pattern-synthesis.md
 cat skills/opendevbrowser-design-agent/artifacts/component-pattern-index.md
 cat skills/opendevbrowser-design-agent/artifacts/existing-surface-adaptation.md
+$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+# Inspect nextStepGuidance.readiness and doNotProceedIf first. Use recovery-first guidance unless readiness is ready.
 $CLI_PREFIX launch --no-extension --start-url https://example.com
 $CLI_PREFIX goto --session-id <session-id> --url <reference-url>
 $CLI_PREFIX snapshot --session-id <session-id>
 $CLI_PREFIX screenshot --session-id <session-id>
 $CLI_PREFIX debug-trace-snapshot --session-id <session-id>
-# Repeat for 3-5 live references, then turn the synthesis into contract deltas before implementation.
+# Repeat for 3-5 live references, then turn ready synthesis into contract deltas before implementation.
 EOF
     ;;
   screenshot-audit)
@@ -101,10 +103,11 @@ cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 ./skills/opendevbrowser-design-agent/scripts/extract-canvas-plan.sh ./tmp/design-contract.json > ./tmp/canvas-plan.json
 $CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
-# Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, and guidance.recommendedNextCommands before continuing.
+# Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, guidance.recommendedNextCommands, guidance.nextStepGuidance, guidance.paramsExamples, guidance.fieldExamples, guidance.validationChecks, and guidance.doNotProceedIf before continuing.
 # Treat preflightState=handshake_read as the normal first-step checkpoint before canvas.plan.set.
 $CLI_PREFIX canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json
 # If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
+# If canvas.plan.set returns generation_plan_invalid, repair ./tmp/canvas-plan.json from guidance.paramsExamples before retrying.
 # Optional diagnostics after generation_plan_invalid:
 # $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
 # or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.

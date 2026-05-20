@@ -146,6 +146,7 @@ Rules:
 ```bash
 npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --mode json --output-format json
 npx opendevbrowser inspiredesign harvest --brief "Design a premium docs workspace" --query "best docs product landing pages" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --mode path --output-format json
+npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 ```
 
 Rules:
@@ -153,8 +154,11 @@ Rules:
 - use repeated `--url` flags instead of packed URL strings
 - provide `--query` or at least one `--url` for `inspiredesign harvest`; use `--query` when provider discovery is part of the task
 - use `inspiredesign harvest` when visual reference discovery, screenshot PNG artifacts, ranked references, metadata-only visual JSON, `meta-prompt.md`, or motion-design follow-through is required
+- treat `social/pinterest` as a browser-native site recipe, not a default full social provider; use extension mode, cookies, and `--cookie-policy required` for logged-in Pinterest search
+- inspect `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, and `doNotProceedIf` before continuing from any harvest
 - visual harvest must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; inspect diagnostics instead of forcing screenshots through blocked references
-- after a successful run or harvest, read `advanced-brief.md` first, inspect `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`
+- if readiness is `needs_recovery`, `blocked`, or `diagnostic_only`, follow the recovery-first command examples and do not continue to Canvas
+- after a ready run or harvest, read `advanced-brief.md` first, inspect `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, open a Canvas session, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`
 - pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 
 ## Agent Sync Targets
@@ -352,6 +356,7 @@ Recommended command order:
    - `mutationPolicy.allowedBeforePlan`
    - `guidance.recommendedNextCommands`
    - `guidance.reason`
+   - `guidance.nextStepGuidance`, `guidance.paramsExamples`, `guidance.fieldExamples`, `guidance.validationChecks`, and `guidance.doNotProceedIf` when a repair envelope is present
    - treat `allowedLibraries.components`, `allowedLibraries.icons`, and `allowedLibraries.styling` as separate policy lanes:
      `components` are reusable UI adapters such as `shadcn`,
      `icons` are approved icon families,
@@ -379,7 +384,8 @@ Recommended command order:
    - `validationTargets.maxInteractionLatencyMs`
 5. Immediately inspect the `canvas.plan.set` response.
    - If `planStatus="accepted"` or `preflightState="plan_accepted"`, follow the returned `guidance.recommendedNextCommands`.
-   - If the command fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, and the handshake `generationPlanIssues`, then optionally re-read with `canvas.plan.get` or `canvas.capabilities.get` before resubmitting.
+   - If the command fails with `generation_plan_invalid`, inspect `details.missingFields`, `details.issues`, `guidance.paramsExamples`, `guidance.fieldExamples`, `guidance.validationChecks`, `guidance.doNotProceedIf`, and the handshake `generationPlanIssues`, then repair the params file before resubmitting.
+   - Use `canvas.plan.get` or `canvas.capabilities.get` only as diagnostics when the repair examples are not enough.
 6. Only after the plan is accepted, call `canvas.document.patch`.
 7. After every successful `canvas.document.patch`, `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.document.save`, or `canvas.document.export`, read `guidance.recommendedNextCommands` and `guidance.reason` before deciding the next command.
 8. Use `canvas.preview.render`, `canvas.tab.open`, `canvas.overlay.mount`, and `canvas.overlay.select` when a browser-backed live view is required.
