@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.33] - 2026-05-21
+
+### Added
+- Added typed guidance recipes and browser-native site recipes so workflows can provide status-aware next steps with concrete examples.
+- Added Pinterest browser-native Inspired Design harvesting support with design-readiness gating and diagnostic recovery guidance.
+
+### Changed
+- Canvas continuation is now blocked until Inspired Design evidence is ready, preventing diagnostic-only harvests from being treated as design-ready.
+- Release-facing package, lockfile, extension manifest, extension package metadata, and evidence docs are aligned for `0.0.33`.
+
+### Fixed
+- Rejected Pinterest interface chrome and off-brief references no longer leak into design-facing Inspired Design artifacts, Canvas plans, or handoff prompts.
+
 ## [0.0.32] - 2026-05-19
 
 ### Removed
@@ -238,7 +251,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.32...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.33...HEAD
+[0.0.33]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.32...v0.0.33
 [0.0.32]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.31...v0.0.32
 [0.0.31]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.30...v0.0.31
 [0.0.30]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.29...v0.0.30
