@@ -112,6 +112,27 @@ describe("screenshot CLI command", () => {
     });
   });
 
+  it("returns omitted screenshot artifact output from daemon calls", async () => {
+    callDaemon.mockResolvedValue({
+      path: "/workspace/.opendevbrowser/screenshot/run-1/capture.png",
+      artifact_path: "/workspace/.opendevbrowser/screenshot/run-1"
+    });
+
+    const result = await runScreenshot(makeArgs([
+      "--session-id",
+      "s1"
+    ]));
+
+    expect(result).toEqual({
+      success: true,
+      message: "Screenshot captured.",
+      data: {
+        path: "/workspace/.opendevbrowser/screenshot/run-1/capture.png",
+        artifact_path: "/workspace/.opendevbrowser/screenshot/run-1"
+      }
+    });
+  });
+
   it("passes target-id through screenshot calls", async () => {
     callDaemon.mockResolvedValue({ path: "/tmp/capture.png" });
 
@@ -130,7 +151,7 @@ describe("screenshot CLI command", () => {
   });
 
   it("passes ref and full-page through screenshot calls", async () => {
-    callDaemon.mockResolvedValue({ base64: "image" });
+    callDaemon.mockResolvedValue({ path: "/tmp/capture.png" });
 
     await runScreenshot(makeArgs([
       "--session-id",

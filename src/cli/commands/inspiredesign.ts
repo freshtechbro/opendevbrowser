@@ -10,6 +10,7 @@ import {
 } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
+import { validateProviderUrlSiteRecipeCompatibility } from "../../guidance/recipes/site-recipe-validation";
 import { resolveInspiredesignCaptureMode } from "../../inspiredesign/capture-mode";
 import type { InspiredesignVisualEvidenceMode } from "../../inspiredesign/visual-evidence";
 import type { WorkflowBrowserMode } from "../../providers/types";
@@ -41,6 +42,22 @@ const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
 const VISUAL_EVIDENCE_VALUES = new Set(["off", "auto", "required"]);
 const HARVEST_DEFAULT_MAX_REFERENCES = 5;
 const MAX_REFERENCES_LIMIT = 10;
+
+const readInspiredesignReadiness = (data: unknown): string | undefined => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
+  const meta = (data as Record<string, unknown>).meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return undefined;
+  const nextStepGuidance = (meta as Record<string, unknown>).nextStepGuidance;
+  if (!nextStepGuidance || typeof nextStepGuidance !== "object" || Array.isArray(nextStepGuidance)) return undefined;
+  const readiness = (nextStepGuidance as Record<string, unknown>).readiness;
+  return typeof readiness === "string" && readiness.length > 0 ? readiness : undefined;
+};
+
+const buildInspiredesignCompletionMessage = (data: unknown): string => {
+  const baseMessage = buildWorkflowCompletionMessage("Inspiredesign workflow", data);
+  const readiness = readInspiredesignReadiness(data);
+  return readiness ? `${baseMessage} readiness=${readiness}` : baseMessage;
+};
 
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
@@ -264,7 +281,16 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
   }
   const isHarvest = subcommand === "harvest";
   if (parsed.providers && parsed.providers.length > 0 && !parsed.query) {
-    throw createUsageError("--provider requires --query");
+    if (!isHarvest) {
+      throw createUsageError("--provider requires --query or compatible harvest --url recovery");
+    }
+    const compatibility = validateProviderUrlSiteRecipeCompatibility({
+      providers: parsed.providers,
+      urls: parsed.urls ?? []
+    });
+    if (!compatibility.ok) {
+      throw createUsageError(compatibility.message);
+    }
   }
   if (isHarvest && !parsed.query && (!parsed.urls || parsed.urls.length === 0)) {
     throw createUsageError("inspiredesign harvest requires --query or --url");
@@ -293,7 +319,7 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
 
   return {
     success: true,
-    message: buildWorkflowCompletionMessage("Inspiredesign workflow", data),
+    message: buildInspiredesignCompletionMessage(data),
     data
   };
 }

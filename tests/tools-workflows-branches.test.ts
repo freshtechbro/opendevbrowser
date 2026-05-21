@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it, vi } from "vitest";
 import { ConfigStore, resolveConfig } from "../src/config";
 import { buildMacroRuntimeInit } from "../src/macros/execute-runtime";
@@ -207,6 +210,31 @@ describe("workflow tool branch coverage", () => {
     });
 
     const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+    const captureFileDir = await mkdtemp(join(tmpdir(), "odb-product-video-path-shot-"));
+    try {
+      const capturePath = join(captureFileDir, "capture.png");
+      await writeFile(capturePath, Buffer.from([4, 5, 6]));
+      const depsWithPathScreenshot = makeDeps({
+        manager: {
+          launch: vi.fn().mockResolvedValue({ sessionId: "session-path" }),
+          screenshot: vi.fn().mockResolvedValue({ path: capturePath }),
+          disconnect: vi.fn().mockResolvedValue(undefined)
+        }
+      });
+      const toolWithPathScreenshot = createProductVideoRunTool(depsWithPathScreenshot as never);
+
+      const pathScreenshotResult = parse(await toolWithPathScreenshot.execute({
+        product_url: "https://example.com/product",
+        include_screenshots: true
+      } as never));
+
+      expect(pathScreenshotResult.ok).toBe(true);
+      expect(depsWithPathScreenshot.manager.screenshot).toHaveBeenCalledTimes(1);
+      expect(depsWithPathScreenshot.manager.disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(captureFileDir, { recursive: true, force: true });
+    }
+
     const toolA = createProductVideoRunTool(depsWithEmptyScreenshot as never);
 
     const emptyScreenshotResult = parse(await toolA.execute({

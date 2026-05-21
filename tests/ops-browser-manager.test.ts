@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mkdtemp } from "fs/promises";
+import { mkdtemp, readFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { OpenDevBrowserConfig } from "../src/config";
@@ -2820,14 +2820,16 @@ describe("OpsBrowserManager", () => {
       json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
     }));
 
-    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const worktree = await mkdtemp(join(tmpdir(), "odb-ops-screenshot-warning-"));
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig(), worktree);
     await manager.connectRelay("ws://127.0.0.1:8787/ops");
 
     const result = await manager.screenshot("ops-9");
-    expect(result).toEqual({
-      base64: Buffer.from("image").toString("base64"),
-      warnings: ["visible_only_fallback"]
-    });
+    expect(result.base64).toBeUndefined();
+    expect(result.artifact_path?.startsWith(join(worktree, ".opendevbrowser", "screenshot"))).toBe(true);
+    expect(result.path).toBe(join(result.artifact_path ?? "", "capture.png"));
+    expect(result.warnings).toEqual(["visible_only_fallback"]);
+    await expect(readFile(result.path ?? "", "utf8")).resolves.toBe("image");
   });
 
   it("routes upload and dialog through ops requests", async () => {
@@ -3015,23 +3017,28 @@ describe("OpsBrowserManager", () => {
       json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
     }));
 
-    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const worktree = await mkdtemp(join(tmpdir(), "odb-ops-screenshot-lanes-"));
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig(), worktree);
     await manager.connectRelay("ws://127.0.0.1:8787/ops");
 
-    await expect(manager.screenshot("ops-lanes", {
+    const refShot = await manager.screenshot("ops-lanes", {
       targetId: "tab-1",
       ref: "r4"
-    })).resolves.toEqual({
-      base64: Buffer.from("lane-image").toString("base64"),
-      warnings: ["captured"]
     });
+    expect(refShot.base64).toBeUndefined();
+    expect(refShot.artifact_path?.startsWith(join(worktree, ".opendevbrowser", "screenshot"))).toBe(true);
+    expect(refShot.path).toBe(join(refShot.artifact_path ?? "", "capture.png"));
+    expect(refShot.warnings).toEqual(["captured"]);
+    await expect(readFile(refShot.path ?? "", "utf8")).resolves.toBe("lane-image");
 
-    await expect(manager.screenshot("ops-lanes", {
+    const fullPageShot = await manager.screenshot("ops-lanes", {
       fullPage: true
-    })).resolves.toEqual({
-      base64: Buffer.from("lane-image").toString("base64"),
-      warnings: ["captured"]
     });
+    expect(fullPageShot.base64).toBeUndefined();
+    expect(fullPageShot.artifact_path?.startsWith(join(worktree, ".opendevbrowser", "screenshot"))).toBe(true);
+    expect(fullPageShot.path).toBe(join(fullPageShot.artifact_path ?? "", "capture.png"));
+    expect(fullPageShot.warnings).toEqual(["captured"]);
+    await expect(readFile(fullPageShot.path ?? "", "utf8")).resolves.toBe("lane-image");
 
     await expect(manager.dialog("ops-lanes")).resolves.toEqual({
       dialog: { open: false, targetId: "tab-1" }

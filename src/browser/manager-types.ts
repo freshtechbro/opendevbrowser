@@ -76,6 +76,7 @@ export type BrowserScreenshotOptions = {
 
 export type BrowserScreenshotResult = {
   path?: string;
+  artifact_path?: string;
   base64?: string;
   warnings?: string[];
 };
@@ -92,6 +93,7 @@ export type BrowserScreencastSession = {
   sessionId: string;
   targetId: string;
   outputDir: string;
+  artifact_path?: string;
   startedAt: string;
   intervalMs: number;
   maxFrames: number;
@@ -110,6 +112,7 @@ export type BrowserScreencastResult = {
   sessionId: string;
   targetId: string;
   outputDir: string;
+  artifact_path?: string;
   startedAt: string;
   endedAt: string;
   endedReason: BrowserScreencastEndedReason;

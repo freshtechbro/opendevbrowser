@@ -81,6 +81,36 @@ describe("screencast CLI commands", () => {
     });
   });
 
+  it("returns omitted screencast artifact output from daemon calls", async () => {
+    callDaemon.mockResolvedValue({
+      screencastId: "cast-omitted",
+      sessionId: "s1",
+      outputDir: "/workspace/.opendevbrowser/screencast/run-1",
+      artifact_path: "/workspace/.opendevbrowser/screencast/run-1"
+    });
+
+    const result = await runScreencastStart(makeArgs("screencast-start", [
+      "--session-id",
+      "s1"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("page.screencast.start", {
+      sessionId: "s1"
+    }, {
+      timeoutMs: DEFAULT_SCREENSHOT_TRANSPORT_TIMEOUT_MS
+    });
+    expect(result).toEqual({
+      success: true,
+      message: "Screencast started.",
+      data: {
+        screencastId: "cast-omitted",
+        sessionId: "s1",
+        outputDir: "/workspace/.opendevbrowser/screencast/run-1",
+        artifact_path: "/workspace/.opendevbrowser/screencast/run-1"
+      }
+    });
+  });
+
   it("stops a screencast with the default transport timeout", async () => {
     callDaemon.mockResolvedValue({ screencastId: "cast-1", endedReason: "stopped" });
 

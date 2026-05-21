@@ -25,6 +25,7 @@ import {
   buildInspiredesignNextStep
 } from "../src/inspiredesign/handoff";
 import {
+  buildInspiredesignRankedArtifactPatternBoard,
   buildInspiredesignReferencePatternBoard,
   hasInspiredesignUsableReferenceEvidence
 } from "../src/inspiredesign/reference-pattern-board";
@@ -1228,7 +1229,7 @@ describe("inspiredesign packet + renderer", () => {
       }
     }))).toBe(false);
 
-    expect(hasInspiredesignUsableReferenceEvidence(makeReference({
+    const chromeOnlyReference = makeReference({
       url: "https://www.pinterest.com/pin/955748352150564605/",
       fetchStatus: "failed",
       captureStatus: "captured",
@@ -1243,7 +1244,21 @@ describe("inspiredesign packet + renderer", () => {
           warnings: []
         }
       }
-    }))).toBe(false);
+    });
+    const chromeOnlyBoard = buildInspiredesignReferencePatternBoard(
+      "chrome-only",
+      makeBriefFormat(),
+      [chromeOnlyReference],
+      "Design a premium landing page prototype for a design agency studio."
+    );
+
+    expect(hasInspiredesignUsableReferenceEvidence(chromeOnlyReference)).toBe(false);
+    expect(chromeOnlyBoard.rejectedReferences[0]).toEqual(expect.objectContaining({
+      captured: true,
+      diagnosticReasons: expect.arrayContaining(["interface_chrome_shell"]),
+      capturedButRejectedReason: expect.stringContaining("interface_chrome_shell"),
+      evidenceGap: expect.stringContaining("diagnostic browser chrome")
+    }));
   });
 
   it("keeps screenshot-backed Pinterest pin references usable when page chrome surrounds clean pin metadata", () => {
@@ -3092,7 +3107,10 @@ describe("inspiredesign packet + renderer", () => {
       visualEvidence: packet.visualEvidence,
       screenshotIndex: packet.screenshotIndex,
       rankedReferences: packet.rankedReferences,
-      referencePatternBoard: packet.generationPlan.referencePatternBoard,
+      referencePatternBoard: buildInspiredesignRankedArtifactPatternBoard(
+        packet.generationPlan.referencePatternBoard,
+        packet.referencePatternBoard
+      ),
       metaPromptMarkdown: packet.metaPromptMarkdown,
       meta: { requestId: "ranked-artifact" }
     });
@@ -3100,7 +3118,7 @@ describe("inspiredesign packet + renderer", () => {
 
     expect(rankedReferencesFile?.content).toMatchObject({
       references: [expect.objectContaining({ id: "usable-reference", rank: 1 })],
-      rejectedReferences: [],
+      rejectedReferences: [expect.objectContaining({ id: "rejected-reference" })],
       qualitySummary: expect.objectContaining({ rejectedReferenceCount: 1 }),
       synthesis: expect.objectContaining({
         dominantDirection: expect.any(String),

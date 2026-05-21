@@ -31,6 +31,7 @@ import {
   type InspiredesignReferenceEvidence
 } from "../inspiredesign/contract";
 import {
+  buildInspiredesignRankedArtifactPatternBoard,
   hasInspiredesignUsableReferenceEvidence,
   summarizeInspiredesignReferenceQuality,
   type InspiredesignReferencePatternBoard
@@ -43,6 +44,7 @@ import {
   type NextStepGuidance,
   type SiteRecipe
 } from "../guidance";
+import { validateProviderUrlSiteRecipeCompatibility } from "../guidance/recipes/site-recipe-validation";
 import { resolveSiteRecipeForProvider, resolveSiteRecipeForUrl } from "../guidance/recipes/site-registry";
 import {
   mergeInspiredesignReferenceUrls,
@@ -1710,7 +1712,13 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
     throw new Error("Inspiredesign workflow query is only supported when harvest is true.");
   }
   if (providers.length > 0 && !query) {
-    throw new Error("Inspiredesign workflow providers require query.");
+    if (input.harvest !== true) {
+      throw new Error("Inspiredesign workflow providers require query unless harvest uses compatible URL recovery.");
+    }
+    const compatibility = validateProviderUrlSiteRecipeCompatibility({ providers, urls });
+    if (!compatibility.ok) {
+      throw new Error(`Inspiredesign workflow ${compatibility.message}`);
+    }
   }
   if (input.harvest === true && !query && urls.length === 0) {
     throw new Error("Inspiredesign harvest requires query or URL references.");
@@ -4451,7 +4459,10 @@ export const runInspiredesignWorkflow = async (
     visualEvidence: packet.visualEvidence,
     screenshotIndex: packet.screenshotIndex,
     rankedReferences: packet.rankedReferences,
-    referencePatternBoard: packet.generationPlan.referencePatternBoard,
+    referencePatternBoard: buildInspiredesignRankedArtifactPatternBoard(
+      packet.generationPlan.referencePatternBoard,
+      packet.referencePatternBoard
+    ),
     metaPromptMarkdown: packet.metaPromptMarkdown,
     nextStepGuidance,
     meta: metaWithGuidance

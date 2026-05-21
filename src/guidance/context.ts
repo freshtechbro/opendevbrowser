@@ -118,6 +118,13 @@ const reasonCodeForInspiredesign = (source: InspiredesignGuidanceSource): string
   return "design_ready";
 };
 
+const dedupeInspiredesignReferenceUrls = (source: InspiredesignGuidanceSource): string[] => {
+  const urls = [...(source.urls ?? []), ...source.discovery.acceptedUrls]
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0);
+  return [...new Set(urls)];
+};
+
 const resolveInspiredesignSiteRecipe = (source: InspiredesignGuidanceSource): string | undefined => {
   const providerRecipe = source.requestedProviders
     .map((providerId) => resolveSiteRecipeForProvider(providerId))
@@ -133,12 +140,14 @@ export const createInspiredesignGuidanceContext = (
   source: InspiredesignGuidanceSource
 ): GuidanceContext => {
   const siteRecipeId = resolveInspiredesignSiteRecipe(source);
+  const referenceUrls = dedupeInspiredesignReferenceUrls(source);
   return {
     workflow: "inspiredesign",
     reasonCode: reasonCodeForInspiredesign(source),
     requestedProviders: source.requestedProviders,
     ...(siteRecipeId ? { siteRecipeId } : {}),
     ...(source.query ? { query: source.query } : {}),
+    ...(referenceUrls.length > 0 ? { referenceUrls } : {}),
     ...(source.browserMode ? { browserMode: source.browserMode } : {}),
     ...(source.cookiePolicy ? { cookiePolicy: source.cookiePolicy } : {}),
     ...(typeof source.useCookies === "boolean" ? { useCookies: source.useCookies } : {}),

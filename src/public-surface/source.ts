@@ -733,7 +733,8 @@ const CLI_COMMAND_EXAMPLES = {
   inspiredesign: [
     cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"),
     cliExample("inspiredesign harvest", "--brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json"),
-    cliExample("inspiredesign harvest", "--brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json")
+    cliExample("inspiredesign harvest", "--brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"),
+    cliExample("inspiredesign harvest", "--brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json")
   ],
   artifacts: [cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")],
   "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json")],
@@ -780,13 +781,19 @@ const CLI_COMMAND_EXAMPLES = {
   "session-inspector-plan": [cliExample("session-inspector-plan", "--session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --output-format json")],
   "session-inspector-audit": [cliExample("session-inspector-audit", "--session-id s1 --target-id page-1 --reason \"trace challenge state\" --include-urls --request-id req-session-audit-001 --challenge-automation-mode browser_with_helper --output-format json")],
   perf: [cliExample("perf", "--session-id s1 --output-format json")],
-  screenshot: [cliExample("screenshot", "--session-id s1 --path ./artifacts/page.png --full-page --output-format json")],
+  screenshot: [
+    cliExample("screenshot", "--session-id s1 --output-format json"),
+    cliExample("screenshot", "--session-id s1 --path ./artifacts/page.png --full-page --output-format json")
+  ],
   dialog: [cliExample("dialog", "--session-id s1 --action status --output-format json")],
   "console-poll": [cliExample("console-poll", "--session-id s1 --max 50 --output-format json")],
   "network-poll": [cliExample("network-poll", "--session-id s1 --max 50 --output-format json")],
   "debug-trace-snapshot": [cliExample("debug-trace-snapshot", "--session-id s1 --max 50 --request-id req-trace-001 --output-format json")],
   annotate: [cliExample("annotate", "--session-id s1 --transport auto --context \"review call to action spacing\" --include-screenshots true --output-format json")],
-  "screencast-start": [cliExample("screencast-start", "--session-id s1 --output-dir ./artifacts/replay --interval-ms 750 --max-frames 40 --output-format json")],
+  "screencast-start": [
+    cliExample("screencast-start", "--session-id s1 --interval-ms 750 --max-frames 40 --output-format json"),
+    cliExample("screencast-start", "--session-id s1 --output-dir ./artifacts/replay --interval-ms 750 --max-frames 40 --output-format json")
+  ],
   "screencast-stop": [cliExample("screencast-stop", "--session-id s1 --screencast-id cast-1 --output-format json")],
   "desktop-status": [cliExample("desktop-status", "--timeout-ms 5000 --output-format json")],
   "desktop-windows": [cliExample("desktop-windows", "--reason \"inventory browser-adjacent windows\" --output-format json")],
@@ -822,8 +829,10 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
     "Inspect nextStepGuidance.readiness before continuing. Only readiness=ready makes Canvas continuation the primary action.",
     "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshots, provider unavailability, or diagnostic-only captures.",
-    "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Use extension mode, cookies, and recovery-first guidance when session evidence is not ready.",
+    "CLI completion text includes readiness=<value> when the workflow reports nextStepGuidance.readiness, so success output is not confused with design readiness.",
+    "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted.",
     "Harvest JSON is metadata-only: screenshots are artifact PNG files referenced by relative paths, hashes, viewport metadata, and warnings.",
+    "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
     "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
   ],
   "macro-resolve": [
@@ -835,6 +844,14 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Use --params-file for strict request envelopes such as canvas.plan.set or governance handoff payloads.",
     "Canvas guidance preserves guidance.recommendedNextCommands and adds nextStepGuidance, paramsExamples, fieldExamples, validationChecks, and doNotProceedIf when a repair envelope exists.",
     "For generation_plan_invalid or missing session identifiers, follow returned paramsExamples before retrying canvas.plan.set."
+  ],
+  screenshot: [
+    "When --path is omitted, screenshot writes .opendevbrowser/screenshot/<uuid>/capture.png and returns path plus artifact_path.",
+    "Explicit --path remains caller-controlled and does not create the omitted-output screenshot artifact directory."
+  ],
+  "screencast-start": [
+    "When --output-dir is omitted, screencast-start writes replay files under .opendevbrowser/screencast/<uuid> and returns artifact_path.",
+    "Explicit --output-dir remains caller-controlled and keeps the existing replay file names inside that directory."
   ],
   annotate: [
     "Use --stored when you want the last delivered annotation payload without starting a new capture."
@@ -926,13 +943,13 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceDefinition[] = [
   { name: "opendevbrowser_research_run", description: "Run the research workflow directly.", cliEquivalent: "research" },
   { name: "opendevbrowser_shopping_run", description: "Run the shopping workflow directly.", cliEquivalent: "shopping" },
   { name: "opendevbrowser_product_video_run", description: "Run the product-video asset workflow directly.", cliEquivalent: "product-video" },
-  { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly, including harvest query discovery and visual evidence capture.", cliEquivalent: "inspiredesign" },
+  { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, readiness guidance, and visual evidence capture.", cliEquivalent: "inspiredesign" },
   { name: "opendevbrowser_canvas", description: "Execute a typed design-canvas command surface call.", cliEquivalent: "canvas" },
   { name: "opendevbrowser_clone_page", description: "Export the active page into React code.", cliEquivalent: "clone-page" },
   { name: "opendevbrowser_clone_component", description: "Export a component by ref into React code.", cliEquivalent: "clone-component" },
   { name: "opendevbrowser_perf", description: "Collect browser performance metrics.", cliEquivalent: "perf" },
-  { name: "opendevbrowser_screenshot", description: "Capture a page screenshot.", cliEquivalent: "screenshot" },
-  { name: "opendevbrowser_screencast_start", description: "Start a browser replay screencast capture.", cliEquivalent: "screencast-start" },
+  { name: "opendevbrowser_screenshot", description: "Capture a page screenshot and persist omitted outputs under .opendevbrowser/screenshot/<uuid>/capture.png.", cliEquivalent: "screenshot" },
+  { name: "opendevbrowser_screencast_start", description: "Start a browser replay screencast capture and persist omitted outputs under .opendevbrowser/screencast/<uuid>.", cliEquivalent: "screencast-start" },
   { name: "opendevbrowser_screencast_stop", description: "Stop a browser replay screencast capture.", cliEquivalent: "screencast-stop" },
   { name: "opendevbrowser_dialog", description: "Inspect or handle a JavaScript dialog.", cliEquivalent: "dialog" },
   { name: "opendevbrowser_desktop_status", description: "Inspect public read-only desktop observation availability.", cliEquivalent: "desktop-status" },

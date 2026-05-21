@@ -910,6 +910,22 @@ describe("inspiredesign workflow", () => {
     }));
   });
 
+  it("accepts Pinterest provider URL recovery without query", async () => {
+    const output = await runInspiredesignWorkflow(toRuntime({}), {
+      brief: "Design a visual harvest landing page",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      mode: "json"
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    expect(meta.selection).toEqual(expect.objectContaining({
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505"]
+    }));
+  });
+
   it("rejects invalid workflow harvest discovery inputs without clamping", async () => {
     const runtime = toRuntime({});
     await expect(runInspiredesignWorkflow(runtime, {
@@ -920,7 +936,13 @@ describe("inspiredesign workflow", () => {
       brief: "Design a visual harvest landing page",
       harvest: true,
       providers: ["web/default"]
-    })).rejects.toThrow("providers require query");
+    })).rejects.toThrow("Provider-scoped URL recovery requires at least one URL");
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      harvest: true,
+      providers: ["web/default"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"]
+    })).rejects.toThrow("Provider web/default does not support URL-only site recipe recovery");
     await expect(runInspiredesignWorkflow(runtime, {
       brief: "Design a visual harvest landing page",
       harvest: true,
@@ -2103,8 +2125,8 @@ describe("inspiredesign workflow", () => {
         records: [
           normalizeRecord("social/pinterest", "social", {
             url: input.url,
-            title: "Pinterest navigation shell",
-            content: "Pin card your profile when autocomplete results are available"
+            title: "[r1] link \"Skip to content\" [r2] link \"Your profile\" [r3] button \"Accounts\" [r4] link \"Home\"",
+            content: "[r1] link \"Skip to content\" [r2] link \"Your profile\" [r3] button \"Accounts\" [r4] link \"Home\" [r5] link \"Your boards\" [r6] button \"Settings & Support\" [r7] button \"Updates\" [r8] button \"Messages\""
           })
         ]
       });
@@ -2115,7 +2137,7 @@ describe("inspiredesign workflow", () => {
       }
       writeFileSync(options.visualEvidencePath, Buffer.from("png bytes"));
       return {
-        ...makeCapture("Pin card your profile when autocomplete results are available"),
+        ...makeCapture("[r1] link \"Skip to content\" [r2] link \"Your profile\" [r3] button \"Accounts\" [r4] link \"Home\""),
         visual: {
           status: "captured",
           kind: "viewport",
@@ -2148,6 +2170,7 @@ describe("inspiredesign workflow", () => {
     const rankedReferences = JSON.parse(readFileSync(join(artifactPath, "ranked-references.json"), "utf8")) as {
       qualitySummary: { rankedReferenceCount: number; rejectedReferenceCount: number; missingScreenshotCount: number };
       references: unknown[];
+      rejectedReferences: Array<{ captured?: boolean; diagnosticReasons?: string[]; capturedButRejectedReason?: string }>;
     };
     const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
       screenshots: Array<{ path: string }>;
@@ -2173,7 +2196,14 @@ describe("inspiredesign workflow", () => {
         rejectedReferenceCount: 5,
         missingScreenshotCount: 0
       },
-      references: []
+      references: [],
+      rejectedReferences: expect.arrayContaining([
+        expect.objectContaining({
+          captured: true,
+          diagnosticReasons: expect.arrayContaining(["interface_chrome_shell"]),
+          capturedButRejectedReason: expect.stringContaining("interface_chrome_shell")
+        })
+      ])
     });
     expect(screenshotIndex.screenshots).toHaveLength(5);
     expect(designMarkdown).toContain(
@@ -2182,6 +2212,9 @@ describe("inspiredesign workflow", () => {
     expect(designMarkdown).not.toContain("Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`");
     expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
     expect(handoff.nextStepGuidance.readiness).toBe("diagnostic_only");
+    expect(handoff.nextStepGuidance.commands[0]?.command).toContain("--provider social/pinterest --url");
+    expect(handoff.nextStepGuidance.commands[0]?.command).toContain(pinUrls[0]);
+    expect(handoff.nextStepGuidance.commands[0]?.command).not.toContain("--query");
   });
 
   it("preserves generic recovery when mixed standard provider search throws", async () => {

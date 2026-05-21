@@ -592,7 +592,24 @@ describe("workflow tools", () => {
     expect(deps.providerRuntime.search).not.toHaveBeenCalled();
   });
 
-  it("rejects inspiredesign tool providers without a query", async () => {
+  it("accepts inspiredesign tool Pinterest provider URL recovery", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"]
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(deps.providerRuntime.search).not.toHaveBeenCalled();
+    expect(deps.providerRuntime.fetch).toHaveBeenCalled();
+  });
+
+  it("rejects inspiredesign tool providers without a query or compatible URL", async () => {
     const deps = makeDeps();
     const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
     const tool = createInspiredesignRunTool(deps as never);
@@ -606,9 +623,22 @@ describe("workflow tools", () => {
     expect(response.ok).toBe(false);
     expect(response.error).toEqual({
       code: "inspiredesign_run_failed",
-      message: "providers require query."
+      message: "Provider-scoped URL recovery requires at least one URL."
     });
     expect(deps.providerRuntime.search).not.toHaveBeenCalled();
+
+    const genericUrlResponse = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      providers: ["web/default"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"]
+    } as never));
+
+    expect(genericUrlResponse.ok).toBe(false);
+    expect(genericUrlResponse.error).toEqual({
+      code: "inspiredesign_run_failed",
+      message: "Provider web/default does not support URL-only site recipe recovery."
+    });
   });
 
   it("rejects inspiredesign tool harvest without query or URLs", async () => {

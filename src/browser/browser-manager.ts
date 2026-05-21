@@ -22,6 +22,10 @@ import type { RelayStatus } from "../relay/relay-server";
 import { ensureLocalEndpoint } from "../utils/endpoint-validation";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import {
+  BROWSER_SCREENSHOT_ARTIFACT_NAMESPACE,
+  createBrowserOutputArtifactDirectory
+} from "../providers/browser-output-artifacts";
+import {
   ChallengeOrchestrator,
   inspectChallengePlanFromRuntime,
   resolveChallengeAutomationPolicy,
@@ -2009,14 +2013,23 @@ export class BrowserManager {
       throw new Error("Screenshot ref and fullPage options are mutually exclusive.");
     }
     return this.runTargetScoped(sessionId, options.targetId, async ({ managed, page, targetId: resolvedTargetId }) => {
+      let artifact: ReturnType<typeof createBrowserOutputArtifactDirectory> | undefined;
+      let outputPath = options.path;
+      if (typeof outputPath !== "string") {
+        artifact = createBrowserOutputArtifactDirectory({
+          workspaceRoot: this.worktree,
+          namespace: BROWSER_SCREENSHOT_ARTIFACT_NAMESPACE
+        });
+        outputPath = join(artifact.artifactPath, "capture.png");
+      }
       const screenshotOptions: {
         type: "png";
-        path?: string;
+        path: string;
         fullPage?: boolean;
         clip?: { x: number; y: number; width: number; height: number };
       } = {
         type: "png",
-        path: options.path
+        path: outputPath
       };
 
       if (options.ref) {
@@ -2033,30 +2046,26 @@ export class BrowserManager {
       }
 
       try {
-        if (options.path) {
-          await this.withLegacyExtensionOperationTimeout(
-            managed,
-            page.screenshot(screenshotOptions),
-            `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
-          );
-          return { path: options.path };
-        }
-        const buffer = await this.withLegacyExtensionOperationTimeout(
+        await this.withLegacyExtensionOperationTimeout(
           managed,
           page.screenshot(screenshotOptions),
           `page.screenshot: Timeout ${LEGACY_EXTENSION_OPERATION_TIMEOUT_MS}ms exceeded.`
         );
-        return { base64: buffer.toString("base64") };
+        return {
+          path: outputPath,
+          ...(artifact ? { artifact_path: artifact.artifactPath } : {})
+        };
       } catch (error) {
         const fallback = await this.captureScreenshotViaCdp(managed, page, error, options);
         if (!fallback) {
           throw error;
         }
-        if (options.path) {
-          await writeFile(options.path, Buffer.from(fallback.base64, "base64"));
-          return fallback.warnings ? { path: options.path, warnings: fallback.warnings } : { path: options.path };
-        }
-        return fallback;
+        await writeFile(outputPath, Buffer.from(fallback.base64, "base64"));
+        return {
+          path: outputPath,
+          ...(artifact ? { artifact_path: artifact.artifactPath } : {}),
+          ...(fallback.warnings ? { warnings: fallback.warnings } : {})
+        };
       }
     });
   }

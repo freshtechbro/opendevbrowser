@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added public surface and docs coverage for provider-scoped Pinterest URL recovery with explicit `--url` inputs.
+
+### Changed
+- Inspiredesign CLI completion now reports workflow readiness when available.
+- Omitted screenshot calls now persist `.opendevbrowser/screenshot/<uuid>/capture.png` and return `path` plus `artifact_path` instead of base64 by default.
+- Omitted screencast calls now persist replay artifacts under `.opendevbrowser/screencast/<uuid>` while preserving explicit caller paths.
+
+### Fixed
+- Documented `ranked-references.json.rejectedReferences` diagnostics for captured-but-rejected `interface_chrome_shell` evidence without weakening reference promotion rules.
+
 ## [0.0.33] - 2026-05-21
 
 ### Added

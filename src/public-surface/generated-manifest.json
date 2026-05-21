@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-05-20T18:36:56.052Z",
+  "generatedAt": "2026-05-21T13:16:09.774Z",
   "cli": {
     "groups": [
       {
@@ -586,7 +586,8 @@
         "examples": [
           "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json",
           "npx opendevbrowser inspiredesign harvest --brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json",
-          "npx opendevbrowser inspiredesign harvest --brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
+          "npx opendevbrowser inspiredesign harvest --brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json",
+          "npx opendevbrowser inspiredesign harvest --brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
           "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
@@ -594,8 +595,10 @@
           "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
           "Inspect nextStepGuidance.readiness before continuing. Only readiness=ready makes Canvas continuation the primary action.",
           "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshots, provider unavailability, or diagnostic-only captures.",
-          "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Use extension mode, cookies, and recovery-first guidance when session evidence is not ready.",
+          "CLI completion text includes readiness=<value> when the workflow reports nextStepGuidance.readiness, so success output is not confused with design readiness.",
+          "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted.",
           "Harvest JSON is metadata-only: screenshots are artifact PNG files referenced by relative paths, hashes, viewport metadata, and warnings.",
+          "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
           "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
         ],
         "groupId": "provider_workflows",
@@ -1375,9 +1378,13 @@
           "--timeout-ms"
         ],
         "examples": [
+          "npx opendevbrowser screenshot --session-id s1 --output-format json",
           "npx opendevbrowser screenshot --session-id s1 --path ./artifacts/page.png --full-page --output-format json"
         ],
-        "notes": [],
+        "notes": [
+          "When --path is omitted, screenshot writes .opendevbrowser/screenshot/<uuid>/capture.png and returns path plus artifact_path.",
+          "Explicit --path remains caller-controlled and does not create the omitted-output screenshot artifact directory."
+        ],
         "groupId": "diagnostics_annotation",
         "groupTitle": "Diagnostics & Annotation",
         "groupSummary": "Collect session-centric diagnostics, trace proof, and annotation payloads."
@@ -1495,9 +1502,13 @@
           "--timeout-ms"
         ],
         "examples": [
+          "npx opendevbrowser screencast-start --session-id s1 --interval-ms 750 --max-frames 40 --output-format json",
           "npx opendevbrowser screencast-start --session-id s1 --output-dir ./artifacts/replay --interval-ms 750 --max-frames 40 --output-format json"
         ],
-        "notes": [],
+        "notes": [
+          "When --output-dir is omitted, screencast-start writes replay files under .opendevbrowser/screencast/<uuid> and returns artifact_path.",
+          "Explicit --output-dir remains caller-controlled and keeps the existing replay file names inside that directory."
+        ],
         "groupId": "browser_replay",
         "groupTitle": "Browser Replay",
         "groupSummary": "Capture temporal replay artifacts through the public browser replay lane for a browser target."
@@ -2558,7 +2569,7 @@
       },
       {
         "name": "opendevbrowser_inspiredesign_run",
-        "description": "Run the inspiredesign workflow directly, including harvest query discovery and visual evidence capture.",
+        "description": "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, readiness guidance, and visual evidence capture.",
         "cliEquivalent": "inspiredesign",
         "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
       },
@@ -2588,15 +2599,15 @@
       },
       {
         "name": "opendevbrowser_screenshot",
-        "description": "Capture a page screenshot.",
+        "description": "Capture a page screenshot and persist omitted outputs under .opendevbrowser/screenshot/<uuid>/capture.png.",
         "cliEquivalent": "screenshot",
-        "example": "npx opendevbrowser screenshot --session-id s1 --path ./artifacts/page.png --full-page --output-format json"
+        "example": "npx opendevbrowser screenshot --session-id s1 --output-format json"
       },
       {
         "name": "opendevbrowser_screencast_start",
-        "description": "Start a browser replay screencast capture.",
+        "description": "Start a browser replay screencast capture and persist omitted outputs under .opendevbrowser/screencast/<uuid>.",
         "cliEquivalent": "screencast-start",
-        "example": "npx opendevbrowser screencast-start --session-id s1 --output-dir ./artifacts/replay --interval-ms 750 --max-frames 40 --output-format json"
+        "example": "npx opendevbrowser screencast-start --session-id s1 --interval-ms 750 --max-frames 40 --output-format json"
       },
       {
         "name": "opendevbrowser_screencast_stop",

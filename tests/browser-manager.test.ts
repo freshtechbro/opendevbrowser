@@ -4062,6 +4062,33 @@ describe("BrowserManager", () => {
     });
   });
 
+  it("uses browser artifacts for omitted screencast output", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context, page } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePathAwareScreenshot(page);
+
+    const worktree = await mkdtemp(join(tmpdir(), "odb-manager-screencast-artifact-"));
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager(worktree, resolveConfig({}));
+    const launch = await manager.launch({ profile: "default" });
+
+    const screencast = await manager.startScreencast(launch.sessionId, {
+      intervalMs: 250,
+      maxFrames: 1
+    });
+    const result = await manager.stopScreencast(launch.sessionId, screencast.screencastId);
+
+    expect(screencast.outputDir.startsWith(join(worktree, ".opendevbrowser", "screencast"))).toBe(true);
+    expect(screencast.artifact_path).toBe(screencast.outputDir);
+    expect(result.artifact_path).toBe(screencast.outputDir);
+    await expect(readFile(join(screencast.outputDir, "frames", "000001.png"), "utf8")).resolves.toBe("about:blank");
+  });
+
   it("captures later screencast frames after same-target navigation", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -5765,8 +5792,12 @@ describe("BrowserManager", () => {
     const perf = await manager.perfMetrics(launch.sessionId);
     expect(perf.metrics[0]?.name).toBe("Nodes");
 
+    usePathAwareScreenshot(page);
     const shot = await manager.screenshot(launch.sessionId);
-    expect(shot.base64).toBe(Buffer.from("image").toString("base64"));
+    expect(shot.base64).toBeUndefined();
+    expect(shot.artifact_path?.startsWith(join("/tmp/project", ".opendevbrowser", "screenshot"))).toBe(true);
+    expect(shot.path).toBe(join(shot.artifact_path ?? "", "capture.png"));
+    await expect(readFile(shot.path ?? "", "utf8")).resolves.toBe("about:blank");
 
     await manager.screenshot(launch.sessionId, { path: "/tmp/example.png" });
     expect(page.screenshot).toHaveBeenCalledWith(expect.objectContaining({ path: "/tmp/example.png" }));
@@ -5809,10 +5840,11 @@ describe("BrowserManager", () => {
     const shot = await manager.screenshot(result.sessionId, { targetId: result.activeTargetId });
 
     expect(cdpSession.send).toHaveBeenCalledWith("Page.captureScreenshot", { format: "png" });
-    expect(shot).toEqual({
-      base64: Buffer.from("fallback-image").toString("base64"),
-      warnings: ["cdp_capture_fallback"]
-    });
+    expect(shot.base64).toBeUndefined();
+    expect(shot.artifact_path?.startsWith(join("/tmp/project", ".opendevbrowser", "screenshot"))).toBe(true);
+    expect(shot.path).toBe(join(shot.artifact_path ?? "", "capture.png"));
+    expect(shot.warnings).toEqual(["cdp_capture_fallback"]);
+    await expect(readFile(shot.path ?? "", "utf8")).resolves.toBe("fallback-image");
   });
 
   it("falls back to CDP screenshot capture when legacy relay screenshots hang", async () => {
@@ -5853,10 +5885,12 @@ describe("BrowserManager", () => {
     try {
       const shotPromise = manager.screenshot(result.sessionId, { targetId: result.activeTargetId });
       await vi.advanceTimersByTimeAsync(5000);
-      await expect(shotPromise).resolves.toEqual({
-        base64: Buffer.from("fallback-image-hang").toString("base64"),
-        warnings: ["cdp_capture_fallback"]
-      });
+      const shot = await shotPromise;
+      expect(shot.base64).toBeUndefined();
+      expect(shot.artifact_path?.startsWith(join("/tmp/project", ".opendevbrowser", "screenshot"))).toBe(true);
+      expect(shot.path).toBe(join(shot.artifact_path ?? "", "capture.png"));
+      expect(shot.warnings).toEqual(["cdp_capture_fallback"]);
+      await expect(readFile(shot.path ?? "", "utf8")).resolves.toBe("fallback-image-hang");
     } finally {
       vi.useRealTimers();
     }
@@ -5891,8 +5925,12 @@ describe("BrowserManager", () => {
     const launch = await manager.launch({ profile: "default" });
     await manager.snapshot(launch.sessionId);
 
+    usePathAwareScreenshot(page);
     const refShot = await manager.screenshot(launch.sessionId, { ref: "r1" });
-    expect(refShot.base64).toBe(Buffer.from("image").toString("base64"));
+    expect(refShot.base64).toBeUndefined();
+    expect(refShot.artifact_path?.startsWith(join("/tmp/project", ".opendevbrowser", "screenshot"))).toBe(true);
+    expect(refShot.path).toBe(join(refShot.artifact_path ?? "", "capture.png"));
+    await expect(readFile(refShot.path ?? "", "utf8")).resolves.toBe("about:blank");
     expect(locator.scrollIntoViewIfNeeded).toHaveBeenCalled();
     expect(screenshotClipDeclarations[0]).not.toContain("window.scrollX");
     expect(screenshotClipDeclarations[0]).not.toContain("window.scrollY");

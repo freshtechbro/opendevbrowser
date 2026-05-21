@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
@@ -13,13 +16,19 @@ const challengeAutomationModeSchema = z.enum(CHALLENGE_AUTOMATION_MODES);
 
 async function captureScreenshotBuffer(deps: ToolDeps, url: string): Promise<Buffer | null> {
   let sessionId: string | null = null;
+  let captureDir: string | null = null;
   try {
     const launched = await deps.manager.launch({
       headless: true,
       startUrl: url
     });
     sessionId = launched.sessionId;
-    const screenshot = await deps.manager.screenshot(sessionId);
+    captureDir = await mkdtemp(join(tmpdir(), "odb-product-video-shot-"));
+    const capturePath = join(captureDir, "capture.png");
+    const screenshot = await deps.manager.screenshot(sessionId, { path: capturePath });
+    if (typeof screenshot.path === "string" && screenshot.path.length > 0) {
+      return await readFile(screenshot.path);
+    }
     if (typeof screenshot.base64 === "string" && screenshot.base64.length > 0) {
       return Buffer.from(screenshot.base64, "base64");
     }
@@ -29,6 +38,11 @@ async function captureScreenshotBuffer(deps: ToolDeps, url: string): Promise<Buf
   } finally {
     if (sessionId) {
       await deps.manager.disconnect(sessionId, true).catch(() => {
+        // Best effort cleanup.
+      });
+    }
+    if (captureDir) {
+      await rm(captureDir, { recursive: true, force: true }).catch(() => {
         // Best effort cleanup.
       });
     }

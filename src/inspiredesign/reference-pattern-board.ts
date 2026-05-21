@@ -76,6 +76,10 @@ export type InspiredesignReferencePatternBoard = {
     reason: string;
     fetchStatus: ReferenceStatus;
     captureStatus: "off" | "captured" | "failed";
+    captured?: true;
+    diagnosticReasons?: string[];
+    capturedButRejectedReason?: string;
+    evidenceGap?: string;
   }>;
   synthesis: {
     dominantDirection: string;
@@ -831,17 +835,37 @@ const rejectionReasonForReference = (reference: ReferenceInput): string => {
   return "Reference evidence was diagnostic, empty, or too weak for creative synthesis.";
 };
 
+const hasCapturedEvidence = (reference: ReferenceInput): boolean => (
+  reference.captureStatus === "captured" || reference.capture?.visual?.status === "captured"
+);
+
+const capturedButRejectedReason = (diagnosticReasons: string[]): string => (
+  diagnosticReasons.length > 0
+    ? `Captured browser evidence was rejected because it only exposed diagnostic signals: ${diagnosticReasons.join(", ")}.`
+    : "Captured browser evidence was rejected because it did not contain usable creative reference evidence."
+);
+
 const buildRejectedReferences = (
   references: ReferenceInput[]
 ): InspiredesignReferencePatternBoard["rejectedReferences"] => references
   .filter((reference) => !hasInspiredesignUsableReferenceEvidence(reference))
-  .map((reference) => ({
-    id: reference.id,
-    url: reference.url,
-    reason: rejectionReasonForReference(reference),
-    fetchStatus: reference.fetchStatus,
-    captureStatus: reference.captureStatus
-  }));
+  .map((reference) => {
+    const diagnosticReasons = referenceDiagnosticReasons(reference);
+    const captured = hasCapturedEvidence(reference);
+    return {
+      id: reference.id,
+      url: reference.url,
+      reason: rejectionReasonForReference(reference),
+      fetchStatus: reference.fetchStatus,
+      captureStatus: reference.captureStatus,
+      ...(captured ? { captured: true as const } : {}),
+      ...(diagnosticReasons.length > 0 ? { diagnosticReasons } : {}),
+      ...(captured ? {
+        capturedButRejectedReason: capturedButRejectedReason(diagnosticReasons),
+        evidenceGap: "Design-facing artifacts require creative layout evidence; diagnostic browser chrome is kept only as rejection metadata."
+      } : {})
+    };
+  });
 
 const buildQualitySummary = (
   references: ReferenceInput[],
@@ -889,6 +913,54 @@ export const isInspiredesignDesignReference = (
     isPinterestVisualReferenceUrl(reference.url) && isInspiredesignReadyReference(reference)
   )
 );
+
+const buildNotReadyRejectedReference = (
+  reference: InspiredesignReferencePatternBoard["references"][number]
+): InspiredesignReferencePatternBoard["rejectedReferences"][number] => {
+  const captured = reference.capturedVia.length > 0;
+  return {
+    id: reference.id,
+    url: reference.url,
+    reason: reference.intentMatched
+      ? "Reference evidence did not meet the design-ready ranking threshold."
+      : "Reference evidence did not match the requested design intent.",
+    fetchStatus: reference.capturedVia.includes("fetch") ? "captured" : "skipped",
+    captureStatus: reference.capturedVia.some((method) => method !== "fetch") ? "captured" : "off",
+    ...(captured ? {
+      captured: true as const,
+      capturedButRejectedReason: "Captured reference evidence did not satisfy design-ready ranking gates.",
+      evidenceGap: "Design-facing artifacts require design-ready creative evidence; non-ready captures are kept only as rejection metadata."
+    } : {})
+  };
+};
+
+const mergeRejectedReferences = (
+  rejectedReferences: InspiredesignReferencePatternBoard["rejectedReferences"]
+): InspiredesignReferencePatternBoard["rejectedReferences"] => {
+  const seen = new Set<string>();
+  return rejectedReferences.filter((reference) => {
+    if (seen.has(reference.id)) return false;
+    seen.add(reference.id);
+    return true;
+  });
+};
+
+export const buildInspiredesignRankedArtifactPatternBoard = (
+  designBoard: InspiredesignReferencePatternBoard,
+  sourceBoard: InspiredesignReferencePatternBoard
+): InspiredesignReferencePatternBoard => {
+  const designReferenceIds = new Set(designBoard.references.map((reference) => reference.id));
+  const notReadyReferences = sourceBoard.references
+    .filter((reference) => !designReferenceIds.has(reference.id))
+    .map(buildNotReadyRejectedReference);
+  return {
+    ...designBoard,
+    rejectedReferences: mergeRejectedReferences([
+      ...sourceBoard.rejectedReferences,
+      ...notReadyReferences
+    ])
+  };
+};
 
 export const buildInspiredesignDesignReferencePatternBoard = (
   board: InspiredesignReferencePatternBoard,
