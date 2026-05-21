@@ -3,6 +3,7 @@ import type { GuidanceContext } from "./types";
 
 export type InspiredesignGuidanceQualitySource = {
   rankedReferenceCount: number;
+  rankedReferenceUrls?: string[];
   rejectedReferenceCount: number;
   topReferenceScore?: number;
   topReferenceConfidence?: number;
@@ -24,6 +25,7 @@ export type InspiredesignGuidanceSource = {
     acceptedUrls: string[];
     failure?: string;
     failures: number;
+    hardFailureReasonCodes?: string[];
   };
   metrics: {
     referenceCount: number;
@@ -38,7 +40,55 @@ export type InspiredesignGuidanceSource = {
   };
 };
 
+const HARD_PROVIDER_FAILURE_REASON_CODES = new Set([
+  "auth_required",
+  "challenge_detected",
+  "policy_blocked",
+  "rate_limited",
+  "token_required"
+]);
+
+const normalizeComparableUrl = (value: string): string | null => {
+  try {
+    const url = new URL(value);
+    url.protocol = "https:";
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    url.hash = "";
+    url.search = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+const hasAcceptedUserSuppliedSiteRecipeReferenceUrl = (source: InspiredesignGuidanceSource): boolean => {
+  if (source.metrics.referenceCount === 0 || source.quality.rankedReferenceCount === 0) return false;
+  const rankedReferenceUrls = new Set((source.quality.rankedReferenceUrls ?? [])
+    .map(normalizeComparableUrl)
+    .filter((url): url is string => typeof url === "string"));
+  if (rankedReferenceUrls.size === 0) return false;
+  const requestedSiteRecipeIds = new Set(source.requestedProviders
+    .map((providerId) => resolveSiteRecipeForProvider(providerId)?.id)
+    .filter((recipeId): recipeId is string => typeof recipeId === "string"));
+  return (source.urls ?? []).some((url) => {
+    const recipeId = resolveSiteRecipeForUrl(url)?.id;
+    if (!recipeId) return false;
+    if (requestedSiteRecipeIds.size > 0 && !requestedSiteRecipeIds.has(recipeId)) return false;
+    const normalizedUrl = normalizeComparableUrl(url);
+    return normalizedUrl !== null && rankedReferenceUrls.has(normalizedUrl);
+  });
+};
+
+const hasHardProviderFailureSignal = (source: InspiredesignGuidanceSource): boolean => (
+  (
+    !hasAcceptedUserSuppliedSiteRecipeReferenceUrl(source)
+    && (source.discovery.hardFailureReasonCodes ?? []).some((reasonCode) => HARD_PROVIDER_FAILURE_REASON_CODES.has(reasonCode))
+  )
+  || (source.primaryConstraint?.reasonCode ? HARD_PROVIDER_FAILURE_REASON_CODES.has(source.primaryConstraint.reasonCode) : false)
+);
+
 const hasProviderUnavailableSignal = (source: InspiredesignGuidanceSource): boolean => {
+  if (hasHardProviderFailureSignal(source)) return true;
   if (source.metrics.referenceCount > 0 && source.quality.rankedReferenceCount > 0) return false;
   if (source.discovery.requested && source.discovery.acceptedUrls.length === 0 && source.discovery.failures > 0) return true;
   if (source.discovery.failure && source.discovery.acceptedUrls.length === 0) return true;
@@ -111,6 +161,7 @@ export const createInspiredesignGuidanceContext = (
     details: {
       brief: source.brief,
       discoveryFailure: source.discovery.failure ?? "",
+      hardFailureReasonCodes: source.discovery.hardFailureReasonCodes ?? [],
       primaryConstraintSummary: source.primaryConstraint?.summary ?? ""
     }
   };

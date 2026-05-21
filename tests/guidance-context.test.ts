@@ -233,6 +233,47 @@ describe("guidance context adapters", () => {
     expect(context.siteRecipeId).toBeUndefined();
   });
 
+  it("suppresses Pinterest hard failures only when the same Pinterest URL survives as ranked evidence", () => {
+    const source = {
+      brief: "Design a premium studio landing page",
+      urls: ["https://www.pinterest.com/pin/61572719900827789/"],
+      requestedProviders: ["social/pinterest"],
+      discovery: {
+        requested: true,
+        acceptedUrls: ["https://example.com/reference"],
+        failures: 1,
+        hardFailureReasonCodes: ["auth_required"]
+      },
+      metrics: {
+        referenceCount: 1,
+        failedCaptureCount: 0,
+        visualEvidenceRequired: false
+      },
+      quality: {
+        rankedReferenceCount: 1,
+        rankedReferenceUrls: ["https://example.com/reference"],
+        rejectedReferenceCount: 0,
+        topReferenceScore: 88,
+        topReferenceConfidence: 0.9,
+        missingScreenshotCount: 0,
+        diagnosticOnlyReasons: []
+      }
+    };
+
+    expect(createInspiredesignGuidanceContext(source).providerUnavailable).toBe(true);
+    expect(createInspiredesignGuidanceContext({
+      ...source,
+      discovery: {
+        ...source.discovery,
+        acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
+      },
+      quality: {
+        ...source.quality,
+        rankedReferenceUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
+      }
+    }).reasonCode).toBe("design_ready");
+  });
+
   it("keeps brief-only Inspired Design handoffs ready when reference evidence was not required", () => {
     const context = createInspiredesignGuidanceContext({
       brief: "Design a premium studio landing page",

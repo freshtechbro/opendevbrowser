@@ -1,3 +1,4 @@
+import { isAllowedPinterestReferenceHost, normalizePinterestReferenceUrl } from "../guidance/recipes/pinterest";
 import type { InspiredesignBriefFormat } from "./brief-expansion";
 
 type ReferenceStatus = "captured" | "failed" | "skipped";
@@ -117,7 +118,10 @@ const SCORE_DOM = 8;
 const SCORE_PUBLIC_LANDING = 6;
 const SCORE_SIGNAL_CAP = 12;
 const SCORE_INTENT_MISMATCH_PENALTY = 55;
+const SCORE_PINTEREST_CHROME_METADATA_PENALTY = 35;
 const MAX_REFERENCE_SCORE = 100;
+const MIN_READY_REFERENCE_SCORE = 50;
+const MIN_READY_REFERENCE_CONFIDENCE = 0.5;
 const ADVANCED_MOTION_FIELDS = [
   "Advisory shader-style gradients: specify effect type, uniforms, static fallback, and reduced-motion replacement as design language only.",
   "Advisory WebGL-style depth cues: describe layered depth, camera-like parallax, and spatial hierarchy without requiring WebGL runtime.",
@@ -319,20 +323,26 @@ const isDiagnosticPageText = (value: string): boolean => {
 
 const isInterfaceChromeText = (value: string): boolean => {
   const lower = value.toLowerCase();
+  const actionRefCount = countActionRefs(value);
+  const markerCount = INTERFACE_CHROME_TEXT_MARKERS.filter((marker) => lower.includes(marker)).length;
   if (
     lower === "your profile"
     || lower === "adobe, inc."
     || lower === "dribbble: the community for graphic design"
     || /^https?:\/\/\S+$/.test(lower)
     || (lower.includes("when autocomplete results are available") && lower.includes("touch device users"))
+    || (actionRefCount >= 3 && markerCount >= 2)
     || (lower.includes("get 20%") && lower.includes("dribbble: the community for graphic design"))
     || (lower.includes("our free wordpress themes are downloaded") && lower.includes("get them now"))
   ) {
     return true;
   }
-  const markerCount = INTERFACE_CHROME_TEXT_MARKERS.filter((marker) => lower.includes(marker)).length;
   return markerCount >= 3 || (lower.includes("pin card") && lower.includes("your profile"));
 };
+
+const countActionRefs = (value: string): number => (
+  (value.match(/\[r\d+\]\s+(?:link|button|combobox|textbox|option)\s+/gi) ?? []).length
+);
 
 const hasPublicLandingSignal = (value: string): boolean => {
   const lower = value.toLowerCase();
@@ -383,6 +393,48 @@ const hasUsableRecoveredCreativeEvidence = (reference: ReferenceInput): boolean 
   || hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))
 );
 
+const isPinterestVisualReferenceUrl = (value: string): boolean => normalizePinterestReferenceUrl(value) !== null;
+
+const pinterestHostnameFromUrl = (value: string): string | null => {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+const isPinterestOwnedReferenceUrl = (value: string): boolean => {
+  const hostname = pinterestHostnameFromUrl(value);
+  return hostname !== null && (hostname === "pinterest.com" || hostname.endsWith(".pinterest.com"));
+};
+
+const isUnapprovedPinterestReferenceUrl = (value: string): boolean => {
+  const hostname = pinterestHostnameFromUrl(value);
+  return hostname !== null && isPinterestOwnedReferenceUrl(value) && !isAllowedPinterestReferenceHost(hostname);
+};
+
+const hasCleanMetadataValue = (value: string | undefined): boolean => (
+  typeof value === "string" && countActionRefs(value) < 3 && hasCleanSignal(value)
+);
+
+const hasCleanMetadataSignal = (reference: ReferenceInput): boolean => (
+  hasCleanMetadataValue(reference.title)
+  || hasCleanMetadataValue(reference.excerpt)
+  || hasCleanMetadataValue(reference.capture?.title)
+);
+
+const hasOnlySoftPinterestChromeDiagnostics = (reasons: string[]): boolean => (
+  reasons.every((reason) => reason === "interface_chrome_shell")
+);
+
+const hasPinterestVisualMetadataEvidence = (reference: ReferenceInput, diagnosticReasons: string[]): boolean => (
+  isPinterestVisualReferenceUrl(reference.url)
+  && reference.captureStatus === "captured"
+  && reference.capture?.visual?.status === "captured"
+  && hasCleanMetadataSignal(reference)
+  && hasOnlySoftPinterestChromeDiagnostics(diagnosticReasons)
+);
+
 const hasUsableCaptureEvidence = (reference: ReferenceInput): boolean => (
   hasCleanSignal(reference.capture?.snapshot?.content)
   || hasUsableCloneCreativeEvidence(reference)
@@ -409,7 +461,9 @@ const hasBlockingDiagnosticReason = (reasons: string[]): boolean => (
 );
 
 export const hasInspiredesignUsableReferenceEvidence = (reference: ReferenceInput): boolean => {
+  if (isUnapprovedPinterestReferenceUrl(reference.url)) return false;
   const diagnosticReasons = referenceDiagnosticReasons(reference);
+  if (hasPinterestVisualMetadataEvidence(reference, diagnosticReasons)) return true;
   if (hasBlockingDiagnosticReason(diagnosticReasons)) return false;
   if (diagnosticReasons.includes("login_or_challenge_state") && !hasUsableRecoveredCreativeEvidence(reference)) {
     return false;
@@ -504,13 +558,18 @@ const appendSourceDetail = (patterns: string[], primarySignal: string): string[]
 
 const deriveCapturedVia = (reference: ReferenceInput): string[] => {
   const methods: string[] = [];
+  const diagnosticReasons = referenceDiagnosticReasons(reference);
+  const hasPinterestVisualMetadata = hasPinterestVisualMetadataEvidence(reference, diagnosticReasons);
   if (reference.fetchStatus === "captured") methods.push("fetch");
   if (hasCleanSignal(reference.capture?.snapshot?.content)) methods.push("snapshot");
   if (hasUsableCloneCreativeEvidence(reference)) {
     methods.push("clone");
   }
   if (hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))) methods.push("dom");
-  if (reference.capture?.visual?.status === "captured" && hasUsableCaptureEvidence(reference)) methods.push("visual");
+  if (
+    reference.capture?.visual?.status === "captured"
+    && (hasUsableCaptureEvidence(reference) || hasPinterestVisualMetadata)
+  ) methods.push("visual");
   return methods;
 };
 
@@ -520,14 +579,24 @@ const scoreReference = (
   isPublicLanding: boolean
 ): number => {
   let score = 0;
+  const diagnosticReasons = referenceDiagnosticReasons(reference);
+  const hasPinterestVisualMetadata = hasPinterestVisualMetadataEvidence(reference, diagnosticReasons);
   if (reference.fetchStatus === "captured") score += SCORE_FETCH_CAPTURED;
-  if (reference.captureStatus === "captured" && hasUsableCaptureEvidence(reference)) score += SCORE_CAPTURE_CAPTURED;
-  if (reference.capture?.visual?.status === "captured" && hasUsableCaptureEvidence(reference)) score += SCORE_VISUAL_CAPTURED;
+  if (reference.captureStatus === "captured" && (hasUsableCaptureEvidence(reference) || hasPinterestVisualMetadata)) {
+    score += SCORE_CAPTURE_CAPTURED;
+  }
+  if (
+    reference.capture?.visual?.status === "captured"
+    && (hasUsableCaptureEvidence(reference) || hasPinterestVisualMetadata)
+  ) score += SCORE_VISUAL_CAPTURED;
   if (hasCleanSignal(reference.capture?.snapshot?.content)) score += SCORE_SNAPSHOT;
   if (hasUsableCloneCreativeEvidence(reference)) score += SCORE_CLONE;
   if (hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))) score += SCORE_DOM;
   if (isPublicLanding) score += SCORE_PUBLIC_LANDING;
   score += Math.min(SCORE_SIGNAL_CAP, signals.length * 2);
+  if (hasPinterestVisualMetadata && diagnosticReasons.includes("interface_chrome_shell")) {
+    score -= SCORE_PINTEREST_CHROME_METADATA_PENALTY;
+  }
   return Math.min(MAX_REFERENCE_SCORE, score);
 };
 
@@ -743,6 +812,9 @@ const sortReferenceEntries = (
   }));
 
 const rejectionReasonForReference = (reference: ReferenceInput): string => {
+  if (isUnapprovedPinterestReferenceUrl(reference.url)) {
+    return "Pinterest reference host is not approved for creative synthesis.";
+  }
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   if (diagnosticReasons.length > 0) {
     return `Reference evidence is diagnostic-only: ${diagnosticReasons.join(", ")}.`;
@@ -801,6 +873,61 @@ const buildQualitySummary = (
 export const summarizeInspiredesignReferenceQuality = (
   board: InspiredesignReferencePatternBoard
 ): InspiredesignReferenceQualitySummary => ({ ...board.qualitySummary });
+
+export const isInspiredesignReadyReference = (
+  reference: InspiredesignReferencePatternBoard["references"][number]
+): boolean => (
+  reference.intentMatched
+  && reference.score >= MIN_READY_REFERENCE_SCORE
+  && reference.confidence >= MIN_READY_REFERENCE_CONFIDENCE
+);
+
+export const isInspiredesignDesignReference = (
+  reference: InspiredesignReferencePatternBoard["references"][number]
+): boolean => (
+  !isPinterestOwnedReferenceUrl(reference.url) || (
+    isPinterestVisualReferenceUrl(reference.url) && isInspiredesignReadyReference(reference)
+  )
+);
+
+export const buildInspiredesignDesignReferencePatternBoard = (
+  board: InspiredesignReferencePatternBoard,
+  designVectors: InspiredesignDesignVectors
+): InspiredesignReferencePatternBoard => {
+  const references = board.references.filter(isInspiredesignDesignReference);
+  const notReadyCount = board.references.length - references.length;
+  const topReference = references[0];
+  const missingScreenshotCount = references.filter((reference) => !reference.capturedVia.includes("visual")).length;
+  const qualitySummary: InspiredesignReferenceQualitySummary = {
+    rankedReferenceCount: references.length,
+    rejectedReferenceCount: board.rejectedReferences.length + notReadyCount,
+    failedCaptureCount: 0,
+    missingScreenshotCount,
+    diagnosticOnlyReasons: [...board.qualitySummary.diagnosticOnlyReasons],
+    ...(topReference
+      ? {
+        topReferenceScore: topReference.score,
+        topReferenceConfidence: topReference.confidence,
+        topReferenceIntentMatched: topReference.intentMatched
+      }
+      : {})
+  };
+  return {
+    ...board,
+    targetSurface: designVectors.surfaceIntent,
+    qualitySummary,
+    references,
+    rejectedReferences: [],
+    synthesis: {
+      dominantDirection: designVectors.directionLabel,
+      sharedStrengths: [...designVectors.patternsToBorrow],
+      sharedFailuresToAvoid: [...designVectors.patternsToReject],
+      contractDeltas: references.length > 0
+        ? [...board.synthesis.contractDeltas]
+        : ["No ready reference evidence is available; keep implementation anchored to the source brief."]
+    }
+  };
+};
 
 export const buildInspiredesignReferencePatternBoard = (
   briefId: string,
@@ -959,19 +1086,22 @@ export const buildInspiredesignDesignVectors = (
   format: InspiredesignBriefFormat,
   board: InspiredesignReferencePatternBoard
 ): InspiredesignDesignVectors => {
-  const influence = board.synthesis.sharedStrengths.length > 0
-    ? board.synthesis.sharedStrengths
+  const designReferences = board.references.filter(isInspiredesignDesignReference);
+  const designStrengths = designReferences.flatMap((entry) => entry.patternsToBorrow).slice(0, 6);
+  const influence = designStrengths.length > 0
+    ? designStrengths
     : [format.archetype];
-  const publicLandingEvidence = hasBoardPublicLandingEvidence(board);
+  const designBoard = { ...board, references: designReferences };
+  const publicLandingEvidence = hasBoardPublicLandingEvidence(designBoard);
   const surfaceIntent = publicLandingEvidence
     ? "reference-led public landing page"
     : format.archetype;
   const compositionModel = publicLandingEvidence
-    ? ["full-bleed hero with narrative section cadence", ...board.references.map((entry) => entry.layoutRecipe)]
-    : [format.layoutArchetype, ...board.references.map((entry) => entry.layoutRecipe)];
+    ? ["full-bleed hero with narrative section cadence", ...designReferences.map((entry) => entry.layoutRecipe)]
+    : [format.layoutArchetype, ...designReferences.map((entry) => entry.layoutRecipe)];
   return {
-    sourcePriority: board.references.length > 0 ? "reference-evidence-first" : "brief-only",
-    directionLabel: board.synthesis.dominantDirection,
+    sourcePriority: designReferences.length > 0 ? "reference-evidence-first" : "brief-only",
+    directionLabel: designReferences[0]?.layoutRecipe ?? format.archetype,
     surfaceIntent,
     compositionModel: compositionModel.slice(0, 5),
     premiumPosture: [
@@ -985,16 +1115,16 @@ export const buildInspiredesignDesignVectors = (
       "Respect reduced-motion preference with static hierarchy preserved.",
       format.motionGrammar
     ],
-    sectionArchitecture: buildSectionArchitecture(format, board),
+    sectionArchitecture: buildSectionArchitecture(format, designBoard),
     typographyPosture: [format.typographySystem],
-    imageryPosture: buildImageryPosture(format, board),
-    interactionDensity: buildInteractionDensity(format, board),
-    interactionMoments: buildInteractionMoments(format, board),
-    materialEffects: buildMaterialEffects(board),
+    imageryPosture: buildImageryPosture(format, designBoard),
+    interactionDensity: buildInteractionDensity(format, designBoard),
+    interactionMoments: buildInteractionMoments(format, designBoard),
+    materialEffects: buildMaterialEffects(designBoard),
     advancedMotionAdvisory: [...ADVANCED_MOTION_FIELDS],
     referenceInfluence: influence,
-    patternsToBorrow: board.references.flatMap((entry) => entry.patternsToBorrow).slice(0, 8),
-    patternsToReject: board.references.flatMap((entry) => entry.patternsToReject).slice(0, 8),
+    patternsToBorrow: designReferences.flatMap((entry) => entry.patternsToBorrow).slice(0, 8),
+    patternsToReject: designReferences.flatMap((entry) => entry.patternsToReject).slice(0, 8),
     guardrails: [...format.guardrails],
     antiPatterns: [...format.antiPatterns]
   };

@@ -1,4 +1,4 @@
-import { pinterestSiteRecipe } from "./pinterest";
+import { isAllowedPinterestReferenceHost, pinterestSiteRecipe } from "./pinterest";
 import type { SiteRecipe } from "../types";
 
 const freezeRecipeValue = <T>(value: T): T => {
@@ -22,14 +22,18 @@ export const resolveSiteRecipeForProvider = (providerId: string): SiteRecipe | u
 export const resolveSiteRecipeForUrl = (url: string): SiteRecipe | undefined => {
   let hostname: string;
   try {
-    hostname = normalizeHostname(new URL(url).hostname);
+    hostname = new URL(url).hostname.toLowerCase();
   } catch {
     return undefined;
   }
   return SITE_RECIPES.find((recipe) => {
+    if (recipe.id === "social/pinterest") {
+      return isAllowedPinterestReferenceHost(hostname);
+    }
+    const normalizedHost = normalizeHostname(hostname);
     return recipe.hostnames.some((candidate) => {
       const normalized = normalizeHostname(candidate);
-      return hostname === normalized || hostname.endsWith(`.${normalized}`);
+      return normalizedHost === normalized || normalizedHost.endsWith(`.${normalized}`);
     });
   });
 };

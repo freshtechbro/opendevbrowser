@@ -24,7 +24,10 @@ import {
   buildInspiredesignFollowthroughSummary,
   buildInspiredesignNextStep
 } from "../src/inspiredesign/handoff";
-import { hasInspiredesignUsableReferenceEvidence } from "../src/inspiredesign/reference-pattern-board";
+import {
+  buildInspiredesignReferencePatternBoard,
+  hasInspiredesignUsableReferenceEvidence
+} from "../src/inspiredesign/reference-pattern-board";
 import { renderInspiredesign } from "../src/providers/renderer";
 import { buildInspiredesignSuccessHandoff } from "../src/providers/workflow-handoff";
 
@@ -479,7 +482,7 @@ describe("inspiredesign packet + renderer", () => {
 
     expect(packet.prototypeGuidanceMarkdown).toContain("# 6. Optional Prototype Plan");
     expect(packet.advancedBriefMarkdown).toContain("Reference-led public landing page");
-    expect(packet.designContract.intent.referenceCount).toBe(3);
+    expect(packet.designContract.intent.referenceCount).toBe(2);
     expect(evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
     expect(evidence.advancedBrief).toContain("Prompt objective:");
     expect(evidence.urls).toEqual([
@@ -654,13 +657,8 @@ describe("inspiredesign packet + renderer", () => {
     expect(evidence.referencePatternBoard?.synthesis.dominantDirection).toBe(
       evidence.referencePatternBoard?.references[0]?.layoutRecipe
     );
-    expect(evidence.referencePatternBoard?.rejectedReferences).toEqual([
-      expect.objectContaining({
-        id: "blocked",
-        fetchStatus: "failed",
-        captureStatus: "failed"
-      })
-    ]);
+    expect(evidence.referencePatternBoard?.rejectedReferences).toEqual([]);
+    expect(evidence.referencePatternBoard?.qualitySummary.rejectedReferenceCount).toBeGreaterThan(0);
     expect(evidence.rankedReferences).toEqual(evidence.referencePatternBoard?.references);
     expect(evidence.visualEvidence).toEqual([
       expect.objectContaining({
@@ -741,11 +739,8 @@ describe("inspiredesign packet + renderer", () => {
     const board = (packet.evidence as InspiredesignEvidenceJson).referencePatternBoard;
 
     expect(board?.references[0]).toBeDefined();
-    expect(board?.rejectedReferences[0]).toBeDefined();
+    expect(board?.rejectedReferences).toEqual([]);
     expect(Object.keys(template.references[0] ?? {}).sort()).toEqual(Object.keys(board?.references[0] ?? {}).sort());
-    expect(Object.keys(template.rejectedReferences[0] ?? {}).sort()).toEqual(
-      Object.keys(board?.rejectedReferences[0] ?? {}).sort()
-    );
     expect(Object.keys(template.synthesis).sort()).toEqual(Object.keys(board?.synthesis ?? {}).sort());
   });
 
@@ -816,9 +811,8 @@ describe("inspiredesign packet + renderer", () => {
     ].join(" ");
 
     expect(evidence.referencePatternBoard?.references.map((reference) => reference.id)).toEqual(["coffee-roaster"]);
-    expect(evidence.referencePatternBoard?.rejectedReferences).toEqual([
-      expect.objectContaining({ id: "pinterest-shell" })
-    ]);
+    expect(evidence.referencePatternBoard?.rejectedReferences).toEqual([]);
+    expect(evidence.referencePatternBoard?.qualitySummary.rejectedReferenceCount).toBe(1);
     expect(guidanceText).not.toContain("Your profile");
     expect(guidanceText).not.toContain("Pin card");
     expect(guidanceText).not.toContain("--gestalt-theme");
@@ -1233,6 +1227,287 @@ describe("inspiredesign packet + renderer", () => {
         }
       }
     }))).toBe(false);
+
+    expect(hasInspiredesignUsableReferenceEvidence(makeReference({
+      url: "https://www.pinterest.com/pin/955748352150564605/",
+      fetchStatus: "failed",
+      captureStatus: "captured",
+      title: "[r1] link \"Skip to content\" [r2] link \"Your profile\" [r3] button \"Accounts\" [r4] link \"Home\"",
+      excerpt: "[r1] link \"Skip to content\" [r2] link \"Your profile\" [r3] button \"Accounts\" [r4] link \"Home\" [r5] link \"Your boards\" [r6] button \"Settings & Support\" [r7] button \"Updates\" [r8] button \"Messages\"",
+      fetchFailure: "Provider circuit is open",
+      capture: {
+        visual: {
+          status: "captured",
+          path: "/tmp/pinterest-chrome.png",
+          sha256: "e".repeat(64),
+          warnings: []
+        }
+      }
+    }))).toBe(false);
+  });
+
+  it("keeps screenshot-backed Pinterest pin references usable when page chrome surrounds clean pin metadata", () => {
+    const reference = makeReference({
+      id: "pinterest-pin",
+      url: "https://www.pinterest.com/pin/11188699075430754/",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA",
+      excerpt: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA Skip to content When autocomplete results are available use up and down arrows to review and enter to select. Touch device users, explore by touch or with swipe gestures.",
+      capture: {
+        title: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA",
+        snapshot: {
+          content: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA Skip to content When autocomplete results are available use up and down arrows to review and enter to select. Touch device users, explore by touch or with swipe gestures."
+        },
+        visual: {
+          status: "captured",
+          path: "/tmp/pinterest-pin.png",
+          sha256: "d".repeat(64),
+          warnings: []
+        }
+      }
+    });
+
+    const board = buildInspiredesignReferencePatternBoard(
+      "pinterest-pin",
+      makeBriefFormat(),
+      [reference],
+      "Design a premium landing page prototype for a design agency studio."
+    );
+
+    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
+    expect(board.references[0]).toEqual(expect.objectContaining({
+      id: "pinterest-pin",
+      capturedVia: expect.arrayContaining(["fetch", "visual"])
+    }));
+    expect(board.references[0]?.score).toBeLessThan(50);
+    expect(board.rejectedReferences).toEqual([]);
+  });
+
+  it("keeps Pinterest chrome-only screenshot metadata out of design-facing artifacts", () => {
+    const references = Array.from({ length: 5 }, (_, index) => {
+      const pinId = `1118869907543075${index}`;
+      const title = `Kinetic creative agency studio website concept ${index + 1}`;
+      return makeReference({
+        id: `chrome-pin-${index + 1}`,
+        url: `https://www.pinterest.com/pin/${pinId}/`,
+        fetchStatus: "captured",
+        captureStatus: "captured",
+        title,
+        excerpt: `${title} Skip to content When autocomplete results are available use up and down arrows to review and enter to select. Touch device users, explore by touch or with swipe gestures.`,
+        capture: {
+          title,
+          snapshot: {
+            content: `${title} Skip to content Your profile Pin card Home Updates Messages`
+          },
+          visual: {
+            status: "captured",
+            path: `/tmp/chrome-pin-${index + 1}.png`,
+            sha256: `${index}`.repeat(64).slice(0, 64),
+            warnings: []
+          }
+        }
+      });
+    });
+
+    const packet = buildInspiredesignPacket({
+      brief: "Design a premium landing page prototype for a design agency studio.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Design a premium landing page prototype for a design agency studio."
+      }),
+      urls: references.map((reference) => reference.url),
+      references
+    });
+    const designFacingArtifacts = JSON.stringify({
+      rankedReferences: packet.rankedReferences,
+      board: packet.generationPlan.referencePatternBoard,
+      canvas: packet.canvasPlanRequest,
+      designContract: packet.designContract,
+      generationPlan: packet.generationPlan,
+      followthrough: packet.followthrough.implementationContext,
+      metaPrompt: packet.metaPromptMarkdown,
+      designMarkdown: packet.designMarkdown,
+      implementationPlan: packet.implementationPlan,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown
+    });
+
+    expect(packet.rankedReferences).toEqual([]);
+    expect(packet.generationPlan.designVectors.sourcePriority).toBe("brief-only");
+    expect(packet.generationPlan.referencePatternBoard.qualitySummary).toMatchObject({
+      rankedReferenceCount: 0,
+      rejectedReferenceCount: 5,
+      missingScreenshotCount: 0
+    });
+    expect(packet.advancedBriefMarkdown.indexOf("Reference evidence unavailable:")).toBe(0);
+    expect(designFacingArtifacts).not.toContain("Kinetic creative agency studio website concept");
+    expect(designFacingArtifacts).not.toContain("1118869907543075");
+    expect(designFacingArtifacts).not.toContain("/tmp/chrome-pin");
+  });
+
+  it("keeps clean screenshot-backed Pinterest pins usable without interface-chrome diagnostics", () => {
+    const reference = makeReference({
+      id: "clean-pinterest-pin",
+      url: "https://www.pinterest.com/pin/27654985208435505/",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Pumpkin modern creative agency landing page",
+      excerpt: "Premium design agency studio landing page with editorial typography, cinematic hero motion, portfolio proof, and service sections.",
+      capture: {
+        title: "Pumpkin modern creative agency landing page",
+        visual: {
+          status: "captured",
+          path: "/tmp/clean-pinterest-pin.png",
+          sha256: "c".repeat(64),
+          warnings: []
+        }
+      }
+    });
+
+    const board = buildInspiredesignReferencePatternBoard(
+      "clean-pinterest-pin",
+      makeBriefFormat(),
+      [reference],
+      "Design a premium landing page prototype for a design agency studio."
+    );
+
+    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
+    expect(board.references[0]).toEqual(expect.objectContaining({
+      id: "clean-pinterest-pin",
+      capturedVia: expect.arrayContaining(["fetch", "visual"]),
+      intentMatched: true
+    }));
+    expect(board.references[0]?.score).toBeGreaterThanOrEqual(50);
+    expect(board.references[0]?.confidence).toBeGreaterThanOrEqual(0.5);
+    expect(board.qualitySummary).toMatchObject({
+      failedCaptureCount: 0,
+      missingScreenshotCount: 0
+    });
+  });
+
+  it("rejects Pinterest-owned asset hosts from creative synthesis", () => {
+    const reference = makeReference({
+      id: "asset-pinterest-pin",
+      url: "https://assets.pinterest.com/pin/27654985208435505/",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Pumpkin modern creative agency landing page",
+      excerpt: "Premium design agency studio landing page with editorial typography, cinematic hero motion, portfolio proof, and service sections.",
+      capture: {
+        title: "Pumpkin modern creative agency landing page",
+        visual: {
+          status: "captured",
+          path: "/tmp/asset-pinterest-pin.png",
+          sha256: "b".repeat(64),
+          warnings: []
+        }
+      }
+    });
+
+    const board = buildInspiredesignReferencePatternBoard(
+      "asset-pinterest-pin",
+      makeBriefFormat(),
+      [reference],
+      "Design a premium landing page prototype for a design agency studio."
+    );
+
+    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(false);
+    expect(board.references).toEqual([]);
+    expect(board.rejectedReferences).toEqual([
+      expect.objectContaining({
+        id: "asset-pinterest-pin",
+        reason: "Pinterest reference host is not approved for creative synthesis."
+      })
+    ]);
+  });
+
+  it("keeps weak off-brief Pinterest references out of Canvas design direction", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Design a premium landing page prototype for a design agency studio.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Design a premium landing page prototype for a design agency studio."
+      }),
+      urls: [
+        "https://www.pinterest.com/pin/31525266137895345/",
+        "https://www.pinterest.com/offbrief/portal-board/"
+      ],
+      references: [
+        makeReference({
+          id: "off-brief-pin",
+          url: "https://www.pinterest.com/pin/31525266137895345/",
+          fetchStatus: "captured",
+          captureStatus: "captured",
+          title: "Estilo de portal digital funcional",
+          excerpt: "Estilo de portal digital funcional Skip to content When autocomplete results are available use up and down arrows to review and enter to select. Touch device users, explore by touch or with swipe gestures.",
+          capture: {
+            title: "Estilo de portal digital funcional",
+            visual: {
+              status: "captured",
+              path: "/tmp/off-brief-pin.png",
+              sha256: "f".repeat(64),
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "off-brief-board",
+          url: "https://www.pinterest.com/offbrief/portal-board/",
+          fetchStatus: "captured",
+          captureStatus: "captured",
+          title: "Functional portal moodboard",
+          excerpt: "Functional portal moodboard with app chrome and operational panels.",
+          capture: {
+            title: "Functional portal moodboard",
+            visual: {
+              status: "captured",
+              path: "/tmp/off-brief-board.png",
+              sha256: "a".repeat(64),
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(evidence.references).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "off-brief-pin" }),
+      expect.objectContaining({ id: "off-brief-board" })
+    ]));
+    expect(evidence.designVectors?.sourcePriority).toBe("brief-only");
+    expect(evidence.referencePatternBoard?.qualitySummary).toMatchObject({
+      rejectedReferenceCount: 2,
+      failedCaptureCount: 0,
+      missingScreenshotCount: 0
+    });
+    expect(JSON.stringify(evidence.referencePatternBoard)).not.toContain("Estilo de portal digital funcional");
+    expect(JSON.stringify(evidence.referencePatternBoard)).not.toContain("Functional portal moodboard");
+    expect(JSON.stringify(evidence.rankedReferences)).not.toContain("Estilo de portal digital funcional");
+    expect(JSON.stringify(evidence.rankedReferences)).not.toContain("https://www.pinterest.com/pin/31525266137895345/");
+    expect(JSON.stringify(packet.rankedReferences)).not.toContain("Functional portal moodboard");
+    expect(packet.rankedReferences).toEqual([]);
+    expect(packet.designContract.intent.referenceUrls).toEqual([]);
+    expect(packet.advancedBriefMarkdown.indexOf("Reference evidence unavailable:")).toBe(0);
+    expect(JSON.stringify(packet.designContract)).not.toContain("Estilo de portal digital funcional");
+    expect(JSON.stringify(packet.designContract)).not.toContain("Functional portal moodboard");
+    expect(JSON.stringify(packet.generationPlan)).not.toContain("Estilo de portal digital funcional");
+    expect(JSON.stringify(packet.generationPlan)).not.toContain("Functional portal moodboard");
+    expect(JSON.stringify(packet.followthrough.implementationContext)).not.toContain("Estilo de portal digital funcional");
+    expect(JSON.stringify(packet.followthrough.implementationContext)).not.toContain("Functional portal moodboard");
+    expect(JSON.stringify(packet.implementationPlan)).not.toContain("Estilo de portal digital funcional");
+    expect(JSON.stringify(packet.implementationPlan)).not.toContain("Functional portal moodboard");
+    expect(packet.implementationPlanMarkdown).not.toContain("Estilo de portal digital funcional");
+    expect(packet.implementationPlanMarkdown).not.toContain("Functional portal moodboard");
+    expect(packet.implementationPlanMarkdown).not.toContain("31525266137895345");
+    expect(packet.implementationPlanMarkdown).not.toContain("off-brief");
+    expect(JSON.stringify(packet.canvasPlanRequest.generationPlan)).not.toContain("Estilo de portal digital funcional");
+    expect(JSON.stringify(packet.canvasPlanRequest.generationPlan)).not.toContain("Functional portal moodboard");
+    expect(packet.designMarkdown).not.toContain("Estilo de portal digital funcional");
+    expect(packet.designMarkdown).not.toContain("Functional portal moodboard");
+    expect(packet.metaPromptMarkdown).not.toContain("Estilo de portal digital funcional");
+    expect(packet.metaPromptMarkdown).not.toContain("Functional portal moodboard");
+    expect(packet.metaPromptMarkdown).toContain("No ready references were ranked.");
+    expect(packet.metaPromptMarkdown).toContain("ranked reference(s) were not ready for creative synthesis");
+    expect(packet.metaPromptMarkdown).not.toContain("https://www.pinterest.com/pin/31525266137895345/");
   });
 
   it("classifies page, component, and asset prototype targets without changing the Canvas request shape", () => {
@@ -1833,9 +2108,9 @@ describe("inspiredesign packet + renderer", () => {
     });
 
     expect(packet.advancedBriefMarkdown.indexOf("Reference evidence unavailable:")).toBe(0);
-    expect(packet.advancedBriefMarkdown).toContain(
-      "https://example.com/protected: fetch=failed, capture=failed, reason=Authentication required"
-    );
+    expect(packet.advancedBriefMarkdown).toContain("1 attempted reference(s) are retained in diagnostic artifacts only.");
+    expect(packet.advancedBriefMarkdown).not.toContain("https://example.com/protected");
+    expect(packet.advancedBriefMarkdown).not.toContain("Authentication required");
     expect(packet.advancedBriefMarkdown).toContain("Selected prompt format: Premium editorial landing page");
     expect(packet.advancedBriefMarkdown).not.toContain("admin dashboard analytics");
     expect(packet.implementationPlan.risksAndAmbiguities[0]).toContain(
@@ -2825,7 +3100,8 @@ describe("inspiredesign packet + renderer", () => {
 
     expect(rankedReferencesFile?.content).toMatchObject({
       references: [expect.objectContaining({ id: "usable-reference", rank: 1 })],
-      rejectedReferences: [expect.objectContaining({ id: "rejected-reference" })],
+      rejectedReferences: [],
+      qualitySummary: expect.objectContaining({ rejectedReferenceCount: 1 }),
       synthesis: expect.objectContaining({
         dominantDirection: expect.any(String),
         sharedFailuresToAvoid: expect.any(Array)
@@ -3012,7 +3288,8 @@ describe("inspiredesign packet + renderer", () => {
       brief: "Create a photography studio landing page",
       briefExpansion: makeBriefExpansion(),
       urls: ["https://example.com/blocked"],
-      references: []
+      references: [],
+      includePrototypeGuidance: true
     });
     const nextStepGuidance = {
       id: "inspiredesign.harvest.zero_references",
@@ -3054,16 +3331,38 @@ describe("inspiredesign packet + renderer", () => {
       prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
       evidence: packet.evidence,
       nextStepGuidance,
-      meta: {}
+      meta: {
+        primaryConstraintSummary: "Pinterest requires a user-authorized signed-in browser session."
+      }
     });
     const response = rendered.response as Record<string, unknown>;
-    const responseHandoff = response.designAgentHandoff as { commandExamples: { continueInCanvas: string } };
-    const handoffFile = rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff)?.content as { commandExamples: { continueInCanvas: string } } | undefined;
+    const responseHandoff = response.designAgentHandoff as {
+      artifactGuide: Record<string, { purpose: string; howToUse: string[]; mustNot: string[] }>;
+      commandExamples: { continueInCanvas: string };
+      summary: string;
+    };
+    const handoffFile = rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff)?.content as typeof responseHandoff | undefined;
 
     expect(responseHandoff.commandExamples.continueInCanvas).not.toContain("canvas.plan.set");
     expect(responseHandoff.commandExamples.continueInCanvas).toContain("nextStepGuidance.readiness");
     expect(handoffFile?.commandExamples.continueInCanvas).toBe(responseHandoff.commandExamples.continueInCanvas);
+    expect(responseHandoff.summary).toBe(response.followthroughSummary);
+    expect(responseHandoff.summary).not.toContain("continue in OpenDevBrowser Canvas");
+    expect(responseHandoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.purpose).toContain(
+      "Diagnostic Canvas request preview"
+    );
+    expect(responseHandoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.mustNot).toContain(
+      "Do not submit canvas.plan.set while nextStepGuidance.readiness is not ready."
+    );
+    expect(handoffFile?.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.purpose).toBe(
+      responseHandoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.purpose
+    );
     expect(response.suggestedNextAction).toBe("Collect usable reference evidence before Canvas.");
+    expect(response.followthroughSummary).toBe(
+      "Primary constraint: Pinterest requires a user-authorized signed-in browser session. Collect usable reference evidence before Canvas."
+    );
+    expect(response.prototypeGuidanceMarkdown).toBeNull();
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(false);
 
     const renderedWithoutGuidance = renderInspiredesign({
       mode: "json",
@@ -3087,6 +3386,13 @@ describe("inspiredesign packet + renderer", () => {
     expect(handoffWithoutGuidance.commandExamples.continueInCanvas).toBe(
       "Unavailable until nextStepGuidance.readiness is ready."
     );
+    expect(responseWithoutGuidance.followthroughSummary).toBe(
+      "Canvas continuation unavailable until nextStepGuidance.readiness is ready."
+    );
+    expect(responseWithoutGuidance.suggestedNextAction).toBe(
+      "Canvas continuation unavailable until nextStepGuidance.readiness is ready."
+    );
+    expect(JSON.stringify(responseWithoutGuidance.designAgentHandoff)).not.toContain("continue in OpenDevBrowser Canvas");
   });
 
   it.each([
@@ -3146,6 +3452,52 @@ describe("inspiredesign packet + renderer", () => {
     const response = rendered.response as Record<string, unknown>;
     const responseHandoff = response.designAgentHandoff as { commandExamples: { continueInCanvas: string } };
     expect(responseHandoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
+  });
+
+  it("does not label Canvas request artifacts as ready when attempted references are diagnostic-only", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a cinematic design agency studio landing page",
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://www.pinterest.com/pin/11188699075430754/"],
+      references: [
+        makeReference({
+          id: "diagnostic-pin",
+          url: "https://www.pinterest.com/pin/11188699075430754/",
+          title: "Pinterest navigation shell",
+          fetchStatus: "failed",
+          captureStatus: "captured",
+          fetchFailure: "Pinterest requires browser-native follow-up",
+          capture: {
+            status: "captured",
+            kind: "viewport",
+            path: "visual-evidence/diagnostic-pin/viewport.png",
+            sha256: "a".repeat(64),
+            bytes: 64000
+          }
+        })
+      ]
+    });
+
+    expect(packet.rankedReferences).toEqual([]);
+    expect(packet.designMarkdown).toContain(
+      "Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready"
+    );
+    expect(packet.designMarkdown).not.toContain("Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`");
+
+    const zeroReferenceHarvestPacket = buildInspiredesignPacket({
+      brief: "Create a cinematic design agency studio landing page",
+      briefExpansion: makeBriefExpansion(),
+      urls: [],
+      references: [],
+      referenceEvidenceRequired: true
+    });
+
+    expect(zeroReferenceHarvestPacket.designMarkdown).toContain(
+      "Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready"
+    );
+    expect(zeroReferenceHarvestPacket.designMarkdown).not.toContain(
+      "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`"
+    );
   });
 
   it("handles sparse capture evidence, empty task summaries, and truncated excerpts", () => {

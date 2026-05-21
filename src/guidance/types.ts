@@ -153,6 +153,7 @@ export type SiteRecipeReferenceCandidate = {
   url?: string;
   content?: string;
   html?: string;
+  links?: string[];
 };
 
 export type SiteRecipeBrowserNativeDiscovery = {

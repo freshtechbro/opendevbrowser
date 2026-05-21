@@ -30,8 +30,10 @@ import {
 } from "./brief-expansion";
 import {
   buildInspiredesignDesignVectors,
+  buildInspiredesignDesignReferencePatternBoard,
   buildInspiredesignReferencePatternBoard,
   getInspiredesignReferenceSignals,
+  isInspiredesignDesignReference,
   hasInspiredesignUsableReferenceEvidence,
   type InspiredesignDesignVectors,
   type InspiredesignReferencePatternBoard
@@ -469,6 +471,7 @@ export type BuildInspiredesignPacketInput = {
   urls: string[];
   references: InspiredesignReferenceEvidence[];
   includePrototypeGuidance?: boolean;
+  referenceEvidenceRequired?: boolean;
 };
 
 const BASE_CONTRACT_TEMPLATE: DesignContractTemplate = designContractTemplateJson;
@@ -738,13 +741,16 @@ const renderReferenceFirstAdvancedBrief = (
   vectors: InspiredesignDesignVectors,
   references: InspiredesignReferenceEvidence[]
 ): string => {
-  if (board.references.length === 0) {
+  if (board.references.length === 0 || vectors.sourcePriority !== "reference-evidence-first") {
     if (references.length > 0) {
       return [
         "Reference evidence unavailable:",
-        "URL references were attempted, but no usable creative evidence was captured. Treat this as a capture gap, not a design direction.",
+        "URL references were attempted, but no ready-quality creative evidence was captured. Treat this as a capture or intent gap, not a design direction.",
         "",
-        formatBulletList(references.map((reference) => renderUnavailableReference(reference))),
+        formatBulletList([
+          `${references.length} attempted reference(s) are retained in diagnostic artifacts only.`,
+          "Do not use rejected or not-ready reference URLs, names, screenshots, or metadata as creative direction."
+        ]),
         "",
         briefExpansion.advancedBrief
       ].join("\n");
@@ -837,11 +843,6 @@ const renderEvidenceDerivedAdvancedBrief = (
   "Best fit use cases:",
   formatBulletList(format.bestFor)
 ].join("\n");
-
-const renderUnavailableReference = (reference: InspiredesignReferenceEvidence): string => {
-  const reason = reference.fetchFailure ?? reference.captureFailure ?? "no usable creative evidence captured";
-  return `${reference.url}: fetch=${reference.fetchStatus}, capture=${reference.captureStatus}, reason=${clipText(reason, 160)}`;
-};
 
 const cloneTemplate = <T>(value: T): T => structuredClone(value);
 
@@ -1605,23 +1606,21 @@ const buildFollowthrough = ({
 
 type BuildDesignContractInput = {
   brief: string;
-  urls: string[];
-  references: InspiredesignReferenceEvidence[];
+  designReferences: InspiredesignReferenceEvidence[];
   plan: InspiredesignGenerationPlan;
   format: InspiredesignBriefFormat;
 };
 
 const buildDesignContract = ({
   brief,
-  urls,
-  references,
+  designReferences,
   plan,
   format
 }: BuildDesignContractInput): CanvasDesignGovernance => ({
-  intent: buildIntentBlock(brief, urls, references, format),
+  intent: buildIntentBlock(brief, designReferences.map((reference) => reference.url), designReferences, format),
   generationPlan: toCanvasGenerationPlan(plan),
   designLanguage: buildDesignLanguageBlock(plan.visualDirection.profile, format),
-  contentModel: buildContentModelBlock(brief, references.filter(hasInspiredesignUsableReferenceEvidence)),
+  contentModel: buildContentModelBlock(brief, designReferences),
   layoutSystem: buildLayoutSystemBlock(plan, format),
   typographySystem: buildTypographySystemBlock(format),
   colorSystem: buildColorSystemBlock(plan.visualDirection.profile, format),
@@ -1696,6 +1695,7 @@ type BuildImplementationPlanInput = {
   profile: CanvasVisualDirectionProfile;
   format: InspiredesignBriefFormat;
   references: InspiredesignReferenceEvidence[];
+  attemptedReferenceCount: number;
   synthesis: InspiredesignReferenceSynthesis;
   designVectors: InspiredesignDesignVectors;
 };
@@ -1704,6 +1704,7 @@ const buildImplementationPlan = ({
   profile,
   format,
   references,
+  attemptedReferenceCount,
   synthesis,
   designVectors
 }: BuildImplementationPlanInput): InspiredesignImplementationPlan => ({
@@ -1743,7 +1744,7 @@ const buildImplementationPlan = ({
     "Avoid horizontal scrolling for primary content."
   ],
   risksAndAmbiguities: [
-    references.length === 0
+    attemptedReferenceCount === 0
       ? "No live references were supplied, so visual cues are derived entirely from the written brief."
       : synthesis.lines.length > 0
         ? "Live references were reduced into reusable patterns; unique brand assets should still be recreated, not copied."
@@ -2032,11 +2033,13 @@ const renderPrototypeGuidance = (
   ].join("\n");
 };
 
-const renderDeliverablesSummary = (includePrototypeGuidance: boolean): string => {
+const renderDeliverablesSummary = (includePrototypeGuidance: boolean, canvasContinuationReady: boolean): string => {
   const deliverables = [
     "Structured `designContract` JSON aligned to canvas governance",
     "Valid `generationPlan` JSON aligned to the canvas generation plan contract",
-    "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`",
+    canvasContinuationReady
+      ? "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`"
+      : "Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready",
     "Design-agent handoff JSON with contract scope, skill nudges, and richer implementation context",
     "Human-readable `design.md` design specification",
     "Engineering implementation plan in JSON and Markdown"
@@ -2155,20 +2158,27 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     title: reference.title ? trimText(reference.title) : undefined,
     excerpt: reference.excerpt ? trimText(reference.excerpt) : undefined
   }));
-  const usableReferences = references.filter(hasInspiredesignUsableReferenceEvidence);
-  const synthesis = buildReferenceSynthesis(usableReferences);
+  const referenceEvidenceRequired = input.referenceEvidenceRequired ?? (urls.length > 0 || references.length > 0);
   const referencePatternBoard = buildInspiredesignReferencePatternBoard(
     referenceFingerprint(brief),
     selectedFormat,
     references,
     brief
   );
+  const readyReferenceIds = new Set(
+    referencePatternBoard.references.filter(isInspiredesignDesignReference).map((reference) => reference.id)
+  );
+  const usableReferences = references
+    .filter(hasInspiredesignUsableReferenceEvidence)
+    .filter((reference) => readyReferenceIds.has(reference.id));
+  const synthesis = buildReferenceSynthesis(usableReferences);
   const designVectors = buildInspiredesignDesignVectors(selectedFormat, referencePatternBoard);
+  const designReferencePatternBoard = buildInspiredesignDesignReferencePatternBoard(referencePatternBoard, designVectors);
   const effectiveFormat = buildEvidenceDerivedFormat(selectedFormat, designVectors);
   const targetAnalysis = buildTargetAnalysis(
     brief,
     effectiveFormat,
-    references,
+    usableReferences,
     synthesis,
     designVectors
   );
@@ -2187,7 +2197,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   });
   const advancedBriefMarkdown = renderReferenceFirstAdvancedBrief(
     effectiveBriefExpansion,
-    referencePatternBoard,
+    designReferencePatternBoard,
     designVectors,
     references
   );
@@ -2195,7 +2205,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     brief,
     format: effectiveFormat,
     synthesis,
-    referencePatternBoard,
+    referencePatternBoard: designReferencePatternBoard,
     designVectors,
     targetAnalysis
   });
@@ -2203,8 +2213,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   const canvasPlanRequest = buildCanvasPlanRequest(brief, generationPlan);
   const designContract = buildDesignContract({
     brief,
-    urls,
-    references,
+    designReferences: usableReferences,
     plan: generationPlan,
     format: effectiveFormat
   });
@@ -2213,14 +2222,15 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     briefExpansion: effectiveBriefExpansion,
     synthesis,
     includePrototypeGuidance,
-    referencePatternBoard,
+    referencePatternBoard: designReferencePatternBoard,
     designVectors,
     targetAnalysis
   });
   const implementationPlan = buildImplementationPlan({
     profile,
     format: effectiveFormat,
-    references,
+    references: usableReferences,
+    attemptedReferenceCount: references.length,
     synthesis,
     designVectors
   });
@@ -2253,8 +2263,8 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     "## 3.2 Reference Pattern Board",
     "",
-    formatBulletList(referencePatternBoard.synthesis.sharedStrengths.length > 0
-      ? referencePatternBoard.synthesis.sharedStrengths
+    formatBulletList(designVectors.patternsToBorrow.length > 0
+      ? designVectors.patternsToBorrow
       : ["No live reference cues were captured."]),
     "",
     "## 3.3 Design Vectors",
@@ -2294,7 +2304,10 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     "# 7. Deliverables Summary",
     "",
-    renderDeliverablesSummary(Boolean(input.includePrototypeGuidance))
+    renderDeliverablesSummary(
+      Boolean(input.includePrototypeGuidance),
+      !referenceEvidenceRequired || designReferencePatternBoard.references.length > 0
+    )
   ].join("\n");
 
   const visualEvidence = buildVisualEvidencePayload(references);
@@ -2311,7 +2324,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     prototypeGuidanceMarkdown,
     visualEvidence,
     screenshotIndex,
-    rankedReferences: referencePatternBoard.references,
+    rankedReferences: designReferencePatternBoard.references,
     metaPromptMarkdown,
     evidence: buildEvidencePayload({
       brief,
@@ -2319,7 +2332,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       advancedBriefMarkdown,
       urls,
       references,
-      referencePatternBoard,
+      referencePatternBoard: designReferencePatternBoard,
       designVectors,
       targetAnalysis
     })

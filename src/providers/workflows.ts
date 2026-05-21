@@ -43,7 +43,7 @@ import {
   type NextStepGuidance,
   type SiteRecipe
 } from "../guidance";
-import { resolveSiteRecipeForProvider } from "../guidance/recipes/site-registry";
+import { resolveSiteRecipeForProvider, resolveSiteRecipeForUrl } from "../guidance/recipes/site-registry";
 import {
   mergeInspiredesignReferenceUrls,
   normalizeInspiredesignDiscoveryRecords,
@@ -1807,22 +1807,66 @@ const buildInspiredesignStepEnvelope = (
   }
 );
 
+const buildInspiredesignFetchOptionsWithScope = (
+  workflowInput: InspiredesignResolvedInput,
+  envelope: WorkflowResumeEnvelope,
+  providerScope: Pick<ProviderRunOptions, "source" | "providerIds">,
+  timeoutMs?: number
+): ProviderRunOptions => (
+  withWorkflowResumeEnvelopeIntent(
+    withBrowserModeOverride(
+      withChallengeAutomationOverride(
+        withCookieOverrides({
+          ...providerScope,
+          ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+        }, workflowInput),
+        workflowInput
+      ),
+      workflowInput
+    ),
+    "workflow.inspiredesign",
+    envelope
+  )
+);
+
 const buildInspiredesignFetchOptions = (
   workflowInput: InspiredesignResolvedInput,
   envelope: WorkflowResumeEnvelope,
   timeoutMs?: number
-): ProviderRunOptions => withWorkflowResumeEnvelopeIntent(
-  withBrowserModeOverride(
-    withChallengeAutomationOverride(
-      withCookieOverrides({
-        ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
-      }, workflowInput),
-      workflowInput
-    ),
-    workflowInput
-  ),
-  "workflow.inspiredesign",
-  envelope
+): ProviderRunOptions => {
+  const siteRecipeProviderIds = new Set(
+    workflowInput.providers.filter((providerId) => resolveSiteRecipeForProvider(providerId) !== undefined)
+  );
+  const standardProviderIds = workflowInput.providers.filter((providerId) => !siteRecipeProviderIds.has(providerId));
+  let providerScope: Pick<ProviderRunOptions, "source" | "providerIds"> = {};
+  if (workflowInput.providers.length > 0 && standardProviderIds.length === 0) {
+    providerScope = { source: "web" };
+  } else if (standardProviderIds.length > 0) {
+    providerScope = { providerIds: standardProviderIds };
+  }
+  return buildInspiredesignFetchOptionsWithScope(workflowInput, envelope, providerScope, timeoutMs);
+};
+
+const buildInspiredesignSiteRecipeFetchOptions = (
+  workflowInput: InspiredesignResolvedInput,
+  envelope: WorkflowResumeEnvelope,
+  timeoutMs?: number
+): ProviderRunOptions => buildInspiredesignFetchOptionsWithScope(
+  workflowInput,
+  envelope,
+  { source: "web" },
+  timeoutMs
+);
+
+const buildInspiredesignReferenceFetchOptions = (
+  workflowInput: InspiredesignResolvedInput,
+  envelope: WorkflowResumeEnvelope,
+  url: string,
+  timeoutMs?: number
+): ProviderRunOptions => (
+  resolveSiteRecipeForUrl(url)
+    ? buildInspiredesignSiteRecipeFetchOptions(workflowInput, envelope, timeoutMs)
+    : buildInspiredesignFetchOptions(workflowInput, envelope, timeoutMs)
 );
 
 type InspiredesignDiscoveryDiagnostics = {
@@ -1918,6 +1962,49 @@ const normalizeSiteRecipeFetchFailures = (
   }));
 };
 
+type InspiredesignAcceptedDiscovery = InspiredesignDiscoveryResult["accepted"][number];
+
+const appendNextUniqueDiscoveryCandidate = (
+  queue: InspiredesignAcceptedDiscovery[],
+  cursor: number,
+  seen: Set<string>,
+  accepted: InspiredesignAcceptedDiscovery[]
+): number => {
+  let nextCursor = cursor;
+  while (nextCursor < queue.length) {
+    const candidate = queue[nextCursor];
+    nextCursor += 1;
+    if (!candidate || seen.has(candidate.url)) continue;
+    seen.add(candidate.url);
+    accepted.push(candidate);
+    return nextCursor;
+  }
+  return nextCursor;
+};
+
+const capMixedInspiredesignDiscovery = (
+  siteDiscovery: InspiredesignDiscoveryResult,
+  standardDiscovery: InspiredesignDiscoveryResult,
+  maxReferences: number
+): InspiredesignDiscoveryResult => {
+  const accepted: InspiredesignDiscoveryResult["accepted"] = [];
+  const seen = new Set<string>();
+  let siteCursor = 0;
+  let standardCursor = 0;
+  while (
+    accepted.length < maxReferences
+    && (siteCursor < siteDiscovery.accepted.length || standardCursor < standardDiscovery.accepted.length)
+  ) {
+    siteCursor = appendNextUniqueDiscoveryCandidate(siteDiscovery.accepted, siteCursor, seen, accepted);
+    if (accepted.length >= maxReferences) break;
+    standardCursor = appendNextUniqueDiscoveryCandidate(standardDiscovery.accepted, standardCursor, seen, accepted);
+  }
+  return {
+    accepted,
+    rejected: [...siteDiscovery.rejected, ...standardDiscovery.rejected]
+  };
+};
+
 const discoverInspiredesignReferences = async (
   runtime: ReferenceRetrievalPort,
   workflowInput: InspiredesignResolvedInput,
@@ -1946,7 +2033,7 @@ const discoverInspiredesignReferences = async (
       fetchSearchPage: async (url) => {
         const result = normalizeInspiredesignFetchResult(await runtime.fetch(
           { url },
-          buildInspiredesignFetchOptions(workflowInput, envelope, timeoutMs)
+          buildInspiredesignSiteRecipeFetchOptions(workflowInput, envelope, timeoutMs)
         ));
         const failures = result.failures.length > 0 ? result.failures : failureFromInspiredesignFetchError(result);
         return {
@@ -1974,7 +2061,11 @@ const discoverInspiredesignReferences = async (
         const discovery = normalizeInspiredesignDiscoveryRecords(searchResult.records);
         const siteResult = await runSiteRecipeDiscovery();
         const siteDiscovery = normalizeInspiredesignDiscoveryRecords(siteResult.records);
-        const combinedDiscovery = normalizeInspiredesignDiscoveryRecords([...siteResult.records, ...searchResult.records]);
+        const combinedDiscovery = capMixedInspiredesignDiscovery(
+          siteDiscovery,
+          discovery,
+          workflowInput.referenceLimit ?? workflowInput.maxReferences
+        );
         const failures = [...searchFailures, ...siteResult.failures];
         return {
           requested: true,
@@ -1990,7 +2081,8 @@ const discoverInspiredesignReferences = async (
             ...siteResult.diagnostics,
             standardAcceptedCount: discovery.accepted.length,
             standardRejectedCount: discovery.rejected.length,
-            siteAcceptedCount: siteDiscovery.accepted.length
+            siteAcceptedCount: siteDiscovery.accepted.length,
+            cappedAcceptedCount: combinedDiscovery.accepted.length
           }
         };
       } catch (error) {
@@ -2722,6 +2814,47 @@ const hasSurvivingInspiredesignReference = (references: InspiredesignReferenceEv
   references.some((reference) => reference.fetchStatus === "captured" || reference.captureStatus === "captured")
 );
 
+const INSPIREDESIGN_HARD_DISCOVERY_REASON_CODES = new Set<ProviderReasonCode>([
+  "auth_required",
+  "challenge_detected",
+  "policy_blocked",
+  "rate_limited",
+  "token_required"
+]);
+
+const readInspiredesignFailureReasonCode = (failure: ProviderFailureEntry): ProviderReasonCode | undefined => {
+  const reasonCode = failure.error.reasonCode ?? failure.error.details?.reasonCode;
+  return typeof reasonCode === "string" && INSPIREDESIGN_HARD_DISCOVERY_REASON_CODES.has(reasonCode as ProviderReasonCode)
+    ? reasonCode as ProviderReasonCode
+    : undefined;
+};
+
+const hardInspiredesignDiscoveryReasonCodes = (discovery: InspiredesignDiscoveryDiagnostics): ProviderReasonCode[] => {
+  const reasonCodes = discovery.failures
+    .map(readInspiredesignFailureReasonCode)
+    .filter((reasonCode): reasonCode is ProviderReasonCode => reasonCode !== undefined);
+  return [...new Set(reasonCodes)];
+};
+
+const hardInspiredesignMetaReasonCodes = (meta: Record<string, unknown>): ProviderReasonCode[] => {
+  const distribution = meta.reasonCodeDistribution;
+  if (!distribution || typeof distribution !== "object" || Array.isArray(distribution)) return [];
+  return Object.keys(distribution)
+    .filter((reasonCode): reasonCode is ProviderReasonCode => (
+      INSPIREDESIGN_HARD_DISCOVERY_REASON_CODES.has(reasonCode as ProviderReasonCode)
+    ));
+};
+
+const hardInspiredesignGuidanceReasonCodes = (
+  discovery: InspiredesignDiscoveryDiagnostics,
+  meta: Record<string, unknown>
+): ProviderReasonCode[] => [
+  ...new Set([
+    ...hardInspiredesignDiscoveryReasonCodes(discovery),
+    ...hardInspiredesignMetaReasonCodes(meta)
+  ])
+];
+
 const selectInspiredesignPrimaryConstraintFailures = (
   failures: ProviderFailureEntry[],
   references: InspiredesignReferenceEvidence[],
@@ -2773,16 +2906,18 @@ const buildInspiredesignGuidanceSource = (
       requested: discovery.requested,
       acceptedUrls: discovery.acceptedUrls,
       failures: discovery.failures.length,
-      ...(discovery.failure ? { failure: discovery.failure } : {})
+      ...(discovery.failure ? { failure: discovery.failure } : {}),
+      hardFailureReasonCodes: hardInspiredesignGuidanceReasonCodes(discovery, meta)
     },
     metrics: {
-      referenceCount: referencePatternBoard.references.length + referencePatternBoard.rejectedReferences.length,
+      referenceCount: quality.rankedReferenceCount + quality.rejectedReferenceCount,
       referenceEvidenceRequired: isInspiredesignReferenceEvidenceRequired(workflowInput),
       failedCaptureCount: quality.failedCaptureCount,
       visualEvidenceRequired: workflowInput.visualEvidence === "required"
     },
     quality: {
       rankedReferenceCount: quality.rankedReferenceCount,
+      rankedReferenceUrls: referencePatternBoard.references.map((reference) => reference.url),
       rejectedReferenceCount: quality.rejectedReferenceCount,
       missingScreenshotCount: quality.missingScreenshotCount,
       diagnosticOnlyReasons: quality.diagnosticOnlyReasons,
@@ -2915,18 +3050,15 @@ const summarizeInspiredesignDiscoveryConstraint = (
 };
 
 const buildInspiredesignGuidanceFollowthroughSummary = (
-  followthrough: InspiredesignFollowthrough,
+  _followthrough: InspiredesignFollowthrough,
   meta: Record<string, unknown>,
   nextStepGuidance: NextStepGuidance
 ): string => {
   const primaryConstraintSummary = typeof meta.primaryConstraintSummary === "string"
     ? meta.primaryConstraintSummary.trim()
     : "";
-  const constrainedSummary = primaryConstraintSummary
-    ? `Primary constraint: ${primaryConstraintSummary} ${followthrough.summary}`
-    : followthrough.summary;
-  const fallbackSummary = constrainedSummary.startsWith("Primary constraint:")
-    ? `${constrainedSummary} ${nextStepGuidance.primaryAction.summary}`
+  const fallbackSummary = primaryConstraintSummary
+    ? `Primary constraint: ${primaryConstraintSummary} ${nextStepGuidance.primaryAction.summary}`
     : undefined;
   return renderWorkflowCompatibility(nextStepGuidance, fallbackSummary).followthroughSummary;
 };
@@ -4227,9 +4359,10 @@ export const runInspiredesignWorkflow = async (
     const fetchTimeoutMs = remainingTimeoutMs();
     const fetchResult = await runtime.fetch(
       { url },
-      buildInspiredesignFetchOptions(
+      buildInspiredesignReferenceFetchOptions(
         workflowInput,
         buildInspiredesignStepEnvelope(workflowInput, stepTrace, index, url),
+        url,
         fetchTimeoutMs
       )
     );
@@ -4253,7 +4386,9 @@ export const runInspiredesignWorkflow = async (
     const reference = buildInspiredesignReference(url, result, capture);
     references.push(reference);
     if (reference.fetchStatus === "failed" && !isInspiredesignFetchRecovered(reference)) {
-      failures.push(...result.failures);
+      const fetchFailures = result.failures.length > 0 ? result.failures : failureFromInspiredesignFetchError(result);
+      const siteRecipe = resolveSiteRecipeForUrl(url);
+      failures.push(...(siteRecipe ? normalizeSiteRecipeFetchFailures(siteRecipe, fetchFailures) : fetchFailures));
     }
     trace = appendWorkflowTrace(stepTrace, "execute", "reference_completed", {
       stepIndex: index,
@@ -4269,7 +4404,8 @@ export const runInspiredesignWorkflow = async (
     briefExpansion: workflowInput.briefExpansion,
     urls: workflowInput.urls,
     references: visualCollation.references,
-    includePrototypeGuidance: workflowInput.includePrototypeGuidance
+    includePrototypeGuidance: workflowInput.includePrototypeGuidance,
+    referenceEvidenceRequired: isInspiredesignReferenceEvidenceRequired(workflowInput)
   });
   const meta = buildInspiredesignMeta(
     runtime,

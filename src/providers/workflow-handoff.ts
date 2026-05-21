@@ -273,6 +273,11 @@ type InspiredesignSuccessHandoffInput = {
   nextStepGuidance?: NextStepGuidance;
 };
 
+const extractPrimaryConstraintSentence = (summary: string): string | null => {
+  const match = /^Primary constraint:\s+(.+?\.)\s/.exec(summary);
+  return match?.[1] ?? null;
+};
+
 const buildMacroResolveArgs = (
   input: MacroResolveHandoffInput,
   options?: {
@@ -450,8 +455,9 @@ export const buildInspiredesignSuccessHandoff = (
   input: InspiredesignSuccessHandoffInput
 ): WorkflowSuccessHandoff => {
   if (input.nextStepGuidance && input.nextStepGuidance.readiness !== "ready") {
-    const summary = input.summary.startsWith("Primary constraint:")
-      ? `${input.summary} ${input.nextStepGuidance.primaryAction.summary}`
+    const primaryConstraint = extractPrimaryConstraintSentence(input.summary);
+    const summary = primaryConstraint
+      ? `Primary constraint: ${primaryConstraint} ${input.nextStepGuidance.primaryAction.summary}`
       : undefined;
     const compatibility = renderWorkflowCompatibility(input.nextStepGuidance, summary);
     return {
