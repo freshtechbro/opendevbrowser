@@ -144,9 +144,9 @@ export const INSPIREDESIGN_ARTIFACT_GUIDE: InspiredesignArtifactGuide = {
   },
   [INSPIREDESIGN_HANDOFF_FILES.rankedReferences]: {
     purpose: "Deterministic ranked reference pattern board for design transfer.",
-    expectedContents: ["rank", "score", "confidence", "visual strengths", "visual risks", "rejected references"],
+    expectedContents: ["rank", "score", "confidence", "visual strengths", "visual risks", "aggregate rejected counts"],
     howToUse: ["Start from rank 1 for dominant direction", "borrow patterns and reject risks explicitly"],
-    mustNot: ["Do not copy source brands or override the ranked order with source order"]
+    mustNot: ["Do not copy source brands, rejected reference URLs, or override the ranked order with source order"]
   },
   [INSPIREDESIGN_HANDOFF_FILES.metaPrompt]: {
     purpose: "Markdown prompt for downstream design generation from harvested evidence.",

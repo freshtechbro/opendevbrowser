@@ -58,6 +58,11 @@ const htmlFromRecord = (record: NormalizedRecord): string => {
   return typeof html === "string" ? html : "";
 };
 
+const linksFromRecord = (record: NormalizedRecord): string[] => {
+  const links = record.attributes.links;
+  return Array.isArray(links) ? links.filter((link): link is string => typeof link === "string") : [];
+};
+
 const badStateTextForRecord = (record: NormalizedRecord): string => {
   return [
     record.url ?? "",
@@ -187,7 +192,8 @@ const extractRecipeReferenceUrls = (
     extractor({
       url: record.url ?? undefined,
       content: record.content ?? undefined,
-      html: typeof record.attributes.html === "string" ? record.attributes.html : undefined
+      html: typeof record.attributes.html === "string" ? record.attributes.html : undefined,
+      links: linksFromRecord(record)
     }).forEach(pushUrl);
     if (urls.length >= maxReferences) break;
   }

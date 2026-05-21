@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizePinterestReferenceUrl } from "../src/guidance/recipes/pinterest";
 import {
   listSiteRecipes,
   resolveSiteRecipeForProvider,
@@ -37,9 +38,20 @@ const makeFailure = (
 });
 
 describe("Pinterest guidance recipe", () => {
+  it("canonicalizes accepted Pinterest references to HTTPS", () => {
+    expect(normalizePinterestReferenceUrl("http://www.pinterest.com/pin/61572719900827789/?tracking=1#section")).toBe(
+      "https://www.pinterest.com/pin/61572719900827789/"
+    );
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/pin/create/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/pin/edit/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/ideas/create/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("http://evil-pinterest.com/pin/61572719900827789/")).toBeNull();
+  });
+
   it("resolves Pinterest by provider id and host without registering a social provider", () => {
     expect(resolveSiteRecipeForProvider("social/pinterest")?.id).toBe("social/pinterest");
     expect(resolveSiteRecipeForUrl("https://uk.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/")?.id).toBe("social/pinterest");
+    expect(resolveSiteRecipeForUrl("https://assets.pinterest.com/pin/61572719900827789/")).toBeUndefined();
     expect(resolveSiteRecipeForUrl("not a url")).toBeUndefined();
     expect(resolveSiteRecipeForProvider("social/not-pinterest")).toBeUndefined();
 
@@ -272,6 +284,45 @@ describe("Pinterest guidance recipe", () => {
     ]);
   });
 
+  it("extracts Pinterest references from browser fallback link attributes before search-shell recovery", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          title: "Pinterest",
+          content: "Your profile Pin card",
+          attributes: {
+            links: [
+              "https://uk.pinterest.com/pin/11188699075430754/",
+              "/pin/27654985208435505/",
+              "https://example.com/not-pinterest"
+            ]
+          }
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.records.map((record) => record.url)).toEqual([
+      "https://uk.pinterest.com/pin/11188699075430754/",
+      "https://www.pinterest.com/pin/27654985208435505/"
+    ]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "reference_urls_extracted",
+      extractedUrlCount: 2
+    }));
+  });
+
   it("classifies search-shell pages after extraction fails", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
@@ -344,6 +395,7 @@ describe("Pinterest guidance recipe", () => {
           content: [
             '<a href="/someuser/pins/">Profile pins</a>',
             '<a href="/someuser/following/">Following</a>',
+            '<a href="/board/settings/">Reserved board path</a>',
             '<a href="/studio/portrait-lighting/?utm_source=search#section">Board</a>',
             '<a href="https://www.pinterest.com/studio/portrait-lighting/?tracking=1">Tracked duplicate</a>',
             '<a href="/pin/61572719900827789/?utm_source=search#comments">Pin</a>'
@@ -596,7 +648,7 @@ describe("Pinterest guidance recipe", () => {
     }));
   });
 
-  it("rejects non-concrete Pinterest pin and idea paths from direct candidate URLs", async () => {
+  it("rejects non-concrete Pinterest pin, idea, and product chrome paths from direct candidate URLs", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
     if (!recipe) return;
@@ -611,7 +663,12 @@ describe("Pinterest guidance recipe", () => {
       fetchSearchPage: async () => ({
         records: [
           makeSearchRecord({ url: "https://www.pinterest.com/pin/" }),
-          makeSearchRecord({ url: "https://www.pinterest.com/ideas/" })
+          makeSearchRecord({ url: "https://www.pinterest.com/pin/create/" }),
+          makeSearchRecord({ url: "https://www.pinterest.com/pin/edit/" }),
+          makeSearchRecord({ url: "https://www.pinterest.com/ideas/" }),
+          makeSearchRecord({ url: "https://www.pinterest.com/ideas/create/" }),
+          makeSearchRecord({ url: "https://www.pinterest.com/create/pin/" }),
+          makeSearchRecord({ url: "https://www.pinterest.com/explore/design/" })
         ],
         failures: []
       })
@@ -621,7 +678,7 @@ describe("Pinterest guidance recipe", () => {
     expect(result.diagnostics.reason).toBe("no_reference_urls_extracted");
   });
 
-  it("rejects spoofed hosts and reports the default extraction message", async () => {
+  it("rejects spoofed and unapproved Pinterest hosts with the default extraction message", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
     if (!recipe) return;
@@ -635,8 +692,8 @@ describe("Pinterest guidance recipe", () => {
       cookiePolicy: "required",
       fetchSearchPage: async () => ({
         records: [makeSearchRecord({
-          url: "https://evil.example/pin/61572719900827789/",
-          content: "https://notpinterest.com/pin/61572719900827789/"
+          url: "https://assets.pinterest.com/pin/61572719900827789/",
+          content: "https://notpinterest.com/pin/61572719900827789/ https://assets.pinterest.com/pin/61572719900827789/"
         })],
         failures: []
       })
@@ -644,6 +701,30 @@ describe("Pinterest guidance recipe", () => {
 
     expect(result.records).toEqual([]);
     expect(result.failures[0]?.error.message).toBe("social/pinterest search did not expose recipe-approved URLs that can be used as references.");
+  });
+
+  it("rejects non-http Pinterest URLs from direct candidate records", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "cinematic photography studio",
+      maxReferences: 2,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          url: "ftp://www.pinterest.com/pin/61572719900827789/"
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.diagnostics.reason).toBe("no_reference_urls_extracted");
   });
 
   it("extracts references from record html attributes and stops at the requested maximum", async () => {

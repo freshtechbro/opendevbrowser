@@ -187,6 +187,40 @@ const canContinueInspiredesignInCanvas = (guidance: NextStepGuidance | undefined
   guidance?.readiness === "ready"
 );
 
+const blockInspiredesignCanvasArtifactGuide = (
+  handoff: InspiredesignFollowthrough,
+  recoverySummary: string
+): InspiredesignFollowthrough["artifactGuide"] => ({
+  ...handoff.artifactGuide,
+  [INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]: {
+    ...handoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest],
+    purpose: "Diagnostic Canvas request preview only until nextStepGuidance.readiness is ready.",
+    howToUse: [
+      recoverySummary,
+      "Do not submit this payload to Canvas until usable ranked references pass the readiness checks."
+    ],
+    mustNot: [
+      "Do not submit canvas.plan.set while nextStepGuidance.readiness is not ready.",
+      "Do not treat rejected or not-ready references as Canvas design direction."
+    ]
+  }
+});
+
+const buildMissingInspiredesignGuidanceHandoff = (): {
+  followthroughSummary: string;
+  suggestedNextAction: string;
+  suggestedSteps: Array<{ reason: string; command?: string }>;
+} => {
+  const summary = "Canvas continuation unavailable until nextStepGuidance.readiness is ready.";
+  return {
+    followthroughSummary: summary,
+    suggestedNextAction: summary,
+    suggestedSteps: [{
+      reason: "Inspect the workflow output for nextStepGuidance before using Canvas artifacts."
+    }]
+  };
+};
+
 const limitedCount = (total: number, limit: number): number => Math.min(total, limit);
 
 const omissionLine = (args: {
@@ -740,6 +774,7 @@ export const renderInspiredesign = (args: {
   const rankedReferences = args.rankedReferences ?? [];
   const rankedReferencesArtifact = args.referencePatternBoard
     ? {
+      qualitySummary: args.referencePatternBoard.qualitySummary,
       references: args.referencePatternBoard.references,
       rejectedReferences: args.referencePatternBoard.rejectedReferences,
       synthesis: args.referencePatternBoard.synthesis
@@ -756,23 +791,31 @@ export const renderInspiredesign = (args: {
     meta: args.meta
   });
   const followthroughSummary = prependPrimaryConstraint(args.designAgentHandoff.summary, args.meta);
+  const canContinueInCanvas = canContinueInspiredesignInCanvas(args.nextStepGuidance);
+  const prototypeGuidanceMarkdown = canContinueInCanvas ? args.prototypeGuidanceMarkdown : null;
   const commandExamples = {
     ...args.designAgentHandoff.commandExamples,
-    continueInCanvas: canContinueInspiredesignInCanvas(args.nextStepGuidance)
+    continueInCanvas: canContinueInCanvas
       ? args.designAgentHandoff.commandExamples.continueInCanvas
       : CANVAS_CONTINUATION_BLOCKED_COMMAND
   };
-  const handoff = buildInspiredesignSuccessHandoff({
+  const renderedWorkflowHandoff = buildInspiredesignSuccessHandoff({
     summary: followthroughSummary,
     nextStep: args.designAgentHandoff.nextStep,
     commandExamples,
     deepCaptureRecommendation: args.designAgentHandoff.deepCaptureRecommendation,
     ...(args.nextStepGuidance ? { nextStepGuidance: args.nextStepGuidance } : {})
   });
+  const handoff = args.nextStepGuidance ? renderedWorkflowHandoff : buildMissingInspiredesignGuidanceHandoff();
+  const blockedCanvasArtifactGuide = canContinueInCanvas
+    ? args.designAgentHandoff.artifactGuide
+    : blockInspiredesignCanvasArtifactGuide(args.designAgentHandoff, handoff.suggestedNextAction);
   const renderedDesignAgentHandoff = {
     ...args.designAgentHandoff,
     ...handoff,
+    summary: handoff.followthroughSummary,
     nextStep: handoff.suggestedNextAction,
+    artifactGuide: blockedCanvasArtifactGuide,
     commandExamples
   };
   const contextPayload = {
@@ -787,7 +830,7 @@ export const renderInspiredesign = (args: {
     implementationPlan: args.implementationPlan,
     designMarkdown: args.designMarkdown,
     implementationPlanMarkdown: args.implementationPlanMarkdown,
-    prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
+    prototypeGuidanceMarkdown,
     evidence: args.evidence,
     visualEvidence,
     screenshotIndex,
@@ -813,8 +856,8 @@ export const renderInspiredesign = (args: {
     { path: INSPIREDESIGN_HANDOFF_FILES.rankedReferences, content: rankedReferencesArtifact },
     { path: INSPIREDESIGN_HANDOFF_FILES.metaPrompt, content: metaPromptMarkdown }
   ];
-  if (args.prototypeGuidanceMarkdown) {
-    files.push({ path: INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance, content: args.prototypeGuidanceMarkdown });
+  if (prototypeGuidanceMarkdown) {
+    files.push({ path: INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance, content: prototypeGuidanceMarkdown });
   }
   const captureAttemptFields = {
     ...(captureAttemptSummary ? { captureAttemptSummary } : {}),
@@ -846,7 +889,7 @@ export const renderInspiredesign = (args: {
         designContract: args.designContract,
         generationPlan: args.generationPlan,
         implementationPlan: args.implementationPlan,
-        prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
+        prototypeGuidanceMarkdown,
         evidence: args.evidence,
         visualEvidence,
         screenshotIndex,
@@ -865,7 +908,7 @@ export const renderInspiredesign = (args: {
         mode: args.mode,
         markdown: args.designMarkdown,
         implementationPlanMarkdown: args.implementationPlanMarkdown,
-        prototypeGuidanceMarkdown: args.prototypeGuidanceMarkdown,
+        prototypeGuidanceMarkdown,
         ...handoff,
         ...captureAttemptFields,
         meta: args.meta

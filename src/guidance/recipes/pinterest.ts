@@ -50,7 +50,24 @@ const pinterestGuidance: NextStepGuidance = {
   ]
 };
 
-const RESERVED_PINTEREST_BOARD_PATHS = new Set(["about", "business", "ideas", "login", "pin", "search", "settings", "today"]);
+const PINTEREST_PIN_ID_PATTERN = /^\d+$/;
+const RESERVED_PINTEREST_BOARD_PATHS = new Set([
+  "about",
+  "board",
+  "business",
+  "create",
+  "explore",
+  "ideas",
+  "login",
+  "messages",
+  "notifications",
+  "pin",
+  "search",
+  "settings",
+  "shopping",
+  "today"
+]);
+const RESERVED_PINTEREST_IDEA_PATHS = new Set(["create", "edit", "search"]);
 const RESERVED_PINTEREST_PROFILE_TABS = new Set([
   "activity",
   "comments",
@@ -63,18 +80,35 @@ const RESERVED_PINTEREST_PROFILE_TABS = new Set([
   "tried"
 ]);
 
-const normalizePinterestCandidateUrl = (value: string): string | null => {
+export const isAllowedPinterestReferenceHost = (hostname: string): boolean => (
+  hostname === "pinterest.com"
+  || hostname === "www.pinterest.com"
+  || /^[a-z]{2}\.pinterest\.com$/.test(hostname)
+);
+
+export const normalizePinterestReferenceUrl = (value: string): string | null => {
   const trimmed = value.trim();
   const absolute = trimmed.startsWith("/")
     ? `https://www.pinterest.com${trimmed}`
     : trimmed;
   try {
     const url = new URL(absolute);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    url.protocol = "https:";
     const hostname = url.hostname.toLowerCase();
-    if (hostname !== "pinterest.com" && !hostname.endsWith(".pinterest.com")) return null;
+    if (!isAllowedPinterestReferenceHost(hostname)) return null;
     const pathSegments = url.pathname.split("/").filter(Boolean);
-    const isPin = pathSegments[0] === "pin" && pathSegments.length === 2;
-    const isIdea = pathSegments[0] === "ideas" && pathSegments.length >= 2;
+    const isPin = (
+      pathSegments[0] === "pin"
+      && pathSegments.length === 2
+      && PINTEREST_PIN_ID_PATTERN.test(pathSegments[1] ?? "")
+    );
+    const isIdea = (
+      pathSegments[0] === "ideas"
+      && pathSegments.length >= 3
+      && !RESERVED_PINTEREST_IDEA_PATHS.has(pathSegments[1] ?? "")
+      && PINTEREST_PIN_ID_PATTERN.test(pathSegments[pathSegments.length - 1] ?? "")
+    );
     const isBoard = pathSegments.length === 2
       && !RESERVED_PINTEREST_BOARD_PATHS.has(pathSegments[0] ?? "")
       && !RESERVED_PINTEREST_PROFILE_TABS.has(pathSegments[1] ?? "")
@@ -91,7 +125,7 @@ const normalizePinterestCandidateUrl = (value: string): string | null => {
 const extractPinterestUrlsFromText = (value: string): string[] => {
   const candidates = value.match(/(?:https?:\/\/(?:(?:www|[a-z]{2})\.)?pinterest\.com\/(?:pin\/[a-zA-Z0-9_-]+|ideas\/[a-zA-Z0-9/_-]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)|(?<![A-Za-z0-9.])\/(?:pin\/[a-zA-Z0-9_-]+|ideas\/[a-zA-Z0-9/_-]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+))\/?/g) ?? [];
   return candidates
-    .map(normalizePinterestCandidateUrl)
+    .map(normalizePinterestReferenceUrl)
     .filter((url): url is string => url !== null);
 };
 
@@ -102,7 +136,8 @@ const buildPinterestSearchUrl = (query: string): string => {
 
 const extractPinterestReferenceUrls = (candidate: SiteRecipeReferenceCandidate): string[] => {
   return [
-    normalizePinterestCandidateUrl(candidate.url ?? ""),
+    normalizePinterestReferenceUrl(candidate.url ?? ""),
+    ...(candidate.links ?? []).map(normalizePinterestReferenceUrl),
     ...extractPinterestUrlsFromText(candidate.content ?? ""),
     ...extractPinterestUrlsFromText(candidate.html ?? "")
   ].filter((url): url is string => url !== null);
