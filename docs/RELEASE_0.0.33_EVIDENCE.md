@@ -1,6 +1,6 @@
 # v0.0.33 Release Evidence
 
-Status: local gates complete; release workflow pending
+Status: released
 Target release date: 2026-05-21
 Target tag: `v0.0.33`
 
@@ -11,7 +11,8 @@ Tracks the `0.0.33` release cycle for the typed guidance recipe architecture, Pi
 Current status note:
 - Source version metadata is aligned from `0.0.32` to `0.0.33`.
 - Chrome Web Store publication is explicitly skipped for this release. This release targets npm and GitHub only.
-- The standard tag-driven public release workflow will publish npm package `opendevbrowser@0.0.33` and GitHub release `v0.0.33`.
+- npm package `opendevbrowser@0.0.33` is published.
+- GitHub release `v0.0.33` is published with extension assets.
 
 ## Reference State
 
@@ -94,14 +95,21 @@ Current status note:
 
 ## External Release Workflow Evidence
 
-- [ ] Release workflow run URL
-- [ ] npm publish verification (`npm view opendevbrowser version dist-tags --json`)
-- [ ] Registry consumer smoke
-- [ ] GitHub release URL
-- [ ] GitHub release asset verification
+- [x] Tag-driven release workflow run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/26201899906`
+- [x] Tag-driven release workflow result: failed at `Publish npm package` because the repository npm token could not publish `opendevbrowser@0.0.33`; earlier release metadata, install, version alignment, quality gates, extension packaging, and checksum generation passed.
+- [x] Local npm publish fallback: `npm publish --access public --loglevel warn` completed successfully from `main` at tag `v0.0.33` after `version:check`, `build`, and `extension:build`.
+- [x] npm publish verification (`npm view opendevbrowser version dist-tags --json`): returned version `0.0.33` and `latest` dist-tag `0.0.33`.
+- [x] Registry consumer smoke: `node scripts/registry-consumer-smoke.mjs --version 0.0.33 --output artifacts/release/v0.0.33/registry-consumer-smoke.json` passed with `success: true`, `installAttempts: 1`, `helpAliasMatches: true`, `findItFastPresent: true`, `extensionDirExists: true`, `skillsDirExists: true`, and `versionMatches: true`.
+- [x] GitHub release-only workflow run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/26203570734`
+- [x] GitHub release-only workflow result: passed in `4m13s`; release metadata, checkout, install, version alignment, full release quality gates, extension packaging, checksum generation, and GitHub release publication passed. npm publish and registry smoke were intentionally skipped because npm had already been published locally.
+- [x] GitHub release URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.33`
+- [x] GitHub release verification: `v0.0.33` is not draft, not prerelease, published at `2026-05-21T03:29:22Z`, target commitish `main`.
+- [x] GitHub release asset verification: `opendevbrowser-extension.zip`, size `176328`, digest `sha256:243e21259fae37101f0664cdf489564a072b96a8e9316b3ee04e6aa92f8af866`.
+- [x] GitHub release asset verification: `opendevbrowser-extension.zip.sha256`, size `95`, digest `sha256:e0b7bdb268b3477dcee98a7f90f27d5758a746f9a8798e54082a519a73e7b881`.
 - [x] Chrome Web Store manual publish status: skipped by request for `v0.0.33`.
 
 ## Notes
 
 - Strict live gates are separate from release quality gates and are deferred unless specifically run.
-- If the tag-driven release workflow cannot publish npm because repository `NPM_TOKEN` is unavailable, use local npm auth to publish and rerun the GitHub release artifact path with npm publication disabled.
+- The npm account uses write 2FA. The expired local publish token caused prior `EOTP` behavior. A new granular publish token scoped to `opendevbrowser`, with bypass 2FA enabled, read/write package access, no organization access, and maximum UI expiry through `2026-08-18`, was generated and configured in local `~/.npmrc` with file mode `600`.
+- The release-only workflow emitted a GitHub Actions annotation that Node.js 20 actions are deprecated and will be forced to Node.js 24 by default starting `2026-06-02`; this is a follow-up maintenance item, not a `v0.0.33` release blocker.
