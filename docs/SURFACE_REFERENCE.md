@@ -102,8 +102,8 @@ First-contact note:
 - `screencast-stop` - Finalize and retrieve a browser replay capture by session and screencast id.
 
 Browser capture behavior:
-- `screenshot` without `--path` saves `.opendevbrowser/screenshot/<uuid>/capture.png` and returns `path` plus `artifact_path`; explicit `--path` remains caller-controlled.
-- `screencast-start` without `--output-dir` saves replay files under `.opendevbrowser/screencast/<uuid>` and returns `artifact_path`; explicit `--output-dir` remains caller-controlled.
+- Omitted screenshot output saves `.opendevbrowser/screenshot/<uuid>/capture.png` and returns `path` plus `artifact_path`; explicit `--path` remains caller-controlled.
+- Omitted screencast output saves replay files under `.opendevbrowser/screencast/<uuid>` and returns `artifact_path`; explicit `--output-dir` remains caller-controlled.
 
 ### Desktop observation (6)
 - `desktop-status` - Inspect sibling desktop observation availability.
