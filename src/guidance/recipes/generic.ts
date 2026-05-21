@@ -1,4 +1,5 @@
 import { buildCanvasPlanSetParamsExample, buildCanvasRepairGuidance } from "../../canvas/repair-examples";
+import { resolveSiteRecipeForUrl } from "./site-registry";
 import type { CanvasGenerationPlanIssue } from "../../canvas/types";
 import type {
   GuidanceCommandExample,
@@ -61,12 +62,27 @@ const inspiredesignCookieFlags = (context: GuidanceContext): string => {
   return context.useCookies === true ? " --use-cookies" : "";
 };
 
+const pinterestRecoveryUrls = (context: GuidanceContext): string[] => {
+  if (!isPinterestScopedRecovery(context)) return [];
+  const urls = context.referenceUrls ?? [];
+  return [...new Set(urls.filter((url) => resolveSiteRecipeForUrl(url)?.id === "social/pinterest"))];
+};
+
 const inspiredesignHarvestCommand = (context: GuidanceContext): GuidanceCommandExample => {
   const brief = typeof context.details?.brief === "string" ? context.details.brief : DEFAULT_INSPIREDESIGN_BRIEF;
   const query = context.query ?? DEFAULT_INSPIREDESIGN_QUERY;
   const provider = selectedInspiredesignProvider(context);
   const browserMode = inspiredesignBrowserMode(context);
   const cookieFlags = inspiredesignCookieFlags(context);
+  const urls = pinterestRecoveryUrls(context);
+  if (urls.length > 0) {
+    const urlFlags = urls.map((url) => `--url ${quote(url)}`).join(" ");
+    return {
+      id: "inspiredesign-harvest-url-recovery",
+      label: "Recover Inspired Design harvest with explicit Pinterest URLs",
+      command: `npx opendevbrowser inspiredesign harvest --brief ${quote(brief)} --provider social/pinterest ${urlFlags} --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json`
+    };
+  }
   return {
     id: "inspiredesign-harvest-rerun",
     label: "Rerun Inspired Design harvest with explicit evidence settings",

@@ -1,6 +1,10 @@
 import { copyFile, mkdir, readdir, writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { isAbsolute, join, resolve } from "path";
+import {
+  BROWSER_SCREENCAST_ARTIFACT_NAMESPACE,
+  createBrowserOutputArtifactDirectory
+} from "../providers/browser-output-artifacts";
 import type {
   BrowserScreencastEndedReason,
   BrowserScreencastResult,
@@ -104,15 +108,17 @@ async function ensureEmptyDirectory(path: string): Promise<void> {
 
 function resolveOutputDir(
   worktree: string,
-  sessionId: string,
-  screencastId: string,
   outputDir?: string
-): string {
+): { outputDir: string; artifactPath?: string } {
   if (typeof outputDir === "string" && outputDir.trim().length > 0) {
     const trimmed = outputDir.trim();
-    return isAbsolute(trimmed) ? trimmed : resolve(worktree, trimmed);
+    return { outputDir: isAbsolute(trimmed) ? trimmed : resolve(worktree, trimmed) };
   }
-  return join(worktree, ".opendevbrowser", "replays", "screencasts", sessionId, screencastId);
+  const artifact = createBrowserOutputArtifactDirectory({
+    workspaceRoot: worktree,
+    namespace: BROWSER_SCREENCAST_ARTIFACT_NAMESPACE
+  });
+  return { outputDir: artifact.artifactPath, artifactPath: artifact.artifactPath };
 }
 
 function renderReplayHtml(manifest: ScreencastManifest): string {
@@ -214,6 +220,7 @@ export class BrowserScreencastRecorder {
   readonly sessionId: string;
   readonly targetId: string;
   readonly outputDir: string;
+  readonly artifactPath?: string;
   readonly startedAt: string;
   readonly intervalMs: number;
   readonly maxFrames: number;
@@ -239,7 +246,9 @@ export class BrowserScreencastRecorder {
     this.screencastId = args.screencastId ?? randomUUID();
     this.sessionId = args.sessionId;
     this.targetId = args.targetId;
-    this.outputDir = resolveOutputDir(args.worktree, args.sessionId, this.screencastId, args.options?.outputDir);
+    const output = resolveOutputDir(args.worktree, args.options?.outputDir);
+    this.outputDir = output.outputDir;
+    this.artifactPath = output.artifactPath;
     this.intervalMs = resolveIntervalMs(args.options?.intervalMs);
     this.maxFrames = resolveMaxFrames(args.options?.maxFrames);
     this.startedAt = new Date().toISOString();
@@ -290,6 +299,7 @@ export class BrowserScreencastRecorder {
       sessionId: this.sessionId,
       targetId: this.targetId,
       outputDir: this.outputDir,
+      ...(this.artifactPath ? { artifact_path: this.artifactPath } : {}),
       startedAt: this.startedAt,
       intervalMs: this.intervalMs,
       maxFrames: this.maxFrames,
@@ -421,6 +431,7 @@ export class BrowserScreencastRecorder {
       sessionId: this.sessionId,
       targetId: this.targetId,
       outputDir: this.outputDir,
+      ...(this.artifactPath ? { artifact_path: this.artifactPath } : {}),
       startedAt: this.startedAt,
       endedAt,
       endedReason: reason,

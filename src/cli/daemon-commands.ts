@@ -1,4 +1,7 @@
 import { randomUUID } from "crypto";
+import { mkdtemp, readFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { OpenDevBrowserCore } from "../core";
 import { buildBrowserReviewResult } from "../browser/review-surface";
 import {
@@ -69,6 +72,31 @@ const resolveDaemonWorkflowOutputDir = (
   core: OpenDevBrowserCore,
   outputDir?: string
 ): string => resolveWorkflowArtifactRoot(outputDir, { workspaceRoot: core.cacheRoot });
+
+const captureScreenshotBuffer = async (
+  core: OpenDevBrowserCore,
+  sessionId: string
+): Promise<Buffer | null> => {
+  let captureDir: string | null = null;
+  try {
+    captureDir = await mkdtemp(join(tmpdir(), "odb-daemon-shot-"));
+    const capturePath = join(captureDir, "capture.png");
+    const screenshot = await core.manager.screenshot(sessionId, { path: capturePath });
+    if (typeof screenshot.path === "string" && screenshot.path.length > 0) {
+      return await readFile(screenshot.path);
+    }
+    if (typeof screenshot.base64 === "string" && screenshot.base64.length > 0) {
+      return Buffer.from(screenshot.base64, "base64");
+    }
+    return null;
+  } finally {
+    if (captureDir) {
+      await rm(captureDir, { recursive: true, force: true }).catch(() => {
+        // Best effort cleanup.
+      });
+    }
+  }
+};
 
 export async function handleDaemonCommand(core: OpenDevBrowserCore, request: DaemonCommandRequest): Promise<unknown> {
   const params = request.params ?? {};
@@ -921,14 +949,12 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
             });
             try {
               await core.manager.goto(session.sessionId, url, "load", captureTimeoutMs);
-              const screenshot = await Promise.race([
-                core.manager.screenshot(session.sessionId),
+              return await Promise.race([
+                captureScreenshotBuffer(core, session.sessionId),
                 new Promise<null>((resolve) => {
                   setTimeout(() => resolve(null), captureTimeoutMs);
                 })
               ]);
-              if (!screenshot || typeof screenshot.base64 !== "string" || screenshot.base64.length === 0) return null;
-              return Buffer.from(screenshot.base64, "base64");
             } catch {
               return null;
             } finally {

@@ -1,5 +1,6 @@
 import { writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
+import { join } from "path";
 import { requireChallengeOrchestrationConfig, type OpenDevBrowserConfig } from "../config";
 import { createLogger, createRequestId } from "../core/logging";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
@@ -48,6 +49,10 @@ import type { ConsoleTracker } from "../devtools/console-tracker";
 import type { NetworkTracker } from "../devtools/network-tracker";
 import { BrowserManager } from "./browser-manager";
 import { BrowserScreencastRecorder } from "./screencast-recorder";
+import {
+  BROWSER_SCREENSHOT_ARTIFACT_NAMESPACE,
+  createBrowserOutputArtifactDirectory
+} from "../providers/browser-output-artifacts";
 import type {
   RuntimePreviewBridgeInput,
   RuntimePreviewBridgeResult
@@ -908,11 +913,21 @@ export class OpsBrowserManager implements BrowserManagerLike {
     const warnings = Array.isArray(result.warnings)
       ? result.warnings
       : (typeof result.warning === "string" ? [result.warning] : undefined);
-    if (options.path) {
-      await writeFile(options.path, Buffer.from(result.base64, "base64"));
-      return warnings ? { path: options.path, warnings } : { path: options.path };
+    let artifact: ReturnType<typeof createBrowserOutputArtifactDirectory> | undefined;
+    let outputPath = options.path;
+    if (typeof outputPath !== "string") {
+      artifact = createBrowserOutputArtifactDirectory({
+        workspaceRoot: this.worktree,
+        namespace: BROWSER_SCREENSHOT_ARTIFACT_NAMESPACE
+      });
+      outputPath = join(artifact.artifactPath, "capture.png");
     }
-    return warnings ? { base64: result.base64, warnings } : { base64: result.base64 };
+    await writeFile(outputPath, Buffer.from(result.base64, "base64"));
+    return {
+      path: outputPath,
+      ...(artifact ? { artifact_path: artifact.artifactPath } : {}),
+      ...(warnings ? { warnings } : {})
+    };
   }
 
   async startScreencast(

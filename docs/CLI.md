@@ -540,13 +540,14 @@ npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing 
 npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign
 npx opendevbrowser inspiredesign harvest --brief "Synthesize a premium docs workspace" --query "best docs product landing pages" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --mode json
 npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser inspiredesign harvest --brief "Fashion design studio landing page with atelier motion references" --provider social/pinterest --url "https://www.pinterest.com/pin/27654985208435505/" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 ```
 
 Flags:
 - `--brief` (required)
 - `--url` (repeatable inspiration URL input; explicit URLs are kept before discovered URLs)
 - `--query` (`harvest` only; discovers bounded public references through provider search when available)
-- `--provider` (repeatable `harvest` provider id used with `--query`; `social/pinterest` routes through the browser-native Pinterest site recipe, not a default full social provider)
+- `--provider` (repeatable `harvest` provider id used with `--query` or compatible browser-native URL recovery; `social/pinterest` routes through the Pinterest site recipe, not a default full social provider)
 - `--max-references` (`1` to `10`; `harvest` defaults to `5`)
 - `--visual-evidence` (`off|auto|required`; `run` defaults to `off`, `harvest` defaults to `required`)
 - `--capture-mode` (`off|deep`; `off` is ignored when any `--url` is provided)
@@ -568,14 +569,16 @@ Notes:
 - Any `--url` forces deep capture so inspiredesign can collect DOM/layout evidence. Without URLs, `--capture-mode` defaults to `off`.
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `harvest` merges explicit URLs before discovered URLs, trims and de-duplicates references, and stores rejected reference diagnostics in generated metadata.
-- `social/pinterest` is a browser-native site recipe. Use it with extension mode, `--use-cookies`, and `--cookie-policy required` when the brief needs logged-in Pinterest search. The workflow must recover session evidence first when Pinterest returns login, challenge, empty-grid, or search-shell states.
+- `social/pinterest` is a browser-native site recipe. Use it with extension mode, `--use-cookies`, and `--cookie-policy required` when the brief needs logged-in Pinterest search. Compatible Pinterest URL recovery can run as `--provider social/pinterest --url <pinterest-url>` without `--query`; generic provider plus URL recovery without a query remains rejected. The workflow must recover session evidence first when Pinterest returns login, challenge, empty-grid, or search-shell states.
 - Browser-native site recipes do not silently widen scope to unrelated providers. If fallback to broad web sources is desired, ask the user or rerun with an explicit `--provider web/default`.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
 - Successful runs emit `advanced-brief.md`, `canvas-plan.request.json`, `design-agent-handoff.json`, `visual-evidence.json`, `screenshot-index.json`, `ranked-references.json`, and `meta-prompt.md` alongside the existing design contract and implementation artifacts. Harvest PNG files are written under `visual-evidence/<referenceId>/viewport.png`.
+- `ranked-references.json.rejectedReferences` serializes captured-but-rejected diagnostics, including `interface_chrome_shell`, without promoting those captures into design-facing references.
 - Visual JSON is metadata-only: it contains artifact-relative paths, hashes, byte counts, viewport metadata when available, reference id and URL, and warnings. It must not contain base64 screenshots, temp paths, full DOM, or full snapshot text.
 - Policy boundaries are preserved: visual capture must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited` provider outcomes.
 - Workflow outputs can include typed `nextStepGuidance` with `readiness`, `reasonCode`, `primaryAction`, command examples, `paramsExamples`, `validationChecks`, `fallbackPolicy`, and `doNotProceedIf` blockers.
 - Treat readiness as the gate between artifact completion and design readiness. Continue to Canvas only when `nextStepGuidance.readiness` is `ready` and no `doNotProceedIf` condition applies.
+- CLI completion text includes `readiness=<value>` when `nextStepGuidance.readiness` is present, so wrapper success is not mistaken for design readiness.
 - For `needs_recovery`, `blocked`, or `diagnostic_only`, follow the primary recovery action first. Common blockers are zero references, empty ranked references, failed required screenshots, provider unavailability, login or challenge screens, and diagnostic-only captures.
 - The ready follow-through path is explicit: read `advanced-brief.md`, `meta-prompt.md`, `ranked-references.json`, and screenshot metadata first; load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`; open a Canvas session; fill the session ids in `canvas-plan.request.json`; run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`; confirm `planStatus=accepted`; then patch only the governance blocks called out by `design-agent-handoff.json`.
 - `--browser-mode` applies to provider-backed reference retrieval. Deep capture still uses the browser manager capture lane.
@@ -1358,6 +1361,8 @@ npx opendevbrowser screenshot --session-id <session-id> --path ./capture.png --t
 Notes:
 - `--ref` and `--full-page` are mutually exclusive.
 - `--timeout-ms` sets client-side daemon timeout for screenshot capture.
+- When `--path` is omitted, screenshots save to `.opendevbrowser/screenshot/<uuid>/capture.png` and JSON output includes `path` plus `artifact_path`.
+- Explicit `--path` remains caller-controlled and does not create the omitted-output screenshot artifact directory.
 - Default visible capture may still report the existing viewport-only fallback warning when extension capture has to degrade, but ref and full-page requests do not silently reuse that fallback.
 
 ### Screencast start
@@ -1375,6 +1380,8 @@ npx opendevbrowser screencast-start \
 Notes:
 - `screencast-start` is a manager-owned browser replay lane layered on the existing screenshot primitive.
 - The recorder writes `replay.json`, `replay.html`, `frames/`, and `preview.png` into the chosen output directory.
+- When `--output-dir` is omitted, screencasts save those replay files under `.opendevbrowser/screencast/<uuid>` and JSON output includes `artifact_path`.
+- Explicit `--output-dir` remains caller-controlled and keeps replay files inside that directory.
 - `--interval-ms` defaults to `1000` and must be at least `250`.
 - `--max-frames` defaults to `300`.
 

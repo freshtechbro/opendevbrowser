@@ -592,12 +592,58 @@ describe("workflow CLI commands", () => {
     ]))).rejects.toThrow("--query is only supported by inspiredesign harvest");
   });
 
-  it("rejects inspiredesign providers without query", async () => {
+  it("accepts compatible Pinterest provider URL recovery", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--provider=social/pinterest",
+      "--url=https://www.pinterest.com/pin/27654985208435505/"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      captureMode: "deep"
+    }));
+  });
+
+  it("rejects inspiredesign providers without query or compatible URLs", async () => {
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
       "harvest",
       "--brief=Build a docs landing page contract",
       "--provider=web/default"
-    ]))).rejects.toThrow("--provider requires --query");
+    ]))).rejects.toThrow("Provider-scoped URL recovery requires at least one URL");
+
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--provider=web/default",
+      "--url=https://www.pinterest.com/pin/27654985208435505/"
+    ]))).rejects.toThrow("Provider web/default does not support URL-only site recipe recovery");
+  });
+
+  it("surfaces inspiredesign readiness in completion messages", async () => {
+    for (const readiness of ["diagnostic_only", "ready"]) {
+      callDaemon.mockResolvedValueOnce({
+        ok: true,
+        meta: {
+          nextStepGuidance: {
+            readiness
+          }
+        }
+      });
+
+      const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
+        "harvest",
+        "--brief=Build a docs landing page contract",
+        "--query=premium docs references"
+      ]));
+
+      expect(result.message).toContain(`readiness=${readiness}`);
+    }
   });
 
   it("rejects invalid inspiredesign harvest bounds and visual modes", async () => {

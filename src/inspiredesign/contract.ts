@@ -365,6 +365,7 @@ export type InspiredesignPacket = {
   visualEvidence: InspiredesignVisualEvidenceJson[];
   screenshotIndex: InspiredesignScreenshotIndexEntry[];
   rankedReferences: InspiredesignReferencePatternBoard["references"];
+  referencePatternBoard: InspiredesignReferencePatternBoard;
   metaPromptMarkdown: string;
 };
 
@@ -2325,6 +2326,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     visualEvidence,
     screenshotIndex,
     rankedReferences: designReferencePatternBoard.references,
+    referencePatternBoard,
     metaPromptMarkdown,
     evidence: buildEvidencePayload({
       brief,

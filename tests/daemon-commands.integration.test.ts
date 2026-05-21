@@ -134,6 +134,7 @@ const makeCore = (overrides: {
     debugTraceSnapshot: vi.fn(),
     cookieImport: vi.fn(),
     cookieList: vi.fn(),
+    screenshot: vi.fn(),
     startScreencast: vi.fn(),
     stopScreencast: vi.fn()
   };
@@ -380,6 +381,31 @@ describe("daemon-commands integration", () => {
       reason: "capture-window"
     });
     expect(core.desktopRuntime.accessibilitySnapshot).toHaveBeenCalledWith("accessibility", "window-1");
+  });
+
+  it("routes omitted screenshot output through daemon without base64 payloads", async () => {
+    const core = makeCore();
+    core.manager.status.mockResolvedValue({ mode: "managed", activeTargetId: "target-1" });
+    core.manager.screenshot.mockResolvedValue({
+      path: "/workspace/.opendevbrowser/screenshot/run-1/capture.png",
+      artifact_path: "/workspace/.opendevbrowser/screenshot/run-1"
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "page.screenshot",
+      params: {
+        sessionId: "session-1",
+        clientId: "client-1",
+        targetId: "target-1"
+      }
+    });
+
+    expect(response).toEqual({
+      path: "/workspace/.opendevbrowser/screenshot/run-1/capture.png",
+      artifact_path: "/workspace/.opendevbrowser/screenshot/run-1"
+    });
+    expect(response).not.toHaveProperty("base64");
+    expect(core.manager.screenshot).toHaveBeenCalledWith("session-1", { targetId: "target-1" });
   });
 
   it("rejects invalid daemon numeric bounds before manager calls", async () => {
@@ -2126,7 +2152,17 @@ describe("daemon-commands integration", () => {
         harvest: true,
         providers: ["web/default"]
       }
-    })).rejects.toThrow("providers require query");
+    })).rejects.toThrow("Provider-scoped URL recovery requires at least one URL");
+
+    await expect(handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        harvest: true,
+        providers: ["web/default"],
+        urls: ["https://www.pinterest.com/pin/27654985208435505/"]
+      }
+    })).rejects.toThrow("Provider web/default does not support URL-only site recipe recovery");
 
     await expect(handleDaemonCommand(core, {
       name: "inspiredesign.run",
@@ -2155,6 +2191,20 @@ describe("daemon-commands integration", () => {
         harvest: true
       }
     })).rejects.toThrow("harvest requires query or URL references");
+  });
+
+  it("accepts daemon inspiredesign Pinterest provider URL recovery", async () => {
+    const core = makeCore();
+
+    await handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Workspace design",
+        harvest: true,
+        providers: ["social/pinterest"],
+        urls: ["https://www.pinterest.com/pin/27654985208435505/"]
+      }
+    });
   });
 
   it("uses core cache root for omitted daemon inspiredesign output roots", async () => {

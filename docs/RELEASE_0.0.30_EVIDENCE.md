@@ -26,7 +26,8 @@ Historical status note:
 - Omitted generated workflow output roots now resolve to `<cli cwd>/.opendevbrowser/<workflow>/<uuid>` for CLI invocations.
 - OpenCode direct tools and raw daemon RPCs now resolve omitted workflow output roots from the project workspace root instead of transient process temp directories.
 - Explicit `outputDir` values remain preserved across CLI, direct tools, daemon RPC, and provider workflow calls.
-- Low-level non-workflow artifact fallback and screencast replay defaults remain unchanged.
+- Low-level non-workflow artifact fallback and screencast replay defaults remain unchanged for `0.0.30`.
+  - Historical note: later browser evidence output behavior supersedes this exception for omitted screenshot and screencast outputs.
 
 ## Version Alignment
 

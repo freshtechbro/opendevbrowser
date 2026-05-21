@@ -68,6 +68,8 @@ describe("BrowserScreencastRecorder", () => {
     const session = await recorder.start();
     expect(session.intervalMs).toBe(250);
     expect(session.maxFrames).toBe(2);
+    expect(session.outputDir.startsWith(path.join(worktree, ".opendevbrowser", "screencast"))).toBe(true);
+    expect(session.artifact_path).toBe(session.outputDir);
 
     await vi.advanceTimersByTimeAsync(250);
 
@@ -84,6 +86,8 @@ describe("BrowserScreencastRecorder", () => {
     expect(result).toMatchObject({
       sessionId: "session-1",
       targetId: "target-1",
+      outputDir: session.outputDir,
+      artifact_path: session.outputDir,
       endedReason: "max_frames_reached",
       frameCount: 2
     });
@@ -94,6 +98,9 @@ describe("BrowserScreencastRecorder", () => {
     expect(frameFiles).toEqual(["000001.png", "000002.png"]);
     expect(replayHtml).toContain(result.screencastId);
     expect(replayHtml).toContain("frames/000001.png");
+    expect(await stat(path.join(result.outputDir, "replay.json"))).toMatchObject({ isFile: expect.any(Function) });
+    expect(await stat(path.join(result.outputDir, "replay.html"))).toMatchObject({ isFile: expect.any(Function) });
+    expect(await stat(path.join(result.outputDir, "frames"))).toMatchObject({ isDirectory: expect.any(Function) });
     expect(await stat(result.previewPath ?? "")).toMatchObject({ isFile: expect.any(Function) });
   });
 
@@ -245,7 +252,9 @@ describe("BrowserScreencastRecorder", () => {
     };
 
     expect(session.outputDir).toBe(path.resolve(worktree, "casts/test-run"));
+    expect(session.artifact_path).toBeUndefined();
     expect(session.warnings).toEqual(["relative-warning"]);
+    expect(result.artifact_path).toBeUndefined();
     expect(result.endedReason).toBe("max_frames_reached");
     expect(result.frameCount).toBe(1);
     expect(manifest.initialPage).toEqual({ url: "https://example.com/replay" });

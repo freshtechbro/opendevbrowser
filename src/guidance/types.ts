@@ -89,6 +89,7 @@ export type GuidanceContext = {
   requestedProviders?: string[];
   siteRecipeId?: string;
   query?: string;
+  referenceUrls?: string[];
   browserMode?: string;
   cookiePolicy?: string;
   useCookies?: boolean;

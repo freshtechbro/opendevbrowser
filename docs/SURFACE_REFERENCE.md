@@ -101,6 +101,10 @@ First-contact note:
 - `screencast-start` - Start a browser replay capture that samples the existing screenshot lane.
 - `screencast-stop` - Finalize and retrieve a browser replay capture by session and screencast id.
 
+Browser capture behavior:
+- `screenshot` without `--path` saves `.opendevbrowser/screenshot/<uuid>/capture.png` and returns `path` plus `artifact_path`; explicit `--path` remains caller-controlled.
+- `screencast-start` without `--output-dir` saves replay files under `.opendevbrowser/screencast/<uuid>` and returns `artifact_path`; explicit `--output-dir` remains caller-controlled.
+
 ### Desktop observation (6)
 - `desktop-status` - Inspect sibling desktop observation availability.
 - `desktop-windows` - List observable desktop windows.
@@ -184,8 +188,8 @@ Operational note:
 - `opendevbrowser_is_checked` - Check ref checked state.
 
 ### Browser capture (3)
-- `opendevbrowser_screenshot` - Capture a page screenshot.
-- `opendevbrowser_screencast_start` - Start a browser replay screencast capture.
+- `opendevbrowser_screenshot` - Capture a page screenshot and persist omitted outputs under `.opendevbrowser/screenshot/<uuid>/capture.png`.
+- `opendevbrowser_screencast_start` - Start a browser replay screencast capture and persist omitted outputs under `.opendevbrowser/screencast/<uuid>`.
 - `opendevbrowser_screencast_stop` - Stop a browser replay screencast capture and return artifact metadata.
 
 ### Desktop observation (6)
@@ -549,11 +553,13 @@ Auth and policy:
 - Workflow and macro execute cookie options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--use-cookies` and `--cookie-policy-override off|auto|required` (`--cookie-policy` alias) so provider macros can require observable cookie-backed browser sessions.
 - Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
 - Inspiredesign harvest flags: `--query`, repeatable `--provider`, `--max-references 1..10`, and `--visual-evidence off|auto|required`. Harvest requires `--query` or at least one `--url`, keeps the daemon method as `inspiredesign.run`, defaults to `mode=path`, `visualEvidence=required`, and `maxReferences=5`, and keeps explicit `--url` references before discovered references.
-- Inspiredesign harvest supports browser-native site recipes for visually driven sites. `--provider social/pinterest` selects the Pinterest recipe and should be run with extension mode, cookies, and `--cookie-policy required` when logged-in search is required. Pinterest is not registered as a default full social provider.
+- Inspiredesign harvest supports browser-native site recipes for visually driven sites. `--provider social/pinterest` selects the Pinterest recipe and should be run with extension mode, cookies, and `--cookie-policy required` when logged-in search is required. Compatible Pinterest URL recovery can run as `--provider social/pinterest --url <pinterest-url>` without `--query`; generic provider plus URL recovery without query remains rejected. Pinterest is not registered as a default full social provider.
 - Inspiredesign harvest artifacts: `visual-evidence.json`, `screenshot-index.json`, `ranked-references.json`, and `meta-prompt.md` are emitted with screenshot PNGs under `visual-evidence/<referenceId>/viewport.png`. JSON remains metadata-only with artifact-relative paths, hashes, byte counts, viewport metadata when available, reference id and URL, and warnings.
+- `ranked-references.json.rejectedReferences` serializes captured-but-rejected diagnostics, including `interface_chrome_shell`, without promoting those captures into design-facing references.
 - Inspiredesign visual policy boundaries: visual capture must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; blocked references surface diagnostics instead of browser screenshot fallback.
-- Workflow response keys: artifact-bearing workflow success payloads use `artifact_path`; provider follow-up summaries use `meta.primaryConstraintSummary`; typed recovery and handoff payloads use `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, `fallbackPolicy`, and `doNotProceedIf` when available.
+- Workflow response keys: artifact-bearing workflow success payloads use `artifact_path`; provider follow-up summaries use `meta.primaryConstraintSummary`; typed recovery and handoff payloads use `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, `fallbackPolicy`, and `doNotProceedIf` when available. The inspiredesign CLI completion message includes `readiness=<value>` when available so wrapper success is not confused with design readiness.
 - Continue to Canvas only when `nextStepGuidance.readiness` is `ready`. For `needs_recovery`, `blocked`, or `diagnostic_only`, follow recovery-first guidance and do not treat emitted artifacts as design-ready.
+- Browser evidence omitted outputs use workspace-local artifact roots: screenshots write `.opendevbrowser/screenshot/<uuid>/capture.png` with `path` and `artifact_path`, and screencasts write `.opendevbrowser/screencast/<uuid>` with replay files. Explicit `--path` and `--output-dir` remain caller-controlled.
 - Research and shopping guidance uses `meta.primaryConstraint.guidance.reason` plus `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known. Migrated workflow paths can include `nextStepGuidance` alongside those compatibility fields.
 - Failure tallies use `meta.metrics.reasonCodeDistribution` for research/shopping and `meta.reasonCodeDistribution` for product-video.
 

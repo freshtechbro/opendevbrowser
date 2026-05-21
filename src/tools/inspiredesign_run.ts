@@ -6,6 +6,7 @@ import { resolveProviderRuntime } from "./workflow-runtime";
 import { resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../cli/transport-timeouts";
+import { validateProviderUrlSiteRecipeCompatibility } from "../guidance/recipes/site-recipe-validation";
 import { captureInspiredesignReferenceFromManager } from "../inspiredesign/capture";
 import { resolveInspiredesignCaptureMode } from "../inspiredesign/capture-mode";
 
@@ -49,11 +50,20 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
         if (args.query && args.harvest !== true) {
           throw new Error("query is only supported when harvest is true.");
         }
+        const isHarvest = args.harvest === true;
         if (args.providers && args.providers.length > 0 && !args.query) {
-          throw new Error("providers require query.");
+          if (!isHarvest) {
+            throw new Error("providers require query unless harvest uses compatible URL recovery.");
+          }
+          const compatibility = validateProviderUrlSiteRecipeCompatibility({
+            providers: args.providers,
+            urls: args.urls ?? []
+          });
+          if (!compatibility.ok) {
+            throw new Error(compatibility.message);
+          }
         }
         const cookieSource = deps.config.get().providers?.cookieSource;
-        const isHarvest = args.harvest === true;
         if (isHarvest && !args.query && (!args.urls || args.urls.length === 0)) {
           throw new Error("inspiredesign harvest requires query or URLs.");
         }
