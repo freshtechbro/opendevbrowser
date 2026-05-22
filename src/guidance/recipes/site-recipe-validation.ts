@@ -1,13 +1,22 @@
 import { resolveSiteRecipeForProvider, resolveSiteRecipeForUrl } from "./site-registry";
+import { normalizePinterestReferenceUrl } from "./pinterest";
 import type { SiteRecipe } from "../types";
 
 export type ProviderUrlSiteRecipeCompatibilityResult =
   | { ok: true; recipeId: string }
   | { ok: false; message: string };
 
+export type ProviderScopedUrlCanonicalityResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
 type ProviderUrlSiteRecipeCompatibilityInput = {
   providers: string[];
   urls: string[];
+};
+
+type ProviderUrlSiteRecipeCompatibilityGateInput = ProviderUrlSiteRecipeCompatibilityInput & {
+  query?: string;
 };
 
 const normalizeNonBlank = (values: string[]): string[] => values
@@ -19,6 +28,63 @@ const incompatible = (message: string): ProviderUrlSiteRecipeCompatibilityResult
 const supportsBrowserNativeRecovery = (recipe: SiteRecipe | undefined): recipe is SiteRecipe => (
   typeof recipe?.browserNativeDiscovery?.buildSearchUrl === "function"
 );
+
+const isCanonicalRecipeReferenceUrl = (recipe: SiteRecipe, url: string): boolean => {
+  if (recipe.id === "social/pinterest") {
+    return normalizePinterestReferenceUrl(url) !== null;
+  }
+  return true;
+};
+
+const isPinterestLikeHostname = (value: string): boolean => {
+  const hostname = value.toLowerCase();
+  return [
+    hostname === "pinterest.com",
+    hostname.endsWith(".pinterest.com"),
+    hostname.startsWith("pinterest."),
+    hostname.includes(".pinterest.")
+  ].some(Boolean);
+};
+
+export const isPinterestLikeUrl = (value: string): boolean => {
+  try {
+    return isPinterestLikeHostname(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+};
+
+export const isNonCanonicalPinterestLikeUrl = (url: string): boolean => (
+  (resolveSiteRecipeForUrl(url)?.id === "social/pinterest" || isPinterestLikeUrl(url))
+  && normalizePinterestReferenceUrl(url) === null
+);
+
+export const requiresProviderUrlSiteRecipeCompatibility = ({
+  providers,
+  urls,
+  query
+}: ProviderUrlSiteRecipeCompatibilityGateInput): boolean => {
+  const providerIds = normalizeNonBlank(providers);
+  if (providerIds.length === 0) return false;
+  if (!query?.trim()) return true;
+  return false;
+};
+
+export const validateProviderScopedUrlCanonicality = ({
+  providers,
+  urls
+}: ProviderUrlSiteRecipeCompatibilityInput): ProviderScopedUrlCanonicalityResult => {
+  const providerHasPinterest = normalizeNonBlank(providers)
+    .some((providerId) => resolveSiteRecipeForProvider(providerId)?.id === "social/pinterest");
+  if (!providerHasPinterest) return { ok: true };
+
+  const nonCanonicalPinterestUrl = normalizeNonBlank(urls)
+    .find((url) => normalizePinterestReferenceUrl(url) === null);
+  if (!nonCanonicalPinterestUrl) return { ok: true };
+  return incompatible(
+    `URL ${nonCanonicalPinterestUrl} is not a canonical social/pinterest reference URL for provider-scoped recovery.`
+  );
+};
 
 export const validateProviderUrlSiteRecipeCompatibility = ({
   providers,
@@ -71,6 +137,13 @@ export const validateProviderUrlSiteRecipeCompatibility = ({
   const recipeId = providerRecipes[0]?.recipe?.id;
   if (!recipeId) {
     return incompatible("Provider-scoped URL recovery could not resolve a site recipe.");
+  }
+  const recipe = providerRecipes[0]?.recipe;
+  const nonReferenceUrl = recipe
+    ? urlRecipes.find((entry) => !isCanonicalRecipeReferenceUrl(recipe, entry.url))
+    : undefined;
+  if (nonReferenceUrl) {
+    return incompatible(`URL ${nonReferenceUrl.url} is not a canonical ${recipeId} reference URL for provider-scoped recovery.`);
   }
   return { ok: true, recipeId };
 };

@@ -23,6 +23,11 @@ function decimalPattern(options: NumberFlagOptions): RegExp {
   return signed ? SIGNED_DECIMAL_PATTERN : UNSIGNED_DECIMAL_PATTERN;
 }
 
+export const readInlineFlagValue = (arg: string, flag: string): string | undefined => {
+  const prefix = `${flag}=`;
+  return arg.startsWith(prefix) ? arg.slice(prefix.length) : undefined;
+};
+
 export function parseNumberFlag(value: string, flag: string, options: NumberFlagOptions = {}): number {
   if (value.trim() === "" || value !== value.trim() || !decimalPattern(options).test(value)) {
     throw createUsageError(`Invalid ${flag}: ${value}`);
@@ -66,7 +71,7 @@ export function parseOptionalStringFlag(rawArgs: string[], flag: string): string
       return value;
     }
     if (arg?.startsWith(`${flag}=`)) {
-      const value = arg.split("=", 2)[1];
+      const value = readInlineFlagValue(arg, flag);
       if (!value) {
         throw createUsageError(`Missing value for ${flag}`);
       }
@@ -102,7 +107,7 @@ export function parseRepeatedStringFlag(rawArgs: string[], flag: string): string
       continue;
     }
     if (arg?.startsWith(`${flag}=`)) {
-      const value = arg.split("=", 2)[1];
+      const value = readInlineFlagValue(arg, flag);
       if (!value) {
         throw createUsageError(`Missing value for ${flag}`);
       }

@@ -44,7 +44,12 @@ import {
   type NextStepGuidance,
   type SiteRecipe
 } from "../guidance";
-import { validateProviderUrlSiteRecipeCompatibility } from "../guidance/recipes/site-recipe-validation";
+import {
+  isNonCanonicalPinterestLikeUrl,
+  requiresProviderUrlSiteRecipeCompatibility,
+  validateProviderScopedUrlCanonicality,
+  validateProviderUrlSiteRecipeCompatibility
+} from "../guidance/recipes/site-recipe-validation";
 import { resolveSiteRecipeForProvider, resolveSiteRecipeForUrl } from "../guidance/recipes/site-registry";
 import {
   mergeInspiredesignReferenceUrls,
@@ -1711,7 +1716,11 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
   if (query && input.harvest !== true) {
     throw new Error("Inspiredesign workflow query is only supported when harvest is true.");
   }
-  if (providers.length > 0 && !query) {
+  const canonicality = validateProviderScopedUrlCanonicality({ providers, urls });
+  if (!canonicality.ok) {
+    throw new Error(`Inspiredesign workflow ${canonicality.message}`);
+  }
+  if (requiresProviderUrlSiteRecipeCompatibility({ providers, urls, query })) {
     if (input.harvest !== true) {
       throw new Error("Inspiredesign workflow providers require query unless harvest uses compatible URL recovery.");
     }
@@ -2013,6 +2022,32 @@ const capMixedInspiredesignDiscovery = (
   };
 };
 
+const filterStandardDiscoveryForSiteRecipe = (
+  siteRecipe: SiteRecipe,
+  discovery: InspiredesignDiscoveryResult
+): InspiredesignDiscoveryResult => {
+  if (siteRecipe.id !== "social/pinterest") return discovery;
+
+  const accepted: InspiredesignDiscoveryResult["accepted"] = [];
+  const rejected: InspiredesignDiscoveryResult["rejected"] = [...discovery.rejected];
+  discovery.accepted.forEach((candidate) => {
+    if (!isNonCanonicalPinterestLikeUrl(candidate.url)) {
+      accepted.push(candidate);
+      return;
+    }
+    rejected.push({
+      status: "rejected",
+      reason: "invalid_url",
+      rawUrl: candidate.url,
+      ...(candidate.title ? { title: candidate.title } : {}),
+      source: candidate.source,
+      provider: candidate.provider,
+      rank: candidate.rank
+    });
+  });
+  return { accepted, rejected };
+};
+
 const discoverInspiredesignReferences = async (
   runtime: ReferenceRetrievalPort,
   workflowInput: InspiredesignResolvedInput,
@@ -2066,7 +2101,10 @@ const discoverInspiredesignReferences = async (
         const searchFailures = searchResult.failures.length > 0
           ? searchResult.failures
           : failureFromInspiredesignDiscoveryError({ ...workflowInput, providers: standardProviderIds }, searchResult.error);
-        const discovery = normalizeInspiredesignDiscoveryRecords(searchResult.records);
+        const discovery = filterStandardDiscoveryForSiteRecipe(
+          siteRecipe,
+          normalizeInspiredesignDiscoveryRecords(searchResult.records)
+        );
         const siteResult = await runSiteRecipeDiscovery();
         const siteDiscovery = normalizeInspiredesignDiscoveryRecords(siteResult.records);
         const combinedDiscovery = capMixedInspiredesignDiscovery(

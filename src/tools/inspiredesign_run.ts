@@ -6,7 +6,11 @@ import { resolveProviderRuntime } from "./workflow-runtime";
 import { resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../cli/transport-timeouts";
-import { validateProviderUrlSiteRecipeCompatibility } from "../guidance/recipes/site-recipe-validation";
+import {
+  requiresProviderUrlSiteRecipeCompatibility,
+  validateProviderScopedUrlCanonicality,
+  validateProviderUrlSiteRecipeCompatibility
+} from "../guidance/recipes/site-recipe-validation";
 import { captureInspiredesignReferenceFromManager } from "../inspiredesign/capture";
 import { resolveInspiredesignCaptureMode } from "../inspiredesign/capture-mode";
 
@@ -51,13 +55,23 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
           throw new Error("query is only supported when harvest is true.");
         }
         const isHarvest = args.harvest === true;
-        if (args.providers && args.providers.length > 0 && !args.query) {
+        const providers = args.providers ?? [];
+        const urls = args.urls ?? [];
+        const canonicality = validateProviderScopedUrlCanonicality({ providers, urls });
+        if (!canonicality.ok) {
+          throw new Error(canonicality.message);
+        }
+        if (requiresProviderUrlSiteRecipeCompatibility({
+          providers,
+          urls,
+          query: args.query
+        })) {
           if (!isHarvest) {
             throw new Error("providers require query unless harvest uses compatible URL recovery.");
           }
           const compatibility = validateProviderUrlSiteRecipeCompatibility({
-            providers: args.providers,
-            urls: args.urls ?? []
+            providers,
+            urls
           });
           if (!compatibility.ok) {
             throw new Error(compatibility.message);

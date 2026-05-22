@@ -27,6 +27,12 @@ describe("GuidanceRouter", () => {
     expect(guidance.readiness).toBe("blocked");
     expect(guidance.primaryAction.summary).toContain("Pinterest browser-native recipe");
     expect(guidance.doNotProceedIf).toContain("reference_count is 0");
+    expect(guidance.paramsExamples[0]?.params).toMatchObject({
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      useCookies: true,
+      cookiePolicy: "required"
+    });
+    expect(JSON.stringify(guidance.paramsExamples)).not.toContain("example.com");
     expectRunnableCommands(guidance);
   });
 
@@ -175,6 +181,52 @@ describe("GuidanceRouter", () => {
     expect(guidance.readiness).toBe("needs_recovery");
     expect(guidance.commands[0]?.command).toContain("--provider social/pinterest");
     expect(guidance.commands[0]?.command).toContain("--browser-mode extension --use-cookies --cookie-policy required");
+  });
+
+  it("omits non-canonical Pinterest chrome URLs from URL recovery commands", () => {
+    const guidance = routeNextStepGuidance({
+      workflow: "inspiredesign",
+      reasonCode: "zero_ranked_references",
+      requestedProviders: ["social/pinterest"],
+      siteRecipeId: "social/pinterest",
+      referenceUrls: [
+        "https://www.pinterest.com/search/pins/?q=studio",
+        "https://www.pinterest.com/pin/61572719900827789/?utm_source=test",
+        "/pin/61572719900827790/?utm_source=relative",
+        "https://www.pinterest.com/studio/pins/",
+        "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/#comments"
+      ],
+      evidence: { referenceCount: 4, rankedReferenceCount: 0, rejectedReferenceCount: 4 }
+    });
+
+    const command = guidance.commands[0]?.command ?? "";
+    expect(command).toContain("--provider social/pinterest --url");
+    expect(command).toContain("--url \"https://www.pinterest.com/pin/61572719900827789/\"");
+    expect(command).toContain("--url \"https://www.pinterest.com/pin/61572719900827790/\"");
+    expect(command).toContain("--url \"https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/\"");
+    expect(command).not.toContain("/search/pins");
+    expect(command).not.toContain("/studio/pins");
+    expect(command).not.toContain("--query");
+  });
+
+  it("falls back to Pinterest query recovery when no canonical reference URLs remain", () => {
+    const guidance = routeNextStepGuidance({
+      workflow: "inspiredesign",
+      reasonCode: "zero_ranked_references",
+      requestedProviders: ["social/pinterest"],
+      siteRecipeId: "social/pinterest",
+      referenceUrls: [
+        "https://www.pinterest.com/search/pins/?q=studio",
+        "https://www.pinterest.com/studio/pins/"
+      ],
+      query: "fashion studio landing page",
+      evidence: { referenceCount: 2, rankedReferenceCount: 0, rejectedReferenceCount: 2 }
+    });
+
+    const command = guidance.commands[0]?.command ?? "";
+    expect(command).toContain("--query \"fashion studio landing page\"");
+    expect(command).toContain("--provider social/pinterest");
+    expect(command).not.toContain("--url");
   });
 
   it("does not route all-rejected generic evidence to Canvas handoff", () => {
