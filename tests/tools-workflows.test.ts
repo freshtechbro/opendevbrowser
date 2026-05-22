@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { ConfigStore, resolveConfig } from "../src/config";
@@ -609,6 +609,120 @@ describe("workflow tools", () => {
     expect(deps.providerRuntime.fetch).toHaveBeenCalled();
   });
 
+  it("keeps direct-tool diagnostic Pinterest harvest out of Canvas continuation", async () => {
+    const artifactRoot = await makeTempDir("odb-direct-inspiredesign-diagnostic-");
+    const deps = makeDeps();
+    deps.providerRuntime.fetch.mockResolvedValue({
+      ok: false,
+      records: [],
+      trace: { requestId: "req", ts: "2026-02-16T00:00:00.000Z" },
+      partial: false,
+      failures: [],
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 },
+      sourceSelection: "web",
+      providerOrder: ["social/pinterest"],
+      error: {
+        code: "provider_unavailable",
+        message: "Provider circuit is open",
+        provider: "social/pinterest",
+        source: "social"
+      }
+    });
+    deps.manager.snapshot.mockResolvedValue({
+      content: "Skip to content Your profile Pin card Home Updates Messages Accounts Settings",
+      refCount: 8,
+      warnings: []
+    });
+    deps.manager.clonePage.mockResolvedValue({
+      component: "Skip to content Your profile Home Updates Messages Accounts Settings",
+      css: "",
+      warnings: []
+    });
+    deps.manager.clonePageHtmlWithOptions.mockResolvedValue({ html: "" });
+    deps.manager.screenshot.mockImplementation(async (_sessionId: string, options?: { path?: string }) => {
+      if (options?.path) {
+        await writeFile(options.path, Buffer.from("png"));
+      }
+      return { path: options?.path, warnings: [] };
+    });
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a premium fashion studio landing page",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      visualEvidence: "auto",
+      includePrototypeGuidance: true,
+      mode: "path",
+      outputDir: artifactRoot
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(response.suggestedNextAction).toContain("Pinterest browser-native");
+    expect(response.artifact_path).toEqual(expect.stringContaining(join(artifactRoot, "inspiredesign")));
+    expect(response.meta).toEqual(expect.objectContaining({
+      nextStepGuidance: expect.objectContaining({
+        readiness: "diagnostic_only",
+        reasonCode: "pinterest_browser_native_recovery",
+        primaryAction: expect.objectContaining({
+          id: "recover_reference_evidence",
+          summary: expect.stringContaining("Pinterest browser-native recipe")
+        }),
+        commands: expect.arrayContaining([
+          expect.objectContaining({
+            id: "inspiredesign-harvest-url-recovery",
+            command: expect.stringContaining("--provider social/pinterest --url")
+          })
+        ]),
+        doNotProceedIf: expect.arrayContaining([
+          "rankedReferences is empty",
+          "top ranked reference is diagnostic-only or off brief"
+        ])
+      })
+    }));
+    const artifactPath = response.artifact_path as string;
+    const rankedReferences = JSON.parse(await readFile(join(artifactPath, "ranked-references.json"), "utf8")) as {
+      references: unknown[];
+      rejectedReferences: Array<{ diagnosticReasons?: string[]; capturedButRejectedReason?: string }>;
+    };
+    expect(rankedReferences.references).toEqual([]);
+    expect(rankedReferences.rejectedReferences).toEqual([
+      expect.objectContaining({
+        diagnosticReasons: expect.arrayContaining(["interface_chrome_shell"]),
+        capturedButRejectedReason: expect.stringContaining("interface_chrome_shell")
+      })
+    ]);
+    const handoff = JSON.parse(await readFile(join(artifactPath, "design-agent-handoff.json"), "utf8")) as {
+      artifactGuide: Record<string, unknown>;
+      commandExamples: { continueInCanvas: string };
+      implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
+      nextStepGuidance: { readiness: string; commands: Array<{ command: string }> };
+    };
+    expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
+    expect(handoff.artifactGuide).not.toHaveProperty("canvas-plan.request.json");
+    expect(handoff.artifactGuide).not.toHaveProperty("prototype-guidance.md");
+    expect(handoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain("canvas-plan.request.json");
+    expect(handoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain("prototype-guidance.md");
+    expect(JSON.stringify(handoff)).not.toContain("canvas-plan.request.json");
+    expect(handoff.nextStepGuidance.readiness).toBe("diagnostic_only");
+    expect(handoff.nextStepGuidance.commands[0]?.command).toContain("--provider social/pinterest --url");
+    expect(handoff.nextStepGuidance.commands[0]?.command).not.toContain("--query");
+    const designMarkdown = await readFile(join(artifactPath, "design.md"), "utf8");
+    expect(designMarkdown).toContain("Prototype guidance omitted because next-step guidance is not ready.");
+    expect(designMarkdown).not.toContain("Prototype guidance Markdown for the first HTML pass");
+    expect(designMarkdown).not.toContain("## 6.1 Reference Anchors");
+    const manifest = JSON.parse(await readFile(join(artifactPath, "bundle-manifest.json"), "utf8")) as { files: string[] };
+    expect(manifest.files).toEqual(expect.arrayContaining([
+      "ranked-references.json",
+      "design-agent-handoff.json",
+      "bundle-manifest.json"
+    ]));
+    expect(manifest.files).not.toContain("canvas-plan.request.json");
+    expect(manifest.files).not.toContain("prototype-guidance.md");
+  });
+
   it("rejects inspiredesign tool providers without a query or compatible URL", async () => {
     const deps = makeDeps();
     const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
@@ -638,6 +752,52 @@ describe("workflow tools", () => {
     expect(genericUrlResponse.error).toEqual({
       code: "inspiredesign_run_failed",
       message: "Provider web/default does not support URL-only site recipe recovery."
+    });
+  });
+
+  it("rejects direct-tool Pinterest query harvests with non-canonical explicit URLs", async () => {
+    const deps = makeDeps();
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const searchUrlResponse = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      query: "studio references",
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/search/pins/?q=studio"]
+    } as never));
+
+    expect(searchUrlResponse.ok).toBe(false);
+    expect(searchUrlResponse.error).toEqual({
+      code: "inspiredesign_run_failed",
+      message: "URL https://www.pinterest.com/search/pins/?q=studio is not a canonical social/pinterest reference URL for provider-scoped recovery."
+    });
+    expect(deps.providerRuntime.search).not.toHaveBeenCalled();
+
+    const aliasResponse = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      query: "studio references",
+      providers: ["pinterest"],
+      urls: ["https://www.pinterest.com/search/pins/?q=studio"]
+    } as never));
+
+    expect(aliasResponse.ok).toBe(false);
+    expect(aliasResponse.error).toEqual(searchUrlResponse.error);
+
+    const unrelatedReferenceResponse = parse(await tool.execute({
+      brief: "Design a premium docs website",
+      harvest: true,
+      query: "studio references",
+      providers: ["social/pinterest"],
+      urls: ["https://example.com/pin/27654985208435505/"]
+    } as never));
+
+    expect(unrelatedReferenceResponse.ok).toBe(false);
+    expect(unrelatedReferenceResponse.error).toEqual({
+      code: "inspiredesign_run_failed",
+      message: "URL https://example.com/pin/27654985208435505/ is not a canonical social/pinterest reference URL for provider-scoped recovery."
     });
   });
 

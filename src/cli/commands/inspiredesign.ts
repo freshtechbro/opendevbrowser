@@ -6,11 +6,16 @@ import {
   parseBooleanFlag,
   parseNumberFlag,
   parseOptionalStringFlag,
-  parseRepeatedStringFlag
+  parseRepeatedStringFlag,
+  readInlineFlagValue
 } from "../utils/parse";
 import { buildWorkflowCompletionMessage } from "../utils/workflow-message";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../../challenges/types";
-import { validateProviderUrlSiteRecipeCompatibility } from "../../guidance/recipes/site-recipe-validation";
+import {
+  requiresProviderUrlSiteRecipeCompatibility,
+  validateProviderScopedUrlCanonicality,
+  validateProviderUrlSiteRecipeCompatibility
+} from "../../guidance/recipes/site-recipe-validation";
 import { resolveInspiredesignCaptureMode } from "../../inspiredesign/capture-mode";
 import type { InspiredesignVisualEvidenceMode } from "../../inspiredesign/visual-evidence";
 import type { WorkflowBrowserMode } from "../../providers/types";
@@ -101,7 +106,7 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--capture-mode=")) {
-      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      const value = (readInlineFlagValue(arg, "--capture-mode") ?? "").toLowerCase();
       if (!CAPTURE_MODE_VALUES.has(value)) {
         throw createUsageError(`Invalid --capture-mode: ${value}`);
       }
@@ -114,7 +119,10 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--include-prototype-guidance=")) {
-      parsed.includePrototypeGuidance = parseBooleanFlag(arg.split("=", 2)[1] ?? "", "--include-prototype-guidance");
+      parsed.includePrototypeGuidance = parseBooleanFlag(
+        readInlineFlagValue(arg, "--include-prototype-guidance") ?? "",
+        "--include-prototype-guidance"
+      );
       continue;
     }
 
@@ -128,7 +136,7 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--mode=")) {
-      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      const value = (readInlineFlagValue(arg, "--mode") ?? "").toLowerCase();
       if (!MODE_VALUES.has(value)) {
         throw createUsageError(`Invalid --mode: ${value}`);
       }
@@ -145,10 +153,14 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--max-references=")) {
-      parsed.maxReferences = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--max-references", {
-        min: 1,
-        max: MAX_REFERENCES_LIMIT
-      });
+      parsed.maxReferences = parseNumberFlag(
+        readInlineFlagValue(arg, "--max-references") ?? "",
+        "--max-references",
+        {
+          min: 1,
+          max: MAX_REFERENCES_LIMIT
+        }
+      );
       continue;
     }
 
@@ -162,7 +174,7 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--visual-evidence=")) {
-      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      const value = (readInlineFlagValue(arg, "--visual-evidence") ?? "").toLowerCase();
       if (!VISUAL_EVIDENCE_VALUES.has(value)) {
         throw createUsageError(`Invalid --visual-evidence: ${value}`);
       }
@@ -176,7 +188,11 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--timeout-ms=")) {
-      parsed.timeoutMs = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--timeout-ms", { min: 1 });
+      parsed.timeoutMs = parseNumberFlag(
+        readInlineFlagValue(arg, "--timeout-ms") ?? "",
+        "--timeout-ms",
+        { min: 1 }
+      );
       continue;
     }
 
@@ -186,7 +202,7 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--output-dir=")) {
-      parsed.outputDir = resolveWorkflowOutputDirFlag(arg.split("=", 2)[1]);
+      parsed.outputDir = resolveWorkflowOutputDirFlag(readInlineFlagValue(arg, "--output-dir"));
       continue;
     }
 
@@ -196,7 +212,11 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--ttl-hours=")) {
-      parsed.ttlHours = parseNumberFlag(arg.split("=", 2)[1] ?? "", "--ttl-hours", { min: 1, max: 168 });
+      parsed.ttlHours = parseNumberFlag(
+        readInlineFlagValue(arg, "--ttl-hours") ?? "",
+        "--ttl-hours",
+        { min: 1, max: 168 }
+      );
       continue;
     }
 
@@ -210,7 +230,7 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--browser-mode=")) {
-      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      const value = (readInlineFlagValue(arg, "--browser-mode") ?? "").toLowerCase();
       if (!BROWSER_MODE_VALUES.has(value)) {
         throw createUsageError(`Invalid --browser-mode: ${value}`);
       }
@@ -223,7 +243,7 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--use-cookies=")) {
-      parsed.useCookies = parseBooleanFlag(arg.split("=", 2)[1] ?? "", "--use-cookies");
+      parsed.useCookies = parseBooleanFlag(readInlineFlagValue(arg, "--use-cookies") ?? "", "--use-cookies");
       continue;
     }
 
@@ -237,7 +257,7 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--challenge-automation-mode=")) {
-      const value = arg.split("=", 2)[1] ?? "";
+      const value = readInlineFlagValue(arg, "--challenge-automation-mode") ?? "";
       if (!isChallengeAutomationMode(value)) {
         throw createUsageError(`Invalid --challenge-automation-mode: ${value}`);
       }
@@ -255,7 +275,8 @@ const parseInspiredesignArgs = (rawArgs: string[]): InspiredesignCommandArgs => 
       continue;
     }
     if (arg?.startsWith("--cookie-policy-override=") || arg?.startsWith("--cookie-policy=")) {
-      const value = (arg.split("=", 2)[1] ?? "").toLowerCase();
+      const flag = arg.startsWith("--cookie-policy-override=") ? "--cookie-policy-override" : "--cookie-policy";
+      const value = (readInlineFlagValue(arg, flag) ?? "").toLowerCase();
       if (!COOKIE_POLICY_VALUES.has(value)) {
         throw createUsageError(`Invalid --cookie-policy-override: ${value}`);
       }
@@ -280,13 +301,23 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
     throw createUsageError("--query is only supported by inspiredesign harvest");
   }
   const isHarvest = subcommand === "harvest";
-  if (parsed.providers && parsed.providers.length > 0 && !parsed.query) {
+  const providers = parsed.providers ?? [];
+  const urls = parsed.urls ?? [];
+  const canonicality = validateProviderScopedUrlCanonicality({ providers, urls });
+  if (!canonicality.ok) {
+    throw createUsageError(canonicality.message);
+  }
+  if (requiresProviderUrlSiteRecipeCompatibility({
+    providers,
+    urls,
+    query: parsed.query
+  })) {
     if (!isHarvest) {
       throw createUsageError("--provider requires --query or compatible harvest --url recovery");
     }
     const compatibility = validateProviderUrlSiteRecipeCompatibility({
-      providers: parsed.providers,
-      urls: parsed.urls ?? []
+      providers,
+      urls
     });
     if (!compatibility.ok) {
       throw createUsageError(compatibility.message);

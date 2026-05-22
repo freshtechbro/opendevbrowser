@@ -10,12 +10,20 @@ import {
 import type { InspiredesignReferencePatternBoard } from "../inspiredesign/reference-pattern-board";
 import type { CanvasDesignGovernance, CanvasGenerationPlan } from "../canvas/types";
 import {
-  INSPIREDESIGN_HANDOFF_FILES
+  INSPIREDESIGN_HANDOFF_FILES,
+  type InspiredesignArtifactGuide,
+  type InspiredesignContractSectionGuide
 } from "../inspiredesign/handoff";
 import { buildInspiredesignSuccessHandoff } from "./workflow-handoff";
 import type { NextStepGuidance } from "../guidance/types";
 
 export type RenderMode = "compact" | "json" | "md" | "context" | "path";
+
+type RenderedInspiredesignArtifactGuide = Partial<InspiredesignArtifactGuide>;
+type RenderedInspiredesignFollowthrough = Omit<InspiredesignFollowthrough, "artifactGuide"> & {
+  artifactGuide: RenderedInspiredesignArtifactGuide;
+};
+type InspiredesignGuideEntry = InspiredesignContractSectionGuide[string];
 
 export interface ShoppingOffer {
   offer_id: string;
@@ -182,29 +190,101 @@ const researchFailureMessage = (content: string | undefined): string => (
 );
 
 const CANVAS_CONTINUATION_BLOCKED_COMMAND = "Unavailable until nextStepGuidance.readiness is ready.";
+const CANVAS_PLAN_OMITTED_GUIDANCE = "Canvas plan request omitted until nextStepGuidance.readiness is ready.";
 
 const canContinueInspiredesignInCanvas = (guidance: NextStepGuidance | undefined): boolean => (
   guidance?.readiness === "ready"
 );
 
-const blockInspiredesignCanvasArtifactGuide = (
-  handoff: InspiredesignFollowthrough,
-  recoverySummary: string
-): InspiredesignFollowthrough["artifactGuide"] => ({
-  ...handoff.artifactGuide,
-  [INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]: {
-    ...handoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest],
-    purpose: "Diagnostic Canvas request preview only until nextStepGuidance.readiness is ready.",
-    howToUse: [
-      recoverySummary,
-      "Do not submit this payload to Canvas until usable ranked references pass the readiness checks."
-    ],
-    mustNot: [
-      "Do not submit canvas.plan.set while nextStepGuidance.readiness is not ready.",
-      "Do not treat rejected or not-ready references as Canvas design direction."
-    ]
-  }
+const scrubCanvasPlanReference = (value: string): string => (
+  value.includes(INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)
+    ? CANVAS_PLAN_OMITTED_GUIDANCE
+    : value
+);
+
+const scrubGuideEntryCanvasReferences = (entry: InspiredesignGuideEntry): InspiredesignGuideEntry => ({
+  ...entry,
+  expectedContents: entry.expectedContents.map(scrubCanvasPlanReference),
+  howToUse: entry.howToUse.map(scrubCanvasPlanReference),
+  mustNot: entry.mustNot.map(scrubCanvasPlanReference)
 });
+
+const scrubArtifactGuideCanvasReferences = (
+  guide: RenderedInspiredesignArtifactGuide
+): RenderedInspiredesignArtifactGuide => {
+  const scrubbed: RenderedInspiredesignArtifactGuide = {};
+  for (const [key, entry] of Object.entries(guide)) {
+    if (entry) {
+      scrubbed[key as keyof InspiredesignArtifactGuide] = scrubGuideEntryCanvasReferences(entry);
+    }
+  }
+  return scrubbed;
+};
+
+const scrubContractSectionGuideCanvasReferences = (
+  guide: InspiredesignContractSectionGuide
+): InspiredesignContractSectionGuide => {
+  const scrubbed: InspiredesignContractSectionGuide = {};
+  for (const [key, entry] of Object.entries(guide)) {
+    scrubbed[key] = scrubGuideEntryCanvasReferences(entry);
+  }
+  return scrubbed;
+};
+
+const blockInspiredesignCanvasArtifactGuide = (
+  handoff: InspiredesignFollowthrough
+): RenderedInspiredesignArtifactGuide => {
+  const artifactGuide: RenderedInspiredesignArtifactGuide = { ...handoff.artifactGuide };
+  delete artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest];
+  return artifactGuide;
+};
+
+const blockInspiredesignNotReadyArtifacts = (
+  handoff: RenderedInspiredesignFollowthrough
+): RenderedInspiredesignFollowthrough => {
+  const referenceSynthesis = plainObject(handoff.implementationContext.referenceSynthesis);
+  const blockedArtifacts: ReadonlySet<string> = new Set([
+    INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
+    INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance
+  ]);
+  const requiredArtifacts = isStringArray(referenceSynthesis.requiredArtifacts)
+    ? referenceSynthesis.requiredArtifacts.filter((artifact) => !blockedArtifacts.has(artifact))
+    : [];
+  const artifactGuide: RenderedInspiredesignArtifactGuide = { ...handoff.artifactGuide };
+  delete artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest];
+  delete artifactGuide[INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance];
+  return {
+    ...handoff,
+    artifactGuide: scrubArtifactGuideCanvasReferences(artifactGuide),
+    contractSectionGuide: scrubContractSectionGuideCanvasReferences(handoff.contractSectionGuide),
+    implementationContext: {
+      ...handoff.implementationContext,
+      referenceSynthesis: {
+        ...referenceSynthesis,
+        requiredArtifacts
+      }
+    }
+  };
+};
+
+const blockPrototypeGuidanceInDesignMarkdown = (
+  markdown: string,
+  prototypeGuidanceMarkdown: string | null
+): string => {
+  const withoutCanvasDeliverable = markdown.replace(
+    /\n- Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready/g,
+    `\n- ${CANVAS_PLAN_OMITTED_GUIDANCE}`
+  );
+  const withoutPrototypeDeliverable = withoutCanvasDeliverable.replace(
+    /\n- Prototype guidance Markdown for the first HTML pass/g,
+    ""
+  );
+  if (!prototypeGuidanceMarkdown) return withoutPrototypeDeliverable;
+  return withoutPrototypeDeliverable.replace(
+    prototypeGuidanceMarkdown,
+    "# 6. Optional Prototype Plan\n\n- Prototype guidance omitted because next-step guidance is not ready."
+  );
+};
 
 const buildMissingInspiredesignGuidanceHandoff = (): {
   followthroughSummary: string;
@@ -793,6 +873,9 @@ export const renderInspiredesign = (args: {
   const followthroughSummary = prependPrimaryConstraint(args.designAgentHandoff.summary, args.meta);
   const canContinueInCanvas = canContinueInspiredesignInCanvas(args.nextStepGuidance);
   const prototypeGuidanceMarkdown = canContinueInCanvas ? args.prototypeGuidanceMarkdown : null;
+  const designMarkdown = canContinueInCanvas
+    ? args.designMarkdown
+    : blockPrototypeGuidanceInDesignMarkdown(args.designMarkdown, args.prototypeGuidanceMarkdown);
   const commandExamples = {
     ...args.designAgentHandoff.commandExamples,
     continueInCanvas: canContinueInCanvas
@@ -807,10 +890,10 @@ export const renderInspiredesign = (args: {
     ...(args.nextStepGuidance ? { nextStepGuidance: args.nextStepGuidance } : {})
   });
   const handoff = args.nextStepGuidance ? renderedWorkflowHandoff : buildMissingInspiredesignGuidanceHandoff();
-  const blockedCanvasArtifactGuide = canContinueInCanvas
+  const blockedCanvasArtifactGuide: RenderedInspiredesignArtifactGuide = canContinueInCanvas
     ? args.designAgentHandoff.artifactGuide
-    : blockInspiredesignCanvasArtifactGuide(args.designAgentHandoff, handoff.suggestedNextAction);
-  const renderedDesignAgentHandoff = {
+    : blockInspiredesignCanvasArtifactGuide(args.designAgentHandoff);
+  const renderedDesignAgentHandoffBase: RenderedInspiredesignFollowthrough = {
     ...args.designAgentHandoff,
     ...handoff,
     summary: handoff.followthroughSummary,
@@ -818,17 +901,20 @@ export const renderInspiredesign = (args: {
     artifactGuide: blockedCanvasArtifactGuide,
     commandExamples
   };
+  const renderedDesignAgentHandoff = canContinueInCanvas
+    ? renderedDesignAgentHandoffBase
+    : blockInspiredesignNotReadyArtifacts(renderedDesignAgentHandoffBase);
   const contextPayload = {
     brief: args.brief,
     advancedBriefMarkdown: args.advancedBriefMarkdown,
     urls: args.urls,
     designContract: args.designContract,
-    canvasPlanRequest: args.canvasPlanRequest,
+    ...(canContinueInCanvas ? { canvasPlanRequest: args.canvasPlanRequest } : {}),
     designAgentHandoff: renderedDesignAgentHandoff,
     ...(args.nextStepGuidance ? { nextStepGuidance: args.nextStepGuidance } : {}),
     generationPlan: args.generationPlan,
     implementationPlan: args.implementationPlan,
-    designMarkdown: args.designMarkdown,
+    designMarkdown,
     implementationPlanMarkdown: args.implementationPlanMarkdown,
     prototypeGuidanceMarkdown,
     evidence: args.evidence,
@@ -839,10 +925,9 @@ export const renderInspiredesign = (args: {
     meta: args.meta
   };
   const files: Array<{ path: string; content: string | Record<string, unknown> }> = [
-    { path: INSPIREDESIGN_HANDOFF_FILES.designMarkdown, content: args.designMarkdown },
+    { path: INSPIREDESIGN_HANDOFF_FILES.designMarkdown, content: designMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.advancedBrief, content: args.advancedBriefMarkdown },
     { path: INSPIREDESIGN_HANDOFF_FILES.designContract, content: args.designContract },
-    { path: INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest, content: args.canvasPlanRequest },
     {
       path: INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff,
       content: renderedDesignAgentHandoff
@@ -858,6 +943,9 @@ export const renderInspiredesign = (args: {
   ];
   if (prototypeGuidanceMarkdown) {
     files.push({ path: INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance, content: prototypeGuidanceMarkdown });
+  }
+  if (canContinueInCanvas) {
+    files.push({ path: INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest, content: args.canvasPlanRequest });
   }
   const captureAttemptFields = {
     ...(captureAttemptSummary ? { captureAttemptSummary } : {}),
@@ -883,7 +971,7 @@ export const renderInspiredesign = (args: {
         brief: args.brief,
         advancedBriefMarkdown: args.advancedBriefMarkdown,
         urls: args.urls,
-        canvasPlanRequest: args.canvasPlanRequest,
+        ...(canContinueInCanvas ? { canvasPlanRequest: args.canvasPlanRequest } : {}),
         designAgentHandoff: renderedDesignAgentHandoff,
         ...(args.nextStepGuidance ? { nextStepGuidance: args.nextStepGuidance } : {}),
         designContract: args.designContract,
@@ -906,7 +994,7 @@ export const renderInspiredesign = (args: {
     return {
       response: {
         mode: args.mode,
-        markdown: args.designMarkdown,
+        markdown: designMarkdown,
         implementationPlanMarkdown: args.implementationPlanMarkdown,
         prototypeGuidanceMarkdown,
         ...handoff,

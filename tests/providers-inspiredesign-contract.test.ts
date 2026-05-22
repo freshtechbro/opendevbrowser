@@ -3366,15 +3366,12 @@ describe("inspiredesign packet + renderer", () => {
     expect(handoffFile?.commandExamples.continueInCanvas).toBe(responseHandoff.commandExamples.continueInCanvas);
     expect(responseHandoff.summary).toBe(response.followthroughSummary);
     expect(responseHandoff.summary).not.toContain("continue in OpenDevBrowser Canvas");
-    expect(responseHandoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.purpose).toContain(
-      "Diagnostic Canvas request preview"
-    );
-    expect(responseHandoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.mustNot).toContain(
-      "Do not submit canvas.plan.set while nextStepGuidance.readiness is not ready."
-    );
-    expect(handoffFile?.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.purpose).toBe(
-      responseHandoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]?.purpose
-    );
+    expect(response).not.toHaveProperty("canvasPlanRequest");
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+    expect(responseHandoff.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]).toBeUndefined();
+    expect(handoffFile?.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]).toBeUndefined();
+    expect(JSON.stringify(responseHandoff)).not.toContain(INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest);
+    expect(JSON.stringify(handoffFile)).not.toContain(INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest);
     expect(response.suggestedNextAction).toBe("Collect usable reference evidence before Canvas.");
     expect(response.followthroughSummary).toBe(
       "Primary constraint: Pinterest requires a user-authorized signed-in browser session. Collect usable reference evidence before Canvas."
@@ -3410,6 +3407,8 @@ describe("inspiredesign packet + renderer", () => {
     expect(responseWithoutGuidance.suggestedNextAction).toBe(
       "Canvas continuation unavailable until nextStepGuidance.readiness is ready."
     );
+    expect(responseWithoutGuidance).not.toHaveProperty("canvasPlanRequest");
+    expect(renderedWithoutGuidance.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
     expect(JSON.stringify(responseWithoutGuidance.designAgentHandoff)).not.toContain("continue in OpenDevBrowser Canvas");
   });
 
@@ -3468,8 +3467,171 @@ describe("inspiredesign packet + renderer", () => {
     });
 
     const response = rendered.response as Record<string, unknown>;
-    const responseHandoff = response.designAgentHandoff as { commandExamples: { continueInCanvas: string } };
+    const responseHandoff = response.designAgentHandoff as {
+      commandExamples: { continueInCanvas: string };
+      implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
+    };
     expect(responseHandoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
+    expect(responseHandoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain(
+      INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest
+    );
+    expect(response).not.toHaveProperty("canvasPlanRequest");
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+  });
+
+  it.each(["compact", "json", "md", "context", "path"] as const)(
+    "omits prototype artifact references from not-ready %s responses",
+    (mode) => {
+      const packet = buildInspiredesignPacket({
+        brief: "Create a photography studio landing page",
+        briefExpansion: makeBriefExpansion(),
+        urls: ["https://example.com/blocked"],
+        references: [],
+        includePrototypeGuidance: true
+      });
+      const nextStepGuidance = {
+        id: "inspiredesign.harvest.zero_ranked_references",
+        recipeType: "evidence_recovery",
+        workflow: "inspiredesign",
+        severity: "warning",
+        readiness: "needs_recovery",
+        reasonCode: "zero_ranked_references",
+        primaryAction: {
+          id: "recover_reference_evidence",
+          label: "Recover reference evidence",
+          summary: "Collect usable reference evidence before Canvas."
+        },
+        commands: [{
+          id: "rerun",
+          label: "Rerun harvest",
+          command: "npx opendevbrowser inspiredesign harvest --brief \"Create a photography studio landing page\" --query \"cinematic studio references\""
+        }],
+        paramsExamples: [],
+        fieldExamples: [],
+        artifactInputs: [],
+        validationChecks: [],
+        fallbackPolicy: { allowed: false, requiresUserConfirmation: true, reason: "Do not continue yet." },
+        doNotProceedIf: ["reference_count is 0"]
+      } satisfies NextStepGuidance;
+
+      const rendered = renderInspiredesign({
+        mode,
+        brief: "Create a photography studio landing page",
+        advancedBriefMarkdown: packet.advancedBriefMarkdown,
+        urls: ["https://example.com/blocked"],
+        designContract: packet.designContract,
+        canvasPlanRequest: packet.canvasPlanRequest,
+        designAgentHandoff: packet.followthrough,
+        generationPlan: packet.generationPlan,
+        implementationPlan: packet.implementationPlan,
+        designMarkdown: packet.designMarkdown,
+        implementationPlanMarkdown: packet.implementationPlanMarkdown,
+        prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+        evidence: packet.evidence,
+        nextStepGuidance,
+        meta: {}
+      });
+
+      const serialized = JSON.stringify({
+        response: rendered.response,
+        files: rendered.files
+      });
+      const renderedHandoff = rendered.files.find(
+        (file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff
+      )?.content as {
+        artifactGuide: Record<string, unknown>;
+        implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
+      } | undefined;
+      expect(serialized).not.toContain(INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance);
+      expect(serialized).not.toContain("Prototype guidance Markdown for the first HTML pass");
+      expect(serialized).not.toContain("Use only for the first prototype pass");
+      expect(renderedHandoff?.artifactGuide[INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest]).toBeUndefined();
+      expect(renderedHandoff?.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain(
+        INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest
+      );
+      expect(JSON.stringify(renderedHandoff)).not.toContain(INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest);
+      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(false);
+      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+      if (mode === "json") {
+        expect(rendered.response).not.toHaveProperty("canvasPlanRequest");
+      }
+      if (mode === "context") {
+        expect((rendered.response as { context?: Record<string, unknown> }).context).not.toHaveProperty("canvasPlanRequest");
+      }
+    }
+  );
+
+  it("scrubs not-ready handoffs even when optional guide entries or required artifacts are malformed", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a photography studio landing page",
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://example.com/blocked"],
+      references: [],
+      includePrototypeGuidance: true
+    });
+    const designAgentHandoff = {
+      ...packet.followthrough,
+      artifactGuide: {
+        ...packet.followthrough.artifactGuide,
+        "diagnostic-extra.json": undefined as never
+      },
+      implementationContext: {
+        ...packet.followthrough.implementationContext,
+        referenceSynthesis: {
+          ...packet.followthrough.implementationContext.referenceSynthesis,
+          requiredArtifacts: "canvas-plan.request.json" as never
+        }
+      }
+    };
+    const nextStepGuidance = {
+      id: "inspiredesign.harvest.zero_ranked_references",
+      recipeType: "evidence_recovery",
+      workflow: "inspiredesign",
+      severity: "warning",
+      readiness: "needs_recovery",
+      reasonCode: "zero_ranked_references",
+      primaryAction: {
+        id: "recover_reference_evidence",
+        label: "Recover reference evidence",
+        summary: "Collect usable reference evidence before Canvas."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: true, reason: "Do not continue yet." },
+      doNotProceedIf: ["reference_count is 0"]
+    } satisfies NextStepGuidance;
+
+    const rendered = renderInspiredesign({
+      mode: "json",
+      brief: "Create a photography studio landing page",
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: ["https://example.com/blocked"],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      nextStepGuidance,
+      meta: {}
+    });
+
+    const response = rendered.response as {
+      designAgentHandoff: {
+        artifactGuide: Record<string, unknown>;
+        implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
+      };
+    };
+    expect(response.designAgentHandoff.artifactGuide).not.toHaveProperty("diagnostic-extra.json");
+    expect(response.designAgentHandoff.implementationContext.referenceSynthesis.requiredArtifacts).toEqual([]);
+    expect(JSON.stringify(response.designAgentHandoff)).not.toContain(INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest);
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
   });
 
   it("does not label Canvas request artifacts as ready when attempted references are diagnostic-only", () => {

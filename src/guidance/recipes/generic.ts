@@ -1,5 +1,5 @@
 import { buildCanvasPlanSetParamsExample, buildCanvasRepairGuidance } from "../../canvas/repair-examples";
-import { resolveSiteRecipeForUrl } from "./site-registry";
+import { normalizePinterestReferenceUrl } from "./pinterest";
 import type { CanvasGenerationPlanIssue } from "../../canvas/types";
 import type {
   GuidanceCommandExample,
@@ -18,6 +18,7 @@ const DEFAULT_INSPIREDESIGN_BRIEF = "Digital photography studio landing page";
 const DEFAULT_INSPIREDESIGN_QUERY = "cinematic photography studio landing page inspiration";
 const DEFAULT_RESEARCH_TOPIC = "browser automation provider recovery";
 const DEFAULT_PROVIDER = "provider diagnostics";
+const DEFAULT_PINTEREST_REFERENCE_URL = "https://www.pinterest.com/pin/27654985208435505/";
 
 const isCanvasGenerationPlanIssue = (value: unknown): value is CanvasGenerationPlanIssue => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -65,8 +66,17 @@ const inspiredesignCookieFlags = (context: GuidanceContext): string => {
 const pinterestRecoveryUrls = (context: GuidanceContext): string[] => {
   if (!isPinterestScopedRecovery(context)) return [];
   const urls = context.referenceUrls ?? [];
-  return [...new Set(urls.filter((url) => resolveSiteRecipeForUrl(url)?.id === "social/pinterest"))];
+  const canonicalUrls = urls
+    .map(normalizePinterestReferenceUrl)
+    .filter((url): url is string => url !== null);
+  return [...new Set(canonicalUrls)];
 };
+
+const inspiredesignRecoveryExampleUrls = (context: GuidanceContext): string[] => (
+  selectedProviderIsPinterest(context)
+    ? [DEFAULT_PINTEREST_REFERENCE_URL]
+    : ["https://example.com/usable-reference"]
+);
 
 const inspiredesignHarvestCommand = (context: GuidanceContext): GuidanceCommandExample => {
   const brief = typeof context.details?.brief === "string" ? context.details.brief : DEFAULT_INSPIREDESIGN_BRIEF;
@@ -444,10 +454,10 @@ const buildEvidenceRecoveryGuidance = (
   commands: [inspiredesignHarvestCommand(context)],
   paramsExamples: [{
     id: "explicit-reference-url-recovery",
-      label: "Use explicit high-quality visual references when provider discovery is blocked",
-      params: {
+    label: "Use explicit high-quality visual references when provider discovery is blocked",
+    params: {
       brief: typeof context.details?.brief === "string" ? context.details.brief : DEFAULT_INSPIREDESIGN_BRIEF,
-      urls: ["https://example.com/usable-reference"],
+      urls: inspiredesignRecoveryExampleUrls(context),
       visualEvidence: "required",
       browserMode: inspiredesignBrowserMode(context),
       ...(selectedProviderIsPinterest(context) ? { useCookies: true, cookiePolicy: "required" } : {})

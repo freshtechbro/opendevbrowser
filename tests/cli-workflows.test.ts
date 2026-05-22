@@ -610,6 +610,78 @@ describe("workflow CLI commands", () => {
     }));
   });
 
+  it("rejects Pinterest provider query runs with non-canonical explicit URLs", async () => {
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=studio references",
+      "--provider=social/pinterest",
+      "--url=https://www.pinterest.com/search/pins/?q=studio"
+    ]))).rejects.toThrow(
+      "URL https://www.pinterest.com/search/pins/?q=studio is not a canonical social/pinterest reference URL for provider-scoped recovery."
+    );
+
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=studio references",
+      "--provider=social/pinterest",
+      "--url=https://www.pinterest.com/create/pin/"
+    ]))).rejects.toThrow(
+      "URL https://www.pinterest.com/create/pin/ is not a canonical social/pinterest reference URL for provider-scoped recovery."
+    );
+
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=studio references",
+      "--provider=pinterest",
+      "--url=https://www.pinterest.com/search/pins/?q=studio"
+    ]))).rejects.toThrow(
+      "URL https://www.pinterest.com/search/pins/?q=studio is not a canonical social/pinterest reference URL for provider-scoped recovery."
+    );
+
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=studio references",
+      "--provider=social/pinterest",
+      "--provider=web/default",
+      "--url=https://www.pinterest.com/search/pins/?q=studio"
+    ]))).rejects.toThrow(
+      "URL https://www.pinterest.com/search/pins/?q=studio is not a canonical social/pinterest reference URL for provider-scoped recovery."
+    );
+
+    await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=studio references",
+      "--provider=social/pinterest",
+      "--url=https://example.com/pin/27654985208435505/"
+    ]))).rejects.toThrow(
+      "URL https://example.com/pin/27654985208435505/ is not a canonical social/pinterest reference URL for provider-scoped recovery."
+    );
+  });
+
+  it("accepts Pinterest provider query runs with canonical explicit URLs", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=studio references",
+      "--provider=social/pinterest",
+      "--url=https://www.pinterest.com/pin/27654985208435505/"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      harvest: true,
+      providers: ["social/pinterest"],
+      query: "studio references",
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"]
+    }));
+  });
+
   it("rejects inspiredesign providers without query or compatible URLs", async () => {
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
       "harvest",
@@ -623,6 +695,21 @@ describe("workflow CLI commands", () => {
       "--provider=web/default",
       "--url=https://www.pinterest.com/pin/27654985208435505/"
     ]))).rejects.toThrow("Provider web/default does not support URL-only site recipe recovery");
+  });
+
+  it("preserves inline output directory values containing equals signs", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=studio references",
+      "--output-dir=/tmp/odb-output=a"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      outputDir: "/tmp/odb-output=a"
+    }));
   });
 
   it("surfaces inspiredesign readiness in completion messages", async () => {

@@ -53,10 +53,15 @@ const pinterestGuidance: NextStepGuidance = {
 const PINTEREST_PIN_ID_PATTERN = /^\d+$/;
 const RESERVED_PINTEREST_BOARD_PATHS = new Set([
   "about",
+  "ads",
   "board",
   "business",
+  "careers",
+  "contact",
   "create",
+  "developers",
   "explore",
+  "help",
   "ideas",
   "login",
   "messages",
@@ -65,11 +70,13 @@ const RESERVED_PINTEREST_BOARD_PATHS = new Set([
   "search",
   "settings",
   "shopping",
+  "terms",
   "today"
 ]);
 const RESERVED_PINTEREST_IDEA_PATHS = new Set(["create", "edit", "search"]);
 const RESERVED_PINTEREST_PROFILE_TABS = new Set([
   "activity",
+  "boards",
   "comments",
   "created",
   "followers",
