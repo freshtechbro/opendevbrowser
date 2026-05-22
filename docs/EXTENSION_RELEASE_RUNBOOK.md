@@ -6,7 +6,7 @@ Operational runbook for publishing extension artifacts from the public repo.
 
 ## Current source-backed extension reference
 
-As of the 2026-05-21 package metadata audit, `package.json`, `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json` are all aligned at `0.0.33`. `extension/manifest.json` is MV3, names the extension `OpenDevBrowser Relay`, and packages the background service worker at `dist/background.js`.
+As of the 2026-05-22 release prep, `package.json`, `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json` are all aligned at `0.0.34`. `extension/manifest.json` is MV3, names the extension `OpenDevBrowser Relay`, and packages the background service worker at `dist/background.js`.
 
 Use `npm run extension:sync` before release prep to write extension version metadata from the root package version. Use `npm run version:check` after sync to verify the root package, lockfile, manifest, and extension package agree.
 
@@ -55,7 +55,7 @@ Configure in public GitHub repo secrets:
 1. Run tag-driven public release flow (`docs/RELEASE_RUNBOOK.md`).
 2. Confirm the release workflow completed the registry-consumer smoke lane for the published npm package before treating the extension artifact as fully released.
 3. Confirm GitHub release includes extension zip + checksum.
-4. Confirm the active release evidence ledger, currently `docs/RELEASE_0.0.33_EVIDENCE.md` for package version `0.0.33`, records whether external release workflow evidence is complete or deferred.
+4. Confirm the active release evidence ledger, currently `docs/RELEASE_0.0.34_EVIDENCE.md` for package version `0.0.34`, records whether external release workflow evidence is complete or deferred.
 5. Verify checksum locally if required:
 
 ```bash
