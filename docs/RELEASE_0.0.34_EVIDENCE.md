@@ -1,6 +1,6 @@
 # v0.0.34 Release Evidence
 
-Status: npm and GitHub released; Chrome Web Store manual handoff pending
+Status: npm and GitHub released; Chrome Web Store submitted for review
 Target release date: 2026-05-22
 Target tag: `v0.0.34`
 
@@ -12,7 +12,7 @@ Current status note:
 - Source version metadata is aligned from `0.0.33` to `0.0.34`.
 - npm package `opendevbrowser@0.0.34` is published.
 - GitHub release `v0.0.34` is published with extension assets.
-- Chrome Web Store publication remains a manual browser-gated lane because Chrome Web Store developer pages cannot be scripted and this repo has no `CWS_*` secrets configured for API publication.
+- Chrome Web Store submission is complete and the item is pending review in the Developer Dashboard.
 
 ## Reference State
 
@@ -107,9 +107,12 @@ Current status note:
 - [x] GitHub release asset verification: downloaded `opendevbrowser-extension.zip` and `opendevbrowser-extension.zip.sha256` to `/tmp/opendevbrowser-release-v0.0.34-assets`; `shasum -a 256 -c opendevbrowser-extension.zip.sha256` returned `opendevbrowser-extension.zip: OK`.
 - [x] GitHub release asset digest: `opendevbrowser-extension.zip` uploaded with digest `sha256:f1de8d882b86773a72192cd5d9bc91963a95c0d605a7f58daff7805c7cb836bb`, size `176329`.
 - [x] GitHub release checksum asset digest: `opendevbrowser-extension.zip.sha256` uploaded with digest `sha256:52477a05cacf552ba6e61c86ffd0ecc1d836dc506da7e954e67ca1b42d4d6d89`, size `95`.
-- [ ] Chrome Web Store manual publish evidence: pending user completion in Chrome Web Store Developer Dashboard.
+- [x] Chrome Web Store manual submission evidence: submitted for review in Chrome Web Store Developer Dashboard; dashboard status is `Pending review` for item `mfajibjdacmecipgcpnagccbieabglhk`.
 - [x] Chrome Web Store manual lane preflight: local env has no `CWS_*` variables, `gh secret list --repo freshtechbro/opendevbrowser` lists no `CWS_*` secrets, and API/workflow publication is unavailable without those credentials.
-- [x] Chrome Web Store dashboard handoff: Chrome extension-backed browser reached `https://chrome.google.com/webstore/devconsole/ca194bec-a1d3-46ce-90f0-1c2fd8ab9a71/mfajibjdacmecipgcpnagccbieabglhk/edit/package?pli=1` with title `Package Information`, but Chrome Web Store pages return `The extensions gallery cannot be scripted`. The in-app browser redirected to Google sign-in for Chrome Web Store. Manual upload should use `/tmp/opendevbrowser-release-v0.0.34-assets/opendevbrowser-extension.zip`.
+- [x] Chrome Web Store dashboard automation limitation: Chrome extension-backed browser reached `https://chrome.google.com/webstore/devconsole/ca194bec-a1d3-46ce-90f0-1c2fd8ab9a71/mfajibjdacmecipgcpnagccbieabglhk/edit/package?pli=1` with title `Package Information`, but Chrome Web Store pages return `The extensions gallery cannot be scripted`. The in-app browser redirected to Google sign-in for Chrome Web Store, so final submission used the user's logged-in Chrome session with Computer Use.
+- [x] Chrome Web Store upload recovery: uploads initially returned `There was a problem uploading your file. Please try again.` while the local unpacked `OpenDevBrowser Relay` extension was active and Chrome displayed `"OpenDevBrowser Relay" started debugging this browser`. Temporarily disabling that local extension allowed upload of `prompt-exports/opendevbrowser-extension-v0.0.34-local.zip` with SHA-256 `6f4af7f8979160100605bdef4dffbad88344df354ad6c4aed0cc675dca3a2343`.
+- [x] Chrome Web Store submission completion: after user approval, clicked `Submit for review`; Chrome Web Store displayed `Your extension was submitted for review`, then the Developer Dashboard showed `Status: Pending review ID: mfajibjdacmecipgcpnagccbieabglhk`.
+- [x] Local Chrome state restoration: re-enabled the local unpacked `OpenDevBrowser Relay` extension after submission.
 
 ## Notes
 
