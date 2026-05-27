@@ -10,7 +10,11 @@ import {
 } from "../browser/session-inspector";
 import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
-import { captureInspiredesignReferenceFromManager } from "../inspiredesign/capture";
+import {
+  captureInspiredesignPrimaryMotionEvidenceFromManager,
+  captureInspiredesignPrimaryVisualEvidenceFromManager,
+  captureInspiredesignReferenceFromManager
+} from "../inspiredesign/capture";
 import {
   runInspiredesignWorkflow,
   runProductVideoWorkflow,
@@ -913,6 +917,16 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
         {
           captureReference: async (url, options) =>
             captureInspiredesignReferenceFromManager(core.manager, url, {
+              ...options,
+              cookieSource: core.config.providers?.cookieSource
+            }),
+          captureVisualEvidence: async (url, options) =>
+            captureInspiredesignPrimaryVisualEvidenceFromManager(core.manager, url, {
+              ...options,
+              cookieSource: core.config.providers?.cookieSource
+            }),
+          captureMotionEvidence: async (url, options) =>
+            captureInspiredesignPrimaryMotionEvidenceFromManager(core.manager, url, {
               ...options,
               cookieSource: core.config.providers?.cookieSource
             })

@@ -17,6 +17,7 @@
         "dom",
         "visual"
       ],
+      "evidenceAuthority": "ranked_reference",
       "intentMatched": true,
       "layoutRecipe": "",
       "contentHierarchy": [],

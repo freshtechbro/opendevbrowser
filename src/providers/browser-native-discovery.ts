@@ -1,6 +1,14 @@
 import { createProviderError, isProviderReasonCode, providerErrorCodeFromReasonCode } from "./errors";
 import type { JsonValue, NormalizedRecord, ProviderFailureEntry, ProviderReasonCode, ProviderSource } from "./types";
 import type { SiteRecipe, SiteRecipeBadState } from "../guidance/types";
+import {
+  classifyPinterestCandidate,
+  classifyPinterestSourcePage,
+  shouldBlockPinterestSourceExtraction,
+  summarizePinterestClassifications,
+  type PinterestMediaClassification,
+  type PinterestSourcePageQuality
+} from "../inspiredesign/pinterest-media-classification";
 
 export type BrowserNativeDiscoveryResult = {
   records: NormalizedRecord[];
@@ -63,6 +71,16 @@ const linksFromRecord = (record: NormalizedRecord): string[] => {
   return Array.isArray(links) ? links.filter((link): link is string => typeof link === "string") : [];
 };
 
+const pinterestCandidateFromRecord = (record: NormalizedRecord) => ({
+  url: record.url ?? undefined,
+  title: record.title ?? undefined,
+  content: record.content ?? undefined,
+  html: typeof record.attributes.html === "string" ? record.attributes.html : undefined,
+  links: linksFromRecord(record)
+});
+
+const isPinterestRecipe = (recipe: SiteRecipe): boolean => recipe.id === "social/pinterest";
+
 const badStateTextForRecord = (record: NormalizedRecord): string => {
   return [
     record.url ?? "",
@@ -102,6 +120,36 @@ const findBadState = (
   return undefined;
 };
 
+const pinterestClassificationBadStateId = (classification: PinterestMediaClassification): string => {
+  if (classification.sourcePageQuality === "login_challenge") return "login";
+  return "search-shell";
+};
+
+const pinterestClassificationRecoveryAction = (classification: PinterestMediaClassification): string => {
+  if (classification.sourcePageQuality === "login_challenge") {
+    return "Use extension mode with a user-authorized logged-in Pinterest session.";
+  }
+  return "Open a concrete pin, board, or idea page before capture.";
+};
+
+const matchedPinterestClassificationBadState = (
+  recipe: SiteRecipe,
+  classification: PinterestMediaClassification
+): MatchedBadState => {
+  const stateId = pinterestClassificationBadStateId(classification);
+  const recipeState = recipe.badStates.find((state) => state.id === stateId);
+  const state = recipeState ?? {
+    id: stateId,
+    markers: [],
+    reasonCode: classification.sourcePageQuality === "login_challenge" ? "auth_required" : "env_limited",
+    recoveryAction: pinterestClassificationRecoveryAction(classification)
+  };
+  return {
+    state,
+    reasonCode: normalizeBadStateReasonCode(state)
+  };
+};
+
 const findHardFailure = (failures: ProviderFailureEntry[]): ProviderFailureEntry | undefined => (
   failures.find((failure) => {
     const reasonCode = failure.error.reasonCode ?? failure.error.details?.reasonCode;
@@ -121,7 +169,9 @@ const buildBadStateResult = (
   source: ProviderSource,
   searchUrl: string,
   fetchedRecordCount: number,
-  badState: MatchedBadState
+  badState: MatchedBadState,
+  sourcePageQuality?: PinterestSourcePageQuality,
+  diagnosticBlockers: readonly string[] = []
 ): BrowserNativeDiscoveryResult => ({
   records: [],
   failures: [{
@@ -139,7 +189,9 @@ const buildBadStateResult = (
           siteRecipeId: input.recipe.id,
           query: input.query,
           searchUrl,
-          badStateId: badState.state.id
+          badStateId: badState.state.id,
+          ...(sourcePageQuality ? { sourcePageQuality } : {}),
+          ...(diagnosticBlockers.length > 0 ? { diagnosticBlockers: [...diagnosticBlockers] } : {})
         }
       }
     )
@@ -151,7 +203,9 @@ const buildBadStateResult = (
     searchUrl,
     fetchedRecordCount,
     badStateId: badState.state.id,
-    recoveryAction: badState.state.recoveryAction
+    recoveryAction: badState.state.recoveryAction,
+    ...(sourcePageQuality ? { sourcePageQuality } : {}),
+    ...(diagnosticBlockers.length > 0 ? { diagnosticBlockers: [...diagnosticBlockers] } : {})
   }
 });
 
@@ -203,7 +257,9 @@ const extractRecipeReferenceUrls = (
 const buildRecipeReferenceRecord = (
   input: BrowserNativeDiscoveryInput,
   url: string,
-  index: number
+  index: number,
+  classification?: PinterestMediaClassification,
+  sourcePageQuality?: PinterestSourcePageQuality
 ): NormalizedRecord => {
   const timestamp = new Date().toISOString();
   return {
@@ -220,7 +276,9 @@ const buildRecipeReferenceRecord = (
       discoveryMode: "browser_native_extracted_reference",
       authMode: input.recipe.authMode,
       maxReferences: input.maxReferences,
-      validationChecks: input.recipe.evidenceRequirements.map((entry) => entry.validation)
+      validationChecks: input.recipe.evidenceRequirements.map((entry) => entry.validation),
+      ...(classification ? { pinterestMediaClassification: classification as unknown as JsonValue } : {}),
+      ...(sourcePageQuality ? { pinterestSourcePageQuality: sourcePageQuality } : {})
     }
   };
 };
@@ -331,6 +389,22 @@ export const runBrowserNativeDiscovery = async (
   if (hardBlocker) {
     return buildBadStateResult(input, source, searchUrl, fetched.records.length, hardBlocker);
   }
+  const pinterestSourceClassification = isPinterestRecipe(input.recipe)
+    ? classifyPinterestSourcePage(fetched.records.map(pinterestCandidateFromRecord))
+    : undefined;
+  if (pinterestSourceClassification && shouldBlockPinterestSourceExtraction(pinterestSourceClassification)) {
+    const shellState = findBadState(input.recipe, fetched.records, "all")
+      ?? matchedPinterestClassificationBadState(input.recipe, pinterestSourceClassification);
+    return buildBadStateResult(
+      input,
+      source,
+      searchUrl,
+      fetched.records.length,
+      shellState,
+      pinterestSourceClassification.sourcePageQuality,
+      pinterestSourceClassification.diagnosticBlockers
+    );
+  }
   const extractedUrls = extractRecipeReferenceUrls(input, fetched.records, input.maxReferences);
   if (extractedUrls.length === 0) {
     const shellState = fetched.failures.length === 0 ? findBadState(input.recipe, fetched.records, "all") : undefined;
@@ -370,8 +444,17 @@ export const runBrowserNativeDiscovery = async (
     };
   }
 
+  const pinterestClassifications = isPinterestRecipe(input.recipe)
+    ? extractedUrls.map((url) => classifyPinterestCandidate({ url }))
+    : [];
   return {
-    records: extractedUrls.map((url, index) => buildRecipeReferenceRecord(input, url, index)),
+    records: extractedUrls.map((url, index) => buildRecipeReferenceRecord(
+      input,
+      url,
+      index,
+      pinterestClassifications[index],
+      pinterestSourceClassification?.sourcePageQuality
+    )),
     failures: [],
     diagnostics: {
       siteRecipeId: input.recipe.id,
@@ -380,7 +463,12 @@ export const runBrowserNativeDiscovery = async (
       searchUrl,
       navigationSteps: input.recipe.navigationSteps.map((step) => step.instruction),
       badStates: input.recipe.badStates.map((state) => state.id),
-      extractedUrlCount: extractedUrls.length
+      extractedUrlCount: extractedUrls.length,
+      ...(pinterestSourceClassification ? {
+        sourcePageQuality: pinterestSourceClassification.sourcePageQuality,
+        diagnosticBlockers: pinterestSourceClassification.diagnosticBlockers as unknown as JsonValue,
+        classificationCounts: summarizePinterestClassifications(pinterestClassifications) as unknown as JsonValue
+      } : {})
     }
   };
 };

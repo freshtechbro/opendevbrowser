@@ -63,12 +63,35 @@ const inspiredesignCookieFlags = (context: GuidanceContext): string => {
   return context.useCookies === true ? " --use-cookies" : "";
 };
 
+const stringArray = (value: unknown): string[] => (
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
+);
+
+const isPinterestUrlEligibleForExplicitRecovery = (context: GuidanceContext, canonicalUrl: string): boolean => {
+  const provenance = Array.isArray(context.details?.referenceUrlProvenance)
+    ? context.details.referenceUrlProvenance
+    : [];
+  const entry = provenance.find((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+    const url = "url" in item && typeof item.url === "string" ? item.url : "";
+    return normalizePinterestReferenceUrl(url) === canonicalUrl;
+  });
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return true;
+  const sources = stringArray("sources" in entry ? entry.sources : undefined);
+  const outcomes = stringArray("outcomes" in entry ? entry.outcomes : undefined);
+  if (outcomes.includes("ready")) return true;
+  if (sources.includes("user_supplied") && outcomes.includes("capture_failed")) return true;
+  if (sources.includes("shell_derived")) return false;
+  return !outcomes.some((outcome) => outcome === "rejected" || outcome === "weak");
+};
+
 const pinterestRecoveryUrls = (context: GuidanceContext): string[] => {
   if (!isPinterestScopedRecovery(context)) return [];
   const urls = context.referenceUrls ?? [];
   const canonicalUrls = urls
     .map(normalizePinterestReferenceUrl)
-    .filter((url): url is string => url !== null);
+    .filter((url): url is string => url !== null)
+    .filter((url) => isPinterestUrlEligibleForExplicitRecovery(context, url));
   return [...new Set(canonicalUrls)];
 };
 
@@ -121,8 +144,8 @@ const defaultFallbackPolicy: GuidanceFallbackPolicy = {
 const inspiredesignArtifacts = [
   { path: "advanced-brief.md", purpose: "Review the reference-first brief before design or implementation.", required: true },
   { path: "ranked-references.json", purpose: "Verify ranked evidence quality and rejected diagnostics.", required: true },
-  { path: "visual-evidence.json", purpose: "Confirm screenshot metadata and warnings.", required: true },
-  { path: "screenshot-index.json", purpose: "Confirm screenshot artifact paths exist before visual claims.", required: true }
+  { path: "visual-evidence.json", purpose: "Confirm screenshot and screencast evidence metadata and warnings.", required: true },
+  { path: "screenshot-index.json", purpose: "Confirm screenshot or screencast artifact paths exist before visual or motion claims.", required: true }
 ] as const;
 
 const requiresInspiredesignReferenceEvidence = (context: GuidanceContext): boolean => (
@@ -469,7 +492,7 @@ const buildEvidenceRecoveryGuidance = (
     { id: "ranked-reference-count", description: "At least one ranked reference is present.", assertion: "rankedReferences.length > 0" },
     { id: "reference-score", description: "The top reference score meets the ready threshold.", assertion: "topReferenceScore >= 50" },
     { id: "reference-intent", description: "The top ranked reference overlaps the requested brief intent.", assertion: "topReferenceIntentMatched === true" },
-    { id: "visual-artifact", description: "Required visual evidence has finalized screenshot paths.", assertion: "missingScreenshotCount === 0" }
+    { id: "visual-artifact", description: "Required visual evidence has finalized screenshot paths.", assertion: "allAttemptMissingScreenshotCount === 0" }
   ],
   fallbackPolicy: defaultFallbackPolicy,
   doNotProceedIf: [

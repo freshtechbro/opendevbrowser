@@ -10,6 +10,7 @@ export const INSPIREDESIGN_HANDOFF_FILES = {
   evidence: "evidence.json",
   visualEvidence: "visual-evidence.json",
   screenshotIndex: "screenshot-index.json",
+  motionEvidence: "motion-evidence.json",
   rankedReferences: "ranked-references.json",
   metaPrompt: "meta-prompt.md",
   prototypeGuidance: "prototype-guidance.md"
@@ -71,8 +72,8 @@ export const INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS = [
 export const INSPIREDESIGN_HANDOFF_GUIDANCE = {
   reviewAdvancedBrief: `${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} is the authoritative reference-first brief. When URL references exist, captured evidence leads the creative direction; selected format, profile defaults, layout posture, motion grammar, and anti-patterns are route guardrails only. Read it before touching Canvas or implementation files.`,
   prepareCanvasPlanRequest: `Fill canvasSessionId, leaseId, and documentId in ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} before running ${INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas}.`,
-  deepCaptureRecommendation: "Any inspiredesign run with reference URLs already uses captureMode=deep. Rerun with the same URLs only when you need refreshed DOM/layout evidence, restored session state, or capture-specific debugging.",
-  visualArtifactRecommendation: `${INSPIREDESIGN_HANDOFF_FILES.visualEvidence}, ${INSPIREDESIGN_HANDOFF_FILES.screenshotIndex}, ${INSPIREDESIGN_HANDOFF_FILES.rankedReferences}, and ${INSPIREDESIGN_HANDOFF_FILES.metaPrompt} are metadata-only guidance surfaces. Read them before translating visual or motion cues, and inspect PNG files by path instead of expecting image blobs in JSON.`
+  deepCaptureRecommendation: "Use captureMode=deep when you need refreshed DOM/layout diagnostics, restored session state, or capture-specific debugging. Pinterest harvest treats screenshots and screencasts as primary evidence.",
+  visualArtifactRecommendation: `${INSPIREDESIGN_HANDOFF_FILES.visualEvidence}, ${INSPIREDESIGN_HANDOFF_FILES.screenshotIndex}, ${INSPIREDESIGN_HANDOFF_FILES.motionEvidence}, ${INSPIREDESIGN_HANDOFF_FILES.rankedReferences}, and ${INSPIREDESIGN_HANDOFF_FILES.metaPrompt} are metadata-only guidance surfaces. Read them before translating visual or motion cues, and inspect PNG or replay files by path instead of expecting image blobs in JSON.`
 } as const;
 
 export const INSPIREDESIGN_ARTIFACT_GUIDE: InspiredesignArtifactGuide = {
@@ -141,6 +142,12 @@ export const INSPIREDESIGN_ARTIFACT_GUIDE: InspiredesignArtifactGuide = {
     expectedContents: ["reference ids", "paths", "sha256 hashes", "byte counts", "capture timestamps"],
     howToUse: ["Use for bundle inspection", "confirm every listed path exists before implementation"],
     mustNot: ["Do not treat missing screenshots as visual proof"]
+  },
+  [INSPIREDESIGN_HANDOFF_FILES.motionEvidence]: {
+    purpose: "Canonical motion evidence index for screencast replay results.",
+    expectedContents: ["reference ids", "replay paths", "preview paths", "frame counts", "warnings", "diagnostic authority"],
+    howToUse: ["Open replay and preview files by path", "treat diagnostic entries as non-authoritative design evidence"],
+    mustNot: ["Do not treat controls-only or zero-frame captures as design proof"]
   },
   [INSPIREDESIGN_HANDOFF_FILES.rankedReferences]: {
     purpose: "Deterministic ranked reference pattern board for design transfer.",
@@ -268,7 +275,7 @@ export const INSPIREDESIGN_CONTRACT_SECTION_GUIDE: InspiredesignContractSectionG
 };
 
 export const buildInspiredesignFollowthroughSummary = (): string => (
-  `Read ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} first, then continue in OpenDevBrowser Canvas with ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} and ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}, load ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[0]}, ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[1]}, and ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[2]} before implementation, inspect ${INSPIREDESIGN_HANDOFF_FILES.metaPrompt} plus screenshot metadata, and note that any supplied reference URL already uses captureMode=deep.`
+  `Read ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief} first, then continue in OpenDevBrowser Canvas with ${INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest} and ${INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff}, load ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[0]}, ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[1]}, and ${INSPIREDESIGN_HANDOFF_RECOMMENDED_SKILLS[2]} before implementation, inspect ${INSPIREDESIGN_HANDOFF_FILES.metaPrompt} plus screenshot metadata, and note that Pinterest harvest uses screenshot-first or screencast-first evidence while captureMode=deep remains opt-in diagnostics.`
 );
 
 export const buildInspiredesignNextStep = (): string => (

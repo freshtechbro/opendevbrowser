@@ -26,7 +26,15 @@ const hasNoRankedReferences = (context: GuidanceContext): boolean => {
 
 const hasRequiredCaptureFailure = (context: GuidanceContext): boolean => {
   if (context.evidence?.visualEvidenceRequired !== true) return false;
-  return (context.evidence.failedCaptureCount ?? 0) > 0 || (context.evidence.missingScreenshotCount ?? 0) > 0;
+  const rankedReferenceCount = context.evidence.rankedReferenceCount ?? 0;
+  const rankedEvidenceFailed = (context.evidence.failedCaptureCount ?? 0) > 0
+    || (context.evidence.missingScreenshotCount ?? 0) > 0;
+  if (rankedReferenceCount > 0) return rankedEvidenceFailed;
+  return rankedEvidenceFailed
+    || (context.evidence.allAttemptFailedCaptureCount ?? 0) > 0
+    || (context.evidence.allAttemptMissingScreenshotCount ?? 0) > 0
+    || (context.evidence.allAttemptVisualFailureCount ?? 0) > 0
+    || (context.evidence.allAttemptMotionFailureCount ?? 0) > 0;
 };
 
 const hasWeakTopReference = (context: GuidanceContext): boolean => {

@@ -272,6 +272,40 @@ describe("guidance context adapters", () => {
         rankedReferenceUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
       }
     }).reasonCode).toBe("design_ready");
+    expect(createInspiredesignGuidanceContext({
+      ...source,
+      requestedProviders: [],
+      quality: {
+        ...source.quality,
+        rankedReferenceUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
+      }
+    }).providerUnavailable).toBe(false);
+    expect(createInspiredesignGuidanceContext({
+      ...source,
+      urls: ["https://example.com/reference"],
+      quality: {
+        ...source.quality,
+        rankedReferenceUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
+      }
+    }).providerUnavailable).toBe(true);
+    expect(createInspiredesignGuidanceContext({
+      ...source,
+      urls: ["not a url", "https://www.pinterest.com/pin/61572719900827789/"],
+      requestedProviders: ["social/not-pinterest"],
+      quality: {
+        ...source.quality,
+        rankedReferenceUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
+      }
+    }).providerUnavailable).toBe(false);
+    expect(createInspiredesignGuidanceContext({
+      ...source,
+      urls: ["https://www.pinterest.com/pin/61572719900827789/"],
+      requestedProviders: ["social/pinterest"],
+      quality: {
+        ...source.quality,
+        rankedReferenceUrls: ["not a url"]
+      }
+    }).providerUnavailable).toBe(true);
   });
 
   it("keeps brief-only Inspired Design handoffs ready when reference evidence was not required", () => {
@@ -299,5 +333,72 @@ describe("guidance context adapters", () => {
 
     expect(context.reasonCode).toBe("design_ready");
     expect(context.evidence?.referenceEvidenceRequired).toBe(false);
+  });
+
+  it("keeps capture-failure reasoning on all-attempt motion failures when reference evidence is optional", () => {
+    const context = createInspiredesignGuidanceContext({
+      brief: "Design a premium studio landing page",
+      query: "editorial studio references",
+      urls: [" https://example.com/reference ", "https://example.com/reference"],
+      requestedProviders: [],
+      browserMode: "managed",
+      useCookies: false,
+      cookiePolicy: "optional",
+      discovery: {
+        requested: false,
+        acceptedUrls: [],
+        failures: 0
+      },
+      metrics: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
+        failedCaptureCount: 0,
+        visualEvidenceRequired: true
+      },
+      quality: {
+        rankedReferenceCount: 0,
+        rejectedReferenceCount: 1,
+        missingScreenshotCount: 0,
+        allAttemptFailedCaptureCount: 0,
+        allAttemptMissingScreenshotCount: 0,
+        allAttemptVisualFailureCount: 0,
+        allAttemptMotionFailureCount: 1,
+        diagnosticOnlyReasons: []
+      }
+    });
+
+    expect(context.reasonCode).toBe("failed_capture");
+    expect(context.referenceUrls).toEqual(["https://example.com/reference"]);
+    expect(context.browserMode).toBe("managed");
+    expect(context.cookiePolicy).toBe("optional");
+    expect(context.useCookies).toBe(false);
+  });
+
+  it("keeps all-attempt missing screenshots visible when no reference ranks", () => {
+    const context = createInspiredesignGuidanceContext({
+      brief: "Design a premium studio landing page",
+      requestedProviders: ["social/pinterest"],
+      discovery: {
+        requested: true,
+        acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/"],
+        failures: 0
+      },
+      metrics: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
+        failedCaptureCount: 0,
+        visualEvidenceRequired: true
+      },
+      quality: {
+        rankedReferenceCount: 0,
+        rejectedReferenceCount: 1,
+        missingScreenshotCount: 0,
+        allAttemptMissingScreenshotCount: 1,
+        diagnosticOnlyReasons: []
+      }
+    });
+
+    expect(context.reasonCode).toBe("failed_capture");
+    expect(context.evidence?.allAttemptMissingScreenshotCount).toBe(1);
   });
 });

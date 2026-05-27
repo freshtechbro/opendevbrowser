@@ -155,6 +155,7 @@ describe("inspiredesign capture helper", () => {
       goto: vi.fn().mockResolvedValue(undefined),
       waitForLoad: vi.fn().mockResolvedValue(undefined),
       snapshot: vi.fn().mockResolvedValue({
+        url: "https://example.com/visual",
         content: "hero snapshot",
         refCount: 4,
         warnings: []
@@ -192,6 +193,7 @@ describe("inspiredesign capture helper", () => {
       status: "captured",
       kind: "viewport",
       fullPage: false,
+      sourceUrl: "https://example.com/visual",
       tempPath: "/tmp/inspiredesign-visual/reference.png",
       warnings: ["cdp fallback"]
     }));
@@ -204,6 +206,7 @@ describe("inspiredesign capture helper", () => {
       goto: vi.fn().mockResolvedValue(undefined),
       waitForLoad: vi.fn().mockResolvedValue(undefined),
       snapshot: vi.fn().mockResolvedValue({
+        url: "https://example.com/visual-minimal",
         content: "hero snapshot",
         refCount: 4,
         warnings: []
@@ -234,6 +237,7 @@ describe("inspiredesign capture helper", () => {
 
     expect(result.visual).toEqual(expect.objectContaining({
       status: "captured",
+      sourceUrl: "https://example.com/visual-minimal",
       tempPath: "/tmp/inspiredesign-visual/minimal.png",
       warnings: []
     }));
@@ -760,6 +764,426 @@ describe("inspiredesign capture helper", () => {
     );
     expect(manager.goto.mock.calls[0]?.[3]).toBeGreaterThan(0);
     expect(manager.goto.mock.calls[0]?.[3]).toBeLessThanOrEqual(30000);
+  });
+
+  it("imports configured cookie sources into primary visual capture before navigation", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual" }),
+      cookieImport: vi.fn().mockResolvedValue({ imported: 1, rejected: [] }),
+      cookieList: vi.fn().mockResolvedValue({ count: 1, cookies: [{ name: "sid" }] }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-cookie.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+    const cookieSource = {
+      type: "inline" as const,
+      value: [{ name: "sid", value: "abc", url: "https://example.com/primary-visual" }]
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://example.com/primary-visual",
+      {
+        visualEvidencePath: "/tmp/primary-visual-cookie.png",
+        cookiePolicyOverride: "required",
+        challengeAutomationMode: "browser",
+        cookieSource
+      }
+    );
+
+    expect(manager.cookieImport).toHaveBeenCalledWith(
+      "session-primary-visual",
+      cookieSource.value,
+      false,
+      undefined,
+      expect.any(Number)
+    );
+    expect(manager.cookieList).toHaveBeenCalledWith(
+      "session-primary-visual",
+      ["https://example.com/primary-visual"],
+      undefined,
+      expect.any(Number)
+    );
+    expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-primary-visual", "browser");
+    expect(manager.goto).toHaveBeenCalledWith(
+      "session-primary-visual",
+      "https://example.com/primary-visual",
+      "load",
+      expect.any(Number)
+    );
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      tempPath: "/tmp/primary-visual-cookie.png"
+    }));
+  });
+
+  it("marks primary Pinterest visual captures diagnostic when the viewport probe sees login chrome", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-login" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/123/",
+        title: "Log in to continue",
+        content: "Log in to continue with Pinterest and sign up to save this pin",
+        refCount: 1,
+        warnings: []
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-login.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/123/",
+      {
+        visualEvidencePath: "/tmp/primary-visual-login.png",
+        cookiePolicyOverride: "off"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      sourceUrl: "https://www.pinterest.com/pin/123/",
+      pinterestPageQuality: "login_challenge",
+      warnings: ["login_or_challenge_state"]
+    }));
+  });
+
+  it("marks primary Pinterest visual captures diagnostic when the viewport probe sees search chrome", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-search-shell" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/456/",
+        title: "Search results for couture atelier",
+        content: "Related searches, pin card, updates, and messages",
+        refCount: 1,
+        warnings: ["When autocomplete results are available"]
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-search-shell.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/456/",
+      {
+        visualEvidencePath: "/tmp/primary-visual-search-shell.png",
+        cookiePolicyOverride: "off"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      sourceUrl: "https://www.pinterest.com/pin/456/",
+		pinterestPageQuality: "search_shell",
+      warnings: ["interface_chrome_shell"]
+    }));
+  });
+
+  it("marks primary Pinterest visual captures diagnostic for one chrome blocker marker", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-single-chrome" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/457/",
+        title: "Pinterest",
+        content: "Accounts",
+        refCount: 1,
+        warnings: []
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-single-chrome.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/457/",
+      {
+        visualEvidencePath: "/tmp/primary-visual-single-chrome.png",
+        cookiePolicyOverride: "off"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      sourceUrl: "https://www.pinterest.com/pin/457/",
+      pinterestPageQuality: "chrome_only",
+      warnings: ["interface_chrome_shell"]
+    }));
+  });
+
+  it("keeps sparse canonical Pinterest pin viewports out of pin-media authority", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-sparse-pin" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/654/",
+        title: "Pinterest",
+        content: "Pinterest",
+        refCount: 1,
+        warnings: []
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-sparse-pin.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/654/",
+      {
+        visualEvidencePath: "/tmp/primary-visual-sparse-pin.png",
+        cookiePolicyOverride: "off"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      sourceUrl: "https://www.pinterest.com/pin/654/",
+      pinterestPageQuality: "unknown",
+      warnings: []
+    }));
+  });
+
+  it("requires structural cloned media before marking primary Pinterest visual captures pin-media", async () => {
+    const textOnlyManager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-text-only" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/655/",
+        title: "Pinterest video pin",
+        content: "Watch this pin for cinematic studio motion",
+        refCount: 1,
+        warnings: []
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-text-only.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+    const structuralManager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-structural" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/656/",
+        title: "Pinterest",
+        content: "Cinematic studio reference",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<main><img data-test-id=\"closeup-image\" src=\"/pin.jpg\" alt=\"Cinematic studio reference\" /></main>"
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-structural.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    await expect(captureInspiredesignPrimaryVisualEvidenceFromManager(
+      textOnlyManager as never,
+      "https://www.pinterest.com/pin/655/",
+      {
+        visualEvidencePath: "/tmp/primary-visual-text-only.png",
+        cookiePolicyOverride: "off"
+      }
+    )).resolves.toEqual(expect.objectContaining({
+      pinterestPageQuality: "unknown"
+    }));
+    await expect(captureInspiredesignPrimaryVisualEvidenceFromManager(
+      structuralManager as never,
+      "https://www.pinterest.com/pin/656/",
+      {
+        visualEvidencePath: "/tmp/primary-visual-structural.png",
+        cookiePolicyOverride: "off"
+      }
+    )).resolves.toEqual(expect.objectContaining({
+      pinterestPageQuality: "pin_media"
+    }));
+    expect(structuralManager.clonePageHtmlWithOptions).toHaveBeenCalledWith(
+      "session-primary-visual-structural",
+      undefined,
+      { maxNodes: 400, inlineStyles: false },
+      expect.any(Number)
+    );
+  });
+
+  it("keeps malformed viewport probe URLs non-authoritative without adding Pinterest warnings", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-bad-url" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "not a url",
+        title: "Log in to continue",
+        content: "Search results for couture atelier",
+        refCount: 1,
+        warnings: []
+      }),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-bad-url.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/789/",
+      {
+        visualEvidencePath: "/tmp/primary-visual-bad-url.png",
+        cookiePolicyOverride: "off"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      sourceUrl: "not a url",
+      warnings: []
+    }));
+  });
+
+  it("continues primary visual capture after ignorable network idle wait failures", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-timeout" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockRejectedValue(new Error("Navigation wait timed out after 5000ms")),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-timeout.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://example.com/primary-visual-timeout",
+      {
+        visualEvidencePath: "/tmp/primary-visual-timeout.png",
+        cookiePolicyOverride: "off"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      tempPath: "/tmp/primary-visual-timeout.png"
+    }));
+    expect(manager.screenshot).toHaveBeenCalledWith("session-primary-visual-timeout", {
+      path: "/tmp/primary-visual-timeout.png",
+      fullPage: false
+    });
+    expect(manager.disconnect).toHaveBeenCalledWith("session-primary-visual-timeout", true);
+  });
+
+  it("fails primary visual capture when network idle wait reports non-timeout errors", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-crash" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockRejectedValue(new Error("page crashed")),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-visual-crash.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://example.com/primary-visual-crash",
+      {
+        visualEvidencePath: "/tmp/primary-visual-crash.png",
+        cookiePolicyOverride: "off"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "page crashed",
+      warnings: ["primary_capture_setup_failed"]
+    }));
+    expect(manager.screenshot).not.toHaveBeenCalled();
+    expect(manager.disconnect).toHaveBeenCalledWith("session-primary-visual-crash", true);
+  });
+
+  it("returns failed primary visual evidence and disconnects when setup fails after launch", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-setup-failure" }),
+      cookieList: vi.fn().mockRejectedValue(new Error("cookie verification failed")),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      screenshot: vi.fn().mockResolvedValue({ path: "/tmp/primary-setup-failure.png", warnings: [] }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+    const result = await captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://example.com/primary-setup-failure",
+      {
+        visualEvidencePath: "/tmp/primary-setup-failure.png",
+        cookiePolicyOverride: "required"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "cookie verification failed",
+      warnings: ["primary_capture_setup_failed"]
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-primary-setup-failure", true);
+    expect(manager.goto).not.toHaveBeenCalled();
+    expect(manager.screenshot).not.toHaveBeenCalled();
+  });
+
+  it("returns failed primary motion evidence and disconnects when setup fails after launch", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-motion-setup-failure" }),
+      cookieList: vi.fn().mockRejectedValue(new Error("motion cookie verification failed")),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      startScreencast: vi.fn().mockResolvedValue({ screencastId: "motion-1" }),
+      stopScreencast: vi.fn().mockResolvedValue({
+        endedAt: "2026-05-23T00:00:00.000Z",
+        outputDir: "/tmp/motion",
+        frameCount: 1,
+        warnings: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+    const result = await captureInspiredesignPrimaryMotionEvidenceFromManager(
+      manager as never,
+      "https://example.com/primary-motion-setup-failure",
+      {
+        outputDir: "/tmp/primary-motion-setup-failure",
+        cookiePolicyOverride: "required"
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "motion cookie verification failed",
+      diagnostic: true,
+      diagnosticReasons: ["primary_capture_setup_failed"]
+    }));
+    expect(manager.disconnect).toHaveBeenCalledWith("session-primary-motion-setup-failure", true);
+    expect(manager.goto).not.toHaveBeenCalled();
+    expect(manager.startScreencast).not.toHaveBeenCalled();
   });
 
   it("surfaces the configured cookie-source detail when required cookies remain unavailable", async () => {
@@ -1313,6 +1737,471 @@ describe("inspiredesign capture helper", () => {
         undefined,
         expect.any(Number)
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports unavailable primary motion helpers before launching", async () => {
+    const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+    await expect(captureInspiredesignPrimaryMotionEvidenceFromManager(
+      { disconnect: vi.fn() } as never,
+      "https://www.pinterest.com/pin/77654985208435505/",
+      { outputDir: "/tmp/inspiredesign-motion" }
+    )).resolves.toEqual(expect.objectContaining({
+      status: "failed",
+      warnings: ["screencast_helper_unavailable"],
+      diagnostic: true,
+      diagnosticReasons: ["screencast_helper_unavailable"]
+    }));
+
+    const managerWithoutLaunch = {
+      startScreencast: vi.fn(),
+      stopScreencast: vi.fn(),
+      disconnect: vi.fn()
+    };
+    await expect(captureInspiredesignPrimaryMotionEvidenceFromManager(
+      managerWithoutLaunch as never,
+      "https://www.pinterest.com/pin/77654985208435505/",
+      { outputDir: "/tmp/inspiredesign-motion" }
+    )).resolves.toEqual(expect.objectContaining({
+      status: "failed",
+      warnings: ["primary_capture_session_unavailable"],
+      diagnostic: true,
+      diagnosticReasons: ["primary_capture_session_unavailable"]
+    }));
+  });
+
+  it("reports unavailable primary visual helper sessions before screenshot capture", async () => {
+    const manager = {
+      screenshot: vi.fn(),
+      disconnect: vi.fn()
+    };
+    const { captureInspiredesignPrimaryVisualEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+    await expect(captureInspiredesignPrimaryVisualEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/77654985208435505/",
+      { visualEvidencePath: "/tmp/inspiredesign-visual.png" }
+    )).resolves.toEqual(expect.objectContaining({
+      status: "failed",
+      warnings: ["primary_capture_session_unavailable"],
+      failure: "Primary media capture session helper unavailable in this execution lane."
+    }));
+    expect(manager.screenshot).not.toHaveBeenCalled();
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("captures primary motion evidence success metadata for diagnostic and design-evidence screencasts", async () => {
+    vi.useFakeTimers();
+
+    const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const diagnosticManager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-zero-frame" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/77654985208435505/",
+        content: "Pinterest video pin",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<main><video data-test-id=\"video\" src=\"/pin.mp4\"></video></main>"
+      }),
+      startScreencast: vi.fn().mockResolvedValue({ screencastId: "zero-frame-screencast" }),
+      stopScreencast: vi.fn().mockResolvedValue({
+        endedAt: "2026-05-23T00:00:00.000Z",
+        manifestPath: "/tmp/inspiredesign-motion/zero-frame-replay.json",
+        replayHtmlPath: "/tmp/inspiredesign-motion/zero-frame-replay.html",
+        previewPath: "/tmp/inspiredesign-motion/zero-frame-preview.png",
+        outputDir: "/tmp/inspiredesign-motion",
+        frameCount: 0
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+    const designEvidenceManager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-design-evidence" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/77654985208435505/",
+        content: "Pinterest video pin",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<main><video data-test-id=\"video\" src=\"/pin.mp4\"></video></main>"
+      }),
+      startScreencast: vi.fn().mockResolvedValue({ screencastId: "design-evidence-screencast" }),
+      stopScreencast: vi.fn().mockResolvedValue({
+        endedAt: "2026-05-23T00:00:00.000Z",
+        manifestPath: "/tmp/inspiredesign-motion/design-replay.json",
+        replayHtmlPath: "/tmp/inspiredesign-motion/design-replay.html",
+        outputDir: "/tmp/inspiredesign-motion",
+        frameCount: 2,
+        warnings: ["short capture"]
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    try {
+      const diagnosticCapture = captureInspiredesignPrimaryMotionEvidenceFromManager(
+        diagnosticManager as never,
+        "https://www.pinterest.com/pin/77654985208435505/",
+        {
+          outputDir: "/tmp/inspiredesign-motion",
+          timeoutMs: 5000
+        }
+      );
+      await vi.advanceTimersByTimeAsync(1500);
+	      await expect(diagnosticCapture).resolves.toEqual(expect.objectContaining({
+	        status: "captured",
+	        sourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+	        startedSourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+	        endedSourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+	        replay: { tempPath: "/tmp/inspiredesign-motion/zero-frame-replay.json" },
+        replayHtml: { tempPath: "/tmp/inspiredesign-motion/zero-frame-replay.html" },
+        preview: { tempPath: "/tmp/inspiredesign-motion/zero-frame-preview.png" },
+        frameCount: 0,
+        warnings: [],
+        diagnostic: true,
+        diagnosticReasons: ["zero_frame_capture"]
+      }));
+      expect(diagnosticManager.stopScreencast).toHaveBeenCalledWith("session-motion-zero-frame", "zero-frame-screencast");
+      expect(diagnosticManager.disconnect).toHaveBeenCalledWith("session-motion-zero-frame", true);
+
+      const designEvidenceCapture = captureInspiredesignPrimaryMotionEvidenceFromManager(
+        designEvidenceManager as never,
+        "https://www.pinterest.com/pin/77654985208435505/",
+        {
+          outputDir: "/tmp/inspiredesign-motion",
+          timeoutMs: 5000
+        }
+      );
+      await vi.advanceTimersByTimeAsync(1500);
+	      await expect(designEvidenceCapture).resolves.toEqual(expect.objectContaining({
+	        status: "captured",
+	        sourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+	        startedSourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+	        endedSourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+	        replay: { tempPath: "/tmp/inspiredesign-motion/design-replay.json" },
+        replayHtml: { tempPath: "/tmp/inspiredesign-motion/design-replay.html" },
+        frameCount: 2,
+        warnings: ["short capture"],
+        diagnostic: false,
+        diagnosticReasons: []
+      }));
+      expect(await designEvidenceCapture).not.toEqual(expect.objectContaining({
+        preview: expect.anything()
+      }));
+      expect(designEvidenceManager.stopScreencast).toHaveBeenCalledWith("session-motion-design-evidence", "design-evidence-screencast");
+      expect(designEvidenceManager.disconnect).toHaveBeenCalledWith("session-motion-design-evidence", true);
+    } finally {
+      vi.useRealTimers();
+    }
+	  });
+
+	it("marks primary motion evidence diagnostic when viewport source probes are unverified", async () => {
+	vi.useFakeTimers();
+
+	const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+	const manager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-unverified-source" }),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockResolvedValue({
+		content: "outline unavailable",
+		refCount: 0,
+		warnings: undefined
+		}),
+		clonePageHtmlWithOptions: vi.fn(),
+		startScreencast: vi.fn().mockResolvedValue({ screencastId: "unverified-screencast" }),
+		stopScreencast: vi.fn().mockResolvedValue({
+		endedAt: "2026-05-23T00:00:00.000Z",
+		manifestPath: "/tmp/inspiredesign-motion/unverified-replay.json",
+		replayHtmlPath: "/tmp/inspiredesign-motion/unverified-replay.html",
+		outputDir: "/tmp/inspiredesign-motion",
+		frameCount: 2
+		}),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+
+	try {
+		const capture = captureInspiredesignPrimaryMotionEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/77654985208435505/",
+		{
+			outputDir: "/tmp/inspiredesign-motion",
+			timeoutMs: 5000
+		}
+		);
+		await vi.advanceTimersByTimeAsync(1500);
+		await expect(capture).resolves.toEqual(expect.objectContaining({
+		status: "captured",
+		frameCount: 2,
+		warnings: [
+			"viewport_url_unverified",
+			"viewport_url_unverified"
+		],
+		diagnostic: true,
+		diagnosticReasons: ["motion_source_unverified"]
+		}));
+		const result = await capture;
+		expect(result).not.toEqual(expect.objectContaining({ sourceUrl: expect.any(String) }));
+		expect(result).not.toEqual(expect.objectContaining({ startedSourceUrl: expect.any(String) }));
+		expect(result).not.toEqual(expect.objectContaining({ endedSourceUrl: expect.any(String) }));
+		expect(result).not.toEqual(expect.objectContaining({ pinterestPageQuality: expect.any(String) }));
+		expect(manager.clonePageHtmlWithOptions).not.toHaveBeenCalled();
+		expect(manager.disconnect).toHaveBeenCalledWith("session-motion-unverified-source", true);
+	} finally {
+		vi.useRealTimers();
+	}
+	});
+
+	  it("marks primary motion evidence diagnostic when the source changes during capture", async () => {
+	    vi.useFakeTimers();
+
+	    const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+	    const manager = {
+	      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-redirect" }),
+	      goto: vi.fn().mockResolvedValue(undefined),
+	      waitForLoad: vi.fn().mockResolvedValue(undefined),
+	      snapshot: vi.fn()
+	        .mockResolvedValueOnce({
+	          url: "https://www.pinterest.com/pin/77654985208435505/",
+	          content: "Pinterest video pin",
+	          refCount: 1,
+	          warnings: []
+	        })
+	        .mockResolvedValueOnce({
+	          url: "https://www.pinterest.com/login/",
+	          content: "Log in to continue",
+	          refCount: 1,
+	          warnings: []
+	        }),
+	      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+	        html: "<main><video data-test-id=\"video\" src=\"/pin.mp4\"></video></main>"
+	      }),
+	      startScreencast: vi.fn().mockResolvedValue({ screencastId: "redirect-screencast" }),
+	      stopScreencast: vi.fn().mockResolvedValue({
+	        endedAt: "2026-05-23T00:00:00.000Z",
+	        manifestPath: "/tmp/inspiredesign-motion/redirect-replay.json",
+	        replayHtmlPath: "/tmp/inspiredesign-motion/redirect-replay.html",
+	        previewPath: "/tmp/inspiredesign-motion/redirect-preview.png",
+	        outputDir: "/tmp/inspiredesign-motion",
+	        frameCount: 2
+	      }),
+	      disconnect: vi.fn().mockResolvedValue(undefined)
+	    };
+
+	    try {
+	      const capture = captureInspiredesignPrimaryMotionEvidenceFromManager(
+	        manager as never,
+	        "https://www.pinterest.com/pin/77654985208435505/",
+	        {
+	          outputDir: "/tmp/inspiredesign-motion",
+	          timeoutMs: 5000
+	        }
+	      );
+	      await vi.advanceTimersByTimeAsync(1500);
+	      await expect(capture).resolves.toEqual(expect.objectContaining({
+	        sourceUrl: "https://www.pinterest.com/login/",
+	        startedSourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+	        endedSourceUrl: "https://www.pinterest.com/login/",
+	        diagnostic: true,
+	diagnosticReasons: expect.arrayContaining(["motion_source_changed", "motion_source_page_quality_not_pin_media"])
+	      }));
+	    } finally {
+	      vi.useRealTimers();
+	    }
+	  });
+
+	  it("returns failed primary motion evidence when screencast stop returns no metadata", async () => {
+    vi.useFakeTimers();
+
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-empty-stop" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      startScreencast: vi.fn().mockResolvedValue({ screencastId: "empty-stop-screencast" }),
+      stopScreencast: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    try {
+      const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+      const capturePromise = captureInspiredesignPrimaryMotionEvidenceFromManager(
+        manager as never,
+        "https://www.pinterest.com/pin/77654985208435505/",
+        {
+          outputDir: "/tmp/inspiredesign-motion",
+          timeoutMs: 5000
+        }
+      );
+      await vi.advanceTimersByTimeAsync(1500);
+      await expect(capturePromise).resolves.toEqual(expect.objectContaining({
+        status: "failed",
+        failure: "Motion evidence screencast did not return stop metadata.",
+        diagnostic: true,
+        diagnosticReasons: ["motion_capture_failed"]
+      }));
+      expect(manager.stopScreencast).toHaveBeenCalledWith("session-motion-empty-stop", "empty-stop-screencast");
+      expect(manager.disconnect).toHaveBeenCalledWith("session-motion-empty-stop", true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns failed primary motion evidence when screencast startup rejects", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-start-reject" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      startScreencast: vi.fn().mockRejectedValue(new Error("recorder permission denied")),
+      stopScreencast: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryMotionEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/77654985208435505/",
+      {
+        outputDir: "/tmp/inspiredesign-motion",
+        timeoutMs: 5000
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "recorder permission denied",
+      diagnostic: true,
+      diagnosticReasons: ["motion_capture_failed"]
+    }));
+    expect(manager.stopScreencast).not.toHaveBeenCalled();
+    expect(manager.disconnect).toHaveBeenCalledWith("session-motion-start-reject", true);
+  });
+
+  it("bounds primary motion capture screencast startup by the capture timeout", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-timeout" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      startScreencast: vi.fn(() => new Promise(() => undefined)),
+      stopScreencast: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    const result = await captureInspiredesignPrimaryMotionEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/77654985208435505/",
+      {
+        outputDir: "/tmp/inspiredesign-motion",
+        timeoutMs: 1
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: expect.stringContaining("primary motion capture start exceeded timeout budget"),
+      diagnostic: true,
+      diagnosticReasons: ["motion_capture_failed"]
+    }));
+    expect(manager.stopScreencast).not.toHaveBeenCalled();
+    expect(manager.disconnect).toHaveBeenCalledWith("session-motion-timeout", true);
+  });
+
+  it("stops primary motion screencasts that resolve after startup timeout", async () => {
+    vi.useFakeTimers();
+
+    let resolveStart: (value: { screencastId: string }) => void;
+    const startPromise = new Promise<{ screencastId: string }>((resolve) => {
+      resolveStart = resolve;
+    });
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-late-start" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      startScreencast: vi.fn(() => startPromise),
+      stopScreencast: vi.fn().mockResolvedValue({
+        endedAt: "2026-05-23T00:00:00.000Z",
+        outputDir: "/tmp/inspiredesign-motion",
+        frameCount: 1,
+        warnings: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    try {
+      const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+      const capturePromise = captureInspiredesignPrimaryMotionEvidenceFromManager(
+        manager as never,
+        "https://www.pinterest.com/pin/77654985208435505/",
+        {
+          outputDir: "/tmp/inspiredesign-motion",
+          timeoutMs: 1
+        }
+      );
+      const assertion = expect(capturePromise).resolves.toEqual(expect.objectContaining({
+        status: "failed",
+        failure: expect.stringContaining("primary motion capture start exceeded timeout budget"),
+        diagnostic: true,
+        diagnosticReasons: ["motion_capture_failed"]
+      }));
+      await vi.advanceTimersByTimeAsync(1);
+      await assertion;
+      expect(manager.stopScreencast).not.toHaveBeenCalled();
+      resolveStart!({ screencastId: "late-screencast" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(manager.stopScreencast).toHaveBeenCalledWith("session-motion-late-start", "late-screencast");
+      expect(manager.disconnect).toHaveBeenCalledWith("session-motion-late-start", true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops primary motion screencasts when sampling exceeds the capture timeout", async () => {
+    vi.useFakeTimers();
+
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-motion-sampling-timeout" }),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      startScreencast: vi.fn().mockResolvedValue({ screencastId: "screencast-1" }),
+      stopScreencast: vi.fn().mockResolvedValue({
+        endedAt: "2026-05-23T00:00:00.000Z",
+        manifestPath: "/tmp/inspiredesign-motion/replay.json",
+        replayHtmlPath: "/tmp/inspiredesign-motion/replay.html",
+        outputDir: "/tmp/inspiredesign-motion",
+        frameCount: 1,
+        warnings: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    try {
+      const { captureInspiredesignPrimaryMotionEvidenceFromManager } = await import("../src/inspiredesign/capture");
+      const capturePromise = captureInspiredesignPrimaryMotionEvidenceFromManager(
+        manager as never,
+        "https://www.pinterest.com/pin/77654985208435505/",
+        {
+          outputDir: "/tmp/inspiredesign-motion",
+          timeoutMs: 1
+        }
+      );
+      const assertion = expect(capturePromise).resolves.toEqual(expect.objectContaining({
+        status: "failed",
+        failure: expect.stringContaining("primary motion capture sampling exceeded timeout budget"),
+        diagnostic: true,
+        diagnosticReasons: ["motion_capture_failed"]
+      }));
+      await vi.advanceTimersByTimeAsync(1);
+      await assertion;
+      expect(manager.stopScreencast).toHaveBeenCalledWith("session-motion-sampling-timeout", "screencast-1");
+      expect(manager.disconnect).toHaveBeenCalledWith("session-motion-sampling-timeout", true);
     } finally {
       vi.useRealTimers();
     }

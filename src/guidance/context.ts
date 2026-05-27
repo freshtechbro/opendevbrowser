@@ -10,6 +10,16 @@ export type InspiredesignGuidanceQualitySource = {
   topReferenceIntentMatched?: boolean;
   diagnosticOnlyReasons: string[];
   missingScreenshotCount: number;
+  allAttemptFailedCaptureCount?: number;
+  allAttemptMissingScreenshotCount?: number;
+  allAttemptVisualFailureCount?: number;
+  allAttemptMotionFailureCount?: number;
+};
+
+export type InspiredesignReferenceUrlProvenance = {
+  url: string;
+  sources: string[];
+  outcomes: string[];
 };
 
 export type InspiredesignGuidanceSource = {
@@ -34,6 +44,7 @@ export type InspiredesignGuidanceSource = {
     visualEvidenceRequired: boolean;
   };
   quality: InspiredesignGuidanceQualitySource;
+  urlProvenance?: InspiredesignReferenceUrlProvenance[];
   primaryConstraint?: {
     reasonCode?: string;
     summary?: string;
@@ -102,15 +113,24 @@ const hasWeakTopReference = (source: InspiredesignGuidanceSource): boolean => {
   return score < 50 || confidence < 0.5;
 };
 
+const hasAllAttemptRequiredEvidenceFailure = (source: InspiredesignGuidanceSource): boolean => {
+  if (source.quality.rankedReferenceCount > 0) {
+    return source.metrics.failedCaptureCount > 0 || source.quality.missingScreenshotCount > 0;
+  }
+  const allAttemptFailedCaptureCount = source.quality.allAttemptFailedCaptureCount ?? source.metrics.failedCaptureCount;
+  const allAttemptMissingScreenshotCount = source.quality.allAttemptMissingScreenshotCount ?? source.quality.missingScreenshotCount;
+  return allAttemptFailedCaptureCount > 0
+    || allAttemptMissingScreenshotCount > 0
+    || (source.quality.allAttemptVisualFailureCount ?? 0) > 0
+    || (source.quality.allAttemptMotionFailureCount ?? 0) > 0;
+};
+
 const reasonCodeForInspiredesign = (source: InspiredesignGuidanceSource): string => {
   if (hasProviderUnavailableSignal(source)) return "provider_unavailable";
   if (source.quality.diagnosticOnlyReasons.length > 0 && source.quality.rankedReferenceCount === 0) return "diagnostic_only";
   if (source.metrics.referenceCount === 0 && source.metrics.referenceEvidenceRequired !== false) return "zero_references";
   if (source.metrics.referenceCount > 0 && source.quality.rankedReferenceCount === 0) return "zero_ranked_references";
-  if (
-    source.metrics.visualEvidenceRequired
-    && (source.metrics.failedCaptureCount > 0 || source.quality.missingScreenshotCount > 0)
-  ) {
+  if (source.metrics.visualEvidenceRequired && hasAllAttemptRequiredEvidenceFailure(source)) {
     return "failed_capture";
   }
   if (source.quality.topReferenceIntentMatched === false) return "off_brief_reference";
@@ -160,6 +180,10 @@ export const createInspiredesignGuidanceContext = (
       rankedReferenceCount: source.quality.rankedReferenceCount,
       rejectedReferenceCount: source.quality.rejectedReferenceCount,
       missingScreenshotCount: source.quality.missingScreenshotCount,
+      allAttemptFailedCaptureCount: source.quality.allAttemptFailedCaptureCount,
+      allAttemptMissingScreenshotCount: source.quality.allAttemptMissingScreenshotCount,
+      allAttemptVisualFailureCount: source.quality.allAttemptVisualFailureCount,
+      allAttemptMotionFailureCount: source.quality.allAttemptMotionFailureCount,
       diagnosticOnlyReasons: source.quality.diagnosticOnlyReasons,
       ...(typeof source.quality.topReferenceScore === "number" ? { topReferenceScore: source.quality.topReferenceScore } : {}),
       ...(typeof source.quality.topReferenceConfidence === "number" ? { topReferenceConfidence: source.quality.topReferenceConfidence } : {}),
@@ -171,6 +195,7 @@ export const createInspiredesignGuidanceContext = (
       brief: source.brief,
       discoveryFailure: source.discovery.failure ?? "",
       hardFailureReasonCodes: source.discovery.hardFailureReasonCodes ?? [],
+      referenceUrlProvenance: source.urlProvenance ?? [],
       primaryConstraintSummary: source.primaryConstraint?.summary ?? ""
     }
   };

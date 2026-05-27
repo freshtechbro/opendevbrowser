@@ -97,6 +97,20 @@ describe("classifyGuidanceReadiness", () => {
         failedCaptureCount: 1
       }
     }))).toBe("ready");
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 2,
+        rankedReferenceCount: 1,
+        topReferenceScore: 80,
+        topReferenceConfidence: 0.8,
+        visualEvidenceRequired: true,
+        failedCaptureCount: 0,
+        missingScreenshotCount: 0,
+        allAttemptFailedCaptureCount: 1,
+        allAttemptMissingScreenshotCount: 1,
+        allAttemptVisualFailureCount: 1
+      }
+    }))).toBe("ready");
   });
 
   it("covers diagnostic, capture, and weak-reference branch boundaries", () => {
@@ -167,5 +181,32 @@ describe("classifyGuidanceReadiness", () => {
         topReferenceConfidence: 0.8
       }
     }))).toBe("needs_recovery");
+  });
+
+  it("checks all-attempt visual evidence failures after ranked-reference gates are inactive", () => {
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
+        rankedReferenceCount: 0,
+        visualEvidenceRequired: true,
+        allAttemptMotionFailureCount: 1
+      }
+    }))).toBe("needs_recovery");
+
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
+        rankedReferenceCount: 0,
+        visualEvidenceRequired: true,
+        failedCaptureCount: 0,
+        missingScreenshotCount: 0,
+        allAttemptFailedCaptureCount: 0,
+        allAttemptMissingScreenshotCount: 0,
+        allAttemptVisualFailureCount: 0,
+        allAttemptMotionFailureCount: 0
+      }
+    }))).toBe("ready");
   });
 });

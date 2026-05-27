@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resolve } from "path";
+import { join, resolve } from "path";
 import type { ParsedArgs } from "../src/cli/args";
 import { runCanvas } from "../src/cli/commands/canvas";
 import { runInspiredesignCommand } from "../src/cli/commands/inspiredesign";
@@ -577,6 +577,39 @@ describe("workflow CLI commands", () => {
     }));
   });
 
+  it("keeps Pinterest provider alias harvest discovery out of deep capture by default", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a fashion atelier landing page",
+      "--query=couture atelier visual references",
+      "--provider=pinterest"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      providers: ["pinterest"],
+      captureMode: "off"
+    }));
+  });
+
+  it("forces deep capture for explicit non-Pinterest harvest URLs even when off is requested", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--url=https://example.com/reference",
+      "--capture-mode=off"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      harvest: true,
+      urls: ["https://example.com/reference"],
+      captureMode: "deep"
+    }));
+  });
+
   it("rejects inspiredesign harvest without query or URLs", async () => {
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
       "harvest",
@@ -606,7 +639,7 @@ describe("workflow CLI commands", () => {
       harvest: true,
       providers: ["social/pinterest"],
       urls: ["https://www.pinterest.com/pin/27654985208435505/"],
-      captureMode: "deep"
+      captureMode: "off"
     }));
   });
 
@@ -712,13 +745,41 @@ describe("workflow CLI commands", () => {
     }));
   });
 
-  it("surfaces inspiredesign readiness in completion messages", async () => {
-    for (const readiness of ["diagnostic_only", "ready"]) {
+  it("keeps legacy inspiredesign readiness metadata out of CLI product authority", async () => {
+    const cases = [
+      { readiness: "diagnostic_only", rankedReferences: [] },
+      { readiness: "ready", rankedReferences: [{ id: "reference-1" }] },
+      {
+        readiness: "ready",
+        rankedReferences: [{ id: "reference-1", url: "https://www.pinterest.com/pin/11188699075430754/", capturedVia: ["snapshot_ready"], evidenceAuthority: "snapshot_ready" }],
+        screenshotIndex: [{
+          referenceId: "reference-1",
+          url: "https://www.pinterest.com/pin/11188699075430754/",
+          sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+          path: "visual-evidence/reference-1/viewport.png",
+          sha256: "a".repeat(64),
+          bytes: 4096,
+          pinterestPageQuality: "pin_media",
+          warnings: []
+        }]
+      },
+      {
+        readiness: "ready",
+        rankedReferences: [
+          { id: "pinterest-1", url: "https://www.pinterest.com/pin/11188699075430754/", capturedVia: ["snapshot_ready"], evidenceAuthority: "snapshot_ready" },
+          { id: "pinterest-2", url: "https://www.pinterest.com/pin/77654985208435505/" }
+        ]
+      }
+    ];
+
+    for (const item of cases) {
       callDaemon.mockResolvedValueOnce({
         ok: true,
+        rankedReferences: item.rankedReferences,
+        ...(item.screenshotIndex ? { screenshotIndex: item.screenshotIndex } : {}),
         meta: {
           nextStepGuidance: {
-            readiness
+            readiness: item.readiness
           }
         }
       });
@@ -729,8 +790,94 @@ describe("workflow CLI commands", () => {
         "--query=premium docs references"
       ]));
 
-      expect(result.message).toContain(`readiness=${readiness}`);
+      expect(result.success).toBe(true);
+      expect(result.message).toContain(`readiness=${item.readiness}`);
+      expect(result).not.toHaveProperty("productSuccess");
+      expect(result).not.toHaveProperty("artifactAuthority");
+      expect(result).not.toHaveProperty("rankedReferenceCount");
     }
+  });
+
+  it("trusts daemon-provided inspiredesign product authority before deriving legacy fields", async () => {
+    callDaemon.mockResolvedValueOnce({
+      ok: true,
+      ready: true,
+      readiness: "ready",
+      harvestReadiness: "ready",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only",
+      rankedReferenceCount: 1,
+      authoritativeReferenceCount: 0,
+      snapshotReadyReferenceCount: 0,
+      motionReadyReferenceCount: 0,
+      rankedReferences: [{
+        id: "reference-1",
+        url: "https://www.pinterest.com/pin/11188699075430754/",
+        capturedVia: ["snapshot_ready"],
+        evidenceAuthority: "snapshot_ready"
+      }],
+      screenshotIndex: [{
+        referenceId: "reference-1",
+        url: "https://www.pinterest.com/pin/11188699075430754/",
+        sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+        path: "visual-evidence/reference-1/viewport.png",
+        sha256: "a".repeat(64),
+        bytes: 4096,
+        warnings: []
+      }]
+    });
+
+    const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=premium docs references"
+    ]));
+
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      ready: true,
+      readiness: "ready",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only",
+      rankedReferenceCount: 1,
+      authoritativeReferenceCount: 0
+    }));
+  });
+
+  it("reads top-level next-step readiness and keeps count-only product authority diagnostic", async () => {
+    callDaemon.mockResolvedValueOnce({
+      ok: true,
+      nextStepGuidance: { readiness: "ready" },
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "snapshot_ready",
+      rankedReferenceCount: 2,
+      authoritativeReferenceCount: 2,
+      snapshotReadyReferenceCount: 2,
+      motionReadyReferenceCount: 0
+    });
+
+    const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=premium docs references"
+    ]));
+
+    expect(result.message).toContain("readiness=ready");
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      ready: true,
+      readiness: "ready",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only",
+      rankedReferenceCount: 2,
+      authoritativeReferenceCount: 2,
+      snapshotReadyReferenceCount: 2,
+      motionReadyReferenceCount: 0
+    }));
   });
 
   it("rejects invalid inspiredesign harvest bounds and visual modes", async () => {

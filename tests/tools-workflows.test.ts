@@ -171,7 +171,6 @@ describe("workflow tools", () => {
       sourceSelection: "web",
       days: 30
     } as never));
-
     expect(response.ok).toBe(true);
     expectArtifactPath(response.artifact_path as string, join(workspaceRoot, ".opendevbrowser"), "research");
   });
@@ -209,6 +208,63 @@ describe("workflow tools", () => {
 
     expect(response.ok).toBe(true);
     expectArtifactPath(response.artifact_path as string, join(workspaceRoot, ".opendevbrowser"), "inspiredesign");
+  });
+
+  it("produces product-ready Pinterest harvest from snapshot-ready public tool evidence", async () => {
+    const deps = makeDeps();
+    deps.providerRuntime.fetch.mockResolvedValueOnce({
+      ok: true,
+      records: [{
+        id: "pinterest-pin",
+        source: "social",
+        provider: "social/pinterest",
+        url: "https://www.pinterest.com/pin/1234567890/",
+        title: "Editorial atelier pin",
+        content: "<img data-test-id=\"closeup-image\" src=\"/pin.jpg\" alt=\"Pin image showing a full-bleed fashion composition with couture fabric drape.\" />",
+        timestamp: "2026-05-23T12:00:00.000Z",
+        confidence: 0.9,
+        attributes: { links: [] }
+      }],
+      trace: { requestId: "req", ts: "2026-05-23T12:00:00.000Z" },
+      partial: false,
+      failures: [],
+      metrics: { attempted: 1, succeeded: 1, failed: 0, retries: 0, latencyMs: 1 },
+      sourceSelection: "social",
+      providerOrder: ["social/pinterest"]
+    });
+    deps.manager.screenshot.mockImplementationOnce(async (_sessionId: string, options: { path?: string }) => {
+      if (options.path) {
+        await writeFile(options.path, Buffer.alloc(2048, 1));
+      }
+      return {
+        path: options.path,
+        warnings: []
+      };
+    });
+    deps.manager.snapshot.mockResolvedValueOnce({
+      url: "https://www.pinterest.com/pin/1234567890/",
+      content: "Pin image showing a full-bleed fashion composition with couture fabric drape.",
+      refCount: 1,
+      warnings: []
+    });
+    deps.manager.clonePageHtmlWithOptions.mockResolvedValueOnce({
+      html: "<main><img data-test-id=\"closeup-image\" src=\"/pin.jpg\" alt=\"Full-bleed fashion composition with couture fabric drape\" /></main>"
+    });
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const tool = createInspiredesignRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      brief: "Design a fashion atelier landing page",
+      harvest: true,
+      urls: ["https://www.pinterest.com/pin/1234567890/"],
+      visualEvidence: "required",
+      mode: "json"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expect(response.productSuccess).toBe(true);
+    expect(response.artifactAuthority).toBe("product_ready");
+    expect(response.evidenceAuthority).toBe("snapshot_ready");
   });
 
   it("uses workspace .opendevbrowser for omitted direct product-video output roots", async () => {
@@ -428,14 +484,14 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
-    expect(response.suggestedNextAction).toContain("canvas-plan.request.json");
+    expect(response.suggestedNextAction).toBe("Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.");
     expect(response.nextStepGuidance).toEqual(expect.objectContaining({
       readiness: "ready",
       reasonCode: "design_ready"
     }));
-    expect(response.followthroughSummary).toContain("canvas-plan.request.json");
+    expect(response.followthroughSummary).toBe("Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.");
     expect(response.meta).toEqual(expect.objectContaining({
-      followthroughSummary: expect.stringContaining("canvas-plan.request.json"),
+      followthroughSummary: "Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.",
       nextStepGuidance: expect.objectContaining({ readiness: "ready" })
     }));
     expect(deps.manager.launch).not.toHaveBeenCalled();
@@ -660,11 +716,22 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
+    expect(response).toEqual(expect.objectContaining({
+      ready: false,
+      readiness: "needs_recovery",
+      harvestReadiness: "needs_recovery",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
     expect(response.suggestedNextAction).toContain("Pinterest browser-native");
     expect(response.artifact_path).toEqual(expect.stringContaining(join(artifactRoot, "inspiredesign")));
     expect(response.meta).toEqual(expect.objectContaining({
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0,
       nextStepGuidance: expect.objectContaining({
-        readiness: "diagnostic_only",
+        readiness: "needs_recovery",
         reasonCode: "pinterest_browser_native_recovery",
         primaryAction: expect.objectContaining({
           id: "recover_reference_evidence",
@@ -672,8 +739,8 @@ describe("workflow tools", () => {
         }),
         commands: expect.arrayContaining([
           expect.objectContaining({
-            id: "inspiredesign-harvest-url-recovery",
-            command: expect.stringContaining("--provider social/pinterest --url")
+            id: "inspiredesign-harvest-rerun",
+            command: expect.stringContaining("--provider social/pinterest")
           })
         ]),
         doNotProceedIf: expect.arrayContaining([
@@ -685,13 +752,14 @@ describe("workflow tools", () => {
     const artifactPath = response.artifact_path as string;
     const rankedReferences = JSON.parse(await readFile(join(artifactPath, "ranked-references.json"), "utf8")) as {
       references: unknown[];
-      rejectedReferences: Array<{ diagnosticReasons?: string[]; capturedButRejectedReason?: string }>;
+      rejectedReferences: Array<{ captured?: boolean; capturedButRejectedReason?: string; reason?: string }>;
     };
     expect(rankedReferences.references).toEqual([]);
     expect(rankedReferences.rejectedReferences).toEqual([
       expect.objectContaining({
-        diagnosticReasons: expect.arrayContaining(["interface_chrome_shell"]),
-        capturedButRejectedReason: expect.stringContaining("interface_chrome_shell")
+        fetchStatus: "failed",
+        captureStatus: "off",
+        reason: "Fetch did not produce usable creative evidence."
       })
     ]);
     const handoff = JSON.parse(await readFile(join(artifactPath, "design-agent-handoff.json"), "utf8")) as {
@@ -700,15 +768,16 @@ describe("workflow tools", () => {
       implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
       nextStepGuidance: { readiness: string; commands: Array<{ command: string }> };
     };
-    expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
+    expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until harvest readiness is ready with authoritative visual or motion evidence.");
     expect(handoff.artifactGuide).not.toHaveProperty("canvas-plan.request.json");
     expect(handoff.artifactGuide).not.toHaveProperty("prototype-guidance.md");
     expect(handoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain("canvas-plan.request.json");
     expect(handoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain("prototype-guidance.md");
     expect(JSON.stringify(handoff)).not.toContain("canvas-plan.request.json");
-    expect(handoff.nextStepGuidance.readiness).toBe("diagnostic_only");
-    expect(handoff.nextStepGuidance.commands[0]?.command).toContain("--provider social/pinterest --url");
-    expect(handoff.nextStepGuidance.commands[0]?.command).not.toContain("--query");
+    expect(handoff.nextStepGuidance.readiness).toBe("needs_recovery");
+    expect(handoff.nextStepGuidance.commands[0]?.command).toContain("--provider social/pinterest");
+    expect(handoff.nextStepGuidance.commands[0]?.command).toContain("--query");
+    expect(handoff.nextStepGuidance.commands[0]?.command).not.toContain("--url");
     const designMarkdown = await readFile(join(artifactPath, "design.md"), "utf8");
     expect(designMarkdown).toContain("Prototype guidance omitted because next-step guidance is not ready.");
     expect(designMarkdown).not.toContain("Prototype guidance Markdown for the first HTML pass");

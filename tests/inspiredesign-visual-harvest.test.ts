@@ -101,6 +101,7 @@ describe("inspiredesign visual evidence helpers", () => {
       kind: "viewport",
       fullPage: false,
       capturedAt: "2026-05-18T00:00:00.000Z",
+      sourceUrl: "https://www.pinterest.com/pin/123/",
       tempPath: "/tmp/private/reference.png",
       warnings: ["cdp fallback"],
       viewport: { width: 1440, height: 900 }
@@ -115,6 +116,7 @@ describe("inspiredesign visual evidence helpers", () => {
       kind: "viewport",
       fullPage: false,
       capturedAt: "2026-05-18T00:00:00.000Z",
+      sourceUrl: "https://www.pinterest.com/pin/123/",
       path: "visual-evidence/ref/viewport.png",
       sha256: VALID_VISUAL_SHA256,
       bytes: 42,
@@ -130,6 +132,7 @@ describe("inspiredesign visual evidence helpers", () => {
       kind: "../evil" as "viewport",
       fullPage: false,
       capturedAt: "/tmp/private/captured-at.png",
+      sourceUrl: "ftp://www.pinterest.com/pin/123/",
       artifactPath: "../outside.png",
       path: "visual-evidence/../viewport.png",
       sha256: "abc123",
@@ -179,6 +182,32 @@ describe("inspiredesign visual evidence helpers", () => {
       capturedAt: "2026-05-18T00:00:00.000Z",
       warnings: ["required_visual_evidence_missing"],
       failure: "Required visual evidence was not captured."
+    });
+  });
+
+  it("normalizes sparse visual metadata without inventing optional fields", () => {
+    const persisted = persistInspiredesignVisualEvidence({
+      status: "captured",
+      kind: "viewport",
+      fullPage: true,
+      capturedAt: 42,
+      warnings: "not-an-array",
+      viewport: {}
+    } as unknown as Parameters<typeof persistInspiredesignVisualEvidence>[0], {
+      artifactPath: "visual-evidence/ref/full_page.png",
+      sha256: VALID_VISUAL_SHA256,
+      bytes: 0
+    });
+
+    expect(persisted).toEqual({
+      status: "captured",
+      kind: "viewport",
+      fullPage: true,
+      capturedAt: "1970-01-01T00:00:00.000Z",
+      path: "visual-evidence/ref/full_page.png",
+      sha256: VALID_VISUAL_SHA256,
+      bytes: 0,
+      warnings: []
     });
   });
 });

@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-21T13:16:09.774Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-05-27T02:08:26.489Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-05-21T13:16:09.774Z",
+  "generatedAt": "2026-05-27T02:08:26.489Z",
   "cli": {
     "groups": [
       {
@@ -60,7 +60,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "id": "provider_workflows",
         "title": "Provider Workflows",
-        "summary": "Run research, shopping, media, and artifact workflows.",
+        "summary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows.",
         "commands": [
           "research",
           "shopping",
@@ -515,7 +515,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
-        "groupSummary": "Run research, shopping, media, and artifact workflows."
+        "groupSummary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows."
       },
       {
         "name": "shopping",
@@ -545,7 +545,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
-        "groupSummary": "Run research, shopping, media, and artifact workflows."
+        "groupSummary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows."
       },
       {
         "name": "product-video",
@@ -575,12 +575,12 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
-        "groupSummary": "Run research, shopping, media, and artifact workflows."
+        "groupSummary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows."
       },
       {
         "name": "inspiredesign",
         "description": "Run inspiredesign workflows and visual reference harvests",
-        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] | npx opendevbrowser inspiredesign harvest --brief <text> (--query <text> | --url <url>) [--provider <id>]... [--url <url>]... [--max-references <n>] [--visual-evidence <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] | npx opendevbrowser inspiredesign harvest --brief <text> (--query <text> | --url <url>) [--provider <id>]... [--url <url>]... [--max-references <n>] [--visual-evidence <mode>] [--capture-mode <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--brief",
           "--query",
@@ -607,20 +607,22 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "npx opendevbrowser inspiredesign harvest --brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
-          "Any inspiredesign --url forces deep capture for DOM/layout evidence; without URLs, --capture-mode defaults to off.",
+          "Pinterest harvest uses screenshot evidence for proven image pins and screencast evidence for proven video pins as primary readiness signals; DOM/clone/deep capture remains diagnostic capture only and is not a product-readiness signal.",
+          "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery use deep capture only when explicitly requested.",
           "Repeat --url for multiple references. There is no --urls alias.",
           "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
-          "Inspect nextStepGuidance.readiness before continuing. Only readiness=ready makes Canvas continuation the primary action.",
-          "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshots, provider unavailability, or diagnostic-only captures.",
+          "Inspect productSuccess, artifactAuthority, evidenceAuthority, harvestReadiness, and nextStepGuidance.readiness before continuing. Canvas continuation requires readiness=ready, non-empty ranked references, and Pinterest references with snapshot_ready screenshot evidence or motion_ready screencast evidence.",
+          "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshot or screencast evidence, provider unavailability, or diagnostic-only captures.",
           "CLI completion text includes readiness=<value> when the workflow reports nextStepGuidance.readiness, so success output is not confused with design readiness.",
           "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted.",
-          "Harvest JSON is metadata-only: screenshots are artifact PNG files referenced by relative paths, hashes, viewport metadata, and warnings.",
+          "Harvest JSON is metadata-only: screenshots and motion evidence are artifact files referenced by relative paths, hashes, viewport metadata, frame counts, and warnings.",
           "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
+          "Pinterest product readiness is evidence-first: canonical pin URLs must rank only when authoritative screenshot or screencast evidence is captured, persisted, and free of login, challenge, search-shell, blank, tiny, or chrome-only blockers.",
           "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
-        "groupSummary": "Run research, shopping, media, and artifact workflows."
+        "groupSummary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows."
       },
       {
         "name": "artifacts",
@@ -636,7 +638,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "notes": [],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
-        "groupSummary": "Run research, shopping, media, and artifact workflows."
+        "groupSummary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows."
       },
       {
         "name": "macro-resolve",
@@ -664,7 +666,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
-        "groupSummary": "Run research, shopping, media, and artifact workflows."
+        "groupSummary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows."
       },
       {
         "name": "canvas",
@@ -2586,7 +2588,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "opendevbrowser_inspiredesign_run",
-        "description": "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, readiness guidance, and visual evidence capture.",
+        "description": "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, screenshot evidence for image pins, and screencast evidence for video pins.",
         "cliEquivalent": "inspiredesign",
         "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
       },

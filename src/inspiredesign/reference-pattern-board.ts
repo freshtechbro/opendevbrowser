@@ -1,4 +1,14 @@
 import { isAllowedPinterestReferenceHost, normalizePinterestReferenceUrl } from "../guidance/recipes/pinterest";
+import { classifyPinterestCandidate, isCanonicalPinterestPinUrl } from "./pinterest-media-classification";
+import type { InspiredesignEvidenceAuthority } from "./product-readiness";
+import {
+  MIN_MOTION_PREVIEW_BYTES,
+  MIN_MOTION_REPLAY_BYTES,
+  MOTION_EVIDENCE_SHA256_HEX_PATTERN,
+  persistInspiredesignMotionEvidence,
+  type InspiredesignMotionEvidenceRuntimeMetadata,
+  type InspiredesignPersistedMotionEvidence
+} from "./motion-evidence";
 import type { InspiredesignBriefFormat } from "./brief-expansion";
 
 type ReferenceStatus = "captured" | "failed" | "skipped";
@@ -24,12 +34,15 @@ type ReferenceInput = {
     };
     visual?: {
       status: "captured" | "skipped" | "failed";
+      sourceUrl?: string;
+      pinterestPageQuality?: "pin_media" | "pin_grid_media" | "search_shell" | "chrome_only" | "login_challenge" | "unknown" | "invalid";
       path?: string;
       sha256?: string;
       bytes?: number;
       failure?: string;
       warnings: string[];
     };
+    motion?: InspiredesignMotionEvidenceRuntimeMetadata | InspiredesignPersistedMotionEvidence;
   } | null;
 };
 
@@ -41,6 +54,11 @@ export type InspiredesignReferenceQualitySummary = {
   topReferenceIntentMatched?: boolean;
   failedCaptureCount: number;
   missingScreenshotCount: number;
+  attemptedReferenceCount: number;
+  allAttemptFailedCaptureCount: number;
+  allAttemptMissingScreenshotCount: number;
+  allAttemptVisualFailureCount: number;
+  allAttemptMotionFailureCount: number;
   diagnosticOnlyReasons: string[];
 };
 
@@ -57,6 +75,7 @@ export type InspiredesignReferencePatternBoard = {
     url: string;
     surfaceType: string;
     capturedVia: string[];
+    evidenceAuthority: InspiredesignEvidenceAuthority;
     intentMatched: boolean;
     selectionReason: string;
     visualStrengths: string[];
@@ -122,10 +141,47 @@ const SCORE_DOM = 8;
 const SCORE_PUBLIC_LANDING = 6;
 const SCORE_SIGNAL_CAP = 12;
 const SCORE_INTENT_MISMATCH_PENALTY = 55;
-const SCORE_PINTEREST_CHROME_METADATA_PENALTY = 35;
 const MAX_REFERENCE_SCORE = 100;
 const MIN_READY_REFERENCE_SCORE = 50;
 const MIN_READY_REFERENCE_CONFIDENCE = 0.5;
+const SNAPSHOT_READY_VISUAL_ARTIFACT_PATH_PATTERN =
+  /^visual-evidence\/[A-Za-z0-9._-]+\/viewport\.png$/;
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
+const MIN_SNAPSHOT_READY_VISUAL_BYTES = 1024;
+const PINTEREST_PIN_MEDIA_PAGE_QUALITY = "pin_media";
+const SNAPSHOT_BLOCKING_WARNING_MARKERS = [
+  "blank",
+  "empty",
+  "tiny",
+  "small_media",
+  "login",
+  "challenge",
+  "captcha",
+  "search_shell",
+  "interface_chrome",
+  "chrome_only",
+  "controls_only"
+] as const;
+const PINTEREST_LOGIN_BLOCKING_MARKERS = [
+  "log in",
+  "login",
+  "sign in",
+  "sign up",
+  "continue with",
+  "captcha",
+  "verification",
+  "challenge"
+] as const;
+const PINTEREST_CHROME_BLOCKING_MARKERS = [
+  "search results for",
+  "related searches",
+  "when autocomplete results are available",
+  "pin card",
+  "your profile",
+  "updates",
+  "messages",
+  "settings & support"
+] as const;
 const ADVANCED_MOTION_FIELDS = [
   "Advisory shader-style gradients: specify effect type, uniforms, static fallback, and reduced-motion replacement as design language only.",
   "Advisory WebGL-style depth cues: describe layered depth, camera-like parallax, and spatial hierarchy without requiring WebGL runtime.",
@@ -399,6 +455,12 @@ const hasUsableRecoveredCreativeEvidence = (reference: ReferenceInput): boolean 
 
 const isPinterestVisualReferenceUrl = (value: string): boolean => normalizePinterestReferenceUrl(value) !== null;
 
+const normalizePinterestReferenceForEvidenceMatch = (value: string): string | null => (
+  normalizePinterestReferenceUrl(value)?.replace(/\/$/, "") ?? null
+);
+
+const isPinterestProductCandidateReferenceUrl = (value: string): boolean => isCanonicalPinterestPinUrl(value);
+
 const pinterestHostnameFromUrl = (value: string): string | null => {
   try {
     return new URL(value).hostname.toLowerCase();
@@ -417,26 +479,116 @@ const isUnapprovedPinterestReferenceUrl = (value: string): boolean => {
   return hostname !== null && isPinterestOwnedReferenceUrl(value) && !isAllowedPinterestReferenceHost(hostname);
 };
 
-const hasCleanMetadataValue = (value: string | undefined): boolean => (
-  typeof value === "string" && countActionRefs(value) < 3 && hasCleanSignal(value)
+const visualEvidencePathIsSnapshotReady = (value: unknown): boolean => (
+  typeof value === "string" && SNAPSHOT_READY_VISUAL_ARTIFACT_PATH_PATTERN.test(value)
 );
 
-const hasCleanMetadataSignal = (reference: ReferenceInput): boolean => (
-  hasCleanMetadataValue(reference.title)
-  || hasCleanMetadataValue(reference.excerpt)
-  || hasCleanMetadataValue(reference.capture?.title)
+const hasBlockingSnapshotWarning = (warnings: readonly string[] | undefined): boolean => {
+  const text = (warnings ?? []).join(" ").toLowerCase();
+  return SNAPSHOT_BLOCKING_WARNING_MARKERS.some((marker) => text.includes(marker));
+};
+
+const visualEvidenceSourceMatchesReference = (reference: ReferenceInput): boolean => {
+  const referenceUrl = normalizePinterestReferenceForEvidenceMatch(reference.url);
+  const sourceUrl = normalizePinterestReferenceForEvidenceMatch(reference.capture?.visual?.sourceUrl ?? "");
+  return Boolean(referenceUrl && sourceUrl && referenceUrl === sourceUrl);
+};
+
+const motionEvidenceSourceMatchesReference = (
+  reference: ReferenceInput,
+  motion: InspiredesignMotionEvidenceRuntimeMetadata | InspiredesignPersistedMotionEvidence
+): boolean => {
+  const referenceUrl = normalizePinterestReferenceForEvidenceMatch(reference.url);
+  const sourceUrl = normalizePinterestReferenceForEvidenceMatch(motion.sourceUrl ?? "");
+  const startedSourceUrl = normalizePinterestReferenceForEvidenceMatch(motion.startedSourceUrl ?? "");
+  const endedSourceUrl = normalizePinterestReferenceForEvidenceMatch(motion.endedSourceUrl ?? "");
+  return Boolean(
+    referenceUrl
+    && sourceUrl === referenceUrl
+    && startedSourceUrl === referenceUrl
+    && endedSourceUrl === referenceUrl
+  );
+};
+
+const hasPinterestPinMediaPageQuality = (value: unknown): boolean => value === PINTEREST_PIN_MEDIA_PAGE_QUALITY;
+
+const motionEvidenceHasPinMediaPageQuality = (
+  motion: InspiredesignMotionEvidenceRuntimeMetadata | InspiredesignPersistedMotionEvidence
+): boolean => (
+  hasPinterestPinMediaPageQuality(motion.pinterestPageQuality)
+  && hasPinterestPinMediaPageQuality(motion.startedPinterestPageQuality)
+  && hasPinterestPinMediaPageQuality(motion.endedPinterestPageQuality)
 );
 
-const hasOnlySoftPinterestChromeDiagnostics = (reasons: string[]): boolean => (
-  reasons.every((reason) => reason === "interface_chrome_shell")
-);
-
-const hasPinterestVisualMetadataEvidence = (reference: ReferenceInput, diagnosticReasons: string[]): boolean => (
-  isPinterestVisualReferenceUrl(reference.url)
+const hasSnapshotReadyPinterestVisualEvidence = (
+  reference: ReferenceInput,
+  diagnosticReasons: readonly string[]
+): boolean => (
+  isPinterestProductCandidateReferenceUrl(reference.url)
   && reference.captureStatus === "captured"
   && reference.capture?.visual?.status === "captured"
-  && hasCleanMetadataSignal(reference)
-  && hasOnlySoftPinterestChromeDiagnostics(diagnosticReasons)
+  && visualEvidenceSourceMatchesReference(reference)
+  && hasPinterestPinMediaPageQuality(reference.capture.visual.pinterestPageQuality)
+  && visualEvidencePathIsSnapshotReady(reference.capture.visual.path)
+  && typeof reference.capture.visual.sha256 === "string"
+  && SHA256_HEX_PATTERN.test(reference.capture.visual.sha256)
+  && typeof reference.capture.visual.bytes === "number"
+  && Number.isFinite(reference.capture.visual.bytes)
+  && reference.capture.visual.bytes >= MIN_SNAPSHOT_READY_VISUAL_BYTES
+  && !reference.capture.visual.failure
+  && !hasBlockingSnapshotWarning(reference.capture.visual.warnings)
+  && diagnosticReasons.length === 0
+);
+
+const motionFileHasAuthority = (
+  file: { path?: string; sha256?: string; bytes?: number } | undefined,
+  pathPattern: RegExp,
+  minBytes: number
+): boolean => (
+  typeof file?.path === "string"
+  && pathPattern.test(file.path)
+  && typeof file.sha256 === "string"
+  && MOTION_EVIDENCE_SHA256_HEX_PATTERN.test(file.sha256)
+  && typeof file.bytes === "number"
+  && Number.isFinite(file.bytes)
+  && file.bytes >= minBytes
+);
+
+const MOTION_READY_REPLAY_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/replay\.json$/;
+const MOTION_READY_PREVIEW_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/preview\.png$/;
+
+const hasMotionReadyPinterestEvidence = (
+  reference: ReferenceInput,
+  diagnosticReasons: readonly string[]
+): boolean => {
+  if (!isPinterestProductCandidateReferenceUrl(reference.url)) return false;
+  if (reference.captureStatus !== "captured") return false;
+  const motion = reference.capture?.motion;
+  if (motion?.status !== "captured") return false;
+  const persistedMotion = persistInspiredesignMotionEvidence(motion);
+  return diagnosticReasons.length === 0
+    && persistedMotion.authority === "design_evidence"
+    && !persistedMotion.diagnostic
+    && motionEvidenceSourceMatchesReference(reference, persistedMotion)
+    && motionEvidenceHasPinMediaPageQuality(persistedMotion)
+    && motionFileHasAuthority(
+      persistedMotion.replay,
+      MOTION_READY_REPLAY_PATH_PATTERN,
+      MIN_MOTION_REPLAY_BYTES
+    )
+    && motionFileHasAuthority(
+      persistedMotion.preview,
+      MOTION_READY_PREVIEW_PATH_PATTERN,
+      MIN_MOTION_PREVIEW_BYTES
+    );
+};
+
+const hasAuthoritativePinterestMediaEvidence = (
+  reference: ReferenceInput,
+  diagnosticReasons: readonly string[]
+): boolean => (
+  hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons)
+  || hasMotionReadyPinterestEvidence(reference, diagnosticReasons)
 );
 
 const hasUsableCaptureEvidence = (reference: ReferenceInput): boolean => (
@@ -444,6 +596,28 @@ const hasUsableCaptureEvidence = (reference: ReferenceInput): boolean => (
   || hasUsableCloneCreativeEvidence(reference)
   || hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))
 );
+
+const hasFirstPartyPinterestPinMediaProof = (reference: ReferenceInput): boolean => {
+  const visual = reference.capture?.visual;
+  if (
+    isPinterestProductCandidateReferenceUrl(reference.url)
+    && visual?.status === "captured"
+    && visualEvidenceSourceMatchesReference(reference)
+    && hasPinterestPinMediaPageQuality(visual.pinterestPageQuality)
+    && !visual.failure
+    && !hasBlockingSnapshotWarning(visual.warnings)
+  ) return true;
+  const motion = reference.capture?.motion;
+  const persistedMotion = motion?.status === "captured" ? persistInspiredesignMotionEvidence(motion) : undefined;
+  return Boolean(
+    isPinterestProductCandidateReferenceUrl(reference.url)
+    && persistedMotion
+    && persistedMotion.authority === "design_evidence"
+    && !persistedMotion.diagnostic
+    && motionEvidenceSourceMatchesReference(reference, persistedMotion)
+    && motionEvidenceHasPinMediaPageQuality(persistedMotion)
+  );
+};
 
 const referenceDiagnosticReasons = (reference: ReferenceInput): string[] => {
   const text = [
@@ -455,19 +629,58 @@ const referenceDiagnosticReasons = (reference: ReferenceInput): string[] => {
     reference.capture?.clone?.cssPreview,
     textFromHtml(reference.capture?.dom?.outerHTML),
     reference.capture?.visual?.failure,
-    ...(reference.capture?.visual?.warnings ?? [])
+    ...(reference.capture?.visual?.warnings ?? []),
+    reference.capture?.motion?.failure,
+    ...(reference.capture?.motion?.warnings ?? []),
+    ...(reference.capture?.motion?.diagnosticReasons ?? [])
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" ");
-  return diagnosticPageReasons(text);
+  const lowerText = text.toLowerCase();
+  const pinterestChromeMarkerCount = PINTEREST_CHROME_BLOCKING_MARKERS
+    .filter((marker) => lowerText.includes(marker)).length;
+  const hasPinMediaProof = hasFirstPartyPinterestPinMediaProof(reference);
+  const pinterestTextBlockers = [
+    ...(PINTEREST_LOGIN_BLOCKING_MARKERS.some((marker) => lowerText.includes(marker))
+      ? ["login_or_challenge_state"]
+      : []),
+    ...(!hasPinMediaProof && (lowerText.includes("search results for") || lowerText.includes("related searches") || pinterestChromeMarkerCount >= 3)
+      ? ["interface_chrome_shell"]
+      : [])
+  ];
+  const pinterestBlockers = isPinterestOwnedReferenceUrl(reference.url)
+    ? [
+      ...classifyPinterestCandidate({
+        url: reference.url,
+        title: reference.title ?? reference.capture?.title,
+        content: text
+      }).diagnosticBlockers.filter((reason) => (
+        reason !== "pin_media_type_unproven"
+        && (!hasPinMediaProof || reason !== "search_shell_without_media_signals")
+      )),
+      ...pinterestTextBlockers
+    ]
+    : [];
+  return [...new Set([...diagnosticPageReasons(text), ...pinterestBlockers])];
 };
 
 const hasBlockingDiagnosticReason = (reasons: string[]): boolean => (
   reasons.some((reason) => reason !== "login_or_challenge_state")
 );
 
+const evidenceAuthorityForReference = (reference: ReferenceInput): InspiredesignEvidenceAuthority => {
+  const diagnosticReasons = referenceDiagnosticReasons(reference);
+  if (hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons)) return "snapshot_ready";
+  if (hasMotionReadyPinterestEvidence(reference, diagnosticReasons)) return "motion_ready";
+  if (!isPinterestOwnedReferenceUrl(reference.url)) return "ranked_reference";
+  return "diagnostic_only";
+};
+
 export const hasInspiredesignUsableReferenceEvidence = (reference: ReferenceInput): boolean => {
   if (isUnapprovedPinterestReferenceUrl(reference.url)) return false;
   const diagnosticReasons = referenceDiagnosticReasons(reference);
-  if (hasPinterestVisualMetadataEvidence(reference, diagnosticReasons)) return true;
+  if (isPinterestOwnedReferenceUrl(reference.url)) {
+    return isPinterestProductCandidateReferenceUrl(reference.url)
+      && hasAuthoritativePinterestMediaEvidence(reference, diagnosticReasons);
+  }
   if (hasBlockingDiagnosticReason(diagnosticReasons)) return false;
   if (diagnosticReasons.includes("login_or_challenge_state") && !hasUsableRecoveredCreativeEvidence(reference)) {
     return false;
@@ -563,7 +776,8 @@ const appendSourceDetail = (patterns: string[], primarySignal: string): string[]
 const deriveCapturedVia = (reference: ReferenceInput): string[] => {
   const methods: string[] = [];
   const diagnosticReasons = referenceDiagnosticReasons(reference);
-  const hasPinterestVisualMetadata = hasPinterestVisualMetadataEvidence(reference, diagnosticReasons);
+  const hasSnapshotReadyEvidence = hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons);
+  const hasMotionReadyEvidence = hasMotionReadyPinterestEvidence(reference, diagnosticReasons);
   if (reference.fetchStatus === "captured") methods.push("fetch");
   if (hasCleanSignal(reference.capture?.snapshot?.content)) methods.push("snapshot");
   if (hasUsableCloneCreativeEvidence(reference)) {
@@ -572,8 +786,11 @@ const deriveCapturedVia = (reference: ReferenceInput): string[] => {
   if (hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))) methods.push("dom");
   if (
     reference.capture?.visual?.status === "captured"
-    && (hasUsableCaptureEvidence(reference) || hasPinterestVisualMetadata)
+    && (hasUsableCaptureEvidence(reference) || hasSnapshotReadyEvidence)
   ) methods.push("visual");
+  if (hasSnapshotReadyEvidence) methods.push("snapshot_ready");
+  if (reference.capture?.motion?.status === "captured" && hasMotionReadyEvidence) methods.push("motion");
+  if (hasMotionReadyEvidence) methods.push("motion_ready");
   return methods;
 };
 
@@ -584,23 +801,29 @@ const scoreReference = (
 ): number => {
   let score = 0;
   const diagnosticReasons = referenceDiagnosticReasons(reference);
-  const hasPinterestVisualMetadata = hasPinterestVisualMetadataEvidence(reference, diagnosticReasons);
+  const hasSnapshotReadyEvidence = hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons);
+  const hasMotionReadyEvidence = hasMotionReadyPinterestEvidence(reference, diagnosticReasons);
   if (reference.fetchStatus === "captured") score += SCORE_FETCH_CAPTURED;
-  if (reference.captureStatus === "captured" && (hasUsableCaptureEvidence(reference) || hasPinterestVisualMetadata)) {
+  if (
+    reference.captureStatus === "captured"
+    && (
+      hasUsableCaptureEvidence(reference)
+      || hasSnapshotReadyEvidence
+      || hasMotionReadyEvidence
+    )
+  ) {
     score += SCORE_CAPTURE_CAPTURED;
   }
   if (
     reference.capture?.visual?.status === "captured"
-    && (hasUsableCaptureEvidence(reference) || hasPinterestVisualMetadata)
+    && (hasUsableCaptureEvidence(reference) || hasSnapshotReadyEvidence)
   ) score += SCORE_VISUAL_CAPTURED;
-  if (hasCleanSignal(reference.capture?.snapshot?.content)) score += SCORE_SNAPSHOT;
+  if (hasMotionReadyEvidence) score += SCORE_VISUAL_CAPTURED;
+  if (hasSnapshotReadyEvidence || hasCleanSignal(reference.capture?.snapshot?.content)) score += SCORE_SNAPSHOT;
   if (hasUsableCloneCreativeEvidence(reference)) score += SCORE_CLONE;
   if (hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))) score += SCORE_DOM;
   if (isPublicLanding) score += SCORE_PUBLIC_LANDING;
   score += Math.min(SCORE_SIGNAL_CAP, signals.length * 2);
-  if (hasPinterestVisualMetadata && diagnosticReasons.includes("interface_chrome_shell")) {
-    score -= SCORE_PINTEREST_CHROME_METADATA_PENALTY;
-  }
   return Math.min(MAX_REFERENCE_SCORE, score);
 };
 
@@ -646,6 +869,12 @@ const deriveVisualRisks = (reference: ReferenceInput): string[] => {
 };
 
 const selectionReasonForScore = (score: number, capturedVia: string[]): string => {
+  if (capturedVia.includes("snapshot_ready")) {
+    return `Ranked for snapshot-ready Pinterest screenshot evidence plus ${capturedVia.join(", ")} capture.`;
+  }
+  if (capturedVia.includes("motion_ready")) {
+    return `Ranked for motion-ready Pinterest screencast evidence plus ${capturedVia.join(", ")} capture.`;
+  }
   if (capturedVia.includes("visual")) {
     return `Ranked for screenshot-backed visual evidence plus ${capturedVia.join(", ")} capture.`;
   }
@@ -771,7 +1000,11 @@ const deriveReferenceEntry = (
   const patterns = appendSourceDetail(derivePatternSummaries(signals, primarySignal), primarySignal);
   const isPublicLanding = signals.some(hasPublicLandingSignal);
   const capturedVia = deriveCapturedVia(reference);
-  const intentMatched = hasBriefIntentMatch(signals, format, briefText);
+  const evidenceAuthority = evidenceAuthorityForReference(reference);
+  const hasPinterestEvidenceAuthority = evidenceAuthority === "snapshot_ready"
+    || evidenceAuthority === "motion_ready";
+  const intentMatched = hasPinterestEvidenceAuthority
+    || hasBriefIntentMatch(signals, format, briefText);
   const rawScore = scoreReference(reference, signals, isPublicLanding);
   const score = intentMatched ? rawScore : Math.max(0, rawScore - SCORE_INTENT_MISMATCH_PENALTY);
   return {
@@ -782,6 +1015,7 @@ const deriveReferenceEntry = (
     url: reference.url,
     surfaceType: isPublicLanding ? "public landing page" : format.archetype,
     capturedVia,
+    evidenceAuthority,
     intentMatched,
     selectionReason: intentMatched
       ? selectionReasonForScore(score, capturedVia)
@@ -791,7 +1025,10 @@ const deriveReferenceEntry = (
     layoutRecipe: patterns.join("; "),
     contentHierarchy: patterns.slice(0, 4),
     componentFamilies: deriveComponentFamilies(format, patterns, isPublicLanding),
-    motionPosture: [format.motionGrammar, "Plan hero reveal, scroll reveal, CTA feedback, and reduced-motion behavior."],
+    motionPosture: [
+      format.motionGrammar,
+      "Plan hero reveal, scroll reveal, CTA feedback, and reduced-motion behavior."
+    ].slice(0, PATTERN_LIMIT),
     tokenNotes: [format.paletteIntent, format.typographySystem, format.surfaceTreatment],
     patternsToBorrow: [...patterns, ...signals.slice(0, 2)].slice(0, PATTERN_LIMIT),
     patternsToReject: [...format.antiPatterns],
@@ -836,14 +1073,20 @@ const rejectionReasonForReference = (reference: ReferenceInput): string => {
 };
 
 const hasCapturedEvidence = (reference: ReferenceInput): boolean => (
-  reference.captureStatus === "captured" || reference.capture?.visual?.status === "captured"
+  reference.captureStatus === "captured"
+  || reference.capture?.visual?.status === "captured"
+  || reference.capture?.motion?.status === "captured"
 );
 
-const capturedButRejectedReason = (diagnosticReasons: string[]): string => (
-  diagnosticReasons.length > 0
-    ? `Captured browser evidence was rejected because it only exposed diagnostic signals: ${diagnosticReasons.join(", ")}.`
-    : "Captured browser evidence was rejected because it did not contain usable creative reference evidence."
-);
+const capturedButRejectedReason = (reference: ReferenceInput, diagnosticReasons: string[]): string => {
+  if (diagnosticReasons.length > 0) {
+    return `Captured browser evidence was rejected because it only exposed diagnostic signals: ${diagnosticReasons.join(", ")}.`;
+  }
+  if (isPinterestProductCandidateReferenceUrl(reference.url) && !hasAuthoritativePinterestMediaEvidence(reference, diagnosticReasons)) {
+    return "Captured Pinterest media was rejected because it lacks snapshot-ready or motion-ready evidence.";
+  }
+  return "Captured browser evidence was rejected because it did not contain usable creative reference evidence.";
+};
 
 const buildRejectedReferences = (
   references: ReferenceInput[]
@@ -861,11 +1104,35 @@ const buildRejectedReferences = (
       ...(captured ? { captured: true as const } : {}),
       ...(diagnosticReasons.length > 0 ? { diagnosticReasons } : {}),
       ...(captured ? {
-        capturedButRejectedReason: capturedButRejectedReason(diagnosticReasons),
+        capturedButRejectedReason: capturedButRejectedReason(reference, diagnosticReasons),
         evidenceGap: "Design-facing artifacts require creative layout evidence; diagnostic browser chrome is kept only as rejection metadata."
       } : {})
     };
   });
+
+const isVideoPinReference = (reference: ReferenceInput): boolean => (
+  classifyPinterestCandidate({ url: reference.url, title: reference.title, content: reference.excerpt }).kind === "video_pin"
+);
+
+const hasMotionReadyReferenceEvidence = (reference: ReferenceInput): boolean => (
+  hasMotionReadyPinterestEvidence(reference, referenceDiagnosticReasons(reference))
+);
+
+const isMissingRequiredScreenshotAttempt = (reference: ReferenceInput): boolean => (
+  !isVideoPinReference(reference)
+  && !hasMotionReadyReferenceEvidence(reference)
+  && reference.capture?.visual?.status !== "captured"
+);
+
+const hasVisualFailureAttempt = (reference: ReferenceInput): boolean => (
+  reference.capture?.visual?.status === "failed" || isMissingRequiredScreenshotAttempt(reference)
+);
+
+const hasMotionFailureAttempt = (reference: ReferenceInput): boolean => {
+  const motion = reference.capture?.motion;
+  if (!motion) return isVideoPinReference(reference);
+  return motion.status === "failed" || persistInspiredesignMotionEvidence(motion).diagnostic;
+};
 
 const buildQualitySummary = (
   references: ReferenceInput[],
@@ -876,13 +1143,18 @@ const buildQualitySummary = (
   const rankedIds = new Set(rankedEntries.map((entry) => entry.id));
   const rankedReferences = references.filter((reference) => rankedIds.has(reference.id));
   const failedCaptureCount = rankedReferences.filter((reference) => reference.captureStatus === "failed").length;
-  const missingScreenshotCount = rankedReferences.filter((reference) => reference.capture?.visual?.status !== "captured").length;
+  const missingScreenshotCount = rankedReferences.filter(isMissingRequiredScreenshotAttempt).length;
   const topReference = rankedEntries[0];
   return {
     rankedReferenceCount: rankedEntries.length,
     rejectedReferenceCount: rejectedReferences.length,
     failedCaptureCount,
     missingScreenshotCount,
+    attemptedReferenceCount: references.length,
+    allAttemptFailedCaptureCount: references.filter((reference) => reference.captureStatus === "failed").length,
+    allAttemptMissingScreenshotCount: references.filter(isMissingRequiredScreenshotAttempt).length,
+    allAttemptVisualFailureCount: references.filter(hasVisualFailureAttempt).length,
+    allAttemptMotionFailureCount: references.filter(hasMotionFailureAttempt).length,
     diagnosticOnlyReasons,
     ...(topReference
       ? {
@@ -910,7 +1182,9 @@ export const isInspiredesignDesignReference = (
   reference: InspiredesignReferencePatternBoard["references"][number]
 ): boolean => (
   !isPinterestOwnedReferenceUrl(reference.url) || (
-    isPinterestVisualReferenceUrl(reference.url) && isInspiredesignReadyReference(reference)
+    isPinterestProductCandidateReferenceUrl(reference.url)
+    && isInspiredesignReadyReference(reference)
+    && reference.evidenceAuthority !== "diagnostic_only"
   )
 );
 
@@ -945,6 +1219,14 @@ const mergeRejectedReferences = (
   });
 };
 
+const hasDesignReferenceVisualOrMotionEvidence = (
+  reference: InspiredesignReferencePatternBoard["references"][number]
+): boolean => (
+  reference.capturedVia.includes("visual")
+  || reference.capturedVia.includes("motion_ready")
+  || reference.evidenceAuthority === "motion_ready"
+);
+
 export const buildInspiredesignRankedArtifactPatternBoard = (
   designBoard: InspiredesignReferencePatternBoard,
   sourceBoard: InspiredesignReferencePatternBoard
@@ -969,12 +1251,19 @@ export const buildInspiredesignDesignReferencePatternBoard = (
   const references = board.references.filter(isInspiredesignDesignReference);
   const notReadyCount = board.references.length - references.length;
   const topReference = references[0];
-  const missingScreenshotCount = references.filter((reference) => !reference.capturedVia.includes("visual")).length;
+  const missingScreenshotCount = references.filter((reference) => (
+    !hasDesignReferenceVisualOrMotionEvidence(reference)
+  )).length;
   const qualitySummary: InspiredesignReferenceQualitySummary = {
     rankedReferenceCount: references.length,
     rejectedReferenceCount: board.rejectedReferences.length + notReadyCount,
     failedCaptureCount: 0,
     missingScreenshotCount,
+    attemptedReferenceCount: board.qualitySummary.attemptedReferenceCount,
+    allAttemptFailedCaptureCount: board.qualitySummary.allAttemptFailedCaptureCount,
+    allAttemptMissingScreenshotCount: board.qualitySummary.allAttemptMissingScreenshotCount,
+    allAttemptVisualFailureCount: board.qualitySummary.allAttemptVisualFailureCount,
+    allAttemptMotionFailureCount: board.qualitySummary.allAttemptMotionFailureCount,
     diagnosticOnlyReasons: [...board.qualitySummary.diagnosticOnlyReasons],
     ...(topReference
       ? {

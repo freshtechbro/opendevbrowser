@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -62,11 +62,17 @@ type InspiredesignWorkflowMeta = {
     max_references?: number;
     visual_evidence?: string;
     capture_mode: string;
+    primary_capture_strategy?: string;
     requested_browser_mode?: string;
     include_prototype_guidance: boolean;
   };
   metrics: {
     reference_count: number;
+    attempted_reference_count?: number;
+    all_attempt_failed_capture_count?: number;
+    all_attempt_missing_screenshot_count?: number;
+    all_attempt_visual_failure_count?: number;
+    all_attempt_motion_failure_count?: number;
     fetched_references: number;
     captured_references: number;
     failed_fetches: number;
@@ -95,6 +101,13 @@ type InspiredesignWorkflowEvidence = {
   };
   targetAnalysis?: InspiredesignWorkflowTargetAnalysis;
   referencePatternBoard?: {
+    qualitySummary?: {
+      attemptedReferenceCount?: number;
+      allAttemptFailedCaptureCount?: number;
+      allAttemptMissingScreenshotCount?: number;
+      allAttemptVisualFailureCount?: number;
+      allAttemptMotionFailureCount?: number;
+    };
     references: Array<{
       id: string;
       capturedVia: string[];
@@ -243,6 +256,28 @@ const makeFailure = (
   }
 });
 
+const PINTEREST_IMAGE_PIN_ATTRIBUTES: Record<string, JsonValue> = {
+  pinterestMediaClassification: {
+    kind: "image_pin",
+    confidence: 0.9,
+    productCandidate: true,
+    sourcePageQuality: "pin_media",
+    reasons: ["browser_native_image_pin"],
+    diagnosticBlockers: []
+  }
+};
+
+const PINTEREST_VIDEO_PIN_ATTRIBUTES: Record<string, JsonValue> = {
+  pinterestMediaClassification: {
+    kind: "video_pin",
+    confidence: 0.9,
+    productCandidate: true,
+    sourcePageQuality: "pin_media",
+    reasons: ["browser_native_video_pin"],
+    diagnosticBlockers: []
+  }
+};
+
 const makeAggregate = (overrides: Partial<ProviderAggregateResult> = {}): ProviderAggregateResult => ({
   ok: true,
   records: [],
@@ -340,6 +375,36 @@ describe("inspiredesign workflow", () => {
     }
   });
 
+  it("uses fallback product copy when feature sections collapse to labels only", () => {
+    const record = normalizeRecord("shopping/walmart", "shopping", {
+      url: "https://www.walmart.com/ip/featureless-copy",
+      title: "Featureless copy fixture",
+      content: "About this item See more product details"
+    });
+
+    expect(workflowTestUtils.resolveProductCopy(
+      record,
+      "https://www.walmart.com/ip/featureless-copy",
+      undefined,
+      []
+    )).toBe("About this item See more product details");
+  });
+
+  it("keeps preferred product copy when malformed URLs cannot be checked for marketplace promos", () => {
+    const record = normalizeRecord("shopping/walmart", "shopping", {
+      url: "https://www.walmart.com/ip/malformed-copy",
+      title: "Malformed copy fixture",
+      content: "Fallback marketplace content should not win."
+    });
+
+    expect(workflowTestUtils.resolveProductCopy(
+      record,
+      "https://%",
+      "Studio-grade product narrative with real merchandising details.",
+      []
+    )).toBe("Studio-grade product narrative with real merchandising details.");
+  });
+
   it("returns a path artifact bundle when no references are supplied", async () => {
     const runtime = toRuntime({});
     const outputDir = makeOutputDir();
@@ -355,8 +420,10 @@ describe("inspiredesign workflow", () => {
     expect(output).toMatchObject({
       mode: "path",
       artifact_path: expect.any(String),
-      followthroughSummary: expect.stringContaining("continue in OpenDevBrowser Canvas"),
-      suggestedNextAction: expect.stringContaining("canvas-plan.request.json")
+      followthroughSummary: "Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      suggestedNextAction: "Canvas continuation unavailable until ranked references include authoritative visual or motion evidence."
     });
     expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
       readiness: "ready",
@@ -369,7 +436,7 @@ describe("inspiredesign workflow", () => {
     });
     expect(meta.metrics.reference_count).toBe(0);
     expect(meta.artifact_manifest.files).toContain("design.md");
-    expect(meta.followthroughSummary).toEqual(expect.stringContaining("canvas-plan.request.json"));
+    expect(meta.followthroughSummary).toBe("Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.");
     expect(meta.recommendedSkills).toEqual([
       'opendevbrowser-best-practices "quick start"',
       'opendevbrowser-design-agent "canvas-contract"',
@@ -380,13 +447,13 @@ describe("inspiredesign workflow", () => {
     }));
     expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
       "advanced-brief.md",
-      "canvas-plan.request.json",
       "design-agent-handoff.json"
     ]));
+    expect(meta.artifact_manifest.files).not.toContain("canvas-plan.request.json");
     const handoff = JSON.parse(readFileSync(join(artifactPath, "design-agent-handoff.json"), "utf8")) as Record<string, unknown>;
     expect(handoff).toEqual(expect.objectContaining({
-      nextStep: expect.stringContaining("canvas-plan.request.json"),
-      suggestedNextAction: expect.stringContaining("canvas-plan.request.json"),
+      nextStep: "Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.",
+      suggestedNextAction: "Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.",
       nextStepGuidance: expect.objectContaining({
         readiness: "ready",
         reasonCode: "design_ready"
@@ -424,7 +491,10 @@ describe("inspiredesign workflow", () => {
     expectArtifactPath(artifactPath, join(workspaceDir, ".opendevbrowser"), "inspiredesign");
     expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(false);
     expect(readFileSync(join(artifactPath, "design-agent-handoff.json"), "utf8")).toContain(
-      "Unavailable until nextStepGuidance.readiness is ready."
+      "Unavailable until harvest readiness is ready with authoritative visual or motion evidence."
+    );
+    expect(readFileSync(join(artifactPath, "design.md"), "utf8")).toMatch(
+      /^> \*\*Diagnostic-only artifact\.\*\*/
     );
   });
 
@@ -502,11 +572,26 @@ describe("inspiredesign workflow", () => {
       urls: ["https://example.com/reference"],
       outputDir,
       mode: "context",
+      visualEvidence: "required",
       includePrototypeGuidance: true
     }, {
-      captureReference: async (url: string) => ({
-        ...makeCapture(`Premium launch surface for Atelier Luma Studio with limestone hero brass CTA rail staggered project index from ${url}`),
-        attempts: {
+      captureReference: async (url: string, options) => {
+        if (!options?.visualEvidencePath) {
+          throw new Error("visual evidence path missing");
+        }
+        writeFileSync(options.visualEvidencePath, Buffer.from("premium launch visual artifact"));
+        return {
+          ...makeCapture(`Premium launch surface for Atelier Luma Studio with limestone hero brass CTA rail staggered project index from ${url}`),
+          visual: {
+            status: "captured",
+            kind: "viewport",
+            fullPage: false,
+            capturedAt: "2026-05-26T00:00:00.000Z",
+            tempPath: options.visualEvidencePath,
+			sourceUrl: url,
+            warnings: []
+          },
+          attempts: {
           snapshot: { status: "captured" },
           clone: { status: "captured" },
           dom: {
@@ -514,7 +599,8 @@ describe("inspiredesign workflow", () => {
             detail: "DOM capture helper unavailable in this execution lane."
           }
         }
-      })
+      };
+    }
     });
 
     const meta = output.meta as InspiredesignWorkflowMeta;
@@ -528,6 +614,7 @@ describe("inspiredesign workflow", () => {
     expect(meta.selection).toEqual({
       urls: ["https://example.com/reference"],
       capture_mode: "deep",
+      visual_evidence: "required",
       include_prototype_guidance: true
     });
     expect(context.evidence.references[0]?.capture?.attempts).toEqual({
@@ -566,7 +653,7 @@ describe("inspiredesign workflow", () => {
     );
     expect(context.evidence.referencePatternBoard?.references[0]).toMatchObject({
       id: expect.any(String),
-      capturedVia: ["fetch", "snapshot", "clone"],
+      capturedVia: ["fetch", "snapshot", "clone", "visual"],
       layoutRecipe: expect.stringContaining("Atelier Luma Studio")
     });
     expect(context.evidence.designVectors).toMatchObject({
@@ -750,6 +837,1172 @@ describe("inspiredesign workflow", () => {
     expect(existsSync(stagedTempPath)).toBe(false);
   });
 
+  it("captures Pinterest image pin screenshot evidence before optional deep diagnostics", async () => {
+    const outputDir = makeOutputDir();
+    const callOrder: string[] = [];
+    const cookieSource = {
+      type: "inline" as const,
+      value: [{ name: "sid", value: "abc", url: "https://www.pinterest.com/pin/27654985208435505/" }]
+    };
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest image pin reference",
+            content: "Full-bleed editorial image pin with premium product staging",
+            attributes: PINTEREST_IMAGE_PIN_ATTRIBUTES
+          })
+        ]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a premium Pinterest-inspired product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required",
+      captureMode: "deep",
+      cookiePolicyOverride: "required",
+      cookieSource
+    }, {
+      captureVisualEvidence: async (_url, options) => {
+        callOrder.push("visual");
+        expect(options.cookieSource).toEqual(cookieSource);
+        writeFileSync(options.visualEvidencePath, Buffer.alloc(2048, 1));
+        return {
+          status: "captured",
+          kind: "viewport",
+          fullPage: false,
+          capturedAt: "2026-05-23T00:00:00.000Z",
+          sourceUrl: _url,
+			pinterestPageQuality: "pin_media",
+          tempPath: options.visualEvidencePath,
+          warnings: ["workflow_visual_first"]
+        };
+      },
+      captureReference: async () => {
+        callOrder.push("deep");
+        throw new Error("Deep capture transport timed out before DOM capture");
+      }
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; warnings: string[] } }>;
+    };
+    const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
+      screenshots: Array<{ path: string }>;
+    };
+
+    expect(callOrder).toEqual(["visual", "deep"]);
+    expect(output).toEqual(expect.objectContaining({
+      ready: true,
+      readiness: "ready",
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      rankedReferenceCount: 1
+    }));
+    expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(true);
+    expect(meta.selection).toEqual(expect.objectContaining({
+      capture_mode: "deep",
+      primary_capture_strategy: "visual_first_with_deep_diagnostics"
+    }));
+    expect(meta.metrics.captured_references).toBe(1);
+    expect(meta.metrics.failed_captures).toBe(0);
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      attempted_reference_count: 1,
+      all_attempt_failed_capture_count: 0,
+      all_attempt_missing_screenshot_count: 0,
+      all_attempt_visual_failure_count: 0,
+      all_attempt_motion_failure_count: 0
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "captured",
+      path: "visual-evidence/b7a5656033e1/viewport.png",
+      warnings: ["workflow_visual_first"]
+    }));
+    expect(screenshotIndex.screenshots[0]?.path).toBe("visual-evidence/b7a5656033e1/viewport.png");
+    expect(evidence.referencePatternBoard?.references[0]?.capturedVia).toEqual(expect.arrayContaining([
+      "visual",
+      "snapshot_ready"
+    ]));
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "captured",
+      capture: expect.objectContaining({
+        attempts: expect.objectContaining({
+          snapshot: expect.objectContaining({ status: "failed" })
+        })
+      })
+    }));
+  });
+
+	it("keeps media-unproven Pinterest-only URL harvest diagnostic when provider is omitted", async () => {
+    const outputDir = makeOutputDir();
+    const captureReference = vi.fn();
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+			title: "Pinterest pin reference",
+			content: "Full-bleed editorial pin with premium product staging"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium Pinterest-inspired product story",
+      harvest: true,
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      outputDir,
+      mode: "path"
+    }, {
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(meta.selection).toEqual(expect.objectContaining({
+      capture_mode: "off",
+		primary_capture_strategy: "source_diagnostic"
+    }));
+    expect(captureReference).not.toHaveBeenCalled();
+  });
+
+	it("fails closed on malformed browser-native Pinterest classifications", async () => {
+	const cases: Array<{ name: string; attributes: Record<string, JsonValue> }> = [
+		{
+		name: "invalid kind",
+		attributes: {
+			pinterestMediaClassification: {
+			kind: "photo_pin",
+			confidence: 0.9,
+			sourcePageQuality: "pin_media",
+			reasons: ["browser_native_photo_pin"],
+			diagnosticBlockers: []
+			}
+		}
+		},
+		{
+		name: "invalid source quality",
+		attributes: {
+			pinterestMediaClassification: {
+			kind: "image_pin",
+			confidence: 0.9,
+			sourcePageQuality: "browser_probe",
+			reasons: ["browser_native_image_pin"],
+			diagnosticBlockers: []
+			}
+		}
+		},
+		{
+		name: "non-authoritative unknown pin",
+		attributes: {
+			pinterestMediaClassification: {
+			kind: "unknown_pin",
+			confidence: "not-a-number",
+			sourcePageQuality: "unknown",
+			reasons: ["browser_native_unknown_pin", 7],
+			diagnosticBlockers: "pin_media_type_unproven"
+			}
+		}
+		}
+	];
+
+	for (const item of cases) {
+		const captureReference = vi.fn();
+		const output = await runInspiredesignWorkflow(toRuntime({
+		fetch: async (input: { url: string }) => makeAggregate({
+			records: [
+			normalizeRecord("social/pinterest", "social", {
+				url: input.url,
+				title: `Pinterest pin reference ${item.name}`,
+				content: "Browser-native classification did not prove artifact-ready media.",
+				attributes: item.attributes
+			})
+			]
+		})
+		}), {
+		brief: "Design a premium Pinterest-inspired product story",
+		harvest: true,
+		providers: ["social/pinterest"],
+		urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+		outputDir: makeOutputDir(),
+		mode: "path"
+		}, {
+		captureReference
+		});
+		const meta = output.meta as InspiredesignWorkflowMeta;
+
+		expect(meta.selection).toEqual(expect.objectContaining({
+		primary_capture_strategy: "source_diagnostic"
+		}));
+		expect(output).toEqual(expect.objectContaining({
+		productSuccess: false,
+		artifactAuthority: "diagnostic_only"
+		}));
+		expect(captureReference).not.toHaveBeenCalled();
+	}
+	});
+
+  it("records thrown primary visual capture ports as failed evidence and still runs deep diagnostics", async () => {
+    const outputDir = makeOutputDir();
+    const captureReference = vi.fn(async () => makeCapture("Deep diagnostic capture still ran after primary visual failure."));
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest image pin reference",
+            content: "Editorial image pin with full-bleed couture composition",
+            attributes: PINTEREST_IMAGE_PIN_ATTRIBUTES
+          })
+        ]
+      })
+    }), {
+      brief: "Design an editorial couture landing page",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      outputDir,
+      mode: "json",
+      visualEvidence: "required",
+      captureMode: "deep"
+    }, {
+      captureVisualEvidence: async () => {
+        throw new Error("primary screenshot helper crashed");
+      },
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(captureReference).toHaveBeenCalledTimes(1);
+    expect(evidence.references[0]).toMatchObject({
+      captureStatus: "failed",
+      captureFailure: "primary screenshot helper crashed",
+      capture: {
+        visual: {
+          status: "failed",
+          failure: "primary screenshot helper crashed",
+          warnings: ["primary_visual_capture_failed"]
+        }
+      }
+    });
+    expect(output).toEqual(expect.objectContaining({
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
+  });
+
+  it("uses fresh remaining timeout budgets for primary capture and deep diagnostics", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
+
+    try {
+      await runInspiredesignWorkflow(toRuntime({
+        fetch: async (input: { url: string }) => makeAggregate({
+          records: [
+            normalizeRecord("social/pinterest", "social", {
+              url: input.url,
+              title: "Pinterest image pin reference",
+              content: "Full-bleed editorial image pin with premium product staging"
+            })
+          ]
+        })
+      }), {
+        brief: "Design a premium Pinterest-inspired product story",
+        harvest: true,
+        providers: ["social/pinterest"],
+        urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+        outputDir: makeOutputDir(),
+        mode: "path",
+        visualEvidence: "required",
+        captureMode: "deep",
+        timeoutMs: 10000
+      }, {
+        captureVisualEvidence: async (_url, options) => {
+          expect(options.timeoutMs).toBe(10000);
+          vi.setSystemTime(new Date("2026-05-23T00:00:09.000Z"));
+          writeFileSync(options.visualEvidencePath, Buffer.alloc(2048, 1));
+          return {
+            status: "captured",
+            kind: "viewport",
+            fullPage: false,
+            capturedAt: "2026-05-23T00:00:09.000Z",
+            sourceUrl: _url,
+			pinterestPageQuality: "pin_media",
+            tempPath: options.visualEvidencePath,
+            warnings: []
+          };
+        },
+        captureReference: async (_url, options) => {
+          expect(options?.timeoutMs).toBe(1000);
+          return makeCapture("Deep diagnostics used the remaining timeout budget");
+        }
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves primary screenshot evidence when deep diagnostics return failed visual metadata", async () => {
+    const outputDir = makeOutputDir();
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest image pin reference",
+            content: "Full-bleed editorial image pin with premium product staging",
+            attributes: PINTEREST_IMAGE_PIN_ATTRIBUTES
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium Pinterest-inspired product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required",
+      captureMode: "deep"
+    }, {
+      captureVisualEvidence: async (_url, options) => {
+        writeFileSync(options.visualEvidencePath, Buffer.alloc(2048, 1));
+        return {
+          status: "captured",
+          kind: "viewport",
+          fullPage: false,
+          capturedAt: "2026-05-23T00:00:00.000Z",
+          sourceUrl: _url,
+			pinterestPageQuality: "pin_media",
+          tempPath: options.visualEvidencePath,
+          warnings: ["workflow_visual_first"]
+        };
+      },
+      captureReference: async () => ({
+        snapshot: { content: "deep diagnostics text", refCount: 1, warnings: [] },
+        attempts: {
+          snapshot: { status: "captured" },
+          clone: { status: "skipped", detail: "No clone needed for diagnostic test." },
+          dom: { status: "skipped", detail: "No DOM needed for diagnostic test." }
+        },
+        visual: {
+          status: "failed",
+          kind: "viewport",
+          fullPage: false,
+          capturedAt: "2026-05-23T00:00:01.000Z",
+          warnings: ["deep_visual_failed"],
+          failure: "Deep diagnostic screenshot failed."
+        }
+      })
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; path?: string; warnings: string[] } }>;
+    };
+
+    expect(meta.metrics.captured_references).toBe(1);
+    expect(meta.metrics.failed_captures).toBe(0);
+    expect(evidence.references[0]?.capture?.visual).toEqual(expect.objectContaining({
+      status: "captured",
+      path: "visual-evidence/b7a5656033e1/viewport.png",
+      warnings: ["workflow_visual_first"]
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "captured",
+      path: "visual-evidence/b7a5656033e1/viewport.png"
+    }));
+  });
+
+  it("persists motion evidence for Pinterest video pins", async () => {
+    const outputDir = makeOutputDir();
+    const cookieSource = {
+      type: "inline" as const,
+      value: [{ name: "sid", value: "abc", url: "https://www.pinterest.com/pin/77654985208435505/" }]
+    };
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "Browser-native classified video pin with cinematic motion and premium product reveal",
+			attributes: PINTEREST_VIDEO_PIN_ATTRIBUTES
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "off",
+      cookiePolicyOverride: "required",
+      cookieSource
+    }, {
+      captureMotionEvidence: async (_url, options) => {
+        expect(options.cookieSource).toEqual(cookieSource);
+        if (!options.outputDir) throw new Error("motion output dir missing");
+        const motionOutputDir = options.outputDir;
+        const manifestPath = join(motionOutputDir, "replay.json");
+        const replayHtmlPath = join(motionOutputDir, "replay.html");
+        const previewPath = join(motionOutputDir, "preview.png");
+        mkdirSync(join(motionOutputDir, "frames"), { recursive: true });
+        mkdirSync(join(motionOutputDir, "ignored-dir"), { recursive: true });
+        writeFileSync(manifestPath, JSON.stringify({ frames: [{ index: 1 }, { index: 2 }, { index: 3 }] }));
+        writeFileSync(replayHtmlPath, "<html>replay</html>");
+        writeFileSync(previewPath, Buffer.alloc(2048, 1));
+        writeFileSync(join(motionOutputDir, "frames", "000001.png"), Buffer.from("frame 1"));
+        writeFileSync(join(motionOutputDir, "notes.txt"), "ignored note");
+        writeFileSync(join(motionOutputDir, "ignored-dir", "000002.png"), Buffer.from("ignored frame"));
+        symlinkSync(manifestPath, join(motionOutputDir, "frames", "linked.png"));
+        return {
+          status: "captured",
+          kind: "screencast",
+	          capturedAt: "2026-05-23T00:01:00.000Z",
+	          sourceUrl: _url,
+	          startedSourceUrl: _url,
+	          endedSourceUrl: _url,
+	pinterestPageQuality: "pin_media",
+	startedPinterestPageQuality: "pin_media",
+	endedPinterestPageQuality: "pin_media",
+	          replay: { tempPath: manifestPath },
+          replayHtml: { tempPath: replayHtmlPath },
+          preview: { tempPath: previewPath },
+          outputDir: motionOutputDir,
+          frameCount: 3,
+          warnings: ["workflow_motion_first"],
+          diagnostic: false,
+          diagnosticReasons: []
+        };
+      }
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const motionEvidenceJson = readFileSync(join(artifactPath, "motion-evidence.json"), "utf8");
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence & {
+      motionEvidence?: unknown;
+    };
+    const motionEvidence = JSON.parse(motionEvidenceJson) as {
+      motionEvidence: Array<{ motion: { status: string; frameCount: number; authority: string; replay: { path: string }; preview: { path: string } } }>;
+    };
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: true,
+      readiness: "ready",
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      rankedReferenceCount: 1
+    }));
+    expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(true);
+    expect(meta.selection).toEqual(expect.objectContaining({
+      primary_capture_strategy: "motion_first"
+    }));
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      attempted_reference_count: 1,
+      all_attempt_failed_capture_count: 0,
+		all_attempt_missing_screenshot_count: 0,
+		all_attempt_visual_failure_count: 0,
+      all_attempt_motion_failure_count: 0
+    }));
+    expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "motion-evidence.json",
+      "motion-evidence/7bf52aee6e56/replay.json",
+      "motion-evidence/7bf52aee6e56/replay.html",
+      "motion-evidence/7bf52aee6e56/preview.png",
+      "motion-evidence/7bf52aee6e56/frames/000001.png"
+    ]));
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      status: "captured",
+      frameCount: 3,
+      authority: "design_evidence",
+      replay: expect.objectContaining({
+        path: "motion-evidence/7bf52aee6e56/replay.json",
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        bytes: 48
+      }),
+      preview: expect.objectContaining({
+        path: "motion-evidence/7bf52aee6e56/preview.png",
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        bytes: 2048
+      })
+    }));
+    expect(evidence.motionEvidence).toEqual(motionEvidence.motionEvidence);
+    expect(evidence.referencePatternBoard?.references[0]?.capturedVia).toEqual(expect.arrayContaining([
+      "motion",
+      "motion_ready"
+    ]));
+  });
+
+  it("rejects symlinked motion output roots before reading runtime files", async () => {
+    const outputDir = makeOutputDir();
+    const trustedMotionDir = mkdtempSync(join(tmpdir(), "inspiredesign-motion-root-target-"));
+    tempDirs.push(trustedMotionDir);
+    writeFileSync(join(trustedMotionDir, "replay.json"), JSON.stringify({ frames: [{ index: 1 }] }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "off"
+    }, {
+      captureMotionEvidence: async (_url, options) => {
+        if (!options.outputDir) throw new Error("motion output dir missing");
+        rmSync(options.outputDir, { recursive: true, force: true });
+        symlinkSync(trustedMotionDir, options.outputDir, "dir");
+        return {
+          status: "captured",
+          kind: "screencast",
+          capturedAt: "2026-05-23T00:01:00.000Z",
+          replay: { tempPath: join(options.outputDir, "replay.json") },
+          outputDir: options.outputDir,
+          frameCount: 1,
+          warnings: [],
+          diagnostic: false,
+          diagnosticReasons: []
+        };
+      }
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const motionEvidence = JSON.parse(readFileSync(join(artifactPath, "motion-evidence.json"), "utf8")) as {
+      motionEvidence: Array<{ motion: { status: string; failure?: string; authority: string } }>;
+    };
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      status: "failed",
+      authority: "diagnostic",
+      failure: "Motion evidence output directory was unavailable."
+    }));
+  });
+
+  it("rejects motion evidence files outside the planned capture directory", async () => {
+    const outputDir = makeOutputDir();
+    const tempMotionDir = mkdtempSync(join(tmpdir(), "inspiredesign-motion-untrusted-"));
+    tempDirs.push(tempMotionDir);
+    writeFileSync(join(tempMotionDir, "replay.json"), JSON.stringify({ frames: [{ index: 1 }] }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureMotionEvidence: async () => ({
+        status: "captured",
+        kind: "screencast",
+        capturedAt: "2026-05-23T00:01:00.000Z",
+        replay: { tempPath: join(tempMotionDir, "replay.json") },
+        outputDir: tempMotionDir,
+        frameCount: 1,
+        warnings: [],
+        diagnostic: false,
+        diagnosticReasons: []
+      })
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const motionEvidence = JSON.parse(readFileSync(join(artifactPath, "motion-evidence.json"), "utf8")) as {
+      motionEvidence: Array<{ motion: { status: string; authority: string; failure?: string; diagnosticReasons: string[] } }>;
+    };
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      captured_references: 0,
+      failed_captures: 1,
+      all_attempt_motion_failure_count: 1
+    }));
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Motion evidence output directory did not match the workflow capture plan."
+    }));
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      status: "failed",
+      authority: "diagnostic",
+      failure: "Motion evidence output directory did not match the workflow capture plan.",
+      diagnosticReasons: expect.arrayContaining(["motion_artifact_finalization_failed"])
+    }));
+    expect(meta.artifact_manifest.files).not.toEqual(expect.arrayContaining([
+      expect.stringContaining("motion-evidence/7bf52aee6e56/replay.json")
+    ]));
+  });
+
+  it("rejects motion evidence output directories nested under the planned capture directory", async () => {
+    const outputDir = makeOutputDir();
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureMotionEvidence: async (_url, options) => {
+        if (!options.outputDir) throw new Error("motion output dir missing");
+        const nestedOutputDir = join(options.outputDir, "nested");
+        mkdirSync(nestedOutputDir, { recursive: true });
+        const manifestPath = join(nestedOutputDir, "replay.json");
+        const previewPath = join(nestedOutputDir, "preview.png");
+        writeFileSync(manifestPath, JSON.stringify({ frames: [{ index: 1 }] }));
+        writeFileSync(previewPath, Buffer.from("preview png"));
+        return {
+          status: "captured",
+          kind: "screencast",
+          capturedAt: "2026-05-23T00:01:00.000Z",
+          sourceUrl: _url,
+          replay: { tempPath: manifestPath },
+          preview: { tempPath: previewPath },
+          outputDir: nestedOutputDir,
+          frameCount: 1,
+          warnings: [],
+          diagnostic: false,
+          diagnosticReasons: []
+        };
+      }
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+
+    expect(output).toEqual(expect.objectContaining({
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Motion evidence output directory did not match the workflow capture plan."
+    }));
+    expect(output.meta).toEqual(expect.objectContaining({
+      artifactAuthority: "diagnostic_only"
+    }));
+  });
+
+  it("rejects decoy replay and preview files that were not returned by runtime motion capture", async () => {
+    const outputDir = makeOutputDir();
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureMotionEvidence: async (_url, options) => {
+        if (!options.outputDir) throw new Error("motion output dir missing");
+        mkdirSync(options.outputDir, { recursive: true });
+        writeFileSync(join(options.outputDir, "replay.json"), JSON.stringify({ frames: [{ index: 1 }] }));
+        writeFileSync(join(options.outputDir, "preview.png"), Buffer.alloc(2048, 1));
+        return {
+          status: "captured",
+          kind: "screencast",
+          capturedAt: "2026-05-23T00:01:00.000Z",
+          sourceUrl: _url,
+          startedSourceUrl: _url,
+          endedSourceUrl: _url,
+          pinterestPageQuality: "pin_media",
+          startedPinterestPageQuality: "pin_media",
+          endedPinterestPageQuality: "pin_media",
+          replay: { tempPath: join(options.outputDir, "missing-replay.json") },
+          preview: { tempPath: join(options.outputDir, "missing-preview.png") },
+          outputDir: options.outputDir,
+          frameCount: 3,
+          warnings: [],
+          diagnostic: false,
+          diagnosticReasons: []
+        };
+      }
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const motionEvidence = JSON.parse(readFileSync(join(artifactPath, "motion-evidence.json"), "utf8")) as {
+      motionEvidence: Array<{ motion: { status: string; authority: string; failure?: string; diagnosticReasons: string[] } }>;
+    };
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      status: "failed",
+      authority: "diagnostic",
+      failure: "Motion evidence artifacts were not available for design review.",
+      diagnosticReasons: expect.arrayContaining(["motion_artifacts_missing"])
+    }));
+    expect(meta.artifact_manifest.files).not.toEqual(expect.arrayContaining([
+      "motion-evidence/7bf52aee6e56/replay.json",
+      "motion-evidence/7bf52aee6e56/preview.png"
+    ]));
+  });
+
+  it("rejects captured Pinterest motion evidence when no reviewable motion artifacts were bundled", async () => {
+    const outputDir = makeOutputDir();
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureMotionEvidence: async (_url, options) => {
+        if (!options.outputDir) throw new Error("motion output dir missing");
+        mkdirSync(options.outputDir, { recursive: true });
+        return {
+          status: "captured",
+          kind: "screencast",
+          capturedAt: "2026-05-23T00:01:00.000Z",
+          outputDir: options.outputDir,
+          frameCount: 3,
+          warnings: [],
+          diagnostic: false,
+          diagnosticReasons: []
+        };
+      }
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const motionEvidence = JSON.parse(readFileSync(join(artifactPath, "motion-evidence.json"), "utf8")) as {
+      motionEvidence: Array<{ motion: { status: string; authority: string; failure?: string; diagnosticReasons: string[] } }>;
+    };
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      captured_references: 0,
+      failed_captures: 1,
+      all_attempt_motion_failure_count: 1
+    }));
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Motion evidence artifacts were not available for design review."
+    }));
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      status: "failed",
+      authority: "diagnostic",
+      failure: "Motion evidence artifacts were not available for design review.",
+      diagnosticReasons: expect.arrayContaining(["motion_artifacts_missing"])
+    }));
+    expect(meta.artifact_manifest.files).not.toEqual(expect.arrayContaining([
+      expect.stringContaining("motion-evidence/7bf52aee6e56/replay.json")
+    ]));
+  });
+
+  it("rejects frame-only Pinterest motion evidence without a preview artifact", async () => {
+    const outputDir = makeOutputDir();
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureMotionEvidence: async (_url, options) => {
+        if (!options.outputDir) throw new Error("motion output dir missing");
+        mkdirSync(join(options.outputDir, "frames"), { recursive: true });
+        const manifestPath = join(options.outputDir, "replay.json");
+        writeFileSync(manifestPath, JSON.stringify({ frames: [{ index: 1 }] }));
+        writeFileSync(join(options.outputDir, "frames", "000001.png"), Buffer.from("frame 1"));
+        return {
+          status: "captured",
+          kind: "screencast",
+          capturedAt: "2026-05-23T00:01:00.000Z",
+          sourceUrl: _url,
+          replay: { tempPath: manifestPath },
+          outputDir: options.outputDir,
+          frameCount: 1,
+          warnings: [],
+          diagnostic: false,
+          diagnosticReasons: []
+        };
+      }
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const motionEvidence = JSON.parse(readFileSync(join(artifactPath, "motion-evidence.json"), "utf8")) as {
+      motionEvidence: Array<{ motion: { status: string; authority: string; failure?: string; diagnosticReasons: string[] } }>;
+    };
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      status: "failed",
+      authority: "diagnostic",
+      failure: "Motion evidence artifacts were not available for design review.",
+      diagnosticReasons: expect.arrayContaining(["motion_artifacts_missing"])
+    }));
+  });
+
+  it("rejects excessive motion frame artifacts from planned capture directories", async () => {
+    const outputDir = makeOutputDir();
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureMotionEvidence: async (_url, options) => {
+        const motionOutputDir = options.outputDir;
+        mkdirSync(join(motionOutputDir, "frames"), { recursive: true });
+        const manifestPath = join(motionOutputDir, "replay.json");
+        writeFileSync(manifestPath, JSON.stringify({ frames: [{ index: 1 }] }));
+        writeFileSync(join(motionOutputDir, "frames", "000001.png"), Buffer.from("frame 1"));
+        writeFileSync(join(motionOutputDir, "frames", "000002.png"), Buffer.from("frame 2"));
+        writeFileSync(join(motionOutputDir, "frames", "000003.png"), Buffer.from("frame 3"));
+        writeFileSync(join(motionOutputDir, "frames", "000004.png"), Buffer.from("frame 4"));
+        return {
+          status: "captured",
+          kind: "screencast",
+          capturedAt: "2026-05-23T00:01:00.000Z",
+          replay: { tempPath: manifestPath },
+          outputDir: motionOutputDir,
+          frameCount: 4,
+          warnings: [],
+          diagnostic: false,
+          diagnosticReasons: []
+        };
+      }
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const motionEvidence = JSON.parse(readFileSync(join(artifactPath, "motion-evidence.json"), "utf8")) as {
+      motionEvidence: Array<{ motion: { status: string; authority: string; failure?: string; diagnosticReasons: string[] } }>;
+    };
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Motion evidence artifact finalization exceeded the frame file limit."
+    }));
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      status: "failed",
+      authority: "diagnostic",
+      failure: "Motion evidence artifact finalization exceeded the frame file limit.",
+      diagnosticReasons: expect.arrayContaining(["motion_artifact_finalization_failed"])
+    }));
+  });
+
+  it("records zero-frame Pinterest video captures as diagnostic motion evidence", async () => {
+    const outputDir = makeOutputDir();
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with playback controls only</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/87654985208435505/"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureMotionEvidence: async () => ({
+        status: "captured",
+        kind: "screencast",
+        capturedAt: "2026-05-23T00:02:00.000Z",
+        frameCount: 0,
+        warnings: ["controls_only_capture"],
+        diagnostic: true,
+        diagnosticReasons: ["zero_frame_capture", "controls_only_capture"]
+      })
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const motionEvidence = JSON.parse(readFileSync(join(artifactPath, "motion-evidence.json"), "utf8")) as {
+      motionEvidence: Array<{
+        motion: {
+          frameCount: number;
+          authority: string;
+          diagnostic: boolean;
+          diagnosticReasons: string[];
+          replay?: { path: string };
+          replayHtml?: { path: string };
+          preview?: { path: string };
+        };
+      }>;
+    };
+
+    expect(motionEvidence.motionEvidence[0]?.motion).toEqual(expect.objectContaining({
+      frameCount: 0,
+      authority: "diagnostic",
+      diagnostic: true,
+      diagnosticReasons: expect.arrayContaining(["zero_frame_capture", "controls_only_capture"])
+    }));
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(false);
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      attempted_reference_count: 1,
+      all_attempt_failed_capture_count: 0,
+      all_attempt_missing_screenshot_count: 1,
+      all_attempt_visual_failure_count: 1,
+      all_attempt_motion_failure_count: 1
+    }));
+    expect(motionEvidence.motionEvidence[0]?.motion.replay).toBeUndefined();
+    expect(motionEvidence.motionEvidence[0]?.motion.replayHtml).toBeUndefined();
+    expect(motionEvidence.motionEvidence[0]?.motion.preview).toBeUndefined();
+    expect(meta.artifact_manifest.files).not.toContain("motion-evidence/87654985208435505/replay.json");
+  });
+
+  it("does not count diagnostic-only motion as captured when deep diagnostics fail", async () => {
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with playback controls only</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/87654985208435505/"],
+      outputDir: makeOutputDir(),
+      mode: "json",
+      visualEvidence: "off",
+      captureMode: "deep"
+    }, {
+      captureMotionEvidence: async () => ({
+        status: "captured",
+        kind: "screencast",
+        capturedAt: "2026-05-23T00:02:00.000Z",
+        frameCount: 0,
+        warnings: ["controls_only_capture"],
+        diagnostic: true,
+        diagnosticReasons: ["zero_frame_capture", "controls_only_capture"]
+      }),
+      captureReference: async () => {
+        throw new Error("deep diagnostics failed");
+      }
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(evidence.references[0]).toMatchObject({
+      captureStatus: "failed",
+      captureFailure: "deep diagnostics failed",
+      capture: {
+        motion: {
+          status: "captured",
+          diagnostic: true,
+          diagnosticReasons: expect.arrayContaining(["zero_frame_capture", "controls_only_capture"])
+        }
+      }
+    });
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      captured_references: 0,
+      failed_captures: 1,
+      all_attempt_motion_failure_count: 1
+    }));
+    expect(output).toEqual(expect.objectContaining({
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
+  });
+
+  it("records thrown primary motion capture ports as diagnostic evidence and still runs deep diagnostics", async () => {
+    const outputDir = makeOutputDir();
+    const captureReference = vi.fn(async () => makeCapture("Deep diagnostic capture still ran after primary motion failure."));
+
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest video pin reference",
+			content: "<video data-test-id=\"video\">Video pin with cinematic motion and premium product reveal</video>"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a premium motion-led product story",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/77654985208435505/"],
+      outputDir,
+      mode: "json",
+      visualEvidence: "off",
+      captureMode: "deep"
+    }, {
+      captureMotionEvidence: async () => {
+        throw new Error("primary screencast helper crashed");
+      },
+      captureReference
+    });
+
+    const evidence = output.evidence as InspiredesignWorkflowEvidence;
+
+    expect(captureReference).toHaveBeenCalledTimes(1);
+    expect(evidence.references[0]).toMatchObject({
+      captureStatus: "captured",
+      capture: {
+        motion: {
+          status: "failed",
+          failure: "primary screencast helper crashed",
+          diagnostic: true,
+          diagnosticReasons: expect.arrayContaining(["primary_motion_capture_failed"])
+        }
+      }
+    });
+    expect(output).toEqual(expect.objectContaining({
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
+  });
+
   it("fails zero-byte required screenshot artifacts without indexing them", async () => {
     const outputDir = makeOutputDir();
     const runtime = toRuntime({
@@ -798,8 +2051,28 @@ describe("inspiredesign workflow", () => {
     const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
       screenshots: unknown[];
     };
+    const rankedReferences = JSON.parse(readFileSync(join(artifactPath, "ranked-references.json"), "utf8")) as {
+      qualitySummary: {
+        attemptedReferenceCount?: number;
+        allAttemptFailedCaptureCount?: number;
+        allAttemptMissingScreenshotCount?: number;
+        allAttemptVisualFailureCount?: number;
+      };
+    };
 
     expect(meta.metrics.failed_captures).toBe(1);
+    expect(meta.metrics).toEqual(expect.objectContaining({
+      attempted_reference_count: 1,
+      all_attempt_failed_capture_count: 1,
+      all_attempt_missing_screenshot_count: 1,
+      all_attempt_visual_failure_count: 1
+    }));
+    expect(rankedReferences.qualitySummary).toEqual(expect.objectContaining({
+      attemptedReferenceCount: 1,
+      allAttemptFailedCaptureCount: 1,
+      allAttemptMissingScreenshotCount: 1,
+      allAttemptVisualFailureCount: 1
+    }));
     expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
       status: "failed",
       failure: "Visual evidence screenshot file was empty.",
@@ -940,6 +2213,11 @@ describe("inspiredesign workflow", () => {
       harvest: true,
       providers: ["web/default"]
     })).rejects.toThrow("Provider-scoped URL recovery requires at least one URL");
+    await expect(runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"]
+    })).rejects.toThrow("providers require query unless harvest uses compatible URL recovery");
     await expect(runInspiredesignWorkflow(runtime, {
       brief: "Design a visual harvest landing page",
       harvest: true,
@@ -1191,16 +2469,32 @@ describe("inspiredesign workflow", () => {
       urls: ["https://example.com/checkout-card"],
       outputDir,
       mode: "context",
+      visualEvidence: "required",
       includePrototypeGuidance: true
     }, {
-      captureReference: async () => ({
-        ...makeCapture("Checkout Card Component anatomy props slots state matrix tokens asset pack responsive variants usage rules"),
-        attempts: {
+      captureReference: async (_url, options) => {
+        if (!options?.visualEvidencePath) {
+          throw new Error("visual evidence path missing");
+        }
+        writeFileSync(options.visualEvidencePath, Buffer.from("component visual artifact"));
+        return {
+          ...makeCapture("Checkout Card Component anatomy props slots state matrix tokens asset pack responsive variants usage rules"),
+          visual: {
+            status: "captured",
+            kind: "viewport",
+            fullPage: false,
+            capturedAt: "2026-05-26T00:00:00.000Z",
+            tempPath: options.visualEvidencePath,
+			sourceUrl: _url,
+            warnings: []
+          },
+          attempts: {
           snapshot: { status: "captured" },
           clone: { status: "captured" },
           dom: { status: "skipped", detail: "DOM capture helper unavailable in this execution lane." }
         }
-      })
+      };
+    }
     });
 
     const context = output.context as InspiredesignWorkflowContext;
@@ -1316,6 +2610,7 @@ describe("inspiredesign workflow", () => {
 
     expect(captureReference).toHaveBeenCalledTimes(1);
     expect(meta.selection.capture_mode).toBe("deep");
+    expect(Object.keys(meta.metrics)).not.toContain(`media_${"analysis"}`);
   });
 
   it("discovers query references and keeps explicit URLs first", async () => {
@@ -1442,15 +2737,18 @@ describe("inspiredesign workflow", () => {
     expect(output.suggestedNextAction).toEqual(meta.nextStepGuidance?.primaryAction.summary);
   });
 
-  it("attempts public Pinterest discovery when cookies are preferred and keeps usable URLs despite login chrome", async () => {
+  it("attempts public Pinterest discovery when cookies are preferred and keeps usable grid URLs", async () => {
     const fetch = vi.fn(async (input: { url: string }) => {
       if (input.url.includes("/search/pins/")) {
         return makeAggregate({
           records: [
             normalizeRecord("social/pinterest", "social", {
               url: input.url,
-              title: "Pinterest results with sign up chrome",
-              content: "Sign up Continue with Google <a href=\"/pin/61572719900827789/\">Studio pin</a>"
+              title: "Pinterest results grid",
+              content: "<a href=\"/pin/61572719900827789/\">Studio reference</a>",
+              attributes: {
+                html: '<div data-grid-item="true"><a href="/pin/61572719900827789/"><img alt="Photography studio landing page" src="/studio.jpg"></a></div>'
+              }
             })
           ]
         });
@@ -1496,7 +2794,15 @@ describe("inspiredesign workflow", () => {
     expect(meta.metrics.reasonCodeDistribution).not.toEqual(expect.objectContaining({
       auth_required: expect.any(Number)
     }));
-    expect(meta.nextStepGuidance?.readiness).toBe("ready");
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      rankedReferenceCount: 0
+    }));
+    expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
+      readiness: "needs_recovery",
+      reasonCode: "pinterest_browser_native_recovery"
+    }));
   });
 
   it("uses the Pinterest browser-native recipe as an authenticated discovery lane", async () => {
@@ -1563,8 +2869,8 @@ describe("inspiredesign workflow", () => {
       expect.any(Object)
     );
     expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
-      readiness: "ready",
-      reasonCode: "design_ready"
+      readiness: "diagnostic_only",
+      reasonCode: "pinterest_browser_native_recovery"
     }));
   });
 
@@ -1653,6 +2959,60 @@ describe("inspiredesign workflow", () => {
       readiness: "ready",
       reasonCode: "design_ready"
     }));
+    expect(output).toEqual(expect.objectContaining({
+      ready: true,
+      readiness: "ready",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 1
+    }));
+    expect(output.meta).toEqual(expect.objectContaining({
+      pinterestEvidenceRequired: true
+    }));
+    expect(output).not.toHaveProperty("canvasPlanRequest");
+  });
+
+  it("keeps Pinterest boards diagnostic unless concrete media evidence is captured", async () => {
+    const outputDir = makeOutputDir();
+    const boardUrl = "https://www.pinterest.com/studio/cinematic-fashion-board/";
+    const output = await runInspiredesignWorkflow(toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [
+          normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Cinematic fashion studio board",
+            content: "Editorial atelier landing page moodboard with premium full-bleed imagery and strong typography"
+          })
+        ]
+      })
+    }), {
+      brief: "Design a cinematic fashion studio landing page",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: [boardUrl],
+      outputDir,
+      mode: "path"
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const rankedReferences = JSON.parse(readFileSync(join(artifactPath, "ranked-references.json"), "utf8")) as {
+      references: unknown[];
+      rejectedReferences: Array<{ url: string; reason: string }>;
+    };
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      rankedReferenceCount: 0
+    }));
+    expect(rankedReferences.references).toEqual([]);
+    expect(rankedReferences.rejectedReferences).toEqual([
+      expect.objectContaining({
+        url: boardUrl.replace(/\/$/, ""),
+        diagnosticReasons: ["board_requires_concrete_media_extraction"],
+        reason: expect.stringContaining("board_requires_concrete_media_extraction")
+      })
+    ]);
   });
 
   it("rejects Pinterest search-shell URLs returned by the standard lane in mixed provider harvests", async () => {
@@ -2129,8 +3489,6 @@ describe("inspiredesign workflow", () => {
       source: "social"
     }));
     expect(discovery.failures?.[0]?.error).toEqual(expect.objectContaining({
-      provider: "social/pinterest",
-      source: "social",
       details: expect.objectContaining({
         upstreamProvider: "web/default",
         upstreamSource: "web"
@@ -2190,7 +3548,7 @@ describe("inspiredesign workflow", () => {
     );
   });
 
-  it("keeps real Pinterest diagnostic harvest artifacts blocked when pins have screenshots but no design-ready references", async () => {
+  it("keeps real Pinterest diagnostic harvest artifacts blocked when discovered pins render only chrome", async () => {
     const outputDir = makeOutputDir();
     const pinUrls = [
       "https://www.pinterest.com/pin/27654985208435505/",
@@ -2206,7 +3564,10 @@ describe("inspiredesign workflow", () => {
             normalizeRecord("social/pinterest", "social", {
               url: input.url,
               title: "Pinterest visual search shell",
-              content: pinUrls.map((url) => `<a href="${url}">Pin card</a>`).join("\n")
+              content: pinUrls.map((url) => `<a href="${url}">Studio reference</a>`).join("\n"),
+              attributes: {
+                html: pinUrls.map((url) => `<div data-grid-item="true"><a href="${url}"><img alt="Premium studio pin" src="/pin.jpg"></a></div>`).join("\n")
+              }
             })
           ]
         });
@@ -2260,7 +3621,7 @@ describe("inspiredesign workflow", () => {
     const rankedReferences = JSON.parse(readFileSync(join(artifactPath, "ranked-references.json"), "utf8")) as {
       qualitySummary: { rankedReferenceCount: number; rejectedReferenceCount: number; missingScreenshotCount: number };
       references: unknown[];
-      rejectedReferences: Array<{ captured?: boolean; diagnosticReasons?: string[]; capturedButRejectedReason?: string }>;
+      rejectedReferences: Array<{ captureStatus?: string; diagnosticReasons?: string[]; fetchStatus?: string; reason?: string }>;
     };
     const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
       screenshots: Array<{ path: string }>;
@@ -2271,10 +3632,25 @@ describe("inspiredesign workflow", () => {
       nextStepGuidance: NextStepGuidance;
     };
 
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      readiness: "diagnostic_only",
+      harvestReadiness: "diagnostic_only",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      rankedReferenceCount: 0
+    }));
+    expect(meta.selection).toEqual(expect.objectContaining({
+      primary_capture_strategy: "source_diagnostic"
+    }));
     expect(meta.discovery).toEqual(expect.objectContaining({
       siteRecipeId: "social/pinterest",
       acceptedUrls: pinUrls,
-      browserNativeDiagnostics: expect.objectContaining({ extractedUrlCount: 5 })
+      browserNativeDiagnostics: expect.objectContaining({
+        extractedUrlCount: 5,
+        sourcePageQuality: "pin_grid_media",
+        classificationCounts: expect.objectContaining({ unknown_pin: 5 })
+      })
     }));
     expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
       readiness: "diagnostic_only",
@@ -2289,20 +3665,21 @@ describe("inspiredesign workflow", () => {
       references: [],
       rejectedReferences: expect.arrayContaining([
         expect.objectContaining({
-          captured: true,
+          captureStatus: "off",
+          fetchStatus: "captured",
           diagnosticReasons: expect.arrayContaining(["interface_chrome_shell"]),
-          capturedButRejectedReason: expect.stringContaining("interface_chrome_shell")
+          reason: expect.stringContaining("interface_chrome_shell")
         })
       ])
     });
-    expect(screenshotIndex.screenshots).toHaveLength(5);
-    expect(designMarkdown).toContain("Canvas plan request omitted until nextStepGuidance.readiness is ready.");
+    expect(screenshotIndex.screenshots).toHaveLength(0);
+    expect(designMarkdown).toContain("Canvas plan request omitted until harvest readiness is ready with authoritative visual or motion evidence.");
     expect(designMarkdown).not.toContain("Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`");
-    expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
+    expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until harvest readiness is ready with authoritative visual or motion evidence.");
     expect(handoff.nextStepGuidance.readiness).toBe("diagnostic_only");
-    expect(handoff.nextStepGuidance.commands[0]?.command).toContain("--provider social/pinterest --url");
-    expect(handoff.nextStepGuidance.commands[0]?.command).toContain(pinUrls[0]);
-    expect(handoff.nextStepGuidance.commands[0]?.command).not.toContain("--query");
+    expect(handoff.nextStepGuidance.commands[0]?.command).toContain("--query");
+    expect(handoff.nextStepGuidance.commands[0]?.command).not.toContain("--url");
+    expect(handoff.nextStepGuidance.commands[0]?.command).not.toContain(pinUrls[0]);
   });
 
   it("preserves generic recovery when mixed standard provider search throws", async () => {
@@ -2371,7 +3748,7 @@ describe("inspiredesign workflow", () => {
     expect(meta.metrics).toEqual(expect.objectContaining({
       reference_count: 1,
       fetched_references: 1,
-      captured_references: 1
+      captured_references: 0
     }));
     expect(meta.metrics.reasonCodeDistribution).toEqual(expect.objectContaining({
       auth_required: 1
@@ -2385,8 +3762,13 @@ describe("inspiredesign workflow", () => {
     expect(meta.primaryConstraintSummary).toBeUndefined();
     expect(meta.primaryConstraint).toBeUndefined();
     expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
-      readiness: "ready",
-      reasonCode: "design_ready"
+      readiness: "blocked",
+      reasonCode: "pinterest_browser_native_recovery"
+    }));
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      rankedReferenceCount: 0
     }));
   });
 
@@ -2691,6 +4073,17 @@ describe("inspiredesign workflow", () => {
     expect(meta.selection.capture_mode).toBe("deep");
   });
 
+  it("keeps deep capture mode for harvest inputs with non-Pinterest explicit urls", async () => {
+    const { resolveInspiredesignHarvestCaptureMode } = await import("../src/inspiredesign/capture-mode");
+
+    expect(resolveInspiredesignHarvestCaptureMode({
+      requested: "off",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://example.com/reference"]
+    })).toBe("deep");
+  });
+
   it("parses valid inspiredesign envelopes and forwards every optional runtime override", async () => {
     const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
       records: [
@@ -2701,13 +4094,31 @@ describe("inspiredesign workflow", () => {
         })
       ]
     }));
-    const captureReference = vi.fn(async (url: string) => makeCapture(`Premium docs workspace captured reference ${url}`));
+    const captureReference = vi.fn(async (url: string, options?: { visualEvidencePath?: string }) => {
+      if (!options?.visualEvidencePath) {
+        throw new Error("visual evidence path missing");
+      }
+      writeFileSync(options.visualEvidencePath, Buffer.from("docs workspace visual artifact"));
+      return {
+        ...makeCapture(`Premium docs workspace captured reference ${url}`),
+        visual: {
+          status: "captured",
+          kind: "viewport",
+          fullPage: false,
+          capturedAt: "2026-05-26T00:00:00.000Z",
+          tempPath: options.visualEvidencePath,
+			sourceUrl: url,
+          warnings: []
+        }
+      };
+    });
     const runtime = toRuntime({ fetch });
 
     const output = await runInspiredesignWorkflow(runtime, buildWorkflowResumeEnvelope("inspiredesign", {
       brief: "Design a docs workspace",
       urls: [" https://example.com/reference ", "https://example.com/reference"],
       captureMode: "deep",
+      visualEvidence: "required",
       includePrototypeGuidance: true,
       mode: "context",
       timeoutMs: 45000,
@@ -2768,7 +4179,7 @@ describe("inspiredesign workflow", () => {
     expect(meta.followthroughSummary).toContain("advanced-brief.md");
     expect(meta.selection.capture_mode).toBe("deep");
     expect(meta.selection.include_prototype_guidance).toBe(true);
-    expect(meta.deepCaptureRecommendation).toContain("already uses captureMode=deep");
+    expect(meta.deepCaptureRecommendation).toContain("Use captureMode=deep");
   });
 
   it("drops primitive cached brief formats while accepting valid envelope browser mode", async () => {
@@ -3119,6 +4530,35 @@ describe("inspiredesign workflow", () => {
     expect(context.advancedBriefMarkdown).not.toContain("Custom cached brief");
     expect(context.evidence.briefExpansion.templateVersion).toBe("inspiredesign-advanced-brief.v1");
     expect(context.evidence.briefExpansion.format.id).not.toBe("custom");
+  });
+
+  it("regenerates cached brief expansions whose source brief no longer matches", async () => {
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Cached expansion reference",
+          content: "Cached expansion content"
+        })
+      ]
+    }));
+    const runtime = toRuntime({ fetch });
+    const output = await runInspiredesignWorkflow(runtime, buildWorkflowResumeEnvelope("inspiredesign", {
+      brief: "Design a premium launch surface",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Design an unrelated support portal",
+        advancedBrief: "Selected prompt format: Stale source brief\n\nSource brief:\nDesign an unrelated support portal"
+      }),
+      urls: ["https://example.com/cached"],
+      mode: "context"
+    }));
+
+    const context = output.context as InspiredesignWorkflowContext;
+
+    expect(context.advancedBriefMarkdown).toContain("Selected prompt format:");
+    expect(context.advancedBriefMarkdown).toContain("Design a premium launch surface");
+    expect(context.advancedBriefMarkdown).not.toContain("Stale source brief");
+    expect(context.advancedBriefMarkdown).not.toContain("Design an unrelated support portal");
   });
 
   it("regenerates stale cached brief expansions when the template version is outdated", async () => {

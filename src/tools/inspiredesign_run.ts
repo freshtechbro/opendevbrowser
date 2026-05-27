@@ -11,8 +11,12 @@ import {
   validateProviderScopedUrlCanonicality,
   validateProviderUrlSiteRecipeCompatibility
 } from "../guidance/recipes/site-recipe-validation";
-import { captureInspiredesignReferenceFromManager } from "../inspiredesign/capture";
-import { resolveInspiredesignCaptureMode } from "../inspiredesign/capture-mode";
+import {
+  captureInspiredesignPrimaryMotionEvidenceFromManager,
+  captureInspiredesignPrimaryVisualEvidenceFromManager,
+  captureInspiredesignReferenceFromManager
+} from "../inspiredesign/capture";
+import { resolveInspiredesignHarvestCaptureMode } from "../inspiredesign/capture-mode";
 
 const z = tool.schema;
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
@@ -26,7 +30,7 @@ const MAX_HARVEST_REFERENCES = 10;
 
 export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Run the inspiredesign workflow directly, including harvest query discovery and visual evidence capture.",
+    description: "Run the inspiredesign workflow directly, including harvest query discovery and authoritative visual or motion evidence capture.",
     args: {
       brief: z.string().min(1).describe("Inspiredesign brief"),
       harvest: z.boolean().optional().describe("Enable visual harvest defaults for query-backed discovery"),
@@ -35,7 +39,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
       maxReferences: z.number().int().min(1).max(MAX_HARVEST_REFERENCES).optional().describe("Maximum references to analyze"),
       visualEvidence: visualEvidenceSchema.optional().describe("Visual evidence mode: off|auto|required"),
       urls: z.array(z.string()).optional().describe("Inspiration URLs to analyze"),
-      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep. Any URLs force deep."),
+      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep. Pinterest harvest keeps deep diagnostics opt-in."),
       includePrototypeGuidance: z.boolean().optional().describe("Include prototype guidance output"),
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
@@ -50,13 +54,18 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
       try {
         const runtime = await resolveProviderRuntime(deps);
         const { runInspiredesignWorkflow } = await import("../providers");
-        const captureMode = resolveInspiredesignCaptureMode(args.captureMode, args.urls);
         if (args.query && args.harvest !== true) {
           throw new Error("query is only supported when harvest is true.");
         }
         const isHarvest = args.harvest === true;
         const providers = args.providers ?? [];
         const urls = args.urls ?? [];
+        const captureMode = resolveInspiredesignHarvestCaptureMode({
+          requested: args.captureMode,
+          urls,
+          harvest: isHarvest,
+          providers
+        });
         const canonicality = validateProviderScopedUrlCanonicality({ providers, urls });
         if (!canonicality.ok) {
           throw new Error(canonicality.message);
@@ -106,7 +115,17 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
               ...options,
               cookieSource
             })
-            : undefined
+            : undefined,
+          captureVisualEvidence: async (url, options) =>
+            captureInspiredesignPrimaryVisualEvidenceFromManager(deps.manager, url, {
+              ...options,
+              cookieSource
+            }),
+          captureMotionEvidence: async (url, options) =>
+            captureInspiredesignPrimaryMotionEvidenceFromManager(deps.manager, url, {
+              ...options,
+              cookieSource
+            })
         });
         return ok(result);
       } catch (error) {

@@ -222,7 +222,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--region", description: "Region or country hint for provider selection. Treat it as advisory unless output metadata reports `region_authoritative=true`." },
       { flag: "--sort", description: "Sort mode for shopping results." },
       { flag: "--brief", description: "Inspiredesign brief describing the target design direction." },
-      { flag: "--capture-mode", description: "Inspiredesign capture mode: off or deep. Any --url forces deep." },
+      { flag: "--capture-mode", description: "Inspiredesign capture mode: off or deep. Run URLs force deep capture; harvest non-Pinterest URLs force deep capture; Pinterest harvest keeps deep diagnostics opt-in." },
       { flag: "--include-prototype-guidance", description: "Include inspiredesign prototype guidance in workflow output." },
       { flag: "--product-url", description: "Target product URL for product-video workflows." },
       { flag: "--product-name", description: "Product name override for product-video workflows." },
@@ -309,13 +309,13 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "inspiredesign_followthrough",
-    description: "After inspiredesign finishes, inspect nextStepGuidance.readiness, read required artifacts, and continue in Canvas only when guidance is ready.",
+    description: "After inspiredesign finishes, inspect nextStepGuidance.readiness, ranked references, and screenshot or screencast readiness evidence before Canvas.",
     details: [
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
       { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
-      { label: "gate:", value: "Require nextStepGuidance.readiness=ready and no matching doNotProceedIf blockers before Canvas continuation." },
+      { label: "gate:", value: "Require nextStepGuidance.readiness=ready, non-empty ranked references, no matching doNotProceedIf blockers, and Pinterest snapshot_ready or motion_ready evidence before Canvas continuation." },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
     ]
