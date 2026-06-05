@@ -824,17 +824,17 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
   ],
   inspiredesign: [
-    "Pinterest harvest uses screenshot evidence for proven image pins and screencast evidence for proven video pins as primary readiness signals; DOM/clone/deep capture remains diagnostic capture only and is not a product-readiness signal.",
+    "Pinterest harvest uses screenshot evidence, screencast evidence, and manifest-backed pin-media evidence as primary readiness signals; DOM/clone/deep capture remains diagnostic capture only, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
     "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery use deep capture only when explicitly requested.",
     "Repeat --url for multiple references. There is no --urls alias.",
     "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
-    "Inspect productSuccess, artifactAuthority, evidenceAuthority, harvestReadiness, and nextStepGuidance.readiness before continuing. Canvas continuation requires readiness=ready, non-empty ranked references, and Pinterest references with snapshot_ready screenshot evidence or motion_ready screencast evidence.",
-    "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshot or screencast evidence, provider unavailability, or diagnostic-only captures.",
+    "Inspect productSuccess, artifactAuthority, evidenceAuthority, harvestReadiness, and nextStepGuidance.readiness before continuing. Canvas continuation requires readiness=ready, non-empty ranked references, and Pinterest references with manifest-backed snapshot_ready screenshot evidence, motion_ready screencast evidence, or pin_media_ready first-party pin-media evidence.",
+    "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshot, screencast, or pin-media evidence, provider unavailability, or diagnostic-only captures.",
     "CLI completion text includes readiness=<value> when the workflow reports nextStepGuidance.readiness, so success output is not confused with design readiness.",
     "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted.",
-    "Harvest JSON is metadata-only: screenshots and motion evidence are artifact files referenced by relative paths, hashes, viewport metadata, frame counts, and warnings.",
+    "Harvest JSON is metadata-only: screenshots, motion evidence, and pin-media evidence are artifact files referenced by relative paths, hashes, viewport metadata, frame counts, dimensions, provenance, and warnings.",
     "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
-    "Pinterest product readiness is evidence-first: canonical pin URLs must rank only when authoritative screenshot or screencast evidence is captured, persisted, and free of login, challenge, search-shell, blank, tiny, or chrome-only blockers.",
+    "Pinterest product readiness is evidence-first: canonical pin URLs must rank only when authoritative screenshot, screencast, or first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. The exact login_or_challenge_state diagnostic is non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness.",
     "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
   ],
   "macro-resolve": [
@@ -945,7 +945,7 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceDefinition[] = [
   { name: "opendevbrowser_research_run", description: "Run the research workflow directly.", cliEquivalent: "research" },
   { name: "opendevbrowser_shopping_run", description: "Run the shopping workflow directly.", cliEquivalent: "shopping" },
   { name: "opendevbrowser_product_video_run", description: "Run the product-video asset workflow directly.", cliEquivalent: "product-video" },
-  { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, screenshot evidence for image pins, and screencast evidence for video pins.", cliEquivalent: "inspiredesign" },
+  { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, screenshot evidence, screencast evidence, and manifest-backed pin-media evidence for canonical Pinterest pins.", cliEquivalent: "inspiredesign" },
   { name: "opendevbrowser_canvas", description: "Execute a typed design-canvas command surface call.", cliEquivalent: "canvas" },
   { name: "opendevbrowser_clone_page", description: "Export the active page into React code.", cliEquivalent: "clone-page" },
   { name: "opendevbrowser_clone_component", description: "Export a component by ref into React code.", cliEquivalent: "clone-component" },

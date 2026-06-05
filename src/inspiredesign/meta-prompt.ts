@@ -102,8 +102,9 @@ export const buildInspiredesignMetaPrompt = (input: {
     "",
     "## Validation Gates",
     formatList([
-      "Read visual-evidence.json, screenshot-index.json, ranked-references.json, and evidence.json before implementation.",
-      "Confirm screenshot paths exist before making visual claims.",
+      "Read visual-evidence.json, screenshot-index.json, motion-evidence.json, pin-media-evidence.json, pin-media-index.json, ranked-references.json, and evidence.json before implementation.",
+      "Confirm screenshot, replay, or pin-media paths exist before making visual or motion claims.",
+      "Treat Pinterest pin-media as product-ready only when pin-media-index.json proves persisted first-party media bytes for a canonical pin. Remote media URLs alone are not proof.",
       "Verify desktop and mobile layouts with real browser screenshots.",
       "Run reduced-motion, keyboard, focus, and contrast checks before shipping.",
       "Keep production code generation outside the harvest output."

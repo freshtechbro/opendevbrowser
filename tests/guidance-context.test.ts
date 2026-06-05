@@ -401,4 +401,89 @@ describe("guidance context adapters", () => {
     expect(context.reasonCode).toBe("failed_capture");
     expect(context.evidence?.allAttemptMissingScreenshotCount).toBe(1);
   });
+
+  it("keeps hard failures active when no requested Pinterest URL survives as ranked evidence", () => {
+    const context = createInspiredesignGuidanceContext({
+      brief: "Design a premium studio landing page",
+      requestedProviders: ["social/pinterest"],
+      discovery: {
+        requested: true,
+        acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/"],
+        failures: 1,
+        hardFailureReasonCodes: ["auth_required"]
+      },
+      metrics: {
+        referenceCount: 1,
+        failedCaptureCount: 0,
+        visualEvidenceRequired: false
+      },
+      quality: {
+        rankedReferenceCount: 1,
+        rankedReferenceUrls: ["https://www.pinterest.com/pin/61572719900827789/"],
+        rejectedReferenceCount: 0,
+        topReferenceScore: 88,
+        topReferenceConfidence: 0.9,
+        missingScreenshotCount: 0,
+        diagnosticOnlyReasons: []
+      }
+    });
+
+    expect(context.providerUnavailable).toBe(true);
+    expect(context.reasonCode).toBe("provider_unavailable");
+  });
+
+  it("falls back to aggregate capture counts when all-attempt fields are omitted", () => {
+    const missingScreenshotContext = createInspiredesignGuidanceContext({
+      brief: "Design a premium studio landing page",
+      requestedProviders: [],
+      discovery: {
+        requested: false,
+        acceptedUrls: [],
+        failures: 0
+      },
+      metrics: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
+        failedCaptureCount: 0,
+        visualEvidenceRequired: true
+      },
+      quality: {
+        rankedReferenceCount: 0,
+        rejectedReferenceCount: 1,
+        missingScreenshotCount: 1,
+        allAttemptFailedCaptureCount: 0,
+        allAttemptVisualFailureCount: 0,
+        diagnosticOnlyReasons: []
+      }
+    });
+
+    expect(missingScreenshotContext.reasonCode).toBe("failed_capture");
+
+    const readyContext = createInspiredesignGuidanceContext({
+      brief: "Design a premium studio landing page",
+      requestedProviders: [],
+      discovery: {
+        requested: false,
+        acceptedUrls: [],
+        failures: 0
+      },
+      metrics: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
+        failedCaptureCount: 0,
+        visualEvidenceRequired: true
+      },
+      quality: {
+        rankedReferenceCount: 0,
+        rejectedReferenceCount: 0,
+        missingScreenshotCount: 0,
+        allAttemptFailedCaptureCount: 0,
+        allAttemptMissingScreenshotCount: 0,
+        allAttemptVisualFailureCount: 0,
+        diagnosticOnlyReasons: []
+      }
+    });
+
+    expect(readyContext.reasonCode).toBe("design_ready");
+  });
 });

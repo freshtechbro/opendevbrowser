@@ -188,6 +188,15 @@ describe("classifyGuidanceReadiness", () => {
       evidence: {
         referenceCount: 0,
         referenceEvidenceRequired: false,
+        failedCaptureCount: 1,
+        visualEvidenceRequired: true
+      }
+    }))).toBe("needs_recovery");
+
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
         rankedReferenceCount: 0,
         visualEvidenceRequired: true,
         allAttemptMotionFailureCount: 1
@@ -206,6 +215,20 @@ describe("classifyGuidanceReadiness", () => {
         allAttemptMissingScreenshotCount: 0,
         allAttemptVisualFailureCount: 0,
         allAttemptMotionFailureCount: 0
+      }
+    }))).toBe("ready");
+
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 0,
+        referenceEvidenceRequired: false,
+        rankedReferenceCount: 0,
+        visualEvidenceRequired: true,
+        failedCaptureCount: 0,
+        missingScreenshotCount: 0,
+        allAttemptFailedCaptureCount: 0,
+        allAttemptMissingScreenshotCount: 0,
+        allAttemptVisualFailureCount: 0
       }
     }))).toBe("ready");
   });

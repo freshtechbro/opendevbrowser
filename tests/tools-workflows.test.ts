@@ -484,14 +484,14 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
-    expect(response.suggestedNextAction).toBe("Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.");
+    expect(response.suggestedNextAction).toBe("Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.");
     expect(response.nextStepGuidance).toEqual(expect.objectContaining({
       readiness: "ready",
       reasonCode: "design_ready"
     }));
-    expect(response.followthroughSummary).toBe("Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.");
+    expect(response.followthroughSummary).toBe("Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.");
     expect(response.meta).toEqual(expect.objectContaining({
-      followthroughSummary: "Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.",
+      followthroughSummary: "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.",
       nextStepGuidance: expect.objectContaining({ readiness: "ready" })
     }));
     expect(deps.manager.launch).not.toHaveBeenCalled();
@@ -768,7 +768,7 @@ describe("workflow tools", () => {
       implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
       nextStepGuidance: { readiness: string; commands: Array<{ command: string }> };
     };
-    expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until harvest readiness is ready with authoritative visual or motion evidence.");
+    expect(handoff.commandExamples.continueInCanvas).toBe("Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence.");
     expect(handoff.artifactGuide).not.toHaveProperty("canvas-plan.request.json");
     expect(handoff.artifactGuide).not.toHaveProperty("prototype-guidance.md");
     expect(handoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain("canvas-plan.request.json");

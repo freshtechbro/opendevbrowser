@@ -85,14 +85,16 @@ describe("public surface manifest", () => {
     const helpText = getHelpText();
 
     expect(notes).toContain("Canvas continuation requires readiness=ready, non-empty ranked references");
-    expect(notes).toContain("snapshot_ready screenshot evidence or motion_ready screencast evidence");
+    expect(notes).toContain("snapshot_ready screenshot evidence, motion_ready screencast evidence, or pin_media_ready first-party pin-media evidence");
+    expect(notes).toContain("remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json");
     expect(notes).toContain("zero references");
     expect(notes).toContain("empty ranked references");
-    expect(notes).toContain("missing required screenshot or screencast evidence");
+    expect(notes).toContain("missing required screenshot, screencast, or pin-media evidence");
     expect(notes).toContain("diagnostic-only captures");
-    expect(inspiredesignTool?.description).toContain("screenshot evidence for image pins");
-    expect(inspiredesignTool?.description).toContain("screencast evidence for video pins");
+    expect(inspiredesignTool?.description).toContain("screenshot evidence");
+    expect(inspiredesignTool?.description).toContain("screencast evidence");
+    expect(inspiredesignTool?.description).toContain("manifest-backed pin-media evidence for canonical Pinterest pins");
     expect(helpText).toContain("Require nextStepGuidance.readiness=ready, non-empty ranked references");
-    expect(helpText).toContain("Pinterest snapshot_ready or motion_ready evidence before Canvas continuation");
+    expect(helpText).toContain("Pinterest snapshot_ready, motion_ready, or pin_media_ready manifest-backed evidence before Canvas continuation");
   });
 });

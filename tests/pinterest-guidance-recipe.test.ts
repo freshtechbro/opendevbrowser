@@ -46,6 +46,19 @@ describe("Pinterest guidance recipe", () => {
     expect(normalizePinterestReferenceUrl("https://www.pinterest.com/pin/create/")).toBeNull();
     expect(normalizePinterestReferenceUrl("https://www.pinterest.com/pin/edit/")).toBeNull();
     expect(normalizePinterestReferenceUrl("https://www.pinterest.com/ideas/create/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/ideas/studio-lighting/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("/ideas/studio-lighting/editorial/61572719900827789/")).toBe(
+      "https://www.pinterest.com/ideas/studio-lighting/editorial/61572719900827789/"
+    );
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/ideas/create/editorial/61572719900827789/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/ideas/studio-lighting/editorial/not-a-pin/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/pin/not-a-pin/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://uk.pinterest.com/studio/portrait-lighting/?tracking=1#section")).toBe(
+      "https://uk.pinterest.com/studio/portrait-lighting/"
+    );
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/settings/privacy/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/studio/created/")).toBeNull();
+    expect(normalizePinterestReferenceUrl("https://www.pinterest.com/studio/_hidden/")).toBeNull();
     expect(normalizePinterestReferenceUrl("http://evil-pinterest.com/pin/61572719900827789/")).toBeNull();
   });
 
@@ -164,6 +177,47 @@ describe("Pinterest guidance recipe", () => {
     expect(listSiteRecipes()[0]?.id).toBe("social/pinterest");
     expect(Object.isFrozen(resolveSiteRecipeForProvider("social/pinterest"))).toBe(true);
     expect(Object.isFrozen(resolveSiteRecipeForProvider("social/pinterest")?.navigationSteps)).toBe(true);
+  });
+
+  it("documents authenticated canonical pin-media recovery without widening provider scope", () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const guidance = recipe.guidance;
+    expect(guidance.primaryAction.summary).toContain("authenticated canonical pin media evidence");
+    expect(guidance.fallbackPolicy.allowed).toBe(false);
+    expect(guidance.fallbackPolicy.reason).toContain("unrelated web providers");
+    expect(guidance.artifactInputs.map((input) => input.path)).toEqual(expect.arrayContaining([
+      "ranked-references.json",
+      "visual-evidence.json",
+      "screenshot-index.json",
+      "motion-evidence.json",
+      "pin-media-evidence.json",
+      "pin-media-index.json"
+    ]));
+    expect(guidance.artifactInputs.find((input) => input.path === "pin-media-evidence.json")?.purpose)
+      .toContain("remote media URLs alone are not proof");
+    expect(guidance.artifactInputs.find((input) => input.path === "pin-media-index.json")?.purpose)
+      .toContain("manifest-backed");
+    expect(guidance.validationChecks.map((check) => check.id)).toContain("pinterest-canonical-pin-media");
+    expect(guidance.doNotProceedIf.join(" ")).toContain("search shell");
+    expect(guidance.doNotProceedIf.join(" ")).toContain("login wall");
+    expect(guidance.doNotProceedIf.join(" ")).toContain("board");
+    expect(guidance.doNotProceedIf.join(" ")).toContain("source page");
+    expect(guidance.doNotProceedIf.join(" ")).toContain("unrelated provider");
+    expect(guidance.doNotProceedIf.join(" ")).toContain("pin-media-index.json");
+    expect(recipe.recoverySteps.map((step) => step.id)).toEqual(expect.arrayContaining([
+      "authenticate",
+      "explicit-url",
+      "pin-media-proof"
+    ]));
+    expect(recipe.recoverySteps.find((step) => step.id === "explicit-url")?.instruction)
+      .toContain("canonical Pinterest pin URLs");
+    expect(recipe.recoverySteps.find((step) => step.id === "explicit-url")?.instruction)
+      .toContain("rather than boards");
+    expect(recipe.badStates.find((state) => state.id === "search-shell")?.recoveryAction)
+      .toBe("Open a concrete canonical pin before capture.");
   });
 
   it("returns typed recovery diagnostics instead of widening to unrelated web providers", async () => {

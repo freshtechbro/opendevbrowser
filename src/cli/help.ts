@@ -309,13 +309,13 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "inspiredesign_followthrough",
-    description: "After inspiredesign finishes, inspect nextStepGuidance.readiness, ranked references, and screenshot or screencast readiness evidence before Canvas.",
+    description: "After inspiredesign finishes, inspect nextStepGuidance.readiness, ranked references, and screenshot, screencast, or pin-media readiness evidence before Canvas.",
     details: [
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
       { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
-      { label: "gate:", value: "Require nextStepGuidance.readiness=ready, non-empty ranked references, no matching doNotProceedIf blockers, and Pinterest snapshot_ready or motion_ready evidence before Canvas continuation." },
+      { label: "gate:", value: "Require nextStepGuidance.readiness=ready, non-empty ranked references, no matching doNotProceedIf blockers, and Pinterest snapshot_ready, motion_ready, or pin_media_ready manifest-backed evidence before Canvas continuation." },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
     ]

@@ -87,7 +87,7 @@ EOF
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 # Inspect nextStepGuidance.readiness and doNotProceedIf before Canvas continuation. For non-ready evidence, follow recovery-first guidance.
-# Review visual-evidence.json, screenshot-index.json, ranked-references.json, and meta-prompt.md before design or Canvas work.
+# Review visual-evidence.json, screenshot-index.json, motion-evidence.json, pin-media-evidence.json, pin-media-index.json, ranked-references.json, and meta-prompt.md before design or Canvas work.
 EOF
     ;;
   parallel-multipage-safe)
