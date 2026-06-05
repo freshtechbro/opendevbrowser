@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
-import { access, mkdir, rm, writeFile } from "fs/promises";
-import { join } from "path";
+import { constants as fsConstants } from "fs";
+import { access, mkdir, open, rm, unlink, writeFile } from "fs/promises";
+import { dirname, join } from "path";
 import { freemem, totalmem } from "os";
 import type { Browser, BrowserContext, CDPSession, Dialog, Page } from "playwright-core";
 import { Mutex } from "async-mutex";
@@ -43,6 +44,11 @@ import type {
   BrowserDialogInput,
   BrowserDialogResult,
   BrowserDialogState,
+  BrowserPinterestPinMediaKind,
+  BrowserPinterestPinMediaOptions,
+  BrowserPinterestPinMediaRect,
+  BrowserPinterestPinMediaRejectedCandidate,
+  BrowserPinterestPinMediaResult,
   BrowserResponseMeta,
   BrowserScreencastResult,
   BrowserScreencastSession,
@@ -195,6 +201,358 @@ type CookieListRecord = {
 };
 
 const LEGACY_EXTENSION_OPERATION_TIMEOUT_MS = 5000;
+const PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS = 5000;
+const PINTEREST_PIN_MEDIA_MAX_BYTES = 20_000_000;
+const PINTEREST_PIN_MEDIA_MAX_REDIRECTS = 3;
+const PINTEREST_PIN_MEDIA_MIN_EDGE_PX = 160;
+const PINTEREST_PIN_MEDIA_REJECTION_LIMIT = 12;
+const HTTP_REDIRECT_STATUS_MIN = 300;
+const HTTP_REDIRECT_STATUS_MAX_EXCLUSIVE = 400;
+const PINTEREST_PIN_MEDIA_NOFOLLOW_FLAG = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
+const PINTEREST_PIN_MEDIA_OUTPUT_OPEN_FLAGS = fsConstants.O_WRONLY
+  | fsConstants.O_CREAT
+  | fsConstants.O_EXCL
+  | PINTEREST_PIN_MEDIA_NOFOLLOW_FLAG;
+
+type PinterestPinMediaDomCandidate = {
+  kind: BrowserPinterestPinMediaKind;
+  mediaUrl?: string;
+  poster?: string;
+  srcset?: string;
+  candidateSelector?: string;
+  candidateRole?: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  rect?: BrowserPinterestPinMediaRect;
+  visible: boolean;
+  ancestry: string[];
+  linkedPinId?: string;
+  positiveSignals: string[];
+  noiseSignals: string[];
+  insideCanonicalMainPinMediaContainer: boolean;
+  score: number;
+};
+
+type PinterestPinMediaDomExtraction = {
+  sourceUrl: string;
+  candidates: PinterestPinMediaDomCandidate[];
+};
+
+type PinterestPinMediaSelection = {
+  selected?: PinterestPinMediaDomCandidate;
+  rejectedCandidates: BrowserPinterestPinMediaRejectedCandidate[];
+};
+
+function pinterestPinSourceChanged(
+  pageUrl: string,
+  extractedSourceUrl: string
+): boolean {
+  const pagePinId = extractPinterestPinId(pageUrl);
+  const extractedPinId = extractPinterestPinId(extractedSourceUrl);
+  return Boolean(pagePinId && extractedPinId && pagePinId !== extractedPinId);
+}
+
+function readAuthoritativePinterestSourceUrl(
+  pageUrl: string,
+  extractedSourceUrl: string
+): string {
+  return extractPinterestPinId(extractedSourceUrl) ? extractedSourceUrl : pageUrl;
+}
+
+function extractPinterestPinId(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const match = value.match(/\/pin\/(\d+)/i);
+  return match?.[1];
+}
+
+function isFirstPartyPinterestMediaUrl(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && parsed.hostname === "i.pinimg.com";
+  } catch {
+    return false;
+  }
+}
+
+function pinterestCandidateArea(candidate: PinterestPinMediaDomCandidate): number {
+  const width = candidate.width ?? candidate.naturalWidth ?? candidate.rect?.width ?? 0;
+  const height = candidate.height ?? candidate.naturalHeight ?? candidate.rect?.height ?? 0;
+  return width * height;
+}
+
+function summarizeRejectedPinterestCandidate(
+  candidate: PinterestPinMediaDomCandidate,
+  reasons: string[]
+): BrowserPinterestPinMediaRejectedCandidate {
+  return {
+    kind: candidate.kind,
+    ...(candidate.mediaUrl ? { mediaUrl: candidate.mediaUrl } : {}),
+    ...(candidate.candidateSelector ? { candidateSelector: candidate.candidateSelector } : {}),
+    ...(candidate.candidateRole ? { candidateRole: candidate.candidateRole } : {}),
+    ...(candidate.alt ? { alt: candidate.alt } : {}),
+    ...(candidate.width ? { width: candidate.width } : {}),
+    ...(candidate.height ? { height: candidate.height } : {}),
+    ...(candidate.rect ? { rect: candidate.rect } : {}),
+    ancestry: candidate.ancestry.slice(0, 6),
+    reasons
+  };
+}
+
+function rejectionReasonsForPinterestCandidate(
+  candidate: PinterestPinMediaDomCandidate,
+  sourcePinId: string | undefined
+): string[] {
+  const reasons: string[] = [];
+  if (!isFirstPartyPinterestMediaUrl(candidate.mediaUrl)) {
+    reasons.push("non_first_party_media_url");
+  }
+  if (!candidate.visible) {
+    reasons.push("not_visible");
+  }
+  const width = candidate.width ?? candidate.naturalWidth ?? candidate.rect?.width ?? 0;
+  const height = candidate.height ?? candidate.naturalHeight ?? candidate.rect?.height ?? 0;
+  if (width < PINTEREST_PIN_MEDIA_MIN_EDGE_PX || height < PINTEREST_PIN_MEDIA_MIN_EDGE_PX) {
+    reasons.push("media_too_small");
+  }
+  if (!sourcePinId) {
+    reasons.push("missing_source_pin_id");
+  }
+  if (sourcePinId && candidate.linkedPinId && candidate.linkedPinId !== sourcePinId) {
+    reasons.push("linked_to_different_pin");
+  }
+  if (sourcePinId && !candidate.linkedPinId && !candidate.insideCanonicalMainPinMediaContainer) {
+    reasons.push("missing_pin_source_proof");
+  }
+  const noiseHasCanonicalSourceProof = Boolean(
+    candidate.insideCanonicalMainPinMediaContainer
+    && sourcePinId
+    && (!candidate.linkedPinId || candidate.linkedPinId === sourcePinId)
+  );
+  if (candidate.noiseSignals.length > 0 && !noiseHasCanonicalSourceProof) {
+    reasons.push(`noise_ancestry:${candidate.noiseSignals[0]}`);
+  }
+  return reasons;
+}
+
+function selectPinterestPinMediaCandidate(
+  extraction: PinterestPinMediaDomExtraction,
+  pageUrl: string
+): PinterestPinMediaSelection {
+  const sourcePinId = extractPinterestPinId(pageUrl);
+  const accepted: PinterestPinMediaDomCandidate[] = [];
+  const rejected: BrowserPinterestPinMediaRejectedCandidate[] = [];
+  for (const candidate of extraction.candidates) {
+    const reasons = rejectionReasonsForPinterestCandidate(candidate, sourcePinId);
+    if (reasons.length === 0) {
+      accepted.push(candidate);
+    } else if (rejected.length < PINTEREST_PIN_MEDIA_REJECTION_LIMIT) {
+      rejected.push(summarizeRejectedPinterestCandidate(candidate, reasons));
+    }
+  }
+  accepted.sort((left, right) => {
+    const scoreDelta = right.score - left.score;
+    return scoreDelta !== 0 ? scoreDelta : pinterestCandidateArea(right) - pinterestCandidateArea(left);
+  });
+  return { selected: accepted[0], rejectedCandidates: rejected };
+}
+
+function warningsForSelectedPinterestCandidate(candidate: PinterestPinMediaDomCandidate): string[] {
+  const warnings = new Set<string>();
+  for (const signal of candidate.noiseSignals) {
+    warnings.add(signal === "shopping" ? "pin_media_noise:ad_shopping" : `pin_media_noise:${signal}`);
+  }
+  return Array.from(warnings);
+}
+
+function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction {
+  const maxCandidates = 30;
+  const ancestryLimit = 6;
+  const selectors = [
+    "img.closeup-image-main-MainPinImage",
+    "img[class*='closeup-image-main-MainPinImage']",
+    "img[elementtiming='closeup-image-main-MainPinImage']",
+    "img.StoryPinImageBlock-MainPinImage",
+    "img[class*='StoryPinImageBlock-MainPinImage']",
+    "[data-test-id='closeup-image-main'] img",
+    "[data-test-id='closeup-image'] img",
+    "[id^='closeup-image-container-'] img",
+    "[class*='closeup-image-main-MainPinImage'] img",
+    "[class*='StoryPinImageBlock-MainPinImage'] img",
+    "video[poster]",
+    "[data-test-id*='pin'] video[poster]",
+    "[data-test-id*='closeup'] video[poster]"
+  ];
+  const elements: Element[] = [];
+  const seen = new Set<Element>();
+  for (const selector of selectors) {
+    for (const element of Array.from(document.querySelectorAll(selector))) {
+      if (!seen.has(element) && elements.length < maxCandidates) {
+        seen.add(element);
+        elements.push(element);
+      }
+    }
+  }
+  const describeElement = (element: Element): string => {
+    const tag = element.tagName.toLowerCase();
+    const id = element.id ? `#${element.id.slice(0, 48)}` : "";
+    const classes = Array.from(element.classList).slice(0, 4).map((value) => `.${value.slice(0, 48)}`).join("");
+    const testId = element.getAttribute("data-test-id");
+    const role = element.getAttribute("role");
+    return [tag + id + classes, testId ? `data-test-id=${testId.slice(0, 80)}` : "", role ? `role=${role}` : ""]
+      .filter(Boolean)
+      .join(" ");
+  };
+  const ancestryFor = (element: Element): { ancestry: string[]; combined: string } => {
+    const ancestry: string[] = [];
+    let current: Element | null = element;
+    while (current && ancestry.length < ancestryLimit) {
+      ancestry.push(describeElement(current));
+      current = current.parentElement;
+    }
+    return { ancestry, combined: ancestry.join(" ").toLowerCase() };
+  };
+  const readPinId = (element: Element): string | undefined => {
+    const link = element.closest("a[href*='/pin/']");
+    const href = link?.getAttribute("href") ?? "";
+    const match = href.match(/\/pin\/(\d+)/i);
+    return match?.[1];
+  };
+  const isInsideCanonicalMainPinMediaContainer = (element: Element): boolean => {
+    const container = element.closest([
+      "[data-test-id='pin-closeup']",
+      "[data-test-id='story-pin']",
+      "[data-test-id='closeup-layout']",
+      "[data-test-id='closeup-image']",
+      "[data-test-id='closeup-image-main']",
+      "[data-test-id='pdp-container']",
+      "[data-test-id='pin-closeup-image']",
+      "[data-test-id='pin-closeup-image-container']",
+      "[data-test-id='visual-content-container']"
+    ].join(","));
+    if (!container) {
+      return false;
+    }
+    let current: Element | null = element;
+    while (current && current !== container) {
+      if (readNoiseSignals(describeElement(current).toLowerCase()).length > 0) {
+        return false;
+      }
+      current = current.parentElement;
+    }
+    return true;
+  };
+  const hasDelimitedNoiseToken = (combined: string, token: string): boolean => (
+    new RegExp(`(^|[^a-z0-9])${token}($|[^a-z0-9])`).test(combined)
+  );
+  const readNoiseSignals = (combined: string): string[] => {
+    const signals: string[] = [];
+    const checks = [
+      [(value: string) => value.includes("related"), "related"],
+      [(value: string) => value.includes("recommend"), "recommendation"],
+      [(value: string) => value.includes("rail"), "rail"],
+      [(value: string) => value.includes("carousel"), "carousel"],
+      [(value: string) => value.includes("grid"), "grid"],
+      [(value: string) => value.includes("search"), "search"],
+      [(value: string) => value.includes("avatar"), "avatar"],
+      [(value: string) => value.includes("profile"), "profile"],
+      [(value: string) => value.includes("comment"), "comment"],
+      [(value: string) => hasDelimitedNoiseToken(value, "ad") || hasDelimitedNoiseToken(value, "ads"), "ad"],
+      [(value: string) => value.includes("promoted"), "ad"],
+      [(value: string) => value.includes("sponsor"), "ad"],
+      [(value: string) => value.includes("shopping"), "shopping"],
+      [(value: string) => value.includes("shop"), "shopping"],
+      [(value: string) => value.includes("thumbnail"), "thumbnail"],
+      [(value: string) => value.includes("thumb"), "thumbnail"]
+    ] as const;
+    for (const [matches, signal] of checks) {
+      if (matches(combined) && !signals.includes(signal)) {
+        signals.push(signal);
+      }
+    }
+    return signals;
+  };
+  const readRect = (element: Element): BrowserPinterestPinMediaRect => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  };
+  const isVisible = (element: Element, rect: BrowserPinterestPinMediaRect): boolean => {
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0;
+  };
+  const pickSrcsetUrl = (srcset: string): string | undefined => {
+    const entries = srcset.split(",").map((entry) => entry.trim()).filter(Boolean);
+    const last = entries.at(-1);
+    return last?.split(/\s+/)[0];
+  };
+  const candidates = elements.flatMap((element): PinterestPinMediaDomCandidate[] => {
+    const tag = element.tagName.toLowerCase();
+    const rect = readRect(element);
+    const { ancestry, combined } = ancestryFor(element);
+    const classText = (element.getAttribute("class") ?? "").toLowerCase();
+    const positiveSignals = [
+      classText.includes("closeup-image-main-mainpinimage") ? "closeup-image-main-MainPinImage" : "",
+      element.getAttribute("elementtiming") === "closeup-image-main-MainPinImage" ? "closeup-image-main-MainPinImage" : "",
+      classText.includes("storypinimageblock-mainpinimage") ? "StoryPinImageBlock-MainPinImage" : "",
+      tag === "video" && element.hasAttribute("poster") ? "video[poster]" : ""
+    ].filter(Boolean);
+    if (tag === "video") {
+      const video = element as HTMLVideoElement;
+      return [{
+        kind: "video_poster",
+        mediaUrl: video.poster,
+        poster: video.poster,
+        candidateSelector: "video[poster]",
+        candidateRole: element.getAttribute("role") ?? element.closest("[role]")?.getAttribute("role") ?? undefined,
+        width: video.videoWidth || rect.width,
+        height: video.videoHeight || rect.height,
+        rect,
+        visible: isVisible(element, rect),
+        ancestry,
+        linkedPinId: readPinId(element),
+        positiveSignals,
+        noiseSignals: readNoiseSignals(combined),
+        insideCanonicalMainPinMediaContainer: isInsideCanonicalMainPinMediaContainer(element),
+        score: positiveSignals.length * 100 + rect.width * rect.height / 10000
+      }];
+    }
+    const image = tag === "img" ? element as HTMLImageElement : element.querySelector("img");
+    if (!image) {
+      return [];
+    }
+    const imageRect = tag === "img" ? rect : readRect(image);
+    const srcset = image.getAttribute("srcset") ?? undefined;
+    const mediaUrl = image.currentSrc || image.src || pickSrcsetUrl(srcset ?? "");
+    return [{
+      kind: "image",
+      mediaUrl,
+      srcset,
+      candidateSelector: positiveSignals[0] ?? describeElement(image),
+      candidateRole: image.getAttribute("role") ?? image.closest("[role]")?.getAttribute("role") ?? undefined,
+      alt: image.getAttribute("alt") ?? undefined,
+      width: image.naturalWidth || imageRect.width,
+      height: image.naturalHeight || imageRect.height,
+      naturalWidth: image.naturalWidth || undefined,
+      naturalHeight: image.naturalHeight || undefined,
+      rect: imageRect,
+      visible: isVisible(image, imageRect),
+      ancestry,
+      linkedPinId: readPinId(image),
+      positiveSignals,
+      noiseSignals: readNoiseSignals(combined),
+      insideCanonicalMainPinMediaContainer: isInsideCanonicalMainPinMediaContainer(image),
+      score: positiveSignals.length * 100 + imageRect.width * imageRect.height / 10000
+    }];
+  });
+  return { sourceUrl: document.URL, candidates };
+}
 
 const DOM_GET_ATTR_DECLARATION = `
   function(name) {
@@ -437,6 +795,117 @@ type PendingManagedClick = {
   resolveDialogHandled: () => void;
   completed: Promise<void>;
   resolveCompleted: () => void;
+};
+
+const assertPinterestPinMediaByteLimit = (byteLength: number): void => {
+  if (byteLength > PINTEREST_PIN_MEDIA_MAX_BYTES) {
+    throw new Error(`Pinterest pin media fetch exceeded ${PINTEREST_PIN_MEDIA_MAX_BYTES} bytes.`);
+  }
+};
+
+const readPinterestPinMediaContentLength = (headers: Headers): number | undefined => {
+  const value = headers.get("content-length");
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+};
+
+const isPinterestPinMediaRedirectStatus = (status: number): boolean => (
+  status >= HTTP_REDIRECT_STATUS_MIN && status < HTTP_REDIRECT_STATUS_MAX_EXCLUSIVE
+);
+
+const readFirstPartyPinterestPinMediaRedirect = (baseUrl: string, location: string | null): string => {
+  if (!location) {
+    throw new Error("Pinterest pin media fetch redirected without a location header.");
+  }
+  let redirectedUrl: string;
+  try {
+    redirectedUrl = new URL(location, baseUrl).href;
+  } catch {
+    throw new Error("Pinterest pin media fetch redirected to an invalid media URL.");
+  }
+  if (!isFirstPartyPinterestMediaUrl(redirectedUrl)) {
+    throw new Error("Pinterest pin media fetch redirected outside first-party media.");
+  }
+  return redirectedUrl;
+};
+
+const discardPinterestPinMediaResponseBody = async (response: Response): Promise<void> => {
+  await response.body?.cancel().catch(() => undefined);
+};
+
+const fetchPinterestPinMediaResponse = async (
+  mediaUrl: string,
+  signal: AbortSignal
+): Promise<{ response: Response; finalUrl: string }> => {
+  let nextUrl = mediaUrl;
+  for (let redirectCount = 0; redirectCount <= PINTEREST_PIN_MEDIA_MAX_REDIRECTS; redirectCount += 1) {
+    const response = await fetch(nextUrl, { signal, redirect: "manual" });
+    if (!isPinterestPinMediaRedirectStatus(response.status)) {
+      const finalUrl = response.url || nextUrl;
+      if (!isFirstPartyPinterestMediaUrl(finalUrl)) {
+        await discardPinterestPinMediaResponseBody(response);
+        throw new Error("Pinterest pin media fetch redirected outside first-party media.");
+      }
+      return { response, finalUrl };
+    }
+    let redirectedUrl: string;
+    try {
+      redirectedUrl = readFirstPartyPinterestPinMediaRedirect(nextUrl, response.headers.get("location"));
+    } catch (error) {
+      await discardPinterestPinMediaResponseBody(response);
+      throw error;
+    }
+    nextUrl = redirectedUrl;
+    await discardPinterestPinMediaResponseBody(response);
+  }
+  throw new Error("Pinterest pin media fetch exceeded the first-party redirect limit.");
+};
+
+const readBoundedPinterestPinMediaBytes = async (response: Response): Promise<Buffer> => {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("Pinterest pin media fetch returned an empty media body.");
+  }
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      totalBytes += value.byteLength;
+      assertPinterestPinMediaByteLimit(totalBytes);
+      chunks.push(Buffer.from(value));
+    }
+    if (totalBytes === 0) {
+      throw new Error("Pinterest pin media fetch returned an empty media body.");
+    }
+    return Buffer.concat(chunks, totalBytes);
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+};
+
+const writePinterestPinMediaOutput = async (path: string, bytes: Buffer): Promise<void> => {
+  await mkdir(dirname(path), { recursive: true });
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  let createdOutput = false;
+  let writeFailed = false;
+  try {
+    handle = await open(path, PINTEREST_PIN_MEDIA_OUTPUT_OPEN_FLAGS, 0o600);
+    createdOutput = true;
+    await handle.writeFile(bytes);
+  } catch {
+    writeFailed = createdOutput;
+    throw new Error("Pinterest pin media output path could not be opened as a new non-symlink file.");
+  } finally {
+    await handle?.close().catch(() => undefined);
+    if (writeFailed) {
+      await unlink(path).catch(() => undefined);
+    }
+  }
 };
 
 export class BrowserManager {
@@ -2068,6 +2537,143 @@ export class BrowserManager {
         };
       }
     });
+  }
+
+  async capturePinterestPinMedia(
+    sessionId: string,
+    options: BrowserPinterestPinMediaOptions
+  ): Promise<BrowserPinterestPinMediaResult> {
+    if (!options.path) {
+      throw new Error("Pinterest pin media capture requires an output path.");
+    }
+    return this.runTargetScoped(sessionId, options.targetId, async ({ page, targetId }) => {
+      const pageSourceUrl = this.safePageUrl(page, "BrowserManager.capturePinterestPinMedia") ?? "";
+      const extraction = await this.evaluatePinterestPinMediaCandidates(page, options.timeoutMs);
+      const sourceUrl = readAuthoritativePinterestSourceUrl(pageSourceUrl, extraction.sourceUrl);
+      if (pinterestPinSourceChanged(pageSourceUrl, extraction.sourceUrl)) {
+        return {
+          status: "not_found",
+          sourceUrl,
+          targetId,
+          rejectedCandidates: extraction.candidates
+            .slice(0, PINTEREST_PIN_MEDIA_REJECTION_LIMIT)
+            .map((candidate) => summarizeRejectedPinterestCandidate(candidate, ["source_url_changed"]))
+        };
+      }
+      const selection = selectPinterestPinMediaCandidate(extraction, sourceUrl);
+      if (!selection.selected) {
+        return {
+          status: "not_found",
+          sourceUrl,
+          targetId,
+          rejectedCandidates: selection.rejectedCandidates
+        };
+      }
+      const fetched = await this.fetchPinterestPinMediaBytes(selection.selected.mediaUrl ?? "", options.timeoutMs);
+      await writePinterestPinMediaOutput(options.path, fetched.bytes);
+      return this.buildPinterestPinMediaResult(
+        selection.selected,
+        selection.rejectedCandidates,
+        {
+          contentType: fetched.contentType,
+          byteLength: fetched.bytes.byteLength,
+          path: options.path,
+          sourceUrl,
+          targetId,
+          mediaUrl: fetched.finalUrl
+        }
+      );
+    });
+  }
+
+  private async evaluatePinterestPinMediaCandidates(
+    page: Page,
+    timeoutMs = PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS
+  ): Promise<PinterestPinMediaDomExtraction> {
+    let timer: NodeJS.Timeout | null = null;
+    try {
+      return await Promise.race([
+        page.evaluate(readPinterestPinMediaCandidatesInPage),
+        new Promise<PinterestPinMediaDomExtraction>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`Pinterest pin media DOM inspection timed out after ${timeoutMs}ms.`)), timeoutMs);
+        })
+      ]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  private async fetchPinterestPinMediaBytes(
+    mediaUrl: string,
+    timeoutMs = PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS
+  ): Promise<{ bytes: Buffer; finalUrl: string; contentType?: string }> {
+    if (!isFirstPartyPinterestMediaUrl(mediaUrl)) {
+      throw new Error("Pinterest pin media fetch rejected a non-first-party media URL.");
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const { response, finalUrl } = await fetchPinterestPinMediaResponse(mediaUrl, controller.signal);
+      if (!response.ok) {
+        await discardPinterestPinMediaResponseBody(response);
+        throw new Error(`Pinterest pin media fetch failed with status ${response.status}.`);
+      }
+      const contentLength = readPinterestPinMediaContentLength(response.headers);
+      if (contentLength !== undefined) {
+        try {
+          assertPinterestPinMediaByteLimit(contentLength);
+        } catch (error) {
+          await discardPinterestPinMediaResponseBody(response);
+          throw error;
+        }
+      }
+      const bytes = await readBoundedPinterestPinMediaBytes(response);
+      const contentType = response.headers.get("content-type") ?? undefined;
+      return { bytes, finalUrl, ...(contentType ? { contentType } : {}) };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private buildPinterestPinMediaResult(
+    candidate: PinterestPinMediaDomCandidate,
+    rejectedCandidates: BrowserPinterestPinMediaRejectedCandidate[],
+    metadata: {
+      contentType?: string;
+      byteLength: number;
+      path: string;
+      sourceUrl: string;
+      targetId: string;
+      mediaUrl: string;
+    }
+  ): BrowserPinterestPinMediaResult {
+    return {
+      status: "captured",
+      sourceUrl: metadata.sourceUrl,
+      targetId: metadata.targetId,
+      kind: candidate.kind,
+      path: metadata.path,
+      mediaUrl: metadata.mediaUrl,
+      bytes: metadata.byteLength,
+      ...(metadata.contentType ? { contentType: metadata.contentType } : {}),
+      ...(candidate.candidateSelector ? { candidateSelector: candidate.candidateSelector } : {}),
+      ...(candidate.candidateRole ? { candidateRole: candidate.candidateRole } : {}),
+      ...(candidate.alt ? { alt: candidate.alt } : {}),
+      ...(candidate.srcset ? { srcset: candidate.srcset } : {}),
+      ...(candidate.width ? { width: candidate.width } : {}),
+      ...(candidate.height ? { height: candidate.height } : {}),
+      ...(candidate.naturalWidth ? { naturalWidth: candidate.naturalWidth } : {}),
+      ...(candidate.naturalHeight ? { naturalHeight: candidate.naturalHeight } : {}),
+      ...(candidate.poster ? { poster: candidate.poster } : {}),
+      ...(candidate.rect ? { rect: candidate.rect } : {}),
+      ancestry: candidate.ancestry.slice(0, 6),
+      rejectedCandidates,
+      ...(warningsForSelectedPinterestCandidate(candidate).length > 0
+        ? { warnings: warningsForSelectedPinterestCandidate(candidate) }
+        : {})
+    };
   }
 
   async startScreencast(

@@ -5,9 +5,20 @@ import {
   MIN_MOTION_REPLAY_BYTES,
   MOTION_EVIDENCE_SHA256_HEX_PATTERN
 } from "./motion-evidence";
+import {
+  INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES,
+  INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS,
+  MIN_PIN_MEDIA_EVIDENCE_BYTES,
+  MIN_PIN_MEDIA_EVIDENCE_HEIGHT,
+  MIN_PIN_MEDIA_EVIDENCE_WIDTH,
+  PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN,
+  hasPinterestPinMediaBlockingWarning,
+  isFirstPartyPinterestPinMediaUrl,
+  sanitizeInspiredesignPinterestPinMediaReferenceId
+} from "./pinterest-pin-media-evidence";
 
 export type InspiredesignArtifactAuthority = "product_ready" | "diagnostic_only";
-export type InspiredesignEvidenceAuthority = "snapshot_ready" | "motion_ready" | "ranked_reference" | "diagnostic_only";
+export type InspiredesignEvidenceAuthority = "snapshot_ready" | "motion_ready" | "pin_media_ready" | "ranked_reference" | "diagnostic_only";
 
 const PINTEREST_AUTHORITY_HOST = "www.pinterest.com";
 
@@ -22,6 +33,7 @@ export type InspiredesignProductReadinessFields = {
   authoritativeReferenceCount: number;
   snapshotReadyReferenceCount: number;
   motionReadyReferenceCount: number;
+  pinMediaReadyReferenceCount: number;
 };
 
 export type InspiredesignRankedReferenceAuthorityInput = {
@@ -49,11 +61,48 @@ export type InspiredesignMotionAuthorityInput = {
   motion?: unknown;
 };
 
+export type InspiredesignPinMediaAuthorityInput = {
+  referenceId?: unknown;
+  url?: unknown;
+  sourceUrl?: unknown;
+  mediaUrl?: unknown;
+  pinterestPageQuality?: unknown;
+  path?: unknown;
+  sha256?: unknown;
+  bytes?: unknown;
+  width?: unknown;
+  height?: unknown;
+  contentType?: unknown;
+  kind?: unknown;
+  authority?: unknown;
+  capturedAt?: unknown;
+  warnings?: unknown;
+  failure?: unknown;
+  rejectionReasons?: unknown;
+  firstPartyProvenance?: unknown;
+};
+
 export type InspiredesignReferenceEvidenceArtifacts = {
   screenshots?: readonly InspiredesignScreenshotAuthorityInput[];
   motions?: readonly InspiredesignMotionAuthorityInput[];
-  requireArtifactEvidence?: boolean;
+  pinMedia?: readonly InspiredesignPinMediaAuthorityInput[];
 };
+
+export type InspiredesignArtifactBackedEvidenceAuthority = Exclude<
+  InspiredesignEvidenceAuthority,
+  "ranked_reference" | "diagnostic_only"
+>;
+
+export type InspiredesignArtifactBackedEvidenceAuthorityCounts = Pick<
+  InspiredesignProductReadinessFields,
+  "snapshotReadyReferenceCount" | "motionReadyReferenceCount" | "pinMediaReadyReferenceCount"
+>;
+
+export const INSPIREDESIGN_FINAL_EVIDENCE_AUTHORITY_PRECEDENCE = [
+  "motion_ready",
+  "pin_media_ready",
+  "snapshot_ready"
+] as const satisfies readonly InspiredesignArtifactBackedEvidenceAuthority[];
 
 const INACTIVE_CANVAS_DO_NOT_PROCEED_CONDITIONS = new Set([
   "planStatus is not accepted"
@@ -69,6 +118,9 @@ const SNAPSHOT_READY_VISUAL_ARTIFACT_PATH_PATTERN = /^visual-evidence\/[A-Za-z0-
 const GENERIC_VISUAL_ARTIFACT_PATH_PATTERN = /^visual-evidence\/[A-Za-z0-9._-]+\/(?:viewport|full_page)\.png$/;
 const MOTION_REPLAY_ARTIFACT_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/replay\.json$/;
 const MOTION_PREVIEW_ARTIFACT_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/preview\.png$/;
+const PIN_MEDIA_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/([A-Za-z0-9._-]+)\/(?:main|poster)\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/main\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/poster\.(?:avif|gif|jpe?g|png|webp)$/i;
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 const MIN_SNAPSHOT_READY_VISUAL_BYTES = 1024;
 const PINTEREST_PIN_MEDIA_PAGE_QUALITY = "pin_media";
@@ -85,7 +137,6 @@ const SNAPSHOT_BLOCKING_WARNING_MARKERS = [
   "chrome_only",
   "controls_only"
 ] as const;
-
 const readRecord = (value: unknown): Record<string, unknown> | undefined => (
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 );
@@ -116,16 +167,18 @@ export const isInspiredesignPinterestPinReferenceUrl = (value: unknown): boolean
 );
 
 const normalizePinterestPinUrlForAuthority = (value: unknown): string | undefined => {
-  if (!isInspiredesignPinterestPinReferenceUrl(value)) return undefined;
   if (typeof value !== "string") return undefined;
   const normalized = normalizePinterestReferenceUrl(value);
-  if (!normalized) return undefined;
+  if (!normalized || !isCanonicalPinterestPinUrl(normalized)) return undefined;
   try {
     const url = new URL(normalized);
+    const pinId = url.pathname.match(/^\/pin\/(\d+)\/?$/i)?.[1];
+    if (!pinId) return undefined;
     url.hostname = PINTEREST_AUTHORITY_HOST;
-    return url.href.replace(/\/$/, "");
+    url.pathname = `/pin/${pinId}/`;
+    return url.href;
   } catch {
-    return normalized.replace(/\/$/, "");
+    return undefined;
   }
 };
 
@@ -158,6 +211,17 @@ const hasBlockingArtifactWarning = (value: unknown): boolean => {
   const text = normalizedWarningText(value);
   return SNAPSHOT_BLOCKING_WARNING_MARKERS.some((marker) => text.includes(marker));
 };
+
+const readWarningEntries = (value: unknown): string[] => (
+  Array.isArray(value)
+    ? value
+      .filter((entry): entry is string => typeof entry === "string")
+    : []
+);
+
+const hasBlockingPinMediaArtifactWarning = (value: unknown): boolean => (
+  hasPinterestPinMediaBlockingWarning(readWarningEntries(value))
+);
 
 const hasPinterestAuthoritySourceMatch = (
   reference: InspiredesignRankedReferenceAuthorityInput,
@@ -320,6 +384,79 @@ const hasGenericMotionArtifactForReference = (
     && hasUsableMotionFileShape(preview, MOTION_PREVIEW_ARTIFACT_PATH_PATTERN, MIN_MOTION_PREVIEW_BYTES);
 });
 
+const readFirstPartyProvenance = (value: unknown): Record<string, unknown> | undefined => readRecord(value);
+
+const readPinMediaArtifactPathReferenceId = (path: unknown): string | undefined => (
+  typeof path === "string" ? PIN_MEDIA_ARTIFACT_PATH_PATTERN.exec(path)?.[1] : undefined
+);
+
+const hasPinMediaArtifactReferenceId = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
+  if (typeof pinMedia.referenceId !== "string") return false;
+  const pathReferenceId = readPinMediaArtifactPathReferenceId(pinMedia.path);
+  return pathReferenceId === sanitizeInspiredesignPinterestPinMediaReferenceId(pinMedia.referenceId);
+};
+
+const hasValidPinMediaKindPath = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
+  if (typeof pinMedia.path !== "string") return false;
+  if (!hasPinMediaArtifactReferenceId(pinMedia)) return false;
+  if (pinMedia.kind === "image") return PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+  if (pinMedia.kind === "video_poster") return PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+  return PIN_MEDIA_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+};
+
+const hasValidPinMediaCoreShape = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
+  return typeof pinMedia.path === "string"
+    && hasValidPinMediaKindPath(pinMedia)
+    && typeof pinMedia.sha256 === "string"
+    && PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN.test(pinMedia.sha256)
+    && typeof pinMedia.bytes === "number"
+    && Number.isFinite(pinMedia.bytes)
+    && pinMedia.bytes >= MIN_PIN_MEDIA_EVIDENCE_BYTES
+    && typeof pinMedia.width === "number"
+    && Number.isFinite(pinMedia.width)
+    && pinMedia.width >= MIN_PIN_MEDIA_EVIDENCE_WIDTH
+    && typeof pinMedia.height === "number"
+    && Number.isFinite(pinMedia.height)
+    && pinMedia.height >= MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+    && typeof pinMedia.contentType === "string"
+    && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(pinMedia.contentType)
+    && typeof pinMedia.kind === "string"
+    && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS as readonly string[]).includes(pinMedia.kind)
+    && pinMedia.authority === "design_evidence"
+    && typeof pinMedia.failure !== "string"
+    && !hasBlockingPinMediaArtifactWarning(pinMedia.warnings)
+    && (!Array.isArray(pinMedia.rejectionReasons) || pinMedia.rejectionReasons.length === 0);
+};
+
+const hasPinMediaFirstPartyProvenance = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
+  const provenance = readFirstPartyProvenance(pinMedia.firstPartyProvenance);
+  const referenceUrl = normalizePinterestPinUrlForAuthority(pinMedia.url);
+  const sourceUrl = normalizePinterestPinUrlForAuthority(pinMedia.sourceUrl);
+  const provenanceReferenceUrl = normalizePinterestPinUrlForAuthority(provenance?.canonicalReferenceUrl);
+  const provenanceSourceUrl = normalizePinterestPinUrlForAuthority(provenance?.canonicalSourceUrl);
+  return Boolean(provenance)
+    && Boolean(referenceUrl && sourceUrl)
+    && provenanceReferenceUrl === referenceUrl
+    && provenanceSourceUrl === referenceUrl
+    && sourceUrl === referenceUrl
+    && isFirstPartyPinterestPinMediaUrl(String(pinMedia.mediaUrl ?? ""))
+    && hasPinterestAuthoritySourceMatch({ url: pinMedia.url }, pinMedia.sourceUrl)
+    && provenance?.referenceUrlCanonical === true
+    && provenance.sourceUrlMatchesReference === true
+    && provenance.mediaUrlFirstParty === true;
+};
+
+const hasPinMediaArtifactForReference = (
+  reference: InspiredesignRankedReferenceAuthorityInput,
+  pinMediaIndex: readonly InspiredesignPinMediaAuthorityInput[] = []
+): boolean => pinMediaIndex.some((pinMedia) => (
+  sameAuthorityReference(reference, pinMedia)
+  && hasPinterestAuthoritySourceMatch(reference, pinMedia.sourceUrl)
+  && hasPinterestPinMediaPageQuality(pinMedia.pinterestPageQuality)
+  && hasPinMediaFirstPartyProvenance(pinMedia)
+  && hasValidPinMediaCoreShape(pinMedia)
+));
+
 const readReadiness = (record: Record<string, unknown>): string | undefined => {
   const directReadiness = record.readiness;
   if (typeof directReadiness === "string" && directReadiness.length > 0) return directReadiness;
@@ -353,6 +490,7 @@ const readEvidenceAuthority = (value: unknown): InspiredesignEvidenceAuthority |
   if (
     value === "snapshot_ready"
     || value === "motion_ready"
+    || value === "pin_media_ready"
     || value === "ranked_reference"
     || value === "diagnostic_only"
   ) return value;
@@ -370,6 +508,7 @@ type InspiredesignReadinessCounts = Pick<
   | "authoritativeReferenceCount"
   | "snapshotReadyReferenceCount"
   | "motionReadyReferenceCount"
+  | "pinMediaReadyReferenceCount"
 >;
 
 type InspiredesignReadinessCountKey = keyof InspiredesignReadinessCounts;
@@ -378,7 +517,8 @@ const READINESS_COUNT_KEYS: readonly InspiredesignReadinessCountKey[] = [
   "rankedReferenceCount",
   "authoritativeReferenceCount",
   "snapshotReadyReferenceCount",
-  "motionReadyReferenceCount"
+  "motionReadyReferenceCount",
+  "pinMediaReadyReferenceCount"
 ];
 
 const hasOwnRecordValue = (record: Record<string, unknown>, key: string): boolean => (
@@ -411,15 +551,18 @@ const readCompleteReadinessCountsFromRecord = (
   const authoritativeReferenceCount = readFiniteCount(record.authoritativeReferenceCount);
   const snapshotReadyReferenceCount = readFiniteCount(record.snapshotReadyReferenceCount);
   const motionReadyReferenceCount = readFiniteCount(record.motionReadyReferenceCount);
+  const pinMediaReadyReferenceCount = readFiniteCount(record.pinMediaReadyReferenceCount);
   return rankedReferenceCount !== undefined
     && authoritativeReferenceCount !== undefined
     && snapshotReadyReferenceCount !== undefined
     && motionReadyReferenceCount !== undefined
+    && pinMediaReadyReferenceCount !== undefined
     ? {
       rankedReferenceCount,
       authoritativeReferenceCount,
       snapshotReadyReferenceCount,
-      motionReadyReferenceCount
+      motionReadyReferenceCount,
+      pinMediaReadyReferenceCount
     }
     : undefined;
 };
@@ -433,11 +576,22 @@ const readCompleteExplicitReadinessCounts = (
   return meta ? readCompleteReadinessCountsFromRecord(meta) : undefined;
 };
 
+const hasExplicitReadinessCount = (record: Record<string, unknown>): boolean => (
+  READINESS_COUNT_KEYS.some((key) => hasOwnRecordValue(record, key))
+);
+
+const hasIncompleteExplicitReadinessCounts = (data: Record<string, unknown>): boolean => {
+  if (readCompleteExplicitReadinessCounts(data)) return false;
+  const meta = readRecord(data.meta);
+  return hasExplicitReadinessCount(data) || Boolean(meta && hasExplicitReadinessCount(meta));
+};
+
 const hasCoherentReadinessCounts = (counts: InspiredesignReadinessCounts): boolean => (
   counts.authoritativeReferenceCount <= counts.rankedReferenceCount
   && counts.snapshotReadyReferenceCount <= counts.rankedReferenceCount
   && counts.motionReadyReferenceCount <= counts.rankedReferenceCount
-  && counts.snapshotReadyReferenceCount + counts.motionReadyReferenceCount <= counts.authoritativeReferenceCount
+  && counts.pinMediaReadyReferenceCount <= counts.rankedReferenceCount
+  && counts.snapshotReadyReferenceCount + counts.motionReadyReferenceCount + counts.pinMediaReadyReferenceCount === counts.authoritativeReferenceCount
 );
 
 const coerceReadinessCount = (value: number): number => readFiniteCount(value) ?? 0;
@@ -452,16 +606,22 @@ const clampReadinessCounts = (counts: InspiredesignReadinessCounts): Inspiredesi
     authoritativeReferenceCount,
     coerceReadinessCount(counts.snapshotReadyReferenceCount)
   );
-  const remainingAuthorityCount = authoritativeReferenceCount - snapshotReadyReferenceCount;
+  const remainingAfterSnapshotCount = authoritativeReferenceCount - snapshotReadyReferenceCount;
   const motionReadyReferenceCount = Math.min(
-    remainingAuthorityCount,
+    remainingAfterSnapshotCount,
     coerceReadinessCount(counts.motionReadyReferenceCount)
+  );
+  const remainingAfterMotionCount = remainingAfterSnapshotCount - motionReadyReferenceCount;
+  const pinMediaReadyReferenceCount = Math.min(
+    remainingAfterMotionCount,
+    coerceReadinessCount(counts.pinMediaReadyReferenceCount)
   );
   return {
     rankedReferenceCount,
     authoritativeReferenceCount,
     snapshotReadyReferenceCount,
-    motionReadyReferenceCount
+    motionReadyReferenceCount,
+    pinMediaReadyReferenceCount
   };
 };
 
@@ -474,6 +634,7 @@ export const readExplicitInspiredesignProductReadinessFields = (
   if (!artifactAuthority || !evidenceAuthority) return undefined;
   const malformedExplicitCount = hasMalformedExplicitReadinessCount(data);
   const explicitCounts = readCompleteExplicitReadinessCounts(data);
+  const incompleteExplicitCounts = hasIncompleteExplicitReadinessCounts(data);
   const claimsProductReady = data.productSuccess || artifactAuthority === "product_ready" || evidenceAuthority !== "diagnostic_only";
   if (explicitCounts) {
     const explicitReady = typeof data.ready === "boolean" ? data.ready : undefined;
@@ -507,7 +668,7 @@ export const readExplicitInspiredesignProductReadinessFields = (
   }
   if (claimsProductReady) {
     const derivedFields = deriveInspiredesignProductReadinessFields(data);
-    return malformedExplicitCount
+    return malformedExplicitCount || incompleteExplicitCounts
       ? {
         ...derivedFields,
         productSuccess: false,
@@ -537,7 +698,10 @@ export const readExplicitInspiredesignProductReadinessFields = (
       ?? readSnapshotReadyReferenceCount(data),
     motionReadyReferenceCount: readFiniteCount(data.motionReadyReferenceCount)
       ?? readFiniteCount(meta?.motionReadyReferenceCount)
-      ?? readMotionReadyReferenceCount(data)
+      ?? readMotionReadyReferenceCount(data),
+    pinMediaReadyReferenceCount: readFiniteCount(data.pinMediaReadyReferenceCount)
+      ?? readFiniteCount(meta?.pinMediaReadyReferenceCount)
+      ?? readPinMediaReadyReferenceCount(data)
   };
 };
 
@@ -560,8 +724,94 @@ export const isInspiredesignAuthoritativeRankedReference = (
   if (authority === "motion_ready") {
     return hasMotionArtifactForReference(reference, artifacts.motions);
   }
+  if (authority === "pin_media_ready") {
+    return hasPinMediaArtifactForReference(reference, artifacts.pinMedia);
+  }
   return false;
 };
+
+const referenceClaimsEvidenceAuthority = (
+  reference: InspiredesignRankedReferenceAuthorityInput,
+  authority: InspiredesignArtifactBackedEvidenceAuthority
+): boolean => (
+  readEvidenceAuthority(reference.evidenceAuthority) === authority
+  || (Array.isArray(reference.capturedVia) && reference.capturedVia.includes(authority))
+);
+
+const rankedReferenceForAuthority = (
+  reference: InspiredesignRankedReferenceAuthorityInput,
+  evidenceAuthority: InspiredesignArtifactBackedEvidenceAuthority
+): InspiredesignRankedReferenceAuthorityInput => ({
+  ...reference,
+  evidenceAuthority
+});
+
+export const hasInspiredesignArtifactBackedEvidenceAuthority = (
+  reference: InspiredesignRankedReferenceAuthorityInput,
+  evidenceAuthority: InspiredesignArtifactBackedEvidenceAuthority,
+  artifacts: InspiredesignReferenceEvidenceArtifacts = {}
+): boolean => {
+  if (isInspiredesignPinterestOwnedReferenceUrl(reference.url)) {
+    if (!referenceClaimsEvidenceAuthority(reference, evidenceAuthority)) return false;
+    return isInspiredesignAuthoritativeRankedReference(
+      rankedReferenceForAuthority(reference, evidenceAuthority),
+      artifacts
+    );
+  }
+  if (evidenceAuthority === "snapshot_ready") {
+    return isInspiredesignAuthoritativeRankedReference(reference, { screenshots: artifacts.screenshots });
+  }
+  if (evidenceAuthority === "motion_ready") {
+    return isInspiredesignAuthoritativeRankedReference(reference, { motions: artifacts.motions });
+  }
+  return false;
+};
+
+export const selectInspiredesignArtifactBackedEvidenceAuthority = (
+  reference: InspiredesignRankedReferenceAuthorityInput,
+  artifacts: InspiredesignReferenceEvidenceArtifacts = {}
+): InspiredesignArtifactBackedEvidenceAuthority | undefined => (
+  INSPIREDESIGN_FINAL_EVIDENCE_AUTHORITY_PRECEDENCE.find((evidenceAuthority) => (
+    hasInspiredesignArtifactBackedEvidenceAuthority(reference, evidenceAuthority, artifacts)
+  ))
+);
+
+export const countInspiredesignArtifactBackedEvidenceAuthorities = (args: {
+  rankedReferences: readonly InspiredesignRankedReferenceAuthorityInput[];
+  screenshots?: readonly InspiredesignScreenshotAuthorityInput[];
+  motions?: readonly InspiredesignMotionAuthorityInput[];
+  pinMedia?: readonly InspiredesignPinMediaAuthorityInput[];
+}): InspiredesignArtifactBackedEvidenceAuthorityCounts => (
+  args.rankedReferences.reduce<InspiredesignArtifactBackedEvidenceAuthorityCounts>((counts, reference) => {
+    const evidenceAuthority = selectInspiredesignArtifactBackedEvidenceAuthority(reference, {
+      screenshots: args.screenshots,
+      motions: args.motions,
+      pinMedia: args.pinMedia
+    });
+    if (evidenceAuthority === "snapshot_ready") counts.snapshotReadyReferenceCount += 1;
+    if (evidenceAuthority === "motion_ready") counts.motionReadyReferenceCount += 1;
+    if (evidenceAuthority === "pin_media_ready") counts.pinMediaReadyReferenceCount += 1;
+    return counts;
+  }, {
+    snapshotReadyReferenceCount: 0,
+    motionReadyReferenceCount: 0,
+    pinMediaReadyReferenceCount: 0
+  })
+);
+
+export const countInspiredesignAuthoritativePinterestReferences = (args: {
+  rankedReferences: readonly InspiredesignRankedReferenceAuthorityInput[];
+  screenshots?: readonly InspiredesignScreenshotAuthorityInput[];
+  motions?: readonly InspiredesignMotionAuthorityInput[];
+  pinMedia?: readonly InspiredesignPinMediaAuthorityInput[];
+}): number => args.rankedReferences.filter((reference) => (
+  isPinterestRankedReference(reference)
+  && isInspiredesignAuthoritativeRankedReference(reference, {
+    screenshots: args.screenshots,
+    motions: args.motions,
+    pinMedia: args.pinMedia
+  })
+)).length;
 
 const rankedReferencesFromRecord = (record: Record<string, unknown>): unknown[] => {
   const meta = readRecord(record.meta);
@@ -570,61 +820,67 @@ const rankedReferencesFromRecord = (record: Record<string, unknown>): unknown[] 
   return [];
 };
 
+const rankedReferenceAuthorityInputsFromRecord = (
+  record: Record<string, unknown>
+): InspiredesignRankedReferenceAuthorityInput[] => (
+  rankedReferencesFromRecord(record).flatMap((reference) => {
+    const rankedReference = readRecord(reference);
+    return rankedReference ? [rankedReference] : [];
+  })
+);
+
+const readArtifactBackedEvidenceAuthorityCountsFromRecord = (
+  record: Record<string, unknown>
+): InspiredesignArtifactBackedEvidenceAuthorityCounts => (
+  countInspiredesignArtifactBackedEvidenceAuthorities({
+    rankedReferences: rankedReferenceAuthorityInputsFromRecord(record),
+    screenshots: readScreenshotArtifactsFromRecord(record),
+    motions: readMotionArtifactsFromRecord(record),
+    pinMedia: readPinMediaArtifactsFromRecord(record)
+  })
+);
+
 const readSnapshotReadyReferenceCount = (record: Record<string, unknown>): number => {
   const rankedReferences = rankedReferencesFromRecord(record);
-  if (rankedReferences.length > 0) {
-    return rankedReferences.filter((reference) => {
-      const rankedReference = readRecord(reference);
-      return rankedReference
-        ? (
-          readEvidenceAuthority(rankedReference.evidenceAuthority) === "snapshot_ready"
-          || !isInspiredesignPinterestOwnedReferenceUrl(rankedReference.url)
-        ) && isInspiredesignAuthoritativeRankedReference(rankedReference, {
-          screenshots: readScreenshotArtifactsFromRecord(record)
-        })
-        : false;
-    }).length;
-  }
-  return 0;
+  return rankedReferences.length > 0
+    ? readArtifactBackedEvidenceAuthorityCountsFromRecord(record).snapshotReadyReferenceCount
+    : 0;
 };
 
 const readMotionReadyReferenceCount = (record: Record<string, unknown>): number => {
   const rankedReferences = rankedReferencesFromRecord(record);
-  if (rankedReferences.length > 0) {
-    return rankedReferences.filter((reference) => {
-      const rankedReference = readRecord(reference);
-      return rankedReference
-        ? (
-          readEvidenceAuthority(rankedReference.evidenceAuthority) === "motion_ready"
-          || !isInspiredesignPinterestOwnedReferenceUrl(rankedReference.url)
-        ) && isInspiredesignAuthoritativeRankedReference(rankedReference, {
-          motions: readMotionArtifactsFromRecord(record)
-        })
-        : false;
-    }).length;
-  }
-  return 0;
+  return rankedReferences.length > 0
+    ? readArtifactBackedEvidenceAuthorityCountsFromRecord(record).motionReadyReferenceCount
+    : 0;
+};
+
+const readPinMediaReadyReferenceCount = (record: Record<string, unknown>): number => {
+  const rankedReferences = rankedReferencesFromRecord(record);
+  return rankedReferences.length > 0
+    ? readArtifactBackedEvidenceAuthorityCountsFromRecord(record).pinMediaReadyReferenceCount
+    : 0;
 };
 
 const readAuthoritativeReferenceCount = (record: Record<string, unknown>): number => {
   const rankedReferences = rankedReferencesFromRecord(record);
   if (rankedReferences.length > 0) {
-    const requireArtifactEvidence = readPinterestEvidenceRequired(record) || rankedReferences.some((reference) => {
-      const rankedReference = readRecord(reference);
-      return rankedReference ? isPinterestRankedReference(rankedReference) : false;
-    });
-    return rankedReferences.filter((reference) => {
-      const rankedReference = readRecord(reference);
-      return rankedReference
-        ? isInspiredesignAuthoritativeRankedReference(rankedReference, {
-          screenshots: readScreenshotArtifactsFromRecord(record),
-          motions: readMotionArtifactsFromRecord(record),
-          requireArtifactEvidence
-        })
-        : false;
-    }).length;
+    const counts = readArtifactBackedEvidenceAuthorityCountsFromRecord(record);
+    return counts.snapshotReadyReferenceCount
+      + counts.motionReadyReferenceCount
+      + counts.pinMediaReadyReferenceCount;
   }
   return 0;
+};
+
+const readAuthoritativePinterestReferenceCount = (record: Record<string, unknown>): number | undefined => {
+  const rankedReferences = rankedReferenceAuthorityInputsFromRecord(record);
+  if (rankedReferences.length === 0) return undefined;
+  return countInspiredesignAuthoritativePinterestReferences({
+    rankedReferences,
+    screenshots: readScreenshotArtifactsFromRecord(record),
+    motions: readMotionArtifactsFromRecord(record),
+    pinMedia: readPinMediaArtifactsFromRecord(record)
+  });
 };
 
 const readMissingScreenshotCount = (record: Record<string, unknown>): number | undefined => {
@@ -664,6 +920,18 @@ const readMotionArtifactsFromRecord = (
   if (Array.isArray(record.motionEvidence)) return record.motionEvidence.filter(readRecord);
   const meta = readRecord(record.meta);
   return Array.isArray(meta?.motionEvidence) ? meta.motionEvidence.filter(readRecord) : [];
+};
+
+const readPinMediaArtifactsFromRecord = (
+  record: Record<string, unknown>
+): InspiredesignPinMediaAuthorityInput[] => {
+  if (Array.isArray(record.pinMediaIndex)) return record.pinMediaIndex.filter(readRecord);
+  const directPinMediaIndex = readRecord(record.pinMediaIndex);
+  if (Array.isArray(directPinMediaIndex?.pinMediaIndex)) return directPinMediaIndex.pinMediaIndex.filter(readRecord);
+  const meta = readRecord(record.meta);
+  if (Array.isArray(meta?.pinMediaIndex)) return meta.pinMediaIndex.filter(readRecord);
+  const metaPinMediaIndex = readRecord(meta?.pinMediaIndex);
+  return Array.isArray(metaPinMediaIndex?.pinMediaIndex) ? metaPinMediaIndex.pinMediaIndex.filter(readRecord) : [];
 };
 
 const readNonPinterestRankedReferenceCount = (record: Record<string, unknown>): number | undefined => {
@@ -728,14 +996,16 @@ export const hasActiveInspiredesignCanvasDoNotProceedBlocker = (
   !isInactiveInspiredesignCanvasDoNotProceedCondition(condition, rankedReferenceCount, missingScreenshotCount)
 ));
 
-const evidenceAuthorityFromCounts = (args: {
+export const resolveInspiredesignFinalEvidenceAuthority = (args: {
   productSuccess: boolean;
   snapshotReadyReferenceCount: number;
   motionReadyReferenceCount: number;
+  pinMediaReadyReferenceCount: number;
 }): InspiredesignEvidenceAuthority => {
   if (!args.productSuccess) return "diagnostic_only";
-  if (args.snapshotReadyReferenceCount > 0) return "snapshot_ready";
   if (args.motionReadyReferenceCount > 0) return "motion_ready";
+  if (args.pinMediaReadyReferenceCount > 0) return "pin_media_ready";
+  if (args.snapshotReadyReferenceCount > 0) return "snapshot_ready";
   return "ranked_reference";
 };
 
@@ -747,43 +1017,56 @@ export const buildInspiredesignProductReadinessFields = (
   activeDoNotProceedBlocker = false,
   snapshotReadyReferenceCount = 0,
   motionReadyReferenceCount = 0,
-  authoritativeReferenceCount = Math.min(
-    rankedReferenceCount,
-    snapshotReadyReferenceCount + motionReadyReferenceCount
-  ),
-  pinterestEvidenceRequired = false
+  authoritativeReferenceCount: number | undefined = undefined,
+  pinterestEvidenceRequired = false,
+  pinMediaReadyReferenceCount = 0,
+  authoritativePinterestReferenceCount: number | undefined = undefined
 ): InspiredesignProductReadinessFields => {
   const readiness = readinessValue && readinessValue.length > 0 ? readinessValue : "unknown";
   const ready = readiness === "ready";
+  const effectiveAuthoritativeReferenceCount = authoritativeReferenceCount ?? Math.min(
+    rankedReferenceCount,
+    snapshotReadyReferenceCount + motionReadyReferenceCount + pinMediaReadyReferenceCount
+  );
   const rawCounts = {
     rankedReferenceCount,
-    authoritativeReferenceCount,
+    authoritativeReferenceCount: effectiveAuthoritativeReferenceCount,
     snapshotReadyReferenceCount,
-    motionReadyReferenceCount
+    motionReadyReferenceCount,
+    pinMediaReadyReferenceCount
   };
   const countsAreNonnegativeIntegers = READINESS_COUNT_KEYS.every((key) => readFiniteCount(rawCounts[key]) !== undefined);
   const countsAreCoherent = countsAreNonnegativeIntegers && hasCoherentReadinessCounts(rawCounts);
   const counts = clampReadinessCounts(rawCounts);
   const nonPinterestCount = coerceReadinessCount(nonPinterestRankedReferenceCount);
   const pinterestCount = coerceReadinessCount(pinterestRankedReferenceCount);
+  const pinterestAuthorityCount = coerceReadinessCount(authoritativePinterestReferenceCount ?? 0);
   const allRankedReferencesHaveAuthority = counts.authoritativeReferenceCount >= counts.rankedReferenceCount;
-  const artifactReadyReferenceCount = counts.snapshotReadyReferenceCount + counts.motionReadyReferenceCount;
+  const artifactReadyReferenceCount = counts.snapshotReadyReferenceCount
+    + counts.motionReadyReferenceCount
+    + counts.pinMediaReadyReferenceCount;
   const hasProductReadyEvidenceAuthority = artifactReadyReferenceCount > 0;
+  const pinterestAuthorityCountIsCoherent = !pinterestEvidenceRequired
+    || (readFiniteCount(authoritativePinterestReferenceCount) !== undefined
+      && pinterestAuthorityCount <= pinterestCount
+      && pinterestAuthorityCount <= counts.authoritativeReferenceCount);
   const hasRequiredPinterestAuthority = !pinterestEvidenceRequired
-    || (pinterestCount > 0 && artifactReadyReferenceCount > 0);
+    || (pinterestCount > 0 && pinterestAuthorityCount === pinterestCount);
   const rankedReferenceKindsFitTotal = nonPinterestCount + pinterestCount <= counts.rankedReferenceCount;
   const productSuccess = ready
     && counts.rankedReferenceCount > 0
     && !activeDoNotProceedBlocker
     && countsAreCoherent
+    && pinterestAuthorityCountIsCoherent
     && rankedReferenceKindsFitTotal
     && allRankedReferencesHaveAuthority
     && hasProductReadyEvidenceAuthority
     && hasRequiredPinterestAuthority;
-  const evidenceAuthority = evidenceAuthorityFromCounts({
+  const evidenceAuthority = resolveInspiredesignFinalEvidenceAuthority({
     productSuccess,
     snapshotReadyReferenceCount: counts.snapshotReadyReferenceCount,
-    motionReadyReferenceCount: counts.motionReadyReferenceCount
+    motionReadyReferenceCount: counts.motionReadyReferenceCount,
+    pinMediaReadyReferenceCount: counts.pinMediaReadyReferenceCount
   });
   return {
     ready,
@@ -816,6 +1099,8 @@ export const deriveInspiredesignProductReadinessFields = (
     lacksRankedReferenceRecords ? 0 : readSnapshotReadyReferenceCount(data),
     lacksRankedReferenceRecords ? 0 : readMotionReadyReferenceCount(data),
     lacksRankedReferenceRecords ? 0 : readAuthoritativeReferenceCount(data),
-    pinterestEvidenceRequired
+    pinterestEvidenceRequired,
+    lacksRankedReferenceRecords ? 0 : readPinMediaReadyReferenceCount(data),
+    lacksRankedReferenceRecords ? undefined : readAuthoritativePinterestReferenceCount(data)
   );
 };

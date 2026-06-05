@@ -820,6 +820,406 @@ describe("inspiredesign capture helper", () => {
     }));
   });
 
+	it("captures primary Pinterest pin media through the browser primitive", async () => {
+	const manager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media" }),
+		setSessionChallengeAutomationMode: vi.fn(),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockResolvedValue({
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		title: "Pinterest",
+		content: "Editorial pin media",
+		refCount: 1,
+		warnings: []
+		}),
+		clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+		html: "<img data-test-id=\"closeup-image-main-MainPinImage\" src=\"https://i.pinimg.com/originals/pin.jpg\">"
+		}),
+		capturePinterestPinMedia: vi.fn().mockResolvedValue({
+		status: "captured",
+		sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+		targetId: "target-pin",
+		kind: "image",
+		path: "/tmp/primary-pin-media",
+		mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+		contentType: "image/jpeg",
+		naturalWidth: 1200,
+		naturalHeight: 1600,
+		candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+		rejectedCandidates: []
+		}),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+	const result = await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{
+		referenceId: "pin-ref",
+		pinMediaEvidencePath: "/tmp/primary-pin-media",
+		cookiePolicyOverride: "off",
+		challengeAutomationMode: "browser"
+		}
+	);
+
+	expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith("session-primary-pin-media", {
+		path: "/tmp/primary-pin-media",
+		timeoutMs: expect.any(Number)
+	});
+	expect(manager.setSessionChallengeAutomationMode).toHaveBeenCalledWith("session-primary-pin-media", "browser");
+	expect(result).toEqual(expect.objectContaining({
+		status: "captured",
+		kind: "image",
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+		pinterestPageQuality: "pin_media",
+		mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+		contentType: "image/jpeg",
+		tempPath: "/tmp/primary-pin-media",
+		width: 1200,
+		height: 1600,
+		warnings: []
+	}));
+	expect(manager.disconnect).toHaveBeenCalledWith("session-primary-pin-media", true);
+	});
+
+	it("lets direct pin media proof override page-level Pinterest login chrome", async () => {
+	const manager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media-login-shell" }),
+		setSessionChallengeAutomationMode: vi.fn(),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockResolvedValue({
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		title: "Log in to continue",
+		content: "Log in to continue with Pinterest and sign up to save this pin",
+		refCount: 1,
+		warnings: []
+		}),
+		capturePinterestPinMedia: vi.fn().mockResolvedValue({
+		status: "captured",
+		sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+		targetId: "target-pin",
+		kind: "image",
+		path: "/tmp/primary-pin-media-login-shell",
+		mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+		contentType: "image/jpeg",
+		naturalWidth: 1200,
+		naturalHeight: 1600,
+		candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+		rejectedCandidates: []
+		}),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+	const result = await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{
+		referenceId: "pin-ref",
+		pinMediaEvidencePath: "/tmp/primary-pin-media-login-shell",
+		cookiePolicyOverride: "off"
+		}
+	);
+
+	expect(result).toEqual(expect.objectContaining({
+		status: "captured",
+		pinterestPageQuality: "pin_media",
+		mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+		warnings: ["login_or_challenge_state"]
+	}));
+	});
+
+	it("marks missing primary Pinterest pin media as diagnostic metadata", async () => {
+	const manager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media-missing" }),
+		setSessionChallengeAutomationMode: vi.fn(),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockResolvedValue({
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		title: "Pinterest",
+		content: "Pinterest",
+		refCount: 1,
+		warnings: []
+		}),
+		capturePinterestPinMedia: vi.fn().mockResolvedValue({
+		status: "not_found",
+		sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+		targetId: "target-pin",
+		rejectedCandidates: [{
+			kind: "image",
+			mediaUrl: "https://i.pinimg.com/236x/thumb.jpg",
+			reasons: ["candidate_not_main_pin_media"]
+		}]
+		}),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+	const result = await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{
+		referenceId: "pin-ref",
+		pinMediaEvidencePath: "/tmp/primary-pin-media-missing",
+		cookiePolicyOverride: "off"
+		}
+	);
+
+	expect(result).toEqual(expect.objectContaining({
+		status: "skipped",
+		failure: "Pinterest pin media capture did not find a primary media candidate.",
+		pinterestPageQuality: "unknown",
+		rejectionReasons: ["candidate_not_main_pin_media"]
+	}));
+	});
+
+	it("fails primary Pinterest pin media setup when required helpers or paths are unavailable", async () => {
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		{} as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "failed",
+		failure: "Pinterest pin media evidence path was not configured.",
+		rejectionReasons: ["pin_media_path_unavailable"]
+	}));
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		{} as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/pin-media" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "failed",
+		failure: "Primary media capture session helper unavailable in this execution lane.",
+		warnings: ["primary_capture_session_unavailable"],
+		rejectionReasons: ["primary_capture_session_unavailable"]
+	}));
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		{ launch: vi.fn() } as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/pin-media" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "failed",
+		failure: "Pinterest pin media capture helper unavailable in this execution lane.",
+		warnings: ["pin_media_capture_helper_unavailable"],
+		rejectionReasons: ["pin_media_capture_helper_unavailable"]
+	}));
+	});
+
+	it("reports Pinterest pin media launch and capture failures as diagnostic metadata", async () => {
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+	const setupFailureManager = {
+		launch: vi.fn().mockRejectedValue(new Error("browser setup exploded")),
+		capturePinterestPinMedia: vi.fn()
+	};
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		setupFailureManager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/pin-media" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "failed",
+		failure: "browser setup exploded",
+		warnings: ["primary_capture_setup_failed"],
+		rejectionReasons: ["primary_capture_setup_failed"]
+	}));
+
+	const captureFailureManager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-pin-capture-failure" }),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockRejectedValue(new Error("snapshot unavailable")),
+		capturePinterestPinMedia: vi.fn().mockRejectedValue(new Error("pin media failed")),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		captureFailureManager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/pin-media-failure", cookiePolicyOverride: "off" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "failed",
+		failure: "pin media failed",
+		warnings: ["primary_pin_media_capture_failed"],
+		rejectionReasons: ["primary_pin_media_capture_failed"]
+	}));
+	expect(captureFailureManager.disconnect).toHaveBeenCalledWith("session-pin-capture-failure", true);
+	});
+
+	it("demotes primary Pinterest pin media with no result path or no rejected candidates", async () => {
+	const manager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media-edge" }),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockResolvedValue({
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		title: "Pinterest",
+		content: "Pin detail",
+		refCount: 1,
+		warnings: []
+		}),
+		capturePinterestPinMedia: vi.fn()
+		.mockResolvedValueOnce({
+			status: "captured",
+			kind: "video_poster",
+			path: "/tmp/other-pin-media",
+			warnings: ["candidate_path_changed"],
+			rejectedCandidates: []
+		})
+		.mockResolvedValueOnce({
+			status: "captured",
+			kind: "image",
+			rejectedCandidates: []
+		})
+		.mockResolvedValueOnce({
+			status: "not_found",
+			rejectedCandidates: [],
+			warnings: []
+		}),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/primary-pin-media-edge", cookiePolicyOverride: "off" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "failed",
+		kind: "video_poster",
+		failure: "Pinterest pin media evidence temp path did not match the requested artifact path.",
+		warnings: ["candidate_path_changed", "pin_media_temp_path_mismatch"],
+		rejectionReasons: ["pin_media_temp_path_mismatch"]
+	}));
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/primary-pin-media-missing-path", cookiePolicyOverride: "off" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "failed",
+		kind: "image",
+		failure: "Pinterest pin media evidence temp path did not match the requested artifact path.",
+		rejectionReasons: ["pin_media_temp_path_mismatch"]
+	}));
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/primary-pin-media-missing-fallback", cookiePolicyOverride: "off" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "skipped",
+		rejectionReasons: ["pin_media_candidate_not_found"]
+	}));
+	});
+
+	it("preserves viewport warnings on minimal primary Pinterest pin media captures", async () => {
+	const manager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media-minimal" }),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockResolvedValue({
+		title: "Pinterest",
+		content: "Pin detail",
+		refCount: 1,
+		warnings: []
+		}),
+		capturePinterestPinMedia: vi.fn().mockResolvedValue({
+		status: "captured",
+		path: "/tmp/primary-pin-media-minimal",
+		rejectedCandidates: []
+		}),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{ referenceId: "pin-ref", pinMediaEvidencePath: "/tmp/primary-pin-media-minimal", cookiePolicyOverride: "off" }
+	)).resolves.toEqual(expect.objectContaining({
+		status: "captured",
+		kind: "image",
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		tempPath: "/tmp/primary-pin-media-minimal",
+		pinterestPageQuality: "unknown",
+		warnings: ["viewport_url_unverified"],
+		rejectionReasons: []
+	}));
+	});
+
+	it("preserves detailed primary Pinterest pin media capture metadata", async () => {
+	const manager = {
+		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media-detailed" }),
+		goto: vi.fn().mockResolvedValue(undefined),
+		waitForLoad: vi.fn().mockResolvedValue(undefined),
+		snapshot: vi.fn().mockResolvedValue({
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		title: "Pinterest",
+		content: "Pin detail",
+		refCount: 1,
+		warnings: []
+		}),
+		clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+		html: "<main data-test-id=\"pin-closeup\"><img class=\"closeup-image-main-MainPinImage\" src=\"https://i.pinimg.com/originals/detail.jpg\"></main>"
+		}),
+		capturePinterestPinMedia: vi.fn().mockResolvedValue({
+		status: "captured",
+		kind: "image",
+		path: "/tmp/primary-pin-media-detailed",
+		mediaUrl: "https://i.pinimg.com/originals/detail.jpg",
+		candidateSelector: "img[data-test-id='main-pin']",
+		candidateRole: "img",
+		alt: "Detailed pin media",
+		width: 640,
+		height: 960,
+		contentType: "image/jpeg",
+		warnings: ["candidate_selected_after_tie"],
+		rejectedCandidates: []
+		}),
+		disconnect: vi.fn().mockResolvedValue(undefined)
+	};
+	const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+	await expect(captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+		manager as never,
+		"https://www.pinterest.com/pin/27654985208435505/",
+		{
+		referenceId: "pin-ref",
+		pinMediaEvidencePath: "/tmp/primary-pin-media-detailed",
+		cookiePolicyOverride: "off",
+		pinterestPageQuality: "pin_media"
+		}
+	)).resolves.toEqual(expect.objectContaining({
+		status: "captured",
+		kind: "image",
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/27654985208435505/",
+		sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+		endedSourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+		mediaUrl: "https://i.pinimg.com/originals/detail.jpg",
+		candidateSelector: "img[data-test-id='main-pin']",
+		candidateRole: "img",
+		candidateAlt: "Detailed pin media",
+		width: 640,
+		height: 960,
+		contentType: "image/jpeg",
+		tempPath: "/tmp/primary-pin-media-detailed",
+		warnings: ["candidate_selected_after_tie"],
+		rejectionReasons: []
+	}));
+	});
+
   it("marks primary Pinterest visual captures diagnostic when the viewport probe sees login chrome", async () => {
     const manager = {
       launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-visual-login" }),

@@ -9,6 +9,19 @@ import {
   type InspiredesignMotionEvidenceRuntimeMetadata,
   type InspiredesignPersistedMotionEvidence
 } from "./motion-evidence";
+import {
+  INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES,
+  INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS,
+  MIN_PIN_MEDIA_EVIDENCE_BYTES,
+  MIN_PIN_MEDIA_EVIDENCE_HEIGHT,
+  MIN_PIN_MEDIA_EVIDENCE_WIDTH,
+  PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN,
+  hasPinterestPinMediaBlockingWarning,
+  isFirstPartyPinterestPinMediaUrl,
+  persistInspiredesignPinterestPinMediaEvidence,
+  type InspiredesignPersistedPinterestPinMediaEvidence,
+  type InspiredesignPinterestPinMediaRuntimeMetadata
+} from "./pinterest-pin-media-evidence";
 import type { InspiredesignBriefFormat } from "./brief-expansion";
 
 type ReferenceStatus = "captured" | "failed" | "skipped";
@@ -43,6 +56,7 @@ type ReferenceInput = {
       warnings: string[];
     };
     motion?: InspiredesignMotionEvidenceRuntimeMetadata | InspiredesignPersistedMotionEvidence;
+    pinMedia?: InspiredesignPinterestPinMediaRuntimeMetadata | InspiredesignPersistedPinterestPinMediaEvidence;
   } | null;
 };
 
@@ -455,9 +469,20 @@ const hasUsableRecoveredCreativeEvidence = (reference: ReferenceInput): boolean 
 
 const isPinterestVisualReferenceUrl = (value: string): boolean => normalizePinterestReferenceUrl(value) !== null;
 
-const normalizePinterestReferenceForEvidenceMatch = (value: string): string | null => (
-  normalizePinterestReferenceUrl(value)?.replace(/\/$/, "") ?? null
-);
+const normalizePinterestReferenceForEvidenceMatch = (value: string): string | null => {
+  const normalized = normalizePinterestReferenceUrl(value);
+  if (!normalized) return null;
+  try {
+    const url = new URL(normalized);
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments[0] === "pin") {
+      url.hostname = "www.pinterest.com";
+    }
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return normalized.replace(/\/$/, "");
+  }
+};
 
 const isPinterestProductCandidateReferenceUrl = (value: string): boolean => isCanonicalPinterestPinUrl(value);
 
@@ -520,9 +545,8 @@ const motionEvidenceHasPinMediaPageQuality = (
   && hasPinterestPinMediaPageQuality(motion.endedPinterestPageQuality)
 );
 
-const hasSnapshotReadyPinterestVisualEvidence = (
-  reference: ReferenceInput,
-  diagnosticReasons: readonly string[]
+const hasSnapshotReadyPinterestVisualProof = (
+  reference: ReferenceInput
 ): boolean => (
   isPinterestProductCandidateReferenceUrl(reference.url)
   && reference.captureStatus === "captured"
@@ -537,6 +561,13 @@ const hasSnapshotReadyPinterestVisualEvidence = (
   && reference.capture.visual.bytes >= MIN_SNAPSHOT_READY_VISUAL_BYTES
   && !reference.capture.visual.failure
   && !hasBlockingSnapshotWarning(reference.capture.visual.warnings)
+);
+
+const hasSnapshotReadyPinterestVisualEvidence = (
+  reference: ReferenceInput,
+  diagnosticReasons: readonly string[]
+): boolean => (
+  hasSnapshotReadyPinterestVisualProof(reference)
   && diagnosticReasons.length === 0
 );
 
@@ -556,6 +587,9 @@ const motionFileHasAuthority = (
 
 const MOTION_READY_REPLAY_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/replay\.json$/;
 const MOTION_READY_PREVIEW_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/preview\.png$/;
+const PIN_MEDIA_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/(?:main|poster)\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/main\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/poster\.(?:avif|gif|jpe?g|png|webp)$/i;
 
 const hasMotionReadyPinterestEvidence = (
   reference: ReferenceInput,
@@ -583,12 +617,73 @@ const hasMotionReadyPinterestEvidence = (
     );
 };
 
+const pinMediaEvidenceSourceMatchesReference = (
+  reference: ReferenceInput,
+  pinMedia: InspiredesignPersistedPinterestPinMediaEvidence
+): boolean => {
+  const referenceUrl = normalizePinterestReferenceForEvidenceMatch(reference.url);
+  const sourceUrl = normalizePinterestReferenceForEvidenceMatch(pinMedia.sourceUrl ?? "");
+  return Boolean(referenceUrl && sourceUrl === referenceUrl);
+};
+
+const pinMediaArtifactPathHasAuthority = (pinMedia: InspiredesignPersistedPinterestPinMediaEvidence): boolean => {
+  if (typeof pinMedia.path !== "string") return false;
+  if (pinMedia.kind === "image") return PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+  if (pinMedia.kind === "video_poster") return PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+  return PIN_MEDIA_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+};
+
+const readPersistedPinterestPinMediaEvidence = (
+  pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | InspiredesignPersistedPinterestPinMediaEvidence
+): InspiredesignPersistedPinterestPinMediaEvidence => {
+  return persistInspiredesignPinterestPinMediaEvidence(pinMedia);
+};
+
+const hasPinMediaReadyPinterestEvidence = (
+	reference: ReferenceInput,
+	diagnosticReasons: readonly string[]
+): boolean => {
+	if (!isPinterestProductCandidateReferenceUrl(reference.url)) return false;
+	if (diagnosticReasons.some((reason) => reason !== "login_or_challenge_state")) return false;
+	if (reference.captureStatus !== "captured") return false;
+	const pinMedia = reference.capture?.pinMedia;
+	if (pinMedia?.status !== "captured") return false;
+	const persistedPinMedia = readPersistedPinterestPinMediaEvidence(pinMedia);
+	return persistedPinMedia.authority === "design_evidence"
+		&& pinMediaEvidenceSourceMatchesReference(reference, persistedPinMedia)
+		&& hasPinterestPinMediaPageQuality(persistedPinMedia.pinterestPageQuality)
+    && typeof persistedPinMedia.mediaUrl === "string"
+    && isFirstPartyPinterestPinMediaUrl(persistedPinMedia.mediaUrl)
+    && pinMediaArtifactPathHasAuthority(persistedPinMedia)
+    && typeof persistedPinMedia.sha256 === "string"
+    && PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN.test(persistedPinMedia.sha256)
+    && typeof persistedPinMedia.bytes === "number"
+    && Number.isFinite(persistedPinMedia.bytes)
+    && persistedPinMedia.bytes >= MIN_PIN_MEDIA_EVIDENCE_BYTES
+    && typeof persistedPinMedia.width === "number"
+    && Number.isFinite(persistedPinMedia.width)
+    && persistedPinMedia.width >= MIN_PIN_MEDIA_EVIDENCE_WIDTH
+    && typeof persistedPinMedia.height === "number"
+    && Number.isFinite(persistedPinMedia.height)
+    && persistedPinMedia.height >= MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+    && typeof persistedPinMedia.contentType === "string"
+    && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(persistedPinMedia.contentType)
+    && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS as readonly string[]).includes(persistedPinMedia.kind)
+    && !persistedPinMedia.failure
+    && persistedPinMedia.rejectionReasons.length === 0
+    && !hasPinterestPinMediaBlockingWarning(persistedPinMedia.warnings)
+    && persistedPinMedia.firstPartyProvenance.referenceUrlCanonical
+    && persistedPinMedia.firstPartyProvenance.sourceUrlMatchesReference
+    && persistedPinMedia.firstPartyProvenance.mediaUrlFirstParty;
+};
+
 const hasAuthoritativePinterestMediaEvidence = (
   reference: ReferenceInput,
   diagnosticReasons: readonly string[]
 ): boolean => (
   hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons)
   || hasMotionReadyPinterestEvidence(reference, diagnosticReasons)
+  || hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons)
 );
 
 const hasUsableCaptureEvidence = (reference: ReferenceInput): boolean => (
@@ -606,6 +701,18 @@ const hasFirstPartyPinterestPinMediaProof = (reference: ReferenceInput): boolean
     && hasPinterestPinMediaPageQuality(visual.pinterestPageQuality)
     && !visual.failure
     && !hasBlockingSnapshotWarning(visual.warnings)
+  ) return true;
+  const pinMedia = reference.capture?.pinMedia;
+  const persistedPinMedia = pinMedia?.status === "captured"
+    ? readPersistedPinterestPinMediaEvidence(pinMedia)
+    : undefined;
+  if (
+    isPinterestProductCandidateReferenceUrl(reference.url)
+    && persistedPinMedia
+    && persistedPinMedia.authority === "design_evidence"
+    && pinMediaEvidenceSourceMatchesReference(reference, persistedPinMedia)
+    && hasPinterestPinMediaPageQuality(persistedPinMedia.pinterestPageQuality)
+    && persistedPinMedia.firstPartyProvenance.mediaUrlFirstParty
   ) return true;
   const motion = reference.capture?.motion;
   const persistedMotion = motion?.status === "captured" ? persistInspiredesignMotionEvidence(motion) : undefined;
@@ -637,12 +744,17 @@ const referenceDiagnosticReasons = (reference: ReferenceInput): string[] => {
   const lowerText = text.toLowerCase();
   const pinterestChromeMarkerCount = PINTEREST_CHROME_BLOCKING_MARKERS
     .filter((marker) => lowerText.includes(marker)).length;
-  const hasPinMediaProof = hasFirstPartyPinterestPinMediaProof(reference);
+  const hasPinMediaLoginProof = hasFirstPartyPinterestPinMediaProof(reference);
+  const hasSnapshotInterfaceChromeProof = hasSnapshotReadyPinterestVisualProof(reference)
+    && !lowerText.includes("search results for")
+    && !lowerText.includes("related searches");
   const pinterestTextBlockers = [
-    ...(PINTEREST_LOGIN_BLOCKING_MARKERS.some((marker) => lowerText.includes(marker))
+    ...(!hasPinMediaLoginProof && PINTEREST_LOGIN_BLOCKING_MARKERS.some((marker) => lowerText.includes(marker))
       ? ["login_or_challenge_state"]
       : []),
-    ...(!hasPinMediaProof && (lowerText.includes("search results for") || lowerText.includes("related searches") || pinterestChromeMarkerCount >= 3)
+    ...(!hasPinMediaLoginProof
+      && !hasSnapshotInterfaceChromeProof
+      && (lowerText.includes("search results for") || lowerText.includes("related searches") || pinterestChromeMarkerCount >= 3)
       ? ["interface_chrome_shell"]
       : [])
   ];
@@ -654,12 +766,34 @@ const referenceDiagnosticReasons = (reference: ReferenceInput): string[] => {
         content: text
       }).diagnosticBlockers.filter((reason) => (
         reason !== "pin_media_type_unproven"
-        && (!hasPinMediaProof || reason !== "search_shell_without_media_signals")
+        && (!hasPinMediaLoginProof || reason !== "login_or_challenge_blocks_reference_extraction")
+        && (!hasPinMediaLoginProof || reason !== "interface_chrome_shell")
+        && (!hasPinMediaLoginProof || reason !== "search_shell_without_media_signals")
+        && (!hasSnapshotInterfaceChromeProof || reason !== "interface_chrome_shell")
+        && (!hasSnapshotInterfaceChromeProof || reason !== "search_shell_without_media_signals")
       )),
       ...pinterestTextBlockers
     ]
     : [];
-  return [...new Set([...diagnosticPageReasons(text), ...pinterestBlockers])];
+  const pageReasons = diagnosticPageReasons(text).filter((reason) => (
+    (
+      !hasPinMediaLoginProof
+      || reason !== "login_or_challenge_state"
+    )
+    && (
+      !hasSnapshotInterfaceChromeProof
+      || reason !== "interface_chrome_shell"
+    )
+    && (
+      !hasPinMediaLoginProof
+      || reason !== "interface_chrome_shell"
+    )
+    && (
+      !hasPinMediaLoginProof
+      || reason !== "search_or_listing_shell"
+    )
+  ));
+  return [...new Set([...pageReasons, ...pinterestBlockers])];
 };
 
 const hasBlockingDiagnosticReason = (reasons: string[]): boolean => (
@@ -668,8 +802,9 @@ const hasBlockingDiagnosticReason = (reasons: string[]): boolean => (
 
 const evidenceAuthorityForReference = (reference: ReferenceInput): InspiredesignEvidenceAuthority => {
   const diagnosticReasons = referenceDiagnosticReasons(reference);
-  if (hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons)) return "snapshot_ready";
   if (hasMotionReadyPinterestEvidence(reference, diagnosticReasons)) return "motion_ready";
+  if (hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons)) return "pin_media_ready";
+  if (hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons)) return "snapshot_ready";
   if (!isPinterestOwnedReferenceUrl(reference.url)) return "ranked_reference";
   return "diagnostic_only";
 };
@@ -778,6 +913,7 @@ const deriveCapturedVia = (reference: ReferenceInput): string[] => {
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   const hasSnapshotReadyEvidence = hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons);
   const hasMotionReadyEvidence = hasMotionReadyPinterestEvidence(reference, diagnosticReasons);
+  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons);
   if (reference.fetchStatus === "captured") methods.push("fetch");
   if (hasCleanSignal(reference.capture?.snapshot?.content)) methods.push("snapshot");
   if (hasUsableCloneCreativeEvidence(reference)) {
@@ -789,6 +925,8 @@ const deriveCapturedVia = (reference: ReferenceInput): string[] => {
     && (hasUsableCaptureEvidence(reference) || hasSnapshotReadyEvidence)
   ) methods.push("visual");
   if (hasSnapshotReadyEvidence) methods.push("snapshot_ready");
+  if (reference.capture?.pinMedia?.status === "captured" && hasPinMediaReadyEvidence) methods.push("pin_media");
+  if (hasPinMediaReadyEvidence) methods.push("pin_media_ready");
   if (reference.capture?.motion?.status === "captured" && hasMotionReadyEvidence) methods.push("motion");
   if (hasMotionReadyEvidence) methods.push("motion_ready");
   return methods;
@@ -803,6 +941,7 @@ const scoreReference = (
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   const hasSnapshotReadyEvidence = hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons);
   const hasMotionReadyEvidence = hasMotionReadyPinterestEvidence(reference, diagnosticReasons);
+  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons);
   if (reference.fetchStatus === "captured") score += SCORE_FETCH_CAPTURED;
   if (
     reference.captureStatus === "captured"
@@ -810,6 +949,7 @@ const scoreReference = (
       hasUsableCaptureEvidence(reference)
       || hasSnapshotReadyEvidence
       || hasMotionReadyEvidence
+      || hasPinMediaReadyEvidence
     )
   ) {
     score += SCORE_CAPTURE_CAPTURED;
@@ -819,7 +959,8 @@ const scoreReference = (
     && (hasUsableCaptureEvidence(reference) || hasSnapshotReadyEvidence)
   ) score += SCORE_VISUAL_CAPTURED;
   if (hasMotionReadyEvidence) score += SCORE_VISUAL_CAPTURED;
-  if (hasSnapshotReadyEvidence || hasCleanSignal(reference.capture?.snapshot?.content)) score += SCORE_SNAPSHOT;
+  if (hasPinMediaReadyEvidence) score += SCORE_VISUAL_CAPTURED;
+  if (hasSnapshotReadyEvidence || hasPinMediaReadyEvidence || hasCleanSignal(reference.capture?.snapshot?.content)) score += SCORE_SNAPSHOT;
   if (hasUsableCloneCreativeEvidence(reference)) score += SCORE_CLONE;
   if (hasCleanSignal(textFromHtml(reference.capture?.dom?.outerHTML))) score += SCORE_DOM;
   if (isPublicLanding) score += SCORE_PUBLIC_LANDING;
@@ -835,9 +976,14 @@ const deriveVisualStrengths = (
   reference: ReferenceInput,
   patterns: string[]
 ): string[] => {
+  const diagnosticReasons = referenceDiagnosticReasons(reference);
+  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons);
   const strengths = [
     ...(reference.capture?.visual?.status === "captured"
       ? ["Screenshot artifact is available for direct visual inspection."]
+      : []),
+    ...(hasPinMediaReadyEvidence
+      ? ["Manifest-ready Pinterest pin media artifact is available for still-image direction."]
       : []),
     ...(reference.capture?.snapshot?.content.trim()
       ? ["Snapshot text confirms visible hierarchy and interaction targets."]
@@ -859,6 +1005,13 @@ const deriveVisualRisks = (reference: ReferenceInput): string[] => {
       ? [`Screenshot failure: ${reference.capture.visual.failure}.`]
       : []),
     ...(reference.capture?.visual?.warnings ?? []).map((warning) => `Screenshot warning: ${warning}.`),
+    ...(isPinterestProductCandidateReferenceUrl(reference.url) && reference.capture?.pinMedia?.status !== "captured"
+      ? ["No finalized Pinterest pin media artifact, so pin-media claims must stay conservative."]
+      : []),
+    ...(reference.capture?.pinMedia?.status === "failed" && reference.capture.pinMedia.failure
+      ? [`Pinterest pin media failure: ${reference.capture.pinMedia.failure}.`]
+      : []),
+    ...(reference.capture?.pinMedia?.warnings ?? []).map((warning) => `Pinterest pin media warning: ${warning}.`),
     ...(reference.fetchStatus !== "captured"
       ? ["Fetch evidence failed or was skipped, so use browser capture cautiously."]
       : [])
@@ -869,11 +1022,14 @@ const deriveVisualRisks = (reference: ReferenceInput): string[] => {
 };
 
 const selectionReasonForScore = (score: number, capturedVia: string[]): string => {
-  if (capturedVia.includes("snapshot_ready")) {
-    return `Ranked for snapshot-ready Pinterest screenshot evidence plus ${capturedVia.join(", ")} capture.`;
-  }
   if (capturedVia.includes("motion_ready")) {
     return `Ranked for motion-ready Pinterest screencast evidence plus ${capturedVia.join(", ")} capture.`;
+  }
+  if (capturedVia.includes("pin_media_ready")) {
+    return `Ranked for manifest-ready Pinterest pin media evidence plus ${capturedVia.join(", ")} capture.`;
+  }
+  if (capturedVia.includes("snapshot_ready")) {
+    return `Ranked for snapshot-ready Pinterest screenshot evidence plus ${capturedVia.join(", ")} capture.`;
   }
   if (capturedVia.includes("visual")) {
     return `Ranked for screenshot-backed visual evidence plus ${capturedVia.join(", ")} capture.`;
@@ -1002,7 +1158,8 @@ const deriveReferenceEntry = (
   const capturedVia = deriveCapturedVia(reference);
   const evidenceAuthority = evidenceAuthorityForReference(reference);
   const hasPinterestEvidenceAuthority = evidenceAuthority === "snapshot_ready"
-    || evidenceAuthority === "motion_ready";
+    || evidenceAuthority === "motion_ready"
+    || evidenceAuthority === "pin_media_ready";
   const intentMatched = hasPinterestEvidenceAuthority
     || hasBriefIntentMatch(signals, format, briefText);
   const rawScore = scoreReference(reference, signals, isPublicLanding);
@@ -1076,6 +1233,7 @@ const hasCapturedEvidence = (reference: ReferenceInput): boolean => (
   reference.captureStatus === "captured"
   || reference.capture?.visual?.status === "captured"
   || reference.capture?.motion?.status === "captured"
+  || reference.capture?.pinMedia?.status === "captured"
 );
 
 const capturedButRejectedReason = (reference: ReferenceInput, diagnosticReasons: string[]): string => {
@@ -1083,7 +1241,7 @@ const capturedButRejectedReason = (reference: ReferenceInput, diagnosticReasons:
     return `Captured browser evidence was rejected because it only exposed diagnostic signals: ${diagnosticReasons.join(", ")}.`;
   }
   if (isPinterestProductCandidateReferenceUrl(reference.url) && !hasAuthoritativePinterestMediaEvidence(reference, diagnosticReasons)) {
-    return "Captured Pinterest media was rejected because it lacks snapshot-ready or motion-ready evidence.";
+    return "Captured Pinterest media was rejected because it lacks snapshot-ready, pin-media-ready, or motion-ready evidence.";
   }
   return "Captured browser evidence was rejected because it did not contain usable creative reference evidence.";
 };
@@ -1118,9 +1276,14 @@ const hasMotionReadyReferenceEvidence = (reference: ReferenceInput): boolean => 
   hasMotionReadyPinterestEvidence(reference, referenceDiagnosticReasons(reference))
 );
 
+const hasPinMediaReadyReferenceEvidence = (reference: ReferenceInput): boolean => (
+  hasPinMediaReadyPinterestEvidence(reference, referenceDiagnosticReasons(reference))
+);
+
 const isMissingRequiredScreenshotAttempt = (reference: ReferenceInput): boolean => (
   !isVideoPinReference(reference)
   && !hasMotionReadyReferenceEvidence(reference)
+  && !hasPinMediaReadyReferenceEvidence(reference)
   && reference.capture?.visual?.status !== "captured"
 );
 
@@ -1223,7 +1386,9 @@ const hasDesignReferenceVisualOrMotionEvidence = (
   reference: InspiredesignReferencePatternBoard["references"][number]
 ): boolean => (
   reference.capturedVia.includes("visual")
+  || reference.capturedVia.includes("pin_media_ready")
   || reference.capturedVia.includes("motion_ready")
+  || reference.evidenceAuthority === "pin_media_ready"
   || reference.evidenceAuthority === "motion_ready"
 );
 

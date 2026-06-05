@@ -1,8 +1,8 @@
 import { createHash } from "crypto";
 import { constants as fsConstants } from "fs";
-import { lstat, mkdtemp, open, readFile, readdir, rm, type FileHandle } from "fs/promises";
+import { lstat, mkdtemp, open, readFile, readdir, realpath, rm, type FileHandle } from "fs/promises";
 import { tmpdir } from "os";
-import { isAbsolute, join, relative, resolve } from "path";
+import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { createArtifactBundle, type ArtifactFile } from "./artifacts";
 import { resolveWorkflowArtifactRoot } from "./workflow-output-root";
 import {
@@ -150,6 +150,7 @@ import {
 import { resolveInspiredesignHarvestCaptureMode } from "../inspiredesign/capture-mode";
 import {
   classifyPinterestCandidate,
+  isCanonicalPinterestPinUrl,
   resolvePinterestPrimaryCaptureStrategy,
   type PinterestMediaClassification
 } from "../inspiredesign/pinterest-media-classification";
@@ -163,10 +164,22 @@ import {
   type InspiredesignPersistedMotionEvidence
 } from "../inspiredesign/motion-evidence";
 import {
+  buildInspiredesignPinterestPinMediaIndexEntry,
+  buildPinterestPinMediaEvidenceArtifactPath,
+  extensionForPinterestPinMediaContentType,
+  inspectPinterestPinMediaBuffer,
+  persistInspiredesignPinterestPinMediaEvidence,
+  sanitizeInspiredesignPinterestPinMediaReferenceId,
+  verifyPinterestPinMediaPersistedBytes,
+  type InspiredesignPersistedPinterestPinMediaEvidence,
+  type InspiredesignPinterestPinMediaRuntimeMetadata
+} from "../inspiredesign/pinterest-pin-media-evidence";
+import {
   buildInspiredesignProductReadinessFields,
+  countInspiredesignArtifactBackedEvidenceAuthorities,
+  countInspiredesignAuthoritativePinterestReferences,
   hasActiveInspiredesignCanvasDoNotProceedBlocker,
   isInspiredesignAuthoritativeRankedReference,
-	isInspiredesignPinterestOwnedReferenceUrl,
   isInspiredesignPinterestPinReferenceUrl
 } from "../inspiredesign/product-readiness";
 import { runBrowserNativeDiscovery, type BrowserNativeDiscoveryResult } from "./browser-native-discovery";
@@ -306,6 +319,18 @@ export type InspiredesignWorkflowMotionCaptureOptions = {
   cookieSource?: ProviderCookieSourceConfig;
 };
 
+export type InspiredesignWorkflowPinMediaCaptureOptions = {
+  referenceId: string;
+  pinMediaEvidencePath: string;
+  timeoutMs?: number;
+  browserMode?: WorkflowBrowserMode;
+  useCookies?: boolean;
+  challengeAutomationMode?: ChallengeAutomationMode;
+  cookiePolicyOverride?: ProviderCookiePolicy;
+  cookieSource?: ProviderCookieSourceConfig;
+  pinterestPageQuality?: PinterestMediaClassification["sourcePageQuality"];
+};
+
 export interface InspiredesignWorkflowOptions {
   captureReference?: (
     url: string,
@@ -319,6 +344,10 @@ export interface InspiredesignWorkflowOptions {
     url: string,
     options: InspiredesignWorkflowMotionCaptureOptions
   ) => Promise<InspiredesignMotionEvidenceRuntimeMetadata | undefined>;
+  capturePinMediaEvidence?: (
+    url: string,
+    options: InspiredesignWorkflowPinMediaCaptureOptions
+  ) => Promise<InspiredesignPinterestPinMediaRuntimeMetadata | undefined>;
 }
 
 type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited" | "transcript_unavailable";
@@ -1191,6 +1220,13 @@ export const workflowTestUtils = {
     result: ProviderAggregateResult
   ): ProviderFailureEntry[] => failureFromInspiredesignFetchError(result),
   isPinterestWorkflowReferenceUrl: (value: string): boolean => isPinterestWorkflowReferenceUrl(value),
+  buildPinMediaTempCapturePath: (pinMediaTempRoot: string, referenceId: string): string =>
+    buildPinMediaTempCapturePath(pinMediaTempRoot, referenceId),
+  trustedPinMediaTempPath: (
+    pinMediaTempRoot: string | undefined,
+    referenceId: string,
+    tempPath: string | undefined
+  ): Promise<string | undefined> => trustedPinMediaTempPath(pinMediaTempRoot, referenceId, tempPath),
   sanitizeProductBrandCandidate: (candidate: string | undefined, productUrl: string): string | undefined =>
     sanitizeProductBrandCandidate(candidate, productUrl),
   extractProductBrandFromTitle: (title: string | undefined, productUrl: string): string | undefined =>
@@ -1509,6 +1545,11 @@ type InspiredesignVisualArtifactCollation = {
 };
 
 type InspiredesignMotionArtifactCollation = {
+  references: InspiredesignReferenceEvidence[];
+  files: ArtifactFile[];
+};
+
+type InspiredesignPinMediaArtifactCollation = {
   references: InspiredesignReferenceEvidence[];
   files: ArtifactFile[];
 };
@@ -2326,6 +2367,17 @@ const mergeCaptureMotionEvidence = (
   };
 };
 
+const mergeCapturePinMediaEvidence = (
+  capture: InspiredesignCaptureEvidence | null | undefined,
+  pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | InspiredesignPersistedPinterestPinMediaEvidence | undefined
+): InspiredesignCaptureEvidence | null | undefined => {
+  if (!pinMedia) return capture;
+  return {
+    ...(capture ?? {}),
+    pinMedia
+  };
+};
+
 const isCapturedCaptureVisual = (
   visual: InspiredesignVisualEvidenceRuntimeMetadata | InspiredesignPersistedVisualEvidence | undefined
 ): boolean => visual?.status === "captured";
@@ -2350,7 +2402,8 @@ const mergeCaptureEvidence = (
     ...addon,
     attempts: addon.attempts ?? base.attempts,
     visual: selectMergedCaptureVisual(base.visual, addon.visual),
-    motion: addon.motion ?? base.motion
+    motion: addon.motion ?? base.motion,
+    pinMedia: addon.pinMedia ?? base.pinMedia
   };
 };
 
@@ -2360,7 +2413,7 @@ const isVisualPolicyBlockerDecision = (decision: InspiredesignVisualPolicyDecisi
 
 const buildMissingRequiredVisualEvidence = (
   failure: string,
-  _visualPlan: InspiredesignVisualCapturePlan
+  _visualPlan?: InspiredesignVisualCapturePlan
 ): InspiredesignVisualEvidenceRuntimeMetadata => ({
   status: "failed",
   kind: "viewport",
@@ -2403,27 +2456,57 @@ const buildFailedWorkflowPrimaryMotionEvidence = (
   diagnosticReasons: ["primary_motion_capture_failed"]
 });
 
+const buildFailedWorkflowPrimaryPinMediaEvidence = (
+	referenceId: string,
+	url: string,
+	failure: string
+): InspiredesignPinterestPinMediaRuntimeMetadata => ({
+	status: "failed",
+	kind: "image",
+	capturedAt: new Date().toISOString(),
+	referenceId,
+	url,
+	warnings: ["primary_pin_media_capture_failed"],
+	failure,
+	rejectionReasons: ["primary_pin_media_capture_failed"]
+});
+
 const getRequiredVisualEvidenceFailure = (
   workflowInput: InspiredesignResolvedInput,
   visualPlan: InspiredesignVisualCapturePlan,
-  capture: InspiredesignCaptureEvidence | null | undefined
+  capture: InspiredesignCaptureEvidence | null | undefined,
+  missingFailure = REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE
 ): string | undefined => {
   if (workflowInput.visualEvidence !== "required" || visualPlan.policy.status !== "allowed") return undefined;
   const visual = normalizeInspiredesignCaptureEvidence(capture)?.visual;
-  if (!visual && hasWorkflowProvisionalMotionEvidence(capture)) return undefined;
-  if (!visual) return REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE;
-  if (visual.status === "captured") return undefined;
-  return visual.failure ?? REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE;
+  if (visual?.status === "captured") return undefined;
+  if (hasWorkflowProvisionalNonVisualEvidence(capture)) return undefined;
+  if (!visual) return missingFailure;
+  return visual.failure ?? missingFailure;
 };
 
 const addRequiredVisualEvidenceFailure = (
   capture: InspiredesignCaptureEvidence | null | undefined,
-  visualPlan: InspiredesignVisualCapturePlan,
-  failure: string
+  visualPlan: InspiredesignVisualCapturePlan | undefined,
+  failure: string,
+  forceRequiredWarning = false
 ): InspiredesignCaptureEvidence | null | undefined => {
   const visual = normalizeInspiredesignCaptureEvidence(capture)?.visual;
-  if (visual) return capture;
-  return mergeCaptureVisualEvidence(capture, buildMissingRequiredVisualEvidence(failure, visualPlan));
+  if (visual?.status === "captured") return capture;
+  const missingVisual = buildMissingRequiredVisualEvidence(failure, visualPlan);
+  if (!visual) return mergeCaptureVisualEvidence(capture, missingVisual);
+  if (visual.status === "failed" && visual.failure && !forceRequiredWarning) {
+    return capture;
+  }
+  if (visual.status === "failed" && visual.failure && visual.warnings.includes("required_visual_evidence_missing")) {
+    return capture;
+  }
+  return mergeCaptureVisualEvidence(capture, {
+    ...visual,
+    status: "failed",
+    failure: visual.failure ?? missingVisual.failure,
+    warnings: Array.from(new Set([...visual.warnings, ...missingVisual.warnings]))
+  });
 };
 
 const VISUAL_TEMP_PATH_MISMATCH_FAILURE =
@@ -2556,6 +2639,31 @@ const isPinterestMotionFirstStrategy = (classification: PinterestMediaClassifica
   classification.kind === "video_pin"
 );
 
+const PINTEREST_PIN_MEDIA_CAPTURE_PAGE_QUALITIES = new Set<PinterestMediaClassification["sourcePageQuality"]>([
+	"chrome_only",
+	"login_challenge",
+	"pin_media",
+	"search_shell",
+	"unknown"
+]);
+
+const PINTEREST_PIN_MEDIA_CAPTURE_KINDS = new Set<PinterestMediaClassification["kind"]>([
+	"image_pin",
+	"login_challenge",
+	"shell",
+	"video_pin",
+	"unknown_pin"
+]);
+
+const shouldCapturePinterestPinMedia = (
+	url: string,
+	classification: PinterestMediaClassification
+): boolean => (
+	isCanonicalPinterestPinUrl(url)
+	&& PINTEREST_PIN_MEDIA_CAPTURE_KINDS.has(classification.kind)
+	&& PINTEREST_PIN_MEDIA_CAPTURE_PAGE_QUALITIES.has(classification.sourcePageQuality)
+);
+
 const PINTEREST_MEDIA_KINDS = new Set<PinterestMediaClassification["kind"]>([
   "image_pin",
   "video_pin",
@@ -2677,6 +2785,45 @@ const captureWorkflowMotionEvidence = async (
   }
 };
 
+const captureWorkflowPinMediaEvidence = async (
+	url: string,
+	workflowInput: InspiredesignResolvedInput,
+	capturePinMediaEvidence: InspiredesignWorkflowOptions["capturePinMediaEvidence"],
+	referenceId: string,
+	pinMediaEvidenceTempDir: string | undefined,
+	classification: PinterestMediaClassification,
+	timeoutMs?: number
+): Promise<InspiredesignPinterestPinMediaRuntimeMetadata | undefined> => {
+	if (!capturePinMediaEvidence || !pinMediaEvidenceTempDir) return undefined;
+	try {
+		const pinMediaEvidencePath = buildPinMediaTempCapturePath(pinMediaEvidenceTempDir, referenceId);
+		const metadata = await capturePinMediaEvidence(url, {
+			referenceId,
+			pinMediaEvidencePath,
+		timeoutMs,
+		browserMode: workflowInput.browserMode,
+		useCookies: workflowInput.useCookies,
+		challengeAutomationMode: workflowInput.challengeAutomationMode,
+		cookiePolicyOverride: workflowInput.cookiePolicyOverride,
+		cookieSource: workflowInput.cookieSource,
+		pinterestPageQuality: classification.sourcePageQuality
+	});
+	if (!metadata) return undefined;
+	return {
+		...metadata,
+		referenceId,
+		url,
+		pinterestPageQuality: metadata.pinterestPageQuality ?? classification.sourcePageQuality
+	};
+	} catch (error) {
+	return buildFailedWorkflowPrimaryPinMediaEvidence(
+		referenceId,
+		url,
+		detailFromWorkflowCaptureError(error, "Primary Pinterest pin media evidence capture failed.")
+	);
+	}
+};
+
 const WORKFLOW_MOTION_REPLAY_ARTIFACT_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/replay\.json$/;
 const WORKFLOW_MOTION_PREVIEW_ARTIFACT_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/preview\.png$/;
 
@@ -2726,8 +2873,7 @@ const hasWorkflowPrimaryMotionDesignEvidence = (
         referenceId: reference.id,
         url: reference.url,
         motion: persistedMotion
-      }],
-      requireArtifactEvidence: true
+      }]
     }
   );
 };
@@ -2742,12 +2888,84 @@ const hasWorkflowProvisionalMotionEvidence = (
     && motion.diagnosticReasons.length === 0;
 };
 
+const hasWorkflowCapturedMotionEvidence = (
+  capture: InspiredesignCaptureEvidence | null | undefined
+): boolean => capture?.motion?.status === "captured";
+
+const hasWorkflowProvisionalPinMediaEvidence = (
+	capture: InspiredesignCaptureEvidence | null | undefined
+): boolean => {
+	const pinMedia = capture?.pinMedia;
+	if (pinMedia?.status !== "captured") return false;
+	return "tempPath" in pinMedia
+		&& typeof pinMedia.tempPath === "string"
+		&& pinMedia.tempPath.trim().length > 0
+		&& pinMedia.rejectionReasons.length === 0
+		&& !pinMedia.failure;
+};
+
+const hasWorkflowPrimaryPinMediaDesignEvidence = (
+	reference: InspiredesignReferenceEvidence
+): boolean => {
+	const pinMedia = reference.capture?.pinMedia;
+	if (!pinMedia || pinMedia.status !== "captured") return false;
+	const persistedPinMedia = persistInspiredesignPinterestPinMediaEvidence(pinMedia);
+	const pinMediaIndexEntry = buildInspiredesignPinterestPinMediaIndexEntry(persistedPinMedia);
+	if (!pinMediaIndexEntry) return false;
+	return isInspiredesignAuthoritativeRankedReference(
+		{
+		id: reference.id,
+		url: reference.url,
+		evidenceAuthority: "pin_media_ready"
+		},
+		{ pinMedia: [pinMediaIndexEntry] }
+	);
+};
+
+const PIN_MEDIA_FINALIZATION_FAILURE_REASONS = new Set([
+	"pin_media_temp_path_missing",
+	"pin_media_temp_path_mismatch",
+	"pin_media_temp_file_unavailable",
+	"pin_media_temp_file_too_large",
+	"unsupported_byte_signature",
+	"unsupported_declared_content_type"
+]);
+
+const hasWorkflowPinMediaFinalizationFailure = (
+	reference: InspiredesignReferenceEvidence
+): boolean => {
+	const pinMedia = reference.capture?.pinMedia;
+	if (!pinMedia || pinMedia.status !== "failed") return false;
+	return pinMedia.rejectionReasons.some((reason) => PIN_MEDIA_FINALIZATION_FAILURE_REASONS.has(reason));
+};
+
+const hasWorkflowProvisionalNonVisualEvidence = (
+	capture: InspiredesignCaptureEvidence | null | undefined
+): boolean => (
+	hasWorkflowProvisionalMotionEvidence(capture)
+	|| hasWorkflowProvisionalPinMediaEvidence(capture)
+);
+
 const hasWorkflowProvisionalPrimaryEvidence = (
   capture: InspiredesignCaptureEvidence | null | undefined
 ): boolean => {
   const visual = capture?.visual;
-  return visual?.status === "captured" || hasWorkflowProvisionalMotionEvidence(capture);
+	const pinMedia = capture?.pinMedia;
+	return visual?.status === "captured"
+	|| pinMedia?.status === "captured"
+	|| hasWorkflowProvisionalNonVisualEvidence(capture);
 };
+
+const shouldFailRequiredVisualEvidence = (
+  reference: InspiredesignReferenceEvidence,
+  persistedVisual: InspiredesignVisualEvidenceRuntimeMetadata | InspiredesignPersistedVisualEvidence
+): boolean => (
+  !isPolicySkippedVisualEvidence(persistedVisual)
+  && reference.captureStatus !== "off"
+  && !hasWorkflowCapturedMotionEvidence(reference.capture)
+  && !hasWorkflowPrimaryMotionDesignEvidence(reference)
+  && !hasWorkflowPrimaryPinMediaDesignEvidence(reference)
+);
 
 const captureInspiredesignReference = async (
   url: string,
@@ -2776,18 +2994,20 @@ const captureInspiredesignReference = async (
     };
   }
   if (!captureReference) {
-    const visualFailureMetadata = visualPolicyMetadata
-      ?? (workflowInput.visualEvidence === "required"
-        && visualPlan.policy.status === "allowed"
-        && !primaryCapture?.visual
-        && !hasWorkflowProvisionalMotionEvidence(primaryCapture)
-        ? buildMissingRequiredVisualEvidence(INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE, visualPlan)
-        : undefined);
-    const capture = mergeCaptureEvidence(
+    const unavailableCapture = mergeCaptureEvidence(
       primaryCapture,
-      mergeCaptureVisualEvidence(buildUnavailableInspiredesignCaptureEvidence(), visualFailureMetadata)
+      mergeCaptureVisualEvidence(buildUnavailableInspiredesignCaptureEvidence(), visualPolicyMetadata)
     );
-    return hasWorkflowProvisionalPrimaryEvidence(capture)
+    const requiredVisualFailure = getRequiredVisualEvidenceFailure(
+      workflowInput,
+      visualPlan,
+      unavailableCapture,
+      INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE
+    );
+    const capture = requiredVisualFailure
+      ? addRequiredVisualEvidenceFailure(unavailableCapture, visualPlan, requiredVisualFailure)
+      : unavailableCapture;
+    return hasWorkflowProvisionalPrimaryEvidence(capture) || hasWorkflowCapturedMotionEvidence(capture)
       ? { captureStatus: "captured", capture }
       : {
         captureStatus: "failed",
@@ -2843,7 +3063,7 @@ const captureInspiredesignReference = async (
     const visualFailureMetadata = visualPolicyMetadata
       ?? (workflowInput.visualEvidence === "required"
         && visualPlan.policy.status === "allowed"
-        && !hasWorkflowProvisionalMotionEvidence(primaryCapture)
+        && !hasWorkflowProvisionalNonVisualEvidence(primaryCapture)
         ? buildMissingRequiredVisualEvidence(captureFailure, visualPlan)
         : undefined);
     const failedDeepCapture = mergeCaptureVisualEvidence(
@@ -3041,9 +3261,13 @@ const buildInspiredesignReference = (
     ? mergeCaptureVisualEvidence(baseCapture, runtimeVisual)
     : baseCapture;
   const runtimeMotion = capture.capture?.motion as InspiredesignMotionEvidenceRuntimeMetadata | undefined;
-  const normalizedCapture = runtimeMotion?.outputDir
+	const captureWithRuntimeMotion = runtimeMotion?.outputDir
     ? mergeCaptureMotionEvidence(captureWithRuntimeVisual, runtimeMotion)
     : captureWithRuntimeVisual;
+	const runtimePinMedia = capture.capture?.pinMedia as InspiredesignPinterestPinMediaRuntimeMetadata | undefined;
+	const normalizedCapture = runtimePinMedia?.tempPath
+	? mergeCapturePinMediaEvidence(captureWithRuntimeMotion, runtimePinMedia)
+	: captureWithRuntimeMotion;
   const title = normalizePlainText(primary?.title) || titleFromInspiredesignCapture(normalizedCapture);
   const excerpt = excerptFromInspiredesignRecord(primary)
     ?? excerptFromInspiredesignCapture(normalizedCapture);
@@ -3087,22 +3311,49 @@ const finalizeInspiredesignReferenceVisual = async (
 ): Promise<{ reference: InspiredesignReferenceEvidence; file?: ArtifactFile }> => {
   const visual = reference.capture?.visual;
   if (!visual) {
-    return { reference };
+    if (visualEvidence !== "required") return { reference };
+    if (reference.captureStatus === "off") return { reference };
+    const missingVisual = buildMissingRequiredVisualEvidence(REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE);
+    const referenceWithMissingVisual = {
+      ...reference,
+      capture: mergeCaptureVisualEvidence(reference.capture, missingVisual)
+    };
+    return {
+      reference: failReferenceForRequiredVisualEvidence(
+        referenceWithMissingVisual,
+        REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE,
+        visualEvidence,
+        !hasWorkflowPrimaryMotionDesignEvidence(referenceWithMissingVisual)
+          && !hasWorkflowPrimaryPinMediaDesignEvidence(referenceWithMissingVisual)
+      )
+    };
   }
   const runtimeVisual = visual as InspiredesignVisualEvidenceRuntimeMetadata;
   if (visual.status !== "captured" || !runtimeVisual.tempPath) {
     const persisted = persistInspiredesignVisualEvidence(visual);
-    const referenceWithPersistedVisual = {
+    const initialReferenceWithPersistedVisual = {
       ...reference,
       capture: mergeCaptureVisualEvidence(reference.capture, persisted)
     };
+    const shouldFail = shouldFailRequiredVisualEvidence(initialReferenceWithPersistedVisual, persisted);
+    const forceRequiredWarning = hasWorkflowPinMediaFinalizationFailure(initialReferenceWithPersistedVisual);
+    const referenceWithPersistedVisual = shouldFail
+      ? {
+        ...initialReferenceWithPersistedVisual,
+        capture: addRequiredVisualEvidenceFailure(
+          initialReferenceWithPersistedVisual.capture,
+          undefined,
+          REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE,
+          forceRequiredWarning
+        )
+      }
+      : initialReferenceWithPersistedVisual;
     return {
       reference: failReferenceForRequiredVisualEvidence(
         referenceWithPersistedVisual,
         persisted.failure ?? REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE,
         visualEvidence,
-        !isPolicySkippedVisualEvidence(persisted)
-          && !hasWorkflowPrimaryMotionDesignEvidence(referenceWithPersistedVisual)
+        shouldFail
       )
     };
   }
@@ -3138,16 +3389,29 @@ const finalizeInspiredesignReferenceVisual = async (
       warnings: [...readRuntimeVisualWarnings(runtimeVisual), "finalize_failed"],
       failure
     });
-    const referenceWithPersistedVisual = {
+    const initialReferenceWithPersistedVisual = {
       ...reference,
       capture: mergeCaptureVisualEvidence(reference.capture, persisted)
     };
+    const shouldFail = shouldFailRequiredVisualEvidence(initialReferenceWithPersistedVisual, persisted);
+    const forceRequiredWarning = hasWorkflowPinMediaFinalizationFailure(initialReferenceWithPersistedVisual);
+    const referenceWithPersistedVisual = shouldFail
+      ? {
+        ...initialReferenceWithPersistedVisual,
+        capture: addRequiredVisualEvidenceFailure(
+          initialReferenceWithPersistedVisual.capture,
+          undefined,
+          failure,
+          forceRequiredWarning
+        )
+      }
+      : initialReferenceWithPersistedVisual;
     return {
       reference: failReferenceForRequiredVisualEvidence(
         referenceWithPersistedVisual,
         failure,
         visualEvidence,
-        !hasWorkflowPrimaryMotionDesignEvidence(referenceWithPersistedVisual)
+        shouldFail
       )
     };
   }
@@ -3164,6 +3428,258 @@ const finalizeInspiredesignVisualArtifacts = async (
     references: finalized.map((entry) => entry.reference),
     files: finalized.map((entry) => entry.file).filter((file): file is ArtifactFile => Boolean(file))
   };
+};
+
+const PIN_MEDIA_RUNTIME_OPEN_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+const PIN_MEDIA_RUNTIME_MAX_BYTES = 20_000_000;
+const PIN_MEDIA_RUNTIME_READ_CHUNK_BYTES = 65_536;
+const PIN_MEDIA_RUNTIME_TOO_LARGE_REASON = "pin_media_temp_file_too_large";
+
+export type PinMediaRuntimeReadableFile = {
+  read: (
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number | null
+  ) => Promise<{ bytesRead: number; buffer: Buffer }>;
+};
+
+const assertPinMediaRuntimeFileSize = (size: number): void => {
+  if (size > PIN_MEDIA_RUNTIME_MAX_BYTES) {
+    throw new Error(PIN_MEDIA_RUNTIME_TOO_LARGE_REASON);
+  }
+};
+
+const trustedPinMediaTempPath = async (
+	pinMediaTempRoot: string | undefined,
+  referenceId: string,
+  tempPath: string | undefined
+): Promise<string | undefined> => {
+	if (!tempPath || !pinMediaTempRoot) return undefined;
+	const expectedPath = buildPinMediaTempCapturePath(pinMediaTempRoot, referenceId);
+  const absolutePath = resolve(tempPath);
+	if (absolutePath !== expectedPath || !isPathInsideRoot(pinMediaTempRoot, absolutePath)) return undefined;
+	return await hasTrustedPinMediaTempParent(pinMediaTempRoot, absolutePath)
+    ? absolutePath
+    : undefined;
+};
+
+const hasTrustedPinMediaTempParent = async (
+  pinMediaTempRoot: string,
+  absolutePath: string
+): Promise<boolean> => {
+  const [currentRoot, currentParent] = await Promise.all([
+    realpath(pinMediaTempRoot).catch(() => undefined),
+    realpath(dirname(absolutePath)).catch(() => undefined)
+  ]);
+  return currentRoot === pinMediaTempRoot && currentParent === pinMediaTempRoot;
+};
+
+const buildPinMediaTempCapturePath = (
+  pinMediaTempRoot: string,
+  referenceId: string
+): string => {
+  const safeReferenceId = sanitizeInspiredesignPinterestPinMediaReferenceId(referenceId);
+  const absolutePath = resolve(pinMediaTempRoot, `${safeReferenceId}-pin-media`);
+  if (!isPathInsideRoot(pinMediaTempRoot, absolutePath)) {
+    throw new Error("Pinterest pin media temp path escaped the workflow temp root.");
+  }
+  return absolutePath;
+};
+
+export const readBoundedPinMediaRuntimeFile = async (file: PinMediaRuntimeReadableFile): Promise<Buffer> => {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const remainingBytes = PIN_MEDIA_RUNTIME_MAX_BYTES + 1 - totalBytes;
+    const readLength = Math.min(PIN_MEDIA_RUNTIME_READ_CHUNK_BYTES, remainingBytes);
+    const chunk = Buffer.allocUnsafe(readLength);
+    const { bytesRead } = await file.read(chunk, 0, readLength, null);
+    if (bytesRead === 0) break;
+    totalBytes += bytesRead;
+    if (totalBytes > PIN_MEDIA_RUNTIME_MAX_BYTES) {
+      throw new Error(PIN_MEDIA_RUNTIME_TOO_LARGE_REASON);
+    }
+    chunks.push(chunk.subarray(0, bytesRead));
+  }
+  return Buffer.concat(chunks, totalBytes);
+};
+
+const readTrustedPinMediaRuntimeFile = async (
+  pinMediaTempRoot: string,
+  absolutePath: string
+): Promise<Buffer> => {
+  if (!await hasTrustedPinMediaTempParent(pinMediaTempRoot, absolutePath)) {
+    throw new Error("Pinterest pin media temp path parent was not trusted.");
+  }
+  const before = await lstat(absolutePath);
+  if (!before.isFile()) throw new Error("Pinterest pin media temp path was not a file.");
+  assertPinMediaRuntimeFileSize(before.size);
+  const file = await open(absolutePath, PIN_MEDIA_RUNTIME_OPEN_FLAGS);
+  try {
+    const opened = await file.stat();
+    if (!sameRuntimeFileIdentity(before, opened)) {
+      throw new Error("Pinterest pin media temp file identity changed before read.");
+    }
+    if (!await hasTrustedPinMediaTempParent(pinMediaTempRoot, absolutePath)) {
+      throw new Error("Pinterest pin media temp path parent changed before read.");
+    }
+    const currentPathStat = await lstat(absolutePath);
+    if (!sameRuntimeFileIdentity(opened, currentPathStat)) {
+      throw new Error("Pinterest pin media temp file path changed before read.");
+    }
+    assertPinMediaRuntimeFileSize(opened.size);
+    const buffer = await readBoundedPinMediaRuntimeFile(file);
+    const after = await file.stat();
+    if (!sameRuntimeFileIdentity(opened, after)) {
+      throw new Error("Pinterest pin media temp file identity changed after read.");
+    }
+    const finalPathStat = await lstat(absolutePath);
+    if (!sameRuntimeFileIdentity(after, finalPathStat)) {
+      throw new Error("Pinterest pin media temp file path changed after read.");
+    }
+    if (!await hasTrustedPinMediaTempParent(pinMediaTempRoot, absolutePath)) {
+      throw new Error("Pinterest pin media temp path parent changed after read.");
+    }
+    assertPinMediaRuntimeFileSize(after.size);
+    return buffer;
+  } finally {
+    await file.close();
+  }
+};
+
+const failReferencePinMediaFinalization = (
+	reference: InspiredesignReferenceEvidence,
+	pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | InspiredesignPersistedPinterestPinMediaEvidence,
+	failure: string,
+	reason: string
+): InspiredesignReferenceEvidence => {
+	const persisted = persistInspiredesignPinterestPinMediaEvidence({
+	...pinMedia,
+	status: "failed",
+	warnings: [...pinMedia.warnings, reason],
+	failure,
+	rejectionReasons: [...pinMedia.rejectionReasons, reason]
+	});
+	return {
+	...reference,
+	capture: mergeCapturePinMediaEvidence(reference.capture, persisted)
+	};
+};
+
+const finalizeInspiredesignReferencePinMedia = async (
+	reference: InspiredesignReferenceEvidence,
+	pinMediaTempRoot: string | undefined
+): Promise<{ reference: InspiredesignReferenceEvidence; file?: ArtifactFile }> => {
+	const pinMedia = reference.capture?.pinMedia;
+	if (!pinMedia) return { reference };
+	const runtimePinMedia = pinMedia as InspiredesignPinterestPinMediaRuntimeMetadata;
+	if (pinMedia.status !== "captured") {
+	return {
+		reference: {
+		...reference,
+		capture: mergeCapturePinMediaEvidence(
+			reference.capture,
+			persistInspiredesignPinterestPinMediaEvidence(pinMedia)
+		)
+		}
+	};
+	}
+	if (!runtimePinMedia.tempPath) {
+	return {
+		reference: failReferencePinMediaFinalization(
+		reference,
+		runtimePinMedia,
+		"Pinterest pin media temp path was not provided by the capture runtime.",
+		"pin_media_temp_path_missing"
+		)
+	};
+	}
+		const trustedTempPath = await trustedPinMediaTempPath(pinMediaTempRoot, reference.id, runtimePinMedia.tempPath);
+		if (!pinMediaTempRoot || !trustedTempPath) {
+	return {
+		reference: failReferencePinMediaFinalization(
+		reference,
+		runtimePinMedia,
+		"Pinterest pin media temp path did not match the workflow capture plan.",
+		"pin_media_temp_path_mismatch"
+		)
+	};
+	}
+	try {
+	const buffer = await readTrustedPinMediaRuntimeFile(pinMediaTempRoot, trustedTempPath);
+	const byteInspection = inspectPinterestPinMediaBuffer(buffer);
+	if (!byteInspection.contentType) {
+		return {
+			reference: failReferencePinMediaFinalization(
+			reference,
+			runtimePinMedia,
+			"Pinterest pin media bytes did not match a supported image format.",
+			byteInspection.reasons[0] ?? "unsupported_byte_signature"
+			)
+		};
+	}
+	const artifactPath = buildPinterestPinMediaEvidenceArtifactPath(
+	reference.id,
+	runtimePinMedia.kind,
+	extensionForPinterestPinMediaContentType(byteInspection.contentType)
+	);
+	const byteBackedPinMedia = {
+		...runtimePinMedia,
+		...(byteInspection.width ? { width: byteInspection.width } : {}),
+		...(byteInspection.height ? { height: byteInspection.height } : {})
+	};
+	const persisted = persistInspiredesignPinterestPinMediaEvidence(byteBackedPinMedia, {
+		artifactPath,
+		buffer
+	});
+	const verification = verifyPinterestPinMediaPersistedBytes(persisted, buffer);
+	const verified = verification.ok
+		? persisted
+		: persistInspiredesignPinterestPinMediaEvidence({
+		...persisted,
+		rejectionReasons: [...persisted.rejectionReasons, ...verification.reasons]
+		}, {
+		artifactPath,
+		sha256: verification.sha256,
+		bytes: verification.bytes
+		});
+	const file = verified.authority === "design_evidence" && verified.rejectionReasons.length === 0
+		? { path: artifactPath, content: buffer }
+		: undefined;
+	return {
+		reference: {
+		...reference,
+		capture: mergeCapturePinMediaEvidence(reference.capture, verified)
+		},
+		...(file ? { file } : {})
+	};
+	} catch (error) {
+	const tempFileTooLarge = error instanceof Error && error.message === PIN_MEDIA_RUNTIME_TOO_LARGE_REASON;
+	return {
+		reference: failReferencePinMediaFinalization(
+		reference,
+		runtimePinMedia,
+		tempFileTooLarge
+			? `Pinterest pin media temp file exceeded ${PIN_MEDIA_RUNTIME_MAX_BYTES} bytes.`
+			: "Pinterest pin media temp file was unavailable.",
+		tempFileTooLarge ? PIN_MEDIA_RUNTIME_TOO_LARGE_REASON : "pin_media_temp_file_unavailable"
+		)
+	};
+	}
+};
+
+const finalizeInspiredesignPinMediaArtifacts = async (
+	references: InspiredesignReferenceEvidence[],
+	pinMediaTempRoot: string | undefined
+): Promise<InspiredesignPinMediaArtifactCollation> => {
+	const finalized = await Promise.all(references.map((reference) => (
+	finalizeInspiredesignReferencePinMedia(reference, pinMediaTempRoot)
+	)));
+	return {
+	references: finalized.map((entry) => entry.reference),
+	files: finalized.map((entry) => entry.file).filter((file): file is ArtifactFile => Boolean(file))
+	};
 };
 
 type InspiredesignMotionRuntimeFileCollection = {
@@ -3900,7 +4416,7 @@ const buildInspiredesignGuidanceFollowthroughSummary = (
   return renderWorkflowCompatibility(nextStepGuidance, fallbackSummary).followthroughSummary;
 };
 
-const PRODUCT_READINESS_BLOCKED_SUMMARY = "Canvas continuation unavailable until ranked references include authoritative visual or motion evidence.";
+const PRODUCT_READINESS_BLOCKED_SUMMARY = "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.";
 const INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS = new Set<string>([
   INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
   INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance
@@ -5191,6 +5707,7 @@ export const runInspiredesignWorkflow = async (
     ? await mkdtemp(join(tmpdir(), "inspiredesign-visual-"))
     : undefined;
   let motionEvidenceTempDir: string | undefined;
+  let pinMediaEvidenceTempDir: string | undefined;
   try {
   const discovery = await discoverInspiredesignReferences(
     runtime,
@@ -5250,11 +5767,26 @@ export const runInspiredesignWorkflow = async (
       visualEvidenceTempDir
     );
     const classification = classifyPinterestReference(url, result);
+    const pinMediaFirst = shouldCapturePinterestPinMedia(url, classification);
     const visualFirst = isPinterestVisualFirstStrategy(classification);
     const motionFirst = isPinterestMotionFirstStrategy(classification);
+    if (pinMediaFirst && options.capturePinMediaEvidence && !pinMediaEvidenceTempDir) {
+      pinMediaEvidenceTempDir = await realpath(await mkdtemp(join(tmpdir(), "inspiredesign-pin-media-")));
+    }
     if (motionFirst && options.captureMotionEvidence && !motionEvidenceTempDir) {
       motionEvidenceTempDir = await mkdtemp(join(tmpdir(), "inspiredesign-motion-"));
     }
+    const pinMedia = pinMediaFirst
+      ? await captureWorkflowPinMediaEvidence(
+        url,
+        workflowInput,
+        options.capturePinMediaEvidence,
+        visualPlan.referenceId,
+        pinMediaEvidenceTempDir,
+        classification,
+        remainingTimeoutMs()
+      )
+      : undefined;
     const visual = visualFirst
       ? trustRuntimeVisualEvidence(
         await captureWorkflowVisualEvidence(
@@ -5277,9 +5809,12 @@ export const runInspiredesignWorkflow = async (
         remainingTimeoutMs()
       )
       : undefined;
-    const primaryCapture = mergeCaptureMotionEvidence(
-      mergeCaptureVisualEvidence(buildSkippedDeepDiagnosticsEvidence("Deep diagnostics did not run before primary media capture."), visual),
-      motion
+    const primaryCapture = mergeCapturePinMediaEvidence(
+      mergeCaptureMotionEvidence(
+        mergeCaptureVisualEvidence(buildSkippedDeepDiagnosticsEvidence("Deep diagnostics did not run before primary media capture."), visual),
+        motion
+      ),
+      pinMedia
     );
     const capture = await captureInspiredesignReference(
       url,
@@ -5288,7 +5823,7 @@ export const runInspiredesignWorkflow = async (
       options.captureReference,
       visualPlan,
       remainingTimeoutMs(),
-      visual || motion ? primaryCapture : undefined
+      visual || motion || pinMedia ? primaryCapture : undefined
     );
     const reference = buildInspiredesignReference(url, result, capture);
     references.push(reference);
@@ -5305,7 +5840,8 @@ export const runInspiredesignWorkflow = async (
     });
   }
   const motionCollation = await finalizeInspiredesignMotionArtifacts(references, motionEvidenceTempDir);
-	const visualCollation = await finalizeInspiredesignVisualArtifacts(motionCollation.references, workflowInput.visualEvidence);
+	const pinMediaCollation = await finalizeInspiredesignPinMediaArtifacts(motionCollation.references, pinMediaEvidenceTempDir);
+	const visualCollation = await finalizeInspiredesignVisualArtifacts(pinMediaCollation.references, workflowInput.visualEvidence);
 
   const packet = buildInspiredesignPacket({
     brief: workflowInput.brief,
@@ -5334,7 +5870,8 @@ export const runInspiredesignWorkflow = async (
   ));
   const persistedEvidenceArtifactPaths = new Set([
     ...visualCollation.files,
-    ...motionCollation.files
+    ...motionCollation.files,
+    ...pinMediaCollation.files
   ].map((file) => file.path));
   const manifestBackedScreenshotIndex = packet.screenshotIndex.filter((screenshot) => (
     typeof screenshot.path === "string" && persistedEvidenceArtifactPaths.has(screenshot.path)
@@ -5346,6 +5883,9 @@ export const runInspiredesignWorkflow = async (
       && persistedEvidenceArtifactPaths.has(motion.replay.path)
       && persistedEvidenceArtifactPaths.has(motion.preview.path);
   });
+  const manifestBackedPinMediaIndex = packet.pinMediaIndex.filter((pinMedia) => (
+    persistedEvidenceArtifactPaths.has(pinMedia.path)
+  ));
   const rankedPinterestReferenceCount = packet.rankedReferences.filter((reference) => (
     isInspiredesignPinterestPinReferenceUrl(reference.url)
   )).length;
@@ -5353,25 +5893,26 @@ export const runInspiredesignWorkflow = async (
   const rankedReferenceAuthorityArtifacts = {
     screenshots: manifestBackedScreenshotIndex,
     motions: manifestBackedMotionEvidence,
-    requireArtifactEvidence: true
+    pinMedia: manifestBackedPinMediaIndex
   };
-  const rankedSnapshotReadyReferenceCount = packet.rankedReferences.filter((reference) => (
-	(reference.evidenceAuthority === "snapshot_ready" || !isInspiredesignPinterestOwnedReferenceUrl(reference.url))
-	&& isInspiredesignAuthoritativeRankedReference(reference, {
-		screenshots: rankedReferenceAuthorityArtifacts.screenshots,
-		requireArtifactEvidence: true
-	})
-  )).length;
-  const rankedMotionReadyReferenceCount = packet.rankedReferences.filter((reference) => (
-	(reference.evidenceAuthority === "motion_ready" || !isInspiredesignPinterestOwnedReferenceUrl(reference.url))
-	&& isInspiredesignAuthoritativeRankedReference(reference, {
-		motions: rankedReferenceAuthorityArtifacts.motions,
-		requireArtifactEvidence: true
-	})
-  )).length;
+  const rankedEvidenceAuthorityCounts = countInspiredesignArtifactBackedEvidenceAuthorities({
+    rankedReferences: packet.rankedReferences,
+    screenshots: rankedReferenceAuthorityArtifacts.screenshots,
+    motions: rankedReferenceAuthorityArtifacts.motions,
+    pinMedia: rankedReferenceAuthorityArtifacts.pinMedia
+  });
+  const rankedSnapshotReadyReferenceCount = rankedEvidenceAuthorityCounts.snapshotReadyReferenceCount;
+  const rankedMotionReadyReferenceCount = rankedEvidenceAuthorityCounts.motionReadyReferenceCount;
+  const rankedPinMediaReadyReferenceCount = rankedEvidenceAuthorityCounts.pinMediaReadyReferenceCount;
   const rankedAuthoritativeReferenceCount = packet.rankedReferences.filter((reference) => (
     isInspiredesignAuthoritativeRankedReference(reference, rankedReferenceAuthorityArtifacts)
   )).length;
+  const rankedAuthoritativePinterestReferenceCount = countInspiredesignAuthoritativePinterestReferences({
+    rankedReferences: packet.rankedReferences,
+    screenshots: rankedReferenceAuthorityArtifacts.screenshots,
+    motions: rankedReferenceAuthorityArtifacts.motions,
+    pinMedia: rankedReferenceAuthorityArtifacts.pinMedia
+  });
   const productReadiness = buildInspiredesignProductReadinessFields(
     nextStepGuidance.readiness,
     packet.rankedReferences.length,
@@ -5387,7 +5928,9 @@ export const runInspiredesignWorkflow = async (
     rankedSnapshotReadyReferenceCount,
     rankedMotionReadyReferenceCount,
     rankedAuthoritativeReferenceCount,
-    pinterestEvidenceRequired
+    pinterestEvidenceRequired,
+    rankedPinMediaReadyReferenceCount,
+    rankedAuthoritativePinterestReferenceCount
   );
 	const quality = packet.referencePatternBoard.qualitySummary;
 	const existingMetrics = typeof meta.metrics === "object" && meta.metrics !== null && !Array.isArray(meta.metrics)
@@ -5439,6 +5982,9 @@ export const runInspiredesignWorkflow = async (
 	    motionEvidence: packet.motionEvidence,
 	    authorityScreenshotIndex: manifestBackedScreenshotIndex,
 	    authorityMotionEvidence: manifestBackedMotionEvidence,
+      pinMediaEvidence: packet.pinMediaEvidence,
+      pinMediaIndex: packet.pinMediaIndex,
+      authorityPinMediaIndex: manifestBackedPinMediaIndex,
 	    rankedReferences: packet.rankedReferences,
     referencePatternBoard: buildInspiredesignRankedArtifactPatternBoard(
       packet.generationPlan.referencePatternBoard,
@@ -5464,7 +6010,12 @@ export const runInspiredesignWorkflow = async (
 	    namespace: "inspiredesign",
 	    outputDir: artifactRoot,
 	    ttlHours: workflowInput.ttlHours,
-	    files: [...renderedFilesForBundle, ...visualCollation.files, ...motionCollation.files]
+	    files: [
+        ...renderedFilesForBundle,
+        ...visualCollation.files,
+        ...motionCollation.files,
+        ...pinMediaCollation.files
+      ]
 	  });
 
   if (workflowInput.mode === "path") {
@@ -5496,6 +6047,9 @@ export const runInspiredesignWorkflow = async (
     }
     if (motionEvidenceTempDir) {
       await rm(motionEvidenceTempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+    if (pinMediaEvidenceTempDir) {
+      await rm(pinMediaEvidenceTempDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 };

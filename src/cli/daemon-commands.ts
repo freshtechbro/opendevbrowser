@@ -12,6 +12,7 @@ import { resolveBundledProviderRuntime } from "../providers/runtime-bundle";
 import { buildBlockerArtifacts, classifyBlockerSignal } from "../providers/blocker";
 import {
   captureInspiredesignPrimaryMotionEvidenceFromManager,
+  captureInspiredesignPrimaryPinMediaEvidenceFromManager,
   captureInspiredesignPrimaryVisualEvidenceFromManager,
   captureInspiredesignReferenceFromManager
 } from "../inspiredesign/capture";
@@ -927,6 +928,11 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
             }),
           captureMotionEvidence: async (url, options) =>
             captureInspiredesignPrimaryMotionEvidenceFromManager(core.manager, url, {
+              ...options,
+              cookieSource: core.config.providers?.cookieSource
+            }),
+          capturePinMediaEvidence: async (url, options) =>
+            captureInspiredesignPrimaryPinMediaEvidenceFromManager(core.manager, url, {
               ...options,
               cookieSource: core.config.providers?.cookieSource
             })

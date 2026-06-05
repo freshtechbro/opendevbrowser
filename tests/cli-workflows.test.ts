@@ -856,7 +856,8 @@ describe("workflow CLI commands", () => {
       rankedReferenceCount: 2,
       authoritativeReferenceCount: 2,
       snapshotReadyReferenceCount: 2,
-      motionReadyReferenceCount: 0
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 0
     });
 
     const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
@@ -876,7 +877,8 @@ describe("workflow CLI commands", () => {
       rankedReferenceCount: 2,
       authoritativeReferenceCount: 2,
       snapshotReadyReferenceCount: 2,
-      motionReadyReferenceCount: 0
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 0
     }));
   });
 

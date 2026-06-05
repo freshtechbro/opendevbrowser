@@ -13,6 +13,7 @@ import {
 } from "../guidance/recipes/site-recipe-validation";
 import {
   captureInspiredesignPrimaryMotionEvidenceFromManager,
+  captureInspiredesignPrimaryPinMediaEvidenceFromManager,
   captureInspiredesignPrimaryVisualEvidenceFromManager,
   captureInspiredesignReferenceFromManager
 } from "../inspiredesign/capture";
@@ -30,7 +31,7 @@ const MAX_HARVEST_REFERENCES = 10;
 
 export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Run the inspiredesign workflow directly, including harvest query discovery and authoritative visual or motion evidence capture.",
+    description: "Run the inspiredesign workflow directly, including harvest query discovery and authoritative visual, motion, or pin-media evidence capture.",
     args: {
       brief: z.string().min(1).describe("Inspiredesign brief"),
       harvest: z.boolean().optional().describe("Enable visual harvest defaults for query-backed discovery"),
@@ -123,6 +124,11 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
             }),
           captureMotionEvidence: async (url, options) =>
             captureInspiredesignPrimaryMotionEvidenceFromManager(deps.manager, url, {
+              ...options,
+              cookieSource
+            }),
+          capturePinMediaEvidence: async (url, options) =>
+            captureInspiredesignPrimaryPinMediaEvidenceFromManager(deps.manager, url, {
               ...options,
               cookieSource
             })
