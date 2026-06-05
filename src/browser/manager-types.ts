@@ -81,6 +81,58 @@ export type BrowserScreenshotResult = {
   warnings?: string[];
 };
 
+export type BrowserPinterestPinMediaKind = "image" | "video_poster";
+
+export type BrowserPinterestPinMediaRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type BrowserPinterestPinMediaRejectedCandidate = {
+  kind: BrowserPinterestPinMediaKind;
+  mediaUrl?: string;
+  candidateSelector?: string;
+  candidateRole?: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+  rect?: BrowserPinterestPinMediaRect;
+  ancestry?: string[];
+  reasons: string[];
+};
+
+export type BrowserPinterestPinMediaOptions = {
+  targetId?: string | null;
+  path: string;
+  timeoutMs?: number;
+};
+
+export type BrowserPinterestPinMediaResult = {
+  status: "captured" | "not_found";
+  sourceUrl: string;
+  targetId: string;
+  kind?: BrowserPinterestPinMediaKind;
+  path?: string;
+  mediaUrl?: string;
+  contentType?: string;
+  bytes?: number;
+  candidateSelector?: string;
+  candidateRole?: string;
+  alt?: string;
+  srcset?: string;
+  width?: number;
+  height?: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  poster?: string;
+  rect?: BrowserPinterestPinMediaRect;
+  ancestry?: string[];
+  rejectedCandidates: BrowserPinterestPinMediaRejectedCandidate[];
+  warnings?: string[];
+};
+
 export type BrowserScreencastStartOptions = {
   targetId?: string | null;
   outputDir?: string;
@@ -300,6 +352,10 @@ export type BrowserManagerLike = Pick<BrowserManager,
     targetId?: string | null,
     options?: BrowserClonePageOptions
   ) => ReturnType<BrowserManager["clonePage"]>;
+  capturePinterestPinMedia?: (
+    sessionId: string,
+    options: BrowserPinterestPinMediaOptions
+  ) => Promise<BrowserPinterestPinMediaResult>;
   monitorScreencastCompletion?: (
     screencastId: string,
     listener: (result: BrowserScreencastResult) => void

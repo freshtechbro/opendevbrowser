@@ -276,6 +276,7 @@ describe("OpsBrowserManager", () => {
       cloneComponent: vi.fn().mockResolvedValue({ component: "component", css: "" }),
       perfMetrics: vi.fn().mockResolvedValue({ metrics: [] }),
       screenshot: vi.fn().mockResolvedValue({ path: "/tmp/base.png" }),
+      capturePinterestPinMedia: vi.fn().mockResolvedValue({ status: "not_found", sourceUrl: "https://example.com", targetId: "target-1", rejectedCandidates: [] }),
       consolePoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
       networkPoll: vi.fn().mockResolvedValue({ events: [], nextSeq: 0 }),
       listTargets: vi.fn().mockResolvedValue({ activeTargetId: null, targets: [] }),
@@ -327,6 +328,7 @@ describe("OpsBrowserManager", () => {
     await manager.cloneComponent("base-session", "ref-1");
     await manager.perfMetrics("base-session");
     await manager.screenshot("base-session", { path: "/tmp/base.png" });
+    await manager.capturePinterestPinMedia("base-session", { path: "/tmp/pin.jpg" });
     await manager.consolePoll("base-session", 0, 10);
     await manager.networkPoll("base-session", 0, 10);
     await manager.listTargets("base-session", true);
@@ -344,6 +346,7 @@ describe("OpsBrowserManager", () => {
     expect(base.cookieList).toHaveBeenCalledWith("base-session", ["https://example.com"], "req-base-list");
     expect(base.clonePageHtmlWithOptions).toHaveBeenCalledWith("base-session", null, { maxNodes: 2500 });
     expect(base.clonePageWithOptions).toHaveBeenCalledWith("base-session", null, { maxNodes: 2500 });
+    expect(base.capturePinterestPinMedia).toHaveBeenCalledWith("base-session", { path: "/tmp/pin.jpg" });
   });
 
   it("delegates pointer primitives to the base manager for non-ops sessions", async () => {

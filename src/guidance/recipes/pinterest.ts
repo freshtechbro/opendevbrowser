@@ -10,7 +10,7 @@ const pinterestGuidance: NextStepGuidance = {
   primaryAction: {
     id: "pinterest_browser_native_discovery",
     label: "Use Pinterest browser-native discovery",
-    summary: "Use a user-authorized signed-in Pinterest browser session when required, search Pinterest naturally, collect visual pins or boards, and reject full login walls, challenges, empty grids, and search-shell pages."
+    summary: "Use a user-authorized signed-in Pinterest browser session when required, search Pinterest naturally, recover authenticated canonical pin media evidence for concrete pins, and reject full login walls, challenges, boards, source pages, empty grids, unrelated providers, and search-shell pages."
   },
   commands: [{
     id: "pinterest-authenticated-harvest",
@@ -30,12 +30,17 @@ const pinterestGuidance: NextStepGuidance = {
   }],
   fieldExamples: [],
   artifactInputs: [
-    { path: "ranked-references.json", purpose: "Confirm accepted URLs are pins, boards, or idea pages with actual visual grids.", required: true },
-    { path: "visual-evidence.json", purpose: "Reject login, challenge, empty-grid, and search-shell screenshots.", required: true }
+    { path: "ranked-references.json", purpose: "Confirm accepted references are concrete Pinterest pins with snapshot_ready, motion_ready, or pin_media_ready authority before Canvas continuation.", required: true },
+    { path: "visual-evidence.json", purpose: "Reject login, challenge, empty-grid, and search-shell screenshots.", required: true },
+    { path: "screenshot-index.json", purpose: "Confirm screenshot paths exist when snapshot_ready evidence is claimed.", required: true },
+    { path: "motion-evidence.json", purpose: "Confirm screencast replay and preview paths exist when motion_ready evidence is claimed.", required: true },
+    { path: "pin-media-evidence.json", purpose: "Inspect persisted first-party Pinterest pin image or video-poster metadata for canonical pins; remote media URLs alone are not proof.", required: true },
+    { path: "pin-media-index.json", purpose: "Confirm pin_media_ready entries are manifest-backed before treating pin media as design evidence.", required: true }
   ],
   validationChecks: [
     { id: "pinterest-hosts", description: "Accepted URLs stay on Pinterest hosts.", assertion: "acceptedUrls.every(url => { const host = new URL(url).hostname; return host === \"pinterest.com\" || host.endsWith(\".pinterest.com\"); })" },
-    { id: "pinterest-visual-grid", description: "Screenshots show usable visual grids, pins, boards, or idea pages, not blocked UI." }
+    { id: "pinterest-canonical-pin-media", description: "Canonical pins continue only with manifest-backed screenshot, screencast, or first-party pin-media artifacts, not search shells, boards, source pages, or URL-only media." },
+    { id: "pinterest-visual-grid", description: "Screenshots show usable visual pin content, not blocked UI or unrelated provider pages." }
   ],
   fallbackPolicy: {
     allowed: false,
@@ -45,7 +50,8 @@ const pinterestGuidance: NextStepGuidance = {
   doNotProceedIf: [
     "Pinterest is logged out when cookies are required or protected by a challenge",
     "The signed-in Pinterest session was not explicitly authorized by the user",
-    "Captured page is only a search shell, login wall, or empty grid",
+    "Captured page is only a search shell, login wall, board, source page, unrelated provider, or empty grid",
+    "Pin-media evidence only records remote media URLs without persisted first-party bytes in pin-media-index.json",
     "No ranked Pinterest references remain after scoring"
   ]
 };
@@ -159,21 +165,23 @@ export const pinterestSiteRecipe: SiteRecipe = {
     { id: "open", instruction: "Open Pinterest in the requested browser mode." },
     { id: "verify-session", instruction: "Verify the page is logged in before searching when cookies are required." },
     { id: "search", instruction: "Use the Pinterest search box with the brief-specific visual query." },
-    { id: "scroll", instruction: "Scroll enough to collect varied pins, boards, and idea pages." },
-    { id: "collect", instruction: "Collect candidate URLs only from visual result pages." }
+    { id: "scroll", instruction: "Scroll enough to collect varied concrete pins for the brief." },
+    { id: "collect", instruction: "Collect candidate URLs only from visual result pages, then prefer canonical pin URLs for product-ready evidence." }
   ],
   badStates: [
     { id: "login", markers: ["log in", "sign up", "continue with"], reasonCode: "auth_required", recoveryAction: "Use extension mode with a user-authorized logged-in Pinterest session." },
     { id: "challenge", markers: ["captcha", "verification", "challenge"], reasonCode: "challenge_detected", recoveryAction: "Resolve the browser challenge before rerunning harvest." },
-    { id: "search-shell", markers: ["pin card", "your profile", "when autocomplete results are available"], reasonCode: "env_limited", recoveryAction: "Open a concrete pin, board, or idea page before capture." }
+    { id: "search-shell", markers: ["pin card", "your profile", "when autocomplete results are available"], reasonCode: "env_limited", recoveryAction: "Open a concrete canonical pin before capture." }
   ],
   evidenceRequirements: [
-    { id: "visual-grid", description: "Candidate shows visual design material, not only Pinterest chrome.", validation: "Screenshot contains pins, boards, or idea page content." },
+    { id: "visual-grid", description: "Candidate shows visual design material, not only Pinterest chrome.", validation: "Screenshot contains concrete pin content when snapshot_ready evidence is claimed." },
+    { id: "pin-media-artifact", description: "Canonical pin media is persisted as first-party bytes before it counts as design evidence.", validation: "pin-media-index.json contains the artifact path, hash, dimensions, content type, canonical source URL, and first-party i.pinimg.com provenance." },
     { id: "on-brief", description: "Candidate matches the design brief surface and style intent.", validation: "Reference signals overlap the brief target and are not generic marketplace chrome." }
   ],
   recoverySteps: [
     { id: "authenticate", instruction: "Use extension mode and cookies only from a user-authorized signed-in Pinterest tab." },
-    { id: "explicit-url", instruction: "If search is blocked, provide explicit Pinterest pin, board, or idea page URLs." }
+    { id: "explicit-url", instruction: "If search is blocked, provide explicit canonical Pinterest pin URLs rather than boards, source pages, or search result URLs." },
+    { id: "pin-media-proof", instruction: "Inspect pin-media-evidence.json and pin-media-index.json, then continue only when canonical pins have persisted first-party media bytes or snapshot or motion authority." }
   ],
   browserNativeDiscovery: {
     buildSearchUrl: buildPinterestSearchUrl,

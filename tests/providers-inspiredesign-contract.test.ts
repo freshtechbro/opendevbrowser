@@ -11,6 +11,7 @@ import {
   formatInspiredesignCaptureAttemptSummary,
   hasInspiredesignCaptureArtifacts,
   normalizeInspiredesignCaptureEvidence,
+  type InspiredesignMotionEvidenceJson,
   type InspiredesignReferenceEvidence
 } from "../src/inspiredesign/contract";
 import { validateGenerationPlan } from "../src/canvas/document-store";
@@ -25,12 +26,23 @@ import {
   buildInspiredesignNextStep
 } from "../src/inspiredesign/handoff";
 import {
+  buildInspiredesignDesignReferencePatternBoard,
+  buildInspiredesignDesignVectors,
   buildInspiredesignRankedArtifactPatternBoard,
   buildInspiredesignReferencePatternBoard,
-  hasInspiredesignUsableReferenceEvidence
+  hasInspiredesignUsableReferenceEvidence,
+  type InspiredesignReferencePatternBoard
 } from "../src/inspiredesign/reference-pattern-board";
+import {
+  buildInspiredesignProductReadinessFields,
+  hasActiveInspiredesignCanvasDoNotProceedBlocker
+} from "../src/inspiredesign/product-readiness";
 import { renderInspiredesign } from "../src/providers/renderer";
 import { buildInspiredesignSuccessHandoff } from "../src/providers/workflow-handoff";
+import {
+	MIN_PIN_MEDIA_EVIDENCE_BYTES,
+	persistInspiredesignPinterestPinMediaEvidence
+} from "../src/inspiredesign/pinterest-pin-media-evidence";
 
 type InspiredesignEvidenceJson = {
   brief: string;
@@ -92,6 +104,22 @@ type InspiredesignEvidenceJson = {
     path: string;
     sha256: string;
     bytes: number;
+  }>;
+  pinMediaEvidence?: Array<{
+    referenceId: string;
+    pinMedia: {
+      path?: string;
+      sha256?: string;
+      bytes?: number;
+      kind?: string;
+      authority?: string;
+    };
+  }>;
+  pinMediaIndex?: Array<{
+    referenceId: string;
+    path: string;
+    kind: string;
+    contentType: string;
   }>;
   designVectors?: {
     sourcePriority: string;
@@ -254,6 +282,52 @@ const makeBriefExpansion = (
   templateVersion: "inspiredesign-advanced-brief.v1",
   format: makeBriefFormat(),
   ...overrides
+});
+
+const makePinterestPinMediaJpegBytes = (): Buffer => {
+	const header = Buffer.from([
+	0xff, 0xd8,
+	0xff, 0xe0, 0x00, 0x10,
+	0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00,
+	0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+	0xff, 0xc0, 0x00, 0x11, 0x08,
+	0x06, 0x40,
+	0x04, 0xb0,
+	0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00,
+	0xff, 0xd9
+	]);
+	return Buffer.concat([header, Buffer.alloc(MIN_PIN_MEDIA_EVIDENCE_BYTES + 1 - header.length, 0)]);
+};
+
+const makeInspiredesignMotionEvidence = (args: {
+	referenceId: string;
+	url: string;
+}): InspiredesignMotionEvidenceJson => ({
+	referenceId: args.referenceId,
+	url: args.url,
+	motion: {
+		status: "captured",
+		kind: "replay",
+		capturedAt: "2026-05-26T00:00:00.000Z",
+		sourceUrl: args.url,
+		startedSourceUrl: args.url,
+		endedSourceUrl: args.url,
+		replay: {
+			path: `motion-evidence/${args.referenceId}/replay.json`,
+			sha256: "b".repeat(64),
+			bytes: 2048
+		},
+		preview: {
+			path: `motion-evidence/${args.referenceId}/preview.png`,
+			sha256: "c".repeat(64),
+			bytes: 2048
+		},
+		frameCount: 3,
+		warnings: [],
+		diagnostic: false,
+		diagnosticReasons: [],
+		authority: "design_evidence"
+	}
 });
 
 describe("inspiredesign packet + renderer", () => {
@@ -577,6 +651,104 @@ describe("inspiredesign packet + renderer", () => {
     }
   });
 
+  it("serializes Pinterest pin media evidence and keeps video posters out of motion evidence", () => {
+	const pinMediaBytes = makePinterestPinMediaJpegBytes();
+	const trustedPinMedia = persistInspiredesignPinterestPinMediaEvidence({
+		status: "captured",
+		kind: "video_poster",
+		capturedAt: "2026-05-23T00:00:00.000Z",
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+		pinterestPageQuality: "pin_media",
+		mediaUrl: "https://i.pinimg.com/originals/poster.jpg",
+		candidateSelector: "video[poster]",
+		candidateRole: "video_poster",
+		width: 1200,
+		height: 1600,
+		contentType: "image/jpeg",
+		warnings: [],
+		rejectionReasons: []
+	}, {
+		artifactPath: "pin-media-evidence/pin-ref/poster.jpg",
+		buffer: pinMediaBytes
+	});
+    const reference = makeReference({
+      id: "pin-ref",
+      url: "https://www.pinterest.com/pin/1234567890/",
+      captureStatus: "captured",
+      capture: {
+		pinMedia: trustedPinMedia
+        }
+    });
+    const normalized = normalizeInspiredesignCaptureEvidence(reference.capture);
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public launch page with cinematic reference evidence.",
+      briefExpansion: makeBriefExpansion(),
+      urls: [reference.url],
+      references: [reference]
+    });
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+
+    expect(normalized?.pinMedia).toEqual(expect.objectContaining({
+      authority: "design_evidence",
+      path: "pin-media-evidence/pin-ref/poster.jpg",
+      kind: "video_poster"
+    }));
+    expect(packet.motionEvidence).toEqual([]);
+    expect(packet.pinMediaEvidence[0]?.pinMedia).toEqual(expect.objectContaining({
+      authority: "design_evidence",
+      path: "pin-media-evidence/pin-ref/poster.jpg",
+      kind: "video_poster"
+    }));
+    expect(packet.pinMediaIndex[0]).toEqual(expect.objectContaining({
+      path: "pin-media-evidence/pin-ref/poster.jpg",
+      kind: "video_poster",
+      contentType: "image/jpeg"
+    }));
+    expect(evidence.references[0]?.capture).toEqual(expect.objectContaining({
+      pinMedia: expect.objectContaining({
+        path: "pin-media-evidence/pin-ref/poster.jpg",
+        kind: "video_poster"
+      })
+    }));
+    expect(evidence.pinMediaEvidence).toEqual(packet.pinMediaEvidence);
+    expect(evidence.pinMediaIndex).toEqual(packet.pinMediaIndex);
+  });
+
+  it("keeps visual failure metadata in screenshot indexes when captured artifacts exist", () => {
+    const reference = makeReference({
+      id: "failed-visual",
+      url: "https://example.com/failed-visual",
+      captureStatus: "captured",
+      capture: {
+        visual: {
+          status: "captured",
+          kind: "viewport",
+          fullPage: false,
+          capturedAt: "2026-05-27T12:00:00.000Z",
+          sourceUrl: "https://example.com/failed-visual",
+          path: "visual-evidence/failed-visual/viewport.png",
+          sha256: "d".repeat(64),
+          bytes: 2048,
+          warnings: [],
+          failure: "Viewport screenshot completed with degraded capture metadata."
+        }
+      }
+    });
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public launch page with cinematic reference evidence.",
+      briefExpansion: makeBriefExpansion(),
+      urls: [reference.url],
+      references: [reference]
+    });
+
+    expect(packet.screenshotIndex[0]).toEqual(expect.objectContaining({
+      referenceId: "failed-visual",
+      failure: "Viewport screenshot completed with degraded capture metadata."
+    }));
+  });
+
   it("ranks screenshot-backed references deterministically and builds metadata-only meta prompts", () => {
     const packet = buildInspiredesignPacket({
       brief: "Create a premium public launch page with cinematic reference evidence.",
@@ -690,6 +862,8 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.metaPromptMarkdown).toContain("Accessibility Constraints");
     expect(packet.metaPromptMarkdown).toContain("Do not copy logos");
     expect(packet.metaPromptMarkdown).toContain("Validation Gates");
+    expect(packet.metaPromptMarkdown).toContain("pin-media-evidence.json");
+    expect(packet.metaPromptMarkdown).toContain("Remote media URLs alone are not proof");
   });
 
   it("keeps the reference pattern board template aligned with emitted board keys", () => {
@@ -1068,10 +1242,13 @@ describe("inspiredesign packet + renderer", () => {
     }
     expect(packet.generationPlan.contentStrategy.source).toMatch(/^evidence\.json, advanced-brief\.md, design\.md\./);
     expect(packet.canvasPlanRequest.generationPlan.contentStrategy.source).toMatch(/^evidence\.json, advanced-brief\.md, design\.md\./);
-    expect(packet.followthrough.implementationContext.referenceSynthesis.requiredArtifacts.slice(0, 7)).toEqual([
+    expect(packet.followthrough.implementationContext.referenceSynthesis.requiredArtifacts.slice(0, 10)).toEqual([
       "evidence.json",
       "visual-evidence.json",
       "screenshot-index.json",
+      "motion-evidence.json",
+      "pin-media-evidence.json",
+      "pin-media-index.json",
       "ranked-references.json",
       "meta-prompt.md",
       "advanced-brief.md",
@@ -1261,19 +1438,16 @@ describe("inspiredesign packet + renderer", () => {
     }));
   });
 
-  it("keeps screenshot-backed Pinterest pin references usable when page chrome surrounds clean pin metadata", () => {
-    const reference = makeReference({
+  it("ranks Pinterest screenshots when snapshot evidence is ready and keeps weak screenshots diagnostic", () => {
+    const screenshotOnlyReference = makeReference({
       id: "pinterest-pin",
       url: "https://www.pinterest.com/pin/11188699075430754/",
       fetchStatus: "captured",
       captureStatus: "captured",
-      title: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA",
-      excerpt: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA Skip to content When autocomplete results are available use up and down arrows to review and enter to select. Touch device users, explore by touch or with swipe gestures.",
+      title: "KINETIC creative agency studio website",
+      excerpt: "Premium design agency studio landing page with editorial typography and cinematic hero motion.",
       capture: {
-        title: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA",
-        snapshot: {
-          content: "KINETIC | CREATIVE AGENCY STUDIO WEBSITE | DESIGN BY.SHIVAA Skip to content When autocomplete results are available use up and down arrows to review and enter to select. Touch device users, explore by touch or with swipe gestures."
-        },
+        title: "KINETIC creative agency studio website",
         visual: {
           status: "captured",
           path: "/tmp/pinterest-pin.png",
@@ -1282,21 +1456,320 @@ describe("inspiredesign packet + renderer", () => {
         }
       }
     });
+	const missingQualityReference = makeReference({
+		...screenshotOnlyReference,
+		id: "missing-quality-pinterest-pin",
+		capture: {
+		...screenshotOnlyReference.capture,
+		visual: {
+			status: "captured",
+			sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+			path: "visual-evidence/missing-quality-pinterest-pin/viewport.png",
+			sha256: "d".repeat(64),
+			bytes: 4096,
+			warnings: []
+		}
+		}
+	});
+    const snapshotReadyReference = makeReference({
+      ...screenshotOnlyReference,
+      id: "snapshot-ready-pinterest-pin",
+      capture: {
+        ...screenshotOnlyReference.capture,
+        visual: {
+          status: "captured",
+          sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+          pinterestPageQuality: "pin_media",
+          path: "visual-evidence/snapshot-ready-pinterest-pin/viewport.png",
+          sha256: "d".repeat(64),
+          bytes: 4096,
+          warnings: []
+        }
+      }
+    });
 
-    const board = buildInspiredesignReferencePatternBoard(
+    const metadataOnlyBoard = buildInspiredesignReferencePatternBoard(
       "pinterest-pin",
       makeBriefFormat(),
-      [reference],
+      [screenshotOnlyReference],
+      "Design a premium landing page prototype for a design agency studio."
+    );
+    const snapshotReadyBoard = buildInspiredesignReferencePatternBoard(
+      "snapshot-ready-pinterest-pin",
+      makeBriefFormat(),
+      [snapshotReadyReference],
       "Design a premium landing page prototype for a design agency studio."
     );
 
-    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
-    expect(board.references[0]).toEqual(expect.objectContaining({
+    expect(hasInspiredesignUsableReferenceEvidence(screenshotOnlyReference)).toBe(false);
+	expect(hasInspiredesignUsableReferenceEvidence(missingQualityReference)).toBe(false);
+	expect(buildInspiredesignReferencePatternBoard(
+		"missing-quality-pinterest-pin",
+		makeBriefFormat(),
+		[missingQualityReference],
+		"Design a premium landing page prototype for a design agency studio."
+	).references).toEqual([]);
+    expect(metadataOnlyBoard.references).toEqual([]);
+    expect(metadataOnlyBoard.rejectedReferences[0]).toEqual(expect.objectContaining({
       id: "pinterest-pin",
-      capturedVia: expect.arrayContaining(["fetch", "visual"])
+      captured: true,
+		capturedButRejectedReason: expect.stringContaining("snapshot-ready, pin-media-ready, or motion-ready evidence")
     }));
-    expect(board.references[0]?.score).toBeLessThan(50);
-    expect(board.rejectedReferences).toEqual([]);
+    expect(hasInspiredesignUsableReferenceEvidence(snapshotReadyReference)).toBe(true);
+    expect(snapshotReadyBoard.references[0]).toEqual(expect.objectContaining({
+      id: "snapshot-ready-pinterest-pin",
+      capturedVia: expect.arrayContaining(["fetch", "visual", "snapshot_ready"]),
+      evidenceAuthority: "snapshot_ready",
+      intentMatched: true,
+      selectionReason: expect.stringContaining("snapshot-ready Pinterest screenshot evidence")
+    }));
+  });
+
+  it("rejects Pinterest login text even when a pin screenshot artifact looks snapshot-ready", () => {
+    const blockedReference = makeReference({
+      id: "pinterest-login-pin",
+      url: "https://www.pinterest.com/pin/1234567890/",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Log in to continue",
+      excerpt: "Continue with Google or sign up to view this pin.",
+      capture: {
+        visual: {
+          status: "captured",
+          sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+          pinterestPageQuality: "login_challenge",
+          path: "visual-evidence/pinterest-login-pin/viewport.png",
+          sha256: "f".repeat(64),
+          bytes: 4096,
+          warnings: []
+        }
+      }
+    });
+
+    const board = buildInspiredesignReferencePatternBoard(
+      "pinterest-login-pin",
+      makeBriefFormat(),
+      [blockedReference],
+      "Design a premium landing page prototype for a design agency studio."
+    );
+
+    expect(hasInspiredesignUsableReferenceEvidence(blockedReference)).toBe(false);
+    expect(board.references).toEqual([]);
+    expect(board.rejectedReferences[0]).toEqual(expect.objectContaining({
+      id: "pinterest-login-pin",
+      diagnosticReasons: expect.arrayContaining(["login_or_challenge_state"]),
+      capturedButRejectedReason: expect.stringContaining("login_or_challenge_state")
+    }));
+  });
+
+  it("ranks Pinterest screencasts when motion evidence is ready", () => {
+    const motionOnlyReference = makeReference({
+      id: "pinterest-video-pin",
+      url: "https://www.pinterest.com/pin/77654985208435505/",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Cinematic product reveal motion reference",
+      excerpt: "Premium motion-led product story with editorial landing page pacing.",
+      capture: {
+        title: "Cinematic product reveal motion reference",
+        motion: {
+          status: "captured",
+          kind: "screencast",
+          capturedAt: "2026-05-23T00:00:00.000Z",
+          sourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+          startedSourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+          endedSourceUrl: "https://www.pinterest.com/pin/77654985208435505/",
+          pinterestPageQuality: "pin_media",
+          startedPinterestPageQuality: "pin_media",
+          endedPinterestPageQuality: "pin_media",
+          replay: { path: "motion-evidence/pinterest-video-pin/replay.json", sha256: "a".repeat(64), bytes: 64 },
+          preview: { path: "motion-evidence/pinterest-video-pin/preview.png", sha256: "b".repeat(64), bytes: 2048 },
+          frameCount: 4,
+          warnings: [],
+          diagnostic: false,
+          diagnosticReasons: [],
+          authority: "design_evidence"
+        }
+      }
+    });
+    const missingQualityMotionReference = makeReference({
+      ...motionOnlyReference,
+      id: "missing-quality-video-pin",
+      capture: {
+        motion: {
+          ...motionOnlyReference.capture?.motion,
+          pinterestPageQuality: undefined,
+          startedPinterestPageQuality: undefined,
+          endedPinterestPageQuality: undefined
+        }
+      }
+    });
+    const loginQualityMotionReference = makeReference({
+      ...motionOnlyReference,
+      id: "login-quality-video-pin",
+      capture: {
+        motion: {
+          ...motionOnlyReference.capture?.motion,
+          pinterestPageQuality: "pin_media",
+          startedPinterestPageQuality: "pin_media",
+          endedPinterestPageQuality: "login_challenge"
+        }
+      }
+    });
+    const motionBriefFormat = makeBriefFormat();
+    const metadataOnlyBoard = buildInspiredesignReferencePatternBoard(
+      "pinterest-video-pin",
+      motionBriefFormat,
+      [motionOnlyReference],
+      "Design a premium motion-led landing page prototype for a design agency studio."
+    );
+    const designVectors = buildInspiredesignDesignVectors(motionBriefFormat, metadataOnlyBoard);
+    const designBoard = buildInspiredesignDesignReferencePatternBoard(metadataOnlyBoard, designVectors);
+    expect(hasInspiredesignUsableReferenceEvidence(missingQualityMotionReference)).toBe(false);
+    expect(hasInspiredesignUsableReferenceEvidence(loginQualityMotionReference)).toBe(false);
+    expect(hasInspiredesignUsableReferenceEvidence(motionOnlyReference)).toBe(true);
+    expect(metadataOnlyBoard.references[0]).toEqual(expect.objectContaining({
+      id: "pinterest-video-pin",
+      capturedVia: expect.arrayContaining(["fetch", "motion", "motion_ready"]),
+      evidenceAuthority: "motion_ready",
+      selectionReason: expect.stringContaining("motion-ready Pinterest screencast evidence")
+    }));
+    expect(metadataOnlyBoard.qualitySummary).toEqual(expect.objectContaining({
+      missingScreenshotCount: 0,
+      allAttemptMissingScreenshotCount: 0,
+      allAttemptVisualFailureCount: 0,
+      allAttemptMotionFailureCount: 0
+    }));
+    expect(designBoard.references[0]).toEqual(expect.objectContaining({
+      id: "pinterest-video-pin",
+      capturedVia: expect.arrayContaining(["motion_ready"]),
+      evidenceAuthority: "motion_ready"
+    }));
+    expect(designBoard.qualitySummary.missingScreenshotCount).toBe(0);
+  });
+
+  it("covers ranked board authority and not-ready rejection branch boundaries", () => {
+    const structuralReference = makeReference({
+      id: "strong-structural-reference",
+      url: "https://example.com/strong",
+      fetchStatus: "captured",
+      captureStatus: "off",
+      title: "Premium editorial landing page for a fashion studio",
+      excerpt: "Full-bleed hero, concise narrative sections, refined typography, and product storytelling.",
+      capture: {
+        snapshot: {
+          content: "Premium editorial landing page with full-bleed hero, refined typography, product storytelling, and runway imagery."
+        }
+      }
+    });
+    const snapshotReadyReference = makeReference({
+      id: "snapshot-warning-default",
+      url: "https://www.pinterest.com/pin/77654985208435506/",
+      fetchStatus: "captured",
+      captureStatus: "captured",
+      title: "Editorial couture studio landing page",
+      excerpt: "Couture atelier editorial reference with fabric movement and strong landing page composition.",
+      capture: {
+        title: "Editorial couture studio landing page",
+        visual: {
+          status: "captured",
+          sourceUrl: "https://www.pinterest.com/pin/77654985208435506/",
+          pinterestPageQuality: "pin_media",
+          path: "visual-evidence/snapshot-warning-default/viewport.png",
+          sha256: "e".repeat(64),
+          bytes: 4096
+        }
+      }
+    });
+    const sourceBoard = buildInspiredesignReferencePatternBoard(
+      "ranked-branch-coverage",
+      makeBriefFormat(),
+      [structuralReference, snapshotReadyReference],
+      "Design a premium editorial landing page for a fashion studio with full-bleed hero, refined typography, product storytelling, and runway imagery."
+    );
+    const structuralEntry = sourceBoard.references.find((reference) => reference.id === "strong-structural-reference");
+    const snapshotEntry = sourceBoard.references.find((reference) => reference.id === "snapshot-warning-default");
+
+    expect(structuralEntry).toEqual(expect.objectContaining({
+		evidenceAuthority: "ranked_reference",
+      selectionReason: expect.stringContaining("limited but usable reference cues")
+    }));
+    expect(snapshotEntry).toEqual(expect.objectContaining({
+      evidenceAuthority: "snapshot_ready"
+    }));
+
+    const designBoard: InspiredesignReferencePatternBoard = {
+      ...sourceBoard,
+      references: [],
+      rejectedReferences: [{
+        id: "strong-structural-reference",
+        url: "https://example.com/strong",
+        reason: "Already rejected upstream.",
+        fetchStatus: "captured",
+        captureStatus: "off"
+      }]
+    };
+    const rankedArtifactBoard = buildInspiredesignRankedArtifactPatternBoard(designBoard, {
+      ...sourceBoard,
+      references: sourceBoard.references.map((reference, index) => (
+        index === 0
+          ? { ...reference, intentMatched: true, capturedVia: ["fetch"] }
+          : { ...reference, intentMatched: false, capturedVia: [] }
+      ))
+    });
+
+    expect(rankedArtifactBoard.rejectedReferences).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "snapshot-warning-default",
+        reason: "Reference evidence did not meet the design-ready ranking threshold.",
+        fetchStatus: "captured",
+        captureStatus: "off",
+        captured: true
+      }),
+      expect.objectContaining({
+        id: "strong-structural-reference",
+        reason: "Reference evidence did not match the requested design intent.",
+        fetchStatus: "skipped",
+        captureStatus: "off"
+      })
+    ]));
+
+	if (!snapshotEntry) throw new Error("Expected snapshot-ready entry for ranked artifact branch coverage");
+	const duplicateRejection = {
+		id: "duplicate-rejection",
+		url: "https://example.com/duplicate",
+		reason: "Already rejected upstream.",
+		fetchStatus: "captured" as const,
+		captureStatus: "off" as const
+	};
+	const visualRejectedBoard = buildInspiredesignRankedArtifactPatternBoard(
+		{
+		...sourceBoard,
+		references: [],
+		rejectedReferences: [duplicateRejection, duplicateRejection]
+		},
+		{
+		...sourceBoard,
+		references: [{
+			...snapshotEntry,
+			id: "visual-not-ready-reference",
+			intentMatched: true,
+			capturedVia: ["visual"]
+		}],
+		rejectedReferences: [duplicateRejection, duplicateRejection]
+		}
+	);
+
+	expect(visualRejectedBoard.rejectedReferences).toEqual([
+		duplicateRejection,
+		expect.objectContaining({
+		id: "visual-not-ready-reference",
+		reason: "Reference evidence did not meet the design-ready ranking threshold.",
+		fetchStatus: "skipped",
+		captureStatus: "captured",
+		captured: true
+		})
+	]);
   });
 
   it("keeps Pinterest chrome-only screenshot metadata out of design-facing artifacts", () => {
@@ -1359,20 +1832,26 @@ describe("inspiredesign packet + renderer", () => {
     expect(designFacingArtifacts).not.toContain("/tmp/chrome-pin");
   });
 
-  it("keeps clean screenshot-backed Pinterest pins usable without interface-chrome diagnostics", () => {
+  it("keeps snapshot-ready Pinterest pins usable without interface-chrome diagnostics", () => {
     const reference = makeReference({
       id: "clean-pinterest-pin",
       url: "https://www.pinterest.com/pin/27654985208435505/",
       fetchStatus: "captured",
       captureStatus: "captured",
       title: "Pumpkin modern creative agency landing page",
-      excerpt: "Premium design agency studio landing page with editorial typography, cinematic hero motion, portfolio proof, and service sections.",
+      excerpt: "Premium design agency studio landing page with editorial typography, cinematic hero motion, portfolio proof, and service sections. When autocomplete results are available use up and down arrows to review and enter to select. Pin card.",
       capture: {
         title: "Pumpkin modern creative agency landing page",
+        snapshot: {
+          content: "Pumpkin modern creative agency landing page with editorial typography, cinematic hero motion, portfolio proof, service sections, When autocomplete results are available, and Pin card UI copy."
+        },
         visual: {
           status: "captured",
-          path: "/tmp/clean-pinterest-pin.png",
+          sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+          pinterestPageQuality: "pin_media",
+          path: "visual-evidence/clean-pinterest-pin/viewport.png",
           sha256: "c".repeat(64),
+          bytes: 4096,
           warnings: []
         }
       }
@@ -1388,9 +1867,11 @@ describe("inspiredesign packet + renderer", () => {
     expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
     expect(board.references[0]).toEqual(expect.objectContaining({
       id: "clean-pinterest-pin",
-      capturedVia: expect.arrayContaining(["fetch", "visual"]),
+      capturedVia: expect.arrayContaining(["fetch", "visual", "snapshot_ready"]),
+      evidenceAuthority: "snapshot_ready",
       intentMatched: true
     }));
+    expect(board.rejectedReferences).toEqual([]);
     expect(board.references[0]?.score).toBeGreaterThanOrEqual(50);
     expect(board.references[0]?.confidence).toBeGreaterThanOrEqual(0.5);
     expect(board.qualitySummary).toMatchObject({
@@ -1521,7 +2002,7 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.metaPromptMarkdown).not.toContain("Estilo de portal digital funcional");
     expect(packet.metaPromptMarkdown).not.toContain("Functional portal moodboard");
     expect(packet.metaPromptMarkdown).toContain("No ready references were ranked.");
-    expect(packet.metaPromptMarkdown).toContain("ranked reference(s) were not ready for creative synthesis");
+    expect(packet.metaPromptMarkdown).toContain("reference(s) were rejected as diagnostic-only or unavailable");
     expect(packet.metaPromptMarkdown).not.toContain("https://www.pinterest.com/pin/31525266137895345/");
   });
 
@@ -2909,6 +3390,36 @@ describe("inspiredesign packet + renderer", () => {
       fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
       doNotProceedIf: []
     } satisfies NextStepGuidance;
+    const authoritativeReferencePatternBoard: InspiredesignReferencePatternBoard = {
+      ...packet.referencePatternBoard,
+      qualitySummary: {
+        ...packet.referencePatternBoard.qualitySummary,
+        rankedReferenceCount: 1
+      },
+      references: [{
+        id: "product-ref",
+        rank: 1,
+        score: 0.9,
+        confidence: 0.9,
+        name: "Product reference",
+        url: "https://example.com/product",
+        surfaceType: "landing-page",
+        capturedVia: ["fetch", "snapshot", "clone", "visual"],
+        evidenceAuthority: "snapshot_ready",
+        intentMatched: true,
+        selectionReason: "Ranked for strong text and structural evidence from fetch, snapshot, clone capture.",
+        visualStrengths: ["Hero-first product storytelling with tight proof sections."],
+        visualRisks: [],
+        layoutRecipe: "Full-bleed product narrative with proof sections.",
+        contentHierarchy: ["Hero", "CTA", "proof strip"],
+        componentFamilies: ["Hero", "CTA group", "proof strip"],
+        motionPosture: ["Measured reveals"],
+        tokenNotes: [],
+        patternsToBorrow: ["Hero-first product storytelling"],
+        patternsToReject: [],
+        whyItWorks: "It provides transferable landing-page structure with clear creative evidence."
+      }]
+    };
 
     const modes = ["compact", "json", "md", "context", "path"] as const;
     for (const mode of modes) {
@@ -2927,12 +3438,22 @@ describe("inspiredesign packet + renderer", () => {
         prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
         evidence: packet.evidence,
         visualEvidence: packet.visualEvidence,
-        screenshotIndex: packet.screenshotIndex,
-        rankedReferences: packet.rankedReferences,
+        screenshotIndex: [{
+          referenceId: "product-ref",
+          url: "https://example.com/product",
+			sourceUrl: "https://example.com/product",
+          path: "visual-evidence/product-ref/viewport.png",
+          sha256: "a".repeat(64),
+          bytes: 2048,
+          warnings: []
+        }],
+        rankedReferences: authoritativeReferencePatternBoard.references,
+        referencePatternBoard: authoritativeReferencePatternBoard,
         metaPromptMarkdown: packet.metaPromptMarkdown,
         nextStepGuidance: readyNextStepGuidance,
         meta: {
           requestId: "req-1",
+			evidenceAuthority: "snapshot_ready",
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           captureAttemptReport: {
             worked: ["snapshot (captured 1)"],
@@ -2949,6 +3470,9 @@ describe("inspiredesign packet + renderer", () => {
       expect(rendered.files).toEqual(expect.arrayContaining([
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.visualEvidence }),
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.screenshotIndex }),
+        expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.motionEvidence }),
+        expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.pinMediaEvidence }),
+        expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.pinMediaIndex }),
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.rankedReferences }),
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.metaPrompt })
       ]));
@@ -2999,8 +3523,14 @@ describe("inspiredesign packet + renderer", () => {
           advancedBriefMarkdown: packet.advancedBriefMarkdown,
           urls,
           prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+          artifactAuthority: "product_ready",
+          productSuccess: true,
+			evidenceAuthority: "snapshot_ready",
           canvasPlanRequest: packet.canvasPlanRequest,
           designAgentHandoff: expect.objectContaining({
+            artifactAuthority: "product_ready",
+			evidenceAuthority: "snapshot_ready",
+            productSuccess: true,
             commandExamples: expect.objectContaining({
               continueInCanvas: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
             })
@@ -3022,18 +3552,55 @@ describe("inspiredesign packet + renderer", () => {
       } else if (mode === "context") {
         expect(rendered.response).toMatchObject({
           mode,
+          artifactAuthority: "product_ready",
+          evidenceAuthority: "snapshot_ready",
+          productSuccess: true,
           context: expect.objectContaining({
             brief,
+            artifactAuthority: "product_ready",
+            evidenceAuthority: "snapshot_ready",
+            productSuccess: true,
             advancedBriefMarkdown: packet.advancedBriefMarkdown,
             urls,
-            designContract: packet.designContract,
-            evidence: packet.evidence,
+            designContract: expect.objectContaining({
+              ...packet.designContract,
+              artifactAuthority: "product_ready",
+              productSuccess: true
+            }),
+            generationPlan: expect.objectContaining({
+              ...packet.generationPlan,
+              artifactAuthority: "product_ready",
+              productSuccess: true
+            }),
+            implementationPlan: expect.objectContaining({
+              ...packet.implementationPlan,
+              artifactAuthority: "product_ready",
+              productSuccess: true
+            }),
+            designMarkdown: packet.designMarkdown,
+            implementationPlanMarkdown: packet.implementationPlanMarkdown,
+            prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+            evidence: expect.objectContaining({
+              artifactAuthority: "product_ready",
+              evidenceAuthority: "snapshot_ready",
+              productSuccess: true
+            }),
+            visualEvidence: packet.visualEvidence,
+            screenshotIndex: expect.arrayContaining([
+              expect.objectContaining({ referenceId: "product-ref" })
+            ]),
+            motionEvidence: [],
+            rankedReferences: authoritativeReferencePatternBoard.references,
             canvasPlanRequest: packet.canvasPlanRequest,
             designAgentHandoff: expect.objectContaining({
+              artifactAuthority: "product_ready",
+              evidenceAuthority: "snapshot_ready",
+              productSuccess: true,
               commandExamples: expect.objectContaining({
                 continueInCanvas: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas
               })
             }),
+            nextStepGuidance: readyNextStepGuidance,
             metaPromptMarkdown: packet.metaPromptMarkdown
           }),
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
@@ -3053,6 +3620,1556 @@ describe("inspiredesign packet + renderer", () => {
         });
       }
     }
+
+    const renderedWithScreenshotDerivedAuthority = renderInspiredesign({
+      mode: "json",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: [{
+        referenceId: "product-ref",
+        url: "https://example.com/product",
+		sourceUrl: "https://example.com/product",
+        path: "visual-evidence/product-ref/viewport.png",
+        sha256: "a".repeat(64),
+        bytes: 2048,
+        warnings: []
+      }],
+      rankedReferences: authoritativeReferencePatternBoard.references,
+      referencePatternBoard: authoritativeReferencePatternBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: readyNextStepGuidance,
+      meta: { requestId: "req-snapshot-derived" }
+    });
+    expect(renderedWithScreenshotDerivedAuthority.response).toMatchObject({
+      artifactAuthority: "product_ready",
+      productSuccess: true,
+      evidenceAuthority: "snapshot_ready"
+    });
+
+	const renderedWithStaleMotionMetadata = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		visualEvidence: packet.visualEvidence,
+		screenshotIndex: [{
+			referenceId: "product-ref",
+			url: "https://example.com/product",
+			sourceUrl: "https://example.com/product",
+			path: "visual-evidence/product-ref/viewport.png",
+			sha256: "a".repeat(64),
+			bytes: 2048,
+			warnings: []
+		}],
+		motionEvidence: [makeInspiredesignMotionEvidence({
+			referenceId: "unrelated-motion-ref",
+			url: "https://example.com/unrelated"
+		})],
+		rankedReferences: authoritativeReferencePatternBoard.references,
+		referencePatternBoard: authoritativeReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: {
+			requestId: "req-stale-evidence-authority",
+			productSuccess: true,
+			evidenceAuthority: "motion_ready",
+			rankedReferenceCount: 1,
+			authoritativeReferenceCount: 1,
+			snapshotReadyReferenceCount: 1,
+			motionReadyReferenceCount: 0,
+			pinMediaReadyReferenceCount: 0
+		}
+	});
+	expect(renderedWithStaleMotionMetadata.response).toMatchObject({
+		artifactAuthority: "product_ready",
+		productSuccess: true,
+		evidenceAuthority: "snapshot_ready"
+	});
+
+    const motionReferencePatternBoard: InspiredesignReferencePatternBoard = {
+      ...authoritativeReferencePatternBoard,
+      references: authoritativeReferencePatternBoard.references.map((reference) => ({
+        ...reference,
+        capturedVia: ["fetch", "motion", "motion_ready"],
+        evidenceAuthority: "motion_ready" as const
+      }))
+    };
+    const renderedWithMotionDerivedAuthority = renderInspiredesign({
+      mode: "json",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+		motionEvidence: [makeInspiredesignMotionEvidence({
+        referenceId: "product-ref",
+		url: "https://example.com/product"
+	})],
+      rankedReferences: motionReferencePatternBoard.references,
+      referencePatternBoard: motionReferencePatternBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: readyNextStepGuidance,
+		meta: {
+		requestId: "req-motion-derived",
+		productSuccess: true,
+		rankedReferenceCount: 1,
+		authoritativeReferenceCount: 1,
+		snapshotReadyReferenceCount: 0,
+		motionReadyReferenceCount: 1,
+		pinMediaReadyReferenceCount: 0
+	}
+    });
+    expect(renderedWithMotionDerivedAuthority.response).toMatchObject({
+      artifactAuthority: "product_ready",
+      productSuccess: true,
+      evidenceAuthority: "motion_ready"
+    });
+
+	const pinMediaReferencePatternBoard: InspiredesignReferencePatternBoard = {
+		...authoritativeReferencePatternBoard,
+		references: [{
+			...authoritativeReferencePatternBoard.references[0]!,
+			id: "pin-ref",
+			url: "https://www.pinterest.com/pin/1234567890/",
+			capturedVia: ["fetch", "pin_media_ready"],
+			evidenceAuthority: "pin_media_ready" as const
+		}]
+	};
+	const pinMediaIndex = [{
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+		mediaUrl: "https://i.pinimg.com/originals/pin.webp",
+		pinterestPageQuality: "pin_media" as const,
+		path: "pin-media-evidence/pin-ref/main.webp",
+		sha256: "d".repeat(64),
+		bytes: 2048,
+		width: 1200,
+		height: 1600,
+		contentType: "image/webp" as const,
+		kind: "image" as const,
+		authority: "design_evidence" as const,
+		capturedAt: "2026-05-23T00:00:00.000Z",
+		warnings: [],
+		firstPartyProvenance: {
+			canonicalReferenceUrl: "https://www.pinterest.com/pin/1234567890",
+			canonicalSourceUrl: "https://www.pinterest.com/pin/1234567890",
+			referenceUrlCanonical: true,
+			sourceUrlMatchesReference: true,
+			mediaUrlFirstParty: true
+		}
+	}];
+	const renderedWithPinMediaDerivedAuthority = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		pinMediaIndex,
+		rankedReferences: pinMediaReferencePatternBoard.references,
+		referencePatternBoard: pinMediaReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: { requestId: "req-pin-media-derived", pinterestEvidenceRequired: true }
+  });
+	expect(renderedWithPinMediaDerivedAuthority.response).toMatchObject({
+		artifactAuthority: "product_ready",
+		productSuccess: true,
+		evidenceAuthority: "pin_media_ready"
+	});
+
+	const rankedVisualReferencePatternBoard: InspiredesignReferencePatternBoard = {
+		...authoritativeReferencePatternBoard,
+		references: [{
+			...authoritativeReferencePatternBoard.references[0]!,
+			id: "ranked-visual-ref",
+			url: "https://example.com/ranked-visual",
+			capturedVia: ["fetch"],
+			evidenceAuthority: "ranked_reference" as const
+		}]
+	};
+	const renderedWithRankedVisualArtifact = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		screenshotIndex: [{
+			referenceId: "ranked-visual-ref",
+			url: "https://example.com/ranked-visual",
+			sourceUrl: "https://example.com/ranked-visual",
+			path: "visual-evidence/ranked-visual-ref/full_page.png",
+			sha256: "f".repeat(64),
+			bytes: 2048,
+			warnings: []
+		}],
+		rankedReferences: rankedVisualReferencePatternBoard.references,
+		referencePatternBoard: rankedVisualReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: {
+			...readyNextStepGuidance,
+			doNotProceedIf: ["screenshot paths are missing when visual evidence was required"]
+		},
+		meta: {
+			requestId: "req-ranked-visual",
+			selection: { visual_evidence: "required" }
+		}
+	});
+	expect(renderedWithRankedVisualArtifact.response).toMatchObject({
+		artifactAuthority: "product_ready",
+		productSuccess: true,
+		evidenceAuthority: "snapshot_ready"
+	});
+
+	const renderedWithUnbackedRankedReference = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		rankedReferences: rankedVisualReferencePatternBoard.references,
+		referencePatternBoard: rankedVisualReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: {
+			requestId: "req-unbacked-ranked-visual",
+			productSuccess: true,
+			rankedReferenceCount: 1,
+			authoritativeReferenceCount: 1,
+			snapshotReadyReferenceCount: 1,
+			motionReadyReferenceCount: 0,
+			pinMediaReadyReferenceCount: 0
+		}
+	});
+	expect(renderedWithUnbackedRankedReference.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+
+	const rankedMotionReferencePatternBoard: InspiredesignReferencePatternBoard = {
+		...authoritativeReferencePatternBoard,
+		references: [{
+			...authoritativeReferencePatternBoard.references[0]!,
+			id: "ranked-motion-ref",
+			url: "https://example.com/ranked-motion",
+			capturedVia: ["fetch"],
+			evidenceAuthority: "ranked_reference" as const
+		}]
+	};
+	const renderedWithRankedMotionArtifact = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		motionEvidence: [makeInspiredesignMotionEvidence({
+			referenceId: "ranked-motion-ref",
+			url: "https://example.com/ranked-motion"
+		})],
+		rankedReferences: rankedMotionReferencePatternBoard.references,
+		referencePatternBoard: rankedMotionReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: { requestId: "req-ranked-motion" }
+	});
+	expect(renderedWithRankedMotionArtifact.response).toMatchObject({
+		artifactAuthority: "product_ready",
+		productSuccess: true,
+		evidenceAuthority: "motion_ready"
+	});
+
+	const pinMotionEvidence = makeInspiredesignMotionEvidence({
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/"
+	});
+	const pinMotionReferencePatternBoard: InspiredesignReferencePatternBoard = {
+		...pinMediaReferencePatternBoard,
+		references: [{
+			...pinMediaReferencePatternBoard.references[0]!,
+			capturedVia: ["fetch", "pin_media_ready", "motion_ready"],
+			evidenceAuthority: "pin_media_ready" as const
+		}]
+	};
+	const renderedWithMotionAndPinMediaAuthority = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		motionEvidence: [{
+			...pinMotionEvidence,
+			motion: {
+				...pinMotionEvidence.motion,
+				pinterestPageQuality: "pin_media",
+				startedPinterestPageQuality: "pin_media",
+				endedPinterestPageQuality: "pin_media"
+			}
+		}],
+		pinMediaIndex,
+		rankedReferences: pinMotionReferencePatternBoard.references,
+		referencePatternBoard: pinMotionReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: { requestId: "req-pin-motion-media", pinterestEvidenceRequired: true }
+	});
+	expect(renderedWithMotionAndPinMediaAuthority.response).toMatchObject({
+		artifactAuthority: "product_ready",
+		productSuccess: true,
+		evidenceAuthority: "motion_ready"
+	});
+
+	const mixedReferencePatternBoard: InspiredesignReferencePatternBoard = {
+		...pinMediaReferencePatternBoard,
+		qualitySummary: {
+			...pinMediaReferencePatternBoard.qualitySummary,
+			rankedReferenceCount: 2
+		},
+		references: [
+			{
+				...authoritativeReferencePatternBoard.references[0]!,
+				id: "non-pinterest-ref",
+				url: "https://example.com/product",
+				capturedVia: ["fetch"],
+				evidenceAuthority: "ranked_reference" as const
+			},
+			pinMediaReferencePatternBoard.references[0]!
+		]
+	};
+	const renderedWithMixedUnbackedReferences = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		pinMediaIndex,
+		rankedReferences: mixedReferencePatternBoard.references,
+		referencePatternBoard: mixedReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: {
+			requestId: "req-mixed-unbacked-pin-media",
+			evidenceAuthority: "pin_media_ready",
+			pinterestEvidenceRequired: true,
+			rankedReferenceCount: 2,
+			authoritativeReferenceCount: 2,
+			snapshotReadyReferenceCount: 0,
+			motionReadyReferenceCount: 0,
+			pinMediaReadyReferenceCount: 1
+		}
+	});
+	expect(renderedWithMixedUnbackedReferences.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+
+	const renderedWithIncoherentCounts = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		visualEvidence: packet.visualEvidence,
+		screenshotIndex: [{
+			referenceId: "product-ref",
+			url: "https://example.com/product",
+			sourceUrl: "https://example.com/product",
+			path: "visual-evidence/product-ref/viewport.png",
+			sha256: "a".repeat(64),
+			bytes: 2048,
+			warnings: []
+		}],
+		rankedReferences: authoritativeReferencePatternBoard.references,
+		referencePatternBoard: authoritativeReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: {
+			requestId: "req-incoherent-counts",
+			productSuccess: true,
+			rankedReferenceCount: 1,
+			authoritativeReferenceCount: 1,
+			snapshotReadyReferenceCount: 1,
+			motionReadyReferenceCount: 0
+		}
+	});
+	expect(renderedWithIncoherentCounts.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+
+	const twoSnapshotReferencePatternBoard: InspiredesignReferencePatternBoard = {
+		...authoritativeReferencePatternBoard,
+		qualitySummary: {
+			...authoritativeReferencePatternBoard.qualitySummary,
+			rankedReferenceCount: 2
+		},
+		references: [
+			authoritativeReferencePatternBoard.references[0]!,
+			{
+				...authoritativeReferencePatternBoard.references[0]!,
+				id: "product-ref-two",
+				rank: 2,
+				name: "Second product reference",
+				url: "https://example.com/product-two"
+			}
+		]
+	};
+	const renderedWithUndercountedReadinessMetadata = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		visualEvidence: packet.visualEvidence,
+		screenshotIndex: [
+			{
+				referenceId: "product-ref",
+				url: "https://example.com/product",
+				sourceUrl: "https://example.com/product",
+				path: "visual-evidence/product-ref/viewport.png",
+				sha256: "a".repeat(64),
+				bytes: 2048,
+				warnings: []
+			},
+			{
+				referenceId: "product-ref-two",
+				url: "https://example.com/product-two",
+				sourceUrl: "https://example.com/product-two",
+				path: "visual-evidence/product-ref-two/viewport.png",
+				sha256: "b".repeat(64),
+				bytes: 2048,
+				warnings: []
+			}
+		],
+		rankedReferences: twoSnapshotReferencePatternBoard.references,
+		referencePatternBoard: twoSnapshotReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: {
+			requestId: "req-undercounted-readiness-metadata",
+			productSuccess: true,
+			rankedReferenceCount: 2,
+			authoritativeReferenceCount: 1,
+			snapshotReadyReferenceCount: 1,
+			motionReadyReferenceCount: 0,
+			pinMediaReadyReferenceCount: 0
+		}
+	});
+	expect(renderedWithUndercountedReadinessMetadata.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+	expect("canvasPlanRequest" in renderedWithUndercountedReadinessMetadata.response).toBe(false);
+	expect(renderedWithUndercountedReadinessMetadata.files.some((file) => (
+		file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest
+	))).toBe(false);
+
+	const renderedWithoutAuthorityArtifacts = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		rankedReferences: pinMediaReferencePatternBoard.references,
+		referencePatternBoard: pinMediaReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: {
+			requestId: "req-no-authority-artifacts",
+			evidenceAuthority: "pin_media_ready",
+			pinterestEvidenceRequired: true
+		}
+	});
+	expect(renderedWithoutAuthorityArtifacts.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+
+	const unsupportedProtocolReferencePatternBoard: InspiredesignReferencePatternBoard = {
+		...authoritativeReferencePatternBoard,
+		references: [{
+			...authoritativeReferencePatternBoard.references[0]!,
+			id: "ftp-ref",
+			url: "ftp://example.com/product",
+			capturedVia: ["fetch"],
+			evidenceAuthority: "ranked_reference" as const
+		}]
+	};
+	const renderedWithUnsupportedReferenceProtocol = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls,
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		rankedReferences: unsupportedProtocolReferencePatternBoard.references,
+		referencePatternBoard: unsupportedProtocolReferencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: {
+			requestId: "req-unsupported-reference-protocol",
+			productSuccess: true,
+			rankedReferenceCount: 1,
+			authoritativeReferenceCount: 1,
+			snapshotReadyReferenceCount: 0,
+			motionReadyReferenceCount: 0,
+			pinMediaReadyReferenceCount: 0
+		}
+	});
+	expect(renderedWithUnsupportedReferenceProtocol.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+	});
+
+  it("blocks Canvas continuation when ready guidance has no authoritative references", () => {
+    const brief = "Design a premium product narrative landing page";
+    const urls = ["https://example.com/ref-1"];
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls,
+      includePrototypeGuidance: true,
+      references: [makeReference({
+        captureStatus: "captured",
+        capture: {
+          snapshot: {
+            content: "Hero, CTA, proof strip",
+            refCount: 4,
+            warnings: []
+          }
+        }
+      })]
+    });
+    const readyNextStepGuidance = {
+      id: "inspiredesign.design_ready",
+      recipeType: "artifact_handoff",
+      workflow: "inspiredesign",
+      severity: "info",
+      readiness: "ready",
+      reasonCode: "design_ready",
+      primaryAction: {
+        id: "continue_to_canvas",
+        label: "Continue in Canvas",
+        summary: "Continue in Canvas with the generated request."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+      doNotProceedIf: []
+    } satisfies NextStepGuidance;
+    const emptyBoard = {
+      ...packet.referencePatternBoard,
+      references: [],
+      qualitySummary: {
+        ...packet.referencePatternBoard.qualitySummary,
+        rankedReferenceCount: 0
+      }
+    };
+
+    const rendered = renderInspiredesign({
+      mode: "path",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      rankedReferences: [],
+      referencePatternBoard: emptyBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: readyNextStepGuidance,
+      meta: { requestId: "empty-ready-board", productSuccess: true }
+    });
+
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+    expect(rendered.response).toMatchObject({
+      artifactAuthority: "diagnostic_only"
+    });
+    expect(rendered.response.suggestedSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+		reason: "Recover authoritative screenshot, screencast, or pin-media artifacts before using Canvas artifacts.",
+		command: "Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence."
+      })
+    ]));
+	  });
+
+	  it("uses manifest-backed authority evidence for Canvas gating without hiding diagnostic metadata", () => {
+	    const brief = "Design a premium product narrative landing page";
+	    const url = "https://www.pinterest.com/pin/1234567890/";
+	    const packet = buildInspiredesignPacket({
+	      brief,
+	      briefExpansion: makeBriefExpansion(),
+	      urls: [url],
+	      includePrototypeGuidance: true,
+	      references: [makeReference({
+	        id: "pinterest-visual",
+	        url,
+	        fetchStatus: "captured",
+	        captureStatus: "captured",
+	        title: "Editorial couture atelier landing page",
+	        excerpt: "Editorial runway drape with strong negative space and atelier typography.",
+	        capture: {
+	          snapshot: {
+	            content: "Editorial runway drape with strong negative space",
+	            refCount: 4,
+	            warnings: []
+	          },
+	          visual: {
+	            status: "captured",
+	            sourceUrl: url,
+	            path: "visual-evidence/pinterest-visual/viewport.png",
+	            sha256: "e".repeat(64),
+	            bytes: 4096,
+	            warnings: []
+	          }
+	        }
+	      })]
+	    });
+	    const readyNextStepGuidance = {
+	      id: "inspiredesign.design_ready",
+	      recipeType: "artifact_handoff",
+	      workflow: "inspiredesign",
+	      severity: "info",
+	      readiness: "ready",
+	      reasonCode: "design_ready",
+	      primaryAction: {
+	        id: "continue_to_canvas",
+	        label: "Continue in Canvas",
+	        summary: "Continue in Canvas with the generated request."
+	      },
+	      commands: [],
+	      paramsExamples: [],
+	      fieldExamples: [],
+	      artifactInputs: [],
+	      validationChecks: [],
+	      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+	      doNotProceedIf: []
+	    } satisfies NextStepGuidance;
+
+	    const rendered = renderInspiredesign({
+	      mode: "path",
+	      brief,
+	      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+	      urls: [url],
+	      designContract: packet.designContract,
+	      canvasPlanRequest: packet.canvasPlanRequest,
+	      designAgentHandoff: packet.followthrough,
+	      generationPlan: packet.generationPlan,
+	      implementationPlan: packet.implementationPlan,
+	      designMarkdown: packet.designMarkdown,
+	      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+	      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+	      evidence: packet.evidence,
+	      visualEvidence: packet.visualEvidence,
+	      screenshotIndex: packet.screenshotIndex,
+	      authorityScreenshotIndex: [],
+	      rankedReferences: packet.rankedReferences,
+	      referencePatternBoard: packet.referencePatternBoard,
+	      metaPromptMarkdown: packet.metaPromptMarkdown,
+	      nextStepGuidance: readyNextStepGuidance,
+	      meta: {
+	        requestId: "unbacked-pinterest-visual",
+	        productSuccess: true,
+	        pinterestEvidenceRequired: true
+	      }
+	    });
+	    const screenshotIndexFile = rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.screenshotIndex);
+
+	    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+	    expect(rendered.response).toMatchObject({
+	      artifactAuthority: "diagnostic_only",
+	      productSuccess: false
+	    });
+	    expect(screenshotIndexFile?.content).toEqual({
+	      screenshots: packet.screenshotIndex
+	    });
+	  });
+
+  it("keeps context meta aligned with renderer authority when Canvas gating fails closed", () => {
+    const brief = "Design a premium product narrative landing page";
+    const url = "https://www.pinterest.com/pin/1234567890/";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls: [url],
+      includePrototypeGuidance: true,
+      references: [makeReference({
+        id: "pinterest-visual",
+        url,
+        fetchStatus: "captured",
+        captureStatus: "captured",
+        title: "Editorial couture atelier landing page",
+        excerpt: "Editorial runway drape with strong negative space and atelier typography.",
+        capture: {
+          snapshot: {
+            content: "Editorial runway drape with strong negative space",
+            refCount: 4,
+            warnings: []
+          },
+          visual: {
+            status: "captured",
+            sourceUrl: url,
+            path: "visual-evidence/pinterest-visual/viewport.png",
+            sha256: "e".repeat(64),
+            bytes: 4096,
+            warnings: []
+          }
+        }
+      })]
+    });
+    const guidance = {
+      id: "inspiredesign.design_ready",
+      recipeType: "artifact_handoff",
+      workflow: "inspiredesign",
+      severity: "info",
+      readiness: "ready",
+      reasonCode: "design_ready",
+      primaryAction: {
+        id: "continue_to_canvas",
+        label: "Continue in Canvas",
+        summary: "Continue in Canvas with the generated request."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+      doNotProceedIf: []
+    } satisfies NextStepGuidance;
+    const rendered = renderInspiredesign({
+      mode: "context",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: [url],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      authorityScreenshotIndex: [],
+      rankedReferences: packet.rankedReferences,
+      referencePatternBoard: packet.referencePatternBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: guidance,
+      meta: {
+        requestId: "stale-renderer-meta",
+        productSuccess: true,
+        pinterestEvidenceRequired: true
+      }
+    });
+    const response = rendered.response as { context?: { meta?: Record<string, unknown> }; meta?: Record<string, unknown> };
+
+    expect(response).toMatchObject({
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      meta: expect.objectContaining({
+        productSuccess: false,
+        artifactAuthority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only"
+      }),
+      context: expect.objectContaining({
+        meta: expect.objectContaining({
+          productSuccess: false,
+          artifactAuthority: "diagnostic_only",
+          evidenceAuthority: "diagnostic_only"
+        })
+      })
+    });
+  });
+
+	it("uses manifest-backed pin media index for Canvas gating and rejects incoherent counts", () => {
+	const brief = "Design a premium product narrative landing page";
+	const url = "https://www.pinterest.com/pin/1234567890/";
+	const pinMedia = {
+		status: "captured" as const,
+		kind: "image" as const,
+		authority: "design_evidence" as const,
+		capturedAt: "2026-05-23T00:00:00.000Z",
+		referenceId: "pin-ref",
+		url,
+		sourceUrl: url,
+		pinterestPageQuality: "pin_media" as const,
+		mediaUrl: "https://i.pinimg.com/originals/pin.webp",
+		path: "pin-media-evidence/pin-ref/main.webp",
+		sha256: "a".repeat(64),
+		bytes: 2048,
+		width: 1200,
+		height: 1600,
+		contentType: "image/webp" as const,
+		warnings: [],
+		rejectionReasons: [],
+		firstPartyProvenance: {
+		canonicalReferenceUrl: "https://www.pinterest.com/pin/1234567890",
+		canonicalSourceUrl: "https://www.pinterest.com/pin/1234567890",
+		referenceUrlCanonical: true,
+		sourceUrlMatchesReference: true,
+		mediaUrlFirstParty: true
+		}
+	};
+	const packet = buildInspiredesignPacket({
+		brief,
+		briefExpansion: makeBriefExpansion(),
+		urls: [url],
+		includePrototypeGuidance: true,
+		references: [makeReference({
+		id: "pin-ref",
+		url,
+		fetchStatus: "captured",
+		captureStatus: "captured",
+		title: "Editorial pin media reference",
+		excerpt: "Full-bleed portrait image with premium product staging.",
+		capture: { pinMedia }
+		})]
+	});
+	const pinMediaReference: InspiredesignReferencePatternBoard["references"][number] = {
+		id: "pin-ref",
+		rank: 1,
+		score: 84,
+		confidence: 0.84,
+		name: "Editorial pin media reference",
+		url,
+		surfaceType: "pin media",
+		capturedVia: ["fetch", "pin_media", "pin_media_ready"],
+		evidenceAuthority: "pin_media_ready",
+		intentMatched: true,
+		selectionReason: "Ranked for manifest-ready Pinterest pin media evidence.",
+		visualStrengths: ["Manifest-ready Pinterest pin media artifact is available for still-image direction."],
+		visualRisks: [],
+		layoutRecipe: "Full-bleed portrait image with premium product staging.",
+		contentHierarchy: ["hero image"],
+		componentFamilies: ["media module"],
+		motionPosture: ["still-image reference only"],
+		tokenNotes: ["editorial contrast"],
+		patternsToBorrow: ["full-bleed portrait image"],
+		patternsToReject: ["Pinterest shell chrome"],
+		whyItWorks: "Persisted pin media supplies still-image direction."
+	};
+	const pinMediaBoard: InspiredesignReferencePatternBoard = {
+		...packet.referencePatternBoard,
+		references: [pinMediaReference],
+		qualitySummary: {
+		...packet.referencePatternBoard.qualitySummary,
+		rankedReferenceCount: 1,
+		missingScreenshotCount: 0
+		}
+	};
+	const pinMediaIndexEntry = {
+		referenceId: "pin-ref",
+		url,
+		sourceUrl: url,
+		mediaUrl: "https://i.pinimg.com/originals/pin.webp",
+		pinterestPageQuality: "pin_media" as const,
+		path: "pin-media-evidence/pin-ref/main.webp",
+		sha256: "a".repeat(64),
+		bytes: 2048,
+		width: 1200,
+		height: 1600,
+		contentType: "image/webp" as const,
+		kind: "image" as const,
+		authority: "design_evidence" as const,
+		capturedAt: "2026-05-23T00:00:00.000Z",
+		warnings: [],
+		firstPartyProvenance: {
+		canonicalReferenceUrl: "https://www.pinterest.com/pin/1234567890",
+		canonicalSourceUrl: "https://www.pinterest.com/pin/1234567890",
+		referenceUrlCanonical: true,
+		sourceUrlMatchesReference: true,
+		mediaUrlFirstParty: true
+		}
+	};
+	const pinMediaIndex = [pinMediaIndexEntry];
+	const readyNextStepGuidance = {
+		id: "inspiredesign.design_ready",
+		recipeType: "artifact_handoff",
+		workflow: "inspiredesign",
+		severity: "info",
+		readiness: "ready",
+		reasonCode: "design_ready",
+		primaryAction: {
+		id: "continue_to_canvas",
+		label: "Continue in Canvas",
+		summary: "Continue in Canvas with the generated request."
+		},
+		commands: [],
+		paramsExamples: [],
+		fieldExamples: [],
+		artifactInputs: [],
+		validationChecks: [],
+		fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+		doNotProceedIf: []
+	} satisfies NextStepGuidance;
+	const renderWithAuthority = (
+		authorityPinMediaIndex: typeof packet.pinMediaIndex,
+		meta: Record<string, unknown>
+	) => renderInspiredesign({
+		mode: "path",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls: [url],
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		visualEvidence: packet.visualEvidence,
+		screenshotIndex: packet.screenshotIndex,
+		motionEvidence: packet.motionEvidence,
+		pinMediaEvidence: packet.pinMediaEvidence,
+		pinMediaIndex,
+		authorityScreenshotIndex: [],
+		authorityMotionEvidence: [],
+		authorityPinMediaIndex,
+		rankedReferences: pinMediaBoard.references,
+		referencePatternBoard: pinMediaBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta
+	});
+
+	const coherentMeta = {
+		requestId: "pin-media-renderer",
+		productSuccess: true,
+		artifactAuthority: "product_ready",
+		evidenceAuthority: "pin_media_ready",
+		pinterestEvidenceRequired: true,
+		rankedReferenceCount: 1,
+		authoritativeReferenceCount: 1,
+		snapshotReadyReferenceCount: 0,
+		motionReadyReferenceCount: 0,
+		pinMediaReadyReferenceCount: 1
+	};
+	const rendered = renderWithAuthority(pinMediaIndex, coherentMeta);
+	expect(rendered.response).toMatchObject({
+		artifactAuthority: "product_ready",
+		productSuccess: true,
+		evidenceAuthority: "pin_media_ready"
+	});
+	expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(true);
+	expect(rendered.files.find((file) => file.path === "pin-media-index.json")?.content).toEqual({
+		pinMediaIndex
+	});
+
+	const renderedWithFallbackAuthority = renderWithAuthority(pinMediaIndex, {
+		requestId: "pin-media-renderer-fallback-authority",
+		productSuccess: true,
+		artifactAuthority: "product_ready",
+		evidenceAuthority: "ranked_reference",
+		pinterestEvidenceRequired: true
+	});
+	expect(renderedWithFallbackAuthority.response).toMatchObject({
+		artifactAuthority: "product_ready",
+		productSuccess: true,
+		evidenceAuthority: "pin_media_ready"
+	});
+
+	const missingIndex = renderWithAuthority([], coherentMeta);
+	expect(missingIndex.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+	expect(missingIndex.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+
+	const incoherentCounts = renderWithAuthority(pinMediaIndex, {
+		...coherentMeta,
+		authoritativeReferenceCount: 0
+	});
+	expect(incoherentCounts.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+
+	const renderedWithoutReferencePatternBoard = renderInspiredesign({
+		mode: "path",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls: [url],
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		visualEvidence: packet.visualEvidence,
+		screenshotIndex: packet.screenshotIndex,
+		motionEvidence: packet.motionEvidence,
+		pinMediaEvidence: packet.pinMediaEvidence,
+		pinMediaIndex,
+		authorityScreenshotIndex: [],
+		authorityMotionEvidence: [],
+		authorityPinMediaIndex: pinMediaIndex,
+		rankedReferences: pinMediaBoard.references,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: coherentMeta
+	});
+	expect(renderedWithoutReferencePatternBoard.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+	});
+
+	  it("does not treat non-Pinterest URLs containing pinterest.com text as Pinterest references", () => {
+	    const brief = "Design a premium product narrative landing page";
+    const misleadingUrl = "https://example.com/reference?next=pinterest.com/pin/123";
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls: [misleadingUrl],
+      includePrototypeGuidance: true,
+      references: [makeReference({
+        id: "generic-query-reference",
+        url: misleadingUrl,
+        fetchStatus: "captured",
+        captureStatus: "captured",
+        title: "Editorial product reference",
+        excerpt: "Premium landing page with full-bleed hero, focused CTA, and refined typography.",
+        capture: {
+          snapshot: {
+            content: "Full-bleed hero, focused CTA, refined typography, and product storytelling.",
+            refCount: 4,
+            warnings: []
+          },
+          visual: {
+            status: "captured",
+            sourceUrl: misleadingUrl,
+            path: "visual-evidence/generic-query-reference/full_page.png",
+            sha256: "a".repeat(64),
+            bytes: 4096,
+            warnings: []
+          }
+        }
+      })]
+    });
+    const readyNextStepGuidance = {
+      id: "inspiredesign.design_ready",
+      recipeType: "artifact_handoff",
+      workflow: "inspiredesign",
+      severity: "info",
+      readiness: "ready",
+      reasonCode: "design_ready",
+      primaryAction: {
+        id: "continue_to_canvas",
+        label: "Continue in Canvas",
+        summary: "Continue in Canvas with the generated request."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+      doNotProceedIf: []
+    } satisfies NextStepGuidance;
+
+    const rendered = renderInspiredesign({
+      mode: "path",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls: [misleadingUrl],
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      rankedReferences: packet.rankedReferences,
+      referencePatternBoard: packet.referencePatternBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: readyNextStepGuidance,
+      meta: {
+        requestId: "misleading-pinterest-query",
+        productSuccess: true,
+        pinterestEvidenceRequired: true
+      }
+    });
+
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+    expect(rendered.response).toMatchObject({
+      artifactAuthority: "diagnostic_only",
+      productSuccess: false
+    });
+  });
+
+  it("does not duplicate diagnostic-only warnings on already-marked markdown artifacts", () => {
+    const brief = "Design a premium product narrative landing page";
+    const urls = ["https://example.com/ref-1"];
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls,
+      includePrototypeGuidance: true,
+      references: [makeReference({
+        captureStatus: "captured",
+        capture: {
+          snapshot: {
+            content: "Hero, CTA, proof strip",
+            refCount: 4,
+            warnings: []
+          }
+        }
+      })]
+    });
+    const diagnosticWarning = "> **Diagnostic-only artifact.** This harvest is not product-ready. Treat this file as troubleshooting context, not authoritative design input.";
+    const rendered = renderInspiredesign({
+      mode: "json",
+      brief,
+      advancedBriefMarkdown: `${diagnosticWarning}\n\n${packet.advancedBriefMarkdown}`,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      rankedReferences: [],
+      referencePatternBoard: {
+        ...packet.referencePatternBoard,
+        references: [],
+        qualitySummary: {
+          ...packet.referencePatternBoard.qualitySummary,
+          rankedReferenceCount: 0
+        }
+      },
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      meta: { requestId: "already-marked-diagnostic" }
+    });
+    const advancedBriefMarkdown = (rendered.response as { advancedBriefMarkdown: string }).advancedBriefMarkdown;
+
+    expect(advancedBriefMarkdown.match(/Diagnostic-only artifact/g)).toHaveLength(1);
+  });
+
+  it("blocks Canvas continuation for malformed non-Pinterest reference URLs", () => {
+    const brief = "Design a premium product narrative landing page";
+    const urls = ["not-a-url"];
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls,
+      includePrototypeGuidance: true,
+      references: [makeReference({
+        url: "not-a-url",
+        captureStatus: "captured",
+        capture: {
+          snapshot: {
+            content: "Hero, CTA, proof strip",
+            refCount: 4,
+            warnings: []
+          }
+        }
+      })]
+    });
+    const readyNextStepGuidance = {
+      id: "inspiredesign.design_ready",
+      recipeType: "artifact_handoff",
+      workflow: "inspiredesign",
+      severity: "info",
+      readiness: "ready",
+      reasonCode: "design_ready",
+      primaryAction: {
+        id: "continue_to_canvas",
+        label: "Continue in Canvas",
+        summary: "Continue in Canvas with the generated request."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+      doNotProceedIf: []
+    } satisfies NextStepGuidance;
+    const malformedBoard = {
+      ...packet.referencePatternBoard,
+      references: packet.referencePatternBoard.references.map((reference) => ({
+        ...reference,
+		url: undefined as unknown as string
+      }))
+    } satisfies InspiredesignReferencePatternBoard;
+
+    const rendered = renderInspiredesign({
+      mode: "path",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      rankedReferences: packet.rankedReferences,
+      referencePatternBoard: malformedBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: readyNextStepGuidance,
+      meta: { requestId: "malformed-reference-url" }
+    });
+
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+    expect(rendered.response).toMatchObject({
+      artifactAuthority: "diagnostic_only",
+      productSuccess: false
+    });
+  });
+
+  it("blocks Canvas continuation for Pinterest marker-only references without authoritative evidence", () => {
+    const brief = "Design a premium product narrative landing page";
+    const urls = [
+      "https://www.pinterest.com/pin/1234567890/",
+      "https://www.pinterest.com/pin/9876543210/"
+    ];
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls,
+      includePrototypeGuidance: true,
+      references: [
+        makeReference({
+          id: "pinterest-visual",
+          url: urls[0],
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Editorial runway drape with strong negative space",
+              refCount: 4,
+              warnings: []
+            },
+            visual: {
+              status: "captured",
+              sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+              path: "visual-evidence/pinterest-visual/viewport.png",
+              sha256: "e".repeat(64),
+              bytes: 4096,
+              warnings: []
+            }
+          }
+        }),
+        makeReference({
+          id: "pinterest-motion",
+          url: urls[1],
+          captureStatus: "captured",
+          capture: {
+            motion: {
+              status: "captured",
+              kind: "screencast",
+              capturedAt: "2026-05-23T00:00:00.000Z",
+              frameCount: 3,
+              warnings: [],
+              diagnostic: false,
+              diagnosticReasons: [],
+              authority: "design_evidence"
+            }
+          }
+        })
+      ]
+    });
+    const readyNextStepGuidance = {
+      id: "inspiredesign.design_ready",
+      recipeType: "artifact_handoff",
+      workflow: "inspiredesign",
+      severity: "info",
+      readiness: "ready",
+      reasonCode: "design_ready",
+      primaryAction: {
+        id: "continue_to_canvas",
+        label: "Continue in Canvas",
+        summary: "Continue in Canvas with the generated request."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+      doNotProceedIf: []
+    } satisfies NextStepGuidance;
+    const pinterestBoard = {
+      ...packet.referencePatternBoard,
+      references: packet.referencePatternBoard.references.map((reference) => (
+        reference.id === "pinterest-visual"
+          ? { ...reference, evidenceAuthority: "diagnostic_only" as const, capturedVia: ["fetch", "visual", "snapshot_ready"] }
+          : { ...reference, evidenceAuthority: "diagnostic_only" as const, capturedVia: ["fetch", "motion", "motion_ready"] }
+      ))
+    } satisfies InspiredesignReferencePatternBoard;
+
+    const rendered = renderInspiredesign({
+      mode: "path",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      rankedReferences: pinterestBoard.references,
+      referencePatternBoard: pinterestBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: readyNextStepGuidance,
+      meta: { requestId: "pinterest-snapshot-motion-ready" }
+    });
+
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+    expect(rendered.response).toMatchObject({
+      artifactAuthority: "diagnostic_only",
+      productSuccess: false
+    });
+  });
+
+  it("blocks Canvas continuation when ready guidance still has do-not-proceed blockers", () => {
+    const brief = "Design a premium product narrative landing page";
+    const urls = ["https://example.com/ref-1"];
+    const packet = buildInspiredesignPacket({
+      brief,
+      briefExpansion: makeBriefExpansion(),
+      urls,
+      includePrototypeGuidance: true,
+      references: [makeReference({
+        captureStatus: "captured",
+        capture: {
+          snapshot: {
+            content: "Hero, CTA, proof strip",
+            refCount: 4,
+            warnings: []
+          }
+        }
+      })]
+    });
+    const blockedReadyGuidance = {
+      id: "inspiredesign.design_ready",
+      recipeType: "artifact_handoff",
+      workflow: "inspiredesign",
+      severity: "info",
+      readiness: "ready",
+      reasonCode: "design_ready",
+      primaryAction: {
+        id: "continue_to_canvas",
+        label: "Continue in Canvas",
+        summary: "Continue in Canvas with the generated request."
+      },
+      commands: [],
+      paramsExamples: [],
+      fieldExamples: [],
+      artifactInputs: [],
+      validationChecks: [],
+      fallbackPolicy: { allowed: false, requiresUserConfirmation: false, reason: "Use the generated Canvas request." },
+      doNotProceedIf: ["manual review blocked Canvas continuation"]
+    } satisfies NextStepGuidance;
+
+    const rendered = renderInspiredesign({
+      mode: "path",
+      brief,
+      advancedBriefMarkdown: packet.advancedBriefMarkdown,
+      urls,
+      designContract: packet.designContract,
+      canvasPlanRequest: packet.canvasPlanRequest,
+      designAgentHandoff: packet.followthrough,
+      generationPlan: packet.generationPlan,
+      implementationPlan: packet.implementationPlan,
+      designMarkdown: packet.designMarkdown,
+      implementationPlanMarkdown: packet.implementationPlanMarkdown,
+      prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+      evidence: packet.evidence,
+      visualEvidence: packet.visualEvidence,
+      screenshotIndex: packet.screenshotIndex,
+      rankedReferences: packet.rankedReferences,
+      referencePatternBoard: packet.referencePatternBoard,
+      metaPromptMarkdown: packet.metaPromptMarkdown,
+      nextStepGuidance: blockedReadyGuidance,
+      meta: { requestId: "ready-guidance-with-blockers" }
+    });
+
+    expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+    expect(rendered.response).toMatchObject({
+      artifactAuthority: "diagnostic_only"
+    });
+  });
+
+  it("uses the same active blocker gate for product readiness and Canvas continuation", () => {
+    expect(hasActiveInspiredesignCanvasDoNotProceedBlocker([
+      "rankedReferences is empty",
+      "screenshot paths are missing when visual evidence was required",
+      "planStatus is not accepted"
+    ], 1)).toBe(true);
+    expect(hasActiveInspiredesignCanvasDoNotProceedBlocker([
+      "rankedReferences is empty",
+      "screenshot paths are missing when visual evidence was required",
+      "planStatus is not accepted"
+    ], 1, 0)).toBe(false);
+    expect(hasActiveInspiredesignCanvasDoNotProceedBlocker([
+      "rankedReferences is empty and manual approval is missing"
+    ], 1)).toBe(true);
+
+    expect(buildInspiredesignProductReadinessFields(
+      "ready",
+      1,
+      0,
+      1,
+      true
+    )).toEqual(expect.objectContaining({
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
   });
 
   it("renders rejected references and synthesis in the ranked references artifact", () => {
@@ -3284,6 +5401,9 @@ describe("inspiredesign packet + renderer", () => {
         INSPIREDESIGN_HANDOFF_FILES.evidence,
         INSPIREDESIGN_HANDOFF_FILES.visualEvidence,
         INSPIREDESIGN_HANDOFF_FILES.screenshotIndex,
+        INSPIREDESIGN_HANDOFF_FILES.motionEvidence,
+        INSPIREDESIGN_HANDOFF_FILES.pinMediaEvidence,
+        INSPIREDESIGN_HANDOFF_FILES.pinMediaIndex,
         INSPIREDESIGN_HANDOFF_FILES.rankedReferences,
         INSPIREDESIGN_HANDOFF_FILES.metaPrompt,
         INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
@@ -3362,7 +5482,7 @@ describe("inspiredesign packet + renderer", () => {
     const handoffFile = rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff)?.content as typeof responseHandoff | undefined;
 
     expect(responseHandoff.commandExamples.continueInCanvas).not.toContain("canvas.plan.set");
-    expect(responseHandoff.commandExamples.continueInCanvas).toContain("nextStepGuidance.readiness");
+    expect(responseHandoff.commandExamples.continueInCanvas).toContain("harvest readiness");
     expect(handoffFile?.commandExamples.continueInCanvas).toBe(responseHandoff.commandExamples.continueInCanvas);
     expect(responseHandoff.summary).toBe(response.followthroughSummary);
     expect(responseHandoff.summary).not.toContain("continue in OpenDevBrowser Canvas");
@@ -3393,13 +5513,13 @@ describe("inspiredesign packet + renderer", () => {
       implementationPlanMarkdown: packet.implementationPlanMarkdown,
       prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
       evidence: packet.evidence,
-      meta: {}
+		meta: { selection: { visual_evidence: "required" } }
     });
     const responseWithoutGuidance = renderedWithoutGuidance.response as Record<string, unknown>;
     const handoffWithoutGuidance = responseWithoutGuidance.designAgentHandoff as { commandExamples: { continueInCanvas: string } };
 
     expect(handoffWithoutGuidance.commandExamples.continueInCanvas).toBe(
-      "Unavailable until nextStepGuidance.readiness is ready."
+		"Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence."
     );
     expect(responseWithoutGuidance.followthroughSummary).toBe(
       "Canvas continuation unavailable until nextStepGuidance.readiness is ready."
@@ -3471,7 +5591,7 @@ describe("inspiredesign packet + renderer", () => {
       commandExamples: { continueInCanvas: string };
       implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
     };
-    expect(responseHandoff.commandExamples.continueInCanvas).toBe("Unavailable until nextStepGuidance.readiness is ready.");
+    expect(responseHandoff.commandExamples.continueInCanvas).toBe("Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence.");
     expect(responseHandoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain(
       INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest
     );

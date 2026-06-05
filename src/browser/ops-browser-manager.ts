@@ -22,6 +22,8 @@ import type {
   BrowserCanvasOverlaySelectInput,
   BrowserCanvasOverlaySyncInput,
   BrowserManagerLike,
+  BrowserPinterestPinMediaOptions,
+  BrowserPinterestPinMediaResult,
   BrowserResponseMeta,
   BrowserScreencastResult,
   BrowserScreencastSession,
@@ -928,6 +930,16 @@ export class OpsBrowserManager implements BrowserManagerLike {
       ...(artifact ? { artifact_path: artifact.artifactPath } : {}),
       ...(warnings ? { warnings } : {})
     };
+  }
+
+  async capturePinterestPinMedia(
+    sessionId: string,
+    options: BrowserPinterestPinMediaOptions
+  ): Promise<BrowserPinterestPinMediaResult> {
+    if (!this.opsSessions.has(sessionId)) {
+      return await this.base.capturePinterestPinMedia(sessionId, options);
+    }
+    throw new Error("Pinterest pin media capture is not supported through extension ops sessions.");
   }
 
   async startScreencast(

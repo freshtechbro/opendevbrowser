@@ -44,6 +44,19 @@ import {
   type InspiredesignPersistedVisualEvidence,
   type InspiredesignVisualEvidenceRuntimeMetadata
 } from "./visual-evidence";
+import {
+  persistInspiredesignMotionEvidence,
+  type InspiredesignMotionEvidenceRuntimeMetadata,
+  type InspiredesignPersistedMotionEvidence
+} from "./motion-evidence";
+import {
+  buildInspiredesignPinterestPinMediaIndexEntry,
+  persistInspiredesignPinterestPinMediaEvidence,
+  redactDiagnosticPinterestPinMediaEvidence,
+  type InspiredesignPersistedPinterestPinMediaEvidence,
+  type InspiredesignPinterestPinMediaIndexEntry,
+  type InspiredesignPinterestPinMediaRuntimeMetadata
+} from "./pinterest-pin-media-evidence";
 import type { JsonValue } from "../providers/types";
 
 type JsonRecord = Record<string, JsonValue>;
@@ -121,6 +134,8 @@ export type InspiredesignCaptureEvidence = {
     warnings: string[];
   };
   visual?: InspiredesignVisualEvidenceRuntimeMetadata | InspiredesignPersistedVisualEvidence;
+  motion?: InspiredesignMotionEvidenceRuntimeMetadata | InspiredesignPersistedMotionEvidence;
+  pinMedia?: InspiredesignPinterestPinMediaRuntimeMetadata | InspiredesignPersistedPinterestPinMediaEvidence;
   attempts?: InspiredesignCaptureAttempts;
 };
 
@@ -265,7 +280,9 @@ export const normalizeInspiredesignCaptureEvidence = (
     ...(hasUsableInspiredesignSnapshot(capture) && capture.snapshot ? { snapshot: capture.snapshot } : {}),
     ...(hasUsableInspiredesignDom(capture) && capture.dom ? { dom: capture.dom } : {}),
     ...(hasUsableInspiredesignClone(capture) && capture.clone ? { clone: capture.clone } : {}),
-    ...(capture.visual ? { visual: persistInspiredesignVisualEvidence(capture.visual) } : {})
+    ...(capture.visual ? { visual: persistInspiredesignVisualEvidence(capture.visual) } : {}),
+    ...(capture.motion ? { motion: persistInspiredesignMotionEvidence(capture.motion) } : {}),
+    ...(capture.pinMedia ? { pinMedia: persistInspiredesignPinterestPinMediaEvidence(capture.pinMedia) } : {})
   };
   const attempts = reconcileInspiredesignCaptureAttempts(
     normalizedBase,
@@ -343,12 +360,28 @@ export type InspiredesignVisualEvidenceJson = {
 export type InspiredesignScreenshotIndexEntry = {
   referenceId: string;
   url: string;
+  sourceUrl?: string;
+  pinterestPageQuality?: InspiredesignPersistedVisualEvidence["pinterestPageQuality"];
   path: string;
   sha256: string;
   bytes: number;
   kind: InspiredesignPersistedVisualEvidence["kind"];
   fullPage: boolean;
   capturedAt: string;
+  warnings: string[];
+  failure?: string;
+};
+
+export type InspiredesignMotionEvidenceJson = {
+  referenceId: string;
+  url: string;
+  motion: InspiredesignPersistedMotionEvidence;
+};
+
+export type InspiredesignPinMediaEvidenceJson = {
+  referenceId: string;
+  url: string;
+  pinMedia: InspiredesignPersistedPinterestPinMediaEvidence;
 };
 
 export type InspiredesignPacket = {
@@ -364,6 +397,9 @@ export type InspiredesignPacket = {
   evidence: JsonRecord;
   visualEvidence: InspiredesignVisualEvidenceJson[];
   screenshotIndex: InspiredesignScreenshotIndexEntry[];
+  motionEvidence: InspiredesignMotionEvidenceJson[];
+  pinMediaEvidence: InspiredesignPinMediaEvidenceJson[];
+  pinMediaIndex: InspiredesignPinterestPinMediaIndexEntry[];
   rankedReferences: InspiredesignReferencePatternBoard["references"];
   referencePatternBoard: InspiredesignReferencePatternBoard;
   metaPromptMarkdown: string;
@@ -1549,6 +1585,9 @@ const buildRequiredReferenceArtifacts = (includePrototypeGuidance: boolean): str
     INSPIREDESIGN_HANDOFF_FILES.evidence,
     INSPIREDESIGN_HANDOFF_FILES.visualEvidence,
     INSPIREDESIGN_HANDOFF_FILES.screenshotIndex,
+    INSPIREDESIGN_HANDOFF_FILES.motionEvidence,
+    INSPIREDESIGN_HANDOFF_FILES.pinMediaEvidence,
+    INSPIREDESIGN_HANDOFF_FILES.pinMediaIndex,
     INSPIREDESIGN_HANDOFF_FILES.rankedReferences,
     INSPIREDESIGN_HANDOFF_FILES.metaPrompt,
     INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
@@ -2089,7 +2128,10 @@ const buildEvidencePayload = ({
   designVectors: designVectors as JsonRecord,
   targetAnalysis: targetAnalysis as JsonRecord,
   visualEvidence: buildVisualEvidencePayload(references) as unknown as JsonValue,
-  screenshotIndex: buildScreenshotIndex(references) as unknown as JsonValue
+  screenshotIndex: buildScreenshotIndex(references) as unknown as JsonValue,
+  motionEvidence: buildMotionEvidencePayload(references) as unknown as JsonValue,
+  pinMediaEvidence: buildPinMediaEvidencePayload(references) as unknown as JsonValue,
+  pinMediaIndex: buildPinMediaIndex(references) as unknown as JsonValue
 });
 
 const buildVisualEvidencePayload = (
@@ -2117,22 +2159,63 @@ const buildScreenshotIndex = (
   .map((entry) => ({
     referenceId: entry.referenceId,
     url: entry.url,
+    ...(entry.visual.sourceUrl ? { sourceUrl: entry.visual.sourceUrl } : {}),
+    ...(entry.visual.pinterestPageQuality ? { pinterestPageQuality: entry.visual.pinterestPageQuality } : {}),
     path: entry.visual.path,
     sha256: entry.visual.sha256,
     bytes: entry.visual.bytes,
     kind: entry.visual.kind,
     fullPage: entry.visual.fullPage,
-    capturedAt: entry.visual.capturedAt
+    capturedAt: entry.visual.capturedAt,
+    warnings: entry.visual.warnings,
+    ...(entry.visual.failure ? { failure: entry.visual.failure } : {})
   }));
+
+const buildMotionEvidencePayload = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignMotionEvidenceJson[] => references.flatMap((reference) => {
+  const motion = normalizeInspiredesignCaptureEvidence(reference.capture)?.motion;
+  return motion ? [{
+    referenceId: reference.id,
+    url: reference.url,
+    motion: persistInspiredesignMotionEvidence(motion)
+  }] : [];
+});
+
+const buildPinMediaEvidencePayload = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignPinMediaEvidenceJson[] => references.flatMap((reference) => {
+  const pinMedia = normalizeInspiredesignCaptureEvidence(reference.capture)?.pinMedia;
+  return pinMedia ? [{
+    referenceId: reference.id,
+    url: reference.url,
+    pinMedia: persistPinMediaEvidenceForArtifact(pinMedia)
+  }] : [];
+});
+
+const persistPinMediaEvidenceForArtifact = (
+  pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | InspiredesignPersistedPinterestPinMediaEvidence
+): InspiredesignPersistedPinterestPinMediaEvidence => (
+  redactDiagnosticPinterestPinMediaEvidence(persistInspiredesignPinterestPinMediaEvidence(pinMedia))
+);
+
+const buildPinMediaIndex = (
+  references: InspiredesignReferenceEvidence[]
+): InspiredesignPinterestPinMediaIndexEntry[] => buildPinMediaEvidencePayload(references)
+  .map((entry) => buildInspiredesignPinterestPinMediaIndexEntry(entry.pinMedia))
+  .filter((entry): entry is InspiredesignPinterestPinMediaIndexEntry => Boolean(entry));
 
 const toCaptureEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonValue => {
   const normalized = normalizeInspiredesignCaptureEvidence(reference.capture);
   if (!normalized) return null;
   const signals = getInspiredesignReferenceSignals(reference);
+  const pinMedia = normalized.pinMedia ? persistPinMediaEvidenceForArtifact(normalized.pinMedia) : undefined;
   return {
     ...(normalized.title ? { title: normalized.title } : {}),
     ...(signals.length > 0 ? { signals } : {}),
     ...(normalized.visual ? { visual: normalized.visual as JsonRecord } : {}),
+    ...(normalized.motion ? { motion: normalized.motion as JsonRecord } : {}),
+    ...(pinMedia ? { pinMedia: pinMedia as JsonRecord } : {}),
     ...(normalized.attempts ? { attempts: normalized.attempts } : {})
   };
 };
@@ -2313,6 +2396,9 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
 
   const visualEvidence = buildVisualEvidencePayload(references);
   const screenshotIndex = buildScreenshotIndex(references);
+  const motionEvidence = buildMotionEvidencePayload(references);
+  const pinMediaEvidence = buildPinMediaEvidencePayload(references);
+  const pinMediaIndex = buildPinMediaIndex(references);
   return {
     advancedBriefMarkdown,
     designContract,
@@ -2325,6 +2411,9 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     prototypeGuidanceMarkdown,
     visualEvidence,
     screenshotIndex,
+    motionEvidence,
+    pinMediaEvidence,
+    pinMediaIndex,
     rankedReferences: designReferencePatternBoard.references,
     referencePatternBoard,
     metaPromptMarkdown,

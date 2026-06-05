@@ -229,6 +229,120 @@ describe("GuidanceRouter", () => {
     expect(command).not.toContain("--url");
   });
 
+  it("does not blindly retry weak or rejected Pinterest URLs in recovery commands", () => {
+    const rejectedUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const guidance = routeNextStepGuidance({
+      workflow: "inspiredesign",
+      reasonCode: "zero_ranked_references",
+      requestedProviders: ["social/pinterest"],
+      siteRecipeId: "social/pinterest",
+      referenceUrls: [rejectedUrl],
+      query: "fashion studio landing page",
+      evidence: { referenceCount: 1, rankedReferenceCount: 0, rejectedReferenceCount: 1 },
+      details: {
+        referenceUrlProvenance: [{
+          url: rejectedUrl,
+          sources: ["discovered"],
+          outcomes: ["rejected", "weak"]
+        }]
+      }
+    });
+
+    const command = guidance.commands[0]?.command ?? "";
+    expect(command).toContain("--query \"fashion studio landing page\"");
+    expect(command).not.toContain("--url");
+    expect(command).not.toContain(rejectedUrl);
+  });
+
+  it("allows explicitly ready and user-supplied failed Pinterest URLs in recovery commands", () => {
+    const readyUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const failedUserUrl = "https://www.pinterest.com/pin/61572719900827790/";
+    const guidance = routeNextStepGuidance({
+      workflow: "inspiredesign",
+      reasonCode: "zero_ranked_references",
+      requestedProviders: ["pinterest"],
+      siteRecipeId: "social/pinterest",
+      referenceUrls: [readyUrl, failedUserUrl],
+      evidence: { referenceCount: 2, rankedReferenceCount: 0, rejectedReferenceCount: 2 },
+      details: {
+        referenceUrlProvenance: [
+          {
+            url: readyUrl,
+            sources: "malformed",
+            outcomes: ["ready"]
+          },
+          {
+            url: failedUserUrl,
+            sources: ["user_supplied"],
+            outcomes: ["capture_failed"]
+          }
+        ]
+      }
+    });
+
+    const command = guidance.commands[0]?.command ?? "";
+    expect(guidance.id).toBe("inspiredesign.harvest.pinterest_browser_native_recovery");
+    expect(command).toContain(`--url "${readyUrl}"`);
+    expect(command).toContain(`--url "${failedUserUrl}"`);
+    expect(command).toContain("--provider social/pinterest");
+  });
+
+  it("omits shell-derived Pinterest URLs from recovery even with malformed provenance entries", () => {
+    const shellUrl = "https://www.pinterest.com/pin/61572719900827791/";
+    const retainedUrl = "https://www.pinterest.com/pin/61572719900827792/";
+    const guidance = routeNextStepGuidance({
+      workflow: "inspiredesign",
+      reasonCode: "zero_ranked_references",
+      requestedProviders: ["social/pinterest"],
+      siteRecipeId: "social/pinterest",
+      referenceUrls: [shellUrl, retainedUrl],
+      evidence: { referenceCount: 2, rankedReferenceCount: 0, rejectedReferenceCount: 2 },
+      details: {
+        referenceUrlProvenance: [
+          null,
+          ["not-a-record"],
+          {
+            url: shellUrl,
+            sources: ["shell_derived"],
+            outcomes: "malformed"
+          },
+          {
+            url: retainedUrl,
+            sources: [],
+            outcomes: ["inspected"]
+          }
+        ]
+      }
+    });
+
+    const command = guidance.commands[0]?.command ?? "";
+    expect(command).not.toContain(shellUrl);
+    expect(command).toContain(`--url "${retainedUrl}"`);
+  });
+
+  it("keeps Pinterest recovery URLs when provenance omits optional sources and outcomes", () => {
+    const retainedUrl = "https://www.pinterest.com/pin/61572719900827793/";
+    const guidance = routeNextStepGuidance({
+      workflow: "inspiredesign",
+      reasonCode: "zero_ranked_references",
+      requestedProviders: ["social/pinterest"],
+      siteRecipeId: "social/pinterest",
+      referenceUrls: [retainedUrl],
+      evidence: { referenceCount: 1, rankedReferenceCount: 0, rejectedReferenceCount: 1 },
+      details: {
+        referenceUrlProvenance: [
+          { sources: ["shell_derived"], outcomes: ["rejected"] },
+          { url: 42, sources: ["shell_derived"], outcomes: ["rejected"] },
+          { url: retainedUrl }
+        ]
+      }
+    });
+
+    const command = guidance.commands[0]?.command ?? "";
+    expect(command).toContain(`--url "${retainedUrl}"`);
+    expect(command).not.toContain("--query");
+  });
+
   it("does not route all-rejected generic evidence to Canvas handoff", () => {
     const guidance = routeNextStepGuidance({
       workflow: "inspiredesign",

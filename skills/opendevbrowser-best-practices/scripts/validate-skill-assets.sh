@@ -70,6 +70,7 @@ const workflowMarkers = [
   "social/pinterest",
   "nextStepGuidance.readiness",
   "visual-evidence.json",
+  "pin-media-index.json",
   "--include-prototype-guidance",
   "canvas-preflight",
   "canvas-feedback-eval",

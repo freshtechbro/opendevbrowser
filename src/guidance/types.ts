@@ -79,6 +79,10 @@ export type GuidanceEvidenceContext = {
   topReferenceIntentMatched?: boolean;
   failedCaptureCount?: number;
   missingScreenshotCount?: number;
+  allAttemptFailedCaptureCount?: number;
+  allAttemptMissingScreenshotCount?: number;
+  allAttemptVisualFailureCount?: number;
+  allAttemptMotionFailureCount?: number;
   visualEvidenceRequired?: boolean;
   diagnosticOnlyReasons?: string[];
 };

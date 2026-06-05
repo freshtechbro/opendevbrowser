@@ -16,7 +16,8 @@ import {
   validateProviderScopedUrlCanonicality,
   validateProviderUrlSiteRecipeCompatibility
 } from "../../guidance/recipes/site-recipe-validation";
-import { resolveInspiredesignCaptureMode } from "../../inspiredesign/capture-mode";
+import { resolveInspiredesignHarvestCaptureMode } from "../../inspiredesign/capture-mode";
+import { readExplicitInspiredesignProductReadinessFields } from "../../inspiredesign/product-readiness";
 import type { InspiredesignVisualEvidenceMode } from "../../inspiredesign/visual-evidence";
 import type { WorkflowBrowserMode } from "../../providers/types";
 import { resolveWorkflowOutputDirFlag } from "./workflow-output";
@@ -50,7 +51,14 @@ const MAX_REFERENCES_LIMIT = 10;
 
 const readInspiredesignReadiness = (data: unknown): string | undefined => {
   if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
-  const meta = (data as Record<string, unknown>).meta;
+  const record = data as Record<string, unknown>;
+  if (typeof record.readiness === "string" && record.readiness.length > 0) return record.readiness;
+  const directNextStepGuidance = record.nextStepGuidance;
+  if (directNextStepGuidance && typeof directNextStepGuidance === "object" && !Array.isArray(directNextStepGuidance)) {
+    const readiness = (directNextStepGuidance as Record<string, unknown>).readiness;
+    if (typeof readiness === "string" && readiness.length > 0) return readiness;
+  }
+  const meta = record.meta;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return undefined;
   const nextStepGuidance = (meta as Record<string, unknown>).nextStepGuidance;
   if (!nextStepGuidance || typeof nextStepGuidance !== "object" || Array.isArray(nextStepGuidance)) return undefined;
@@ -326,8 +334,12 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
   if (isHarvest && !parsed.query && (!parsed.urls || parsed.urls.length === 0)) {
     throw createUsageError("inspiredesign harvest requires --query or --url");
   }
-  const captureMode = resolveInspiredesignCaptureMode(parsed.captureMode, parsed.urls);
-
+  const captureMode = resolveInspiredesignHarvestCaptureMode({
+    requested: parsed.captureMode,
+    urls: parsed.urls,
+    harvest: isHarvest,
+    providers
+  });
   const data = await callDaemon("inspiredesign.run", {
     brief: parsed.brief,
     harvest: isHarvest,
@@ -348,8 +360,16 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
     cookiePolicyOverride: parsed.cookiePolicyOverride
   });
 
+  const readiness = readInspiredesignReadiness(data);
+  const responseRecord = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : undefined;
+  const productReadiness = responseRecord
+    ? readExplicitInspiredesignProductReadinessFields(responseRecord) ?? {}
+    : {};
   return {
     success: true,
+    ...productReadiness,
     message: buildInspiredesignCompletionMessage(data),
     data
   };

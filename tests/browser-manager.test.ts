@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { mkdtemp, readFile, writeFile as writeFsFile } from "fs/promises";
+import { mkdtemp, readFile, symlink, writeFile as writeFsFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Window } from "happy-dom";
@@ -376,6 +376,75 @@ const createBrowserBundle = (
 
   return { browser, context, page, locator, cdpSession, mouseUpControl };
 };
+
+type MutableDomGlobal = typeof globalThis & {
+  document?: Document;
+  window?: Window;
+  getComputedStyle?: (element: Element) => CSSStyleDeclaration;
+};
+
+function parseRectAttribute(value: string | null): DOMRect {
+  const parts = (value ?? "0,0,0,0").split(",").map((part) => Number(part.trim()));
+  const x = parts[0] ?? 0;
+  const y = parts[1] ?? 0;
+  const width = parts[2] ?? 0;
+  const height = parts[3] ?? 0;
+  return {
+    x,
+    y,
+    width,
+    height,
+    top: y,
+    left: x,
+    right: x + width,
+    bottom: y + height,
+    toJSON: () => ({ x, y, width, height })
+  } as DOMRect;
+}
+
+function usePinterestMediaDom(page: PageLike, html: string): void {
+  page.evaluate.mockImplementation(async (fn: () => unknown) => {
+    const window = new Window();
+    window.document.body.innerHTML = html;
+    for (const element of Array.from(window.document.querySelectorAll("[data-rect]"))) {
+      Object.defineProperty(element, "getBoundingClientRect", {
+        configurable: true,
+        value: () => parseRectAttribute(element.getAttribute("data-rect"))
+      });
+    }
+    for (const image of Array.from(window.document.querySelectorAll("img"))) {
+      const src = image.getAttribute("data-current-src") ?? image.getAttribute("src") ?? "";
+      const width = Number(image.getAttribute("data-natural-width") ?? "0");
+      const height = Number(image.getAttribute("data-natural-height") ?? "0");
+      Object.defineProperty(image, "currentSrc", { configurable: true, value: src });
+      Object.defineProperty(image, "src", { configurable: true, value: src });
+      Object.defineProperty(image, "naturalWidth", { configurable: true, value: width });
+      Object.defineProperty(image, "naturalHeight", { configurable: true, value: height });
+    }
+    for (const video of Array.from(window.document.querySelectorAll("video"))) {
+      const poster = video.getAttribute("poster") ?? "";
+      const width = Number(video.getAttribute("data-video-width") ?? "0");
+      const height = Number(video.getAttribute("data-video-height") ?? "0");
+      Object.defineProperty(video, "poster", { configurable: true, value: poster });
+      Object.defineProperty(video, "videoWidth", { configurable: true, value: width });
+      Object.defineProperty(video, "videoHeight", { configurable: true, value: height });
+    }
+    const mutableGlobal = globalThis as MutableDomGlobal;
+    const previousDocument = mutableGlobal.document;
+    const previousWindow = mutableGlobal.window;
+    const previousGetComputedStyle = mutableGlobal.getComputedStyle;
+    mutableGlobal.document = window.document;
+    mutableGlobal.window = window;
+    mutableGlobal.getComputedStyle = window.getComputedStyle.bind(window);
+    try {
+      return fn();
+    } finally {
+      mutableGlobal.document = previousDocument;
+      mutableGlobal.window = previousWindow;
+      mutableGlobal.getComputedStyle = previousGetComputedStyle;
+    }
+  });
+}
 
 beforeEach(async () => {
   const root = await mkdtemp(join(tmpdir(), "odb-browser-"));
@@ -4021,6 +4090,1370 @@ describe("BrowserManager", () => {
     signalMap.delete(result.sessionId);
 
     await expect(manager.disconnect(result.sessionId, false)).resolves.toBeUndefined();
+  });
+
+  it("captures Pinterest closeup main pin image bytes", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/main.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const fetchMock = vi.fn(async () => new Response("main-image", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-pinterest-main-"));
+    const outputPath = join(outputDir, "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "image",
+      sourceUrl: "https://www.pinterest.com/pin/123/",
+      mediaUrl: "https://i.pinimg.com/originals/main.jpg",
+      contentType: "image/jpeg",
+      bytes: "main-image".length,
+      candidateSelector: "closeup-image-main-MainPinImage",
+      width: 1200,
+      height: 900
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/main.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("main-image");
+  });
+
+  it("captures current Pinterest closeup image markup using data-test-id wrappers", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <div data-test-id="pdp-container">
+        <div data-test-id="closeup-layout">
+          <div data-test-id="closeup-image" id="closeup-image-container-4594023543668616960">
+            <div data-test-id="closeup-image-main">
+              <img
+                elementtiming="closeup-image-main-MainPinImage"
+                srcset="https://i.pinimg.com/736x/live.jpg 736w, https://i.pinimg.com/1200x/live.jpg 1080w"
+                data-current-src="https://i.pinimg.com/736x/live.jpg"
+                data-natural-width="1200"
+                data-natural-height="1200"
+                data-rect="0,0,640,640"
+                alt="Live Pinterest pin media"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+    const fetchMock = vi.fn(async () => new Response("live-image", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-live-markup-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/4594023543668616960/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "image",
+      mediaUrl: "https://i.pinimg.com/736x/live.jpg",
+      candidateSelector: "closeup-image-main-MainPinImage",
+      width: 1200,
+      height: 1200
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/736x/live.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("live-image");
+  });
+
+  it("rejects Pinterest pin media redirects outside first-party locations before following them", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/main.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const redirectCancel = vi.fn();
+    const redirectedResponse = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("discarded-redirect"));
+      },
+      cancel: redirectCancel
+    }), {
+      status: 302,
+      headers: {
+        location: "https://example.com/redirected.jpg",
+        "content-type": "image/jpeg"
+      }
+    });
+    const fetchMock = vi.fn(async () => redirectedResponse);
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-redirect-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch redirected outside first-party media."
+    );
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/main.jpg", expect.objectContaining({
+      redirect: "manual",
+      signal: expect.any(AbortSignal)
+    }));
+    expect(redirectCancel).toHaveBeenCalledTimes(1);
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("records the final first-party Pinterest media URL after redirects", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/source.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const redirectResponse = new Response("", {
+      status: 302,
+      headers: { location: "https://i.pinimg.com/originals/final.jpg" }
+    });
+    const finalResponse = new Response("redirected-image", {
+      headers: { "content-type": "image/jpeg" }
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(redirectResponse)
+      .mockResolvedValueOnce(finalResponse);
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-final-url-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      mediaUrl: "https://i.pinimg.com/originals/final.jpg",
+      bytes: "redirected-image".length
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://i.pinimg.com/originals/source.jpg", expect.objectContaining({
+      redirect: "manual",
+      signal: expect.any(AbortSignal)
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://i.pinimg.com/originals/final.jpg", expect.objectContaining({
+      redirect: "manual",
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("redirected-image");
+  });
+
+  it("rejects final Pinterest media response URLs outside first-party media", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/source.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const finalResponse = new Response("spoofed-image", {
+      headers: { "content-type": "image/jpeg" }
+    });
+    Object.defineProperty(finalResponse, "url", {
+      configurable: true,
+      value: "https://example.com/spoofed-image.jpg"
+    });
+    const fetchMock = vi.fn(async () => finalResponse);
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-final-url-reject-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch redirected outside first-party media."
+    );
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/source.jpg", expect.objectContaining({
+      redirect: "manual",
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("rejects oversized Pinterest pin media content length before writing", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/oversized.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const oversizedPinMediaByteLength = 20_000_001;
+    globalThis.fetch = vi.fn(async () => new Response("oversized", {
+      headers: {
+        "content-length": String(oversizedPinMediaByteLength),
+        "content-type": "image/jpeg"
+      }
+    }));
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-content-length-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch exceeded 20000000 bytes."
+    );
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("cancels rejected Pinterest pin media response bodies before throwing", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/cancellable.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const makeCancellableResponse = (
+      init: ResponseInit,
+      finalUrl?: string
+    ): { response: Response; cancel: ReturnType<typeof vi.fn> } => {
+      const cancel = vi.fn();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("discarded-body"));
+        },
+        cancel
+      });
+      const response = new Response(stream, init);
+      if (finalUrl) {
+        Object.defineProperty(response, "url", {
+          configurable: true,
+          value: finalUrl
+        });
+      }
+      return { response, cancel };
+    };
+    const runRejectedResponse = async (args: {
+      response: Response;
+      cancel: ReturnType<typeof vi.fn>;
+      expectedFailure: string;
+      outputName: string;
+    }): Promise<void> => {
+      globalThis.fetch = vi.fn(async () => args.response);
+      const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-cancel-body-")), args.outputName);
+      await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+        args.expectedFailure
+      );
+      expect(args.cancel).toHaveBeenCalledTimes(1);
+      await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+    };
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+    const outsideFinalUrl = makeCancellableResponse(
+      { headers: { "content-type": "image/jpeg" } },
+      "https://example.com/spoofed-image.jpg"
+    );
+    const failedStatus = makeCancellableResponse({
+      status: 503,
+      headers: { "content-type": "image/jpeg" }
+    });
+    const oversizedContentLength = makeCancellableResponse({
+      headers: {
+        "content-length": "20000001",
+        "content-type": "image/jpeg"
+      }
+    });
+
+    await runRejectedResponse({
+      ...outsideFinalUrl,
+      expectedFailure: "Pinterest pin media fetch redirected outside first-party media.",
+      outputName: "outside-final-url.jpg"
+    });
+    await runRejectedResponse({
+      ...failedStatus,
+      expectedFailure: "Pinterest pin media fetch failed with status 503.",
+      outputName: "failed-status.jpg"
+    });
+    await runRejectedResponse({
+      ...oversizedContentLength,
+      expectedFailure: "Pinterest pin media fetch exceeded 20000000 bytes.",
+      outputName: "oversized-content-length.jpg"
+    });
+  });
+
+  it("rejects chunked Pinterest pin media responses over the byte limit", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/chunked.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(10_000_000));
+        controller.enqueue(new Uint8Array(10_000_001));
+        controller.close();
+      }
+    });
+    globalThis.fetch = vi.fn(async () => new Response(stream, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-chunked-limit-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch exceeded 20000000 bytes."
+    );
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("rejects empty Pinterest pin media response bodies before writing", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/empty.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    globalThis.fetch = vi.fn(async () => new Response(null, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-empty-body-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch returned an empty media body."
+    );
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("refuses to write Pinterest pin media through a symlink output path", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/symlink.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    globalThis.fetch = vi.fn(async () => new Response("captured", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-pinterest-symlink-"));
+    const symlinkTargetPath = join(outputDir, "target.txt");
+    const outputPath = join(outputDir, "main.jpg");
+    await writeFsFile(symlinkTargetPath, "original");
+    await symlink(symlinkTargetPath, outputPath);
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media output path could not be opened as a new non-symlink file."
+    );
+    await expect(readFile(symlinkTargetPath, "utf8")).resolves.toBe("original");
+  });
+
+  it("captures Pinterest story main image bytes", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <section data-test-id="story-pin">
+        <img
+          class="StoryPinImageBlock-MainPinImage"
+          data-current-src="https://i.pinimg.com/736x/story.jpg"
+          data-natural-width="736"
+          data-natural-height="1741"
+          data-rect="0,0,368,870"
+          alt="Story pin"
+        />
+      </section>
+    `);
+    globalThis.fetch = vi.fn(async () => new Response("story-image", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-story-")), "story.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/456/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "image",
+      mediaUrl: "https://i.pinimg.com/736x/story.jpg",
+      candidateSelector: "StoryPinImageBlock-MainPinImage",
+      width: 736,
+      height: 1741
+    });
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("story-image");
+  });
+
+  it("captures Pinterest video poster bytes as still media", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/poster.jpg"
+          data-video-width="736"
+          data-video-height="552"
+          data-rect="0,0,736,552"
+        ></video>
+      </main>
+    `);
+    globalThis.fetch = vi.fn(async () => new Response("poster-image", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-poster-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/poster.jpg",
+      poster: "https://i.pinimg.com/videos/poster.jpg",
+      width: 736,
+      height: 552
+    });
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("poster-image");
+  });
+
+  it("rejects Pinterest related pin noise and writes only selected media", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/selected.jpg"
+          data-natural-width="1200"
+          data-natural-height="1000"
+          data-rect="0,0,600,500"
+          alt="Selected pin"
+        />
+      </main>
+      <aside class="relatedPins recommendationRail">
+        <a href="/pin/123/">
+          <img
+            class="closeup-image-main-MainPinImage"
+            data-current-src="https://i.pinimg.com/originals/related.jpg"
+            data-natural-width="2000"
+            data-natural-height="2000"
+            data-rect="0,0,1000,1000"
+            alt="Related pin"
+          />
+        </a>
+      </aside>
+    `);
+    const fetchMock = vi.fn(async () => new Response("selected-image", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-noise-")), "selected.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result.status).toBe("captured");
+    expect(result.mediaUrl).toBe("https://i.pinimg.com/originals/selected.jpg");
+    expect(result.rejectedCandidates).toEqual([
+      expect.objectContaining({
+        mediaUrl: "https://i.pinimg.com/originals/related.jpg",
+        reasons: ["noise_ancestry:related"]
+      })
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://i.pinimg.com/originals/selected.jpg");
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("selected-image");
+  });
+
+  it.each([
+    {
+      label: "rail",
+      wrapperClass: "rail",
+      expectedReason: "noise_ancestry:rail"
+    },
+    {
+      label: "ad",
+      wrapperClass: "ad",
+      expectedReason: "noise_ancestry:ad"
+    }
+  ] as const)("rejects Pinterest $label ancestry with a positive main-image selector", async ({ wrapperClass, expectedReason }) => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <aside class="${wrapperClass}">
+        <a href="/pin/123/">
+          <img
+            class="closeup-image-main-MainPinImage"
+            data-current-src="https://i.pinimg.com/originals/noisy.jpg"
+            data-natural-width="1200"
+            data-natural-height="1000"
+            data-rect="0,0,600,500"
+            alt="Noisy pin media"
+          />
+        </a>
+      </aside>
+    `);
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), `odb-pinterest-${wrapperClass}-`)), "missing.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "not_found",
+      sourceUrl: "https://www.pinterest.com/pin/123/",
+      rejectedCandidates: [expect.objectContaining({
+        mediaUrl: "https://i.pinimg.com/originals/noisy.jpg",
+        candidateSelector: "closeup-image-main-MainPinImage",
+        reasons: [expectedReason]
+      })]
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("rejects broad no-link Pinterest media outside the canonical main media container", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <section class="unrelated-module">
+        <video
+          poster="https://i.pinimg.com/videos/unrelated-poster.jpg"
+          data-video-width="1200"
+          data-video-height="900"
+          data-rect="0,0,1200,900"
+        ></video>
+      </section>
+    `);
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-no-link-video-")), "missing.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "not_found",
+      rejectedCandidates: [expect.objectContaining({
+        kind: "video_poster",
+        mediaUrl: "https://i.pinimg.com/videos/unrelated-poster.jpg",
+        reasons: expect.arrayContaining(["missing_pin_source_proof"])
+      })]
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("requires an explicit Pinterest pin media output path", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.capturePinterestPinMedia("session-missing", {} as never)).rejects.toThrow(
+      "Pinterest pin media capture requires an output path."
+    );
+  });
+
+  it("returns not_found with capped Pinterest pin media rejection details", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    const extraRejectedCandidateCount = 8;
+    const extraRejectedVideoCandidateCount = 6;
+    const expectedRejectionLimit = 12;
+    const repeatedInvalidCandidates = Array.from({ length: extraRejectedCandidateCount }, (_, index) => `
+      <img
+        class="closeup-image-main-MainPinImage"
+        data-current-src="https://example.com/noise-${index}.jpg"
+        data-natural-width="24"
+        data-natural-height="24"
+        data-rect="0,0,24,24"
+        alt="Tiny non Pinterest media ${index}"
+      />
+    `).join("");
+    const repeatedInvalidVideoCandidates = Array.from({ length: extraRejectedVideoCandidateCount }, (_, index) => `
+      <video
+        poster="https://example.com/noise-poster-${index}.jpg"
+        data-video-width="24"
+        data-video-height="24"
+        data-rect="0,0,24,24"
+      ></video>
+    `).join("");
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <a href="/pin/999/">
+          <img
+            class="closeup-image-main-MainPinImage"
+            data-current-src="https://example.com/not-pinterest.jpg"
+            data-natural-width="20"
+            data-natural-height="20"
+            data-rect="0,0,20,20"
+            alt="Hidden wrong pin"
+            role="img"
+            style="display:none"
+          />
+        </a>
+        <section class="related recommendation grid closeup-image-main-MainPinImage">
+          <a href="/pin/123/">
+            <img
+              data-current-src="https://i.pinimg.com/originals/related.jpg"
+              data-natural-width="1200"
+              data-natural-height="1000"
+              data-rect="0,0,600,500"
+              alt="Related pin media"
+            />
+          </a>
+        </section>
+        ${repeatedInvalidCandidates}
+        ${repeatedInvalidVideoCandidates}
+      </main>
+    `);
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-not-found-")), "missing.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "not_found",
+      sourceUrl: "https://www.pinterest.com/pin/123/"
+    });
+    expect(result.rejectedCandidates).toHaveLength(expectedRejectionLimit);
+    expect(result.rejectedCandidates[0]).toEqual(expect.objectContaining({
+      kind: "image",
+      mediaUrl: "https://example.com/not-pinterest.jpg",
+      candidateSelector: "closeup-image-main-MainPinImage",
+      candidateRole: "img",
+      alt: "Hidden wrong pin",
+      width: 20,
+      height: 20,
+      rect: { x: 0, y: 0, width: 20, height: 20 },
+      reasons: expect.arrayContaining([
+        "non_first_party_media_url",
+        "not_visible",
+        "media_too_small",
+        "linked_to_different_pin"
+      ])
+    }));
+    expect(result.rejectedCandidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        mediaUrl: "https://i.pinimg.com/originals/related.jpg",
+        reasons: ["noise_ancestry:related"]
+      })
+    ]));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects Pinterest pin media redirects without location headers before writing", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/missing-location.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const fetchMock = vi.fn(async () => new Response("", { status: 302 }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-redirect-location-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch redirected without a location header."
+    );
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/missing-location.jpg", expect.objectContaining({
+      redirect: "manual",
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("captures Pinterest pin media from srcset without content type", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <span class="closeup-image-main-MainPinImage" role="presentation">
+          <img
+            srcset="https://i.pinimg.com/236x/srcset-small.webp 1x, https://i.pinimg.com/originals/srcset-large.webp 2x"
+            data-natural-width="0"
+            data-natural-height="0"
+            data-rect="5,6,640,720"
+          />
+        </span>
+      </main>
+    `);
+    const fetchMock = vi.fn(async () => new Response(Buffer.from("srcset-image")));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-srcset-")), "srcset.webp");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/321/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "image",
+      mediaUrl: "https://i.pinimg.com/originals/srcset-large.webp",
+      srcset: "https://i.pinimg.com/236x/srcset-small.webp 1x, https://i.pinimg.com/originals/srcset-large.webp 2x",
+      candidateSelector: "img",
+      candidateRole: "presentation",
+      width: 640,
+      height: 720,
+      bytes: "srcset-image".length
+    });
+    expect(result.contentType).toBeUndefined();
+    expect(result.naturalWidth).toBeUndefined();
+    expect(result.naturalHeight).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/srcset-large.webp", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("srcset-image");
+  });
+
+  it("captures Pinterest pin media when content length is malformed but bytes are bounded", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/malformed-length.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const fetchMock = vi.fn(async () => new Response("bounded-image", {
+      headers: {
+        "content-length": "not-a-number",
+        "content-type": "image/jpeg"
+      }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-malformed-length-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      mediaUrl: "https://i.pinimg.com/originals/malformed-length.jpg",
+      bytes: "bounded-image".length,
+      contentType: "image/jpeg"
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/malformed-length.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("bounded-image");
+  });
+
+  it("continues reading Pinterest pin media after an empty stream read result", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/stream-gap.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    const reader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ done: false })
+        .mockResolvedValueOnce({ done: false, value: Buffer.from("stream-body") })
+        .mockResolvedValueOnce({ done: true }),
+      cancel: vi.fn(async () => undefined)
+    };
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      url: "https://i.pinimg.com/originals/stream-gap.jpg",
+      headers: new Headers({ "content-type": "image/jpeg" }),
+      body: { getReader: () => reader }
+    }) as Response);
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-stream-gap-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      mediaUrl: "https://i.pinimg.com/originals/stream-gap.jpg",
+      bytes: "stream-body".length,
+      contentType: "image/jpeg"
+    });
+    expect(reader.cancel).not.toHaveBeenCalled();
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("stream-body");
+  });
+
+  it("surfaces Pinterest pin media fetch failures", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/fetch-failure.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="10,20,600,450"
+          alt="Main pin"
+        />
+      </main>
+    `);
+    globalThis.fetch = vi.fn(async () => new Response("blocked", { status: 503 }));
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-fetch-failure-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/654/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch failed with status 503."
+    );
+  });
+
+  it("captures Pinterest video poster dimensions from layout rect when intrinsic video dimensions are unavailable", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/poster-rect.jpg"
+          data-video-width="0"
+          data-video-height="0"
+          data-rect="8,12,640,360"
+        ></video>
+      </main>
+    `);
+    globalThis.fetch = vi.fn(async () => new Response("poster-from-rect", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-poster-rect-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/poster-rect.jpg",
+      width: 640,
+      height: 360,
+      rect: { x: 8, y: 12, width: 640, height: 360 }
+    });
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("poster-from-rect");
+  });
+
+  it("reports minimal rejected Pinterest pin media candidates without optional fields", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockResolvedValue({
+      sourceUrl: "",
+      candidates: [{
+        kind: "image",
+        mediaUrl: undefined,
+        visible: false,
+        ancestry: [],
+        positiveSignals: [],
+        noiseSignals: [],
+        score: 0
+      }]
+    });
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-minimal-reject-")), "missing.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "about:blank" });
+    page.url.mockReturnValue("");
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toEqual({
+      status: "not_found",
+      sourceUrl: "",
+      targetId: expect.any(String),
+      rejectedCandidates: [{
+        kind: "image",
+        ancestry: [],
+        reasons: ["non_first_party_media_url", "not_visible", "media_too_small", "missing_source_pin_id"]
+      }]
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("selects Pinterest pin media using extraction source URL when the page URL is blank", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockResolvedValue({
+      sourceUrl: "https://www.pinterest.com/pin/888/",
+      candidates: [{
+        kind: "image",
+        mediaUrl: "https://i.pinimg.com/originals/from-extraction-source.jpg",
+        visible: true,
+        width: 1200,
+        height: 900,
+        ancestry: ["img.closeup"],
+        positiveSignals: ["closeup-image-main-MainPinImage"],
+        noiseSignals: [],
+        insideCanonicalMainPinMediaContainer: true,
+        score: 100
+      }]
+    });
+    const fetchMock = vi.fn(async () => new Response("extraction-source"));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-extraction-source-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "about:blank" });
+    page.url.mockReturnValue("");
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      sourceUrl: "https://www.pinterest.com/pin/888/",
+      mediaUrl: "https://i.pinimg.com/originals/from-extraction-source.jpg",
+      bytes: "extraction-source".length
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/from-extraction-source.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("extraction-source");
+  });
+
+  it("rejects Pinterest pin media when DOM source URL changes after the page URL snapshot", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockResolvedValue({
+      sourceUrl: "https://www.pinterest.com/pin/456/",
+      candidates: [{
+        kind: "image",
+        mediaUrl: "https://i.pinimg.com/originals/stale-source.jpg",
+        visible: true,
+        width: 1200,
+        height: 900,
+        ancestry: ["img.stale-source"],
+        positiveSignals: ["closeup-image-main-MainPinImage"],
+        noiseSignals: [],
+        insideCanonicalMainPinMediaContainer: true,
+        score: 100
+      }]
+    });
+    const fetchMock = vi.fn(async () => new Response("stale-source"));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-stale-source-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toEqual({
+      status: "not_found",
+      sourceUrl: "https://www.pinterest.com/pin/456/",
+      targetId: expect.any(String),
+      rejectedCandidates: [{
+        kind: "image",
+        mediaUrl: "https://i.pinimg.com/originals/stale-source.jpg",
+        width: 1200,
+        height: 900,
+        ancestry: ["img.stale-source"],
+        reasons: ["source_url_changed"]
+      }]
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("surfaces noisy canonical Pinterest pin media as blocking warnings", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockResolvedValue({
+      sourceUrl: "https://www.pinterest.com/pin/123/",
+      candidates: [{
+        kind: "image",
+        mediaUrl: "https://i.pinimg.com/originals/noisy-canonical.jpg",
+        visible: true,
+        width: 1200,
+        height: 900,
+        ancestry: ["img.noisy", "div.shopping", "div.promoted-ad", "main"],
+        linkedPinId: "123",
+        positiveSignals: ["closeup-image-main-MainPinImage"],
+        noiseSignals: ["shopping", "ad"],
+        insideCanonicalMainPinMediaContainer: true,
+        score: 100
+      }]
+    });
+    const fetchMock = vi.fn(async () => new Response("noisy-canonical", {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-noisy-canonical-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      mediaUrl: "https://i.pinimg.com/originals/noisy-canonical.jpg",
+      warnings: ["pin_media_noise:ad_shopping", "pin_media_noise:ad"]
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/noisy-canonical.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("noisy-canonical");
+  });
+
+  it("selects Pinterest pin media candidates using natural dimensions when explicit dimensions are absent", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockResolvedValue({
+      sourceUrl: "https://www.pinterest.com/pin/909/",
+      candidates: [
+        {
+          kind: "image",
+          mediaUrl: "https://i.pinimg.com/originals/natural-small.jpg",
+          visible: true,
+          naturalWidth: 320,
+          naturalHeight: 320,
+          ancestry: ["img.natural-small"],
+          positiveSignals: [],
+          noiseSignals: [],
+          insideCanonicalMainPinMediaContainer: true,
+          score: 4
+        },
+        {
+          kind: "image",
+          mediaUrl: "https://i.pinimg.com/originals/natural-large.jpg",
+          visible: true,
+          naturalWidth: 1200,
+          naturalHeight: 900,
+          ancestry: ["img.natural-large"],
+          positiveSignals: [],
+          noiseSignals: [],
+          insideCanonicalMainPinMediaContainer: true,
+          score: 4
+        }
+      ]
+    });
+    const fetchMock = vi.fn(async () => new Response("natural-large"));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-natural-dimensions-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/909/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toEqual({
+      status: "captured",
+      sourceUrl: "https://www.pinterest.com/pin/909/",
+      targetId: expect.any(String),
+      kind: "image",
+      path: outputPath,
+      mediaUrl: "https://i.pinimg.com/originals/natural-large.jpg",
+      bytes: "natural-large".length,
+      contentType: "text/plain;charset=UTF-8",
+      naturalWidth: 1200,
+      naturalHeight: 900,
+      ancestry: ["img.natural-large"],
+      rejectedCandidates: []
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/natural-large.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("natural-large");
+  });
+
+  it("prefers higher-scored Pinterest pin media before area tie-breaking", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockResolvedValue({
+      sourceUrl: "https://www.pinterest.com/pin/778/",
+      candidates: [
+        {
+          kind: "image",
+          mediaUrl: "https://i.pinimg.com/originals/lower-score-large.jpg",
+          visible: true,
+          width: 1600,
+          height: 1200,
+          ancestry: ["img.lower-score-large"],
+          positiveSignals: [],
+          noiseSignals: [],
+          insideCanonicalMainPinMediaContainer: true,
+          score: 5
+        },
+        {
+          kind: "image",
+          mediaUrl: "https://i.pinimg.com/originals/higher-score-small.jpg",
+          visible: true,
+          width: 640,
+          height: 640,
+          ancestry: ["img.higher-score-small"],
+          positiveSignals: ["closeup-image-main-MainPinImage"],
+          noiseSignals: [],
+          insideCanonicalMainPinMediaContainer: true,
+          score: 20
+        }
+      ]
+    });
+    const fetchMock = vi.fn(async () => new Response(Buffer.from("higher-score")));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-score-priority-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/778/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      mediaUrl: "https://i.pinimg.com/originals/higher-score-small.jpg",
+      width: 640,
+      height: 640,
+      bytes: "higher-score".length
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/higher-score-small.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("higher-score");
+  });
+
+  it("selects the largest same-score Pinterest pin media candidate and omits absent metadata", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockResolvedValue({
+      sourceUrl: "https://www.pinterest.com/pin/777/",
+      candidates: [
+        {
+          kind: "image",
+          mediaUrl: "https://i.pinimg.com/originals/small.jpg",
+          visible: true,
+          width: 320,
+          height: 320,
+          ancestry: ["img.small"],
+          positiveSignals: [],
+          noiseSignals: [],
+          insideCanonicalMainPinMediaContainer: true,
+          score: 7
+        },
+        {
+          kind: "image",
+          mediaUrl: "https://i.pinimg.com/originals/large.jpg",
+          visible: true,
+          rect: { x: 1, y: 2, width: 900, height: 1200 },
+          ancestry: ["img.large", "main", "body", "html", "document", "root", "overflow"],
+          positiveSignals: [],
+          noiseSignals: [],
+          insideCanonicalMainPinMediaContainer: true,
+          score: 7
+        }
+      ]
+    });
+    const fetchMock = vi.fn(async () => new Response(Buffer.from("largest")));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-largest-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/777/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toEqual({
+      status: "captured",
+      sourceUrl: "https://www.pinterest.com/pin/777/",
+      targetId: expect.any(String),
+      kind: "image",
+      path: outputPath,
+      mediaUrl: "https://i.pinimg.com/originals/large.jpg",
+      bytes: "largest".length,
+      rect: { x: 1, y: 2, width: 900, height: 1200 },
+      ancestry: ["img.large", "main", "body", "html", "document", "root"],
+      rejectedCandidates: []
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/large.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath, "utf8")).resolves.toBe("largest");
   });
 
   it("rejects duplicate active screencasts for the same target", async () => {

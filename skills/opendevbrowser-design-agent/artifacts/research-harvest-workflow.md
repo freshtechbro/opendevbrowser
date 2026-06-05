@@ -82,11 +82,13 @@ Then inspect these files before `/canvas` or code changes:
 1. `advanced-brief.md` for the reference-first creative brief.
 2. `ranked-references.json` for rank, score, confidence, visual strengths, visual risks, rejected references, and selection reasons.
 3. `visual-evidence.json` and `screenshot-index.json` for artifact-relative PNG paths, hashes, byte counts, viewport metadata when available, provenance, and warnings.
-4. PNG files under `visual-evidence/<referenceId>/viewport.png` for actual visual review.
-5. `meta-prompt.md` for borrow guidance, reject guidance, motion posture, accessibility constraints, no-copy warning, and validation gates.
-6. `canvas-plan.request.json` and `design-agent-handoff.json` only after the visual synthesis is accepted and `nextStepGuidance.readiness` is `ready`.
+4. `motion-evidence.json` for screencast replay and preview paths when motion evidence is captured.
+5. `pin-media-evidence.json` and `pin-media-index.json` for persisted first-party Pinterest pin media proof. Remote media URLs alone are not proof.
+6. PNG files under `visual-evidence/<referenceId>/viewport.png` and pin-media files under `pin-media-evidence/<referenceId>/` for actual visual review.
+7. `meta-prompt.md` for borrow guidance, reject guidance, motion posture, accessibility constraints, no-copy warning, and validation gates.
+8. `canvas-plan.request.json` and `design-agent-handoff.json` only after the visual synthesis is accepted and `nextStepGuidance.readiness` is `ready`.
 
-JSON files are metadata-only. They must not contain base64 screenshots, absolute temp paths, full DOM, or full snapshot text.
+JSON files are metadata-only. They must not contain base64 screenshots, absolute temp paths, full DOM, full snapshot text, or remote media as product-ready proof.
 
 ## Manual Evidence Fallback
 

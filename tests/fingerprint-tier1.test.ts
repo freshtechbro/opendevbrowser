@@ -259,6 +259,44 @@ describe("fingerprint tier1 coherence", () => {
     expect(noAction.state.level).toBe(2);
   });
 
+  it("does not repeatedly roll back while the prior canary average is already below threshold", () => {
+    const lowState = pushCanarySample(
+      createCanaryState(2),
+      {
+        windowSize: 3,
+        minSamples: 1,
+        promoteThreshold: 90,
+        rollbackThreshold: 30
+      },
+      {
+        ts: 1700000004000,
+        score: 20,
+        success: false,
+        reason: "first dip"
+      }
+    ).state;
+
+    const repeatedLow = pushCanarySample(
+      lowState,
+      {
+        windowSize: 3,
+        minSamples: 1,
+        promoteThreshold: 90,
+        rollbackThreshold: 30
+      },
+      {
+        ts: 1700000005000,
+        score: 25,
+        success: false,
+        reason: "still low"
+      }
+    );
+
+    expect(repeatedLow.action).toBe("none");
+    expect(repeatedLow.state.level).toBe(1);
+    expect(repeatedLow.state.averageScore).toBe(22.5);
+  });
+
   it("uses default canary average when sample window resolves empty", () => {
     const sliceSpy = vi.spyOn(Array.prototype, "slice").mockReturnValueOnce([]);
     try {

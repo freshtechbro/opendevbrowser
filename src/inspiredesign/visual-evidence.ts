@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import type { PinterestSourcePageQuality } from "./pinterest-media-classification";
 
 export const INSPIREDESIGN_VISUAL_EVIDENCE_MODES = ["off", "auto", "required"] as const;
 export const INSPIREDESIGN_VISUAL_EVIDENCE_KINDS = ["viewport", "full_page"] as const;
@@ -17,8 +18,10 @@ export type InspiredesignVisualEvidenceRuntimeMetadata = {
   status: InspiredesignVisualEvidenceStatus;
   kind: InspiredesignVisualEvidenceKind;
   fullPage: boolean;
-  capturedAt: string;
-  artifactPath?: string;
+	  capturedAt: string;
+	  sourceUrl?: string;
+	  pinterestPageQuality?: PinterestSourcePageQuality;
+	  artifactPath?: string;
   tempPath?: string;
   viewport?: InspiredesignVisualEvidenceViewport;
   warnings: string[];
@@ -29,8 +32,10 @@ export type InspiredesignPersistedVisualEvidence = {
   status: InspiredesignVisualEvidenceStatus;
   kind: InspiredesignVisualEvidenceKind;
   fullPage: boolean;
-  capturedAt: string;
-  path?: string;
+	  capturedAt: string;
+	  sourceUrl?: string;
+	  pinterestPageQuality?: PinterestSourcePageQuality;
+	  path?: string;
   sha256?: string;
   bytes?: number;
   viewport?: InspiredesignVisualEvidenceViewport;
@@ -55,6 +60,15 @@ const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 const VISUAL_ARTIFACT_PATH_PATTERN =
   /^visual-evidence\/([A-Za-z0-9._-]+)\/(?:viewport|full_page)\.png$/;
 const FALLBACK_VISUAL_CAPTURED_AT = "1970-01-01T00:00:00.000Z";
+const PINTEREST_PAGE_QUALITIES = new Set<PinterestSourcePageQuality>([
+  "pin_media",
+  "pin_grid_media",
+  "search_shell",
+  "chrome_only",
+  "login_challenge",
+  "unknown",
+  "invalid"
+]);
 
 export const isInspiredesignVisualEvidenceMode = (
   value: unknown
@@ -126,6 +140,17 @@ const sanitizeVisualEvidenceCapturedAt = (value: unknown): string => {
   return new Date(timestamp).toISOString();
 };
 
+const sanitizeVisualEvidenceSourceUrl = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+};
+
 const normalizeVisualEvidenceViewport = (
   value: unknown
 ): InspiredesignVisualEvidenceViewport | undefined => {
@@ -143,6 +168,12 @@ const normalizeVisualEvidenceViewport = (
   }
   return Object.keys(viewport).length > 0 ? viewport : undefined;
 };
+
+const sanitizePinterestPageQuality = (value: unknown): PinterestSourcePageQuality | undefined => (
+  typeof value === "string" && PINTEREST_PAGE_QUALITIES.has(value as PinterestSourcePageQuality)
+    ? value as PinterestSourcePageQuality
+    : undefined
+);
 
 const normalizeVisualEvidenceWarnings = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
@@ -165,14 +196,18 @@ export const persistInspiredesignVisualEvidence = (
   const sha256 = sanitizeVisualEvidenceSha256(options.sha256) ?? sanitizeVisualEvidenceSha256(persistedMetadata.sha256);
   const bytes = sanitizeVisualEvidenceBytes(options.bytes) ?? sanitizeVisualEvidenceBytes(persistedMetadata.bytes);
   const capturedAt = sanitizeVisualEvidenceCapturedAt(metadata.capturedAt);
-  const viewport = normalizeVisualEvidenceViewport(metadata.viewport);
+	  const sourceUrl = sanitizeVisualEvidenceSourceUrl(metadata.sourceUrl);
+	  const pinterestPageQuality = sanitizePinterestPageQuality(metadata.pinterestPageQuality);
+	  const viewport = normalizeVisualEvidenceViewport(metadata.viewport);
   const failure = sanitizeVisualEvidenceText(metadata.failure, MAX_VISUAL_FAILURE_LENGTH);
   return {
     status: metadata.status,
     kind: isInspiredesignVisualEvidenceKind(metadata.kind) ? metadata.kind : "viewport",
     fullPage: metadata.fullPage === true,
-    capturedAt,
-    ...(path ? { path } : {}),
+	    capturedAt,
+	    ...(sourceUrl ? { sourceUrl } : {}),
+	    ...(pinterestPageQuality ? { pinterestPageQuality } : {}),
+	    ...(path ? { path } : {}),
     ...(sha256 ? { sha256 } : {}),
     ...(bytes !== undefined ? { bytes } : {}),
     ...(viewport ? { viewport } : {}),

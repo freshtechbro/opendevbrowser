@@ -1554,6 +1554,36 @@ describe("workflow branch coverage", () => {
       "rate_limited",
       2
     )).toEqual({ auth_required: 1, rate_limited: 2 });
+
+    for (const malformedGuidance of [
+      { recommendedNextCommands: ["retry command"] },
+      { reason: "Retry later." },
+      { reason: "Retry later.", recommendedNextCommands: ["retry command", 7] }
+    ]) {
+      expect(workflowTestUtils.withPrimaryConstraintSummaryOverride(
+        {
+          primaryConstraint: {
+            reasonCode: "rate_limited",
+            guidance: malformedGuidance
+          }
+        },
+        "Provider is cooling down."
+      )).toMatchObject({
+        primaryConstraint: {
+          reasonCode: "rate_limited",
+          summary: "Provider is cooling down."
+        }
+      });
+    }
+
+    expect(workflowTestUtils.withReasonCodeDistributionMeta(
+      { metrics: [] },
+      { challenge_detected: 1 }
+    )).toMatchObject({
+      metrics: {
+        reasonCodeDistribution: { challenge_detected: 1 }
+      }
+    });
   });
 
   it("summarizes shopping offer filter constraints across region, budget, and zero-price exclusions", () => {
@@ -1595,12 +1625,32 @@ describe("workflow branch coverage", () => {
     expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
       diagnostics: [{
         ...baseDiagnostic,
+        regionMatchedOffers: 0,
+        regionCurrencyExcluded: 2,
+        expectedCurrency: undefined
+      }],
+      regionEnforced: false,
+      failures: []
+    })).toContain("requested currency heuristic");
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{
+        ...baseDiagnostic,
         budgetExcluded: 2
       }],
       budget: 150,
       regionEnforced: true,
       failures: []
     })).toBe("All candidate offers exceeded the requested budget of CAD 150.00.");
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{
+        ...baseDiagnostic,
+        budgetExcluded: 2,
+        expectedCurrency: undefined
+      }],
+      budget: 150,
+      regionEnforced: true,
+      failures: []
+    })).toBe("All candidate offers exceeded the requested budget of 150.00.");
     expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
       diagnostics: [{
         ...baseDiagnostic,
@@ -1703,10 +1753,36 @@ describe("workflow branch coverage", () => {
   });
 
   it("covers product brand extraction fallbacks when URLs are malformed", () => {
+    expect(workflowTestUtils.isPinterestWorkflowReferenceUrl("https://www.pinterest.com/pin/1234567890/"))
+      .toBe(true);
+    expect(workflowTestUtils.isPinterestWorkflowReferenceUrl("https://assets.pinterest.com/pin/1234567890/"))
+      .toBe(true);
+    expect(workflowTestUtils.isPinterestWorkflowReferenceUrl("https://example.com/pin/1234567890/"))
+      .toBe(false);
+    expect(workflowTestUtils.isPinterestWorkflowReferenceUrl("not-a-url"))
+      .toBe(false);
     expect(workflowTestUtils.extractProductBrandFromTitle("Creator Camera - Acme", "not-a-valid-url"))
       .toBe("Acme");
     expect(workflowTestUtils.extractProductBrandFromTitle("Bose Headphones for sale online | eBay", "https://www.ebay.com/p/bose-headphones"))
       .toBe("Bose");
+    expect(workflowTestUtils.extractProductBrandFromTitle("Apple", "https://www.ebay.com/itm/apple"))
+      .toBe("Apple");
+    expect(workflowTestUtils.extractProductBrandFromTitle("Sony WH-1000XM5 Wireless Headphones", "https://www.ebay.com/itm/sony-wh1000xm5"))
+      .toBe("Sony");
+    expect(workflowTestUtils.extractProductBrandFromTitle("Acme Speaker Stand", "https://www.ebay.com/itm/acme-speaker-stand"))
+      .toBeUndefined();
+    expect(workflowTestUtils.extractProductBrandFromTitle("Acme X-200 Speaker Stand", "https://www.ebay.com/itm/acme-x200-speaker-stand"))
+      .toBe("Acme");
+    expect(workflowTestUtils.extractProductBrandFromTitle("Acme", "https://www.ebay.com/itm/acme"))
+      .toBeUndefined();
+    expect(workflowTestUtils.sanitizeProductBrandCandidate(
+      "Brand Walmart.com Current price is $20",
+      "https://www.walmart.com/ip/example"
+    )).toBeUndefined();
+    expect(workflowTestUtils.sanitizeProductBrandCandidate(
+      "Brand Acme Audio Color Black View full specifications",
+      "https://www.walmart.com/ip/example"
+    )).toBe("Acme Audio");
   });
 
   it("covers transcript success, brand inference, and offer-record gating helpers", () => {
@@ -6231,6 +6307,33 @@ describe("workflow branch coverage", () => {
       include_all_images: false,
       include_copy: false
     })).rejects.toThrow("Product target appears to be a not-found page");
+  });
+
+  it("rejects Best Buy generic product-page error shells before asset capture", async () => {
+    const runtime = toRuntime({
+      fetch: async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/bestbuy"],
+        records: [makeRecord({
+          id: "bestbuy-generic-error",
+          source: "shopping",
+          provider: "shopping/bestbuy",
+          url: "https://www.bestbuy.com/site/sample-product/1234567.p",
+          title: "Something went wrong - Best Buy",
+          content: "Something went wrong. Use our search bar or pick a category below. If you typed in a URL, check it for errors.",
+          attributes: {
+            links: ["https://pisces.bbystatic.com/image2/BestBuy_US/images/products/sample.jpg"]
+          }
+        })]
+      })
+    });
+
+    await expect(runProductVideoWorkflow(runtime, {
+      product_url: "https://www.bestbuy.com/site/sample-product/1234567.p",
+      include_screenshots: true,
+      include_all_images: true,
+      include_copy: true
+    })).rejects.toThrow("Best Buy product target returned a generic error shell");
   });
 
   it("threads provider hints into product-name shopping resolution before fetching the product page", async () => {

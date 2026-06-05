@@ -19,28 +19,28 @@ For frontend, design-system, screenshot-to-code, or `/canvas` composition tasks,
 
 ## Pack Contents
 
-- `artifacts/provider-workflows.md` — canonical provider execution flows.
-- `artifacts/parity-gates.md` — mode/surface parity matrix and acceptance gates.
-- `artifacts/debug-trace-playbook.md` — diagnostics workflow and trace bundle model.
-- `artifacts/fingerprint-tiers.md` — hardening tiers and when to use each.
-- `artifacts/macro-workflows.md` — macro design and expansion standards.
-- `artifacts/browser-agent-known-issues-matrix.md` — known browser-agent failure modes mapped to required controls.
-- `artifacts/command-channel-reference.md` — CLI/tool/`/ops`/`/canvas`/`/cdp` surface map plus cross-agent skill-sync targets.
-- `artifacts/canvas-governance-playbook.md` — `/canvas` preflight, blocker, and feedback-evaluation guidance.
-- `artifacts/skill-runtime-surface-matrix.md` — canonical skill-pack and runtime-family inventory for real-task audits.
-- `assets/templates/mode-flag-matrix.json` — mode + flag verification template.
-- `assets/templates/ops-request-envelope.json` — `/ops` request envelope template.
-- `assets/templates/cdp-forward-envelope.json` — `/cdp` relay envelope template.
-- `assets/templates/robustness-checklist.json` — shared issue-status checklist for workflow robustness audits.
-- `assets/templates/surface-audit-checklist.json` — docs/surface audit checklist template.
-- `assets/templates/skill-runtime-pack-matrix.json` — machine-readable canonical skill/runtime matrix for the audit runner.
-- `assets/templates/canvas-handshake-example.json` — canonical `/canvas` handshake example.
-- `assets/templates/canvas-generation-plan.v1.json` — required `canvas.plan.set` request skeleton.
-- `assets/templates/canvas-feedback-eval.json` — target-attributed feedback evaluation checklist.
-- `assets/templates/canvas-blocker-checklist.json` — machine-readable blocker and warning audit map.
-- `scripts/odb-workflow.sh` — prints codified command sequences by workflow.
-- `scripts/run-robustness-audit.sh` — validates workflow skill coverage against known issue IDs.
-- `scripts/validate-skill-assets.sh` — validates required artifacts/templates.
+- `artifacts/provider-workflows.md` - canonical provider execution flows.
+- `artifacts/parity-gates.md` - mode/surface parity matrix and acceptance gates.
+- `artifacts/debug-trace-playbook.md` - diagnostics workflow and trace bundle model.
+- `artifacts/fingerprint-tiers.md` - hardening tiers and when to use each.
+- `artifacts/macro-workflows.md` - macro design and expansion standards.
+- `artifacts/browser-agent-known-issues-matrix.md` - known browser-agent failure modes mapped to required controls.
+- `artifacts/command-channel-reference.md` - CLI/tool/`/ops`/`/canvas`/`/cdp` surface map plus cross-agent skill-sync targets.
+- `artifacts/canvas-governance-playbook.md` - `/canvas` preflight, blocker, and feedback-evaluation guidance.
+- `artifacts/skill-runtime-surface-matrix.md` - canonical skill-pack and runtime-family inventory for real-task audits.
+- `assets/templates/mode-flag-matrix.json` - mode + flag verification template.
+- `assets/templates/ops-request-envelope.json` - `/ops` request envelope template.
+- `assets/templates/cdp-forward-envelope.json` - `/cdp` relay envelope template.
+- `assets/templates/robustness-checklist.json` - shared issue-status checklist for workflow robustness audits.
+- `assets/templates/surface-audit-checklist.json` - docs/surface audit checklist template.
+- `assets/templates/skill-runtime-pack-matrix.json` - machine-readable canonical skill/runtime matrix for the audit runner.
+- `assets/templates/canvas-handshake-example.json` - canonical `/canvas` handshake example.
+- `assets/templates/canvas-generation-plan.v1.json` - required `canvas.plan.set` request skeleton.
+- `assets/templates/canvas-feedback-eval.json` - target-attributed feedback evaluation checklist.
+- `assets/templates/canvas-blocker-checklist.json` - machine-readable blocker and warning audit map.
+- `scripts/odb-workflow.sh` - prints codified command sequences by workflow.
+- `scripts/run-robustness-audit.sh` - validates workflow skill coverage against known issue IDs.
+- `scripts/validate-skill-assets.sh` - validates required artifacts/templates.
 
 ## Quick Start
 
@@ -158,7 +158,7 @@ Rules:
 - inspect `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, and `doNotProceedIf` before continuing from any harvest
 - visual harvest must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; inspect diagnostics instead of forcing screenshots through blocked references
 - if readiness is `needs_recovery`, `blocked`, or `diagnostic_only`, follow the recovery-first command examples and do not continue to Canvas
-- after a ready run or harvest, read `advanced-brief.md` first, inspect `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, open a Canvas session, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`
+- after a ready run or harvest, read `advanced-brief.md` first, inspect `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, open a Canvas session, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`. Treat Pinterest pin-media as design-ready only when `pin-media-index.json` proves persisted first-party bytes; remote media URLs alone are not proof
 - pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 
 ## Agent Sync Targets
