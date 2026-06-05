@@ -333,6 +333,9 @@ describe("provider performance release gate", () => {
     await expect(mapBounded(["reject"], 1, async () => {
       throw new Error("scheduler_task_failed");
     })).rejects.toThrow("scheduler_task_failed");
+    await expect(mapBounded(["reject-string"], 1, async () => {
+      return Promise.reject("scheduler_string_failure");
+    })).rejects.toThrow("scheduler_string_failure");
   });
 
   it("stops scheduling new items after the first task failure", async () => {

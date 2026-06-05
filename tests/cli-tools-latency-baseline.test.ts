@@ -24,6 +24,20 @@ import {
 } from "./support/cli-tools-latency-bench-fixtures";
 
 const createdDirs: string[] = [];
+const BENCHMARK_CHILD_COVERAGE_ENV_KEYS = ["NODE_V8_COVERAGE", "V8_COVERAGE"] as const;
+
+const makeBenchmarkChildEnv = (): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of BENCHMARK_CHILD_COVERAGE_ENV_KEYS) {
+    delete env[key];
+  }
+  return env;
+};
+
+const makeBenchmarkSpawnOptions = (): { encoding: "utf8"; env: NodeJS.ProcessEnv } => ({
+  encoding: "utf8",
+  env: makeBenchmarkChildEnv()
+});
 
 const makeRoot = async (): Promise<string> => {
   const directory = await mkdtemp(join(tmpdir(), "odb-cli-tools-latency-"));
@@ -146,10 +160,34 @@ describe("CLI tools latency baseline instrumentation", () => {
     expect(content.match(/\| abc123 \| codex\/optimize-cli-tools \|/g)).toHaveLength(1);
   });
 
+  it("keeps benchmark child processes out of Vitest coverage accounting", () => {
+    const originalNodeCoverage = process.env.NODE_V8_COVERAGE;
+    const originalV8Coverage = process.env.V8_COVERAGE;
+    process.env.NODE_V8_COVERAGE = "/tmp/coverage-node";
+    process.env.V8_COVERAGE = "/tmp/coverage-v8";
+    try {
+      const env = makeBenchmarkChildEnv();
+
+      expect(env.NODE_V8_COVERAGE).toBeUndefined();
+      expect(env.V8_COVERAGE).toBeUndefined();
+    } finally {
+      if (originalNodeCoverage === undefined) {
+        delete process.env.NODE_V8_COVERAGE;
+      } else {
+        process.env.NODE_V8_COVERAGE = originalNodeCoverage;
+      }
+      if (originalV8Coverage === undefined) {
+        delete process.env.V8_COVERAGE;
+      } else {
+        process.env.V8_COVERAGE = originalV8Coverage;
+      }
+    }
+  });
+
   it("runs fast-path CLI process cases from the current-source benchmark bundle", () => {
     ensureBenchmarkBundles();
 
-    const version = spawnSync(process.execPath, [BENCHMARK_CLI_PATH, "--version"], { encoding: "utf8" });
+    const version = spawnSync(process.execPath, [BENCHMARK_CLI_PATH, "--version"], makeBenchmarkSpawnOptions());
     expect(version.status).toBe(0);
     expect(version.stderr).toBe("");
     expect(version.stdout).toMatch(/^opendevbrowser v\d+\.\d+\.\d+/);
@@ -159,7 +197,7 @@ describe("CLI tools latency baseline instrumentation", () => {
       "version",
       "--output-format",
       "json"
-    ], { encoding: "utf8" });
+    ], makeBenchmarkSpawnOptions());
     expect(jsonVersion.status).toBe(0);
     expect(JSON.parse(jsonVersion.stdout)).toMatchObject({
       success: true,
@@ -171,7 +209,7 @@ describe("CLI tools latency baseline instrumentation", () => {
       "help",
       "--output-format",
       "stream-json"
-    ], { encoding: "utf8" });
+    ], makeBenchmarkSpawnOptions());
     expect(streamHelp.status).toBe(0);
     expect(JSON.parse(streamHelp.stdout)).toMatchObject({
       success: true,
@@ -182,7 +220,7 @@ describe("CLI tools latency baseline instrumentation", () => {
       BENCHMARK_CLI_PATH,
       "--version",
       "--quiet"
-    ], { encoding: "utf8" });
+    ], makeBenchmarkSpawnOptions());
     expect(quietVersion.status).toBe(0);
     expect(quietVersion.stdout).toMatch(/^opendevbrowser v\d+\.\d+\.\d+/);
     expect(quietVersion.stderr).toBe("");
@@ -191,7 +229,7 @@ describe("CLI tools latency baseline instrumentation", () => {
       BENCHMARK_CLI_PATH,
       "help",
       "--quiet"
-    ], { encoding: "utf8" });
+    ], makeBenchmarkSpawnOptions());
     expect(quietHelp.status).toBe(0);
     expect(quietHelp.stdout).toContain("Command Inventory");
     expect(quietHelp.stderr).toBe("");
@@ -210,7 +248,7 @@ describe("CLI tools latency baseline instrumentation", () => {
       root,
       "--output-format",
       "json"
-    ], { encoding: "utf8" });
+    ], makeBenchmarkSpawnOptions());
     expect(artifacts.status).toBe(0);
     expect(JSON.parse(artifacts.stdout)).toMatchObject({
       success: true,
@@ -225,7 +263,7 @@ describe("CLI tools latency baseline instrumentation", () => {
       "status",
       "--output-format",
       "json"
-    ], { encoding: "utf8" });
+    ], makeBenchmarkSpawnOptions());
     expect([0, 10]).toContain(status.status);
     expect(JSON.parse(status.stdout)).toMatchObject({
       success: expect.any(Boolean)

@@ -653,6 +653,30 @@ describe("macro resolve tool", () => {
         code: "macro_resolve_failed"
       }
     });
+
+    const useCookies = parse(await tool.execute({
+      expression: "@web.search('x')",
+      useCookies: true
+    } as never));
+    expect(useCookies).toEqual({
+      ok: false,
+      error: {
+        message: "useCookies requires execute=true for macro resolution",
+        code: "macro_resolve_failed"
+      }
+    });
+
+    const cookiePolicyOverride = parse(await tool.execute({
+      expression: "@web.search('x')",
+      cookiePolicyOverride: "required"
+    } as never));
+    expect(cookiePolicyOverride).toEqual({
+      ok: false,
+      error: {
+        message: "cookiePolicyOverride requires execute=true for macro resolution",
+        code: "macro_resolve_failed"
+      }
+    });
   });
 
   it("executes fetch/crawl/post actions with normalized input and provider options", async () => {
