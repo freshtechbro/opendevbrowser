@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-05-19
+Last updated: 2026-06-05
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/public-surface/source.ts`
@@ -99,19 +99,19 @@ First-contact note:
 ### Browser capture (3)
 - `screenshot` - Capture a still browser image.
 - `screencast-start` - Start a browser replay capture that samples the existing screenshot lane.
-- `screencast-stop` - Finalize and retrieve a browser replay capture by session and screencast id.
+- `screencast-stop` - Stop a browser replay screencast capture.
 
 Browser capture behavior:
 - Omitted screenshot output saves `.opendevbrowser/screenshot/<uuid>/capture.png` and returns `path` plus `artifact_path`; explicit `--path` remains caller-controlled.
 - Omitted screencast output saves replay files under `.opendevbrowser/screencast/<uuid>` and returns `artifact_path`; explicit `--output-dir` remains caller-controlled.
 
 ### Desktop observation (6)
-- `desktop-status` - Inspect sibling desktop observation availability.
-- `desktop-windows` - List observable desktop windows.
-- `desktop-active-window` - Inspect the active desktop window.
-- `desktop-capture-desktop` - Capture the current desktop surface.
-- `desktop-capture-window` - Capture a specific desktop window.
-- `desktop-accessibility-snapshot` - Capture desktop accessibility state.
+- `desktop-status` - Inspect public read-only desktop observation availability.
+- `desktop-windows` - List windows exposed by the public read-only desktop observation plane.
+- `desktop-active-window` - Inspect the active window through the public read-only desktop observation plane.
+- `desktop-capture-desktop` - Capture the current desktop surface through the public read-only desktop observation plane.
+- `desktop-capture-window` - Capture a specific window through the public read-only desktop observation plane.
+- `desktop-accessibility-snapshot` - Capture desktop accessibility state through the public read-only desktop observation plane.
 
 Operational note:
 - On macOS, this plane requires the local `swift` command for availability, window, and accessibility probes; missing `swift` surfaces `desktop_unsupported`.

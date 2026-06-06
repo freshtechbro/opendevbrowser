@@ -4,7 +4,7 @@
 
 ## Overview
 
-CLI layer implementing script-first UX with 72 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, browser capture and replay, desktop observation, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
+CLI layer implementing script-first UX with 77 commands across install/runtime, session, navigation, interaction, targets/pages, DOM, design-canvas, export, diagnostics, provider workflows, macro, annotate, browser capture and replay, desktop observation, and power surfaces. Supports local execution and hub-mode daemon proxying. Includes autostart installers for macOS (LaunchAgent) and Windows (Task Scheduler).
 
 ## Structure
 
@@ -137,5 +137,5 @@ src/cli/
 - Run strict live release gates:
   - `node scripts/provider-direct-runs.mjs --release-gate`
   - `node scripts/live-regression-direct.mjs --release-gate`
-- Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc (for this cycle: `docs/RELEASE_0.0.27_EVIDENCE.md`) for final sign-off.
+- Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc (for this cycle: `docs/RELEASE_0.0.34_EVIDENCE.md`) for final sign-off.
 - Keep command/flag/channel inventories synchronized with `docs/CLI.md` and `docs/SURFACE_REFERENCE.md`.

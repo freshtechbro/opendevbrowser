@@ -1,6 +1,6 @@
 # Extension Release Runbook
 
-Last updated: 2026-05-19
+Last updated: 2026-06-05
 
 Operational runbook for publishing extension artifacts from the public repo.
 

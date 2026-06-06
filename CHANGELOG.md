@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Documented `ranked-references.json.rejectedReferences` diagnostics for captured-but-rejected `interface_chrome_shell` evidence without weakening reference promotion rules.
 
+## [0.0.34] - 2026-05-22
+
+### Changed
+- Release-facing package, lockfile, extension manifest, extension package metadata, and evidence docs are aligned for `0.0.34`.
+
 ## [0.0.33] - 2026-05-21
 
 ### Added
@@ -262,7 +267,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.33...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.34...HEAD
+[0.0.34]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.33...v0.0.34
 [0.0.33]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.32...v0.0.33
 [0.0.32]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.31...v0.0.32
 [0.0.31]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.30...v0.0.31
