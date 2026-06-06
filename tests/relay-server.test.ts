@@ -2082,6 +2082,8 @@ describe("RelayServer", () => {
     expect(forwardedHello.type).toBe("ops_hello");
     expect(typeof forwardedHello.clientId).toBe("string");
 
+    const responsePromise = nextMessageWithTimeout(ops, DELAYED_OPS_HELLO_RESPONSE_TIMEOUT_MS);
+
     await new Promise((resolve) => setTimeout(resolve, DELAYED_OPS_HELLO_ACK_MS));
     extension.send(JSON.stringify({
       type: "ops_hello_ack",
@@ -2091,7 +2093,7 @@ describe("RelayServer", () => {
       capabilities: []
     }));
 
-    const response = await nextMessageWithTimeout(ops, DELAYED_OPS_HELLO_RESPONSE_TIMEOUT_MS);
+    const response = await responsePromise;
     expect(response.type).toBe("ops_hello_ack");
     expect(server.status().opsConnected).toBe(true);
 
