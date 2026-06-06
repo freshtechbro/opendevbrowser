@@ -12,5 +12,6 @@ MODE="$2"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
 source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+require_odb_daemon_current
 
 "${ODB_CLI[@]}" research run --topic "$TOPIC" --mode "$MODE"

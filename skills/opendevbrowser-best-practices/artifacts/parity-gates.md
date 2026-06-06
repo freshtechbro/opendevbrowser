@@ -35,6 +35,7 @@ npm run test -- tests/providers-performance-gate.test.ts
 
 - `tests/parity-matrix.test.ts` is contract coverage for CLI/tool/runtime surface parity.
 - `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json` and `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json` are the live release-proof lane.
+- Treat `artifacts/release/vX.Y.Z/...` paths as local-only release proof outputs unless release policy explicitly requests publication.
 - Treat grouped contract checks and direct-run release proof as complementary, not interchangeable.
 
 ## Release Requirement

@@ -88,6 +88,19 @@ if (!domain || !command) {
 
 const flags = parseFlags(rest);
 
+if (domain === "status") {
+  emitJson({
+    data: {
+      fingerprintCurrent: true,
+      relay: {
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      }
+    }
+  });
+  process.exit(0);
+}
+
 if (domain === "research" && command === "run") {
   const topic = String(flags.topic || "fixture topic");
   const days = String(flags.days || "30");

@@ -169,6 +169,7 @@ Use when a redesign needs external references or when the brief explicitly asks 
 - Start with `artifacts/research-harvest-workflow.md`.
 - Capture `3` to `5` live references with OpenDevBrowser.
 - For Pinterest, use the browser-native `social/pinterest` recipe with extension mode and cookies instead of treating Pinterest as a default full provider.
+- Before extension-mode Pinterest harvests, preflight `npx opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
 - Inspect `nextStepGuidance.readiness`, `doNotProceedIf`, and recovery commands before using the bundle.
 - Record ready evidence in `assets/templates/reference-pattern-board.v1.json`.
 - Turn the synthesis into contract deltas before implementation.
@@ -188,6 +189,7 @@ Use when starting from screenshots, mocks, or an existing page.
 Use when the task should run through the design canvas.
 
 - Start with `canvas.session.open`; use `canvas.capabilities.get` only after you have a `canvasSessionId`.
+- Use `--output-format json` for Canvas CLI commands whenever you read returned IDs, statuses, guidance, or follow-up fields.
 - Read the handshake and inspect `planStatus`, `preflightState`, `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `guidance.recommendedNextCommands`, `guidance.nextStepGuidance`, params examples, field examples, validation checks, and do-not-proceed blockers before choosing the next command.
 - Treat `preflightState="handshake_read"` as the normal first-step checkpoint before `canvas.plan.set`; if the handshake already reports `plan_invalid`, repair the plan instead of mutating.
 - Fill the full design contract and extract the `generationPlan`.

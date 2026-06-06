@@ -102,6 +102,8 @@ opendevbrowser_skill_load opendevbrowser-best-practices "validated capability la
 
 Current validated lanes:
 
+When `--output-dir` or `--out` is omitted, inspect `.opendevbrowser/<workflow>/<runId>` for workflow artifacts before publishing claims.
+
 1. Public-first YouTube transcript retrieval.
 
 ```bash
@@ -158,7 +160,7 @@ Rules:
 - inspect `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, and `doNotProceedIf` before continuing from any harvest
 - visual harvest must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; inspect diagnostics instead of forcing screenshots through blocked references
 - if readiness is `needs_recovery`, `blocked`, or `diagnostic_only`, follow the recovery-first command examples and do not continue to Canvas
-- after a ready run or harvest, read `advanced-brief.md` first, inspect `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, open a Canvas session, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`. Treat Pinterest pin-media as design-ready only when `pin-media-index.json` proves persisted first-party bytes; remote media URLs alone are not proof
+- after a ready run or harvest, read `advanced-brief.md` first, inspect `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, open a Canvas session, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json --output-format json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`. Treat Pinterest pin-media as design-ready only when `pin-media-index.json` proves persisted first-party bytes; remote media URLs alone are not proof
 - pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 
 ## Agent Sync Targets
@@ -177,6 +179,8 @@ Install and update refresh managed copies of these canonical packs; uninstall re
 - Use one action per decision loop: snapshot -> action -> snapshot.
 - Keep a single correlation context (`requestId`, `sessionId`) across a run.
 - Before daemon-backed workflows, run `opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`.
+- For extension readiness, require `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
+- Treat `data.relay.opsConnected`, `data.relay.canvasConnected`, and `data.relay.cdpConnected` as diagnostic or lane-specific presence fields; `data.relay.cdpConnected` is active-legacy-session-only.
 - Treat missing or false `data.fingerprintCurrent` as not current; use the matching binary, restart from the current install, or isolate shared runs with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports.
 - Do not conflate `daemon_fingerprint_mismatch` with native messaging host drift.
 - Run the same workflow shape across all three modes before claiming parity.
@@ -192,7 +196,7 @@ Install and update refresh managed copies of these canonical packs; uninstall re
 - Use default extension `/ops` for relay-backed concurrency; use `/cdp` only for legacy compatibility paths.
 - For managed parallel runs with persisted profiles, use unique profile paths per session (or disable persistence) to avoid profile lock collisions.
 - Treat extension headless attempts (`--extension-only --headless`) as expected `unsupported_mode`; route headless workloads through managed/cdpConnect instead.
-- Before extension-mode runs, preflight `npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
+- Before extension-mode runs, preflight `npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`; do not require `data.relay.opsConnected`, `data.relay.canvasConnected`, or `data.relay.cdpConnected` unless that lane is actively in use.
 
 Operational references:
 - `artifacts/provider-workflows.md` (see Workflow E)
@@ -261,7 +265,7 @@ opendevbrowser_screencast_stop sessionId="<session-id>" screencastId="<screencas
 
 Goal: validate authenticated read/search capability without posting.
 
-1. Connect and verify extension readiness (`extensionConnected` + handshake).
+1. Connect and verify extension readiness with JSON status: `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
 2. Navigate/search target social surface.
 3. Capture `debug-trace-snapshot` and `network-poll` evidence.
 4. Record blocker/auth status only (no write action).
@@ -315,13 +319,14 @@ node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.j
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (77 CLI commands, 70 tools, 59 `/ops` commands, 35 `/canvas` commands, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`)
+- `docs/SURFACE_REFERENCE.md` (77 CLI commands, 70 tools, 59 `/ops` commands, 35 `/canvas` commands, 67 CLI-tool pairs, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`). These hardcoded counts are validator-covered and must be refreshed from generated public-surface truth whenever counts change.
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
 - `artifacts/skill-runtime-surface-matrix.md` and `assets/templates/skill-runtime-pack-matrix.json` (canonical pack/runtime audit inventory)
 
 Direct-run release note:
 - `scripts/live-regression-direct.mjs` is the preferred release harness for `/canvas`, annotate, and CLI smoke. It uses temporary managed profiles for managed probes, waits for `/ops` drain before the legacy `/cdp` step, and keeps manual annotation timeouts as explicit `skipped` boundaries in `--release-gate` mode.
 - `scripts/provider-direct-runs.mjs --include-high-friction --include-auth-gated` is the preferred provider release harness. Treat `provider-live-matrix` and `live-regression-matrix` as debug-only helpers, not refreshed release evidence.
+- Explicit `artifacts/release/vX.Y.Z/...` paths are local-only release proof outputs. Normal omitted workflow outputs persist under `.opendevbrowser/<workflow>/<runId>`.
 
 ## Skill Runtime Audit and Realignment
 
@@ -343,7 +348,7 @@ Realignment rule:
 Use the design-canvas surface when the workflow needs persisted design documents, explicit governance state, preview tabs, or overlay selection.
 
 Recommended command order:
-1. `opendevbrowser_canvas` or `opendevbrowser canvas --command canvas.session.open` to get `canvasSessionId`, `leaseId`, `preflightState`, `planStatus`, governance block states, generation-plan requirements, and `guidance.recommendedNextCommands`.
+1. `opendevbrowser_canvas` or `opendevbrowser canvas --command canvas.session.open --output-format json` to get `canvasSessionId`, `leaseId`, `preflightState`, `planStatus`, governance block states, generation-plan requirements, and `guidance.recommendedNextCommands`.
 2. Read the handshake before mutating. The handshake is the source of truth for:
    - `planStatus`
    - `preflightState`
@@ -362,7 +367,7 @@ Recommended command order:
      `icons` are approved icon families,
      `styling` is for utility/theme adapters such as `tailwindcss`
 3. Require `preflightState="handshake_read"` or inspect the returned invalid-plan state before moving on. If the response already carries `guidance.recommendedNextCommands`, follow that list instead of guessing.
-4. Submit `canvas.plan.set` with all required non-empty objects:
+4. Submit `canvas.plan.set --output-format json` with all required non-empty objects:
    - `targetOutcome`
    - `visualDirection`
    - `layoutStrategy`

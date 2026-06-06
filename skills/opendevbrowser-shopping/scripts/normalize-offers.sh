@@ -12,6 +12,7 @@ providers="${2:-}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
 source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+require_odb_daemon_current
 
 cmd=("${ODB_CLI[@]}" shopping run --query "$query" --mode json --output-format json)
 if [[ -n "$providers" ]]; then

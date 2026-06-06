@@ -38,6 +38,7 @@ Load this skill before research tasks. Use it to plan source families, gather pr
 
 ## Core Rules
 
+- Before daemon-backed `research run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`.
 - Define timebox first (`--days` or `--from/--to`).
 - Choose explicit source families before invoking the CLI primitive: `web`, `community`, `social`, `shopping`, or a deliberate combination such as `web,community`.
 - Treat `auto` as a source-family selector, not a reliability guarantee.

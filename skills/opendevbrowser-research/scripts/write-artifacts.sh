@@ -12,6 +12,7 @@ OUTDIR="$2"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
 source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+require_odb_daemon_current
 
 json_output="$("${ODB_CLI[@]}" research run --topic "$TOPIC" --mode path --output-dir "$OUTDIR" --output-format json)"
 printf '%s\n' "$json_output"

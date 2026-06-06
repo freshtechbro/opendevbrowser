@@ -13,6 +13,7 @@ mkdir -p "$OUTDIR"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
 source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+require_odb_daemon_current
 
 cmd=("${ODB_CLI[@]}" product-video run --output-dir "$OUTDIR" --output-format json)
 if [[ "$VALUE" == http* ]]; then

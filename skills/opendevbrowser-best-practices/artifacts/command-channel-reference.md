@@ -8,9 +8,10 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 
 - CLI commands: `77`
 - Plugin tools: `70`
+- CLI-tool pairs: `67`
 - `/ops` command names: `59`
 - `/canvas` command names: `35`
-- Legacy `/cdp` relay: generic CDP forwarding (method-level)
+- Legacy `/cdp` relay: generic CDP forwarding (method-level), active-legacy-session-only
 
 Canonical exhaustive reference: `docs/SURFACE_REFERENCE.md`.
 CLI help mirror: `npx opendevbrowser --help` and `npx opendevbrowser help` (identical inventories).
@@ -236,13 +237,16 @@ Operational rule:
 - Direct CDP: `connect --ws-endpoint ...` or `connect --host ... --cdp-port ...`
 - Direct release harnesses (`live-regression-direct`, `provider-direct-runs`) are the shipping evidence path; broad matrix wrappers are debug-only and should not replace fresh direct-run artifacts.
 
-Required readiness/status checks:
-- `extensionConnected`
-- `extensionHandshakeComplete`
-- `opsConnected`
-- `canvasConnected`
-- `cdpConnected`
-- `pairingRequired`
+Required extension readiness checks:
+- `data.fingerprintCurrent === true`
+- `data.relay.extensionConnected === true`
+- `data.relay.extensionHandshakeComplete === true`
+
+Diagnostic and lane-specific presence fields:
+- `data.relay.opsConnected`: active `/ops` client presence only. It is not required for normal extension readiness.
+- `data.relay.canvasConnected`: active `/canvas` client presence only.
+- `data.relay.cdpConnected`: active-legacy-session-only. Expected `false` unless a legacy `/cdp` session is connected.
+- `data.relay.pairingRequired`: relay token requirement status.
 
 ## Fast verification commands
 

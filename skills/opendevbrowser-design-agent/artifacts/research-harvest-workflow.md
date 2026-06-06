@@ -29,12 +29,16 @@ npx opendevbrowser inspiredesign harvest \
   --max-references 5 \
   --visual-evidence required \
   --browser-mode managed \
-  --mode json
+  --mode json \
+  --output-format json
 ```
 
-Use the browser-native Pinterest site recipe when the brief specifically needs logged-in Pinterest search. Pinterest is not a default full social provider, and the workflow should not widen to unrelated sources without user confirmation:
+Use the browser-native Pinterest site recipe when the brief specifically needs logged-in Pinterest search. Pinterest is not a default full social provider, and the workflow should not widen to unrelated sources without user confirmation.
+
+Before the extension-mode Pinterest harvest, preflight the daemon with JSON status output and continue only when `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`:
 
 ```bash
+npx opendevbrowser status --daemon --output-format json
 npx opendevbrowser inspiredesign harvest \
   --brief "Premium digital photography studio landing page" \
   --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" \
@@ -57,7 +61,8 @@ npx opendevbrowser inspiredesign harvest \
   --url https://example.com/reference-a \
   --url https://example.com/reference-b \
   --visual-evidence required \
-  --mode json
+  --mode json \
+  --output-format json
 ```
 
 Harvest defaults:

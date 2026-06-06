@@ -10,6 +10,7 @@ VALUE="$1"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh
 source "$script_dir/../../opendevbrowser-best-practices/scripts/resolve-odb-cli.sh"
+require_odb_daemon_current
 
 if [[ "$VALUE" == http* ]]; then
   "${ODB_CLI[@]}" product-video run --product-url "$VALUE"

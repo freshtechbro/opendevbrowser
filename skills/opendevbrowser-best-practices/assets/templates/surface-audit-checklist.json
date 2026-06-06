@@ -3,6 +3,7 @@
   "expectedCounts": {
     "cliCommands": 77,
     "tools": 70,
+    "cliToolPairs": 67,
     "opsCommands": 59,
     "canvasCommands": 35
   },
@@ -34,7 +35,8 @@
     "Mode semantics documented",
     "Generated help first-contact owners documented",
     "Onboarding metadata owner documented",
-    "First-run onboarding proof owner documented"
+    "First-run onboarding proof owner documented",
+    "Hardcoded public-surface counts documented and validator-covered"
   ],
   "firstContactOwners": [
     "src/cli/help.ts",

@@ -59,6 +59,10 @@ for rel in scripts/run-shopping.sh scripts/normalize-offers.sh scripts/run-deal-
       echo "Workflow wrapper missing ODB_CLI invocation: $rel" >&2
       status=1
     fi
+    if ! grep -Fq "require_odb_daemon_current" "$root/$rel"; then
+      echo "Workflow wrapper missing daemon fingerprint preflight: $rel" >&2
+      status=1
+    fi
   fi
 done
 

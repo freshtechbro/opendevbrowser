@@ -9,6 +9,7 @@ version: 2.1.0
 Use this skill for robust deal hunting across providers with market-baseline validation and savings analysis.
 
 Reliable defaults:
+- before daemon-backed `shopping run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`
 - start with explicit providers for reproducible reruns
 - prefer `--browser-mode managed` unless relay-backed session state is required
 - treat `--region` as advisory unless workflow output reports `meta.selection.region_authoritative=true`

@@ -26,6 +26,15 @@ $CLI_PREFIX status --daemon --output-format json
 EOF
 }
 
+print_extension_readiness() {
+  cat <<EOF
+# Extension readiness preflight:
+$CLI_PREFIX status --daemon --output-format json
+# Continue only when data.fingerprintCurrent === true, data.relay.extensionConnected === true, and data.relay.extensionHandshakeComplete === true.
+# Treat data.relay.opsConnected, data.relay.canvasConnected, and data.relay.cdpConnected as diagnostic or lane-specific presence fields.
+EOF
+}
+
 print_help() {
   cat <<'EOF'
 OpenDevBrowser workflow router
@@ -84,7 +93,12 @@ EOF
     print_daemon_preflight
     cat <<EOF
 # Pair with opendevbrowser-design-agent when the contract will flow into implementation or /canvas work.
-$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
+# When --output-dir is omitted, inspect .opendevbrowser/inspiredesign/<runId> for workflow artifacts.
+# URL-backed inspiredesign run forces deep capture for DOM/layout diagnostics; do not disable capture for URL-backed runs.
+$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
+EOF
+    print_extension_readiness
+    cat <<EOF
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 # Inspect nextStepGuidance.readiness and doNotProceedIf before Canvas continuation. For non-ready evidence, follow recovery-first guidance.
 # Review visual-evidence.json, screenshot-index.json, motion-evidence.json, pin-media-evidence.json, pin-media-index.json, ranked-references.json, and meta-prompt.md before design or Canvas work.
@@ -134,14 +148,14 @@ EOF
     cat <<EOF
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
-$CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
+$CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}' --output-format json
 # Read handshake before any mutation. Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, and guidance.recommendedNextCommands.
-$CLI_PREFIX canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json
+$CLI_PREFIX canvas --command canvas.plan.set --params-file skills/opendevbrowser-best-practices/assets/templates/canvas-generation-plan.v1.json --output-format json
 # Replace placeholders in the plan file with canvasSessionId, leaseId, and documentId from the open response.
 # If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
 # If canvas.plan.set returns generation_plan_invalid, read guidance.nextStepGuidance, guidance.paramsExamples, guidance.fieldExamples, guidance.validationChecks, and guidance.doNotProceedIf, then repair the params file and retry.
 # Optional diagnostics after generation_plan_invalid:
-# $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}' --output-format json
 # or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
 EOF
     ;;
@@ -151,10 +165,10 @@ EOF
 cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-feedback-eval.json
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-blocker-checklist.json
-$CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
+$CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}' --output-format json
 # Verify every feedback item is target-attributed and uses approved categories. If feedback returns preflight-blocker, return to canvas.plan.set first.
-$CLI_PREFIX canvas --command canvas.preview.refresh --params '{"requestId":"req_refresh_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","refreshMode":"full"}'
-$CLI_PREFIX canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
+$CLI_PREFIX canvas --command canvas.preview.refresh --params '{"requestId":"req_refresh_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","refreshMode":"full"}' --output-format json
+$CLI_PREFIX canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}' --output-format json
 # Save should fail or warn when requiredBeforeSave governance blocks remain unresolved.
 EOF
     ;;
@@ -168,6 +182,8 @@ EOF
   release-direct-gates)
     print_daemon_preflight
     cat <<'EOF'
+# artifacts/release/vX.Y.Z paths are local-only release proof outputs.
+# Normal omitted workflow outputs persist under .opendevbrowser/<workflow>/<runId>.
 mkdir -p artifacts/release/vX.Y.Z
 node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json
 node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json
@@ -197,6 +213,8 @@ OPENCODE_CONFIG_DIR="$WORKDIR/config" CODEX_HOME="$WORKDIR/codex-home" CLAUDECOD
 ./skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-research/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-shopping/scripts/validate-skill-assets.sh
+# Explicit artifacts/skill-runtime-audit outputs are local-only audit proof.
+# Omitted provider workflow outputs persist under .opendevbrowser/<workflow>/<runId>.
 node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json
 node scripts/skill-runtime-audit.mjs --out artifacts/skill-runtime-audit/full.json
 EOF
@@ -207,22 +225,26 @@ EOF
 # Public-first YouTube transcript probe
 node $TRANSCRIPT_PROBE_PATH --url "https://www.youtube.com/watch?v=aircAruvnKk" --youtube-mode auto --out artifacts/capability-fix/youtube-transcript-auto.json
 
+# When --output-dir or --out is omitted, inspect .opendevbrowser/<workflow>/<runId> for workflow artifacts.
+
 # Evidence-gated research primitive with explicit public source families
 # Load opendevbrowser-research first, then inspect records.json, context.json, meta.json, and report.md before publishing claims.
 $CLI_PREFIX research run --topic "Chrome extension debugging workflows" --days 30 --sources web,community --mode json --output-format json
 
 # Deterministic shopping reruns with explicit providers
-$CLI_PREFIX shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --mode json --output-format json
-$CLI_PREFIX shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --mode json --output-format json
+$CLI_PREFIX shopping run --query "wireless ergonomic mouse" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
+$CLI_PREFIX shopping run --query "27 inch 4k monitor" --providers shopping/bestbuy,shopping/ebay --budget 350 --sort lowest_price --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
 
 # Public-reference inspiredesign contract synthesis
-$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --capture-mode off --include-prototype-guidance --mode json --output-format json
-
+$CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
+EOF
+    print_extension_readiness
+    cat <<EOF
 # Browser-native Pinterest recipe. Continue only when nextStepGuidance.readiness is ready.
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 
 # Region note: advisory unless output reports meta.selection.region_authoritative=true
-$CLI_PREFIX shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --mode json --output-format json
+$CLI_PREFIX shopping run --query "wireless earbuds" --providers shopping/amazon --region us --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json
 EOF
     ;;
   surface-audit)
@@ -236,24 +258,24 @@ EOF
   ops-channel-check)
     cat <<EOF
 $CLI_PREFIX serve
-# Daemon preflight for daemon-backed workflows:
-$CLI_PREFIX status --daemon --output-format json
-# Continue only when data.fingerprintCurrent === true.
+EOF
+    print_daemon_preflight
+    cat <<EOF
 $CLI_PREFIX launch --extension-only --wait-for-extension --output-format json
 $CLI_PREFIX status --daemon --output-format json
-# Verify fingerprintCurrent=true, opsConnected=true, and extensionHandshakeComplete=true
+# Verify data.fingerprintCurrent=true, data.relay.extensionConnected=true, and data.relay.extensionHandshakeComplete=true after launch. Treat data.relay.opsConnected as diagnostic presence only.
 cat skills/opendevbrowser-best-practices/assets/templates/ops-request-envelope.json
 EOF
     ;;
   cdp-channel-check)
     cat <<EOF
 $CLI_PREFIX serve
-# Daemon preflight for daemon-backed workflows:
-$CLI_PREFIX status --daemon --output-format json
-# Continue only when data.fingerprintCurrent === true.
+EOF
+    print_daemon_preflight
+    cat <<EOF
 $CLI_PREFIX launch --extension-only --extension-legacy --wait-for-extension --output-format json
 $CLI_PREFIX status --daemon --output-format json
-# Verify fingerprintCurrent=true and cdpConnected=true while legacy session is active
+# Verify data.fingerprintCurrent=true, data.relay.extensionConnected=true, and data.relay.extensionHandshakeComplete=true after launch. data.relay.cdpConnected is active-legacy-session-only and true only while the legacy /cdp session is active.
 cat skills/opendevbrowser-best-practices/assets/templates/cdp-forward-envelope.json
 EOF
     ;;

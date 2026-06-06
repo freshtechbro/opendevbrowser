@@ -98,3 +98,31 @@ resolve_odb_cli() {
 }
 
 resolve_odb_cli
+
+require_odb_daemon_current() {
+  local status_json
+
+  if ! status_json="$("${ODB_CLI[@]}" status --daemon --output-format json)"; then
+    echo "OpenDevBrowser daemon preflight failed. Run: ${ODB_CLI[*]} status --daemon --output-format json" >&2
+    return 1
+  fi
+
+  if ! printf '%s\n' "$status_json" | node -e '
+const fs = require("node:fs");
+const input = fs.readFileSync(0, "utf8");
+let payload;
+try {
+  payload = JSON.parse(input);
+} catch {
+  process.exit(1);
+}
+if (payload?.data?.fingerprintCurrent !== true) {
+  process.exit(1);
+}
+'; then
+    echo "OpenDevBrowser daemon is not current. Expected data.fingerprintCurrent === true from:" >&2
+    echo "${ODB_CLI[*]} status --daemon --output-format json" >&2
+    printf '%s\n' "$status_json" >&2
+    return 1
+  fi
+}
