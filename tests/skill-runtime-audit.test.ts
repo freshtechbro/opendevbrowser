@@ -1,12 +1,21 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildResearchAuditArgs,
   buildProviderDirectAuditArgs,
   buildFixQueue,
   buildTargetedRerunCommands,
   deriveAuditDomainStatus,
   derivePackStatus,
+  inspectResearchArtifactBundle,
   normalizeLaneStatus,
+  prepareResearchAuditOutputDir,
   preferConfiguredSmokeRerun,
+  REQUIRED_RESEARCH_ARTIFACT_FILES,
+  researchAuditOutputDir,
+  researchAuditProcessTimeoutMs,
   shouldUseConfiguredAuditEnv,
   summarizeJsonLane
 } from "../scripts/skill-runtime-audit.mjs";
@@ -239,6 +248,79 @@ describe("skill runtime audit status modeling", () => {
     expect(args).toContain("--include-high-friction");
     expect(args).toContain("--quiet");
     expect(args).not.toContain("--use-global-env");
+  });
+
+  it("keeps research smoke timeout above observed live workflow runtime", () => {
+    const args = buildResearchAuditArgs({ smoke: true }, "artifacts/research-output");
+    const timeoutFlagIndex = args.indexOf("--timeout-ms");
+
+    expect(args).toEqual(expect.arrayContaining([
+      "research",
+      "run",
+      "--topic",
+      "browser automation",
+      "--days",
+      "7",
+      "--output-dir",
+      "artifacts/research-output"
+    ]));
+    expect(args[timeoutFlagIndex + 1]).toBe("180000");
+    expect(researchAuditProcessTimeoutMs({ smoke: true })).toBe(300_000);
+  });
+
+  it("keeps research audit workflow artifacts beside the report", () => {
+    expect(researchAuditOutputDir("artifacts/skill-runtime-audit/smoke.json"))
+      .toBe("artifacts/skill-runtime-audit/workflow-artifacts/research-live");
+  });
+
+  it("clears stale research audit workflow artifacts before a run", () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "odb-research-output-"));
+    const staleDir = path.join(outputDir, "research", "stale-run");
+    try {
+      fs.mkdirSync(staleDir, { recursive: true });
+      fs.writeFileSync(path.join(staleDir, "report.md"), "# stale\n");
+
+      prepareResearchAuditOutputDir(outputDir);
+
+      expect(fs.existsSync(path.join(staleDir, "report.md"))).toBe(false);
+      expect(fs.existsSync(outputDir)).toBe(true);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("verifies the required research workflow artifact bundle files", () => {
+    const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "odb-research-artifacts-"));
+    try {
+      for (const fileName of REQUIRED_RESEARCH_ARTIFACT_FILES) {
+        fs.writeFileSync(path.join(artifactDir, fileName), "{}\n");
+      }
+
+      expect(inspectResearchArtifactBundle(artifactDir)).toEqual({
+        artifactPath: artifactDir,
+        requiredFiles: [...REQUIRED_RESEARCH_ARTIFACT_FILES],
+        existingFiles: [...REQUIRED_RESEARCH_ARTIFACT_FILES],
+        missingFiles: []
+      });
+    } finally {
+      fs.rmSync(artifactDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports missing research workflow artifact bundle files", () => {
+    const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "odb-research-artifacts-"));
+    try {
+      fs.writeFileSync(path.join(artifactDir, "report.md"), "# Report\n");
+
+      const inspection = inspectResearchArtifactBundle(artifactDir);
+
+      expect(inspection.existingFiles).toEqual(["report.md"]);
+      expect(inspection.missingFiles).toEqual(
+        REQUIRED_RESEARCH_ARTIFACT_FILES.filter((fileName) => fileName !== "report.md")
+      );
+    } finally {
+      fs.rmSync(artifactDir, { recursive: true, force: true });
+    }
   });
 
   it("preserves rerun metadata from JSON lanes", () => {

@@ -42,6 +42,18 @@ const HELP_TEXT = [
 ].join("\n");
 
 const SHELL = process.env.SHELL || "/bin/zsh";
+const RESEARCH_SMOKE_WORKFLOW_TIMEOUT_MS = 180_000;
+const RESEARCH_FULL_WORKFLOW_TIMEOUT_MS = 180_000;
+const RESEARCH_SMOKE_PROCESS_TIMEOUT_MS = 300_000;
+const RESEARCH_FULL_PROCESS_TIMEOUT_MS = 360_000;
+export const REQUIRED_RESEARCH_ARTIFACT_FILES = Object.freeze([
+  "bundle-manifest.json",
+  "context.json",
+  "meta.json",
+  "records.json",
+  "report.md",
+  "summary.md"
+]);
 
 function parseArgs(argv) {
   const options = {
@@ -234,6 +246,38 @@ export function buildProviderDirectAuditArgs(options, laneJsonPath) {
     laneJsonPath,
     ...(options.quiet ? ["--quiet"] : [])
   ];
+}
+
+export function buildResearchAuditArgs(options, outputDir) {
+  return [
+    "research",
+    "run",
+    "--topic",
+    "browser automation",
+    "--days",
+    options.smoke ? "7" : "14",
+    "--source-selection",
+    "auto",
+    "--mode",
+    "json",
+    "--output-dir",
+    outputDir,
+    "--timeout-ms",
+    String(options.smoke ? RESEARCH_SMOKE_WORKFLOW_TIMEOUT_MS : RESEARCH_FULL_WORKFLOW_TIMEOUT_MS)
+  ];
+}
+
+export function researchAuditOutputDir(reportOut) {
+  return path.join(path.dirname(reportOut), "workflow-artifacts", "research-live");
+}
+
+export function researchAuditProcessTimeoutMs(options) {
+  return options.smoke ? RESEARCH_SMOKE_PROCESS_TIMEOUT_MS : RESEARCH_FULL_PROCESS_TIMEOUT_MS;
+}
+
+export function prepareResearchAuditOutputDir(outputDir) {
+  fs.rmSync(outputDir, { recursive: true, force: true });
+  fs.mkdirSync(outputDir, { recursive: true });
 }
 
 function summarizeConstraintEntry(entry) {
@@ -625,6 +669,27 @@ function classifyResearchResult(result) {
   };
 }
 
+export function inspectResearchArtifactBundle(artifactPath) {
+  if (typeof artifactPath !== "string" || artifactPath.length === 0) {
+    return {
+      artifactPath: null,
+      requiredFiles: [...REQUIRED_RESEARCH_ARTIFACT_FILES],
+      existingFiles: [],
+      missingFiles: [...REQUIRED_RESEARCH_ARTIFACT_FILES]
+    };
+  }
+
+  const existingFiles = REQUIRED_RESEARCH_ARTIFACT_FILES.filter((fileName) =>
+    fs.existsSync(path.join(artifactPath, fileName))
+  );
+  return {
+    artifactPath,
+    requiredFiles: [...REQUIRED_RESEARCH_ARTIFACT_FILES],
+    existingFiles,
+    missingFiles: REQUIRED_RESEARCH_ARTIFACT_FILES.filter((fileName) => !existingFiles.includes(fileName))
+  };
+}
+
 async function runResearchLane(options, reportOut) {
   const artifactPath = laneArtifactPath(reportOut, "research-live");
   const report = {
@@ -633,32 +698,27 @@ async function runResearchLane(options, reportOut) {
     startedAt: new Date().toISOString()
   };
 
-  return await withTempHarness("odb-research-live", async ({ env, tempRoot }) => {
-    const outputDir = path.join(tempRoot, "research-output");
-    const result = runCliAtCwd([
-      "research",
-      "run",
-      "--topic",
-      "browser automation",
-      "--days",
-      options.smoke ? "7" : "14",
-      "--source-selection",
-      "auto",
-      "--mode",
-      "json",
-      "--output-dir",
-      outputDir,
-      "--timeout-ms",
-      options.smoke ? "90000" : "120000"
-    ], {
+  return await withTempHarness("odb-research-live", async ({ env }) => {
+    const outputDir = researchAuditOutputDir(reportOut);
+    prepareResearchAuditOutputDir(outputDir);
+    const result = runCliAtCwd(buildResearchAuditArgs(options, outputDir), {
       env,
       allowFailure: true,
-      timeoutMs: options.smoke ? 180_000 : 240_000
+      timeoutMs: researchAuditProcessTimeoutMs(options)
     });
 
     const { classified, artifactPath: workflowArtifactPath, reasonCodes, records, failures } = classifyResearchResult(result);
+    const artifactInspection = inspectResearchArtifactBundle(workflowArtifactPath);
+    const artifactBundleReady = artifactInspection.missingFiles.length === 0;
+    const laneStatus = result.status === 0
+      ? (artifactBundleReady ? classified.status : "fail")
+      : (classified.status === "env_limited" ? "env_limited" : "fail");
+    const laneDetail = result.status === 0
+      ? (artifactBundleReady ? classified.detail : `missing research artifacts: ${artifactInspection.missingFiles.join(",")}`)
+      : result.detail;
+
     report.finishedAt = new Date().toISOString();
-    report.ok = classified.status === "pass" || classified.status === "env_limited";
+    report.ok = laneStatus === "pass" || laneStatus === "env_limited";
     report.result = {
       status: result.status,
       detail: result.detail,
@@ -667,7 +727,8 @@ async function runResearchLane(options, reportOut) {
       records,
       failures,
       reasonCodes,
-      artifactPath: workflowArtifactPath
+      artifactPath: workflowArtifactPath,
+      artifactInspection
     };
     ensureDir(artifactPath);
     writeJson(artifactPath, report);
@@ -675,15 +736,13 @@ async function runResearchLane(options, reportOut) {
     return {
       id: "research-live",
       label: SKILL_RUNTIME_SHARED_LANES["research-live"].label,
-      status: result.status === 0 ? classified.status : (classified.status === "env_limited" ? "env_limited" : "fail"),
-      detail: result.status === 0 ? classified.detail : result.detail,
+      status: laneStatus,
+      detail: laneDetail,
       artifactPath,
       counts: {
-        pass: result.status === 0 && classified.status === "pass" ? 1 : 0,
-        fail: result.status !== 0 && classified.status !== "env_limited"
-          ? 1
-          : (result.status === 0 && classified.status === "fail" ? 1 : 0),
-        env_limited: classified.status === "env_limited" ? 1 : 0,
+        pass: laneStatus === "pass" ? 1 : 0,
+        fail: laneStatus === "fail" ? 1 : 0,
+        env_limited: laneStatus === "env_limited" ? 1 : 0,
         expected_timeout: 0,
         skipped: 0
       },

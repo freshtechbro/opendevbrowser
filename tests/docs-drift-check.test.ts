@@ -13,6 +13,7 @@ describe("docs-drift-check", () => {
     const counts = getSurfaceCounts();
     expect(counts.commandCount).toBe(77);
     expect(counts.toolCount).toBe(70);
+    expect(counts.cliToolPairCount).toBe(67);
     expect(counts.opsCommandCount).toBeGreaterThan(0);
     expect(counts.commandNames).toHaveLength(counts.commandCount);
     expect(counts.toolNames).toHaveLength(counts.toolCount);
@@ -65,12 +66,15 @@ describe("docs-drift-check", () => {
       "doc.dependencies.challenge_override_config_audit_documented",
       "doc.cutover.challenge_override_sync_documented",
       "skill.best_practices.canvas_plan_guidance_documented",
+      "skill.best_practices.surface_counts_match_source",
       "skill.best_practices.inspiredesign_lane_documented",
       "doc.motion_design_skill.documented",
       "skill.motion_design.cross_links_and_evidence_documented",
       "skill.command_channel_reference.canvas_and_annotation_markers_documented",
+      "skill.command_channel_reference.surface_counts_match_source",
       "skill.parity_gates.replay_and_desktop_observation_documented",
       "skill.design_agent.canvas_validation_markers_documented",
+      "skill.surface_audit_checklist.counts_match_source",
       "skill.surface_audit_checklist.replay_and_desktop_observation_documented",
       "skill.surface_audit_checklist.first_contact_docs_documented",
       "skill.surface_audit_checklist.first_contact_owners_documented",
@@ -82,6 +86,6 @@ describe("docs-drift-check", () => {
       expect(byId.get(id)?.ok).toBe(true);
     }
     expect(Array.isArray(result.checks)).toBe(true);
-    expect(result.failed.length).toBeGreaterThanOrEqual(0);
+    expect(result.failed).toEqual([]);
   });
 });
