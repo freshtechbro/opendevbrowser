@@ -28,6 +28,7 @@ export function getSurfaceCounts() {
   return {
     commandCount: publicSurface.commandCount,
     toolCount: publicSurface.toolCount,
+    cliToolPairCount: publicSurface.cliToolPairCount,
     opsCommandCount: opsCommandNames.length,
     canvasCommandCount: canvasCommandNames.length,
     commandNames: publicSurface.commandNames,
@@ -120,7 +121,7 @@ export function runDocsDriftChecks() {
   const researchSkill = read("skills/opendevbrowser-research/SKILL.md");
   const shoppingSkill = read("skills/opendevbrowser-shopping/SKILL.md");
 
-  const { commandCount, toolCount, opsCommandCount, canvasCommandCount, commandNames, toolNames, opsCommandNames } = getSurfaceCounts();
+  const { commandCount, toolCount, cliToolPairCount, opsCommandCount, canvasCommandCount, commandNames, toolNames, opsCommandNames } = getSurfaceCounts();
 
   const checks = [];
 
@@ -720,15 +721,17 @@ export function runDocsDriftChecks() {
   });
   const commandChannelCliCount = parseDocCount(/- CLI commands: `([0-9]+)`/, commandChannelReference, "best-practices CLI count");
   const commandChannelToolCount = parseDocCount(/- Plugin tools: `([0-9]+)`/, commandChannelReference, "best-practices tool count");
+  const commandChannelCliToolPairCount = parseDocCount(/- CLI-tool pairs: `([0-9]+)`/, commandChannelReference, "best-practices CLI-tool pair count");
   const commandChannelOpsCount = parseDocCount(/- `\/ops` command names: `([0-9]+)`/, commandChannelReference, "best-practices /ops count");
   const commandChannelCanvasCount = parseDocCount(/- `\/canvas` command names: `([0-9]+)`/, commandChannelReference, "best-practices /canvas count");
   checks.push({
     id: "skill.command_channel_reference.surface_counts_match_source",
     ok: commandChannelCliCount === commandCount
       && commandChannelToolCount === toolCount
+      && commandChannelCliToolPairCount === cliToolPairCount
       && commandChannelOpsCount === opsCommandCount
       && commandChannelCanvasCount === canvasCommandCount,
-    detail: `command-channel-reference counts cli=${commandChannelCliCount}/${commandCount}, tools=${commandChannelToolCount}/${toolCount}, ops=${commandChannelOpsCount}/${opsCommandCount}, canvas=${commandChannelCanvasCount}/${canvasCommandCount}`
+    detail: `command-channel-reference counts cli=${commandChannelCliCount}/${commandCount}, tools=${commandChannelToolCount}/${toolCount}, cliToolPairs=${commandChannelCliToolPairCount}/${cliToolPairCount}, ops=${commandChannelOpsCount}/${opsCommandCount}, canvas=${commandChannelCanvasCount}/${canvasCommandCount}`
   });
   checks.push({
     id: "skill.parity_gates.replay_and_desktop_observation_documented",
@@ -740,9 +743,10 @@ export function runDocsDriftChecks() {
     id: "skill.surface_audit_checklist.counts_match_source",
     ok: surfaceAuditChecklist?.expectedCounts?.cliCommands === commandCount
       && surfaceAuditChecklist?.expectedCounts?.tools === toolCount
+      && surfaceAuditChecklist?.expectedCounts?.cliToolPairs === cliToolPairCount
       && surfaceAuditChecklist?.expectedCounts?.opsCommands === opsCommandCount
       && surfaceAuditChecklist?.expectedCounts?.canvasCommands === canvasCommandCount,
-    detail: `surface-audit-checklist counts cli=${surfaceAuditChecklist?.expectedCounts?.cliCommands ?? "missing"}/${commandCount}, tools=${surfaceAuditChecklist?.expectedCounts?.tools ?? "missing"}/${toolCount}, ops=${surfaceAuditChecklist?.expectedCounts?.opsCommands ?? "missing"}/${opsCommandCount}, canvas=${surfaceAuditChecklist?.expectedCounts?.canvasCommands ?? "missing"}/${canvasCommandCount}`
+    detail: `surface-audit-checklist counts cli=${surfaceAuditChecklist?.expectedCounts?.cliCommands ?? "missing"}/${commandCount}, tools=${surfaceAuditChecklist?.expectedCounts?.tools ?? "missing"}/${toolCount}, cliToolPairs=${surfaceAuditChecklist?.expectedCounts?.cliToolPairs ?? "missing"}/${cliToolPairCount}, ops=${surfaceAuditChecklist?.expectedCounts?.opsCommands ?? "missing"}/${opsCommandCount}, canvas=${surfaceAuditChecklist?.expectedCounts?.canvasCommands ?? "missing"}/${canvasCommandCount}`
   });
   checks.push({
     id: "skill.surface_audit_checklist.replay_and_desktop_observation_documented",

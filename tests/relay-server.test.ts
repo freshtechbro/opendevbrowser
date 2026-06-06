@@ -18,6 +18,10 @@ const getAvailablePort = async (): Promise<number> => {
 };
 
 const EXTENSION_ORIGIN = "chrome-extension://abcdefghijklmnop";
+const DEFAULT_SOCKET_CLOSE_TIMEOUT_MS = 4000;
+const DEFAULT_SOCKET_MESSAGE_TIMEOUT_MS = 4000;
+const DELAYED_OPS_HELLO_ACK_MS = 2200;
+const DELAYED_OPS_HELLO_RESPONSE_TIMEOUT_MS = 6000;
 
 const connect = async (url: string, timeoutMs = 3000, origin?: string): Promise<WebSocket> => {
   const headers = origin ? { Origin: origin } : (url.endsWith("/extension") ? { Origin: EXTENSION_ORIGIN } : undefined);
@@ -69,7 +73,7 @@ const upgradeRequest = async (options: { port: number; path: string; origin?: st
   });
 };
 
-const waitForClose = (socket: WebSocket, timeoutMs = 4000): Promise<number> => {
+const waitForClose = (socket: WebSocket, timeoutMs = DEFAULT_SOCKET_CLOSE_TIMEOUT_MS): Promise<number> => {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error("Timed out waiting for socket close"));
@@ -93,7 +97,10 @@ const nextMessage = async (socket: WebSocket): Promise<Record<string, unknown>> 
   return JSON.parse(text) as Record<string, unknown>;
 };
 
-const nextMessageWithTimeout = async (socket: WebSocket, timeoutMs = 4000): Promise<Record<string, unknown>> => {
+const nextMessageWithTimeout = async (
+  socket: WebSocket,
+  timeoutMs = DEFAULT_SOCKET_MESSAGE_TIMEOUT_MS
+): Promise<Record<string, unknown>> => {
   return await Promise.race([
     nextMessage(socket),
     new Promise<Record<string, unknown>>((_, reject) => {
@@ -2075,7 +2082,9 @@ describe("RelayServer", () => {
     expect(forwardedHello.type).toBe("ops_hello");
     expect(typeof forwardedHello.clientId).toBe("string");
 
-    await new Promise((resolve) => setTimeout(resolve, 2200));
+    const responsePromise = nextMessageWithTimeout(ops, DELAYED_OPS_HELLO_RESPONSE_TIMEOUT_MS);
+
+    await new Promise((resolve) => setTimeout(resolve, DELAYED_OPS_HELLO_ACK_MS));
     extension.send(JSON.stringify({
       type: "ops_hello_ack",
       version: "1",
@@ -2084,7 +2093,7 @@ describe("RelayServer", () => {
       capabilities: []
     }));
 
-    const response = await nextMessageWithTimeout(ops, 2000);
+    const response = await responsePromise;
     expect(response.type).toBe("ops_hello_ack");
     expect(server.status().opsConnected).toBe(true);
 

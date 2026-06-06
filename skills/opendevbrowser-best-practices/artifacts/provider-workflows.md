@@ -88,6 +88,7 @@ Expected output:
 
 - Use `node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json` for provider live release proof.
 - Use `node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json` for cross-surface live release proof.
+- Treat `artifacts/release/vX.Y.Z/...` paths as local-only release proof outputs unless release policy explicitly requests publication.
 - Treat parity matrix tests as contract coverage, not live release proof.
 - Read `data.guidanceReason` and `data.recommendedNextCommand` in the provider-direct report before escalating a provider failure to manual follow-up.
 

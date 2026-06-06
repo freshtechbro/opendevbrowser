@@ -1,6 +1,6 @@
 # Public Release Runbook
 
-Last updated: 2026-05-19
+Last updated: 2026-06-05
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
 

@@ -2,7 +2,7 @@
 
 This file turns the design-agent skill into repeatable execution paths.
 
-## Workflow A — Contract-First Frontend Delivery
+## Workflow A - Contract-First Frontend Delivery
 
 Use when the task starts from a PRD, issue, or user request.
 
@@ -37,7 +37,7 @@ Use when the task starts from a PRD, issue, or user request.
 16. Implement the smallest coherent slice that satisfies the contract.
 17. Validate in an isolated fixture first, then in a real browser before declaring the work complete.
 
-## Workflow B — Screenshot Or Existing-Page Audit
+## Workflow B - Screenshot Or Existing-Page Audit
 
 Use when a screenshot, mock, or live page is the starting point.
 
@@ -71,7 +71,7 @@ Use when a screenshot, mock, or live page is the starting point.
 8. Record the audit in `assets/templates/design-audit-report.v1.md`.
 9. Implement changes only after the contract reflects the intended end state.
 
-## Workflow C — `/canvas` Contract-Governed Iteration
+## Workflow C - `/canvas` Contract-Governed Iteration
 
 Use when the work should flow through the OpenDevBrowser design canvas.
 
@@ -88,22 +88,24 @@ Use when the work should flow through the OpenDevBrowser design canvas.
 
 Canonical command order:
 
+Use `--output-format json` whenever returned IDs, statuses, guidance, or follow-up fields are read from Canvas command output.
+
 ```bash
-npx opendevbrowser canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
+npx opendevbrowser canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}' --output-format json
 # Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, guidance.recommendedNextCommands, guidance.nextStepGuidance, guidance.paramsExamples, guidance.fieldExamples, guidance.validationChecks, and guidance.doNotProceedIf before continuing.
-npx opendevbrowser canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json
+npx opendevbrowser canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json --output-format json
 # If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
 # If canvas.plan.set returns generation_plan_invalid, repair ./tmp/canvas-plan.json from guidance.paramsExamples before retrying.
 # Optional diagnostics after generation_plan_invalid:
-# npx opendevbrowser canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# npx opendevbrowser canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}' --output-format json
 # or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
-npx opendevbrowser canvas --command canvas.document.patch --params-file ./tmp/canvas-patch.json
-npx opendevbrowser canvas --command canvas.preview.render --params '{"requestId":"req_preview_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","projection":"canvas_html"}'
-npx opendevbrowser canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
-npx opendevbrowser canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
+npx opendevbrowser canvas --command canvas.document.patch --params-file ./tmp/canvas-patch.json --output-format json
+npx opendevbrowser canvas --command canvas.preview.render --params '{"requestId":"req_preview_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","projection":"canvas_html"}' --output-format json
+npx opendevbrowser canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}' --output-format json
+npx opendevbrowser canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}' --output-format json
 ```
 
-## Workflow D — Real-Surface Validation
+## Workflow D - Real-Surface Validation
 
 Use when design quality must be demonstrated, not inferred.
 
@@ -123,7 +125,7 @@ Use when design quality must be demonstrated, not inferred.
    - no console or network regressions caused by the UI change
 7. If parity matters, repeat across supported surfaces before sign-off.
 
-## Workflow E — Performance Audit
+## Workflow E - Performance Audit
 
 Use when the screen is visually correct but interaction quality is poor.
 
@@ -143,7 +145,7 @@ npx opendevbrowser screenshot --session-id <session-id>
 npx opendevbrowser debug-trace-snapshot --session-id <session-id>
 ```
 
-## Workflow F — Ship Audit
+## Workflow F - Ship Audit
 
 Use after implementation and before final sign-off.
 

@@ -62,6 +62,10 @@ for rel in scripts/collect-product.sh scripts/capture-screenshots.sh scripts/dow
       echo "Workflow wrapper missing ODB_CLI invocation: $rel" >&2
       status=1
     fi
+    if [[ "$rel" == "scripts/collect-product.sh" || "$rel" == "scripts/capture-screenshots.sh" || "$rel" == "scripts/download-images.sh" || "$rel" == "scripts/write-manifest.sh" ]] && ! grep -Fq "require_odb_daemon_current" "$root/$rel"; then
+      echo "Workflow wrapper missing daemon fingerprint preflight: $rel" >&2
+      status=1
+    fi
   fi
 done
 

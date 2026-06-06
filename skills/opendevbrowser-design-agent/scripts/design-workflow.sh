@@ -67,6 +67,9 @@ cat skills/opendevbrowser-design-agent/assets/templates/reference-pattern-board.
 cat skills/opendevbrowser-design-agent/artifacts/external-pattern-synthesis.md
 cat skills/opendevbrowser-design-agent/artifacts/component-pattern-index.md
 cat skills/opendevbrowser-design-agent/artifacts/existing-surface-adaptation.md
+# Daemon preflight for extension-mode Pinterest harvest:
+$CLI_PREFIX status --daemon --output-format json
+# Continue only when data.fingerprintCurrent === true, data.relay.extensionConnected === true, and data.relay.extensionHandshakeComplete === true.
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 # Inspect nextStepGuidance.readiness and doNotProceedIf first. Use recovery-first guidance unless readiness is ready.
 $CLI_PREFIX launch --no-extension --start-url https://example.com
@@ -102,19 +105,19 @@ cat skills/opendevbrowser-design-agent/artifacts/design-contract-playbook.md
 cat skills/opendevbrowser-best-practices/artifacts/canvas-governance-playbook.md
 cat skills/opendevbrowser-best-practices/assets/templates/canvas-handshake-example.json
 ./skills/opendevbrowser-design-agent/scripts/extract-canvas-plan.sh ./tmp/design-contract.json > ./tmp/canvas-plan.json
-$CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}'
+$CLI_PREFIX canvas --command canvas.session.open --params '{"requestId":"req_open_01","browserSessionId":"<browser-session-id>","documentId":null,"repoPath":null,"mode":"dual-track"}' --output-format json
 # Inspect planStatus, preflightState, generationPlanRequirements.allowedValues, generationPlanIssues, guidance.recommendedNextCommands, guidance.nextStepGuidance, guidance.paramsExamples, guidance.fieldExamples, guidance.validationChecks, and guidance.doNotProceedIf before continuing.
 # Treat preflightState=handshake_read as the normal first-step checkpoint before canvas.plan.set.
-$CLI_PREFIX canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json
+$CLI_PREFIX canvas --command canvas.plan.set --params-file ./tmp/canvas-plan.json --output-format json
 # If canvas.plan.set succeeds with planStatus=accepted or preflightState=plan_accepted, follow the returned guidance into canvas.document.patch.
 # If canvas.plan.set returns generation_plan_invalid, repair ./tmp/canvas-plan.json from guidance.paramsExamples before retrying.
 # Optional diagnostics after generation_plan_invalid:
-# $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}'
+# $CLI_PREFIX canvas --command canvas.plan.get --params '{"requestId":"req_plan_get_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>"}' --output-format json
 # or re-read with canvas.capabilities.get to inspect generationPlanIssues before resubmitting canvas.plan.set.
-$CLI_PREFIX canvas --command canvas.document.patch --params-file ./tmp/canvas-patch.json
-$CLI_PREFIX canvas --command canvas.preview.render --params '{"requestId":"req_preview_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","prototypeId":"<prototype-id>"}'
-$CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}'
-$CLI_PREFIX canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}'
+$CLI_PREFIX canvas --command canvas.document.patch --params-file ./tmp/canvas-patch.json --output-format json
+$CLI_PREFIX canvas --command canvas.preview.render --params '{"requestId":"req_preview_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","prototypeId":"<prototype-id>"}' --output-format json
+$CLI_PREFIX canvas --command canvas.feedback.poll --params '{"requestId":"req_feedback_01","canvasSessionId":"<canvas-session-id>","documentId":"<document-id>","targetId":"<target-id>","afterCursor":null}' --output-format json
+$CLI_PREFIX canvas --command canvas.document.save --params '{"requestId":"req_save_01","canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","documentId":"<document-id>","repoPath":null}' --output-format json
 EOF
     ;;
   real-surface-validation)

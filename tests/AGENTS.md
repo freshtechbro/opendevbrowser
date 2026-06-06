@@ -1,4 +1,4 @@
-# tests/ — Agent Guidelines
+# tests/ - Agent Guidelines
 
 Testing conventions. Extends root `AGENTS.md`.
 
@@ -29,7 +29,7 @@ npm run test -- -t "test name"      # Single test by name
 
 ## Critical Rules
 
-- **Never weaken tests** to make them pass—fix the code
+- **Never weaken tests** to make them pass - fix the code
 - **Never delete tests** without understanding why they fail
 - **Add regression tests** for every bug fix
 - **Keep mocks hermetic** (no real Chrome/network)
@@ -46,7 +46,7 @@ Covers `src/**/*.ts` with explicit exclusions from `vitest.config.ts` (including
 ## Documentation Sync
 
 Update `docs/CLI.md` when CLI output or exit codes change.
-Update release docs/runbooks when release-gate script behavior changes (`docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, and the current version-scoped release evidence doc such as `docs/RELEASE_0.0.19_EVIDENCE.md`).
+Update release docs/runbooks when release-gate script behavior changes (`docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, and the current version-scoped release evidence doc such as `docs/RELEASE_0.0.34_EVIDENCE.md`).
 
 ## CLI Smoke Tests
 

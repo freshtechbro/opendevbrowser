@@ -65,11 +65,12 @@ The `render-video-brief.sh` helper adds:
 ## What the User Should Do
 
 1. Pick product URL or product name.
-2. Run collection workflow and confirm output pack path.
-3. Review generated manifest/copy/features for accuracy and check whether the pack is visual-ready or metadata-first.
-4. Run `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh` to generate production instructions and visual sourcing notes.
+2. Before daemon-backed `product-video run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`.
+3. Run collection workflow and confirm output pack path.
+4. Review generated manifest/copy/features for accuracy and check whether the pack is visual-ready or metadata-first.
+5. Run `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh` to generate production instructions and visual sourcing notes.
 	Canonical helper path: `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh`.
-5. If no visuals were captured, source or capture visuals before handing the brief to the editor/creator pipeline.
+6. If no visuals were captured, source or capture visuals before handing the brief to the editor/creator pipeline.
 
 ## Parallel Multitab Alignment
 
