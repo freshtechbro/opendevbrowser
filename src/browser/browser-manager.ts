@@ -32,6 +32,10 @@ import {
   resolveChallengeAutomationPolicy,
   type ChallengeAutomationMode
 } from "../challenges";
+import {
+  inspectPinterestPinMediaBuffer,
+  isPinterestPinMediaEvidenceContentType
+} from "../inspiredesign/pinterest-pin-media-evidence";
 import type {
   BlockerSignalV1,
   ChallengeOwnerSurface,
@@ -206,6 +210,19 @@ const PINTEREST_PIN_MEDIA_MAX_BYTES = 20_000_000;
 const PINTEREST_PIN_MEDIA_MAX_REDIRECTS = 3;
 const PINTEREST_PIN_MEDIA_MIN_EDGE_PX = 160;
 const PINTEREST_PIN_MEDIA_REJECTION_LIMIT = 12;
+const PINTEREST_PIN_IMAGE_MEDIA_HOST = "i.pinimg.com";
+const PINTEREST_PIN_VIDEO_MEDIA_HOST = "v.pinimg.com";
+const PINTEREST_PIN_VIDEO_MEDIA_HOST_PATTERN = /^v\d+(?:-[a-z]+)?\.pinimg\.com$/i;
+const PINTEREST_PIN_MEDIA_VIDEO_CONTENT_TYPE = "video/mp4";
+const PINTEREST_PIN_MEDIA_GENERIC_BINARY_CONTENT_TYPES = new Set([
+  "application/octet-stream",
+  "application/x-binary",
+  "binary/octet-stream"
+]);
+const MP4_FILE_TYPE_BOX_MIN_BYTES = 12;
+const MP4_FILE_TYPE_BOX_MARKER_START = 4;
+const MP4_FILE_TYPE_BOX_MARKER_END = 8;
+const MP4_FILE_TYPE_BOX_MARKER = "ftyp";
 const HTTP_REDIRECT_STATUS_MIN = 300;
 const HTTP_REDIRECT_STATUS_MAX_EXCLUSIVE = 400;
 const PINTEREST_PIN_MEDIA_NOFOLLOW_FLAG = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
@@ -243,6 +260,7 @@ type PinterestPinMediaDomExtraction = {
 
 type PinterestPinMediaSelection = {
   selected?: PinterestPinMediaDomCandidate;
+  acceptedCandidates: PinterestPinMediaDomCandidate[];
   rejectedCandidates: BrowserPinterestPinMediaRejectedCandidate[];
 };
 
@@ -276,9 +294,83 @@ function isFirstPartyPinterestMediaUrl(value: string | undefined): boolean {
   }
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "https:" && parsed.hostname === "i.pinimg.com";
+    const hostname = parsed.hostname.toLowerCase();
+    return parsed.protocol === "https:" && (
+      hostname === PINTEREST_PIN_IMAGE_MEDIA_HOST
+      || hostname === PINTEREST_PIN_VIDEO_MEDIA_HOST
+      || PINTEREST_PIN_VIDEO_MEDIA_HOST_PATTERN.test(hostname)
+    );
   } catch {
     return false;
+  }
+}
+
+function isFirstPartyPinterestVideoMediaUrl(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    const hostname = parsed.hostname.toLowerCase();
+    return parsed.protocol === "https:"
+      && parsed.pathname.toLowerCase().endsWith(".mp4")
+      && (
+        hostname === PINTEREST_PIN_VIDEO_MEDIA_HOST
+        || PINTEREST_PIN_VIDEO_MEDIA_HOST_PATTERN.test(hostname)
+      );
+  } catch {
+    return false;
+  }
+}
+
+function normalizePinterestResponseContentType(contentType: string | undefined): string | undefined {
+  const normalized = contentType?.split(";")[0]?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function isLikelyMp4Bytes(bytes: Buffer): boolean {
+  return bytes.length >= MP4_FILE_TYPE_BOX_MIN_BYTES
+    && bytes.subarray(MP4_FILE_TYPE_BOX_MARKER_START, MP4_FILE_TYPE_BOX_MARKER_END).toString("ascii") === MP4_FILE_TYPE_BOX_MARKER;
+}
+
+function isCompatiblePinterestVideoContentType(contentType: string | undefined): boolean {
+  return !contentType
+    || contentType === PINTEREST_PIN_MEDIA_VIDEO_CONTENT_TYPE
+    || PINTEREST_PIN_MEDIA_GENERIC_BINARY_CONTENT_TYPES.has(contentType);
+}
+
+function isCompatiblePinterestImageContentType(contentType: string | undefined): boolean {
+  return !contentType
+    || PINTEREST_PIN_MEDIA_GENERIC_BINARY_CONTENT_TYPES.has(contentType)
+    || (isPinterestPinMediaEvidenceContentType(contentType) && contentType.startsWith("image/"));
+}
+
+function assertFetchedPinterestCandidateMatchesKind(
+  candidate: PinterestPinMediaDomCandidate,
+  fetched: { bytes: Buffer; finalUrl: string; contentType?: string }
+): void {
+  const contentType = normalizePinterestResponseContentType(fetched.contentType);
+  if (candidate.kind === "video") {
+    if (!isFirstPartyPinterestVideoMediaUrl(fetched.finalUrl)) {
+      throw new Error("Pinterest pin media video fetch returned a non-MP4 final URL.");
+    }
+    if (!isCompatiblePinterestVideoContentType(contentType)) {
+      throw new Error("Pinterest pin media video fetch returned non-MP4 content.");
+    }
+    if (!isLikelyMp4Bytes(fetched.bytes)) {
+      throw new Error("Pinterest pin media video fetch returned bytes without an MP4 file type box.");
+    }
+    return;
+  }
+  if (!isCompatiblePinterestImageContentType(contentType)) {
+    throw new Error("Pinterest pin media image fetch returned non-image content.");
+  }
+  const byteInspection = inspectPinterestPinMediaBuffer(fetched.bytes);
+  if (!byteInspection.contentType?.startsWith("image/")) {
+    throw new Error("Pinterest pin media image fetch returned bytes without an image signature.");
+  }
+  if (contentType && !PINTEREST_PIN_MEDIA_GENERIC_BINARY_CONTENT_TYPES.has(contentType) && contentType !== byteInspection.contentType) {
+    throw new Error("Pinterest pin media image fetch returned bytes that do not match the response content type.");
   }
 }
 
@@ -361,7 +453,7 @@ function selectPinterestPinMediaCandidate(
     const scoreDelta = right.score - left.score;
     return scoreDelta !== 0 ? scoreDelta : pinterestCandidateArea(right) - pinterestCandidateArea(left);
   });
-  return { selected: accepted[0], rejectedCandidates: rejected };
+  return { selected: accepted[0], acceptedCandidates: accepted, rejectedCandidates: rejected };
 }
 
 function warningsForSelectedPinterestCandidate(candidate: PinterestPinMediaDomCandidate): string[] {
@@ -370,6 +462,11 @@ function warningsForSelectedPinterestCandidate(candidate: PinterestPinMediaDomCa
     warnings.add(signal === "shopping" ? "pin_media_noise:ad_shopping" : `pin_media_noise:${signal}`);
   }
   return Array.from(warnings);
+}
+
+function pinterestCandidateCaptureFailureReason(error: unknown): string {
+  if (error instanceof Error && error.name === "AbortError") return "selected_candidate_fetch_failed:aborted";
+  return "selected_candidate_fetch_failed";
 }
 
 function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction {
@@ -386,8 +483,11 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
     "[id^='closeup-image-container-'] img",
     "[class*='closeup-image-main-MainPinImage'] img",
     "[class*='StoryPinImageBlock-MainPinImage'] img",
+    "video",
     "video[poster]",
+    "[data-test-id*='pin'] video",
     "[data-test-id*='pin'] video[poster]",
+    "[data-test-id*='closeup'] video",
     "[data-test-id*='closeup'] video[poster]"
   ];
   const elements: Element[] = [];
@@ -492,6 +592,53 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
     const last = entries.at(-1);
     return last?.split(/\s+/)[0];
   };
+  const isFirstPartyPinterestVideoHost = (hostname: string): boolean => (
+    hostname === "v.pinimg.com" || /^v\d+(?:-[a-z]+)?\.pinimg\.com$/i.test(hostname)
+  );
+  const isFirstPartyPinterestVideoUrl = (value: string | undefined): boolean => {
+    if (!value) return false;
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "https:"
+        && isFirstPartyPinterestVideoHost(parsed.hostname.toLowerCase())
+        && parsed.pathname.toLowerCase().endsWith(".mp4");
+    } catch {
+      return false;
+    }
+  };
+  const derivePinterestMp4UrlFromHls = (value: string | undefined): string | undefined => {
+    if (!value) return undefined;
+    try {
+      const parsed = new URL(value);
+      const hostname = parsed.hostname.toLowerCase();
+      if (parsed.protocol !== "https:" || !isFirstPartyPinterestVideoHost(hostname)) {
+        return undefined;
+      }
+      const match = parsed.pathname.match(/^\/videos\/([^/]+)\/hls\/([a-f0-9]{2})\/([a-f0-9]{2})\/([a-f0-9]{2})\/([a-f0-9]+)(?:_\d+w)?\.m3u8$/i);
+      if (!match) return undefined;
+      const [, lane, first, second, third, digest] = match;
+      if (!lane || !first || !second || !third || !digest) return undefined;
+      parsed.pathname = `/videos/${lane}/720p/${first}/${second}/${third}/${digest}.mp4`;
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString();
+    } catch {
+      return undefined;
+    }
+  };
+  const readPinterestVideoUrl = (value: string | undefined): string | undefined => (
+    isFirstPartyPinterestVideoUrl(value) ? value : derivePinterestMp4UrlFromHls(value)
+  );
+  const readVideoSourceUrl = (video: HTMLVideoElement): string | undefined => {
+    const candidateUrls = [video.currentSrc, video.src];
+    for (const source of Array.from(video.querySelectorAll("source"))) {
+      const sourceUrl = source.src || source.getAttribute("src");
+      candidateUrls.push(sourceUrl ?? "");
+    }
+    const firstPartyDirectUrl = candidateUrls.map(readPinterestVideoUrl).find(Boolean);
+    if (firstPartyDirectUrl) return firstPartyDirectUrl;
+    return candidateUrls.find(Boolean);
+  };
   const candidates = elements.flatMap((element): PinterestPinMediaDomCandidate[] => {
     const tag = element.tagName.toLowerCase();
     const rect = readRect(element);
@@ -501,15 +648,13 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
       classText.includes("closeup-image-main-mainpinimage") ? "closeup-image-main-MainPinImage" : "",
       element.getAttribute("elementtiming") === "closeup-image-main-MainPinImage" ? "closeup-image-main-MainPinImage" : "",
       classText.includes("storypinimageblock-mainpinimage") ? "StoryPinImageBlock-MainPinImage" : "",
+      tag === "video" ? "video" : "",
       tag === "video" && element.hasAttribute("poster") ? "video[poster]" : ""
     ].filter(Boolean);
     if (tag === "video") {
       const video = element as HTMLVideoElement;
-      return [{
-        kind: "video_poster",
-        mediaUrl: video.poster,
-        poster: video.poster,
-        candidateSelector: "video[poster]",
+      const sharedVideoCandidate = {
+        poster: video.poster || undefined,
         candidateRole: element.getAttribute("role") ?? element.closest("[role]")?.getAttribute("role") ?? undefined,
         width: video.videoWidth || rect.width,
         height: video.videoHeight || rect.height,
@@ -517,11 +662,32 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
         visible: isVisible(element, rect),
         ancestry,
         linkedPinId: readPinId(element),
-        positiveSignals,
         noiseSignals: readNoiseSignals(combined),
-        insideCanonicalMainPinMediaContainer: isInsideCanonicalMainPinMediaContainer(element),
-        score: positiveSignals.length * 100 + rect.width * rect.height / 10000
-      }];
+        insideCanonicalMainPinMediaContainer: isInsideCanonicalMainPinMediaContainer(element)
+      };
+      const videoCandidates: PinterestPinMediaDomCandidate[] = [];
+      const videoSourceUrl = readVideoSourceUrl(video);
+      if (videoSourceUrl) {
+        videoCandidates.push({
+          ...sharedVideoCandidate,
+          kind: "video",
+          mediaUrl: videoSourceUrl,
+          candidateSelector: "video",
+          positiveSignals: [...positiveSignals, "video[source]"],
+          score: positiveSignals.length * 100 + 250 + rect.width * rect.height / 10000
+        });
+      }
+      if (video.poster) {
+        videoCandidates.push({
+          ...sharedVideoCandidate,
+          kind: "video_poster",
+          mediaUrl: video.poster,
+          candidateSelector: "video[poster]",
+          positiveSignals,
+          score: positiveSignals.length * 100 + rect.width * rect.height / 10000
+        });
+      }
+      return videoCandidates;
     }
     const image = tag === "img" ? element as HTMLImageElement : element.querySelector("img");
     if (!image) {
@@ -2569,20 +2735,36 @@ export class BrowserManager {
           rejectedCandidates: selection.rejectedCandidates
         };
       }
-      const fetched = await this.fetchPinterestPinMediaBytes(selection.selected.mediaUrl ?? "", options.timeoutMs);
-      await writePinterestPinMediaOutput(options.path, fetched.bytes);
-      return this.buildPinterestPinMediaResult(
-        selection.selected,
-        selection.rejectedCandidates,
-        {
-          contentType: fetched.contentType,
-          byteLength: fetched.bytes.byteLength,
-          path: options.path,
-          sourceUrl,
-          targetId,
-          mediaUrl: fetched.finalUrl
+      const rejectedCandidates = [...selection.rejectedCandidates];
+      let lastFailure: unknown;
+      for (const candidate of selection.acceptedCandidates) {
+        try {
+          const fetched = await this.fetchPinterestPinMediaBytes(candidate.mediaUrl ?? "", options.timeoutMs);
+          assertFetchedPinterestCandidateMatchesKind(candidate, fetched);
+          await writePinterestPinMediaOutput(options.path, fetched.bytes);
+          return this.buildPinterestPinMediaResult(
+            candidate,
+            rejectedCandidates,
+            {
+              contentType: fetched.contentType,
+              byteLength: fetched.bytes.byteLength,
+              path: options.path,
+              sourceUrl,
+              targetId,
+              mediaUrl: fetched.finalUrl
+            }
+          );
+        } catch (error) {
+          lastFailure = error;
+          if (rejectedCandidates.length < PINTEREST_PIN_MEDIA_REJECTION_LIMIT) {
+            rejectedCandidates.push(summarizeRejectedPinterestCandidate(
+              candidate,
+              [pinterestCandidateCaptureFailureReason(error)]
+            ));
+          }
         }
-      );
+      }
+      throw lastFailure instanceof Error ? lastFailure : new Error("Pinterest pin media capture failed.");
     });
   }
 
@@ -2649,6 +2831,9 @@ export class BrowserManager {
       mediaUrl: string;
     }
   ): BrowserPinterestPinMediaResult {
+    const contentType = candidate.kind === "video"
+      ? PINTEREST_PIN_MEDIA_VIDEO_CONTENT_TYPE
+      : normalizePinterestResponseContentType(metadata.contentType);
     return {
       status: "captured",
       sourceUrl: metadata.sourceUrl,
@@ -2657,7 +2842,7 @@ export class BrowserManager {
       path: metadata.path,
       mediaUrl: metadata.mediaUrl,
       bytes: metadata.byteLength,
-      ...(metadata.contentType ? { contentType: metadata.contentType } : {}),
+      ...(contentType ? { contentType } : {}),
       ...(candidate.candidateSelector ? { candidateSelector: candidate.candidateSelector } : {}),
       ...(candidate.candidateRole ? { candidateRole: candidate.candidateRole } : {}),
       ...(candidate.alt ? { alt: candidate.alt } : {}),

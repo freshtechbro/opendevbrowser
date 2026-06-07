@@ -9,6 +9,7 @@ import {
   buildPinterestPinMediaEvidenceArtifactPath,
   extensionForPinterestPinMediaContentType,
   hashPinterestPinMediaEvidenceBuffer,
+  hasPinterestPinMediaAuthorityBlockingWarning,
   hasPinterestPinMediaBlockingWarning,
   inspectPinterestPinMediaBuffer,
   isFirstPartyPinterestPinMediaUrl,
@@ -57,6 +58,55 @@ const makeGifBytes = (
   header.writeUInt16LE(height, 8);
   return Buffer.concat([header, Buffer.alloc(Math.max(0, minBytes - header.length), 0)]);
 };
+
+type Mp4FixtureDimensions = {
+  width: number;
+  height: number;
+};
+
+const DEFAULT_MP4_FIXTURE_DIMENSIONS: Mp4FixtureDimensions = { width: 720, height: 1280 };
+const MP4_FIXED_POINT_SCALE = 65_536;
+const MP4_TKHD_BOX_BYTES = 92;
+const MP4_TKHD_VERSION_0_WIDTH_OFFSET = 84;
+const MP4_TKHD_VERSION_0_HEIGHT_OFFSET = 88;
+
+const makeMp4Box = (type: string, payload: Buffer): Buffer => {
+  const box = Buffer.alloc(8 + payload.length, 0);
+  box.writeUInt32BE(box.length, 0);
+  box.write(type, 4, "ascii");
+  payload.copy(box, 8);
+  return box;
+};
+
+const makeMp4TkhdBox = (dimensions: Mp4FixtureDimensions): Buffer => {
+  const payload = Buffer.alloc(MP4_TKHD_BOX_BYTES, 0);
+  payload.write("tkhd", 4, "ascii");
+  payload.writeUInt32BE(dimensions.width * MP4_FIXED_POINT_SCALE, MP4_TKHD_VERSION_0_WIDTH_OFFSET);
+  payload.writeUInt32BE(dimensions.height * MP4_FIXED_POINT_SCALE, MP4_TKHD_VERSION_0_HEIGHT_OFFSET);
+  payload.writeUInt32BE(payload.length, 0);
+  return payload;
+};
+
+const makeMp4Bytes = (
+  dimensions: Mp4FixtureDimensions | null = DEFAULT_MP4_FIXTURE_DIMENSIONS,
+  minBytes = MIN_PIN_MEDIA_EVIDENCE_BYTES + 1
+): Buffer => {
+  const ftyp = Buffer.alloc(24, 0);
+  ftyp.writeUInt32BE(24, 0);
+  ftyp.write("ftyp", 4, "ascii");
+  ftyp.write("isom", 8, "ascii");
+  ftyp.write("iso2", 12, "ascii");
+  ftyp.write("avc1", 16, "ascii");
+  ftyp.write("mp41", 20, "ascii");
+  const mediaBoxes = dimensions ? [ftyp, makeMp4Box("moov", makeMp4Box("trak", makeMp4TkhdBox(dimensions)))] : [ftyp];
+  const media = Buffer.concat(mediaBoxes);
+  return Buffer.concat([media, Buffer.alloc(Math.max(0, minBytes - media.length), 0)]);
+};
+
+const makeMp4BytesWithoutDimensions = (): Buffer => makeMp4Bytes(
+  null,
+  MIN_PIN_MEDIA_EVIDENCE_BYTES + 1
+);
 
 const writeUInt24LE = (buffer: Buffer, value: number, offset: number): void => {
   buffer[offset] = value & 0xff;
@@ -118,6 +168,8 @@ const validBytes = makeJpegBytes(1200, 1600);
 const validSha256 = hashPinterestPinMediaEvidenceBuffer(validBytes);
 const referenceUrl = "https://www.pinterest.com/pin/1234567890/";
 const mediaUrl = "https://i.pinimg.com/originals/aa/bb/cc/reference.jpg";
+const videoMediaUrl = "https://v.pinimg.com/videos/mc/720p/reference.mp4";
+const edgeVideoMediaUrl = "https://v1-e.pinimg.com/videos/mc/720p/87/6b/16/reference.mp4";
 
 const makeRuntime = (
   overrides: Partial<InspiredesignPinterestPinMediaRuntimeMetadata> = {}
@@ -160,7 +212,10 @@ describe("Pinterest pin media evidence helpers", () => {
       .toBe("pin-media-evidence/Pin-123/main.webp");
     expect(buildPinterestPinMediaEvidenceArtifactPath("Pin 123", "video_poster", "jpg"))
       .toBe("pin-media-evidence/Pin-123/poster.jpg");
+    expect(buildPinterestPinMediaEvidenceArtifactPath("Pin 123", "video", "mp4"))
+      .toBe("pin-media-evidence/Pin-123/video.mp4");
     expect(extensionForPinterestPinMediaContentType("image/png")).toBe("png");
+    expect(extensionForPinterestPinMediaContentType("video/mp4")).toBe("mp4");
   });
 
   it("rejects hostile artifact paths without leaking temp paths", () => {
@@ -181,7 +236,11 @@ describe("Pinterest pin media evidence helpers", () => {
 
   it("validates first-party Pinterest media URLs", () => {
     expect(isFirstPartyPinterestPinMediaUrl(mediaUrl)).toBe(true);
+    expect(isFirstPartyPinterestPinMediaUrl(videoMediaUrl)).toBe(true);
+    expect(isFirstPartyPinterestPinMediaUrl(edgeVideoMediaUrl)).toBe(true);
     expect(isFirstPartyPinterestPinMediaUrl("http://i.pinimg.com/originals/a.jpg")).toBe(false);
+    expect(isFirstPartyPinterestPinMediaUrl("https://cdn.pinimg.com/videos/a.mp4")).toBe(false);
+    expect(isFirstPartyPinterestPinMediaUrl("https://v1evil.pinimg.com/videos/a.mp4")).toBe(false);
     expect(isFirstPartyPinterestPinMediaUrl("https://cdn.pinimg.com/originals/a.jpg")).toBe(false);
     expect(isFirstPartyPinterestPinMediaUrl("https://example.com/originals/a.jpg")).toBe(false);
 
@@ -241,9 +300,9 @@ describe("Pinterest pin media evidence helpers", () => {
     expect(tiny.authority).toBe("diagnostic");
     expect(tiny.rejectionReasons).toContain("dimensions_below_minimum");
 
-    const unsupportedContentType = persistValidEvidence({ contentType: "video/mp4" });
-    expect(unsupportedContentType.authority).toBe("diagnostic");
-    expect(unsupportedContentType.rejectionReasons).toContain("unsupported_declared_content_type");
+    const mismatchedContentType = persistValidEvidence({ contentType: "video/mp4" });
+    expect(mismatchedContentType.authority).toBe("diagnostic");
+    expect(mismatchedContentType.rejectionReasons).toContain("content_type_mismatch");
   });
 
   it("sniffs supported image byte signatures and malformed dimension branches", () => {
@@ -356,6 +415,38 @@ describe("Pinterest pin media evidence helpers", () => {
     expect(inspectPinterestPinMediaBuffer(ftypWithoutAvifBrand)).toMatchObject({
       reasons: expect.arrayContaining(["unsupported_byte_signature", "missing_dimensions"])
     });
+
+    expect(inspectPinterestPinMediaBuffer(makeMp4Bytes())).toMatchObject({
+      contentType: "video/mp4",
+      extension: "mp4",
+      width: 720,
+      height: 1280,
+      reasons: []
+    });
+	    expect(inspectPinterestPinMediaBuffer(makeMp4BytesWithoutDimensions())).toMatchObject({
+	      contentType: "video/mp4",
+	      extension: "mp4",
+	      reasons: expect.arrayContaining(["missing_dimensions"])
+	    });
+	    const mp4WithTopLevelTkhd = Buffer.concat([
+	      makeMp4BytesWithoutDimensions().subarray(0, 24),
+	      makeMp4TkhdBox(DEFAULT_MP4_FIXTURE_DIMENSIONS),
+	      Buffer.alloc(MIN_PIN_MEDIA_EVIDENCE_BYTES + 1)
+	    ]);
+	    expect(inspectPinterestPinMediaBuffer(mp4WithTopLevelTkhd)).toMatchObject({
+	      contentType: "video/mp4",
+	      extension: "mp4",
+	      reasons: expect.arrayContaining(["missing_dimensions"])
+	    });
+	    expect(inspectPinterestPinMediaBuffer(mp4WithTopLevelTkhd).width).toBeUndefined();
+	    const ftypWithoutMp4Brand = makeMp4Bytes();
+	    ftypWithoutMp4Brand.write("zzzz", 8, "ascii");
+    ftypWithoutMp4Brand.write("yyyy", 12, "ascii");
+    ftypWithoutMp4Brand.write("xxxx", 16, "ascii");
+    ftypWithoutMp4Brand.write("wwww", 20, "ascii");
+    expect(inspectPinterestPinMediaBuffer(ftypWithoutMp4Brand)).toMatchObject({
+      reasons: expect.arrayContaining(["unsupported_byte_signature", "missing_dimensions"])
+    });
   });
 
   it("demotes blocking warnings and explicit rejection reasons", () => {
@@ -368,6 +459,88 @@ describe("Pinterest pin media evidence helpers", () => {
     expect(rejected.rejectionReasons).toContain("related_pin_candidate");
   });
 
+	it("keeps trusted canonical interface chrome pin media authoritative", () => {
+	const persisted = persistValidEvidence({ warnings: ["interface_chrome_shell"] });
+	const indexEntry = buildInspiredesignPinterestPinMediaIndexEntry(persisted);
+
+	expect(persisted.authority).toBe("design_evidence");
+	expect(persisted.rejectionReasons).not.toContain("blocking_warning");
+	expect(persisted.rejectionReasons).not.toContain("missing_trusted_byte_inspection");
+	expect(indexEntry).toEqual(expect.objectContaining({
+		referenceId: "pin-1234567890",
+		authority: "design_evidence",
+		warnings: ["interface_chrome_shell"]
+	}));
+	});
+
+	it("does not delete caller-supplied blocking warning reasons for interface chrome media", () => {
+	const persisted = persistValidEvidence({
+		warnings: ["interface_chrome_shell"],
+		rejectionReasons: ["blocking_warning"]
+	});
+
+	expect(persisted.authority).toBe("diagnostic");
+	expect(persisted.rejectionReasons).toContain("blocking_warning");
+	expect(buildInspiredesignPinterestPinMediaIndexEntry(persisted)).toBeUndefined();
+	});
+
+	it("keeps interface chrome warning authority checks strict for malformed inputs", () => {
+	expect(hasPinterestPinMediaAuthorityBlockingWarning({
+		warnings: ["interface_chrome_shell"]
+	})).toBe(true);
+	expect(hasPinterestPinMediaAuthorityBlockingWarning({
+		warnings: ["interface_chrome_shell"],
+		firstPartyProvenance: []
+	})).toBe(true);
+	expect(hasPinterestPinMediaAuthorityBlockingWarning({
+		warnings: "interface_chrome_shell"
+	})).toBe(false);
+	const serializedVideoIndex = {
+		authority: "design_evidence",
+		kind: "video",
+		referenceId: "pin-1234567890",
+		url: referenceUrl,
+		sourceUrl: referenceUrl,
+		pinterestPageQuality: "pin_media",
+		mediaUrl: videoMediaUrl,
+		path: "pin-media-evidence/pin-1234567890/video.mp4",
+		sha256: "a".repeat(64),
+		bytes: MIN_PIN_MEDIA_EVIDENCE_BYTES + 1,
+		width: 720,
+		height: 1280,
+		contentType: "video/mp4",
+		warnings: ["interface_chrome_shell"],
+		firstPartyProvenance: {
+			canonicalReferenceUrl: referenceUrl,
+			canonicalSourceUrl: referenceUrl,
+			referenceUrlCanonical: true,
+			sourceUrlMatchesReference: true,
+			mediaUrlFirstParty: true
+		}
+	};
+	expect(hasPinterestPinMediaAuthorityBlockingWarning(serializedVideoIndex)).toBe(false);
+	expect(hasPinterestPinMediaAuthorityBlockingWarning({
+		...serializedVideoIndex,
+		path: "pin-media-evidence/pin-1234567890/main.mp4"
+	})).toBe(true);
+	});
+
+	it.each([
+	"search_shell",
+	"chrome_only",
+	"promoted",
+	"ad",
+	"pin_media_noise:ad",
+	"pin_media_noise:ad_shopping",
+	"captcha",
+	"challenge_overlay_blocked"
+	])("keeps %s warnings fatal for byte-backed pin media", (warning) => {
+	const persisted = persistValidEvidence({ warnings: [warning] });
+
+	expect(persisted.authority).toBe("diagnostic");
+	expect(persisted.rejectionReasons).toContain("blocking_warning");
+	expect(buildInspiredesignPinterestPinMediaIndexEntry(persisted)).toBeUndefined();
+	});
 
   it("sanitizes invalid URLs, timestamps, page quality, and unsafe optional metadata", () => {
     const invalidKind = "animated_gif" as InspiredesignPinterestPinMediaRuntimeMetadata["kind"];
@@ -593,6 +766,23 @@ describe("Pinterest pin media evidence helpers", () => {
     expect(normalized.rejectionReasons).toContain("missing_trusted_byte_inspection");
   });
 
+  it("keeps interface chrome shell blocking when strict kind or content type shape is invalid", () => {
+    const trusted = persistValidEvidence();
+    const warningInput = {
+      ...trusted,
+      warnings: ["interface_chrome_shell"]
+    };
+
+    expect(hasPinterestPinMediaAuthorityBlockingWarning({
+      ...warningInput,
+      kind: "animated"
+    })).toBe(true);
+    expect(hasPinterestPinMediaAuthorityBlockingWarning({
+      ...warningInput,
+      contentType: "text/plain"
+    })).toBe(true);
+  });
+
   it("guards forged design index entries with missing required fields", () => {
     const persisted = persistValidEvidence();
     const missingSource: InspiredesignPersistedPinterestPinMediaEvidence = {
@@ -676,6 +866,49 @@ describe("Pinterest pin media evidence helpers", () => {
     );
     expect(videoPoster.authority).toBe("design_evidence");
     expect(videoPoster.path).toBe("pin-media-evidence/pin-1234567890/poster.jpg");
+
+    const videoWithMainPath = persistValidEvidence(
+      { kind: "video", mediaUrl: videoMediaUrl, contentType: "video/mp4" },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "image", "mp4"),
+      makeMp4Bytes()
+    );
+    expect(videoWithMainPath.authority).toBe("diagnostic");
+    expect(videoWithMainPath.rejectionReasons).toContain("missing_artifact_path");
+
+    const video = persistValidEvidence(
+      { kind: "video", mediaUrl: videoMediaUrl, width: 720, height: 1280, contentType: "video/mp4" },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "mp4"),
+      makeMp4Bytes()
+    );
+    expect(video.authority).toBe("design_evidence");
+    expect(video.path).toBe("pin-media-evidence/pin-1234567890/video.mp4");
+    expect(video.contentType).toBe("video/mp4");
+
+    const videoWithoutByteDimensions = persistValidEvidence(
+      { kind: "video", mediaUrl: videoMediaUrl, width: 720, height: 1280, contentType: "video/mp4" },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "mp4"),
+      makeMp4BytesWithoutDimensions()
+    );
+    expect(videoWithoutByteDimensions.authority).toBe("diagnostic");
+    expect(videoWithoutByteDimensions.rejectionReasons).toContain("missing_dimensions");
+    expect(buildInspiredesignPinterestPinMediaIndexEntry(videoWithoutByteDimensions)).toBeUndefined();
+
+    const videoWithByteDerivedContentType = persistValidEvidence(
+      { kind: "video", mediaUrl: videoMediaUrl, width: 720, height: 1280, contentType: undefined },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "mp4"),
+      makeMp4Bytes()
+    );
+    expect(videoWithByteDerivedContentType.authority).toBe("design_evidence");
+    expect(videoWithByteDerivedContentType.contentType).toBe("video/mp4");
+
+    const edgeVideo = persistValidEvidence(
+      { kind: "video", mediaUrl: edgeVideoMediaUrl, width: 720, height: 1280, contentType: "video/mp4" },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "mp4"),
+      makeMp4Bytes()
+    );
+    expect(edgeVideo.authority).toBe("design_evidence");
+    expect(edgeVideo.mediaUrl).toBe(edgeVideoMediaUrl);
+    expect(edgeVideo.path).toBe("pin-media-evidence/pin-1234567890/video.mp4");
   });
 
   it("classifies artifact paths as diagnostic when they belong to another reference ID", () => {
@@ -841,6 +1074,34 @@ describe("Pinterest pin media evidence helpers", () => {
       buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "image", "jpeg")
     );
     expect(jpegExtension.authority).toBe("design_evidence");
+
+    const imageWithVideoBytes = persistValidEvidence(
+      { contentType: "video/mp4", mediaUrl: videoMediaUrl },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "image", "mp4"),
+      makeMp4Bytes()
+    );
+    expect(imageWithVideoBytes.authority).toBe("diagnostic");
+    expect(imageWithVideoBytes.rejectionReasons).toContain("kind_content_type_mismatch");
+
+    const videoWithImageBytes = persistValidEvidence(
+      { kind: "video", mediaUrl: videoMediaUrl, contentType: "video/mp4" },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "jpg"),
+      validBytes
+    );
+    expect(videoWithImageBytes.authority).toBe("diagnostic");
+    expect(videoWithImageBytes.contentType).toBe("image/jpeg");
+    expect(videoWithImageBytes.rejectionReasons).toEqual(expect.arrayContaining([
+      "content_type_mismatch",
+      "kind_content_type_mismatch"
+    ]));
+
+    const videoWithImageExtension = persistValidEvidence(
+      { kind: "video", mediaUrl: videoMediaUrl, contentType: "video/mp4" },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "jpg"),
+      makeMp4Bytes()
+    );
+    expect(videoWithImageExtension.authority).toBe("diagnostic");
+    expect(videoWithImageExtension.rejectionReasons).toContain("artifact_extension_mismatch");
   });
 
   it("generates index entries only for design evidence", () => {

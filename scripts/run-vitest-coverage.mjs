@@ -80,6 +80,25 @@ export function removeRedundantCoverageArgs(args = []) {
   return args.filter((arg) => arg !== "--coverage" && arg !== "--coverage=true");
 }
 
+export function appendNodeRequireOption(nodeOptions, requirePath) {
+  const requireOption = `--require=${requirePath}`;
+  if (typeof nodeOptions !== "string" || nodeOptions.trim() === "") {
+    return requireOption;
+  }
+  if (nodeOptions.split(/\s+/).includes(requireOption)) {
+    return nodeOptions;
+  }
+  return `${nodeOptions} ${requireOption}`;
+}
+
+export function buildVitestEnv(sourceEnv = process.env) {
+  return {
+    ...sourceEnv,
+    NODE_OPTIONS: appendNodeRequireOption(sourceEnv.NODE_OPTIONS, RM_GUARD),
+    ODB_COVERAGE_ROOT: COVERAGE_ROOT
+  };
+}
+
 export function buildVitestArgs(args = []) {
   const vitestArgs = removeRedundantCoverageArgs(args);
   if (!shouldRelaxCoverageThresholds(vitestArgs)) {
@@ -94,14 +113,11 @@ async function spawnVitest(args) {
     let combinedOutput = "";
     const child = spawn(
       process.execPath,
-      ["--require", RM_GUARD, VITEST_BIN, "run", "--coverage", ...vitestArgs],
+      [VITEST_BIN, "run", "--coverage", ...vitestArgs],
       {
         cwd: ROOT,
         stdio: ["inherit", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          ODB_COVERAGE_ROOT: COVERAGE_ROOT
-        }
+        env: buildVitestEnv()
       }
     );
 

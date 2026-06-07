@@ -90,13 +90,15 @@ const hasAcceptedUserSuppliedSiteRecipeReferenceUrl = (source: InspiredesignGuid
   });
 };
 
-const hasHardProviderFailureSignal = (source: InspiredesignGuidanceSource): boolean => (
-  (
-    !hasAcceptedUserSuppliedSiteRecipeReferenceUrl(source)
-    && (source.discovery.hardFailureReasonCodes ?? []).some((reasonCode) => HARD_PROVIDER_FAILURE_REASON_CODES.has(reasonCode))
-  )
-  || (source.primaryConstraint?.reasonCode ? HARD_PROVIDER_FAILURE_REASON_CODES.has(source.primaryConstraint.reasonCode) : false)
-);
+const hasHardProviderFailureSignal = (source: InspiredesignGuidanceSource): boolean => {
+  if (hasAcceptedUserSuppliedSiteRecipeReferenceUrl(source)) return false;
+  const discoveryHasHardFailure = (source.discovery.hardFailureReasonCodes ?? [])
+    .some((reasonCode) => HARD_PROVIDER_FAILURE_REASON_CODES.has(reasonCode));
+  const primaryConstraintHasHardFailure = source.primaryConstraint?.reasonCode
+    ? HARD_PROVIDER_FAILURE_REASON_CODES.has(source.primaryConstraint.reasonCode)
+    : false;
+  return discoveryHasHardFailure || primaryConstraintHasHardFailure;
+};
 
 const hasProviderUnavailableSignal = (source: InspiredesignGuidanceSource): boolean => {
   if (hasHardProviderFailureSignal(source)) return true;

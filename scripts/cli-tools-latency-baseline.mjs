@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -8,7 +9,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_OUT = "prompt-exports/optimize-cli-tools-runs.md";
 const BENCHMARK_BUNDLE_DIR = path.join(ROOT, ".tmp", "cli-tools-latency");
+const BENCHMARK_ENV_DIR = path.join(BENCHMARK_BUNDLE_DIR, "env");
+const BENCHMARK_CHILD_CONFIG_DIR = path.join(BENCHMARK_ENV_DIR, "opencode-config");
+const BENCHMARK_CHILD_CACHE_DIR = path.join(BENCHMARK_ENV_DIR, "opencode-cache");
 export const BENCHMARK_CLI_PATH = path.join(BENCHMARK_BUNDLE_DIR, "cli", "index.js");
+export const BENCHMARK_CHILD_COVERAGE_ENV_KEYS = ["NODE_V8_COVERAGE", "V8_COVERAGE", "ODB_COVERAGE_ROOT"];
+const COVERAGE_GUARD_NODE_OPTION_MARKER = "vitest-coverage-rm-guard.cjs";
 const DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "UTC",
   year: "numeric",
@@ -144,11 +150,59 @@ export const parseBenchmarkOptions = (args) => {
   };
 };
 
+const removeCoverageGuardNodeOptions = (nodeOptions) => {
+  if (typeof nodeOptions !== "string") {
+    return undefined;
+  }
+  const parts = nodeOptions.split(/\s+/).filter(Boolean);
+  const kept = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    const next = parts[index + 1];
+    if (part.includes(COVERAGE_GUARD_NODE_OPTION_MARKER)) {
+      continue;
+    }
+    if (part === "--require" && next?.includes(COVERAGE_GUARD_NODE_OPTION_MARKER)) {
+      index += 1;
+      continue;
+    }
+    kept.push(part);
+  }
+  return kept.length > 0 ? kept.join(" ") : undefined;
+};
+
+export const makeBenchmarkChildEnv = (sourceEnv = process.env) => {
+  const env = { ...sourceEnv };
+  for (const key of BENCHMARK_CHILD_COVERAGE_ENV_KEYS) {
+    delete env[key];
+  }
+  const nodeOptions = removeCoverageGuardNodeOptions(env.NODE_OPTIONS);
+  if (nodeOptions) {
+    env.NODE_OPTIONS = nodeOptions;
+  } else {
+    delete env.NODE_OPTIONS;
+  }
+  env.OPENCODE_CONFIG_DIR = BENCHMARK_CHILD_CONFIG_DIR;
+  env.OPENCODE_CACHE_DIR = BENCHMARK_CHILD_CACHE_DIR;
+  return env;
+};
+
+const ensureBenchmarkChildEnvDirs = (env) => {
+  if (env.OPENCODE_CONFIG_DIR) {
+    mkdirSync(env.OPENCODE_CONFIG_DIR, { recursive: true });
+  }
+  if (env.OPENCODE_CACHE_DIR) {
+    mkdirSync(env.OPENCODE_CACHE_DIR, { recursive: true });
+  }
+};
+
 const runCommand = (command, args, options = {}) => {
+  const env = options.env ?? makeBenchmarkChildEnv();
+  ensureBenchmarkChildEnvDirs(env);
   const result = spawnSync(command, args, {
     cwd: ROOT,
     stdio: options.stdio ?? "pipe",
-    env: options.env ?? process.env,
+    env,
     encoding: "utf8"
   });
   if (result.error) throw result.error;

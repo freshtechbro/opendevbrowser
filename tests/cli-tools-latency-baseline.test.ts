@@ -10,6 +10,7 @@ import {
   ensureBenchmarkBundles,
   insertBaselineRow,
   makeBaselineRow,
+  makeBenchmarkChildEnv,
   median,
   parseBenchmarkOptions,
   percentile,
@@ -24,15 +25,6 @@ import {
 } from "./support/cli-tools-latency-bench-fixtures";
 
 const createdDirs: string[] = [];
-const BENCHMARK_CHILD_COVERAGE_ENV_KEYS = ["NODE_V8_COVERAGE", "V8_COVERAGE"] as const;
-
-const makeBenchmarkChildEnv = (): NodeJS.ProcessEnv => {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of BENCHMARK_CHILD_COVERAGE_ENV_KEYS) {
-    delete env[key];
-  }
-  return env;
-};
 
 const makeBenchmarkSpawnOptions = (): { encoding: "utf8"; env: NodeJS.ProcessEnv } => ({
   encoding: "utf8",
@@ -163,13 +155,25 @@ describe("CLI tools latency baseline instrumentation", () => {
   it("keeps benchmark child processes out of Vitest coverage accounting", () => {
     const originalNodeCoverage = process.env.NODE_V8_COVERAGE;
     const originalV8Coverage = process.env.V8_COVERAGE;
+    const originalCoverageRoot = process.env.ODB_COVERAGE_ROOT;
+    const originalNodeOptions = process.env.NODE_OPTIONS;
+    const originalOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const originalOpencodeCacheDir = process.env.OPENCODE_CACHE_DIR;
     process.env.NODE_V8_COVERAGE = "/tmp/coverage-node";
     process.env.V8_COVERAGE = "/tmp/coverage-v8";
+    process.env.ODB_COVERAGE_ROOT = "/tmp/coverage-root";
+    process.env.NODE_OPTIONS = "--stack-trace-limit=20 --require=/tmp/vitest-coverage-rm-guard.cjs";
+    process.env.OPENCODE_CONFIG_DIR = "/tmp/shared-opencode-config";
+    process.env.OPENCODE_CACHE_DIR = "/tmp/shared-opencode-cache";
     try {
       const env = makeBenchmarkChildEnv();
 
       expect(env.NODE_V8_COVERAGE).toBeUndefined();
       expect(env.V8_COVERAGE).toBeUndefined();
+      expect(env.ODB_COVERAGE_ROOT).toBeUndefined();
+      expect(env.NODE_OPTIONS).toBe("--stack-trace-limit=20");
+      expect(env.OPENCODE_CONFIG_DIR).toContain(".tmp/cli-tools-latency/env/opencode-config");
+      expect(env.OPENCODE_CACHE_DIR).toContain(".tmp/cli-tools-latency/env/opencode-cache");
     } finally {
       if (originalNodeCoverage === undefined) {
         delete process.env.NODE_V8_COVERAGE;
@@ -180,6 +184,26 @@ describe("CLI tools latency baseline instrumentation", () => {
         delete process.env.V8_COVERAGE;
       } else {
         process.env.V8_COVERAGE = originalV8Coverage;
+      }
+      if (originalCoverageRoot === undefined) {
+        delete process.env.ODB_COVERAGE_ROOT;
+      } else {
+        process.env.ODB_COVERAGE_ROOT = originalCoverageRoot;
+      }
+      if (originalNodeOptions === undefined) {
+        delete process.env.NODE_OPTIONS;
+      } else {
+        process.env.NODE_OPTIONS = originalNodeOptions;
+      }
+      if (originalOpencodeConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = originalOpencodeConfigDir;
+      }
+      if (originalOpencodeCacheDir === undefined) {
+        delete process.env.OPENCODE_CACHE_DIR;
+      } else {
+        process.env.OPENCODE_CACHE_DIR = originalOpencodeCacheDir;
       }
     }
   });

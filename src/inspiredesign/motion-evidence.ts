@@ -94,8 +94,7 @@ const PINTEREST_PAGE_QUALITIES = new Set<PinterestSourcePageQuality>([
 export const sanitizeInspiredesignMotionReferenceId = (referenceId: string): string => {
   const sanitized = referenceId.trim().replace(SAFE_REFERENCE_ID_PATTERN, "-").replace(/^[.-]+|[.-]+$/g, "");
   if (!sanitized || DOT_ONLY_PATH_SEGMENT_PATTERN.test(sanitized)) return "reference";
-  const truncated = sanitized.slice(0, MAX_REFERENCE_ID_LENGTH);
-  return DOT_ONLY_PATH_SEGMENT_PATTERN.test(truncated) ? "reference" : truncated;
+  return sanitized.slice(0, MAX_REFERENCE_ID_LENGTH);
 };
 
 export const buildMotionEvidenceArtifactRoot = (referenceId: string): string => (
@@ -106,7 +105,7 @@ export const buildMotionEvidenceArtifactPath = (referenceId: string, relativePat
   const safeRoot = buildMotionEvidenceArtifactRoot(referenceId);
   const normalized = relativePath.replaceAll("\\", "/").trim();
   if (!MOTION_ARTIFACT_RELATIVE_PATH_PATTERN.test(normalized)) return `${safeRoot}/replay.json`;
-  return normalized ? `${safeRoot}/${normalized}` : `${safeRoot}/replay.json`;
+  return `${safeRoot}/${normalized}`;
 };
 
 const sanitizeText = (value: unknown): string | undefined => {

@@ -1,7 +1,9 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  appendNodeRequireOption,
   buildVitestArgs,
+  buildVitestEnv,
   isRetryableCoverageCleanupError,
   isRetryableCoverageShardError,
   removeRedundantCoverageArgs,
@@ -61,6 +63,20 @@ describe("run-vitest-coverage", () => {
       "97"
     ]);
     expect(buildVitestArgs(["--coverage"])).toEqual([]);
+  });
+
+  it("propagates the rm guard through Node options for Vitest worker cleanup", () => {
+    const requirePath = path.join("/tmp", "vitest-coverage-rm-guard.cjs");
+
+    expect(appendNodeRequireOption(undefined, requirePath)).toBe(`--require=${requirePath}`);
+    expect(appendNodeRequireOption("--stack-trace-limit=20", requirePath)).toBe(
+      `--stack-trace-limit=20 --require=${requirePath}`
+    );
+    expect(appendNodeRequireOption(`--require=${requirePath}`, requirePath)).toBe(`--require=${requirePath}`);
+    expect(buildVitestEnv({ NODE_OPTIONS: "--stack-trace-limit=20" })).toMatchObject({
+      ODB_COVERAGE_ROOT: expect.stringContaining("coverage"),
+      NODE_OPTIONS: expect.stringContaining("vitest-coverage-rm-guard.cjs")
+    });
   });
 
   it("retries coverage cleanup for transient non-empty directory errors", async () => {

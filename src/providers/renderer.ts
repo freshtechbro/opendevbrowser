@@ -29,6 +29,9 @@ import {
 } from "../inspiredesign/product-readiness";
 import { buildInspiredesignSuccessHandoff } from "./workflow-handoff";
 import type { NextStepGuidance } from "../guidance/types";
+import type {
+  InspiredesignMediaAnalysis
+} from "../inspiredesign/media-analysis";
 
 export type RenderMode = "compact" | "json" | "md" | "context" | "path";
 
@@ -47,12 +50,62 @@ type InspiredesignAuthorityFields = {
   diagnosticWarning?: string;
 };
 
+const PIN_MEDIA_INDEX_RUNTIME_ONLY_FIELDS = [
+  "status",
+  "tempPath",
+  "rejectionReasons"
+] as const;
+
 const redactRenderedPinMediaEvidence = (
   entries: readonly InspiredesignPinMediaEvidenceJson[]
 ): InspiredesignPinMediaEvidenceJson[] => entries.map((entry) => ({
   ...entry,
   pinMedia: redactDiagnosticPinterestPinMediaEvidence(entry.pinMedia)
 }));
+
+const hasPinMediaIndexRuntimeOnlyFields = (entry: InspiredesignPinterestPinMediaIndexEntry): boolean => {
+  const record = entry as Record<string, unknown>;
+  return PIN_MEDIA_INDEX_RUNTIME_ONLY_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(record, field));
+};
+
+const projectRenderedPinMediaIndexEntry = (
+  entry: InspiredesignPinterestPinMediaIndexEntry
+): InspiredesignPinterestPinMediaIndexEntry | undefined => {
+  if (hasPinMediaIndexRuntimeOnlyFields(entry)) return undefined;
+  if (!Array.isArray(entry.warnings)) return undefined;
+  if (!entry.firstPartyProvenance || typeof entry.firstPartyProvenance !== "object") return undefined;
+  if (Array.isArray(entry.firstPartyProvenance)) return undefined;
+  return {
+    referenceId: entry.referenceId,
+    url: entry.url,
+    sourceUrl: entry.sourceUrl,
+    mediaUrl: entry.mediaUrl,
+    pinterestPageQuality: entry.pinterestPageQuality,
+    path: entry.path,
+    sha256: entry.sha256,
+    bytes: entry.bytes,
+    width: entry.width,
+    height: entry.height,
+    contentType: entry.contentType,
+    kind: entry.kind,
+    authority: "design_evidence",
+    capturedAt: entry.capturedAt,
+    ...(entry.candidateSelector ? { candidateSelector: entry.candidateSelector } : {}),
+    ...(entry.candidateRole ? { candidateRole: entry.candidateRole } : {}),
+    ...(entry.candidateAlt ? { candidateAlt: entry.candidateAlt } : {}),
+    warnings: entry.warnings.filter((warning): warning is string => typeof warning === "string"),
+    firstPartyProvenance: { ...entry.firstPartyProvenance }
+  };
+};
+
+const projectRenderedPinMediaIndex = (
+  entries: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): InspiredesignPinterestPinMediaIndexEntry[] => (
+  entries.flatMap((entry) => {
+    const projected = projectRenderedPinMediaIndexEntry(entry);
+    return projected ? [projected] : [];
+  })
+);
 
 export interface ShoppingOffer {
   offer_id: string;
@@ -241,6 +294,15 @@ type InspiredesignRendererReadinessCountKey = typeof INSPIREDESIGN_RENDERER_READ
 
 type InspiredesignRendererReadinessCounts = Record<InspiredesignRendererReadinessCountKey, number>;
 
+const selectRendererAuthorityReferences = (args: {
+  referencePatternBoard: InspiredesignReferencePatternBoard | undefined;
+  rankedReferences: InspiredesignReferencePatternBoard["references"];
+}): InspiredesignReferencePatternBoard["references"] => (
+  args.referencePatternBoard && args.rankedReferences.length > 0
+    ? args.rankedReferences
+    : args.referencePatternBoard?.references ?? []
+);
+
 const readCompleteRendererReadinessCounts = (
 	meta: Record<string, unknown>
 ): InspiredesignRendererReadinessCounts | undefined => {
@@ -272,7 +334,7 @@ const computeRendererReadinessCounts = (args: {
 	motionEvidence: readonly InspiredesignMotionEvidenceJson[];
 	pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[];
 }): InspiredesignRendererReadinessCounts => {
-	const rankedReferences = args.referencePatternBoard?.references ?? args.rankedReferences;
+	const rankedReferences = selectRendererAuthorityReferences(args);
 	const authorityCounts = countInspiredesignArtifactBackedEvidenceAuthorities({
 		rankedReferences,
 		screenshots: args.screenshotIndex,
@@ -318,8 +380,9 @@ const evidenceAuthorityForProductReadyArtifacts = (args: {
   motionEvidence: readonly InspiredesignMotionEvidenceJson[];
   pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[];
 }): InspiredesignAuthorityFields["evidenceAuthority"] => {
+	const rankedReferences = selectRendererAuthorityReferences(args);
 	const authorityCounts = countInspiredesignArtifactBackedEvidenceAuthorities({
-		rankedReferences: args.referencePatternBoard?.references ?? args.rankedReferences,
+		rankedReferences,
 		screenshots: args.screenshotIndex,
 		motions: args.motionEvidence,
 		pinMedia: args.pinMediaIndex
@@ -333,24 +396,26 @@ const evidenceAuthorityForProductReadyArtifacts = (args: {
 const canContinueInspiredesignInCanvas = (
   guidance: NextStepGuidance | undefined,
   referencePatternBoard: InspiredesignReferencePatternBoard | undefined,
+  rankedReferences: InspiredesignReferencePatternBoard["references"],
   screenshotIndex: readonly InspiredesignScreenshotIndexEntry[],
   motionEvidence: readonly InspiredesignMotionEvidenceJson[],
   pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[],
   missingScreenshotCount?: number,
   pinterestEvidenceRequired = false
 ): boolean => {
-  if (guidance?.readiness !== "ready" || !referencePatternBoard) return false;
-  if (referencePatternBoard.references.length === 0) return false;
+  if (guidance?.readiness !== "ready") return false;
+  const references = selectRendererAuthorityReferences({ referencePatternBoard, rankedReferences });
+  if (references.length === 0) return false;
   if (hasActiveInspiredesignCanvasDoNotProceedBlocker(
     guidance.doNotProceedIf,
-    referencePatternBoard.references.length,
+    references.length,
     missingScreenshotCount
   )) return false;
-  const hasPinterestReference = referencePatternBoard.references.some((reference) => (
+  const hasPinterestReference = references.some((reference) => (
     isInspiredesignPinterestPinReferenceUrl(reference.url)
   ));
   if (pinterestEvidenceRequired && !hasPinterestReference) return false;
-  return referencePatternBoard.references.every((reference) => (
+  return references.every((reference) => (
     isInspiredesignAuthoritativeRankedReference(reference, {
       screenshots: screenshotIndex,
       motions: motionEvidence,
@@ -361,18 +426,20 @@ const canContinueInspiredesignInCanvas = (
 
 const missingRequiredVisualReferenceCount = (args: {
 	referencePatternBoard: InspiredesignReferencePatternBoard | undefined;
+	rankedReferences: InspiredesignReferencePatternBoard["references"];
 	screenshotIndex: readonly InspiredesignScreenshotIndexEntry[];
 	motionEvidence: readonly InspiredesignMotionEvidenceJson[];
 	pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[];
-}): number => (
-	args.referencePatternBoard?.references.filter((reference) => (
+}): number => {
+	const references = selectRendererAuthorityReferences(args);
+	return references.filter((reference) => (
 		!isInspiredesignAuthoritativeRankedReference(reference, {
 			screenshots: args.screenshotIndex,
 			motions: args.motionEvidence,
 			pinMedia: args.pinMediaIndex
 		})
-	)).length ?? 0
-);
+	)).length;
+};
 
 const scrubCanvasPlanReference = (value: string): string => (
   value.includes(INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)
@@ -457,6 +524,23 @@ const markInspiredesignJsonArtifactAuthority = <T extends Record<string, unknown
 ): T & InspiredesignAuthorityFields => ({
   ...artifact,
   ...fields
+});
+
+const buildDiagnosticInspiredesignAuthorityFields = (): InspiredesignAuthorityFields => ({
+	artifactAuthority: "diagnostic_only",
+	evidenceAuthority: "diagnostic_only",
+	productSuccess: false,
+	diagnosticWarning: DIAGNOSTIC_ARTIFACT_WARNING
+});
+
+const mediaAnalysisArtifactAuthorityFields = (): InspiredesignAuthorityFields => buildDiagnosticInspiredesignAuthorityFields();
+
+const markInspiredesignMediaAnalysisArtifactAuthority = (
+	mediaAnalysis: InspiredesignMediaAnalysis,
+	fields: InspiredesignAuthorityFields
+): InspiredesignMediaAnalysis & InspiredesignAuthorityFields => ({
+	...mediaAnalysis,
+	...fields
 });
 
 const blockPrototypeGuidanceInDesignMarkdown = (
@@ -1049,6 +1133,7 @@ export const renderInspiredesign = (args: {
   motionEvidence?: InspiredesignMotionEvidenceJson[];
   pinMediaEvidence?: InspiredesignPinMediaEvidenceJson[];
   pinMediaIndex?: InspiredesignPinterestPinMediaIndexEntry[];
+  mediaAnalysis?: InspiredesignMediaAnalysis;
   authorityScreenshotIndex?: InspiredesignScreenshotIndexEntry[];
   authorityMotionEvidence?: InspiredesignMotionEvidenceJson[];
   authorityPinMediaIndex?: InspiredesignPinterestPinMediaIndexEntry[];
@@ -1063,14 +1148,17 @@ export const renderInspiredesign = (args: {
 } => {
   const captureAttemptReport = inspiredesignCaptureAttemptReportFromMeta(args.meta);
   const captureAttemptSummary = inspiredesignCaptureAttemptSummaryFromMeta(args.meta);
-	  const visualEvidence = args.visualEvidence ?? [];
-	  const screenshotIndex = args.screenshotIndex ?? [];
-	  const motionEvidence = args.motionEvidence ?? [];
+  const visualEvidence = args.visualEvidence ?? [];
+  const screenshotIndex = args.screenshotIndex ?? [];
+  const motionEvidence = args.motionEvidence ?? [];
   const pinMediaEvidence = redactRenderedPinMediaEvidence(args.pinMediaEvidence ?? []);
-  const pinMediaIndex = args.pinMediaIndex ?? [];
-	  const authorityScreenshotIndex = args.authorityScreenshotIndex ?? screenshotIndex;
-	  const authorityMotionEvidence = args.authorityMotionEvidence ?? motionEvidence;
-	const authorityPinMediaIndex = args.authorityPinMediaIndex ?? pinMediaIndex;
+  const pinMediaIndex = projectRenderedPinMediaIndex(args.pinMediaIndex ?? []);
+  const mediaAnalysis = args.mediaAnalysis;
+  const authorityScreenshotIndex = args.authorityScreenshotIndex ?? screenshotIndex;
+  const authorityMotionEvidence = args.authorityMotionEvidence ?? motionEvidence;
+  const authorityPinMediaIndex = args.authorityPinMediaIndex
+    ? projectRenderedPinMediaIndex(args.authorityPinMediaIndex)
+    : [];
   const rankedReferences = args.rankedReferences ?? [];
   const rankedReferencesArtifact = args.referencePatternBoard
     ? {
@@ -1097,6 +1185,7 @@ export const renderInspiredesign = (args: {
   const requiredVisualEvidenceMissingCount = selection.visual_evidence === "required"
     ? missingRequiredVisualReferenceCount({
       referencePatternBoard: args.referencePatternBoard,
+      rankedReferences,
       screenshotIndex: authorityScreenshotIndex,
       motionEvidence: authorityMotionEvidence,
       pinMediaIndex: authorityPinMediaIndex
@@ -1105,6 +1194,7 @@ export const renderInspiredesign = (args: {
   const computedCanContinueInCanvas = canContinueInspiredesignInCanvas(
 	    args.nextStepGuidance,
 	    args.referencePatternBoard,
+	    rankedReferences,
 	    authorityScreenshotIndex,
 	    authorityMotionEvidence,
     authorityPinMediaIndex,
@@ -1120,30 +1210,41 @@ export const renderInspiredesign = (args: {
 		pinMediaIndex: authorityPinMediaIndex
 	});
   const hasWorkflowProductReadiness = typeof args.meta.productSuccess === "boolean";
-  const canContinueInCanvas = hasWorkflowProductReadiness
+	const baseCanContinueInCanvas = hasWorkflowProductReadiness
 	? args.meta.productSuccess === true && rendererReadinessCountsAreCoherent && computedCanContinueInCanvas
 	: rendererReadinessCountsAreCoherent && computedCanContinueInCanvas;
-  const artifactAuthority = canContinueInCanvas ? "product_ready" : "diagnostic_only";
-  const productSuccess = artifactAuthority === "product_ready";
-  const evidenceAuthority = evidenceAuthorityForProductReadyArtifacts({
-    productSuccess,
+	const baseArtifactAuthority = baseCanContinueInCanvas ? "product_ready" : "diagnostic_only";
+	const baseProductSuccess = baseArtifactAuthority === "product_ready";
+	const baseEvidenceAuthority = evidenceAuthorityForProductReadyArtifacts({
+	productSuccess: baseProductSuccess,
 	referencePatternBoard: args.referencePatternBoard,
     rankedReferences,
     screenshotIndex: authorityScreenshotIndex,
     motionEvidence: authorityMotionEvidence,
     pinMediaIndex: authorityPinMediaIndex
   });
-  const authorityFields: InspiredesignAuthorityFields = {
-    artifactAuthority,
-    evidenceAuthority,
-    productSuccess,
-    ...(!productSuccess ? { diagnosticWarning: DIAGNOSTIC_ARTIFACT_WARNING } : {})
+	const baseAuthorityFields: InspiredesignAuthorityFields = {
+	artifactAuthority: baseArtifactAuthority,
+	evidenceAuthority: baseEvidenceAuthority,
+	productSuccess: baseProductSuccess,
+	...(!baseProductSuccess ? { diagnosticWarning: DIAGNOSTIC_ARTIFACT_WARNING } : {})
   };
+	const authorityFields: InspiredesignAuthorityFields = baseAuthorityFields;
+	const canContinueInCanvas = authorityFields.productSuccess;
+	const { artifactAuthority, evidenceAuthority, productSuccess } = authorityFields;
+  const mediaAnalysisAuthorityFields = mediaAnalysisArtifactAuthorityFields();
+  const mediaAnalysisArtifact = mediaAnalysis
+    ? markInspiredesignMediaAnalysisArtifactAuthority(mediaAnalysis, mediaAnalysisAuthorityFields)
+    : undefined;
   const metaWithAuthority = {
     ...args.meta,
     ...authorityFields
   };
-  const evidenceArtifact = markInspiredesignJsonArtifactAuthority(args.evidence, authorityFields);
+  const renderedPinMediaIndex = authorityPinMediaIndex;
+  const evidenceArtifact = markInspiredesignJsonArtifactAuthority({
+    ...args.evidence,
+    pinMediaIndex: renderedPinMediaIndex
+  }, authorityFields);
   const rankedReferencesWithAuthority = markInspiredesignJsonArtifactAuthority(
     rankedReferencesArtifact,
     authorityFields
@@ -1217,7 +1318,8 @@ export const renderInspiredesign = (args: {
     screenshotIndex,
     motionEvidence,
     pinMediaEvidence,
-    pinMediaIndex,
+    pinMediaIndex: renderedPinMediaIndex,
+    ...(mediaAnalysisArtifact ? { mediaAnalysis: mediaAnalysisArtifact } : {}),
     rankedReferences,
     metaPromptMarkdown: metaPromptMarkdownWithAuthority,
     meta: metaWithAuthority
@@ -1246,8 +1348,9 @@ export const renderInspiredesign = (args: {
     { path: INSPIREDESIGN_HANDOFF_FILES.visualEvidence, content: { visualEvidence } },
     { path: INSPIREDESIGN_HANDOFF_FILES.screenshotIndex, content: { screenshots: screenshotIndex } },
     { path: INSPIREDESIGN_HANDOFF_FILES.motionEvidence, content: { motionEvidence } },
-    { path: "pin-media-evidence.json", content: { pinMediaEvidence } },
-    { path: "pin-media-index.json", content: { pinMediaIndex } },
+    { path: INSPIREDESIGN_HANDOFF_FILES.pinMediaEvidence, content: { pinMediaEvidence } },
+    { path: INSPIREDESIGN_HANDOFF_FILES.pinMediaIndex, content: { pinMediaIndex: renderedPinMediaIndex } },
+    ...(mediaAnalysisArtifact ? [{ path: INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis, content: mediaAnalysisArtifact }] : []),
     { path: INSPIREDESIGN_HANDOFF_FILES.rankedReferences, content: rankedReferencesWithAuthority },
     { path: INSPIREDESIGN_HANDOFF_FILES.metaPrompt, content: metaPromptMarkdownWithAuthority }
   ];
@@ -1299,7 +1402,8 @@ export const renderInspiredesign = (args: {
         screenshotIndex,
         motionEvidence,
         pinMediaEvidence,
-        pinMediaIndex,
+        pinMediaIndex: renderedPinMediaIndex,
+        ...(mediaAnalysisArtifact ? { mediaAnalysis: mediaAnalysisArtifact } : {}),
         rankedReferences,
         metaPromptMarkdown: metaPromptMarkdownWithAuthority,
         ...handoff,

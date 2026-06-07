@@ -17,7 +17,7 @@ import {
   validateProviderUrlSiteRecipeCompatibility
 } from "../../guidance/recipes/site-recipe-validation";
 import { resolveInspiredesignHarvestCaptureMode } from "../../inspiredesign/capture-mode";
-import { readExplicitInspiredesignProductReadinessFields } from "../../inspiredesign/product-readiness";
+import { resolveInspiredesignUserFacingProductReadinessFields } from "../../inspiredesign/product-readiness";
 import type { InspiredesignVisualEvidenceMode } from "../../inspiredesign/visual-evidence";
 import type { WorkflowBrowserMode } from "../../providers/types";
 import { resolveWorkflowOutputDirFlag } from "./workflow-output";
@@ -365,11 +365,11 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
     ? data as Record<string, unknown>
     : undefined;
   const productReadiness = responseRecord
-    ? readExplicitInspiredesignProductReadinessFields(responseRecord) ?? {}
-    : {};
+    ? resolveInspiredesignUserFacingProductReadinessFields(responseRecord)
+    : undefined;
   return {
     success: true,
-    ...productReadiness,
+    ...(productReadiness ? productReadiness : {}),
     message: buildInspiredesignCompletionMessage(data),
     data
   };

@@ -44,11 +44,14 @@ export function resolveInspiredesignCaptureMode(
 export function resolveInspiredesignHarvestCaptureMode(
   input: ResolveInspiredesignHarvestCaptureModeInput
 ): InspiredesignCaptureMode {
-  if (input.requested === "deep") return "deep";
   const hasUrls = hasInspiredesignUrls(input.urls);
-  const pinterestOnlyProviderDiscovery = hasOnlyPinterestProvider(input.providers) && !hasUrls;
-  if (input.harvest && (pinterestOnlyProviderDiscovery || hasOnlyPinterestUrls(input.urls))) {
-    return input.requested ?? "off";
+  const hasProviders = Array.isArray(input.providers) && input.providers.length > 0;
+  const pinterestOnlyProviders = hasOnlyPinterestProvider(input.providers);
+  const pinterestOnlyProviderDiscovery = pinterestOnlyProviders && !hasUrls;
+  const pinterestOnlyUrlRecovery = hasOnlyPinterestUrls(input.urls) && (!hasProviders || pinterestOnlyProviders);
+  if (input.harvest && (pinterestOnlyProviderDiscovery || pinterestOnlyUrlRecovery)) {
+    return "off";
   }
+  if (input.requested === "deep") return "deep";
   return resolveInspiredesignCaptureMode(input.requested, input.urls);
 }

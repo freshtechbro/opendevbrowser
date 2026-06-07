@@ -14,6 +14,7 @@ import {
   normalizeInspiredesignProviders
 } from "../src/inspiredesign/reference-discovery";
 import type { InspiredesignBriefFormat } from "../src/inspiredesign/brief-expansion";
+import type { InspiredesignMediaAnalysis } from "../src/inspiredesign/media-analysis";
 import {
   buildInspiredesignDesignVectors,
   buildInspiredesignReferencePatternBoard,
@@ -24,6 +25,7 @@ import {
   MIN_PIN_MEDIA_EVIDENCE_BYTES,
   persistInspiredesignPinterestPinMediaEvidence,
   type InspiredesignPersistedPinterestPinMediaEvidence,
+  type InspiredesignPinterestPinMediaIndexEntry,
   type InspiredesignPinterestPinMediaRuntimeMetadata
 } from "../src/inspiredesign/pinterest-pin-media-evidence";
 import type { NormalizedRecord, ProviderFailureEntry, ProviderSource } from "../src/providers/types";
@@ -68,6 +70,31 @@ const makePinterestPinMediaJpegBytes = (): Buffer => {
   return Buffer.concat([header, Buffer.alloc(MIN_PIN_MEDIA_EVIDENCE_BYTES + 1 - header.length, 0)]);
 };
 
+const makePinterestPinMediaMp4Bytes = (): Buffer => {
+  const ftyp = Buffer.alloc(24, 0);
+  ftyp.writeUInt32BE(24, 0);
+  ftyp.write("ftyp", 4, "ascii");
+  ftyp.write("isom", 8, "ascii");
+  ftyp.write("iso2", 12, "ascii");
+  ftyp.write("avc1", 16, "ascii");
+  ftyp.write("mp41", 20, "ascii");
+  const tkhd = Buffer.alloc(92, 0);
+  tkhd.writeUInt32BE(92, 0);
+  tkhd.write("tkhd", 4, "ascii");
+  tkhd.writeUInt32BE(720 * 65_536, 84);
+  tkhd.writeUInt32BE(1280 * 65_536, 88);
+  const trak = Buffer.alloc(100, 0);
+  trak.writeUInt32BE(100, 0);
+  trak.write("trak", 4, "ascii");
+  tkhd.copy(trak, 8);
+  const moov = Buffer.alloc(108, 0);
+  moov.writeUInt32BE(108, 0);
+  moov.write("moov", 4, "ascii");
+  trak.copy(moov, 8);
+  const media = Buffer.concat([ftyp, moov]);
+  return Buffer.concat([media, Buffer.alloc(MIN_PIN_MEDIA_EVIDENCE_BYTES + 1 - media.length, 0)]);
+};
+
 const makePinterestPinMediaEvidence = (
   overrides: Partial<InspiredesignPinterestPinMediaRuntimeMetadata & InspiredesignPersistedPinterestPinMediaEvidence> = {}
 ): InspiredesignPersistedPinterestPinMediaEvidence => {
@@ -88,13 +115,107 @@ const makePinterestPinMediaEvidence = (
     ...overrides
   };
   const shouldInspectBytes = metadata.status === "captured" && overrides.authority !== "diagnostic";
-  const basename = metadata.kind === "video_poster" ? "poster" : "main";
+  const isVideo = metadata.kind === "video";
+  const basename = isVideo ? "video" : metadata.kind === "video_poster" ? "poster" : "main";
+  const extension = isVideo ? "mp4" : "jpg";
+  const buffer = isVideo ? makePinterestPinMediaMp4Bytes() : makePinterestPinMediaJpegBytes();
   return persistInspiredesignPinterestPinMediaEvidence(
     metadata,
     shouldInspectBytes
-      ? { artifactPath: `pin-media-evidence/${metadata.referenceId}/${basename}.jpg`, buffer: makePinterestPinMediaJpegBytes() }
+      ? { artifactPath: `pin-media-evidence/${metadata.referenceId}/${basename}.${extension}`, buffer }
       : {}
   );
+};
+
+const makePinterestPinMediaIndexEntry = (
+  evidence: InspiredesignPersistedPinterestPinMediaEvidence
+): InspiredesignPinterestPinMediaIndexEntry => {
+  if (!evidence.path || !evidence.sha256 || !evidence.bytes || !evidence.width || !evidence.height || !evidence.contentType || !evidence.mediaUrl) {
+    throw new Error("Expected complete pin-media evidence for index fixture.");
+  }
+  return {
+    referenceId: evidence.referenceId,
+    url: evidence.url,
+    sourceUrl: evidence.sourceUrl ?? evidence.url,
+    mediaUrl: evidence.mediaUrl,
+    pinterestPageQuality: evidence.pinterestPageQuality ?? "pin_media",
+    path: evidence.path,
+    sha256: evidence.sha256,
+    bytes: evidence.bytes,
+    width: evidence.width,
+    height: evidence.height,
+    contentType: evidence.contentType,
+    kind: evidence.kind,
+    authority: "design_evidence",
+    capturedAt: evidence.capturedAt,
+    ...(evidence.candidateSelector ? { candidateSelector: evidence.candidateSelector } : {}),
+    ...(evidence.candidateRole ? { candidateRole: evidence.candidateRole } : {}),
+    ...(evidence.candidateAlt ? { candidateAlt: evidence.candidateAlt } : {}),
+    warnings: evidence.warnings,
+    firstPartyProvenance: evidence.firstPartyProvenance
+  };
+};
+
+const makeInspiredesignMediaAnalysis = (
+  overrides: Partial<InspiredesignMediaAnalysis["references"][number]> = {}
+): InspiredesignMediaAnalysis => {
+	const trustedPinMedia = makePinterestPinMediaEvidence();
+	return {
+  version: 1,
+  generatedAt: "2026-06-06T00:00:00.000Z",
+  nonGoals: ["Readable exact text extraction is not part of v1."],
+  references: [{
+    referenceId: "pin-ref",
+	mediaPath: trustedPinMedia.path ?? "pin-media-evidence/pin-ref/main.jpg",
+    sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+    mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+    kind: "image",
+	contentType: trustedPinMedia.contentType,
+	bytes: trustedPinMedia.bytes,
+	hash: trustedPinMedia.sha256,
+	dimensions: { width: trustedPinMedia.width ?? 1200, height: trustedPinMedia.height ?? 1600, aspectRatio: 0.75 },
+    authority: "design_evidence",
+    claimLevels: ["metadata_only", "pixel_stats", "palette_quantized", "layout_heuristic", "typography_structure", "text_region_layout"],
+    facts: {},
+    designGuidance: {
+      visualStrengths: [
+        "high contrast with 85 percent dark coverage and sparse edge density.",
+        "Quantized palette led by #080808, #141414, #8E8E8E.",
+        "Layout heuristic reads as left-weighted split hero.",
+        "OCR-free typography structure detected 5 role candidate regions."
+      ],
+      visualRisks: ["Readable exact text extraction was not performed, so exact copy strings are unavailable."],
+      layoutRecipe: "left-weighted split hero with lower portfolio grid.",
+      contentHierarchy: [
+        "nav_row_candidate from OCR-free text-region geometry",
+        "hero_headline_candidate from OCR-free text-region geometry",
+        "cta_cluster_candidate from OCR-free text-region geometry"
+      ],
+      componentFamilies: ["hero", "CTA cluster", "portfolio grid or card set"],
+      motionPosture: "Static source only, use still-image adaptation such as reveal, fade, or hover exposure shift.",
+      tokenNotes: [
+        "#080808 as background at 49 percent coverage",
+        "#8E8E8E as muted foreground at 5 percent coverage",
+        "high contrast posture, mean luminance 23.41."
+      ],
+      patternsToBorrow: [
+        "left-weighted split hero with lower portfolio grid.",
+        "dark-dominant cinematic canvas with sparse bright controls",
+        "OCR-free typography hierarchy using measured role candidates"
+      ],
+      patternsToReject: [
+        "generic route-default direction that ignores measured media facts",
+        "claiming exact headlines, nav labels, CTA copy, or font families from v1 media analysis"
+      ],
+      typographyPosture: "sparse, high-contrast, editorial, left-weighted; exact readable text unavailable",
+      imageryPosture: "dark-dominant, high contrast, sparse detail posture",
+      confidence: 0.86
+    },
+    confidence: 0.86,
+    limitations: ["Exact readable text extraction was not performed."],
+    ...overrides
+  }]
+	};
 };
 
 const makePinterestMotionEvidence = (overrides: Record<string, unknown> = {}) => ({
@@ -415,7 +536,11 @@ describe("inspiredesign reference discovery helpers", () => {
       ["marketplace", "https://elements.envato.com/example", "Sort by Filter by Template kits marketplace"],
       ["marketplace search shell", "https://www.etsy.com/search?q=studio", "Etsy search results for studio"],
       ["single template chrome", "https://elements.envato.com/example", "Envato template kits"],
-      ["profile chrome", "https://example.com/profile", "Your profile"]
+      ["profile chrome", "https://example.com/profile", "Your profile"],
+      ["Adobe chrome", "https://example.com/company", "Adobe, Inc."],
+      ["Dribbble chrome", "https://example.com/community", "Dribbble: the community for graphic design"],
+      ["Dribbble promotional chrome", "https://example.com/community", "Get 20% off Dribbble Pro. Dribbble: the community for graphic design"],
+      ["WordPress theme chrome", "https://example.com/themes", "Our free WordPress themes are downloaded every day. Get them now"]
     ])("rejects %s references as unusable creative evidence", (_label, url, content) => {
     expect(hasInspiredesignUsableReferenceEvidence({
         id: "ref",
@@ -438,9 +563,9 @@ describe("inspiredesign reference discovery helpers", () => {
     })).toBe(false);
   });
 
-	  it("ranks manifest-ready Pinterest pin media as still-image reference evidence", () => {
-	    const reference = {
-	      id: "pin-ref",
+		  it("ranks manifest-ready Pinterest pin media as still-image reference evidence", () => {
+    const reference = {
+		      id: "pin-ref",
       url: "https://www.pinterest.com/pin/1234567890/",
       title: "Editorial photography studio pin",
       excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
@@ -450,14 +575,17 @@ describe("inspiredesign reference discovery helpers", () => {
         pinMedia: makePinterestPinMediaEvidence()
       }
     };
+    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
     const board = buildInspiredesignReferencePatternBoard(
       "brief-pin-media",
       minimalBriefFormat,
       [reference],
-      "Premium digital photography studio landing page"
+      "Premium digital photography studio landing page",
+      undefined,
+      pinMediaIndex
     );
 
-    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
+    expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
     expect(board.references[0]).toEqual(expect.objectContaining({
       id: "pin-ref",
       evidenceAuthority: "pin_media_ready",
@@ -465,13 +593,464 @@ describe("inspiredesign reference discovery helpers", () => {
       selectionReason: expect.stringContaining("manifest-ready Pinterest pin media evidence")
     }));
     expect(board.references[0]?.capturedVia).not.toContain("motion_ready");
+	    expect(summarizeInspiredesignReferenceQuality(board)).toEqual(expect.objectContaining({
+	      rankedReferenceCount: 1,
+	      missingScreenshotCount: 0,
+	      allAttemptMissingScreenshotCount: 0,
+	      allAttemptMotionFailureCount: 0
+		    }));
+		  });
+
+  it("does not let duplicate reference ids corrupt ranked pin-media readiness counts", () => {
+    const readyUrl = "https://www.pinterest.com/pin/1234567890/";
+    const diagnosticUrl = "https://www.pinterest.com/pin/9999999999/";
+    const pinMedia = makePinterestPinMediaEvidence({
+      referenceId: "shared-pin-ref",
+      url: readyUrl,
+      sourceUrl: readyUrl
+    });
+    const pinMediaIndex = [makePinterestPinMediaIndexEntry(pinMedia)];
+    const board = buildInspiredesignReferencePatternBoard(
+      "brief-duplicate-pin-media",
+      minimalBriefFormat,
+      [
+        {
+          id: "shared-pin-ref",
+          url: readyUrl,
+          title: "Editorial photography studio pin",
+          excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
+          fetchStatus: "captured" as const,
+          captureStatus: "captured" as const,
+          capture: { pinMedia }
+        },
+        {
+          id: "shared-pin-ref",
+          url: diagnosticUrl,
+          title: "Pinterest shell sibling",
+          excerpt: "Interface shell without saved design evidence.",
+          fetchStatus: "captured" as const,
+          captureStatus: "off" as const
+        }
+      ],
+      "Premium digital photography studio landing page",
+      undefined,
+      pinMediaIndex
+    );
+
+    expect(board.references).toHaveLength(1);
+    expect(board.references[0]).toEqual(expect.objectContaining({
+      url: readyUrl,
+      evidenceAuthority: "pin_media_ready",
+      mediaArtifactPath: "pin-media-evidence/shared-pin-ref/main.jpg"
+    }));
     expect(summarizeInspiredesignReferenceQuality(board)).toEqual(expect.objectContaining({
       rankedReferenceCount: 1,
       missingScreenshotCount: 0,
-      allAttemptMissingScreenshotCount: 0,
-      allAttemptMotionFailureCount: 0
+      allAttemptMissingScreenshotCount: 1,
+      allAttemptVisualFailureCount: 1
+    }));
+  });
+
+		  it("rejects persisted Pinterest pin media when the manifest index is missing", () => {
+		    const reference = {
+	      id: "pin-ref",
+	      url: "https://www.pinterest.com/pin/1234567890/",
+	      title: "Editorial photography studio pin",
+	      excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
+	      fetchStatus: "captured" as const,
+	      captureStatus: "captured" as const,
+	      capture: {
+	        pinMedia: makePinterestPinMediaEvidence()
+	      }
+	    };
+	    const board = buildInspiredesignReferencePatternBoard(
+	      "brief-pin-media-missing-index",
+	      minimalBriefFormat,
+	      [reference],
+	      "Premium digital photography studio landing page"
+	    );
+
+	    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(false);
+	    expect(board.references).toEqual([]);
+	    expect(summarizeInspiredesignReferenceQuality(board)).toEqual(expect.objectContaining({
+	      rankedReferenceCount: 0,
+	      allAttemptMissingScreenshotCount: 1,
+	      allAttemptVisualFailureCount: 1
 	    }));
 	  });
+
+  it("uses trusted media-analysis facts for ranked references and design vectors", () => {
+    const reference = {
+      id: "pin-ref",
+      url: "https://www.pinterest.com/pin/1234567890/",
+      title: "Editorial photography studio pin",
+      excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
+      fetchStatus: "captured" as const,
+      captureStatus: "captured" as const,
+      capture: {
+        pinMedia: makePinterestPinMediaEvidence()
+      }
+    };
+    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
+    const board = buildInspiredesignReferencePatternBoard(
+      "brief-pin-media-analysis",
+      minimalBriefFormat,
+      [reference],
+      "Premium digital photography studio landing page",
+      makeInspiredesignMediaAnalysis(),
+      pinMediaIndex
+    );
+    const vectors = buildInspiredesignDesignVectors(minimalBriefFormat, board);
+    const rankedReferenceText = JSON.stringify(board.references[0]);
+    const vectorText = JSON.stringify(vectors);
+
+    expect(board.references[0]).toEqual(expect.objectContaining({
+      evidenceAuthority: "pin_media_ready",
+      mediaAnalysisBacked: true,
+      mediaAnalysisSource: expect.objectContaining({
+        referenceId: "pin-ref",
+        mediaPath: "pin-media-evidence/pin-ref/main.jpg",
+        hash: reference.capture.pinMedia.sha256,
+        kind: "image",
+        contentType: "image/jpeg"
+      }),
+      layoutRecipe: expect.stringContaining("left-weighted split hero"),
+      visualStrengths: expect.arrayContaining([
+        expect.stringContaining("#080808"),
+        expect.stringContaining("OCR-free typography")
+      ]),
+      contentHierarchy: expect.arrayContaining([expect.stringContaining("hero_headline_candidate")]),
+      componentFamilies: expect.arrayContaining(["hero", "CTA cluster"]),
+      motionPosture: expect.arrayContaining([expect.stringContaining("Static source only")]),
+      tokenNotes: expect.arrayContaining([expect.stringContaining("#080808")]),
+      patternsToReject: expect.arrayContaining([expect.stringContaining("claiming exact headlines")])
+    }));
+    expect(board.references[0]?.visualStrengths.join(" ")).not.toContain("Manifest-ready Pinterest pin media artifact");
+    expect(vectors.directionLabel).toContain("left-weighted split hero");
+    expect(vectors.premiumPosture).toEqual(expect.arrayContaining([expect.stringContaining("#080808")]));
+    expect(vectors.typographyPosture).toEqual(expect.arrayContaining([expect.stringContaining("OCR-free")]));
+    expect(vectors.imageryPosture).toEqual(expect.arrayContaining([expect.stringContaining("dark-dominant")]));
+    expect(vectors.motionPosture).toEqual(expect.arrayContaining([expect.stringContaining("Static source only")]));
+    expect(rankedReferenceText).not.toContain("Browse my latest work");
+    expect(rankedReferenceText).not.toContain("Home");
+    expect(vectorText).not.toContain("Browse my latest work");
+    expect(vectorText).not.toContain("Home");
+  });
+
+	it("selects the media-analysis entry matching the trusted pin-media path", () => {
+	const reference = {
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		title: "Editorial photography studio pin",
+		excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
+		fetchStatus: "captured" as const,
+		captureStatus: "captured" as const,
+		capture: {
+		pinMedia: makePinterestPinMediaEvidence()
+		}
+	};
+	const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
+	const mediaAnalysis = makeInspiredesignMediaAnalysis();
+	const matchingReference = mediaAnalysis.references.at(0);
+	expect(matchingReference).toBeDefined();
+	if (!matchingReference) return;
+	const mismatchedGuidance = {
+		...matchingReference.designGuidance,
+		visualStrengths: ["Mismatched media analysis should not be used."],
+		layoutRecipe: "mismatched layout recipe",
+		tokenNotes: ["#FF00FF should not appear"]
+	};
+	const mismatchedReferences = [
+		{ ...matchingReference, mediaPath: "pin-media-evidence/pin-ref/wrong.jpg", designGuidance: mismatchedGuidance },
+		{ ...matchingReference, hash: "b".repeat(64), designGuidance: mismatchedGuidance },
+		{ ...matchingReference, kind: "video_poster" as const, designGuidance: mismatchedGuidance },
+		{ ...matchingReference, contentType: "image/webp", designGuidance: mismatchedGuidance },
+		{ ...matchingReference, bytes: (matchingReference.bytes ?? 0) + 1, designGuidance: mismatchedGuidance },
+		{ ...matchingReference, dimensions: { width: 1, height: 1, aspectRatio: 1 }, designGuidance: mismatchedGuidance },
+		{ ...matchingReference, sourceUrl: "https://www.pinterest.com/pin/9999999999/", designGuidance: mismatchedGuidance },
+		{ ...matchingReference, mediaUrl: "https://i.pinimg.com/originals/other.jpg", designGuidance: mismatchedGuidance }
+	];
+	const board = buildInspiredesignReferencePatternBoard(
+		"brief-pin-media-analysis-duplicate-paths",
+		minimalBriefFormat,
+		[reference],
+		"Premium digital photography studio landing page",
+		{ ...mediaAnalysis, references: [...mismatchedReferences, matchingReference] },
+		pinMediaIndex
+	);
+	const boardText = JSON.stringify(board.references[0]);
+
+	expect(board.references[0]).toEqual(expect.objectContaining({
+		layoutRecipe: expect.stringContaining("left-weighted split hero"),
+		tokenNotes: expect.arrayContaining([expect.stringContaining("#080808")])
+	}));
+	expect(boardText).not.toContain("#FF00FF");
+	expect(boardText).not.toContain("mismatched layout recipe");
+	});
+
+	it("keeps duplicate reference IDs separated by canonical source URL for media-analysis trust", () => {
+	const firstReference = {
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		title: "First editorial photography studio pin",
+		excerpt: "First full-bleed portrait image with premium studio lighting.",
+		fetchStatus: "captured" as const,
+		captureStatus: "captured" as const,
+		capture: { pinMedia: makePinterestPinMediaEvidence() }
+	};
+	const secondReference = {
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/9999999999/",
+		title: "Second editorial photography studio pin",
+		excerpt: "Second full-bleed portrait image with premium studio lighting.",
+		fetchStatus: "captured" as const,
+		captureStatus: "captured" as const,
+		capture: {
+		pinMedia: makePinterestPinMediaEvidence({
+			url: "https://www.pinterest.com/pin/9999999999/",
+			sourceUrl: "https://www.pinterest.com/pin/9999999999/",
+			firstPartyProvenance: {
+			canonicalReferenceUrl: "https://www.pinterest.com/pin/9999999999/",
+			canonicalSourceUrl: "https://www.pinterest.com/pin/9999999999/",
+			referenceUrlCanonical: true,
+			sourceUrlMatchesReference: true,
+			mediaUrlFirstParty: true
+			}
+		})
+		}
+	};
+	const pinMediaIndex = [
+		makePinterestPinMediaIndexEntry(firstReference.capture.pinMedia),
+		makePinterestPinMediaIndexEntry(secondReference.capture.pinMedia)
+	];
+	const board = buildInspiredesignReferencePatternBoard(
+		"brief-pin-media-analysis-duplicate-ids",
+		minimalBriefFormat,
+		[firstReference, secondReference],
+		"Premium digital photography studio landing page",
+		makeInspiredesignMediaAnalysis({ sourceUrl: "https://www.pinterest.com/pin/9999999999/" }),
+		pinMediaIndex
+	);
+	const firstEntry = board.references.find((reference) => reference.url === firstReference.url);
+	const secondEntry = board.references.find((reference) => reference.url === secondReference.url);
+
+	expect(firstEntry?.mediaAnalysisBacked).toBeUndefined();
+	expect(firstEntry?.visualStrengths.join(" ")).toContain("Manifest-ready Pinterest pin media artifact");
+	expect(secondEntry).toEqual(expect.objectContaining({ mediaAnalysisBacked: true }));
+	expect(secondEntry?.layoutRecipe).toContain("left-weighted split hero");
+	});
+
+  it("ignores diagnostic media-analysis entries for trusted pin-media references", () => {
+    const reference = {
+      id: "pin-ref",
+      url: "https://www.pinterest.com/pin/1234567890/",
+      title: "Editorial photography studio pin",
+      excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
+      fetchStatus: "captured" as const,
+      captureStatus: "captured" as const,
+      capture: {
+        pinMedia: makePinterestPinMediaEvidence()
+      }
+    };
+    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
+    const board = buildInspiredesignReferencePatternBoard(
+      "brief-pin-media-analysis-diagnostic",
+      minimalBriefFormat,
+      [reference],
+      "Premium digital photography studio landing page",
+      makeInspiredesignMediaAnalysis({ authority: "diagnostic" }),
+      pinMediaIndex
+    );
+
+    expect(board.references[0]).toEqual(expect.objectContaining({
+      evidenceAuthority: "pin_media_ready",
+      visualStrengths: expect.arrayContaining([
+        "Manifest-ready Pinterest pin media artifact is available for still-image direction."
+      ])
+    }));
+    expect(JSON.stringify(board.references[0])).not.toContain("#080808");
+    expect(board.references[0]?.layoutRecipe).not.toContain("left-weighted split hero");
+  });
+
+  it("keeps metadata-only media-analysis out of media-backed ranked guidance", () => {
+    const reference = {
+      id: "pin-ref",
+      url: "https://www.pinterest.com/pin/1234567890/",
+      title: "Editorial photography studio pin",
+      excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
+      fetchStatus: "captured" as const,
+      captureStatus: "captured" as const,
+      capture: {
+        pinMedia: makePinterestPinMediaEvidence()
+      }
+    };
+    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
+    const mediaAnalysis = makeInspiredesignMediaAnalysis({
+      claimLevels: ["metadata_only"],
+      facts: {},
+      designGuidance: {
+        ...makeInspiredesignMediaAnalysis().references[0]!.designGuidance,
+        layoutRecipe: "metadata-only layout should not be used",
+        tokenNotes: ["#FF00FF metadata-only token should not be used"],
+        patternsToBorrow: ["metadata-only pattern should not be used"]
+      }
+    });
+
+    const board = buildInspiredesignReferencePatternBoard(
+      "brief-pin-media-analysis-metadata-only",
+      minimalBriefFormat,
+      [reference],
+      "Premium digital photography studio landing page",
+      mediaAnalysis,
+      pinMediaIndex
+    );
+    const entryText = JSON.stringify(board.references[0]);
+
+    expect(board.references[0]).toEqual(expect.objectContaining({
+      evidenceAuthority: "pin_media_ready",
+      visualStrengths: expect.arrayContaining([
+        "Media analysis confirmed persisted image metadata only; inspect saved pin media before making palette, layout, typography, or motion claims."
+      ])
+    }));
+    expect(board.references[0]?.mediaAnalysisBacked).toBeUndefined();
+    expect(entryText).not.toContain("metadata-only layout should not be used");
+    expect(entryText).not.toContain("#FF00FF");
+    expect(entryText).not.toContain("metadata-only pattern should not be used");
+  });
+
+  it("rejects pin-media readiness when individual authority fields are malformed", () => {
+    const validPinMedia = makePinterestPinMediaEvidence();
+    const validIndex = makePinterestPinMediaIndexEntry(validPinMedia);
+    const makeReference = (pinMedia: InspiredesignPersistedPinterestPinMediaEvidence, url = "https://www.pinterest.com/pin/1234567890/") => ({
+      id: "pin-ref",
+      url,
+      title: "Editorial photography studio pin",
+      excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
+      fetchStatus: "captured" as const,
+      captureStatus: "captured" as const,
+      capture: { pinMedia }
+    });
+    const withPinMedia = (
+      overrides: Partial<InspiredesignPersistedPinterestPinMediaEvidence>
+    ): InspiredesignPersistedPinterestPinMediaEvidence => ({
+      ...validPinMedia,
+      ...overrides
+    });
+    const withIndex = (
+      overrides: Partial<InspiredesignPinterestPinMediaIndexEntry>
+    ): InspiredesignPinterestPinMediaIndexEntry => ({
+      ...validIndex,
+      ...overrides
+    });
+    const malformedCases: Array<{
+      label: string;
+      pinMedia: InspiredesignPersistedPinterestPinMediaEvidence;
+      pinMediaIndex?: InspiredesignPinterestPinMediaIndexEntry[];
+      url?: string;
+    }> = [
+      {
+        label: "non-pin URL",
+        pinMedia: validPinMedia,
+        pinMediaIndex: [validIndex],
+        url: "https://www.pinterest.com/search/pins/?q=studio"
+      },
+      {
+        label: "missing matching index",
+        pinMedia: validPinMedia,
+        pinMediaIndex: undefined
+      },
+      {
+        label: "remote media URL",
+        pinMedia: withPinMedia({ mediaUrl: "https://example.com/not-first-party.jpg" }),
+        pinMediaIndex: [withIndex({ mediaUrl: "https://example.com/not-first-party.jpg" })]
+      },
+      {
+        label: "video path mismatch",
+        pinMedia: withPinMedia({
+          kind: "video",
+          contentType: "video/mp4",
+          mediaUrl: "https://v.pinimg.com/videos/mc/720p/pin.mp4",
+          path: "pin-media-evidence/pin-ref/main.jpg"
+        }),
+        pinMediaIndex: [withIndex({
+          kind: "video",
+          contentType: "video/mp4",
+          mediaUrl: "https://v.pinimg.com/videos/mc/720p/pin.mp4",
+          path: "pin-media-evidence/pin-ref/main.jpg"
+        })]
+      },
+      {
+        label: "invalid hash",
+        pinMedia: withPinMedia({ sha256: "not-a-sha" }),
+        pinMediaIndex: [withIndex({ sha256: "not-a-sha" })]
+      },
+      {
+        label: "too few bytes",
+        pinMedia: withPinMedia({ bytes: MIN_PIN_MEDIA_EVIDENCE_BYTES - 1 }),
+        pinMediaIndex: [withIndex({ bytes: MIN_PIN_MEDIA_EVIDENCE_BYTES - 1 })]
+      },
+      {
+        label: "too narrow",
+        pinMedia: withPinMedia({ width: 1 }),
+        pinMediaIndex: [withIndex({ width: 1 })]
+      },
+      {
+        label: "too short",
+        pinMedia: withPinMedia({ height: 1 }),
+        pinMediaIndex: [withIndex({ height: 1 })]
+      },
+      {
+        label: "unsupported content type",
+        pinMedia: withPinMedia({ contentType: "image/svg+xml" }),
+        pinMediaIndex: [withIndex({ contentType: "image/svg+xml" })]
+      },
+      {
+        label: "kind content-type mismatch",
+        pinMedia: withPinMedia({ kind: "video", contentType: "image/jpeg", path: "pin-media-evidence/pin-ref/video.mp4" }),
+        pinMediaIndex: [withIndex({ kind: "video", contentType: "image/jpeg", path: "pin-media-evidence/pin-ref/video.mp4" })]
+      },
+      {
+        label: "failure recorded",
+        pinMedia: withPinMedia({ failure: "pin media capture failed" }),
+        pinMediaIndex: [withIndex({})]
+      },
+      {
+        label: "rejection reasons recorded",
+        pinMedia: withPinMedia({ rejectionReasons: ["missing_trusted_byte_inspection"] }),
+        pinMediaIndex: [withIndex({})]
+      },
+      {
+        label: "blocking warning",
+        pinMedia: withPinMedia({ warnings: ["login challenge blocked media extraction"] }),
+        pinMediaIndex: [withIndex({ warnings: ["login challenge blocked media extraction"] })]
+      },
+      {
+        label: "broken provenance",
+        pinMedia: withPinMedia({
+          firstPartyProvenance: {
+            ...validPinMedia.firstPartyProvenance,
+            referenceUrlCanonical: false
+          }
+        }),
+        pinMediaIndex: [withIndex({})]
+      }
+    ];
+
+    for (const { label, pinMedia, pinMediaIndex, url } of malformedCases) {
+      const reference = makeReference(pinMedia, url);
+      const board = buildInspiredesignReferencePatternBoard(
+        `brief-pin-media-malformed-${label}`,
+        minimalBriefFormat,
+        [reference],
+        "Premium digital photography studio landing page",
+        undefined,
+        pinMediaIndex
+      );
+
+      expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex), label).toBe(false);
+      expect(board.references, label).toEqual([]);
+    }
+  });
 
 	  it("keeps first-party pin-media poster proof authoritative through Pinterest login state", () => {
 	    const reference = {
@@ -485,14 +1064,17 @@ describe("inspiredesign reference discovery helpers", () => {
 	        pinMedia: makePinterestPinMediaEvidence({ kind: "video_poster" })
 	      }
 	    };
+	    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
 	    const board = buildInspiredesignReferencePatternBoard(
 	      "brief-pin-media-poster",
 	      minimalBriefFormat,
 	      [reference],
-	      "Premium digital photography studio landing page"
+	      "Premium digital photography studio landing page",
+	      undefined,
+	      pinMediaIndex
 	    );
 
-	    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
+	    expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
 	    expect(board.references[0]).toEqual(expect.objectContaining({
 	      id: "pin-ref",
 	      evidenceAuthority: "pin_media_ready",
@@ -500,6 +1082,137 @@ describe("inspiredesign reference discovery helpers", () => {
 	      selectionReason: expect.stringContaining("manifest-ready Pinterest pin media evidence")
 	    }));
 	    expect(board.qualitySummary.diagnosticOnlyReasons).toEqual([]);
+	  });
+
+	  it("ranks actual Pinterest video pin media as manifest-ready evidence", () => {
+	    const reference = {
+	      id: "pin-ref",
+	      url: "https://www.pinterest.com/pin/1234567890/",
+	      title: "Editorial photography studio motion pin",
+	      excerpt: "Cinematic portrait motion with controlled studio lighting and premium hero pacing.",
+	      fetchStatus: "captured" as const,
+	      captureStatus: "captured" as const,
+	      capture: {
+	        pinMedia: makePinterestPinMediaEvidence({
+	          kind: "video",
+	          mediaUrl: "https://v.pinimg.com/videos/mc/720p/pin.mp4",
+	          width: 720,
+	          height: 1280,
+	          contentType: "video/mp4"
+	        })
+	      }
+	    };
+	    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
+	    const board = buildInspiredesignReferencePatternBoard(
+	      "brief-pin-media-video",
+	      minimalBriefFormat,
+	      [reference],
+	      "Premium digital photography studio landing page",
+	      undefined,
+	      pinMediaIndex
+	    );
+
+	    expect(reference.capture.pinMedia.path).toBe("pin-media-evidence/pin-ref/video.mp4");
+	    expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
+	    expect(board.references[0]).toEqual(expect.objectContaining({
+	      id: "pin-ref",
+	      evidenceAuthority: "pin_media_ready",
+	      capturedVia: expect.arrayContaining(["pin_media", "pin_media_ready"])
+	    }));
+	    expect(board.rejectedReferences).toEqual([]);
+	  });
+
+	  it("keeps malformed Pinterest video pin media diagnostic", () => {
+	    const validVideoPinMedia = makePinterestPinMediaEvidence({
+	      kind: "video",
+	      mediaUrl: "https://v.pinimg.com/videos/mc/720p/pin.mp4",
+	      width: 720,
+	      height: 1280,
+	      contentType: "video/mp4"
+	    });
+	    const invalidVideoEvidence = [
+	      {
+	        ...validVideoPinMedia,
+	        path: "pin-media-evidence/pin-ref/main.mp4"
+	      },
+	      {
+	        ...validVideoPinMedia,
+	        contentType: "image/jpeg"
+	      },
+	      {
+	        ...validVideoPinMedia,
+	        kind: "video_poster" as const,
+	        contentType: "video/mp4"
+	      },
+	      {
+	        ...validVideoPinMedia,
+	        kind: "video_poster" as const,
+	        path: "pin-media-evidence/pin-ref/poster.mp4",
+	        contentType: "image/jpeg"
+	      },
+	      {
+	        ...validVideoPinMedia,
+	        path: undefined
+	      }
+	    ];
+
+	    for (const pinMedia of invalidVideoEvidence) {
+	      const reference = {
+	        id: "pin-ref",
+	        url: "https://www.pinterest.com/pin/1234567890/",
+	        title: "Editorial photography studio motion pin",
+	        excerpt: "Cinematic portrait motion with controlled studio lighting and premium hero pacing.",
+	        fetchStatus: "captured" as const,
+	        captureStatus: "captured" as const,
+	        capture: { pinMedia }
+	      };
+	      const board = buildInspiredesignReferencePatternBoard(
+	        "brief-pin-media-invalid-video",
+	        minimalBriefFormat,
+	        [reference],
+	        "Premium digital photography studio landing page"
+	      );
+
+	      expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(false);
+	      expect(board.references).toEqual([]);
+	      expect(board.rejectedReferences[0]).toEqual(expect.objectContaining({
+	        id: "pin-ref"
+	      }));
+	    }
+	  });
+
+	  it("ranks trusted Pinterest video poster media as fallback still evidence", () => {
+	    const reference = {
+	      id: "pin-ref",
+	      url: "https://www.pinterest.com/pin/1234567890/",
+	      title: "Editorial photography studio video poster pin",
+	      excerpt: "A cinematic poster frame with premium studio lighting, useful when video bytes are unavailable.",
+	      fetchStatus: "captured" as const,
+      captureStatus: "captured" as const,
+      capture: {
+        pinMedia: makePinterestPinMediaEvidence({
+          kind: "video_poster"
+        })
+      }
+    };
+	    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
+	    const board = buildInspiredesignReferencePatternBoard(
+	      "brief-pin-media-video-poster",
+	      minimalBriefFormat,
+	      [reference],
+	      "Premium digital photography studio landing page",
+	      undefined,
+	      pinMediaIndex
+	    );
+
+	    expect(reference.capture.pinMedia.path).toBe("pin-media-evidence/pin-ref/poster.jpg");
+	    expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
+	    expect(board.references[0]).toEqual(expect.objectContaining({
+	      id: "pin-ref",
+	      evidenceAuthority: "pin_media_ready",
+	      capturedVia: expect.arrayContaining(["pin_media_ready"])
+	    }));
+	    expect(board.rejectedReferences).toEqual([]);
 	  });
 
 	  it("ranks trusted pin media despite surrounding Pinterest chrome shell text", () => {
@@ -516,14 +1229,17 @@ describe("inspiredesign reference discovery helpers", () => {
 	        })
 	      }
 	    };
+	    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
 	    const board = buildInspiredesignReferencePatternBoard(
 	      "brief-pin-media-chrome-shell",
 	      minimalBriefFormat,
 	      [reference],
-	      "Premium digital photography studio landing page"
+	      "Premium digital photography studio landing page",
+	      undefined,
+	      pinMediaIndex
 	    );
 
-	    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
+	    expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
 	    expect(board.references[0]).toEqual(expect.objectContaining({
 	      id: "pin-ref",
 	      evidenceAuthority: "pin_media_ready",
@@ -544,14 +1260,17 @@ describe("inspiredesign reference discovery helpers", () => {
 	        pinMedia: makePinterestPinMediaEvidence()
 	      }
 	    };
+	    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
 	    const board = buildInspiredesignReferencePatternBoard(
 	      "brief-locale-pin-media",
 	      minimalBriefFormat,
 	      [reference],
-	      "Premium digital photography studio landing page"
+	      "Premium digital photography studio landing page",
+	      undefined,
+	      pinMediaIndex
 	    );
 
-	    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
+	    expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
 	    expect(board.references[0]).toEqual(expect.objectContaining({
 	      id: "pin-ref",
 	      evidenceAuthority: "pin_media_ready",
@@ -559,7 +1278,7 @@ describe("inspiredesign reference discovery helpers", () => {
 	    }));
 	  });
 
-	  it("keeps Pinterest pin-media blocking warnings diagnostic despite trusted-looking bytes", () => {
+	it("ranks trusted canonical pin media despite an interface chrome shell warning", () => {
 	    const reference = {
 	      id: "pin-ref",
 	      url: "https://www.pinterest.com/pin/1234567890/",
@@ -571,19 +1290,52 @@ describe("inspiredesign reference discovery helpers", () => {
 	        pinMedia: makePinterestPinMediaEvidence({ warnings: ["interface_chrome_shell"] })
 	      }
 	    };
+	const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
 	    const board = buildInspiredesignReferencePatternBoard(
-	      "brief-pin-media-search-shell",
+	"brief-pin-media-interface-chrome-shell",
 	      minimalBriefFormat,
 	      [reference],
-	      "Premium digital photography studio landing page"
+	      "Premium digital photography studio landing page",
+	      undefined,
+	      pinMediaIndex
 	    );
+
+	expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
+	expect(board.references[0]).toEqual(expect.objectContaining({
+	id: "pin-ref",
+	evidenceAuthority: "pin_media_ready",
+	capturedVia: expect.arrayContaining(["pin_media_ready"])
+	}));
+	expect(board.rejectedReferences).toEqual([]);
+	});
+
+	it("keeps interface chrome media diagnostic without trusted byte proof", () => {
+	const forgedPinMedia = JSON.parse(JSON.stringify(
+	makePinterestPinMediaEvidence({ warnings: ["interface_chrome_shell"] })
+	)) as InspiredesignPersistedPinterestPinMediaEvidence;
+	const reference = {
+	id: "pin-ref",
+	url: "https://www.pinterest.com/pin/1234567890/",
+	title: "Search results for studio. Editorial photography studio pin.",
+	excerpt: "Pin card Your profile Related searches and promoted pins with full-bleed portrait lighting.",
+	fetchStatus: "captured" as const,
+	captureStatus: "captured" as const,
+	capture: {
+	pinMedia: forgedPinMedia
+	}
+	};
+	const board = buildInspiredesignReferencePatternBoard(
+	"brief-untrusted-pin-media-interface-chrome-shell",
+	minimalBriefFormat,
+	[reference],
+	"Premium digital photography studio landing page"
+	);
 
 	    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(false);
 	    expect(board.references).toEqual([]);
 	    expect(board.rejectedReferences[0]).toEqual(expect.objectContaining({
 	      id: "pin-ref",
-	      diagnosticReasons: expect.arrayContaining(["interface_chrome_shell"]),
-	      capturedButRejectedReason: expect.stringContaining("interface_chrome_shell")
+	diagnosticReasons: expect.arrayContaining(["interface_chrome_shell"])
 	    }));
 	  });
 
@@ -660,6 +1412,22 @@ describe("inspiredesign reference discovery helpers", () => {
       id: "snapshot-text",
       capturedVia: ["fetch", "snapshot"],
       selectionReason: expect.stringContaining("strong text and structural evidence from fetch, snapshot")
+    }));
+  });
+
+  it("describes metadata-only references as limited but usable cues", () => {
+    const board = buildInspiredesignReferencePatternBoard("brief-metadata-text", minimalBriefFormat, [{
+      id: "metadata-text",
+      url: "https://example.com/editorial-studio",
+      title: "Premium digital photography studio landing page hero CTA website full-bleed service story portfolio gallery",
+      excerpt: "Editorial photographer studio with cinematic portrait lighting, conversion CTA, booking flow, service story, proof band, and immersive gallery.",
+      fetchStatus: "captured" as const,
+      captureStatus: "off" as const
+    }], "Premium digital photography studio landing page");
+
+    expect(board.references[0]).toEqual(expect.objectContaining({
+      id: "metadata-text",
+      selectionReason: "Ranked for limited but usable reference cues."
     }));
   });
 
@@ -785,14 +1553,17 @@ describe("inspiredesign reference discovery helpers", () => {
         pinMedia: makePinterestPinMediaEvidence()
       }
     };
+    const pinMediaIndex = [makePinterestPinMediaIndexEntry(reference.capture.pinMedia)];
     const board = buildInspiredesignReferencePatternBoard(
       "brief-motion-and-pin-media",
       minimalBriefFormat,
       [reference],
-      "Premium motion-led landing page"
+      "Premium motion-led landing page",
+      undefined,
+      pinMediaIndex
     );
 
-    expect(hasInspiredesignUsableReferenceEvidence(reference)).toBe(true);
+    expect(hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex)).toBe(true);
     expect(board.references[0]).toEqual(expect.objectContaining({
       id: "pin-ref",
       evidenceAuthority: "motion_ready",

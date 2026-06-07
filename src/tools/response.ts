@@ -10,7 +10,7 @@ export type ToolError = {
 export type ToolOk<T> = T & { ok: true };
 
 export function ok<T extends Record<string, unknown>>(data: T): string {
-  return JSON.stringify({ ok: true, ...data });
+  return JSON.stringify({ ...data, ok: true });
 }
 
 export function failure(message: string, code?: string, details?: Record<string, unknown>): string {

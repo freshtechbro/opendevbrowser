@@ -21,7 +21,7 @@ const EXTENSION_ORIGIN = "chrome-extension://abcdefghijklmnop";
 const DEFAULT_SOCKET_CLOSE_TIMEOUT_MS = 4000;
 const DEFAULT_SOCKET_MESSAGE_TIMEOUT_MS = 4000;
 const DELAYED_OPS_HELLO_ACK_MS = 2200;
-const DELAYED_OPS_HELLO_RESPONSE_TIMEOUT_MS = 6000;
+const DELAYED_OPS_HELLO_RESPONSE_TIMEOUT_MS = 20_000;
 
 const connect = async (url: string, timeoutMs = 3000, origin?: string): Promise<WebSocket> => {
   const headers = origin ? { Origin: origin } : (url.endsWith("/extension") ? { Origin: EXTENSION_ORIGIN } : undefined);
