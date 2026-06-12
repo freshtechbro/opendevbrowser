@@ -6618,6 +6618,416 @@ describe("BrowserManager", () => {
     await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
   });
 
+  it("falls back to CDP Runtime extraction when Pinterest DOM inspection times out", async () => {
+    const { context, page, cdpSession } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockImplementation(() => new Promise(() => undefined));
+    cdpSession.send.mockImplementation(async (method: string) => {
+      if (method === "Runtime.evaluate") {
+        return {
+          result: {
+            value: {
+              sourceUrl: "https://www.pinterest.com/pin/84301824269977360/",
+              candidates: [{
+                kind: "image",
+                mediaUrl: "https://i.pinimg.com/originals/cdp-fallback.jpg",
+                visible: true,
+                width: 1200,
+                height: 1600,
+                ancestry: ["img.closeup"],
+                positiveSignals: ["closeup-image-main-MainPinImage"],
+                noiseSignals: [],
+                insideCanonicalMainPinMediaContainer: true,
+                score: 100
+              }]
+            }
+          }
+        };
+      }
+      return {};
+    });
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-cdp-fallback-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/84301824269977360/" });
+
+    vi.useFakeTimers();
+    try {
+      const capture = manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath, timeoutMs: 5 });
+      await vi.advanceTimersByTimeAsync(5);
+      const result = await capture;
+
+      expect(result).toMatchObject({
+        status: "captured",
+        sourceUrl: "https://www.pinterest.com/pin/84301824269977360/",
+        mediaUrl: "https://i.pinimg.com/originals/cdp-fallback.jpg",
+        bytes: PINTEREST_TEST_JPEG_BYTES.length
+      });
+      expect(cdpSession.send).toHaveBeenCalledWith("Runtime.evaluate", expect.objectContaining({
+        awaitPromise: true,
+        returnByValue: true
+      }));
+      expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/originals/cdp-fallback.jpg", expect.objectContaining({
+        signal: expect.any(AbortSignal)
+      }));
+      await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not use CDP fallback for non-timeout Pinterest DOM inspection failures", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockRejectedValue(new Error("Pinterest DOM inspection crashed"));
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-dom-crash-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/84301824269977360/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest DOM inspection crashed"
+    );
+    expect(context.newCDPSession).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it.each([
+    [
+      "exception description",
+      { exceptionDetails: { exception: { description: "Runtime denied Pinterest extraction" } } }
+    ],
+    [
+      "exception text",
+      { exceptionDetails: { text: "Runtime.evaluate failed" } }
+    ],
+    [
+      "empty exception details",
+      { exceptionDetails: {} }
+    ],
+    [
+      "invalid payload",
+      { result: { value: { sourceUrl: "https://www.pinterest.com/pin/84301824269977360/", candidates: "invalid" } } }
+    ]
+  ])("rethrows original DOM timeout when CDP extraction returns %s", async (_name, cdpResult) => {
+    const { context, page, cdpSession } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockImplementation(() => new Promise(() => undefined));
+    cdpSession.send.mockResolvedValue(cdpResult);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-cdp-invalid-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/84301824269977360/" });
+
+    vi.useFakeTimers();
+    try {
+      const capture = manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath, timeoutMs: 5 });
+      const rejection = expect(capture).rejects.toThrow(
+        "Pinterest pin media DOM inspection timed out after 5ms."
+      );
+      await vi.advanceTimersByTimeAsync(5);
+
+      await rejection;
+      expect(cdpSession.send).toHaveBeenCalledWith("Runtime.evaluate", expect.objectContaining({
+        awaitPromise: true,
+        returnByValue: true
+      }));
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalled();
+      await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds CDP session attach when Pinterest DOM inspection fallback cannot attach", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockImplementation(() => new Promise(() => undefined));
+    context.newCDPSession.mockImplementation(() => new Promise(() => undefined));
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-cdp-attach-timeout-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/84301824269977360/" });
+
+    vi.useFakeTimers();
+    try {
+      const capture = manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath, timeoutMs: 5 });
+      const rejection = expect(capture).rejects.toThrow("Pinterest pin media CDP session attach timed out after 5ms.");
+      await vi.advanceTimersByTimeAsync(5);
+      await vi.advanceTimersByTimeAsync(5);
+
+      await rejection;
+      expect(context.newCDPSession).toHaveBeenCalledWith(page);
+      expect(fetchMock).not.toHaveBeenCalled();
+      await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not wait for CDP session detach after Pinterest fallback extraction succeeds", async () => {
+    const { context, page, cdpSession } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockImplementation(() => new Promise(() => undefined));
+    cdpSession.send.mockImplementation(async (method: string) => {
+      if (method === "Runtime.evaluate") {
+        return {
+          result: {
+            value: {
+              sourceUrl: "https://www.pinterest.com/pin/84301824269977360/",
+              candidates: [{
+                kind: "image",
+                mediaUrl: "https://i.pinimg.com/originals/cdp-detach-hang.jpg",
+                visible: true,
+                width: 1200,
+                height: 1600,
+                ancestry: ["img.closeup"],
+                positiveSignals: ["closeup-image-main-MainPinImage"],
+                noiseSignals: [],
+                insideCanonicalMainPinMediaContainer: true,
+                score: 100
+              }]
+            }
+          }
+        };
+      }
+      return {};
+    });
+    cdpSession.detach.mockImplementation(() => new Promise(() => undefined));
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-cdp-detach-hang-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/84301824269977360/" });
+
+    vi.useFakeTimers();
+    try {
+      const capture = manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath, timeoutMs: 5 });
+      await vi.advanceTimersByTimeAsync(5);
+      const result = await capture;
+
+      expect(result).toMatchObject({
+        status: "captured",
+        mediaUrl: "https://i.pinimg.com/originals/cdp-detach-hang.jpg",
+        bytes: PINTEREST_TEST_JPEG_BYTES.length
+      });
+      expect(cdpSession.detach).toHaveBeenCalledTimes(1);
+      await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps non-finite Pinterest pin media timeouts for DOM inspection and fetch", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/non-finite-timeout.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="0,0,640,480"
+          alt="Non-finite timeout pin"
+        />
+      </main>
+    `);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-non-finite-timeout-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, {
+      path: outputPath,
+      timeoutMs: Number.POSITIVE_INFINITY
+    });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      mediaUrl: "https://i.pinimg.com/originals/non-finite-timeout.jpg",
+      bytes: PINTEREST_TEST_JPEG_BYTES.length
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://i.pinimg.com/originals/non-finite-timeout.jpg",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("caps rejected Pinterest pin media details after repeated selected-candidate fetch failures", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    const images = Array.from({ length: 12 }, (_value, index) => `
+      <img
+        class="closeup-image-main-MainPinImage"
+        data-current-src="https://i.pinimg.com/originals/failing-${index}.jpg"
+        data-natural-width="1200"
+        data-natural-height="900"
+        data-rect="0,0,640,480"
+        alt="Failing candidate ${index}"
+      />
+    `).join("");
+    usePinterestMediaDom(page, `<main data-test-id="pin-closeup">${images}</main>`);
+    const fetchMock = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-rejected-cap-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media fetch failed with status 503."
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(12);
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("surfaces non-Error selected Pinterest pin media fetch failures with the generic capture message", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <img
+          class="closeup-image-main-MainPinImage"
+          data-current-src="https://i.pinimg.com/originals/plain-failure.jpg"
+          data-natural-width="1200"
+          data-natural-height="900"
+          data-rect="0,0,640,480"
+          alt="Plain failure pin"
+        />
+      </main>
+    `);
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-plain-failure-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerWithFetch = manager as never as {
+      fetchPinterestPinMediaBytes: () => Promise<never>;
+    };
+    managerWithFetch.fetchPinterestPinMediaBytes = vi.fn(async () => {
+      throw "plain fetch failure";
+    });
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath })).rejects.toThrow(
+      "Pinterest pin media capture failed."
+    );
+    expect(managerWithFetch.fetchPinterestPinMediaBytes).toHaveBeenCalledTimes(1);
+    await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+  });
+
+  it("rejects non-first-party Pinterest pin media fetches before network access", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerWithFetch = manager as never as {
+      fetchPinterestPinMediaBytes: (mediaUrl: string) => Promise<unknown>;
+    };
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES));
+    globalThis.fetch = fetchMock;
+
+    await expect(managerWithFetch.fetchPinterestPinMediaBytes("https://example.com/not-pinterest.jpg")).rejects.toThrow(
+      "Pinterest pin media fetch rejected a non-first-party media URL."
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps source-change rejection when CDP fallback returns another Pinterest pin", async () => {
+    const { context, page, cdpSession } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    page.evaluate.mockImplementation(() => new Promise(() => undefined));
+    cdpSession.send.mockImplementation(async (method: string) => {
+      if (method === "Runtime.evaluate") {
+        return {
+          result: {
+            value: {
+              sourceUrl: "https://www.pinterest.com/pin/456/",
+              candidates: [{
+                kind: "image",
+                mediaUrl: "https://i.pinimg.com/originals/stale-cdp-source.jpg",
+                visible: true,
+                width: 1200,
+                height: 900,
+                ancestry: ["img.stale-cdp"],
+                positiveSignals: ["closeup-image-main-MainPinImage"],
+                noiseSignals: [],
+                insideCanonicalMainPinMediaContainer: true,
+                score: 100
+              }]
+            }
+          }
+        };
+      }
+      return {};
+    });
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-cdp-stale-source-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+
+    vi.useFakeTimers();
+    try {
+      const capture = manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath, timeoutMs: 5 });
+      await vi.advanceTimersByTimeAsync(5);
+
+      await expect(capture).resolves.toEqual({
+        status: "not_found",
+        sourceUrl: "https://www.pinterest.com/pin/456/",
+        targetId: expect.any(String),
+        rejectedCandidates: [{
+          kind: "image",
+          mediaUrl: "https://i.pinimg.com/originals/stale-cdp-source.jpg",
+          width: 1200,
+          height: 900,
+          ancestry: ["img.stale-cdp"],
+          reasons: ["source_url_changed"]
+        }]
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      await expect(readFile(outputPath, "utf8")).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects Pinterest pin media when DOM source URL changes after the page URL snapshot", async () => {
     const { context, page } = createBrowserBundle([]);
     findChromeExecutable.mockResolvedValue("/bin/chrome");

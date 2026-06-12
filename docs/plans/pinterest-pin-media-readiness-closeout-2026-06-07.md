@@ -4,6 +4,112 @@ Status: active
 Date: 2026-06-07
 Branch: `codex/pinterest-pin-media-readiness-fix`
 
+## 2026-06-12 Add-On Scope
+
+The closeout was extended after PR `#79` was opened. The prior commit `28b3362` made the branch green, but the user now requires a stronger live proof: the Pinterest Inspired Design flow must run straight through from user request to pin discovery, selected pin harvest, media analysis, and design-ready direction. A diagnostic-only artifact is not an acceptable final result when Pinterest auth, daemon state, and discoverable pin evidence are healthy.
+
+New success criteria:
+
+- The local daemon is aligned to the current branch build before live workflow validation.
+- `inspiredesign harvest` with a Pinterest query discovers canonical pins, captures or harvests trusted evidence for selected pins, runs media analysis, and emits product-ready design direction.
+- `inspiredesign harvest` with an explicit Pinterest pin validates the pin-harvest path independent of query discovery.
+- `inspiredesign run` with a Pinterest reference validates the direct Inspired Design command path.
+- `media-analysis.json` is present when pin media exists, contains usable design facts, and remains non-authoritative.
+- `canvas-plan.request.json` exists only for product-ready output and does not leak raw media paths, direct Pinterest media URLs, or raw media-analysis internals.
+- Branch coverage deficits are measured before adding tests or rerunning the full suite repeatedly.
+- Any new fixes receive adversarial review, focused regressions, full gates, an additional atomic commit, a push to PR `#79`, and green PR checks.
+
+## Task 6 - Daemon Alignment And Scenario Inventory
+Reasoning: The last live run was blocked before Pinterest execution by `daemon_fingerprint_mismatch`, and validating the seamless user-facing flow requires a current daemon plus a concrete scenario inventory.
+What to do: Align the daemon to the current branch build and document the exact live scenarios being validated.
+How:
+1. Run `npm run build` to ensure `dist/cli/index.js` matches the branch.
+2. Run `node dist/cli/index.js status --daemon --output-format json` and inspect `data.fingerprintCurrent`.
+3. If the daemon is stale, stop or restart the daemon from the current branch build without changing source.
+4. Re-run daemon status until `fingerprintCurrent=true`.
+5. Record the three scenarios: Pinterest query harvest, explicit Pinterest pin harvest, and direct Inspired Design run with Pinterest reference.
+6. Preserve evidence under `.tmp/pinterest-closeout-*` only.
+Files impacted: `docs/plans/pinterest-pin-media-readiness-closeout-2026-06-07.md`, local daemon state, `.tmp/pinterest-closeout-*`.
+End goal: Live validation starts from a current daemon and a clear test matrix.
+Acceptance criteria:
+- [x] Current-build daemon status reports `fingerprintCurrent=true`.
+- [x] Scenario matrix covers query harvest, explicit pin harvest, and direct run.
+- [x] No source changes are made during daemon alignment unless a code defect is proven.
+
+## Task 7 - Seamless Pinterest Flow Live Validation
+Reasoning: The product requirement is a straight-through command flow from user request to design-ready direction, not a transport-level completion or diagnostic-only artifact.
+What to do: Run multiple live command paths and inspect the output bundles for product readiness, media analysis, and leak safety.
+How:
+1. Run `node dist/cli/index.js inspiredesign harvest` with `--provider social/pinterest`, a design brief, a Pinterest query, extension mode, required cookies, required visual evidence, and `--timeout-ms 240000`.
+2. Run `node dist/cli/index.js inspiredesign harvest` with a known canonical Pinterest pin URL.
+3. Run `node dist/cli/index.js inspiredesign run` with a Pinterest reference URL and prototype guidance enabled if supported.
+4. For every bundle, inspect `evidence.json`, `ranked-references.json`, `pin-media-index.json`, `pin-media-evidence.json`, `media-analysis.json`, `design-agent-handoff.json`, `advanced-brief.md`, `meta-prompt.md`, and `canvas-plan.request.json` when present.
+5. Verify `productSuccess=true`, `artifactAuthority=product_ready`, `nextStepGuidance.readiness=ready`, and `evidenceAuthority` in `pin_media_ready`, `snapshot_ready`, or `motion_ready`.
+6. Verify media analysis has design direction facts and no `artifactAuthority`, `evidenceAuthority`, `productSuccess`, or `diagnosticWarning`.
+7. Verify rejected diagnostics do not dominate design-ready output.
+Files impacted: runtime artifacts under `.tmp/pinterest-closeout-*` unless a code defect is proven.
+End goal: The live commands prove the flow produces usable design-ready media direction instead of diagnostics.
+Acceptance criteria:
+- [x] Query harvest reaches product-ready output with non-empty ranked references and media-analysis design facts.
+- [x] Explicit pin harvest reaches product-ready output with trusted evidence.
+- [x] Direct Inspired Design run reaches product-ready output or exposes a scoped implementation gap.
+- [x] Canvas request exists only for product-ready output and contains no raw media leakage.
+
+### 2026-06-12 Live Evidence
+
+- Explicit Pinterest pin harvest: `.tmp/pinterest-closeout-20260612/harvest-pin-843-after-networkidle-cap/inspiredesign/f9e5d438-1edd-4d97-afab-2b5c79853141`
+  - `ranked-references.json`: `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, `references.length=1`.
+  - `pin-media-index.json`: `pinMediaIndex.length=1`, saved `pin-media-evidence/31d105f36553/main.jpg`.
+  - `media-analysis.json`: `references.length=1`, kind `image`.
+  - `canvas-plan.request.json`: present with `canvasSessionId`, `leaseId`, `documentId`, `requestId`, and `generationPlan` keys.
+- Pinterest query harvest with discovery: `.tmp/pinterest-closeout-20260612/harvest-query-after-networkidle-cap/inspiredesign/7eb00cde-0d7c-4c34-bfb8-1549e23f7860`
+  - CLI response accepted five canonical Pinterest pin URLs through discovery and returned `readiness=ready`.
+  - `ranked-references.json`: `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, `references.length=4`.
+  - `pin-media-index.json`: `pinMediaIndex.length=4`, saved one video and three image media artifacts.
+  - `media-analysis.json`: `references.length=4`, kinds `video`, `image`, `image`, and `image`.
+  - `canvas-plan.request.json`: present with only Canvas request keys.
+- Direct `inspiredesign run` with Pinterest pin: `.tmp/pinterest-closeout-20260612/direct-run-pin-after-networkidle-cap/inspiredesign/be19b99c-7976-438d-8eb9-75d7ddd5cb11`
+  - `ranked-references.json`: `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, `references.length=1`.
+  - `pin-media-index.json`: `pinMediaIndex.length=1`, saved `pin-media-evidence/31d105f36553/main.jpg`.
+  - `media-analysis.json`: `references.length=1`, kind `image`.
+  - `canvas-plan.request.json`: present with `canvasSessionId`, `leaseId`, `documentId`, `requestId`, and `generationPlan` keys.
+
+## Task 8 - Branch-Deficit-Aware Test Strategy
+Reasoning: Full coverage runs are expensive, and the branch has repeatedly landed exactly at the branch threshold. New tests should be driven by measured deficits, not guesswork.
+What to do: Measure branch coverage state before adding tests or running repeated full suites.
+How:
+1. Run focused regressions around any changed seam first.
+2. Inspect current coverage artifacts if available.
+3. Run the coverage wrapper only when needed to compute branch deficit.
+4. Compute whether branch coverage is below the `97%` threshold and identify the exact files with uncovered changed branches.
+5. Add only targeted tests that close the measured deficit.
+6. Run the full suite only after focused tests and branch deficit checks are clean.
+Files impacted: `tests/*` only when a measured branch deficit exists.
+End goal: Coverage work is precise and does not waste repeated full-suite runs.
+Acceptance criteria:
+- [ ] Branch deficit is recorded before adding tests.
+- [ ] Focused tests cover new branch outcomes.
+- [ ] Full suite is run after focused/coverage checks show it is worth running.
+
+## Task 9 - Add-On Review, Commit, Push, And PR Checks
+Reasoning: The add-on changes final acceptance, so new evidence and any code changes must be reviewed and landed through the existing PR.
+What to do: Run a final adversarial review, fix blockers, commit additional changes, push, and verify PR `#79`.
+How:
+1. Run a scoped adversarial RepoPrompt review over any new diff and live evidence.
+2. Fix only real blockers in the Pinterest Inspired Design flow.
+3. Rerun focused tests and full gates after fixes.
+4. Stage only intended source, test, and doc changes.
+5. Commit an additional atomic Conventional Commit with the required co-author trailer.
+6. Push `codex/pinterest-pin-media-readiness-fix`.
+7. Verify PR `#79` checks are green.
+Files impacted: changed source/tests/docs, git index, GitHub PR `#79`.
+End goal: PR `#79` includes the add-on validation/fix commit and remains merge-ready.
+Acceptance criteria:
+- [ ] Final review has no unresolved blockers.
+- [ ] Full quality gates pass after all changes.
+- [ ] Additional commit is pushed to PR `#79`.
+- [ ] PR checks are green.
+
 ## Task 1 - Baseline And Focused Coverage
 Reasoning: The branch has a known global branch coverage deficit and recent full-suite failures, so tests must be added from measured coverage data rather than guesswork.
 What to do: Recompute coverage, identify the exact uncovered branches, and add the smallest focused tests that close the deficit.

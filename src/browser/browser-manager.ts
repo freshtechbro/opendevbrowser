@@ -206,6 +206,10 @@ type CookieListRecord = {
 
 const LEGACY_EXTENSION_OPERATION_TIMEOUT_MS = 5000;
 const PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS = 5000;
+const PINTEREST_PIN_MEDIA_DOM_INSPECTION_MAX_TIMEOUT_MS = 10_000;
+const PINTEREST_PIN_MEDIA_CDP_SESSION_MAX_TIMEOUT_MS = 5_000;
+const PINTEREST_PIN_MEDIA_CDP_DETACH_MAX_TIMEOUT_MS = 1_000;
+const PINTEREST_PIN_MEDIA_FETCH_MAX_TIMEOUT_MS = 20_000;
 const PINTEREST_PIN_MEDIA_MAX_BYTES = 20_000_000;
 const PINTEREST_PIN_MEDIA_MAX_REDIRECTS = 3;
 const PINTEREST_PIN_MEDIA_MIN_EDGE_PX = 160;
@@ -256,6 +260,18 @@ type PinterestPinMediaDomCandidate = {
 type PinterestPinMediaDomExtraction = {
   sourceUrl: string;
   candidates: PinterestPinMediaDomCandidate[];
+};
+
+type PinterestPinMediaCdpEvaluationResult = {
+  result?: {
+    value?: unknown;
+  };
+  exceptionDetails?: {
+    text?: string;
+    exception?: {
+      description?: string;
+    };
+  };
 };
 
 type PinterestPinMediaSelection = {
@@ -467,6 +483,59 @@ function warningsForSelectedPinterestCandidate(candidate: PinterestPinMediaDomCa
 function pinterestCandidateCaptureFailureReason(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") return "selected_candidate_fetch_failed:aborted";
   return "selected_candidate_fetch_failed";
+}
+
+function clampPinterestPinMediaOperationTimeout(timeoutMs: number, maxTimeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs)) {
+    return maxTimeoutMs;
+  }
+  return Math.max(1, Math.min(timeoutMs, maxTimeoutMs));
+}
+
+function isPinterestPinMediaDomInspectionTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("Pinterest pin media DOM inspection timed out");
+}
+
+function parsePinterestPinMediaCdpExtraction(
+  result: PinterestPinMediaCdpEvaluationResult
+): PinterestPinMediaDomExtraction {
+  if (result.exceptionDetails) {
+    const detail = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+    throw new Error(detail ?? "Pinterest pin media CDP inspection failed.");
+  }
+  const value = result.result?.value as PinterestPinMediaDomExtraction | undefined;
+  if (!value || typeof value.sourceUrl !== "string" || !Array.isArray(value.candidates)) {
+    throw new Error("Pinterest pin media CDP inspection returned an invalid result.");
+  }
+  return value;
+}
+
+async function withPinterestPinMediaOperationTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function detachPinterestPinMediaCdpSession(session: CDPSession): void {
+  void withPinterestPinMediaOperationTimeout(
+    session.detach(),
+    PINTEREST_PIN_MEDIA_CDP_DETACH_MAX_TIMEOUT_MS,
+    `Pinterest pin media CDP session detach timed out after ${PINTEREST_PIN_MEDIA_CDP_DETACH_MAX_TIMEOUT_MS}ms.`
+  ).catch(() => undefined);
 }
 
 function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction {
@@ -2712,9 +2781,9 @@ export class BrowserManager {
     if (!options.path) {
       throw new Error("Pinterest pin media capture requires an output path.");
     }
-    return this.runTargetScoped(sessionId, options.targetId, async ({ page, targetId }) => {
+    return this.runTargetScoped(sessionId, options.targetId, async ({ managed, page, targetId }) => {
       const pageSourceUrl = this.safePageUrl(page, "BrowserManager.capturePinterestPinMedia") ?? "";
-      const extraction = await this.evaluatePinterestPinMediaCandidates(page, options.timeoutMs);
+      const extraction = await this.evaluatePinterestPinMediaCandidates(managed, page, options.timeoutMs);
       const sourceUrl = readAuthoritativePinterestSourceUrl(pageSourceUrl, extraction.sourceUrl);
       if (pinterestPinSourceChanged(pageSourceUrl, extraction.sourceUrl)) {
         return {
@@ -2737,9 +2806,13 @@ export class BrowserManager {
       }
       const rejectedCandidates = [...selection.rejectedCandidates];
       let lastFailure: unknown;
+      const fetchTimeoutMs = clampPinterestPinMediaOperationTimeout(
+        options.timeoutMs ?? PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS,
+        PINTEREST_PIN_MEDIA_FETCH_MAX_TIMEOUT_MS
+      );
       for (const candidate of selection.acceptedCandidates) {
         try {
-          const fetched = await this.fetchPinterestPinMediaBytes(candidate.mediaUrl ?? "", options.timeoutMs);
+          const fetched = await this.fetchPinterestPinMediaBytes(candidate.mediaUrl ?? "", fetchTimeoutMs);
           assertFetchedPinterestCandidateMatchesKind(candidate, fetched);
           await writePinterestPinMediaOutput(options.path, fetched.bytes);
           return this.buildPinterestPinMediaResult(
@@ -2769,21 +2842,58 @@ export class BrowserManager {
   }
 
   private async evaluatePinterestPinMediaCandidates(
+    managed: ManagedSession,
     page: Page,
     timeoutMs = PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS
   ): Promise<PinterestPinMediaDomExtraction> {
-    let timer: NodeJS.Timeout | null = null;
+    const inspectionTimeoutMs = clampPinterestPinMediaOperationTimeout(
+      timeoutMs,
+      PINTEREST_PIN_MEDIA_DOM_INSPECTION_MAX_TIMEOUT_MS
+    );
     try {
-      return await Promise.race([
+      return await withPinterestPinMediaOperationTimeout(
         page.evaluate(readPinterestPinMediaCandidatesInPage),
-        new Promise<PinterestPinMediaDomExtraction>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error(`Pinterest pin media DOM inspection timed out after ${timeoutMs}ms.`)), timeoutMs);
-        })
-      ]);
-    } finally {
-      if (timer) {
-        clearTimeout(timer);
+        inspectionTimeoutMs,
+        `Pinterest pin media DOM inspection timed out after ${inspectionTimeoutMs}ms.`
+      );
+    } catch (error) {
+      if (!isPinterestPinMediaDomInspectionTimeout(error)) {
+        throw error;
       }
+      return await this.evaluatePinterestPinMediaCandidatesViaCdp(managed, page, inspectionTimeoutMs, error);
+    }
+  }
+
+  private async evaluatePinterestPinMediaCandidatesViaCdp(
+    managed: ManagedSession,
+    page: Page,
+    timeoutMs: number,
+    originalError: unknown
+  ): Promise<PinterestPinMediaDomExtraction> {
+    const sessionTimeoutMs = clampPinterestPinMediaOperationTimeout(
+      timeoutMs,
+      PINTEREST_PIN_MEDIA_CDP_SESSION_MAX_TIMEOUT_MS
+    );
+    const session = await withPinterestPinMediaOperationTimeout(
+      managed.context.newCDPSession(page),
+      sessionTimeoutMs,
+      `Pinterest pin media CDP session attach timed out after ${sessionTimeoutMs}ms.`
+    );
+    try {
+      const result = await withPinterestPinMediaOperationTimeout(
+        session.send("Runtime.evaluate", {
+          expression: `(${readPinterestPinMediaCandidatesInPage.toString()})()`,
+          awaitPromise: true,
+          returnByValue: true
+        }) as Promise<PinterestPinMediaCdpEvaluationResult>,
+        timeoutMs,
+        `Pinterest pin media CDP inspection timed out after ${timeoutMs}ms.`
+      );
+      return parsePinterestPinMediaCdpExtraction(result);
+    } catch {
+      throw originalError;
+    } finally {
+      detachPinterestPinMediaCdpSession(session);
     }
   }
 

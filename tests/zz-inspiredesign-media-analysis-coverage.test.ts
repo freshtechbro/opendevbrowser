@@ -1227,7 +1227,7 @@ describe("inspiredesign media-analysis full-suite coverage regression", () => {
         status: "failed",
         kind: "video",
         sourceUrl: PINTEREST_PIN_URL,
-        pinterestPageQuality: "unknown",
+        pinterestPageQuality: "pin_media",
         rejectionReasons: ["pin_media_temp_path_mismatch"]
       }));
       expect(notFound).toEqual(expect.objectContaining({
@@ -1244,7 +1244,7 @@ describe("inspiredesign media-analysis full-suite coverage regression", () => {
       }));
       expect(timeoutLimitedViewport).toEqual(expect.objectContaining({
         status: "skipped",
-        pinterestPageQuality: "unknown",
+        pinterestPageQuality: "pin_media",
         rejectionReasons: ["pin_media_not_found"]
       }));
       expect(warmupFailure).toEqual(expect.objectContaining({

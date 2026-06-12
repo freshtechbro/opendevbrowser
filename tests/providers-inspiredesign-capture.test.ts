@@ -1074,6 +1074,439 @@ describe("inspiredesign capture helper", () => {
     }
   });
 
+  it("warms normalized canonical Pinterest pin media URLs before capture", async () => {
+    const cases = [
+      {
+        name: "missing-trailing-slash",
+        inputUrl: "https://www.pinterest.com/pin/27654985208435505",
+        expectedNavigationUrl: "https://www.pinterest.com/pin/27654985208435505/"
+      },
+      {
+        name: "locale-host",
+        inputUrl: "https://uk.pinterest.com/pin/27654985208435505/",
+        expectedNavigationUrl: "https://www.pinterest.com/pin/27654985208435505/"
+      },
+      {
+        name: "query-canonical-pin",
+        inputUrl: "https://www.pinterest.com/pin/27654985208435505/?utm_source=test",
+        expectedNavigationUrl: "https://www.pinterest.com/pin/27654985208435505/"
+      }
+    ];
+    const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+    for (const testCase of cases) {
+      const manager = {
+        launch: vi.fn()
+          .mockResolvedValueOnce({ sessionId: `session-${testCase.name}-warmup` })
+          .mockResolvedValueOnce({ sessionId: `session-${testCase.name}-capture` }),
+        setSessionChallengeAutomationMode: vi.fn(),
+        goto: vi.fn().mockResolvedValue(undefined),
+        waitForLoad: vi.fn().mockResolvedValue(undefined),
+        snapshot: vi.fn().mockResolvedValue({
+          url: testCase.expectedNavigationUrl,
+          title: "Pinterest",
+          content: "Pin media",
+          refCount: 1,
+          warnings: []
+        }),
+        clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+          html: "<img data-test-id=\"closeup-image-main-MainPinImage\" src=\"https://i.pinimg.com/originals/pin.jpg\">"
+        }),
+        capturePinterestPinMedia: vi.fn().mockResolvedValue({
+          status: "captured",
+          sourceUrl: testCase.expectedNavigationUrl,
+          targetId: "target-pin",
+          kind: "image",
+          path: `/tmp/primary-pin-media-${testCase.name}`,
+          mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+          contentType: "image/jpeg",
+          naturalWidth: 1200,
+          naturalHeight: 1600,
+          candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+          rejectedCandidates: []
+        }),
+        disconnect: vi.fn().mockResolvedValue(undefined)
+      };
+
+      await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+        manager as never,
+        testCase.inputUrl,
+        {
+          referenceId: "pin-ref",
+          pinMediaEvidencePath: `/tmp/primary-pin-media-${testCase.name}`,
+          browserMode: "extension",
+          cookiePolicyOverride: "off",
+          challengeAutomationMode: "browser_with_helper"
+        }
+      );
+
+      expect(manager.launch, testCase.name).toHaveBeenCalledTimes(2);
+      expect(manager.goto, testCase.name).toHaveBeenNthCalledWith(
+        1,
+        `session-${testCase.name}-warmup`,
+        testCase.expectedNavigationUrl,
+        "load",
+        expect.any(Number)
+      );
+      expect(manager.goto, testCase.name).toHaveBeenNthCalledWith(
+        2,
+        `session-${testCase.name}-capture`,
+        testCase.expectedNavigationUrl,
+        "load",
+        expect.any(Number)
+      );
+    }
+  });
+
+  it("keeps launch budget after slow canonical Pinterest pin warmup", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-12T00:00:00.000Z"));
+
+    const launchTimeouts: number[] = [];
+    const manager = {
+      launch: vi.fn(async (_options: unknown, timeoutMs?: number) => {
+        launchTimeouts.push(timeoutMs ?? 0);
+        return { sessionId: launchTimeouts.length === 1 ? "session-warmup" : "session-capture" };
+      }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn(async (sessionId: string) => {
+        if (sessionId === "session-warmup") {
+          vi.setSystemTime(Date.now() + 25_000);
+        }
+      }),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://uk.pinterest.com/pin/84301824269977360/",
+        title: "Pin on Catalog",
+        content: "Digital Product & Brand Experience Agency - Gladeye pin page",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<img data-test-id=\"closeup-image-main-MainPinImage\" src=\"https://i.pinimg.com/originals/direct-pin.jpg\">"
+      }),
+      capturePinterestPinMedia: vi.fn().mockResolvedValue({
+        status: "captured",
+        sourceUrl: "https://uk.pinterest.com/pin/84301824269977360/",
+        targetId: "target-pin",
+        kind: "image",
+        path: "/tmp/slow-warmup-primary-pin-media",
+        mediaUrl: "https://i.pinimg.com/originals/direct-pin.jpg",
+        contentType: "image/jpeg",
+        naturalWidth: 1200,
+        naturalHeight: 1600,
+        candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+        rejectedCandidates: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    try {
+      const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+      const result = await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+        manager as never,
+        "https://www.pinterest.com/pin/84301824269977360/",
+        {
+          referenceId: "pin-ref",
+          pinMediaEvidencePath: "/tmp/slow-warmup-primary-pin-media",
+          browserMode: "extension",
+          cookiePolicyOverride: "off",
+          challengeAutomationMode: "browser_with_helper",
+          timeoutMs: 240_000
+        }
+      );
+
+      expect(result).toEqual(expect.objectContaining({
+        status: "captured",
+        pinterestPageQuality: "pin_media"
+      }));
+      expect(launchTimeouts).toHaveLength(2);
+      expect(launchTimeouts[1]).toBeGreaterThanOrEqual(60_000);
+      expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith(
+        "session-capture",
+        expect.objectContaining({
+          timeoutMs: expect.any(Number)
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("charges canonical Pinterest pin warmup against the primary media capture deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-12T00:00:00.000Z"));
+
+    const launchTimeouts: number[] = [];
+    const captureTimeouts: number[] = [];
+    const manager = {
+      launch: vi.fn(async (_options: unknown, timeoutMs?: number) => {
+        launchTimeouts.push(timeoutMs ?? 0);
+        return { sessionId: launchTimeouts.length === 1 ? "session-warmup" : "session-capture" };
+      }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn(async (sessionId: string) => {
+        if (sessionId === "session-warmup") {
+          vi.setSystemTime(Date.now() + 5_500);
+        }
+      }),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://uk.pinterest.com/pin/84301824269977360/",
+        title: "Pin on Catalog",
+        content: "Digital Product & Brand Experience Agency - Gladeye pin page",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<img data-test-id=\"closeup-image-main-MainPinImage\" src=\"https://i.pinimg.com/originals/direct-pin.jpg\">"
+      }),
+      capturePinterestPinMedia: vi.fn(async (_sessionId: string, input: { timeoutMs?: number }) => {
+        captureTimeouts.push(input.timeoutMs ?? 0);
+        return {
+          status: "captured",
+          sourceUrl: "https://uk.pinterest.com/pin/84301824269977360/",
+          targetId: "target-pin",
+          kind: "image",
+          path: "/tmp/warmup-charged-primary-pin-media",
+          mediaUrl: "https://i.pinimg.com/originals/direct-pin.jpg",
+          contentType: "image/jpeg",
+          naturalWidth: 1200,
+          naturalHeight: 1600,
+          candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+          rejectedCandidates: []
+        };
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    try {
+      const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+      const result = await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+        manager as never,
+        "https://www.pinterest.com/pin/84301824269977360/",
+        {
+          referenceId: "pin-ref",
+          pinMediaEvidencePath: "/tmp/warmup-charged-primary-pin-media",
+          browserMode: "extension",
+          cookiePolicyOverride: "off",
+          challengeAutomationMode: "browser_with_helper",
+          timeoutMs: 6_000
+        }
+      );
+
+      expect(result).toEqual(expect.objectContaining({
+        status: "captured",
+        pinterestPageQuality: "pin_media"
+      }));
+      expect(launchTimeouts[0]).toBe(6_000);
+      expect(launchTimeouts[1]).toBeGreaterThan(0);
+      expect(launchTimeouts[1]).toBeLessThanOrEqual(500);
+      expect(captureTimeouts[0]).toBeGreaterThan(0);
+      expect(captureTimeouts[0]).toBeLessThanOrEqual(500);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("continues pin media capture after canonical Pinterest warmup timeout", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-12T00:00:00.000Z"));
+
+    let launchCount = 0;
+    const manager = {
+      launch: vi.fn(async () => {
+        launchCount += 1;
+        return { sessionId: launchCount === 1 ? "session-warmup" : "session-capture" };
+      }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn((sessionId: string) => (
+        sessionId === "session-warmup"
+          ? new Promise(() => undefined)
+          : Promise.resolve()
+      )),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://uk.pinterest.com/pin/84301824269977360/",
+        title: "Pin on Catalog",
+        content: "Digital Product & Brand Experience Agency - Gladeye pin page",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<img data-test-id=\"closeup-image-main-MainPinImage\" src=\"https://i.pinimg.com/originals/direct-pin.jpg\">"
+      }),
+      capturePinterestPinMedia: vi.fn().mockResolvedValue({
+        status: "captured",
+        sourceUrl: "https://uk.pinterest.com/pin/84301824269977360/",
+        targetId: "target-pin",
+        kind: "image",
+        path: "/tmp/warmup-timeout-primary-pin-media",
+        mediaUrl: "https://i.pinimg.com/originals/direct-pin.jpg",
+        contentType: "image/jpeg",
+        naturalWidth: 1200,
+        naturalHeight: 1600,
+        candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+        rejectedCandidates: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    try {
+      const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+      const capturePromise = captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+        manager as never,
+        "https://www.pinterest.com/pin/84301824269977360/",
+        {
+          referenceId: "pin-ref",
+          pinMediaEvidencePath: "/tmp/warmup-timeout-primary-pin-media",
+          browserMode: "extension",
+          cookiePolicyOverride: "off",
+          challengeAutomationMode: "browser_with_helper",
+          timeoutMs: 240_000
+        }
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await expect(capturePromise).resolves.toEqual(expect.objectContaining({
+        status: "captured",
+        pinterestPageQuality: "pin_media"
+      }));
+      expect(manager.launch).toHaveBeenCalledTimes(2);
+      expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith(
+        "session-capture",
+        expect.objectContaining({
+          timeoutMs: expect.any(Number)
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("runs primary Pinterest pin media capture before viewport probes can consume the budget", async () => {
+    const totalPinMediaCaptureBudgetMs = 120;
+    const minimumPinMediaCaptureBudgetMs = 60;
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-first" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn(() => new Promise(() => undefined)),
+      clonePageHtmlWithOptions: vi.fn(() => new Promise(() => undefined)),
+      capturePinterestPinMedia: vi.fn(async (_sessionId: string, input: { timeoutMs?: number }) => {
+        if ((input.timeoutMs ?? 0) < minimumPinMediaCaptureBudgetMs) {
+          throw new Error(`pin media budget too small: ${input.timeoutMs}`);
+        }
+        return {
+          status: "captured",
+          sourceUrl: "https://www.pinterest.com/pin/84301824269977360/",
+          targetId: "target-pin",
+          kind: "image",
+          path: "/tmp/primary-pin-first",
+          mediaUrl: "https://i.pinimg.com/originals/primary-pin-first.jpg",
+          contentType: "image/jpeg",
+          naturalWidth: 1200,
+          naturalHeight: 1600,
+          rejectedCandidates: []
+        };
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+    const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+    const result = await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/84301824269977360/",
+      {
+        referenceId: "pin-ref",
+        pinMediaEvidencePath: "/tmp/primary-pin-first",
+        browserMode: "extension",
+        cookiePolicyOverride: "off",
+        timeoutMs: totalPinMediaCaptureBudgetMs
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      pinterestPageQuality: "pin_media",
+      sourceUrl: "https://www.pinterest.com/pin/84301824269977360/"
+    }));
+    expect(manager.snapshot).not.toHaveBeenCalled();
+    expect(manager.clonePageHtmlWithOptions).not.toHaveBeenCalled();
+    expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith(
+      "session-primary-pin-first",
+      expect.objectContaining({ timeoutMs: expect.any(Number) })
+    );
+    expect(manager.capturePinterestPinMedia.mock.calls[0]?.[1].timeoutMs).toBeGreaterThanOrEqual(
+      minimumPinMediaCaptureBudgetMs
+    );
+  });
+
+  it("caps canonical Pinterest pin network-idle waits before primary pin media capture", async () => {
+    const totalCaptureBudgetMs = 45_000;
+    const maxPinMediaNetworkIdleWaitMs = 5_000;
+    const minimumRemainingCaptureBudgetMs = 30_000;
+    const manager = {
+      launch: vi.fn()
+        .mockResolvedValueOnce({ sessionId: "session-pin-warmup-budget" })
+        .mockResolvedValueOnce({ sessionId: "session-pin-capture-budget" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockRejectedValue(new Error("Navigation wait timed out after 5000ms")),
+      snapshot: vi.fn(() => new Promise(() => undefined)),
+      clonePageHtmlWithOptions: vi.fn(() => new Promise(() => undefined)),
+      capturePinterestPinMedia: vi.fn().mockResolvedValue({
+        status: "captured",
+        sourceUrl: "https://www.pinterest.com/pin/84301824269977360/",
+        targetId: "target-pin",
+        kind: "image",
+        path: "/tmp/primary-pin-budget",
+        mediaUrl: "https://i.pinimg.com/originals/primary-pin-budget.jpg",
+        contentType: "image/jpeg",
+        naturalWidth: 1200,
+        naturalHeight: 1600,
+        rejectedCandidates: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+    const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+
+    const result = await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+      manager as never,
+      "https://uk.pinterest.com/pin/84301824269977360/?utm_source=test",
+      {
+        referenceId: "pin-ref",
+        pinMediaEvidencePath: "/tmp/primary-pin-budget",
+        browserMode: "extension",
+        cookiePolicyOverride: "off",
+        timeoutMs: totalCaptureBudgetMs
+      }
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "captured",
+      pinterestPageQuality: "pin_media",
+      sourceUrl: "https://www.pinterest.com/pin/84301824269977360/"
+    }));
+    expect(manager.waitForLoad).toHaveBeenCalledTimes(2);
+    for (const call of manager.waitForLoad.mock.calls) {
+      expect(call[2]).toBeLessThanOrEqual(maxPinMediaNetworkIdleWaitMs);
+    }
+    expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith(
+      "session-pin-capture-budget",
+      expect.objectContaining({ timeoutMs: expect.any(Number) })
+    );
+    expect(manager.capturePinterestPinMedia.mock.calls[0]?.[1].timeoutMs).toBeGreaterThan(
+      minimumRemainingCaptureBudgetMs
+    );
+    expect(manager.snapshot).not.toHaveBeenCalled();
+    expect(manager.clonePageHtmlWithOptions).not.toHaveBeenCalled();
+  });
+
 	  it("imports configured cookies before extension warmup navigation", async () => {
 	    const cookieSource = {
 	      type: "inline" as const,
@@ -1177,8 +1610,7 @@ describe("inspiredesign capture helper", () => {
   it("skips extension warmup outside exact canonical Pinterest pin extension capture", async () => {
     const cases = [
       { name: "search-url", url: "https://www.pinterest.com/search/pins/?q=studio", browserMode: "extension" },
-	      { name: "query-canonical-pin", url: "https://www.pinterest.com/pin/27654985208435505/?utm_source=test", browserMode: "extension" },
-	      { name: "locale-pin-host", url: "https://uk.pinterest.com/pin/27654985208435505/", browserMode: "extension" },
+      { name: "non-http-canonical-pin", url: "ftp://www.pinterest.com/pin/27654985208435505/", browserMode: "extension" },
 	      { name: "managed-canonical-pin", url: "https://www.pinterest.com/pin/27654985208435505/", browserMode: "managed" },
 	      { name: "non-pinterest-url", url: "https://example.com/pin/27654985208435505/", browserMode: "extension" }
 	    ] as const;
@@ -1289,8 +1721,9 @@ describe("inspiredesign capture helper", () => {
 		status: "captured",
 		pinterestPageQuality: "pin_media",
 		mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
-		warnings: ["login_or_challenge_state"]
+		warnings: []
 	}));
+	expect(manager.snapshot).not.toHaveBeenCalled();
 	});
 
 	it("marks missing primary Pinterest pin media as diagnostic metadata", async () => {
@@ -1481,7 +1914,7 @@ describe("inspiredesign capture helper", () => {
 	}));
 	});
 
-	it("preserves viewport warnings on minimal primary Pinterest pin media captures", async () => {
+	it("skips viewport probes on minimal primary Pinterest pin media captures", async () => {
 	const manager = {
 		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media-minimal" }),
 		goto: vi.fn().mockResolvedValue(undefined),
@@ -1512,9 +1945,10 @@ describe("inspiredesign capture helper", () => {
 		url: "https://www.pinterest.com/pin/27654985208435505/",
 		tempPath: "/tmp/primary-pin-media-minimal",
 		pinterestPageQuality: "unknown",
-		warnings: ["viewport_url_unverified"],
+		warnings: [],
 		rejectionReasons: []
 	}));
+	expect(manager.snapshot).not.toHaveBeenCalled();
 	});
 
 	it("preserves detailed primary Pinterest pin media capture metadata", async () => {
@@ -1534,6 +1968,7 @@ describe("inspiredesign capture helper", () => {
 		}),
 		capturePinterestPinMedia: vi.fn().mockResolvedValue({
 		status: "captured",
+		sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
 		kind: "image",
 		path: "/tmp/primary-pin-media-detailed",
 		mediaUrl: "https://i.pinimg.com/originals/detail.jpg",

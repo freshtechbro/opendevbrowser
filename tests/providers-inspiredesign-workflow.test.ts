@@ -4580,6 +4580,130 @@ describe("inspiredesign workflow", () => {
     ]));
   });
 
+  it("promotes direct canonical Pinterest pins into pin-media product readiness without deep diagnostics", async () => {
+    const outputDir = makeOutputDir();
+    const directPinUrl = "https://www.pinterest.com/pin/84301824269977360";
+    const mediaUrl = "https://i.pinimg.com/originals/direct-pin-main.jpg";
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("social/pinterest", "social", {
+          url: input.url,
+          title: "Pinterest direct image pin reference",
+          content: "Full-bleed editorial image pin with cinematic studio staging",
+          attributes: PINTEREST_IMAGE_PIN_ATTRIBUTES
+        })
+      ]
+    }));
+    const captureReference = vi.fn();
+    const capturePinMediaEvidence = vi.fn(async (url: string, options: InspiredesignWorkflowPinMediaCaptureOptions) => {
+      expect(url).toBe(directPinUrl);
+      expect(options.browserMode).toBe("extension");
+      expect(options.useCookies).toBe(true);
+      expect(options.cookiePolicyOverride).toBe("required");
+      expect(options.pinterestPageQuality).toBe("pin_media");
+      writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+      return makePinterestImagePinMediaCapture(url, options, mediaUrl);
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      urls: [directPinUrl],
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      visualEvidence: "off",
+      includePrototypeGuidance: true,
+      outputDir,
+      mode: "path",
+      timeoutMs: 240000
+    }, {
+      capturePinMediaEvidence,
+      captureReference,
+      analyzeMediaArtifacts: async (inputs) => ({
+        version: 1,
+        generatedAt: "2026-05-23T00:00:00.000Z",
+        nonGoals: [],
+        references: inputs.map((input) => ({
+          referenceId: input.referenceId,
+          mediaPath: input.mediaPath,
+          ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
+          ...(input.mediaUrl ? { mediaUrl: input.mediaUrl } : {}),
+          kind: input.kind,
+          ...(input.contentType ? { contentType: input.contentType } : {}),
+          ...(typeof input.bytes === "number" ? { bytes: input.bytes } : {}),
+          ...(input.hash ? { hash: input.hash } : {}),
+          dimensions: {
+            width: input.width ?? 0,
+            height: input.height ?? 0,
+            aspectRatio: Number((((input.width ?? 0) / Math.max(1, input.height ?? 1))).toFixed(4))
+          },
+          authority: "design_evidence",
+          claimLevels: ["metadata_only"],
+          facts: {},
+          designGuidance: {
+            visualStrengths: ["Byte-backed direct Pinterest pin media was analyzed."],
+            visualRisks: [],
+            layoutRecipe: "Use a cinematic full-bleed hero anchored by editorial media.",
+            contentHierarchy: ["hero media", "headline", "service proof"],
+            componentFamilies: ["hero", "portfolio grid"],
+            motionPosture: "Static source only; adapt with restrained reveal motion.",
+            tokenNotes: ["Carry dark editorial contrast into semantic tokens."],
+            patternsToBorrow: ["full-bleed editorial image direction"],
+            patternsToReject: ["diagnostic-only shell guidance"],
+            typographyPosture: "editorial display headline",
+            imageryPosture: "cinematic studio imagery",
+            confidence: 0.84
+          },
+          confidence: 0.84,
+          limitations: []
+        }))
+      })
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+      references: Array<{ capture?: { attempts?: Record<string, { status: string }> } }>;
+    };
+    const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis), "utf8")) as {
+      references: Array<{ referenceId: string; mediaPath: string; designGuidance: { patternsToReject: string[] } }>;
+    };
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(capturePinMediaEvidence).toHaveBeenCalledTimes(1);
+    expect(captureReference).not.toHaveBeenCalled();
+    expect(meta.selection).toEqual(expect.objectContaining({
+      urls: [directPinUrl],
+      capture_mode: "off",
+      requested_browser_mode: "extension"
+    }));
+    expect(output).toEqual(expect.objectContaining({
+      ready: true,
+      readiness: "ready",
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      rankedReferenceCount: 1
+    }));
+    expect(evidence.references[0]?.capture?.attempts).toEqual({
+      snapshot: expect.objectContaining({ status: "skipped" }),
+      clone: expect.objectContaining({ status: "skipped" }),
+      dom: expect.objectContaining({ status: "skipped" })
+    });
+    expect(mediaAnalysis.references).toHaveLength(1);
+    expect(mediaAnalysis.references[0]).toEqual(expect.objectContaining({
+      mediaPath: "pin-media-evidence/31d105f36553/main.jpg",
+      designGuidance: expect.objectContaining({
+        patternsToReject: ["diagnostic-only shell guidance"]
+      })
+    }));
+    expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "canvas-plan.request.json",
+      INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis,
+      "pin-media-evidence/31d105f36553/main.jpg"
+    ]));
+  });
+
   it("keeps later query-discovered Pinterest pins eligible when enough workflow budget remains", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
@@ -6185,6 +6309,35 @@ describe("inspiredesign workflow", () => {
       harvest: true,
       providers: ["pinterest"]
     })).toBe("off");
+  });
+
+  it("disables deep capture mode for direct canonical Pinterest pin inputs by default", async () => {
+    const { resolveInspiredesignHarvestCaptureMode } = await import("../src/inspiredesign/capture-mode");
+
+    expect(resolveInspiredesignHarvestCaptureMode({
+      requested: undefined,
+      harvest: false,
+      providers: [],
+      urls: ["https://www.pinterest.com/pin/84301824269977360"]
+    })).toBe("off");
+    expect(resolveInspiredesignHarvestCaptureMode({
+      requested: "off",
+      harvest: false,
+      providers: [],
+      urls: ["https://uk.pinterest.com/pin/1055599900892243/"]
+    })).toBe("off");
+    expect(resolveInspiredesignHarvestCaptureMode({
+      requested: "deep",
+      harvest: false,
+      providers: [],
+      urls: ["https://www.pinterest.com/pin/84301824269977360"]
+    })).toBe("deep");
+    expect(resolveInspiredesignHarvestCaptureMode({
+      requested: undefined,
+      harvest: false,
+      providers: [],
+      urls: ["https://www.pinterest.com/search/pins/?q=studio"]
+    })).toBe("deep");
   });
 
   it("parses valid inspiredesign envelopes and forwards every optional runtime override", async () => {
