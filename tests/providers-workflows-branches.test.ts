@@ -1404,6 +1404,24 @@ describe("workflow branch coverage", () => {
       }),
       "https://shop.example/product"
     )).toBe(false);
+
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [{
+        providerId: "shopping/example",
+        candidateOffers: 2,
+        pricedOffers: 0,
+        regionMatchedOffers: 0,
+        zeroPriceExcluded: 2,
+        regionCurrencyExcluded: 0,
+        budgetExcluded: 0,
+        finalOffers: 0,
+        allCandidateOffersDroppedByZeroPrice: true,
+        allCandidateOffersDroppedByRegionCurrency: false,
+        allCandidateOffersDroppedByBudget: false
+      }],
+      regionEnforced: false,
+      failures: []
+    })).toBe("Selected providers returned only zero-price or missing-price offers, so this run could not determine a trustworthy deal price.");
   });
 
   it("normalizes product-video provider hints across prefixed, inferred, and passthrough inputs", () => {
