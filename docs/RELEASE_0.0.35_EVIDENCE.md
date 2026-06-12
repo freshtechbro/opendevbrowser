@@ -10,8 +10,8 @@ Tracks the `0.0.35` release cycle for PR #79, which closes the Pinterest harvest
 
 Current status note:
 - Source version metadata is aligned from `0.0.34` to `0.0.35`.
-- npm package `opendevbrowser@0.0.35` is not yet published.
-- GitHub release `v0.0.35` is not yet published.
+- npm package `opendevbrowser@0.0.35` is published and tagged `latest`.
+- GitHub release `v0.0.35` is published with extension zip and checksum assets.
 - Chrome Web Store and Google release lanes are intentionally out of scope for this release.
 
 ## Reference State
@@ -69,6 +69,9 @@ Current status note:
 - [x] PR #79 merged: `https://github.com/freshtechbro/opendevbrowser/pull/79`
 - [x] PR #79 merge commit: `ddc125f7c9a7c3b921f55b72373c9fbde457c81a`
 - [x] PR #79 passed required checks before merge: audit-zombie-files, build, chrome-store-compliance-check, cli-help-parity, docs-drift-check, focused-regression-tests, lint, skill-assets, and typecheck.
+- [x] PR #80 merged release prep: `https://github.com/freshtechbro/opendevbrowser/pull/80`
+- [x] PR #80 merge commit: `4a1c593731f6ee158a49626b53b6e4481fe5a687`
+- [x] PR #80 passed required checks before merge: audit-zombie-files, build, chrome-store-compliance-check, cli-help-parity, docs-drift-check, focused-regression-tests, lint, skill-assets, and typecheck.
 - [x] Live explicit pin harvest evidence: `.tmp/pinterest-closeout-20260612/harvest-pin-843-after-networkidle-cap/inspiredesign/f9e5d438-1edd-4d97-afab-2b5c79853141`
 - [x] Live query harvest evidence: `.tmp/pinterest-closeout-20260612/harvest-query-after-networkidle-cap/inspiredesign/7eb00cde-0d7c-4c34-bfb8-1549e23f7860`
 - [x] Live direct run evidence: `.tmp/pinterest-closeout-20260612/direct-run-pin-after-networkidle-cap/inspiredesign/be19b99c-7976-438d-8eb9-75d7ddd5cb11`
@@ -104,11 +107,25 @@ Current status note:
 
 ## External Release Workflow Evidence
 
-- [ ] GitHub release workflow run URL
-- [ ] npm publish verification
-- [ ] Registry consumer smoke
-- [ ] GitHub release URL
-- [ ] GitHub release asset verification
+- [x] Initial tag-driven GitHub release workflow run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/27447337042`
+  - Result: failed at `Publish npm package`.
+  - Failure: npm returned `E404 Not Found - PUT https://registry.npmjs.org/opendevbrowser` even though `NODE_AUTH_TOKEN` was present, indicating the GitHub Actions token was not authorized for this package publish.
+  - Completed before failure: release quality gates, extension packing, and extension checksum computation.
+- [x] npm publish verification:
+  - Local publish with authenticated npm user `bishopdotun` succeeded: `+ opendevbrowser@0.0.35`.
+  - `npm view opendevbrowser version dist-tags --json` returned version `0.0.35` and `latest: 0.0.35`.
+- [x] Registry consumer smoke:
+  - Command: `node scripts/registry-consumer-smoke.mjs --version 0.0.35 --output artifacts/release/v0.0.35/registry-consumer-smoke.json`
+  - Result: success, one install attempt, `helpLineCount: 829`, package version matched, extension and skills directories existed.
+  - Consumer graph: `opendevbrowser@0.0.35`, `@opencode-ai/plugin@1.17.4`, `ws@8.21.0`, `zod@3.25.76`, nested plugin `zod@4.1.8`.
+- [x] GitHub release recovery workflow run:
+  - URL: `https://github.com/freshtechbro/opendevbrowser/actions/runs/27447601136`
+  - Inputs: `release_ref=v0.0.35`, `release_tag=v0.0.35`, `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, `run_release_live_gates=false`.
+  - Result: success. Release quality gates, extension packing, checksum computation, and GitHub release publication passed.
+- [x] GitHub release URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.35`
+- [x] GitHub release asset verification:
+  - `opendevbrowser-extension.zip`, size `176328`, GitHub asset digest `sha256:07a23dd346f99b2420c944ddeb2800b2fed06457d50229862ecd6ef4acc76099`
+  - `opendevbrowser-extension.zip.sha256`, size `95`, GitHub asset digest `sha256:19dd4a2d052327c5f4ecbf89ad045c797c4dcc0bb51ca13c5bbb13018bf994e9`
 
 ## Out Of Scope
 
