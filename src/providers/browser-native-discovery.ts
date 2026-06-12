@@ -1,14 +1,22 @@
-import { createProviderError, isProviderReasonCode, providerErrorCodeFromReasonCode } from "./errors";
+import {
+  createProviderError,
+  isProviderReasonCode,
+  normalizeProviderReasonCode,
+  providerErrorCodeFromReasonCode
+} from "./errors";
 import type { JsonValue, NormalizedRecord, ProviderFailureEntry, ProviderReasonCode, ProviderSource } from "./types";
 import type { SiteRecipe, SiteRecipeBadState } from "../guidance/types";
 import {
   classifyPinterestCandidate,
   classifyPinterestSourcePage,
+  hasPinterestChromeMarkers,
+  isCanonicalPinterestPinUrl,
   shouldBlockPinterestSourceExtraction,
   summarizePinterestClassifications,
   type PinterestMediaClassification,
   type PinterestSourcePageQuality
 } from "../inspiredesign/pinterest-media-classification";
+import { isAllowedPinterestReferenceHost, normalizePinterestReferenceUrl } from "../guidance/recipes/pinterest";
 
 export type BrowserNativeDiscoveryResult = {
   records: NormalizedRecord[];
@@ -38,6 +46,15 @@ type MatchedBadState = {
 };
 
 type BadStateMatchMode = "hard_blocker" | "pre_extraction" | "all";
+type ReferenceUrlFilter = (url: string, record: NormalizedRecord) => boolean;
+
+const RENDERED_HREF_PATTERN = /href\s*=\s*["']([^"']+)["']/gi;
+const SEARCH_RESULT_CONTEXT_MARKERS = [
+  "data-grid=\"search-results",
+  "data-grid='search-results",
+  "aria-label=\"search results",
+  "aria-label='search results"
+];
 
 const HARD_FAILURE_REASON_CODES = new Set<ProviderReasonCode>([
   "auth_required",
@@ -151,17 +168,36 @@ const matchedPinterestClassificationBadState = (
 };
 
 const findHardFailure = (failures: ProviderFailureEntry[]): ProviderFailureEntry | undefined => (
-  failures.find((failure) => {
-    const reasonCode = failure.error.reasonCode ?? failure.error.details?.reasonCode;
-    return typeof reasonCode === "string"
-      && isProviderReasonCode(reasonCode)
-      && HARD_FAILURE_REASON_CODES.has(reasonCode);
-  })
+  failures.find((failure) => Boolean(hardReasonCodeForFailure(failure)))
+);
+
+const reasonCodesForFailure = (failure: ProviderFailureEntry): ProviderReasonCode[] => {
+  const candidates = [
+    failure.error.reasonCode,
+    failure.error.details?.reasonCode,
+    normalizeProviderReasonCode({
+      code: failure.error.code,
+      message: failure.error.message,
+      details: failure.error.details
+    })
+  ];
+  const reasonCodes = candidates.filter((reasonCode): reasonCode is ProviderReasonCode => (
+    typeof reasonCode === "string" && isProviderReasonCode(reasonCode)
+  ));
+  return [...new Set(reasonCodes)];
+};
+
+const hardReasonCodeForFailure = (failure: ProviderFailureEntry): ProviderReasonCode | undefined => (
+  reasonCodesForFailure(failure).find((reasonCode) => HARD_FAILURE_REASON_CODES.has(reasonCode))
 );
 
 const reasonCodeForFailure = (failure: ProviderFailureEntry): ProviderReasonCode | undefined => {
-  const reasonCode = failure.error.reasonCode ?? failure.error.details?.reasonCode;
-  return typeof reasonCode === "string" && isProviderReasonCode(reasonCode) ? reasonCode : undefined;
+  return hardReasonCodeForFailure(failure) ?? reasonCodesForFailure(failure)[0];
+};
+
+const reasonCodeForFirstFailure = (failures: readonly ProviderFailureEntry[]): ProviderReasonCode | undefined => {
+  const [failure] = failures;
+  return failure ? reasonCodeForFailure(failure) : undefined;
 };
 
 const buildBadStateResult = (
@@ -228,17 +264,40 @@ const buildHardFailureResult = (
   }
 });
 
+const buildFailurePassthroughResult = (
+  input: BrowserNativeDiscoveryInput,
+  source: ProviderSource,
+  searchUrl: string,
+  fetchedRecordCount: number,
+  failures: ProviderFailureEntry[],
+  sourcePageQuality?: PinterestSourcePageQuality,
+  diagnosticBlockers: readonly string[] = []
+): BrowserNativeDiscoveryResult => ({
+  records: [],
+  failures,
+  diagnostics: {
+    siteRecipeId: input.recipe.id,
+    attempted: true,
+    reason: reasonCodeForFirstFailure(failures) ?? "env_limited",
+    searchUrl,
+    fetchedRecordCount,
+    ...(sourcePageQuality ? { sourcePageQuality } : {}),
+    ...(diagnosticBlockers.length > 0 ? { diagnosticBlockers: [...diagnosticBlockers] } : {})
+  }
+});
+
 const extractRecipeReferenceUrls = (
   input: BrowserNativeDiscoveryInput,
   records: NormalizedRecord[],
-  maxReferences: number
+  maxReferences: number,
+  shouldAcceptUrl: ReferenceUrlFilter
 ): string[] => {
   const extractor = input.recipe.browserNativeDiscovery?.extractReferenceUrls;
   if (!extractor) return [];
   const urls: string[] = [];
   const seen = new Set<string>();
-  const pushUrl = (url: string): void => {
-    if (!url || seen.has(url)) return;
+  const pushUrl = (url: string, record: NormalizedRecord): void => {
+    if (!url || !shouldAcceptUrl(url, record) || seen.has(url)) return;
     seen.add(url);
     urls.push(url);
   };
@@ -248,11 +307,67 @@ const extractRecipeReferenceUrls = (
       content: record.content ?? undefined,
       html: typeof record.attributes.html === "string" ? record.attributes.html : undefined,
       links: linksFromRecord(record)
-    }).forEach(pushUrl);
+    }).forEach((url) => pushUrl(url, record));
     if (urls.length >= maxReferences) break;
   }
   return urls.slice(0, maxReferences);
 };
+
+const isStrictPinterestSourceBlock = (classification: PinterestMediaClassification): boolean => (
+  shouldBlockPinterestSourceExtraction(classification)
+  && classification.sourcePageQuality !== "search_shell"
+);
+
+const isPinterestSearchResultPageUrl = (value: string | undefined): boolean => {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    const segments = url.pathname.split("/").filter(Boolean);
+    return isAllowedPinterestReferenceHost(url.hostname.toLowerCase())
+      && segments[0] === "search"
+      && segments[1] === "pins";
+  } catch {
+    return false;
+  }
+};
+
+const hasPinterestSearchResultContext = (record: NormalizedRecord): boolean => {
+  if (isPinterestSearchResultPageUrl(record.url ?? undefined)) return true;
+  if (hasPinterestChromeMarkers(pinterestCandidateFromRecord(record))) return false;
+  const html = htmlFromRecord(record).toLowerCase();
+  return SEARCH_RESULT_CONTEXT_MARKERS.some((marker) => html.includes(marker));
+};
+
+const renderedHrefUrlsFromRecord = (record: NormalizedRecord): string[] => {
+  const html = htmlFromRecord(record);
+  const hrefs = Array.from(html.matchAll(RENDERED_HREF_PATTERN), (match) => match[1])
+    .filter((href): href is string => typeof href === "string");
+  return [...linksFromRecord(record), ...hrefs];
+};
+
+const hasRenderedPinterestPinLinkEvidence = (targetUrl: string, record: NormalizedRecord): boolean => {
+  const normalizedTarget = normalizePinterestReferenceUrl(targetUrl);
+  if (!isCanonicalPinterestPinUrl(normalizedTarget ?? undefined)) return false;
+  return renderedHrefUrlsFromRecord(record).some((candidate) => normalizePinterestReferenceUrl(candidate) === normalizedTarget);
+};
+
+const acceptsSearchShellPinterestReferenceUrl = (url: string, record: NormalizedRecord): boolean => (
+  hasPinterestSearchResultContext(record) && hasRenderedPinterestPinLinkEvidence(url, record)
+);
+
+const acceptsPinterestReferenceUrlForRecord = (url: string, record: NormalizedRecord): boolean => {
+  if (!isCanonicalPinterestPinUrl(url)) return false;
+  const classification = classifyPinterestCandidate(pinterestCandidateFromRecord(record));
+  if (isStrictPinterestSourceBlock(classification)) return false;
+  if (classification.sourcePageQuality === "search_shell") return acceptsSearchShellPinterestReferenceUrl(url, record);
+  if (classification.sourcePageQuality === "pin_grid_media") return true;
+  if (isCanonicalPinterestPinUrl(record.url ?? undefined)) return true;
+  return isPinterestSearchResultPageUrl(record.url ?? undefined);
+};
+
+const acceptsRecipeReferenceUrl = (recipe: SiteRecipe, url: string, record: NormalizedRecord): boolean => (
+  !isPinterestRecipe(recipe) || acceptsPinterestReferenceUrlForRecord(url, record)
+);
 
 const buildRecipeReferenceRecord = (
   input: BrowserNativeDiscoveryInput,
@@ -392,7 +507,7 @@ export const runBrowserNativeDiscovery = async (
   const pinterestSourceClassification = isPinterestRecipe(input.recipe)
     ? classifyPinterestSourcePage(fetched.records.map(pinterestCandidateFromRecord))
     : undefined;
-  if (pinterestSourceClassification && shouldBlockPinterestSourceExtraction(pinterestSourceClassification)) {
+  if (pinterestSourceClassification && isStrictPinterestSourceBlock(pinterestSourceClassification)) {
     const shellState = findBadState(input.recipe, fetched.records, "all")
       ?? matchedPinterestClassificationBadState(input.recipe, pinterestSourceClassification);
     return buildBadStateResult(
@@ -405,8 +520,37 @@ export const runBrowserNativeDiscovery = async (
       pinterestSourceClassification.diagnosticBlockers
     );
   }
-  const extractedUrls = extractRecipeReferenceUrls(input, fetched.records, input.maxReferences);
-  if (extractedUrls.length === 0) {
+  if (pinterestSourceClassification?.sourcePageQuality === "search_shell" && fetched.failures.length > 0) {
+    return buildFailurePassthroughResult(
+      input,
+      source,
+      searchUrl,
+      fetched.records.length,
+      fetched.failures,
+      pinterestSourceClassification.sourcePageQuality,
+      pinterestSourceClassification.diagnosticBlockers
+    );
+  }
+  const acceptedUrls = extractRecipeReferenceUrls(
+    input,
+    fetched.records,
+    input.maxReferences,
+    (url, record) => acceptsRecipeReferenceUrl(input.recipe, url, record)
+  );
+  if (acceptedUrls.length === 0) {
+    if (pinterestSourceClassification?.sourcePageQuality === "search_shell") {
+      const shellState = findBadState(input.recipe, fetched.records, "all")
+        ?? matchedPinterestClassificationBadState(input.recipe, pinterestSourceClassification);
+      return buildBadStateResult(
+        input,
+        source,
+        searchUrl,
+        fetched.records.length,
+        shellState,
+        pinterestSourceClassification.sourcePageQuality,
+        pinterestSourceClassification.diagnosticBlockers
+      );
+    }
     const shellState = fetched.failures.length === 0 ? findBadState(input.recipe, fetched.records, "all") : undefined;
     if (shellState) {
       return buildBadStateResult(input, source, searchUrl, fetched.records.length, shellState);
@@ -445,10 +589,10 @@ export const runBrowserNativeDiscovery = async (
   }
 
   const pinterestClassifications = isPinterestRecipe(input.recipe)
-    ? extractedUrls.map((url) => classifyPinterestCandidate({ url }))
+    ? acceptedUrls.map((url) => classifyPinterestCandidate({ url }))
     : [];
   return {
-    records: extractedUrls.map((url, index) => buildRecipeReferenceRecord(
+    records: acceptedUrls.map((url, index) => buildRecipeReferenceRecord(
       input,
       url,
       index,
@@ -463,7 +607,7 @@ export const runBrowserNativeDiscovery = async (
       searchUrl,
       navigationSteps: input.recipe.navigationSteps.map((step) => step.instruction),
       badStates: input.recipe.badStates.map((state) => state.id),
-      extractedUrlCount: extractedUrls.length,
+      extractedUrlCount: acceptedUrls.length,
       ...(pinterestSourceClassification ? {
         sourcePageQuality: pinterestSourceClassification.sourcePageQuality,
         diagnosticBlockers: pinterestSourceClassification.diagnosticBlockers as unknown as JsonValue,

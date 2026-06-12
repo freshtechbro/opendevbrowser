@@ -533,16 +533,6 @@ const buildDiagnosticInspiredesignAuthorityFields = (): InspiredesignAuthorityFi
 	diagnosticWarning: DIAGNOSTIC_ARTIFACT_WARNING
 });
 
-const mediaAnalysisArtifactAuthorityFields = (): InspiredesignAuthorityFields => buildDiagnosticInspiredesignAuthorityFields();
-
-const markInspiredesignMediaAnalysisArtifactAuthority = (
-	mediaAnalysis: InspiredesignMediaAnalysis,
-	fields: InspiredesignAuthorityFields
-): InspiredesignMediaAnalysis & InspiredesignAuthorityFields => ({
-	...mediaAnalysis,
-	...fields
-});
-
 const blockPrototypeGuidanceInDesignMarkdown = (
   markdown: string,
   prototypeGuidanceMarkdown: string | null
@@ -1232,9 +1222,8 @@ export const renderInspiredesign = (args: {
 	const authorityFields: InspiredesignAuthorityFields = baseAuthorityFields;
 	const canContinueInCanvas = authorityFields.productSuccess;
 	const { artifactAuthority, evidenceAuthority, productSuccess } = authorityFields;
-  const mediaAnalysisAuthorityFields = mediaAnalysisArtifactAuthorityFields();
   const mediaAnalysisArtifact = mediaAnalysis
-    ? markInspiredesignMediaAnalysisArtifactAuthority(mediaAnalysis, mediaAnalysisAuthorityFields)
+    ? mediaAnalysis
     : undefined;
   const metaWithAuthority = {
     ...args.meta,

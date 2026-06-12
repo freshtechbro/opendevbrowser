@@ -214,6 +214,112 @@ describe("workflow message helpers", () => {
     );
   });
 
+  it("prefers product-ready authority over partial provider follow-up summaries", () => {
+    const data = {
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      meta: {
+        primaryConstraintSummary: "Pinterest requires manual browser follow-up for one rejected candidate."
+      },
+      nextStepGuidance: {
+        readiness: "ready",
+        workflow: "inspiredesign",
+        primaryAction: {
+          summary: "Read generated artifacts and continue in Canvas."
+        }
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
+      "Inspiredesign workflow completed with product-ready artifacts. Next step: Read generated artifacts and continue in Canvas."
+    );
+  });
+
+  it("does not report product-ready artifacts when next-step guidance is not ready", () => {
+    const data = {
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      meta: {
+        primaryConstraintSummary: "Pinterest requires manual browser follow-up."
+      },
+      nextStepGuidance: {
+        readiness: "needs_recovery",
+        workflow: "inspiredesign",
+        primaryAction: {
+          summary: "Use the Pinterest browser-native recipe with extension cookies."
+        }
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
+      "Inspiredesign workflow completed with provider follow-up required: Pinterest requires manual browser follow-up. Next step: Use the Pinterest browser-native recipe with extension cookies."
+    );
+  });
+
+  it("does not report product-ready artifacts when ready guidance belongs to another workflow", () => {
+    const data = {
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      meta: {
+        primaryConstraintSummary: "Shopping needs browser follow-up."
+      },
+      nextStepGuidance: {
+        readiness: "ready",
+        workflow: "inspiredesign",
+        primaryAction: {
+          summary: "Open the generated design canvas."
+        }
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Shopping workflow", data)).toBe(
+      "Shopping workflow completed with provider follow-up required: Shopping needs browser follow-up."
+    );
+  });
+
+  it("does not report product-ready artifacts when evidence authority is diagnostic-only", () => {
+    const data = {
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "diagnostic_only",
+      meta: {
+        primaryConstraintSummary: "Pinterest requires manual browser follow-up."
+      }
+    };
+
+    expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
+      "Inspiredesign workflow completed with provider follow-up required: Pinterest requires manual browser follow-up."
+    );
+  });
+
+  it("does not combine split product-ready authority fields across response levels", () => {
+    const cases = [
+      {
+        productSuccess: true,
+        meta: {
+          artifactAuthority: "product_ready",
+          primaryConstraintSummary: "Pinterest requires manual browser follow-up."
+        }
+      },
+      {
+        artifactAuthority: "product_ready",
+        meta: {
+          productSuccess: true,
+          primaryConstraintSummary: "Pinterest requires manual browser follow-up."
+        }
+      }
+    ];
+
+    for (const data of cases) {
+      expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
+        "Inspiredesign workflow completed with provider follow-up required: Pinterest requires manual browser follow-up."
+      );
+    }
+  });
+
   it("reads typed nextStepGuidance from workflow metadata", () => {
     expect(readWorkflowGuidanceNextStep({
       meta: {

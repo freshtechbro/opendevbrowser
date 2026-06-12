@@ -24,6 +24,7 @@ import {
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type {
   JsonValue,
+  NormalizedRecord,
   ProviderAggregateResult,
   ProviderError,
   ProviderFailureEntry,
@@ -358,6 +359,53 @@ const PINTEREST_VIDEO_PIN_ATTRIBUTES: Record<string, JsonValue> = {
     diagnosticBlockers: []
   }
 };
+
+const makePinterestSearchShellDiscoveryRecord = (url: string, pinUrl: string): NormalizedRecord => {
+  const pinPath = new URL(pinUrl).pathname;
+  return normalizeRecord("social/pinterest", "social", {
+    url,
+    title: "Pinterest query results",
+    content: "Search results for cinematic photography studio. Pin card results are visible.",
+    attributes: {
+      links: [
+        pinPath,
+        "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/",
+        "https://example.com/offsite-reference"
+      ],
+      html: `<main><article aria-label="Pin card"><a href="${pinPath}">Studio pin</a></article></main>`
+    }
+  });
+};
+
+const makePinterestDiscoveredImagePinRecord = (url: string): NormalizedRecord => normalizeRecord("social/pinterest", "social", {
+  url,
+  title: "Pinterest discovered image pin reference",
+  content: "Full-bleed editorial image pin with premium product staging",
+  attributes: PINTEREST_IMAGE_PIN_ATTRIBUTES
+});
+
+const makePinterestImagePinMediaCapture = (
+  url: string,
+  options: InspiredesignWorkflowPinMediaCaptureOptions,
+  mediaUrl: string
+) => ({
+  status: "captured" as const,
+  kind: "image" as const,
+  capturedAt: "2026-05-23T00:00:00.000Z",
+  referenceId: options.referenceId,
+  url,
+  sourceUrl: url,
+  endedSourceUrl: url,
+  pinterestPageQuality: "pin_media" as const,
+  mediaUrl,
+  candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+  width: 1200,
+  height: 1600,
+  contentType: "image/jpeg",
+  tempPath: options.pinMediaEvidencePath,
+  warnings: [],
+  rejectionReasons: []
+});
 
 const makeAggregate = (overrides: Partial<ProviderAggregateResult> = {}): ProviderAggregateResult => ({
   ok: true,
@@ -1131,6 +1179,10 @@ describe("inspiredesign workflow", () => {
 		authority: "design_evidence",
 		claimLevels: expect.arrayContaining(["metadata_only"])
 	}));
+	expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
+	expect(mediaAnalysis).not.toHaveProperty("evidenceAuthority");
+	expect(mediaAnalysis).not.toHaveProperty("productSuccess");
+	expect(mediaAnalysis).not.toHaveProperty("diagnosticWarning");
 	expect(evidence.mediaAnalysis).toEqual(expect.objectContaining({
 		file: INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis,
 		referenceCount: 1,
@@ -1298,15 +1350,13 @@ describe("inspiredesign workflow", () => {
 		const artifactPath = String(output.artifact_path);
 		const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis), "utf8")) as {
 			references: unknown[];
-			artifactAuthority: string;
-			productSuccess: boolean;
 		};
 		expect(analyzeMediaArtifacts).not.toHaveBeenCalled();
-		expect(mediaAnalysis).toEqual(expect.objectContaining({
-			references: [],
-			artifactAuthority: "diagnostic_only",
-			productSuccess: false
-		}));
+		expect(mediaAnalysis).toEqual(expect.objectContaining({ references: [] }));
+		expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
+		expect(mediaAnalysis).not.toHaveProperty("evidenceAuthority");
+		expect(mediaAnalysis).not.toHaveProperty("productSuccess");
+		expect(mediaAnalysis).not.toHaveProperty("diagnosticWarning");
 		expect(output.meta).toEqual(expect.objectContaining({
 			mediaAnalysisFailure: "Pinterest pin media analysis temp write deadline was exhausted."
 		}));
@@ -1374,14 +1424,12 @@ describe("inspiredesign workflow", () => {
 	const artifactPath = String(output.artifact_path);
 	const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis), "utf8")) as {
 		references: unknown[];
-		artifactAuthority: string;
-		productSuccess: boolean;
 	};
-	expect(mediaAnalysis).toEqual(expect.objectContaining({
-		references: [],
-		artifactAuthority: "diagnostic_only",
-		productSuccess: false
-	}));
+	expect(mediaAnalysis).toEqual(expect.objectContaining({ references: [] }));
+	expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
+	expect(mediaAnalysis).not.toHaveProperty("evidenceAuthority");
+	expect(mediaAnalysis).not.toHaveProperty("productSuccess");
+	expect(mediaAnalysis).not.toHaveProperty("diagnosticWarning");
 	expect(output.meta).toEqual(expect.objectContaining({
 		mediaAnalysisFailure: "analysis failed"
 	}));
@@ -4355,11 +4403,11 @@ describe("inspiredesign workflow", () => {
     const meta = output.meta as InspiredesignWorkflowMeta;
     expect(meta.discovery).toEqual(expect.objectContaining({
       siteRecipeId: "social/pinterest",
-      acceptedUrls: [
-        "https://www.pinterest.com/pin/61572719900827789/",
-        "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/"
-      ]
+      acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
     }));
+    expect(meta.discovery?.acceptedUrls).not.toContain(
+      "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/"
+    );
     expect(fetch).toHaveBeenNthCalledWith(
       1,
       { url: "https://www.pinterest.com/search/pins/?q=premium+photography+studio+landing+page" },
@@ -4377,9 +4425,528 @@ describe("inspiredesign workflow", () => {
       expect.any(Object)
     );
     expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
-      readiness: "diagnostic_only",
+      readiness: "needs_recovery",
       reasonCode: "pinterest_browser_native_recovery"
     }));
+  });
+
+  it("promotes query-discovered canonical Pinterest pins into pin-media product readiness", async () => {
+    const outputDir = makeOutputDir();
+    const canonicalPinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const mediaUrl = "https://i.pinimg.com/originals/query-discovered-pin.jpg";
+    const fetchOrder: string[] = [];
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        fetchOrder.push("search");
+        return makeAggregate({
+          records: [makePinterestSearchShellDiscoveryRecord(input.url, canonicalPinUrl)]
+        });
+      }
+      fetchOrder.push("pin");
+      expect(input.url).toBe(canonicalPinUrl);
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(input.url)]
+      });
+    });
+    const captureReference = vi.fn();
+    const capturePinMediaEvidence = vi.fn(async (url: string, options: InspiredesignWorkflowPinMediaCaptureOptions) => {
+      expect(url).toBe(canonicalPinUrl);
+      expect(options.browserMode).toBe("extension");
+      expect(options.useCookies).toBe(true);
+      expect(options.cookiePolicyOverride).toBe("required");
+      expect(options.pinterestPageQuality).toBe("pin_media");
+      writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+      return makePinterestImagePinMediaCapture(url, options, mediaUrl);
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["social/pinterest"],
+      urls: [],
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      visualEvidence: "required",
+      outputDir,
+      mode: "path"
+    }, {
+      capturePinMediaEvidence,
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+      references: Array<{
+        url: string;
+        captureStatus: string;
+        capture?: { pinMedia?: { authority?: string; path?: string } };
+      }>;
+      pinMediaIndex?: Array<{ path: string }>;
+    };
+    const pinMediaIndex = JSON.parse(readFileSync(join(artifactPath, "pin-media-index.json"), "utf8")) as {
+      pinMediaIndex: Array<{
+        path: string;
+        authority: string;
+        bytes: number;
+        contentType: string;
+        mediaUrl: string;
+        firstPartyProvenance: {
+          referenceUrlCanonical: boolean;
+          sourceUrlMatchesReference: boolean;
+          mediaUrlFirstParty: boolean;
+        };
+      }>;
+    };
+    const rankedReferences = JSON.parse(readFileSync(join(artifactPath, "ranked-references.json"), "utf8")) as {
+      references: Array<{ url: string; evidenceAuthority?: string; capturedVia?: string[] }>;
+    };
+    const pinMediaEntry = pinMediaIndex.pinMediaIndex[0];
+    if (!pinMediaEntry) throw new Error("Expected query-discovered pin media index entry.");
+
+    expect(fetchOrder).toEqual(["search", "pin"]);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      { url: "https://www.pinterest.com/search/pins/?q=premium+photography+studio+landing+page" },
+      expect.objectContaining({
+        source: "web",
+        runtimePolicy: expect.objectContaining({
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        })
+      })
+    );
+    expect(capturePinMediaEvidence).toHaveBeenCalledTimes(1);
+    expect(captureReference).not.toHaveBeenCalled();
+    expect(meta.discovery).toEqual(expect.objectContaining({
+      siteRecipeId: "social/pinterest",
+      acceptedUrls: [canonicalPinUrl],
+      browserNativeDiagnostics: expect.objectContaining({
+        extractedUrlCount: 1,
+        sourcePageQuality: "search_shell"
+      })
+    }));
+    expect(meta.selection.urls).toEqual([canonicalPinUrl]);
+    expect(output).toEqual(expect.objectContaining({
+      ready: true,
+      readiness: "ready",
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      rankedReferenceCount: 1
+    }));
+    expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
+      readiness: "ready",
+      reasonCode: "design_ready"
+    }));
+    expect(pinMediaIndex.pinMediaIndex).toHaveLength(1);
+    expect(pinMediaEntry).toEqual(expect.objectContaining({
+      authority: "design_evidence",
+      bytes: validPinMediaBytes().length,
+      contentType: "image/jpeg",
+      mediaUrl
+    }));
+    expect(pinMediaEntry.firstPartyProvenance).toEqual(expect.objectContaining({
+      referenceUrlCanonical: true,
+      sourceUrlMatchesReference: true,
+      mediaUrlFirstParty: true
+    }));
+    expect(readFileSync(join(artifactPath, pinMediaEntry.path))).toEqual(validPinMediaBytes());
+    expect(evidence.pinMediaIndex).toEqual(pinMediaIndex.pinMediaIndex);
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      url: canonicalPinUrl,
+      captureStatus: "captured",
+      capture: expect.objectContaining({
+        pinMedia: expect.objectContaining({
+          authority: "design_evidence",
+          path: pinMediaEntry.path
+        })
+      })
+    }));
+    expect(rankedReferences.references[0]).toEqual(expect.objectContaining({
+      url: canonicalPinUrl,
+      evidenceAuthority: "pin_media_ready",
+      capturedVia: expect.arrayContaining(["pin_media", "pin_media_ready"])
+    }));
+    expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
+      "canvas-plan.request.json",
+      "pin-media-evidence.json",
+      "pin-media-index.json",
+      "ranked-references.json",
+      pinMediaEntry.path
+    ]));
+  });
+
+  it("keeps later query-discovered Pinterest pins eligible when enough workflow budget remains", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
+
+    try {
+      const outputDir = makeOutputDir();
+      const slowPinUrl = "https://www.pinterest.com/pin/1055599900892243/";
+      const readyPinUrl = "https://www.pinterest.com/pin/84301824269977360/";
+      const mediaUrl = "https://i.pinimg.com/originals/query-ready-after-slow-pin.jpg";
+      const searchUrl = "https://www.pinterest.com/search/pins/?q=premium+photography+studio+landing+page";
+      const readyPinTimeouts: Array<number | undefined> = [];
+      const fetch = vi.fn(async (input: { url: string }) => {
+        if (input.url.includes("/search/pins/")) {
+          const slowPinPath = new URL(slowPinUrl).pathname;
+          const readyPinPath = new URL(readyPinUrl).pathname;
+          return makeAggregate({
+            records: [
+              normalizeRecord("social/pinterest", "social", {
+                url: input.url,
+                title: "Pinterest query results",
+                content: "Search results for cinematic photography studio with visible pin cards.",
+                attributes: {
+                  links: [slowPinPath, readyPinPath],
+                  html: [
+                    `<a href="${slowPinPath}">Slow studio pin</a>`,
+                    `<a href="${readyPinPath}">Ready studio pin</a>`
+                  ].join("")
+                }
+              })
+            ]
+          });
+        }
+        return makeAggregate({
+          records: [makePinterestDiscoveredImagePinRecord(input.url)]
+        });
+      });
+      const captureReference = vi.fn();
+      const capturePinMediaEvidence = vi.fn(async (url: string, options: InspiredesignWorkflowPinMediaCaptureOptions) => {
+        if (url === slowPinUrl) {
+          vi.setSystemTime(new Date("2026-05-23T00:00:04.500Z"));
+          return {
+            status: "failed" as const,
+            kind: "image" as const,
+            capturedAt: "2026-05-23T00:00:04.500Z",
+            referenceId: options.referenceId,
+            url,
+            pinterestPageQuality: options.pinterestPageQuality,
+            warnings: ["primary_capture_setup_failed"],
+            failure: "Deep capture primary media capture session launch exceeded timeout budget.",
+            rejectionReasons: ["primary_capture_setup_failed"]
+          };
+        }
+        expect(url).toBe(readyPinUrl);
+        readyPinTimeouts.push(options.timeoutMs);
+        if ((options.timeoutMs ?? 0) <= 1000) {
+          return {
+            status: "failed" as const,
+            kind: "image" as const,
+            capturedAt: "2026-05-23T00:00:09.000Z",
+            referenceId: options.referenceId,
+            url,
+            pinterestPageQuality: options.pinterestPageQuality,
+            warnings: ["primary_capture_setup_failed"],
+            failure: "Deep capture primary media capture session launch exceeded timeout budget.",
+            rejectionReasons: ["primary_capture_setup_failed"]
+          };
+        }
+        writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+        return makePinterestImagePinMediaCapture(url, options, mediaUrl);
+      });
+
+      const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+        brief: "Design a cinematic photography studio landing page",
+        harvest: true,
+        query: "premium photography studio landing page",
+        providers: ["social/pinterest"],
+        browserMode: "extension",
+        useCookies: true,
+        cookiePolicyOverride: "required",
+        visualEvidence: "required",
+        timeoutMs: 10000,
+        outputDir,
+        mode: "path"
+      }, {
+        capturePinMediaEvidence,
+        captureReference
+      });
+
+      const artifactPath = String(output.artifact_path);
+      const pinMediaIndex = JSON.parse(readFileSync(join(artifactPath, "pin-media-index.json"), "utf8")) as {
+        pinMediaIndex: Array<{ path: string; url: string; authority: string; mediaUrl: string }>;
+      };
+      const rankedReferences = JSON.parse(readFileSync(join(artifactPath, "ranked-references.json"), "utf8")) as {
+        references: Array<{ url: string; evidenceAuthority?: string }>;
+      };
+      const meta = output.meta as InspiredesignWorkflowMeta;
+
+      expect(fetch).toHaveBeenNthCalledWith(
+        1,
+        { url: searchUrl },
+        expect.objectContaining({ timeoutMs: 10000 })
+      );
+      expect(capturePinMediaEvidence).toHaveBeenCalledTimes(2);
+      expect(readyPinTimeouts).toEqual([5500]);
+      expect(captureReference).not.toHaveBeenCalled();
+      expect(meta.discovery).toEqual(expect.objectContaining({
+        siteRecipeId: "social/pinterest",
+        acceptedUrls: [slowPinUrl, readyPinUrl]
+      }));
+      expect(output).toEqual(expect.objectContaining({
+        ready: true,
+        readiness: "ready",
+        productSuccess: true,
+        artifactAuthority: "product_ready",
+        evidenceAuthority: "pin_media_ready",
+        rankedReferenceCount: 1
+      }));
+      expect(pinMediaIndex.pinMediaIndex).toEqual([
+        expect.objectContaining({
+          url: readyPinUrl,
+          authority: "design_evidence",
+          mediaUrl
+        })
+      ]);
+      expect(readFileSync(join(artifactPath, pinMediaIndex.pinMediaIndex[0]?.path ?? ""))).toEqual(validPinMediaBytes());
+      expect(rankedReferences.references[0]).toEqual(expect.objectContaining({
+        url: readyPinUrl,
+        evidenceAuthority: "pin_media_ready"
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps query-discovered reference fetch budgets by the remaining workflow deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
+
+    try {
+      const pinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+      const observedReferenceTimeouts: Array<number | undefined> = [];
+      const fetch = vi.fn(async (
+        input: Parameters<ReferenceRetrievalPort["fetch"]>[0],
+        options?: Parameters<ReferenceRetrievalPort["fetch"]>[1]
+      ) => {
+        if (input.url.includes("/search/pins/")) {
+          expect(options?.timeoutMs).toBe(10000);
+          vi.setSystemTime(new Date("2026-05-23T00:00:08.000Z"));
+          return makeAggregate({
+            records: [makePinterestSearchShellDiscoveryRecord(input.url, pinUrl)]
+          });
+        }
+        observedReferenceTimeouts.push(options?.timeoutMs);
+        return makeAggregate({
+          records: [makePinterestDiscoveredImagePinRecord(input.url)]
+        });
+      });
+
+      await runInspiredesignWorkflow(toRuntime({ fetch }), {
+        brief: "Design a cinematic photography studio landing page",
+        harvest: true,
+        query: "premium photography studio landing page",
+        providers: ["social/pinterest"],
+        browserMode: "extension",
+        useCookies: true,
+        cookiePolicyOverride: "required",
+        visualEvidence: "off",
+        timeoutMs: 10000,
+        outputDir: makeOutputDir(),
+        mode: "json"
+      });
+
+      expect(observedReferenceTimeouts).toEqual([2000]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reserves the post-discovery workflow deadline across remaining query-discovered references", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
+
+    try {
+      const firstPinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+      const secondPinUrl = "https://www.pinterest.com/pin/84301824269977360/";
+      const observedReferenceTimeouts: Array<number | undefined> = [];
+      const fetch = vi.fn(async (
+        input: Parameters<ReferenceRetrievalPort["fetch"]>[0],
+        options?: Parameters<ReferenceRetrievalPort["fetch"]>[1]
+      ) => {
+        if (input.url.includes("/search/pins/")) {
+          expect(options?.timeoutMs).toBe(10000);
+          vi.setSystemTime(new Date("2026-05-23T00:00:04.900Z"));
+          const firstPinPath = new URL(firstPinUrl).pathname;
+          const secondPinPath = new URL(secondPinUrl).pathname;
+          return makeAggregate({
+            records: [normalizeRecord("social/pinterest", "social", {
+              url: input.url,
+              title: "Pinterest query results",
+              content: "Search results for cinematic photography studio. Pin card results are visible.",
+              attributes: {
+                links: [firstPinPath, secondPinPath],
+                html: [
+                  `<article aria-label="Pin card"><a href="${firstPinPath}">First studio pin</a></article>`,
+                  `<article aria-label="Pin card"><a href="${secondPinPath}">Second studio pin</a></article>`
+                ].join("")
+              }
+            })]
+          });
+        }
+        observedReferenceTimeouts.push(options?.timeoutMs);
+        if (input.url === firstPinUrl) {
+          vi.setSystemTime(new Date("2026-05-23T00:00:07.450Z"));
+        }
+        return makeAggregate({
+          records: [makePinterestDiscoveredImagePinRecord(input.url)]
+        });
+      });
+
+      await runInspiredesignWorkflow(toRuntime({ fetch }), {
+        brief: "Design a cinematic photography studio landing page",
+        harvest: true,
+        query: "premium photography studio landing page",
+        providers: ["social/pinterest"],
+        browserMode: "extension",
+        useCookies: true,
+        cookiePolicyOverride: "required",
+        visualEvidence: "off",
+        timeoutMs: 10000,
+        outputDir: makeOutputDir(),
+        mode: "json"
+      });
+
+      expect(observedReferenceTimeouts).toEqual([2550, 2550]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not schedule query-discovered references after the workflow deadline is exhausted", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
+
+    try {
+      const pinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+      const fetchedReferenceUrls: string[] = [];
+      const fetch = vi.fn(async (
+        input: Parameters<ReferenceRetrievalPort["fetch"]>[0],
+        options?: Parameters<ReferenceRetrievalPort["fetch"]>[1]
+      ) => {
+        if (input.url.includes("/search/pins/")) {
+          expect(options?.timeoutMs).toBe(10000);
+          vi.setSystemTime(new Date("2026-05-23T00:00:10.000Z"));
+          return makeAggregate({
+            records: [makePinterestSearchShellDiscoveryRecord(input.url, pinUrl)]
+          });
+        }
+        fetchedReferenceUrls.push(input.url);
+        return makeAggregate({
+          records: [makePinterestDiscoveredImagePinRecord(input.url)]
+        });
+      });
+      const capturePinMediaEvidence = vi.fn();
+      const captureReference = vi.fn();
+
+      const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+        brief: "Design a cinematic photography studio landing page",
+        harvest: true,
+        query: "premium photography studio landing page",
+        providers: ["social/pinterest"],
+        browserMode: "extension",
+        useCookies: true,
+        cookiePolicyOverride: "required",
+        visualEvidence: "required",
+        timeoutMs: 10000,
+        outputDir: makeOutputDir(),
+        mode: "json"
+      }, {
+        capturePinMediaEvidence,
+        captureReference
+      });
+
+      expect(fetchedReferenceUrls).toEqual([]);
+      expect(capturePinMediaEvidence).not.toHaveBeenCalled();
+      expect(captureReference).not.toHaveBeenCalled();
+      expect(output).toEqual(expect.objectContaining({
+        ready: false,
+        productSuccess: false,
+        artifactAuthority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only",
+        rankedReferenceCount: 0
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps query-discovered Pinterest pins diagnostic when pin-media capture bytes are invalid", async () => {
+    const outputDir = makeOutputDir();
+    const canonicalPinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        return makeAggregate({
+          records: [makePinterestSearchShellDiscoveryRecord(input.url, canonicalPinUrl)]
+        });
+      }
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(input.url)]
+      });
+    });
+    const captureReference = vi.fn();
+    const capturePinMediaEvidence = vi.fn(async (url: string, options: InspiredesignWorkflowPinMediaCaptureOptions) => {
+      writeFileSync(options.pinMediaEvidencePath, Buffer.alloc(12, 7));
+      return makePinterestImagePinMediaCapture(url, options, "https://i.pinimg.com/originals/query-invalid-pin.jpg");
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["social/pinterest"],
+      urls: [],
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      visualEvidence: "required",
+      outputDir,
+      mode: "path"
+    }, {
+      capturePinMediaEvidence,
+      captureReference
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const pinMediaEvidence = JSON.parse(readFileSync(join(artifactPath, "pin-media-evidence.json"), "utf8")) as {
+      pinMediaEvidence: Array<{ pinMedia: { authority: string; rejectionReasons: string[]; path?: string } }>;
+    };
+    const pinMediaIndex = JSON.parse(readFileSync(join(artifactPath, "pin-media-index.json"), "utf8")) as {
+      pinMediaIndex: Array<Record<string, JsonValue>>;
+    };
+
+    expect(meta.discovery).toEqual(expect.objectContaining({
+      siteRecipeId: "social/pinterest",
+      acceptedUrls: [canonicalPinUrl]
+    }));
+    expect(meta.selection.urls).toEqual([canonicalPinUrl]);
+    expect(capturePinMediaEvidence).toHaveBeenCalledTimes(1);
+    expect(captureReference).not.toHaveBeenCalled();
+    expect(pinMediaIndex.pinMediaIndex).toEqual([]);
+    expect(pinMediaEvidence.pinMediaEvidence[0]?.pinMedia).toEqual(expect.objectContaining({
+      authority: "diagnostic",
+      rejectionReasons: expect.arrayContaining(["unsupported_byte_signature"])
+    }));
+    expect(pinMediaEvidence.pinMediaEvidence[0]?.pinMedia.path).toBeUndefined();
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    }));
+    expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
+      readiness: "needs_recovery",
+      reasonCode: "pinterest_browser_native_recovery"
+    }));
+    expect(meta.artifact_manifest.files).not.toContain("canvas-plan.request.json");
+    expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(false);
   });
 
   it("keeps standard provider search when Pinterest is part of a mixed provider harvest", async () => {

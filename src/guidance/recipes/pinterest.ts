@@ -92,6 +92,7 @@ const RESERVED_PINTEREST_PROFILE_TABS = new Set([
   "saved",
   "tried"
 ]);
+const PINTEREST_TEXT_URL_PATTERN = /(?:https?:\/\/(?:(?:www|[a-z]{2})\.)?pinterest\.com\/(?:pin|ideas|[a-zA-Z0-9_-]+)\/[^\s"'<>)]*|(?<![A-Za-z0-9.])\/(?:pin|ideas|[a-zA-Z0-9_-]+)\/[^\s"'<>)]*)/g;
 
 export const isAllowedPinterestReferenceHost = (hostname: string): boolean => (
   hostname === "pinterest.com"
@@ -136,7 +137,7 @@ export const normalizePinterestReferenceUrl = (value: string): string | null => 
 };
 
 const extractPinterestUrlsFromText = (value: string): string[] => {
-  const candidates = value.match(/(?:https?:\/\/(?:(?:www|[a-z]{2})\.)?pinterest\.com\/(?:pin\/[a-zA-Z0-9_-]+|ideas\/[a-zA-Z0-9/_-]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)|(?<![A-Za-z0-9.])\/(?:pin\/[a-zA-Z0-9_-]+|ideas\/[a-zA-Z0-9/_-]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+))\/?/g) ?? [];
+  const candidates = value.match(PINTEREST_TEXT_URL_PATTERN) ?? [];
   return candidates
     .map(normalizePinterestReferenceUrl)
     .filter((url): url is string => url !== null);

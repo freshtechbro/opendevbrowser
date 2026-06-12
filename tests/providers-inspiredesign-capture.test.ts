@@ -1623,7 +1623,7 @@ describe("inspiredesign capture helper", () => {
       snapshot: vi.fn().mockResolvedValue({
         url: "https://www.pinterest.com/pin/456/",
         title: "Search results for couture atelier",
-        content: "Related searches, pin card, updates, and messages",
+        content: "Related searches, pin card, browse visual ideas, and editorial references",
         refCount: 1,
         warnings: ["When autocomplete results are available"]
       }),
@@ -1644,7 +1644,7 @@ describe("inspiredesign capture helper", () => {
     expect(result).toEqual(expect.objectContaining({
       status: "captured",
       sourceUrl: "https://www.pinterest.com/pin/456/",
-		pinterestPageQuality: "search_shell",
+      pinterestPageQuality: "search_shell",
       warnings: ["interface_chrome_shell"]
     }));
   });

@@ -8,7 +8,16 @@ const COVERAGE_ROOT = path.join(ROOT, "coverage");
 const COVERAGE_TMP = path.join(COVERAGE_ROOT, ".tmp");
 const VITEST_BIN = path.join(ROOT, "node_modules", "vitest", "vitest.mjs");
 const RM_GUARD = path.join(ROOT, "scripts", "vitest-coverage-rm-guard.cjs");
-const RETRYABLE_COVERAGE_SHARD_ERROR = /ENOENT: no such file or directory, open '([^']+coverage\/\.tmp\/coverage-\d+\.json)'/;
+const MISSING_FILE_OPEN_ERROR = /ENOENT: no such file or directory, open ['"]([^'"]+)['"]/g;
+const COVERAGE_SHARD_FILE_PATTERN = /^coverage-\d+\.json$/;
+const NON_COVERAGE_FAILURE_SIGNAL_PATTERNS = [
+  /(?:^|\n)\s*FAIL\s+/,
+  /(?:^|\n)\s*Failed Tests\s+\d+/,
+  /(?:^|\n)\s*Test Files\s+.*\bfailed\b/,
+  /(?:^|\n)\s*Tests\s+.*\bfailed\b/,
+  /\bAssertionError\b/,
+  /(?:^|\n)\s*(?:Error|TypeError|ReferenceError|SyntaxError|RangeError):\s(?!ENOENT: no such file or directory, open)/
+];
 const COVERAGE_CLEANUP_RETRIES = 3;
 const FOCUSED_COVERAGE_THRESHOLD_ARGS = [
   "--coverage.thresholds.lines",
@@ -21,20 +30,50 @@ const FOCUSED_COVERAGE_THRESHOLD_ARGS = [
   "0"
 ];
 
-export function isRetryableCoverageShardError(output, coverageRoot = COVERAGE_ROOT) {
-  if (typeof output !== "string") {
-    return false;
-  }
-  const match = RETRYABLE_COVERAGE_SHARD_ERROR.exec(output);
-  if (!match?.[1]) {
-    return false;
-  }
-  const missingPath = path.resolve(match[1]);
+function isRetryableCoverageShardPath(missingFilePath, coverageRoot) {
+  const missingPath = path.resolve(missingFilePath);
   const relative = path.relative(path.resolve(coverageRoot), missingPath);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     return false;
   }
-  return relative.startsWith(`.tmp${path.sep}coverage-`) && relative.endsWith(".json");
+  const [tempSegment, fileSegment, ...extraSegments] = relative.split(path.sep);
+  return extraSegments.length === 0
+    && (tempSegment === ".tmp" || Boolean(tempSegment?.startsWith(".tmp-")))
+    && COVERAGE_SHARD_FILE_PATTERN.test(fileSegment ?? "");
+}
+
+function getMissingOpenErrorPaths(output) {
+  return Array.from(output.matchAll(MISSING_FILE_OPEN_ERROR), (match) => match[1]).filter(Boolean);
+}
+
+function stripRetryableCoverageShardLines(output, coverageRoot) {
+  return output
+    .split(/\r?\n/)
+    .filter((line) => {
+      const matches = Array.from(line.matchAll(MISSING_FILE_OPEN_ERROR));
+      return matches.length === 0
+        || !matches.every((match) => match[1] && isRetryableCoverageShardPath(match[1], coverageRoot));
+    })
+    .join("\n");
+}
+
+function hasNonCoverageFailureSignal(output, coverageRoot) {
+  const outputWithoutShardLines = stripRetryableCoverageShardLines(output, coverageRoot);
+  return NON_COVERAGE_FAILURE_SIGNAL_PATTERNS.some((pattern) => pattern.test(outputWithoutShardLines));
+}
+
+export function isRetryableCoverageShardError(output, coverageRoot = COVERAGE_ROOT) {
+  if (typeof output !== "string") {
+    return false;
+  }
+  const missingPaths = getMissingOpenErrorPaths(output);
+  if (missingPaths.length === 0) {
+    return false;
+  }
+  if (!missingPaths.every((missingPath) => isRetryableCoverageShardPath(missingPath, coverageRoot))) {
+    return false;
+  }
+  return !hasNonCoverageFailureSignal(output, coverageRoot);
 }
 
 function sleep(ms) {

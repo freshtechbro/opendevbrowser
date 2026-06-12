@@ -1514,6 +1514,20 @@ const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | und
   };
 };
 
+const resolveInspiredesignReferenceBudgetMs = (
+  workflowRemainingTimeoutMs: number | undefined,
+  remainingReferenceCount: number
+): number | undefined => {
+  if (typeof workflowRemainingTimeoutMs !== "number" || !Number.isFinite(workflowRemainingTimeoutMs) || workflowRemainingTimeoutMs <= 0) {
+    return undefined;
+  }
+  return Math.max(1, Math.ceil(workflowRemainingTimeoutMs / Math.max(1, remainingReferenceCount)));
+};
+
+const isInspiredesignWorkflowDeadlineExhausted = (
+  workflowRemainingTimeoutMs: number | undefined
+): boolean => typeof workflowRemainingTimeoutMs === "number" && workflowRemainingTimeoutMs <= 1;
+
 const resolveResearchProviderStepTimeoutMs = (timeoutMs?: number): number | undefined => {
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return undefined;
@@ -5871,6 +5885,8 @@ export const runInspiredesignWorkflow = async (
   let workflowInput: InspiredesignResolvedInput = { ...rawWorkflowInput, outputDir: artifactRoot };
   const requestedReferenceUrls = [...workflowInput.urls];
   const remainingTimeoutMs = createRemainingTimeoutResolver(workflowInput.timeoutMs);
+  // Start the workflow deadline now; reference captures get their own per-reference budgets below.
+  remainingTimeoutMs();
   const visualEvidenceTempDir = workflowInput.visualEvidence !== "off"
     ? await mkdtemp(join(tmpdir(), "inspiredesign-visual-"))
     : undefined;
@@ -5912,11 +5928,22 @@ export const runInspiredesignWorkflow = async (
   const references: InspiredesignReferenceEvidence[] = [];
   const failures: ProviderFailureEntry[] = [...discovery.failures];
   for (const [index, url] of workflowInput.urls.entries()) {
+    const workflowRemainingBudgetMs = remainingTimeoutMs();
+    if (isInspiredesignWorkflowDeadlineExhausted(workflowRemainingBudgetMs)) {
+      trace = appendWorkflowTrace(trace, "execute", "reference_skipped", {
+        stepIndex: index,
+        url,
+        reason: "workflow_timeout_exhausted"
+      });
+      break;
+    }
+    const referenceBudgetMs = resolveInspiredesignReferenceBudgetMs(workflowRemainingBudgetMs, workflowInput.urls.length - index);
+    const referenceRemainingTimeoutMs = createRemainingTimeoutResolver(referenceBudgetMs);
     const stepTrace = appendWorkflowTrace(trace, "execute", "reference_started", {
       stepIndex: index,
       url
     });
-    const fetchTimeoutMs = remainingTimeoutMs();
+    const fetchTimeoutMs = referenceRemainingTimeoutMs();
     const fetchResult = await runtime.fetch(
       { url },
       buildInspiredesignReferenceFetchOptions(
@@ -5952,7 +5979,7 @@ export const runInspiredesignWorkflow = async (
         visualPlan.referenceId,
         pinMediaEvidenceTempDir,
         classification,
-        remainingTimeoutMs()
+        referenceRemainingTimeoutMs()
       )
       : undefined;
     const visual = visualFirst
@@ -5962,7 +5989,7 @@ export const runInspiredesignWorkflow = async (
           workflowInput,
           options.captureVisualEvidence,
           visualPlan,
-          remainingTimeoutMs()
+          referenceRemainingTimeoutMs()
         ),
         visualPlan
       )
@@ -5974,7 +6001,7 @@ export const runInspiredesignWorkflow = async (
         options.captureMotionEvidence,
         visualPlan.referenceId,
         motionEvidenceTempDir,
-        remainingTimeoutMs()
+        referenceRemainingTimeoutMs()
       )
       : undefined;
     const primaryCapture = mergeCapturePinMediaEvidence(
@@ -5990,7 +6017,7 @@ export const runInspiredesignWorkflow = async (
       workflowInput,
       options.captureReference,
       visualPlan,
-      remainingTimeoutMs(),
+      referenceRemainingTimeoutMs(),
       visual || motion || pinMedia ? primaryCapture : undefined
     );
     const reference = buildInspiredesignReference(url, result, capture);

@@ -295,6 +295,17 @@ const expectNoCanvasMediaAnalysisTextLeakage = (payload: string): void => {
   }
 };
 
+const expectMediaAnalysisArtifactIsNonAuthoritative = (
+	mediaAnalysis: JsonValue | undefined,
+	expected?: Partial<InspiredesignMediaAnalysis>
+): void => {
+	expect(mediaAnalysis).toEqual(expected ? expect.objectContaining(expected) : expect.any(Object));
+	expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
+	expect(mediaAnalysis).not.toHaveProperty("evidenceAuthority");
+	expect(mediaAnalysis).not.toHaveProperty("productSuccess");
+	expect(mediaAnalysis).not.toHaveProperty("diagnosticWarning");
+};
+
 const makeReference = (
   overrides: Partial<InspiredesignReferenceEvidence> = {}
 ): InspiredesignReferenceEvidence => ({
@@ -4172,18 +4183,17 @@ describe("inspiredesign packet + renderer", () => {
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.motionEvidence }),
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.pinMediaEvidence }),
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.pinMediaIndex }),
-		expect.objectContaining({
-          path: INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis,
-          content: expect.objectContaining({
-            ...rendererMediaAnalysis,
-			artifactAuthority: "diagnostic_only",
-			evidenceAuthority: "diagnostic_only",
-			productSuccess: false
-          })
-        }),
+			expect.objectContaining({
+	          path: INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis,
+	          content: expect.objectContaining(rendererMediaAnalysis)
+	        }),
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.rankedReferences }),
         expect.objectContaining({ path: INSPIREDESIGN_HANDOFF_FILES.metaPrompt })
-      ]));
+	      ]));
+			expectMediaAnalysisArtifactIsNonAuthoritative(
+				rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis)?.content as JsonValue | undefined,
+				rendererMediaAnalysis
+			);
 
       if (mode === "compact") {
         expect(rendered.response).toMatchObject({
@@ -4230,17 +4240,11 @@ describe("inspiredesign packet + renderer", () => {
           brief,
           advancedBriefMarkdown: packet.advancedBriefMarkdown,
           urls,
-          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
-          artifactAuthority: "product_ready",
-          productSuccess: true,
-			evidenceAuthority: "snapshot_ready",
-          mediaAnalysis: expect.objectContaining({
-            ...rendererMediaAnalysis,
-			artifactAuthority: "diagnostic_only",
-			evidenceAuthority: "diagnostic_only",
-			productSuccess: false
-          }),
-          canvasPlanRequest: packet.canvasPlanRequest,
+	          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+	          artifactAuthority: "product_ready",
+	          productSuccess: true,
+				evidenceAuthority: "snapshot_ready",
+	          canvasPlanRequest: packet.canvasPlanRequest,
           designAgentHandoff: expect.objectContaining({
             artifactAuthority: "product_ready",
 			evidenceAuthority: "snapshot_ready",
@@ -4251,9 +4255,13 @@ describe("inspiredesign packet + renderer", () => {
           }),
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
-          suggestedNextAction: packet.followthrough.nextStep
-        });
-      } else if (mode === "md") {
+	          suggestedNextAction: packet.followthrough.nextStep
+	        });
+				expectMediaAnalysisArtifactIsNonAuthoritative(
+					(rendered.response as { mediaAnalysis?: JsonValue }).mediaAnalysis,
+					rendererMediaAnalysis
+				);
+	      } else if (mode === "md") {
         expect(rendered.response).toMatchObject({
           mode,
           markdown: packet.designMarkdown,
@@ -4303,14 +4311,9 @@ describe("inspiredesign packet + renderer", () => {
             screenshotIndex: expect.arrayContaining([
               expect.objectContaining({ referenceId: "product-ref" })
             ]),
-            motionEvidence: [],
-            mediaAnalysis: expect.objectContaining({
-              ...rendererMediaAnalysis,
-				artifactAuthority: "diagnostic_only",
-				evidenceAuthority: "diagnostic_only",
-				productSuccess: false
-			}),
-            rankedReferences: authoritativeReferencePatternBoard.references,
+	            motionEvidence: [],
+	            mediaAnalysis: expect.objectContaining(rendererMediaAnalysis),
+	            rankedReferences: authoritativeReferencePatternBoard.references,
             canvasPlanRequest: packet.canvasPlanRequest,
             designAgentHandoff: expect.objectContaining({
               artifactAuthority: "product_ready",
@@ -4325,9 +4328,13 @@ describe("inspiredesign packet + renderer", () => {
           }),
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
-          suggestedNextAction: packet.followthrough.nextStep
-        });
-      } else {
+	          suggestedNextAction: packet.followthrough.nextStep
+	        });
+				expectMediaAnalysisArtifactIsNonAuthoritative(
+					(rendered.response as { context?: { mediaAnalysis?: JsonValue } }).context?.mediaAnalysis,
+					rendererMediaAnalysis
+				);
+	      } else {
         expect(rendered.response).toMatchObject({
           mode: "path",
           meta: {
@@ -4567,25 +4574,19 @@ describe("inspiredesign packet + renderer", () => {
 		nextStepGuidance: readyNextStepGuidance,
 		meta: { requestId: "req-pin-media-empty-analysis", pinterestEvidenceRequired: true }
 	});
-	expect(renderedWithEmptyPinMediaAnalysis.response).toMatchObject({
-		artifactAuthority: "product_ready",
-		productSuccess: true,
-		evidenceAuthority: "pin_media_ready",
-		mediaAnalysis: expect.objectContaining({
-			artifactAuthority: "diagnostic_only",
-			productSuccess: false,
-			evidenceAuthority: "diagnostic_only",
-			references: []
-		})
-	});
-	expect(renderedWithEmptyPinMediaAnalysis.response).toHaveProperty("canvasPlanRequest");
-	expect(renderedWithEmptyPinMediaAnalysis.files.find((file) => (
-		file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis
-	))?.content).toEqual(expect.objectContaining({
-		artifactAuthority: "diagnostic_only",
-		productSuccess: false,
-		evidenceAuthority: "diagnostic_only"
-	}));
+		expect(renderedWithEmptyPinMediaAnalysis.response).toMatchObject({
+			artifactAuthority: "product_ready",
+			productSuccess: true,
+			evidenceAuthority: "pin_media_ready"
+		});
+		expectMediaAnalysisArtifactIsNonAuthoritative(
+			(renderedWithEmptyPinMediaAnalysis.response as { mediaAnalysis?: JsonValue }).mediaAnalysis,
+			{ references: [] }
+		);
+		expect(renderedWithEmptyPinMediaAnalysis.response).toHaveProperty("canvasPlanRequest");
+		expectMediaAnalysisArtifactIsNonAuthoritative(renderedWithEmptyPinMediaAnalysis.files.find((file) => (
+			file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis
+		))?.content as JsonValue | undefined, { references: [] });
 
 	const mediaAnalysisBackedPinMediaPatternBoard: InspiredesignReferencePatternBoard = {
 		...pinMediaReferencePatternBoard,
@@ -4631,18 +4632,17 @@ describe("inspiredesign packet + renderer", () => {
 		nextStepGuidance: readyNextStepGuidance,
 		meta: { requestId: "req-pin-media-untrusted-analysis", pinterestEvidenceRequired: true }
 	});
-	expect(renderedWithUntrustedMediaAnalysisBackedClaim.response).toMatchObject({
-		artifactAuthority: "product_ready",
-		productSuccess: true,
-		evidenceAuthority: "pin_media_ready",
-		mediaAnalysis: expect.objectContaining({
-			artifactAuthority: "diagnostic_only",
-			productSuccess: false,
-			evidenceAuthority: "diagnostic_only"
-		})
-	});
-	expect(renderedWithUntrustedMediaAnalysisBackedClaim.response).toHaveProperty("canvasPlanRequest");
-	expect(renderedWithUntrustedMediaAnalysisBackedClaim.response).toHaveProperty("mediaAnalysis");
+		expect(renderedWithUntrustedMediaAnalysisBackedClaim.response).toMatchObject({
+			artifactAuthority: "product_ready",
+			productSuccess: true,
+			evidenceAuthority: "pin_media_ready"
+		});
+		expect(renderedWithUntrustedMediaAnalysisBackedClaim.response).toHaveProperty("canvasPlanRequest");
+		expect(renderedWithUntrustedMediaAnalysisBackedClaim.response).toHaveProperty("mediaAnalysis");
+		expectMediaAnalysisArtifactIsNonAuthoritative(
+			(renderedWithUntrustedMediaAnalysisBackedClaim.response as { mediaAnalysis?: JsonValue }).mediaAnalysis,
+			{ references: [] }
+		);
 
 	const matchingPinMediaAnalysis = makeInspiredesignMediaAnalysis({
 		referenceId: "pin-ref",
@@ -4687,17 +4687,15 @@ describe("inspiredesign packet + renderer", () => {
 		nextStepGuidance: readyNextStepGuidance,
 		meta: { requestId: "req-pin-media-metadata-only-analysis", pinterestEvidenceRequired: true }
 	});
-	expect(renderedWithMetadataOnlyMediaAnalysisBackedClaim.response).toMatchObject({
-		artifactAuthority: "product_ready",
-		productSuccess: true,
-		evidenceAuthority: "pin_media_ready",
-		mediaAnalysis: expect.objectContaining({
-			artifactAuthority: "diagnostic_only",
-			productSuccess: false,
-			evidenceAuthority: "diagnostic_only"
-		})
-	});
-	expect(renderedWithMetadataOnlyMediaAnalysisBackedClaim.response).toHaveProperty("canvasPlanRequest");
+		expect(renderedWithMetadataOnlyMediaAnalysisBackedClaim.response).toMatchObject({
+			artifactAuthority: "product_ready",
+			productSuccess: true,
+			evidenceAuthority: "pin_media_ready"
+		});
+		expectMediaAnalysisArtifactIsNonAuthoritative(
+			(renderedWithMetadataOnlyMediaAnalysisBackedClaim.response as { mediaAnalysis?: JsonValue }).mediaAnalysis
+		);
+		expect(renderedWithMetadataOnlyMediaAnalysisBackedClaim.response).toHaveProperty("canvasPlanRequest");
 
 	const renderedWithPinMediaDerivedAuthority = renderInspiredesign({
 		mode: "json",
@@ -4722,16 +4720,15 @@ describe("inspiredesign packet + renderer", () => {
 		nextStepGuidance: readyNextStepGuidance,
 		meta: { requestId: "req-pin-media-matching-analysis", pinterestEvidenceRequired: true }
 	});
-	expect(renderedWithPinMediaDerivedAuthority.response).toMatchObject({
-		artifactAuthority: "product_ready",
-		productSuccess: true,
-		evidenceAuthority: "pin_media_ready",
-		mediaAnalysis: expect.objectContaining({
-			artifactAuthority: "diagnostic_only",
-			productSuccess: false,
-			evidenceAuthority: "diagnostic_only"
-		})
-	});
+		expect(renderedWithPinMediaDerivedAuthority.response).toMatchObject({
+			artifactAuthority: "product_ready",
+			productSuccess: true,
+			evidenceAuthority: "pin_media_ready"
+		});
+		expectMediaAnalysisArtifactIsNonAuthoritative(
+			(renderedWithPinMediaDerivedAuthority.response as { mediaAnalysis?: JsonValue }).mediaAnalysis,
+			matchingPinMediaAnalysis
+		);
 
 	const secondPinMediaIndexEntry = {
 		...pinMediaIndex[0]!,
@@ -4786,16 +4783,15 @@ describe("inspiredesign packet + renderer", () => {
 		nextStepGuidance: readyNextStepGuidance,
 		meta: { requestId: "req-pin-media-partial-analysis", pinterestEvidenceRequired: true }
 	});
-	expect(renderedWithPartialMediaAnalysisCoverage.response).toMatchObject({
-		artifactAuthority: "product_ready",
-		productSuccess: true,
-		evidenceAuthority: "pin_media_ready",
-		mediaAnalysis: expect.objectContaining({
-			artifactAuthority: "diagnostic_only",
-			productSuccess: false,
-			evidenceAuthority: "diagnostic_only"
-		})
-	});
+		expect(renderedWithPartialMediaAnalysisCoverage.response).toMatchObject({
+			artifactAuthority: "product_ready",
+			productSuccess: true,
+			evidenceAuthority: "pin_media_ready"
+		});
+		expectMediaAnalysisArtifactIsNonAuthoritative(
+			(renderedWithPartialMediaAnalysisCoverage.response as { mediaAnalysis?: JsonValue }).mediaAnalysis,
+			matchingPinMediaAnalysis
+		);
 
 	const renderedWithExtraPinMediaAnalysisReference = renderInspiredesign({
 		mode: "json",
@@ -4830,16 +4826,14 @@ describe("inspiredesign packet + renderer", () => {
 		nextStepGuidance: readyNextStepGuidance,
 		meta: { requestId: "req-pin-media-extra-analysis", pinterestEvidenceRequired: true }
 	});
-	expect(renderedWithExtraPinMediaAnalysisReference.response).toMatchObject({
-		artifactAuthority: "product_ready",
-		productSuccess: true,
-		evidenceAuthority: "pin_media_ready",
-		mediaAnalysis: expect.objectContaining({
-			artifactAuthority: "diagnostic_only",
-			productSuccess: false,
-			evidenceAuthority: "diagnostic_only"
-		})
-	});
+		expect(renderedWithExtraPinMediaAnalysisReference.response).toMatchObject({
+			artifactAuthority: "product_ready",
+			productSuccess: true,
+			evidenceAuthority: "pin_media_ready"
+		});
+		expectMediaAnalysisArtifactIsNonAuthoritative(
+			(renderedWithExtraPinMediaAnalysisReference.response as { mediaAnalysis?: JsonValue }).mediaAnalysis
+		);
 
 	const rankedVisualReferencePatternBoard: InspiredesignReferencePatternBoard = {
 		...authoritativeReferencePatternBoard,
@@ -5214,18 +5208,16 @@ describe("inspiredesign packet + renderer", () => {
 			pinterestEvidenceRequired: true
 		}
 	});
-	expect(renderedWithoutAuthorityArtifacts.response).toMatchObject({
-		artifactAuthority: "diagnostic_only",
-		productSuccess: false,
-		evidenceAuthority: "diagnostic_only",
-		mediaAnalysis: expect.objectContaining({
-			...rendererMediaAnalysis,
+		expect(renderedWithoutAuthorityArtifacts.response).toMatchObject({
 			artifactAuthority: "diagnostic_only",
-			evidenceAuthority: "diagnostic_only",
-			productSuccess: false
-		})
-	});
-	expect("canvasPlanRequest" in renderedWithoutAuthorityArtifacts.response).toBe(false);
+			productSuccess: false,
+			evidenceAuthority: "diagnostic_only"
+		});
+		expectMediaAnalysisArtifactIsNonAuthoritative(
+			(renderedWithoutAuthorityArtifacts.response as { mediaAnalysis?: JsonValue }).mediaAnalysis,
+			rendererMediaAnalysis
+		);
+		expect("canvasPlanRequest" in renderedWithoutAuthorityArtifacts.response).toBe(false);
 
 	const unsupportedProtocolReferencePatternBoard: InspiredesignReferencePatternBoard = {
 		...authoritativeReferencePatternBoard,
@@ -5829,15 +5821,15 @@ describe("inspiredesign packet + renderer", () => {
 				dimensions: { width: 700, height: 472, aspectRatio: 1.4831 }
 			});
 			const renderedWithGifIndex = renderWithAuthority(gifPinMediaIndex, coherentMeta, gifMediaAnalysis);
-			expect(renderedWithGifIndex.response).toMatchObject({
-				artifactAuthority: "product_ready",
-				productSuccess: true,
-				evidenceAuthority: "pin_media_ready"
-			});
-			expect(renderedWithGifIndex.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis)?.content).toEqual(expect.objectContaining({
-				artifactAuthority: "diagnostic_only",
-				productSuccess: false
-			}));
+				expect(renderedWithGifIndex.response).toMatchObject({
+					artifactAuthority: "product_ready",
+					productSuccess: true,
+					evidenceAuthority: "pin_media_ready"
+				});
+				expectMediaAnalysisArtifactIsNonAuthoritative(
+					renderedWithGifIndex.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis)?.content as JsonValue | undefined,
+					gifMediaAnalysis
+				);
 
 			const renderedWithUnparseableAnalysisUrls = renderWithAuthority(
 				pinMediaIndex,
@@ -5847,15 +5839,14 @@ describe("inspiredesign packet + renderer", () => {
 					mediaUrl: "not a media url"
 				})
 			);
-			expect(renderedWithUnparseableAnalysisUrls.response).toMatchObject({
-				artifactAuthority: "product_ready",
-				productSuccess: true,
-				evidenceAuthority: "pin_media_ready"
-			});
-			expect(renderedWithUnparseableAnalysisUrls.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis)?.content).toEqual(expect.objectContaining({
-				artifactAuthority: "diagnostic_only",
-				productSuccess: false
-			}));
+				expect(renderedWithUnparseableAnalysisUrls.response).toMatchObject({
+					artifactAuthority: "product_ready",
+					productSuccess: true,
+					evidenceAuthority: "pin_media_ready"
+				});
+				expectMediaAnalysisArtifactIsNonAuthoritative(
+					renderedWithUnparseableAnalysisUrls.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis)?.content as JsonValue | undefined
+				);
 
 			const incompleteMediaAnalysisSourceBoard: InspiredesignReferencePatternBoard = {
 				...pinMediaBoard,
@@ -5936,16 +5927,14 @@ describe("inspiredesign packet + renderer", () => {
 				evidenceAuthority: "pin_media_ready"
 			});
 
-			const renderedWithMissingAnalysisSourceUrl = renderWithAuthority(
-				pinMediaIndex,
-				coherentMeta,
-				makeInspiredesignMediaAnalysisWithoutReferenceField("sourceUrl")
-			);
-			expect(renderedWithMissingAnalysisSourceUrl.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis)?.content)
-				.toEqual(expect.objectContaining({
-					artifactAuthority: "diagnostic_only",
-					productSuccess: false
-				}));
+				const renderedWithMissingAnalysisSourceUrl = renderWithAuthority(
+					pinMediaIndex,
+					coherentMeta,
+					makeInspiredesignMediaAnalysisWithoutReferenceField("sourceUrl")
+				);
+				expectMediaAnalysisArtifactIsNonAuthoritative(
+					renderedWithMissingAnalysisSourceUrl.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis)?.content as JsonValue | undefined
+				);
 
 		const renderedWithFallbackAuthority = renderWithAuthority(pinMediaIndex, {
 		requestId: "pin-media-renderer-fallback-authority",
