@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-05-27T15:43:43.016Z",
+  "generatedAt": "2026-06-07T15:30:29.514Z",
   "cli": {
     "groups": [
       {
@@ -590,17 +590,19 @@
           "npx opendevbrowser inspiredesign harvest --brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
-          "Pinterest harvest uses screenshot evidence, screencast evidence, and manifest-backed pin-media evidence as primary readiness signals; DOM/clone/deep capture remains diagnostic capture only, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
-          "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery use deep capture only when explicitly requested.",
+          "Pinterest harvest uses screenshot evidence, screencast evidence, and manifest-backed pin-media evidence as primary readiness signals; DOM/clone/deep capture is disabled for Pinterest harvest, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
+          "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested.",
           "Repeat --url for multiple references. There is no --urls alias.",
           "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
           "Inspect productSuccess, artifactAuthority, evidenceAuthority, harvestReadiness, and nextStepGuidance.readiness before continuing. Canvas continuation requires readiness=ready, non-empty ranked references, and Pinterest references with manifest-backed snapshot_ready screenshot evidence, motion_ready screencast evidence, or pin_media_ready first-party pin-media evidence.",
+          "media-analysis.json is a design-fact artifact only: it enriches guidance after trusted saved media matches pin-media-index.json, never grants readiness authority, and raw media-analysis fields must not enter canvas-plan.request.json.",
           "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshot, screencast, or pin-media evidence, provider unavailability, or diagnostic-only captures.",
           "CLI completion text includes readiness=<value> when the workflow reports nextStepGuidance.readiness, so success output is not confused with design readiness.",
-          "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted.",
+          "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted; use one canonical /pin/{id}/ URL per harvest when validating design-ready pin media.",
+          "Extension-mode canonical Pinterest pin-media harvest opens the exact canonical pin in the extension before extracting persisted first-party bytes. This is the default product path for reliable image, GIF, and video pin media capture.",
           "Harvest JSON is metadata-only: screenshots, motion evidence, and pin-media evidence are artifact files referenced by relative paths, hashes, viewport metadata, frame counts, dimensions, provenance, and warnings.",
           "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
-          "Pinterest product readiness is evidence-first: canonical pin URLs must rank only when authoritative screenshot, screencast, or first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. The exact login_or_challenge_state diagnostic is non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness.",
+          "Pinterest product readiness is evidence-first: canonical pin URLs must rank only when authoritative screenshot, screencast, or first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. The exact login_or_challenge_state and strict byte-backed interface_chrome_shell diagnostics are non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness.",
           "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
         ],
         "groupId": "provider_workflows",

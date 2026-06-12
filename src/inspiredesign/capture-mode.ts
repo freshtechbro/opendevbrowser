@@ -34,6 +34,28 @@ const hasOnlyPinterestUrls = (urls?: readonly string[]): boolean => (
   && urls.every((url) => isPinterestUrl(url.trim()))
 );
 
+const isCanonicalPinterestPinUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const pathSegments = url.pathname.split("/").filter(Boolean);
+    const pinId = pathSegments[1];
+    return (hostname === "pinterest.com" || hostname.endsWith(".pinterest.com"))
+      && pathSegments.length === 2
+      && pathSegments[0] === "pin"
+      && typeof pinId === "string"
+      && /^\d+$/.test(pinId);
+  } catch {
+    return false;
+  }
+};
+
+const hasOnlyCanonicalPinterestPinUrls = (urls?: readonly string[]): boolean => (
+  Array.isArray(urls)
+  && urls.length > 0
+  && urls.every((url) => isCanonicalPinterestPinUrl(url.trim()))
+);
+
 export function resolveInspiredesignCaptureMode(
   requested: InspiredesignCaptureMode | undefined,
   urls?: readonly string[]
@@ -44,11 +66,18 @@ export function resolveInspiredesignCaptureMode(
 export function resolveInspiredesignHarvestCaptureMode(
   input: ResolveInspiredesignHarvestCaptureModeInput
 ): InspiredesignCaptureMode {
-  if (input.requested === "deep") return "deep";
   const hasUrls = hasInspiredesignUrls(input.urls);
-  const pinterestOnlyProviderDiscovery = hasOnlyPinterestProvider(input.providers) && !hasUrls;
-  if (input.harvest && (pinterestOnlyProviderDiscovery || hasOnlyPinterestUrls(input.urls))) {
-    return input.requested ?? "off";
+  const hasProviders = Array.isArray(input.providers) && input.providers.length > 0;
+  const pinterestOnlyProviders = hasOnlyPinterestProvider(input.providers);
+  const pinterestOnlyProviderDiscovery = pinterestOnlyProviders && !hasUrls;
+  const pinterestOnlyUrlRecovery = hasOnlyPinterestUrls(input.urls) && (!hasProviders || pinterestOnlyProviders);
+  const pinterestOnlyDirectPinRun = !input.harvest && !hasProviders && hasOnlyCanonicalPinterestPinUrls(input.urls);
+  if (input.harvest && (pinterestOnlyProviderDiscovery || pinterestOnlyUrlRecovery)) {
+    return "off";
   }
+  if (pinterestOnlyDirectPinRun && input.requested !== "deep") {
+    return "off";
+  }
+  if (input.requested === "deep") return "deep";
   return resolveInspiredesignCaptureMode(input.requested, input.urls);
 }

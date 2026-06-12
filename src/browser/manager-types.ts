@@ -81,7 +81,7 @@ export type BrowserScreenshotResult = {
   warnings?: string[];
 };
 
-export type BrowserPinterestPinMediaKind = "image" | "video_poster";
+export type BrowserPinterestPinMediaKind = "image" | "video" | "video_poster";
 
 export type BrowserPinterestPinMediaRect = {
   x: number;

@@ -222,7 +222,7 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--region", description: "Region or country hint for provider selection. Treat it as advisory unless output metadata reports `region_authoritative=true`." },
       { flag: "--sort", description: "Sort mode for shopping results." },
       { flag: "--brief", description: "Inspiredesign brief describing the target design direction." },
-      { flag: "--capture-mode", description: "Inspiredesign capture mode: off or deep. Run URLs force deep capture; harvest non-Pinterest URLs force deep capture; Pinterest harvest keeps deep diagnostics opt-in." },
+      { flag: "--capture-mode", description: "Inspiredesign capture mode: off or deep. Run URLs force deep capture; harvest non-Pinterest URLs force deep capture; Pinterest harvest disables deep diagnostics and relies on extension preloading plus manifest-backed canonical pin-media evidence." },
       { flag: "--include-prototype-guidance", description: "Include inspiredesign prototype guidance in workflow output." },
       { flag: "--product-url", description: "Target product URL for product-video workflows." },
       { flag: "--product-name", description: "Product name override for product-video workflows." },
@@ -316,6 +316,7 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
       { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
       { label: "gate:", value: "Require nextStepGuidance.readiness=ready, non-empty ranked references, no matching doNotProceedIf blockers, and Pinterest snapshot_ready, motion_ready, or pin_media_ready manifest-backed evidence before Canvas continuation." },
+      { label: "media:", value: "Treat media-analysis.json as design facts only; it never grants readiness authority and raw media-analysis fields must not enter canvas-plan.request.json." },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
     ]

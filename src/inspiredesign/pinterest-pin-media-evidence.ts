@@ -5,14 +5,15 @@ import {
   type PinterestSourcePageQuality
 } from "./pinterest-media-classification";
 
-export const INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS = ["image", "video_poster"] as const;
-export const INSPIREDESIGN_PIN_MEDIA_EVIDENCE_EXTENSIONS = ["avif", "gif", "jpg", "jpeg", "png", "webp"] as const;
+export const INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS = ["image", "video", "video_poster"] as const;
+export const INSPIREDESIGN_PIN_MEDIA_EVIDENCE_EXTENSIONS = ["avif", "gif", "jpg", "jpeg", "mp4", "png", "webp"] as const;
 export const INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES = [
   "image/avif",
   "image/gif",
   "image/jpeg",
   "image/png",
-  "image/webp"
+  "image/webp",
+  "video/mp4"
 ] as const;
 
 export type InspiredesignPinterestPinMediaEvidenceKind = typeof INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS[number];
@@ -141,19 +142,21 @@ const MAX_REFERENCE_ID_LENGTH = 96;
 const MAX_TEXT_LENGTH = 240;
 const MAX_ALT_TEXT_LENGTH = 360;
 const FALLBACK_CAPTURED_AT = "1970-01-01T00:00:00.000Z";
-const PINTEREST_PIN_MEDIA_HOST = "i.pinimg.com";
+const PINTEREST_PIN_MEDIA_HOSTS = new Set(["i.pinimg.com", "v.pinimg.com"]);
+const PINTEREST_PIN_VIDEO_EDGE_MEDIA_HOST_PATTERN = /^v\d+(?:-[a-z]+)?\.pinimg\.com$/i;
 const PINTEREST_AUTHORITY_HOST = "www.pinterest.com";
 const PIN_MEDIA_PAGE_QUALITY: PinterestSourcePageQuality = "pin_media";
 const PIN_MEDIA_ARTIFACT_ROOT = "pin-media-evidence";
 const PIN_MEDIA_MAIN_BASENAME = "main";
 const PIN_MEDIA_POSTER_BASENAME = "poster";
+const PIN_MEDIA_VIDEO_BASENAME = "video";
 export const MIN_PIN_MEDIA_EVIDENCE_BYTES = 1024;
 export const MIN_PIN_MEDIA_EVIDENCE_WIDTH = 320;
 export const MIN_PIN_MEDIA_EVIDENCE_HEIGHT = 320;
 export const PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 
 const PIN_MEDIA_ARTIFACT_PATH_PATTERN =
-  /^pin-media-evidence\/([A-Za-z0-9._-]+)\/(main|poster)\.(avif|gif|jpe?g|png|webp)$/i;
+  /^pin-media-evidence\/([A-Za-z0-9._-]+)\/(main|poster|video)\.(avif|gif|jpe?g|mp4|png|webp)$/i;
 const UNSAFE_TEXT_PATTERN =
   /(?:\/(?:Users|private|tmp|var|Volumes)\/|[A-Za-z]:\\|\\|data:image|;base64|base64,|[A-Za-z0-9+/]{80,}={0,2})/i;
 const BLOCKING_WARNING_MARKERS = [
@@ -189,7 +192,8 @@ const CONTENT_TYPE_TO_EXTENSION: Record<InspiredesignPinterestPinMediaContentTyp
   "image/gif": "gif",
   "image/jpeg": "jpg",
   "image/png": "png",
-  "image/webp": "webp"
+  "image/webp": "webp",
+  "video/mp4": "mp4"
 };
 
 const JPEG_START_OF_FRAME_MARKERS = new Set<number>([
@@ -213,10 +217,27 @@ const WEBP_SIGNATURE = "WEBP";
 const GIF_87A_SIGNATURE = "GIF87a";
 const GIF_89A_SIGNATURE = "GIF89a";
 const AVIF_BRANDS = new Set(["avif", "avis"]);
+const MP4_BRANDS = new Set(["avc1", "dash", "isom", "iso2", "mp41", "mp42", "M4V "]);
+const MP4_BOX_SIZE_BYTES = 4;
+const MP4_BOX_TYPE_BYTES = 4;
+const MP4_BOX_HEADER_BYTES = MP4_BOX_SIZE_BYTES + MP4_BOX_TYPE_BYTES;
+const MP4_EXTENDED_SIZE_MARKER = 1;
+const MP4_TKHD_BOX_TYPE = "tkhd";
+const MP4_MOOV_BOX_TYPE = "moov";
+const MP4_TRAK_BOX_TYPE = "trak";
+const MP4_TKHD_VERSION_0_DIMENSIONS_OFFSET = 76;
+const MP4_TKHD_VERSION_1_DIMENSIONS_OFFSET = 88;
+const MP4_FIXED_POINT_SCALE = 65_536;
 
-const readUInt24LE = (buffer: Buffer, offset: number): number | undefined => {
-  if (offset + 2 >= buffer.length) return undefined;
-  return (buffer[offset] ?? 0) + ((buffer[offset + 1] ?? 0) << 8) + ((buffer[offset + 2] ?? 0) << 16);
+type Mp4Box = {
+  type: string;
+  start: number;
+  payloadStart: number;
+  end: number;
+};
+
+const readUInt24LE = (buffer: Buffer, offset: number): number => {
+  return buffer.readUIntLE(offset, 3);
 };
 
 const inspectPngDimensions = (buffer: Buffer): PinterestPinMediaByteInspection | undefined => {
@@ -254,8 +275,7 @@ const inspectJpegDimensions = (buffer: Buffer): PinterestPinMediaByteInspection 
       offset += 1;
       continue;
     }
-    const marker = buffer[offset + 1];
-    if (marker === undefined) break;
+    const marker = buffer[offset + 1] as number;
     if (marker === 0xd9 || marker === 0xda) break;
     if (marker >= 0xd0 && marker <= 0xd7) {
       offset += 2;
@@ -287,9 +307,9 @@ const inspectWebpDimensions = (buffer: Buffer): PinterestPinMediaByteInspection 
     return {
       contentType: "image/webp",
       extension: "webp",
-      ...(width !== undefined ? { width: width + 1 } : {}),
-      ...(height !== undefined ? { height: height + 1 } : {}),
-      reasons: width === undefined || height === undefined ? ["missing_dimensions"] : []
+      width: width + 1,
+      height: height + 1,
+      reasons: []
     };
   }
   if (chunkType === "VP8 " && buffer.length >= 30) {
@@ -338,9 +358,88 @@ const inspectAvifDimensions = (buffer: Buffer): PinterestPinMediaByteInspection 
   };
 };
 
+const readMp4FixedPointDimension = (buffer: Buffer, offset: number): number | undefined => {
+  const value = buffer.readUInt32BE(offset) / MP4_FIXED_POINT_SCALE;
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : undefined;
+};
+
+const mp4TkhdDimensionsOffsetForVersion = (version: number | undefined): number | undefined => {
+  if (version === 0) return MP4_TKHD_VERSION_0_DIMENSIONS_OFFSET;
+  if (version === 1) return MP4_TKHD_VERSION_1_DIMENSIONS_OFFSET;
+  return undefined;
+};
+
+const readMp4Box = (buffer: Buffer, offset: number, limit: number): Mp4Box | undefined => {
+  if (offset + MP4_BOX_HEADER_BYTES > limit) return undefined;
+  const boxSize = buffer.readUInt32BE(offset);
+  if (boxSize === MP4_EXTENDED_SIZE_MARKER || boxSize < MP4_BOX_HEADER_BYTES) return undefined;
+  const end = offset + boxSize;
+  if (end > limit || end > buffer.length) return undefined;
+  return {
+    type: buffer.subarray(offset + MP4_BOX_SIZE_BYTES, offset + MP4_BOX_HEADER_BYTES).toString("ascii"),
+    start: offset,
+    payloadStart: offset + MP4_BOX_HEADER_BYTES,
+    end
+  };
+};
+
+const findMp4Boxes = (buffer: Buffer, start: number, end: number, type: string): Mp4Box[] => {
+  const boxes: Mp4Box[] = [];
+  let offset = start;
+  while (offset + MP4_BOX_HEADER_BYTES <= end) {
+    const box = readMp4Box(buffer, offset, end);
+    if (!box) break;
+    if (box.type === type) boxes.push(box);
+    offset = box.end;
+  }
+  return boxes;
+};
+
+const readMp4TkhdDimensionsAt = (buffer: Buffer, box: Mp4Box): InspiredesignPinterestPinMediaDimensions | undefined => {
+  const versionOffset = box.payloadStart;
+  const version = buffer[versionOffset];
+  const dimensionsOffset = mp4TkhdDimensionsOffsetForVersion(version);
+  if (!dimensionsOffset) return undefined;
+  const widthOffset = versionOffset + dimensionsOffset;
+  const heightOffset = widthOffset + MP4_BOX_SIZE_BYTES;
+  if (heightOffset + MP4_BOX_SIZE_BYTES > buffer.length || heightOffset + MP4_BOX_SIZE_BYTES > box.end) return undefined;
+  const width = readMp4FixedPointDimension(buffer, widthOffset);
+  const height = readMp4FixedPointDimension(buffer, heightOffset);
+  return width && height ? { width, height } : undefined;
+};
+
+const readMp4TkhdDimensions = (buffer: Buffer): InspiredesignPinterestPinMediaDimensions | undefined => {
+  for (const moov of findMp4Boxes(buffer, 0, buffer.length, MP4_MOOV_BOX_TYPE)) {
+    for (const trak of findMp4Boxes(buffer, moov.payloadStart, moov.end, MP4_TRAK_BOX_TYPE)) {
+      for (const tkhd of findMp4Boxes(buffer, trak.payloadStart, trak.end, MP4_TKHD_BOX_TYPE)) {
+        const dimensions = readMp4TkhdDimensionsAt(buffer, tkhd);
+        if (dimensions) return dimensions;
+      }
+    }
+  }
+  return undefined;
+};
+
+const inspectMp4Bytes = (buffer: Buffer): PinterestPinMediaByteInspection | undefined => {
+  if (buffer.length < 12 || buffer.subarray(4, 8).toString("ascii") !== "ftyp") return undefined;
+  for (let offset = 8; offset + 3 < Math.min(buffer.length, 64); offset += 4) {
+    if (MP4_BRANDS.has(buffer.subarray(offset, offset + 4).toString("ascii"))) {
+      const dimensions = readMp4TkhdDimensions(buffer);
+      return {
+        contentType: "video/mp4",
+        extension: "mp4",
+        ...(dimensions ? { width: dimensions.width, height: dimensions.height } : {}),
+        reasons: dimensions ? [] : ["missing_dimensions"]
+      };
+    }
+  }
+  return undefined;
+};
+
 const normalizedInspection = (inspection: PinterestPinMediaByteInspection): PinterestPinMediaByteInspection => {
   const reasons = new Set(inspection.reasons);
-  if (!inspection.width || !inspection.height) reasons.add("missing_dimensions");
+  const requiresByteDimensions = !inspection.contentType || inspection.contentType.startsWith("image/");
+  if (requiresByteDimensions && (!inspection.width || !inspection.height)) reasons.add("missing_dimensions");
   if (inspection.width !== undefined && inspection.width < MIN_PIN_MEDIA_EVIDENCE_WIDTH) reasons.add("dimensions_below_minimum");
   if (inspection.height !== undefined && inspection.height < MIN_PIN_MEDIA_EVIDENCE_HEIGHT) reasons.add("dimensions_below_minimum");
   return { ...inspection, reasons: Array.from(reasons) };
@@ -352,16 +451,15 @@ export const inspectPinterestPinMediaBuffer = (buffer: Buffer | undefined): Pint
     ?? inspectGifDimensions(buffer)
     ?? inspectJpegDimensions(buffer)
     ?? inspectWebpDimensions(buffer)
-    ?? inspectAvifDimensions(buffer);
+    ?? inspectAvifDimensions(buffer)
+    ?? inspectMp4Bytes(buffer);
   return normalizedInspection(inspection ?? { reasons: ["unsupported_byte_signature"] });
 };
 
 const artifactExtension = (path: string | undefined): InspiredesignPinterestPinMediaExtension | undefined => {
   const extension = path?.split(".").pop()?.toLowerCase();
   if (!extension) return undefined;
-  return (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_EXTENSIONS as readonly string[]).includes(extension)
-    ? extension as InspiredesignPinterestPinMediaExtension
-    : undefined;
+  return extension as InspiredesignPinterestPinMediaExtension;
 };
 
 const artifactExtensionMatchesContentType = (
@@ -392,20 +490,25 @@ export const extensionForPinterestPinMediaContentType = (
 export const sanitizeInspiredesignPinterestPinMediaReferenceId = (referenceId: string): string => {
   const sanitized = referenceId.trim().replace(SAFE_REFERENCE_ID_PATTERN, "-").replace(/^[.-]+|[.-]+$/g, "");
   if (!sanitized || DOT_ONLY_PATH_SEGMENT_PATTERN.test(sanitized)) return "reference";
-  const truncated = sanitized.slice(0, MAX_REFERENCE_ID_LENGTH);
-  return DOT_ONLY_PATH_SEGMENT_PATTERN.test(truncated) ? "reference" : truncated;
+  return sanitized.slice(0, MAX_REFERENCE_ID_LENGTH);
 };
 
 export const buildPinterestPinMediaEvidenceArtifactRoot = (referenceId: string): string => (
   `${PIN_MEDIA_ARTIFACT_ROOT}/${sanitizeInspiredesignPinterestPinMediaReferenceId(referenceId)}`
 );
 
+const basenameForPinMediaKind = (kind: InspiredesignPinterestPinMediaEvidenceKind): string => {
+  if (kind === "video") return PIN_MEDIA_VIDEO_BASENAME;
+  if (kind === "video_poster") return PIN_MEDIA_POSTER_BASENAME;
+  return PIN_MEDIA_MAIN_BASENAME;
+};
+
 export const buildPinterestPinMediaEvidenceArtifactPath = (
   referenceId: string,
   kind: InspiredesignPinterestPinMediaEvidenceKind,
   extension: InspiredesignPinterestPinMediaExtension
 ): string => {
-  const basename = kind === "video_poster" ? PIN_MEDIA_POSTER_BASENAME : PIN_MEDIA_MAIN_BASENAME;
+  const basename = basenameForPinMediaKind(kind);
   return `${buildPinterestPinMediaEvidenceArtifactRoot(referenceId)}/${basename}.${extension}`;
 };
 
@@ -416,7 +519,10 @@ export const hashPinterestPinMediaEvidenceBuffer = (buffer: Buffer): string => (
 export const isFirstPartyPinterestPinMediaUrl = (value: string): boolean => {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname.toLowerCase() === PINTEREST_PIN_MEDIA_HOST && url.pathname !== "/";
+    const hostname = url.hostname.toLowerCase();
+    const isPinnedMediaHost = PINTEREST_PIN_MEDIA_HOSTS.has(hostname)
+      || PINTEREST_PIN_VIDEO_EDGE_MEDIA_HOST_PATTERN.test(hostname);
+    return url.protocol === "https:" && isPinnedMediaHost && url.pathname !== "/";
   } catch {
     return false;
   }
@@ -515,11 +621,115 @@ const sanitizeArtifactPath = (
   if (!parts) return undefined;
   if (parts.referenceSegment !== referenceId) return undefined;
   if (kind === "image" && parts.basename !== PIN_MEDIA_MAIN_BASENAME) return undefined;
+  if (kind === "video" && parts.basename !== PIN_MEDIA_VIDEO_BASENAME) return undefined;
   if (kind === "video_poster" && parts.basename !== PIN_MEDIA_POSTER_BASENAME) return undefined;
   return `${PIN_MEDIA_ARTIFACT_ROOT}/${parts.referenceSegment}/${parts.basename}.${parts.extension}`;
 };
 
+const pinMediaKindMatchesContentType = (
+  kind: InspiredesignPinterestPinMediaEvidenceKind,
+  contentType: InspiredesignPinterestPinMediaContentType | undefined
+): boolean => {
+  if (!contentType) return false;
+  if (kind === "video") return contentType === "video/mp4";
+  return contentType.startsWith("image/");
+};
+
+const hasStrictPinMediaKindArtifactShape = (
+  evidence: PinterestPinMediaAuthorityWarningInput,
+  referenceId: string,
+  path: string
+): boolean => {
+  if (typeof evidence.kind !== "string" || !isInspiredesignPinterestPinMediaEvidenceKind(evidence.kind)) return false;
+  if (typeof evidence.contentType !== "string" || !isPinterestPinMediaEvidenceContentType(evidence.contentType)) return false;
+  const sanitizedReferenceId = sanitizeInspiredesignPinterestPinMediaReferenceId(referenceId);
+  if (sanitizeArtifactPath(path, evidence.kind, sanitizedReferenceId) !== path) return false;
+  return pinMediaKindMatchesContentType(evidence.kind, evidence.contentType)
+    && artifactExtensionMatchesContentType(artifactExtension(path), evidence.contentType);
+};
+
+export type PinterestPinMediaAuthorityWarningInput = {
+  status?: unknown;
+  kind?: unknown;
+  authority?: unknown;
+  referenceId?: unknown;
+  url?: unknown;
+  sourceUrl?: unknown;
+  pinterestPageQuality?: unknown;
+  mediaUrl?: unknown;
+  path?: unknown;
+  sha256?: unknown;
+  bytes?: unknown;
+  width?: unknown;
+  height?: unknown;
+  contentType?: unknown;
+  warnings?: unknown;
+  failure?: unknown;
+  rejectionReasons?: unknown;
+  tempPath?: unknown;
+  firstPartyProvenance?: unknown;
+};
+
 const normalizeWarningMarker = (value: string): string => value.toLowerCase().replace(/[\s-]+/g, "_");
+
+const readWarningEntries = (value: unknown): string[] => (
+  Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : []
+);
+
+const readProvenanceRecord = (value: unknown): Record<string, unknown> | undefined => (
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+);
+
+const isStrictCanonicalByteBackedPinMediaEvidence = (
+  evidence: PinterestPinMediaAuthorityWarningInput,
+  requireDesignAuthority: boolean
+): boolean => {
+  const referenceId = typeof evidence.referenceId === "string" ? evidence.referenceId : undefined;
+  const path = typeof evidence.path === "string" ? evidence.path : undefined;
+  const sourceUrl = typeof evidence.sourceUrl === "string" ? evidence.sourceUrl : undefined;
+  const mediaUrl = typeof evidence.mediaUrl === "string" ? evidence.mediaUrl : undefined;
+  const canonicalReferenceUrl = typeof evidence.url === "string"
+    ? normalizeCanonicalPinterestPinUrl(evidence.url)
+    : undefined;
+  const canonicalSourceUrl = normalizeCanonicalPinterestPinUrl(sourceUrl);
+  const provenance = readProvenanceRecord(evidence.firstPartyProvenance);
+  const provenanceReferenceUrl = normalizeCanonicalPinterestPinUrl(provenance?.canonicalReferenceUrl as string | undefined);
+  const provenanceSourceUrl = normalizeCanonicalPinterestPinUrl(provenance?.canonicalSourceUrl as string | undefined);
+  const hasSerializedIndexContract = requireDesignAuthority
+    && evidence.status === undefined
+    && evidence.rejectionReasons === undefined
+    && evidence.tempPath === undefined;
+  const hasCapturedOrIndexedStatus = evidence.status === "captured" || hasSerializedIndexContract;
+  return hasCapturedOrIndexedStatus
+    && (!requireDesignAuthority || evidence.authority === "design_evidence")
+    && typeof referenceId === "string"
+    && typeof path === "string"
+    && pinMediaArtifactPathMatchesReferenceId(path, referenceId)
+    && typeof evidence.sha256 === "string"
+    && PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN.test(evidence.sha256)
+    && typeof evidence.bytes === "number"
+    && Number.isFinite(evidence.bytes)
+    && evidence.bytes >= MIN_PIN_MEDIA_EVIDENCE_BYTES
+    && typeof evidence.width === "number"
+    && Number.isFinite(evidence.width)
+    && evidence.width >= MIN_PIN_MEDIA_EVIDENCE_WIDTH
+    && typeof evidence.height === "number"
+    && Number.isFinite(evidence.height)
+    && evidence.height >= MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+    && hasStrictPinMediaKindArtifactShape(evidence, referenceId, path)
+    && typeof evidence.failure !== "string"
+    && evidence.pinterestPageQuality === PIN_MEDIA_PAGE_QUALITY
+    && Boolean(canonicalReferenceUrl && canonicalSourceUrl === canonicalReferenceUrl)
+    && Boolean(mediaUrl && isFirstPartyPinterestPinMediaUrl(mediaUrl))
+    && Boolean(provenance)
+    && provenanceReferenceUrl === canonicalReferenceUrl
+    && provenanceSourceUrl === canonicalReferenceUrl
+    && provenance?.referenceUrlCanonical === true
+    && provenance.sourceUrlMatchesReference === true
+    && provenance.mediaUrlFirstParty === true;
+};
 
 const hasBlockingWarning = (warnings: readonly string[]): boolean => warnings.some((warning) => {
   const marker = normalizeWarningMarker(warning);
@@ -528,6 +738,20 @@ const hasBlockingWarning = (warnings: readonly string[]): boolean => warnings.so
 });
 
 export const hasPinterestPinMediaBlockingWarning = hasBlockingWarning;
+
+const hasAuthorityBlockingWarning = (
+  evidence: PinterestPinMediaAuthorityWarningInput,
+  requireDesignAuthority: boolean
+): boolean => readWarningEntries(evidence.warnings).some((warning) => {
+  const marker = normalizeWarningMarker(warning);
+  if (NON_BLOCKING_PIN_MEDIA_WARNING_MARKERS.has(marker)) return false;
+  if (marker === "interface_chrome_shell" && isStrictCanonicalByteBackedPinMediaEvidence(evidence, requireDesignAuthority)) return false;
+  return BLOCKING_WARNING_MARKERS.some((blockingMarker) => marker.includes(blockingMarker));
+});
+
+export const hasPinterestPinMediaAuthorityBlockingWarning = (
+  evidence: PinterestPinMediaAuthorityWarningInput
+): boolean => hasAuthorityBlockingWarning(evidence, true);
 
 const normalizeCanonicalPinterestPinUrl = (value: string | undefined): string | undefined => {
   if (!value) return undefined;
@@ -618,7 +842,7 @@ const collectQualityRejectionReasons = (
   if (evidence.height !== undefined && evidence.height < MIN_PIN_MEDIA_EVIDENCE_HEIGHT) {
     addUniqueReason(reasons, "dimensions_below_minimum");
   }
-  if (hasBlockingWarning(evidence.warnings)) addUniqueReason(reasons, "blocking_warning");
+  if (hasAuthorityBlockingWarning(evidence, false)) addUniqueReason(reasons, "blocking_warning");
 };
 
 const buildTrustedPinMediaRoundTripSignature = (
@@ -767,6 +991,9 @@ export const persistInspiredesignPinterestPinMediaEvidence = (
     }
     if (!artifactExtensionMatchesContentType(artifactExtension(path), byteInspection.contentType)) {
       byteValidationReasons.add("artifact_extension_mismatch");
+    }
+    if (!pinMediaKindMatchesContentType(kind, byteInspection.contentType)) {
+      byteValidationReasons.add("kind_content_type_mismatch");
     }
   }
   const evidenceWithByteValidation = {

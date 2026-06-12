@@ -19,7 +19,11 @@ describe("daemon-client timeout derivation", () => {
   });
 
   it("caps derived timeout at the maximum bound", () => {
-    expect(__test__.deriveTransportTimeoutMs({ timeoutMs: 600_000 }, undefined)).toBe(300_000);
+    expect(__test__.deriveTransportTimeoutMs({ timeoutMs: 900_000 }, undefined)).toBe(600_000);
+  });
+
+  it("keeps a long inspiredesign workflow timeout above the old five minute cap", () => {
+    expect(__test__.deriveTransportTimeoutMs({ timeoutMs: 360_000 }, undefined)).toBe(365_000);
   });
 
   it("returns undefined when no valid timeout hints are present", () => {

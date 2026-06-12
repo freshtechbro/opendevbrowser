@@ -75,7 +75,7 @@ describe("public surface manifest", () => {
     expect(inspiredesignCommand?.usage).toContain("[--capture-mode <mode>]");
     expect(inspiredesignCommand?.notes.join(" ")).toContain("inspiredesign run forces captureMode=deep for any explicit --url");
     expect(inspiredesignCommand?.notes.join(" ")).toContain("inspiredesign harvest forces deep capture for non-Pinterest explicit --url references");
-    expect(inspiredesignCommand?.notes.join(" ")).toContain("Pinterest-only discovery and compatible Pinterest URL recovery use deep capture only when explicitly requested");
+    expect(inspiredesignCommand?.notes.join(" ")).toContain("Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested");
   });
 
   it("documents inspiredesign readiness blockers and Pinterest evidence prerequisites", () => {
@@ -86,6 +86,9 @@ describe("public surface manifest", () => {
 
     expect(notes).toContain("Canvas continuation requires readiness=ready, non-empty ranked references");
     expect(notes).toContain("snapshot_ready screenshot evidence, motion_ready screencast evidence, or pin_media_ready first-party pin-media evidence");
+    expect(notes).toContain("media-analysis.json is a design-fact artifact only");
+    expect(notes).toContain("never grants readiness authority");
+    expect(notes).toContain("raw media-analysis fields must not enter canvas-plan.request.json");
     expect(notes).toContain("remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json");
     expect(notes).toContain("zero references");
     expect(notes).toContain("empty ranked references");
@@ -96,5 +99,7 @@ describe("public surface manifest", () => {
     expect(inspiredesignTool?.description).toContain("manifest-backed pin-media evidence for canonical Pinterest pins");
     expect(helpText).toContain("Require nextStepGuidance.readiness=ready, non-empty ranked references");
     expect(helpText).toContain("Pinterest snapshot_ready, motion_ready, or pin_media_ready manifest-backed evidence before Canvas continuation");
+    expect(helpText).toContain("Treat media-analysis.json as design facts only");
+    expect(helpText).toContain("raw media-analysis fields must not enter canvas-plan.request.json");
   });
 });

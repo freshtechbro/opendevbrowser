@@ -12,9 +12,12 @@ import {
   MIN_PIN_MEDIA_EVIDENCE_HEIGHT,
   MIN_PIN_MEDIA_EVIDENCE_WIDTH,
   PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN,
-  hasPinterestPinMediaBlockingWarning,
+  extensionForPinterestPinMediaContentType,
+  hasPinterestPinMediaAuthorityBlockingWarning,
   isFirstPartyPinterestPinMediaUrl,
-  sanitizeInspiredesignPinterestPinMediaReferenceId
+  isPinterestPinMediaEvidenceContentType,
+  sanitizeInspiredesignPinterestPinMediaReferenceId,
+  type InspiredesignPinterestPinMediaContentType
 } from "./pinterest-pin-media-evidence";
 
 export type InspiredesignArtifactAuthority = "product_ready" | "diagnostic_only";
@@ -79,6 +82,8 @@ export type InspiredesignPinMediaAuthorityInput = {
   warnings?: unknown;
   failure?: unknown;
   rejectionReasons?: unknown;
+  status?: unknown;
+  tempPath?: unknown;
   firstPartyProvenance?: unknown;
 };
 
@@ -118,9 +123,10 @@ const SNAPSHOT_READY_VISUAL_ARTIFACT_PATH_PATTERN = /^visual-evidence\/[A-Za-z0-
 const GENERIC_VISUAL_ARTIFACT_PATH_PATTERN = /^visual-evidence\/[A-Za-z0-9._-]+\/(?:viewport|full_page)\.png$/;
 const MOTION_REPLAY_ARTIFACT_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/replay\.json$/;
 const MOTION_PREVIEW_ARTIFACT_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/preview\.png$/;
-const PIN_MEDIA_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/([A-Za-z0-9._-]+)\/(?:main|poster)\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/([A-Za-z0-9._-]+)\/(?:main|poster|video)\.(?:avif|gif|jpe?g|mp4|png|webp)$/i;
 const PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/main\.(?:avif|gif|jpe?g|png|webp)$/i;
 const PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/poster\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_VIDEO_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/video\.mp4$/i;
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 const MIN_SNAPSHOT_READY_VISUAL_BYTES = 1024;
 const PINTEREST_PIN_MEDIA_PAGE_QUALITY = "pin_media";
@@ -172,8 +178,7 @@ const normalizePinterestPinUrlForAuthority = (value: unknown): string | undefine
   if (!normalized || !isCanonicalPinterestPinUrl(normalized)) return undefined;
   try {
     const url = new URL(normalized);
-    const pinId = url.pathname.match(/^\/pin\/(\d+)\/?$/i)?.[1];
-    if (!pinId) return undefined;
+    const pinId = url.pathname.match(/^\/pin\/(\d+)\/?$/i)![1]!;
     url.hostname = PINTEREST_AUTHORITY_HOST;
     url.pathname = `/pin/${pinId}/`;
     return url.href;
@@ -211,17 +216,6 @@ const hasBlockingArtifactWarning = (value: unknown): boolean => {
   const text = normalizedWarningText(value);
   return SNAPSHOT_BLOCKING_WARNING_MARKERS.some((marker) => text.includes(marker));
 };
-
-const readWarningEntries = (value: unknown): string[] => (
-  Array.isArray(value)
-    ? value
-      .filter((entry): entry is string => typeof entry === "string")
-    : []
-);
-
-const hasBlockingPinMediaArtifactWarning = (value: unknown): boolean => (
-  hasPinterestPinMediaBlockingWarning(readWarningEntries(value))
-);
 
 const hasPinterestAuthoritySourceMatch = (
   reference: InspiredesignRankedReferenceAuthorityInput,
@@ -386,27 +380,69 @@ const hasGenericMotionArtifactForReference = (
 
 const readFirstPartyProvenance = (value: unknown): Record<string, unknown> | undefined => readRecord(value);
 
-const readPinMediaArtifactPathReferenceId = (path: unknown): string | undefined => (
-  typeof path === "string" ? PIN_MEDIA_ARTIFACT_PATH_PATTERN.exec(path)?.[1] : undefined
+const readPinMediaArtifactPathReferenceId = (path: string): string | undefined => (
+  PIN_MEDIA_ARTIFACT_PATH_PATTERN.exec(path)?.[1]
 );
 
-const hasPinMediaArtifactReferenceId = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
+const hasPinMediaArtifactReferenceId = (
+  pinMedia: InspiredesignPinMediaAuthorityInput,
+  artifactPath: string
+): boolean => {
   if (typeof pinMedia.referenceId !== "string") return false;
-  const pathReferenceId = readPinMediaArtifactPathReferenceId(pinMedia.path);
+  const pathReferenceId = readPinMediaArtifactPathReferenceId(artifactPath);
   return pathReferenceId === sanitizeInspiredesignPinterestPinMediaReferenceId(pinMedia.referenceId);
 };
 
-const hasValidPinMediaKindPath = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
-  if (typeof pinMedia.path !== "string") return false;
-  if (!hasPinMediaArtifactReferenceId(pinMedia)) return false;
-  if (pinMedia.kind === "image") return PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
-  if (pinMedia.kind === "video_poster") return PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
-  return PIN_MEDIA_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+const hasValidPinMediaKindPath = (
+  pinMedia: InspiredesignPinMediaAuthorityInput,
+  artifactPath: string
+): boolean => {
+  if (!hasPinMediaArtifactReferenceId(pinMedia, artifactPath)) return false;
+  if (pinMedia.kind === "image") return PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN.test(artifactPath);
+  if (pinMedia.kind === "video") return PIN_MEDIA_VIDEO_ARTIFACT_PATH_PATTERN.test(artifactPath);
+  if (pinMedia.kind === "video_poster") return PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN.test(artifactPath);
+  return PIN_MEDIA_ARTIFACT_PATH_PATTERN.test(artifactPath);
 };
 
+const pinMediaArtifactExtension = (artifactPath: string): string | undefined => (
+  /\.([A-Za-z0-9]+)$/.exec(artifactPath)?.[1]?.toLowerCase()
+);
+
+const hasPinMediaArtifactContentType = (
+  pinMedia: InspiredesignPinMediaAuthorityInput,
+  artifactPath: string
+): boolean => {
+  const contentType = pinMedia.contentType as InspiredesignPinterestPinMediaContentType;
+  const extension = pinMediaArtifactExtension(artifactPath);
+  if (contentType === "image/jpeg") return extension === "jpg" || extension === "jpeg";
+  return extension === extensionForPinterestPinMediaContentType(contentType);
+};
+
+const hasValidPinMediaKindContentType = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
+  if (pinMedia.kind === "video") return pinMedia.contentType === "video/mp4";
+  return typeof pinMedia.contentType === "string" && pinMedia.contentType.startsWith("image/");
+};
+
+const hasSerializedPinMediaWarningContract = (value: unknown): boolean => (
+  value === undefined
+  || (Array.isArray(value) && value.every((entry) => typeof entry === "string"))
+);
+
+const hasSerializedPinMediaIndexContract = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => (
+  pinMedia.status === undefined
+  && pinMedia.rejectionReasons === undefined
+  && pinMedia.tempPath === undefined
+  && hasSerializedPinMediaWarningContract(pinMedia.warnings)
+);
+
+const hasBlockingPinMediaIndexWarning = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => (
+  hasPinterestPinMediaAuthorityBlockingWarning(pinMedia)
+);
+
 const hasValidPinMediaCoreShape = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
-  return typeof pinMedia.path === "string"
-    && hasValidPinMediaKindPath(pinMedia)
+  return hasSerializedPinMediaIndexContract(pinMedia)
+    && typeof pinMedia.path === "string"
+    && hasValidPinMediaKindPath(pinMedia, pinMedia.path)
     && typeof pinMedia.sha256 === "string"
     && PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN.test(pinMedia.sha256)
     && typeof pinMedia.bytes === "number"
@@ -422,10 +458,11 @@ const hasValidPinMediaCoreShape = (pinMedia: InspiredesignPinMediaAuthorityInput
     && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(pinMedia.contentType)
     && typeof pinMedia.kind === "string"
     && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS as readonly string[]).includes(pinMedia.kind)
+    && hasValidPinMediaKindContentType(pinMedia)
+    && hasPinMediaArtifactContentType(pinMedia, pinMedia.path)
     && pinMedia.authority === "design_evidence"
     && typeof pinMedia.failure !== "string"
-    && !hasBlockingPinMediaArtifactWarning(pinMedia.warnings)
-    && (!Array.isArray(pinMedia.rejectionReasons) || pinMedia.rejectionReasons.length === 0);
+    && !hasBlockingPinMediaIndexWarning(pinMedia);
 };
 
 const hasPinMediaFirstPartyProvenance = (pinMedia: InspiredesignPinMediaAuthorityInput): boolean => {
@@ -463,6 +500,18 @@ const readReadiness = (record: Record<string, unknown>): string | undefined => {
   const directGuidance = readRecord(record.nextStepGuidance);
   const directGuidanceReadiness = directGuidance?.readiness;
   if (typeof directGuidanceReadiness === "string" && directGuidanceReadiness.length > 0) return directGuidanceReadiness;
+  const meta = readRecord(record.meta);
+  const metaGuidance = readRecord(meta?.nextStepGuidance);
+  const metaReadiness = metaGuidance?.readiness;
+  return typeof metaReadiness === "string" && metaReadiness.length > 0 ? metaReadiness : undefined;
+};
+
+const readNextStepGuidanceReadiness = (record: Record<string, unknown>): string | undefined => {
+  const directGuidance = readRecord(record.nextStepGuidance);
+  const directGuidanceReadiness = directGuidance?.readiness;
+  if (typeof directGuidanceReadiness === "string" && directGuidanceReadiness.length > 0) {
+    return directGuidanceReadiness;
+  }
   const meta = readRecord(record.meta);
   const metaGuidance = readRecord(meta?.nextStepGuidance);
   const metaReadiness = metaGuidance?.readiness;
@@ -542,6 +591,37 @@ const readExplicitRankedReferenceCount = (data: Record<string, unknown>): number
     ?? readFiniteCount(data.rankedReferenceCount)
     ?? readFiniteCount(meta?.rankedReferenceCount)
     ?? 0;
+};
+
+const buildExplicitDiagnosticProductReadinessFields = (
+  data: Record<string, unknown>
+): InspiredesignProductReadinessFields => {
+  const readiness = readReadiness(data) ?? "unknown";
+  const rankedReferenceCount = readExplicitRankedReferenceCount(data);
+  const meta = readRecord(data.meta);
+  return {
+    ready: typeof data.ready === "boolean" ? data.ready : readiness === "ready",
+    readiness,
+    harvestReadiness: typeof data.harvestReadiness === "string" && data.harvestReadiness.length > 0
+      ? data.harvestReadiness
+      : readiness,
+    productSuccess: false,
+    artifactAuthority: "diagnostic_only",
+    evidenceAuthority: "diagnostic_only",
+    rankedReferenceCount,
+    authoritativeReferenceCount: readFiniteCount(data.authoritativeReferenceCount)
+      ?? readFiniteCount(meta?.authoritativeReferenceCount)
+      ?? readAuthoritativeReferenceCount(data),
+    snapshotReadyReferenceCount: readFiniteCount(data.snapshotReadyReferenceCount)
+      ?? readFiniteCount(meta?.snapshotReadyReferenceCount)
+      ?? readSnapshotReadyReferenceCount(data),
+    motionReadyReferenceCount: readFiniteCount(data.motionReadyReferenceCount)
+      ?? readFiniteCount(meta?.motionReadyReferenceCount)
+      ?? readMotionReadyReferenceCount(data),
+    pinMediaReadyReferenceCount: readFiniteCount(data.pinMediaReadyReferenceCount)
+      ?? readFiniteCount(meta?.pinMediaReadyReferenceCount)
+      ?? readPinMediaReadyReferenceCount(data)
+  };
 };
 
 const readCompleteReadinessCountsFromRecord = (
@@ -625,6 +705,12 @@ const clampReadinessCounts = (counts: InspiredesignReadinessCounts): Inspiredesi
   };
 };
 
+const USER_FACING_PRODUCT_READY_EVIDENCE_AUTHORITIES = new Set<InspiredesignEvidenceAuthority>([
+  "snapshot_ready",
+  "motion_ready",
+  "pin_media_ready"
+]);
+
 export const readExplicitInspiredesignProductReadinessFields = (
   data: Record<string, unknown>
 ): InspiredesignProductReadinessFields | undefined => {
@@ -632,10 +718,10 @@ export const readExplicitInspiredesignProductReadinessFields = (
   const artifactAuthority = readArtifactAuthority(data.artifactAuthority);
   const evidenceAuthority = readEvidenceAuthority(data.evidenceAuthority);
   if (!artifactAuthority || !evidenceAuthority) return undefined;
+  if (data.productSuccess === false) return buildExplicitDiagnosticProductReadinessFields(data);
   const malformedExplicitCount = hasMalformedExplicitReadinessCount(data);
   const explicitCounts = readCompleteExplicitReadinessCounts(data);
   const incompleteExplicitCounts = hasIncompleteExplicitReadinessCounts(data);
-  const claimsProductReady = data.productSuccess || artifactAuthority === "product_ready" || evidenceAuthority !== "diagnostic_only";
   if (explicitCounts) {
     const explicitReady = typeof data.ready === "boolean" ? data.ready : undefined;
     const readiness = readReadiness(data) ?? (explicitReady === true ? "ready" : "unknown");
@@ -666,42 +752,43 @@ export const readExplicitInspiredesignProductReadinessFields = (
       ...explicitCounts
     };
   }
-  if (claimsProductReady) {
-    const derivedFields = deriveInspiredesignProductReadinessFields(data);
-    return malformedExplicitCount || incompleteExplicitCounts
-      ? {
-        ...derivedFields,
-        productSuccess: false,
-        artifactAuthority: "diagnostic_only",
-        evidenceAuthority: "diagnostic_only"
-      }
-      : derivedFields;
-  }
-  const readiness = readReadiness(data) ?? "unknown";
-  const rankedReferenceCount = readExplicitRankedReferenceCount(data);
-  const meta = readRecord(data.meta);
+  const derivedFields = deriveInspiredesignProductReadinessFields(data);
+  return malformedExplicitCount || incompleteExplicitCounts
+    ? {
+      ...derivedFields,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    }
+    : derivedFields;
+};
+
+export const resolveInspiredesignUserFacingProductReadinessFields = (
+  data: Record<string, unknown>
+): InspiredesignProductReadinessFields => {
+  const explicitFields = readExplicitInspiredesignProductReadinessFields(data);
+  const fields = explicitFields ?? deriveInspiredesignProductReadinessFields(data);
+  const readiness = readNextStepGuidanceReadiness(data) ?? fields.readiness;
+  const ready = readiness === "ready";
+  const harvestReadiness = typeof data.harvestReadiness === "string" && data.harvestReadiness.length > 0
+    ? data.harvestReadiness
+    : readiness;
+  const productEvidenceAuthority = USER_FACING_PRODUCT_READY_EVIDENCE_AUTHORITIES.has(fields.evidenceAuthority)
+    ? fields.evidenceAuthority
+    : undefined;
+  const productSuccess = fields.productSuccess === true
+    && fields.artifactAuthority === "product_ready"
+    && ready
+    && Boolean(productEvidenceAuthority);
+
   return {
-    ready: typeof data.ready === "boolean" ? data.ready : readiness === "ready",
+    ...fields,
+    ready,
     readiness,
-    harvestReadiness: typeof data.harvestReadiness === "string" && data.harvestReadiness.length > 0
-      ? data.harvestReadiness
-      : readiness,
-    productSuccess: data.productSuccess,
-    artifactAuthority,
-    evidenceAuthority,
-    rankedReferenceCount,
-    authoritativeReferenceCount: readFiniteCount(data.authoritativeReferenceCount)
-      ?? readFiniteCount(meta?.authoritativeReferenceCount)
-      ?? readAuthoritativeReferenceCount(data),
-    snapshotReadyReferenceCount: readFiniteCount(data.snapshotReadyReferenceCount)
-      ?? readFiniteCount(meta?.snapshotReadyReferenceCount)
-      ?? readSnapshotReadyReferenceCount(data),
-    motionReadyReferenceCount: readFiniteCount(data.motionReadyReferenceCount)
-      ?? readFiniteCount(meta?.motionReadyReferenceCount)
-      ?? readMotionReadyReferenceCount(data),
-    pinMediaReadyReferenceCount: readFiniteCount(data.pinMediaReadyReferenceCount)
-      ?? readFiniteCount(meta?.pinMediaReadyReferenceCount)
-      ?? readPinMediaReadyReferenceCount(data)
+    harvestReadiness,
+    productSuccess,
+    artifactAuthority: productSuccess ? "product_ready" : "diagnostic_only",
+    evidenceAuthority: productSuccess && productEvidenceAuthority ? productEvidenceAuthority : "diagnostic_only"
   };
 };
 
@@ -815,8 +902,16 @@ export const countInspiredesignAuthoritativePinterestReferences = (args: {
 
 const rankedReferencesFromRecord = (record: Record<string, unknown>): unknown[] => {
   const meta = readRecord(record.meta);
+  const evidence = readRecord(record.evidence);
+  const directReferencePatternBoard = readRecord(record.referencePatternBoard);
+  const evidenceReferencePatternBoard = readRecord(evidence?.referencePatternBoard);
+  const metaReferencePatternBoard = readRecord(meta?.referencePatternBoard);
   if (Array.isArray(record.rankedReferences)) return record.rankedReferences;
+  if (Array.isArray(evidence?.rankedReferences)) return evidence.rankedReferences;
+  if (Array.isArray(directReferencePatternBoard?.references)) return directReferencePatternBoard.references;
+  if (Array.isArray(evidenceReferencePatternBoard?.references)) return evidenceReferencePatternBoard.references;
   if (Array.isArray(meta?.rankedReferences)) return meta.rankedReferences;
+  if (Array.isArray(metaReferencePatternBoard?.references)) return metaReferencePatternBoard.references;
   return [];
 };
 
@@ -899,7 +994,7 @@ const readMissingScreenshotCount = (record: Record<string, unknown>): number | u
 };
 
 const isPinterestRankedReference = (reference: Record<string, unknown>): boolean => {
-  return isInspiredesignPinterestPinReferenceUrl(reference.url);
+  return Boolean(normalizePinterestPinUrlForAuthority(reference.url));
 };
 
 const hasValidRankedReferenceUrl = (reference: Record<string, unknown>): boolean => {
@@ -910,6 +1005,8 @@ const readScreenshotArtifactsFromRecord = (
   record: Record<string, unknown>
 ): InspiredesignScreenshotAuthorityInput[] => {
   if (Array.isArray(record.screenshotIndex)) return record.screenshotIndex.filter(readRecord);
+  const evidence = readRecord(record.evidence);
+  if (Array.isArray(evidence?.screenshotIndex)) return evidence.screenshotIndex.filter(readRecord);
   const meta = readRecord(record.meta);
   return Array.isArray(meta?.screenshotIndex) ? meta.screenshotIndex.filter(readRecord) : [];
 };
@@ -918,6 +1015,8 @@ const readMotionArtifactsFromRecord = (
   record: Record<string, unknown>
 ): InspiredesignMotionAuthorityInput[] => {
   if (Array.isArray(record.motionEvidence)) return record.motionEvidence.filter(readRecord);
+  const evidence = readRecord(record.evidence);
+  if (Array.isArray(evidence?.motionEvidence)) return evidence.motionEvidence.filter(readRecord);
   const meta = readRecord(record.meta);
   return Array.isArray(meta?.motionEvidence) ? meta.motionEvidence.filter(readRecord) : [];
 };
@@ -928,6 +1027,10 @@ const readPinMediaArtifactsFromRecord = (
   if (Array.isArray(record.pinMediaIndex)) return record.pinMediaIndex.filter(readRecord);
   const directPinMediaIndex = readRecord(record.pinMediaIndex);
   if (Array.isArray(directPinMediaIndex?.pinMediaIndex)) return directPinMediaIndex.pinMediaIndex.filter(readRecord);
+  const evidence = readRecord(record.evidence);
+  if (Array.isArray(evidence?.pinMediaIndex)) return evidence.pinMediaIndex.filter(readRecord);
+  const evidencePinMediaIndex = readRecord(evidence?.pinMediaIndex);
+  if (Array.isArray(evidencePinMediaIndex?.pinMediaIndex)) return evidencePinMediaIndex.pinMediaIndex.filter(readRecord);
   const meta = readRecord(record.meta);
   if (Array.isArray(meta?.pinMediaIndex)) return meta.pinMediaIndex.filter(readRecord);
   const metaPinMediaIndex = readRecord(meta?.pinMediaIndex);
@@ -1086,12 +1189,13 @@ export const deriveInspiredesignProductReadinessFields = (
   const pinterestEvidenceRequired = readPinterestEvidenceRequired(data);
   const lacksRankedReferenceRecords = rankedReferences.length === 0;
   const rankedReferenceCount = readRankedReferenceCount(data);
+  const nextStepReadiness = readNextStepGuidanceReadiness(data);
   return buildInspiredesignProductReadinessFields(
     readReadiness(data),
     rankedReferenceCount,
     readNonPinterestRankedReferenceCount(data),
     readPinterestRankedReferenceCount(data),
-    hasActiveInspiredesignCanvasDoNotProceedBlocker(
+    nextStepReadiness !== "ready" || hasActiveInspiredesignCanvasDoNotProceedBlocker(
       readDoNotProceedIf(data),
       rankedReferenceCount,
       readMissingScreenshotCount(data)

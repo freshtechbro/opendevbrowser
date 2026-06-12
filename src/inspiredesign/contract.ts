@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { normalizePinterestReferenceUrl } from "../guidance/recipes/pinterest";
 import generationPlanTemplateJson from "../../skills/opendevbrowser-design-agent/assets/templates/canvas-generation-plan.design.v1.json";
 import designContractTemplateJson from "../../skills/opendevbrowser-design-agent/assets/templates/design-contract.v1.json";
 import type {
@@ -57,6 +58,15 @@ import {
   type InspiredesignPinterestPinMediaIndexEntry,
   type InspiredesignPinterestPinMediaRuntimeMetadata
 } from "./pinterest-pin-media-evidence";
+import {
+  INSPIREDESIGN_MEDIA_ANALYSIS_ARTIFACT_FILE,
+  INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
+  INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS,
+  INSPIREDESIGN_MEDIA_ANALYSIS_VERSION,
+  type InspiredesignMediaAnalysis,
+  type InspiredesignMediaAnalysisReference,
+  type InspiredesignMediaKind
+} from "./media-analysis";
 import type { JsonValue } from "../providers/types";
 
 type JsonRecord = Record<string, JsonValue>;
@@ -400,6 +410,7 @@ export type InspiredesignPacket = {
   motionEvidence: InspiredesignMotionEvidenceJson[];
   pinMediaEvidence: InspiredesignPinMediaEvidenceJson[];
   pinMediaIndex: InspiredesignPinterestPinMediaIndexEntry[];
+  mediaAnalysis: InspiredesignMediaAnalysis;
   rankedReferences: InspiredesignReferencePatternBoard["references"];
   referencePatternBoard: InspiredesignReferencePatternBoard;
   metaPromptMarkdown: string;
@@ -507,9 +518,17 @@ export type BuildInspiredesignPacketInput = {
   briefExpansion: InspiredesignBriefExpansion;
   urls: string[];
   references: InspiredesignReferenceEvidence[];
+  mediaAnalysis?: InspiredesignMediaAnalysis;
   includePrototypeGuidance?: boolean;
   referenceEvidenceRequired?: boolean;
 };
+
+const buildEmptyInspiredesignMediaAnalysis = (): InspiredesignMediaAnalysis => ({
+  version: INSPIREDESIGN_MEDIA_ANALYSIS_VERSION,
+  generatedAt: INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
+  nonGoals: [...INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS],
+  references: []
+});
 
 const BASE_CONTRACT_TEMPLATE: DesignContractTemplate = designContractTemplateJson;
 const BASE_PLAN_REQUEST_TEMPLATE = generationPlanTemplateJson as Omit<CanvasPlanRequestTemplate, "generationPlan"> & {
@@ -754,10 +773,11 @@ const REFERENCE_SUMMARY_CLIP_LENGTH = 220;
 const GENERATION_PLAN_REFERENCE_CLIP_LENGTH = 600;
 
 const buildReferenceSynthesis = (
-  references: InspiredesignReferenceEvidence[]
+  references: InspiredesignReferenceEvidence[],
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): InspiredesignReferenceSynthesis => {
   const lines = references
-    .filter(hasInspiredesignUsableReferenceEvidence)
+    .filter((reference) => hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex))
     .map((reference, index) => {
       const signals = getInspiredesignReferenceSignals(reference);
       if (signals.length === 0) return "";
@@ -910,6 +930,271 @@ const summarizeDesignVectors = (designVectors: InspiredesignDesignVectors): stri
   `advancedMotion: ${designVectors.advancedMotionAdvisory.slice(0, 1).join(" ")}`
 ].join(" ");
 
+const MEDIA_DERIVED_SUMMARY_MARKERS = [
+  "Media-analysis",
+  "Media-derived",
+  "Quantized",
+  "OCR-free",
+  "sampled",
+  "percent dark coverage",
+  "Static source only",
+  "Layout heuristic",
+  "Readable exact text"
+] as const;
+
+const MEDIA_DERIVED_SUMMARY_LIMIT = 5;
+const CANVAS_FORBIDDEN_GENERATION_PLAN_KEYS = new Set([
+  "mediaAnalysis",
+  "mediaAnalysisSource",
+  "mediaArtifactPath",
+  "mediaPath",
+  "mediaUrl",
+  "sourceUrl",
+  "url",
+  "hash",
+  "sha256",
+  "bboxNorm",
+  "boxes",
+  "frames",
+  "facts",
+  "claimLevels",
+  "limitations"
+]);
+const CANVAS_PIN_MEDIA_ARTIFACT_PATH_PATTERN =
+  /pin-media-evidence\/[A-Za-z0-9._-]+\/(?:main|poster|video)\.(?:avif|gif|jpe?g|mp4|png|webp)/gi;
+const CANVAS_PINTEREST_MEDIA_URL_PATTERN =
+  /https:\/\/(?:www\.pinterest\.com\/pin\/\d+\/?|i\.pinimg\.com|v\d*(?:-[a-z]+)?\.pinimg\.com)[^\s"'<>)]*/gi;
+const CANVAS_PINTEREST_HOST_PATTERN =
+  /\b(?:[a-z0-9-]+\.)*pinterest\.com\/[^\s"'<>)}\]]*|\bpin\.it\/[^\s"'<>)}\]]*|\b(?:i|v\d*(?:-[a-z]+)?)\.pinimg\.com\/[^\s"'<>)}\]]*/gi;
+const CANVAS_SOURCE_URL_PATTERN = /\b(?:https?:)?\/\/[^\s"'<>)}\]]*/gi;
+const CANVAS_BARE_SOURCE_HOST_PATTERN =
+  /\b(?:www\.)?(?:[a-z0-9-]+\.)+(?:ai|app|art|co|com|design|dev|io|it|net|org|studio|uk)(?:\/[^\s"'<>)}\]]*)?/gi;
+const CANVAS_SHA256_PATTERN = /\b[a-f0-9]{64}\b/gi;
+const MEASURED_MEDIA_ANALYSIS_CLAIM_LEVELS: ReadonlySet<InspiredesignMediaAnalysisReference["claimLevels"][number]> = new Set([
+  "pixel_stats",
+  "palette_quantized",
+  "layout_heuristic",
+  "typography_structure",
+  "text_region_layout",
+  "motion_sampled"
+]);
+
+const CANVAS_MEDIA_ANALYSIS_TEXT_REPLACEMENT =
+  "Use reference-derived visual direction as broad composition, color, typography, imagery, and motion cues without citing measured source details.";
+const CANVAS_MEDIA_ANALYSIS_TEXT_PATTERNS = [
+  /media-derived/i,
+  /media analysis/i,
+  /quantized/i,
+  /ocr-free/i,
+  /sampled/i,
+  /percent/i,
+  /static source only/i,
+  /layout heuristic/i,
+  /readable exact text/i,
+  /exact readable text/i,
+  /mean luminance/i,
+  /\bfacts?\b/i,
+  /\blimitations?\b/i
+] as const;
+
+const isMediaDerivedSummary = (value: string): boolean => (
+  MEDIA_DERIVED_SUMMARY_MARKERS.some((marker) => value.includes(marker))
+);
+
+const hasCanvasMediaAnalysisText = (value: string): boolean => (
+  CANVAS_MEDIA_ANALYSIS_TEXT_PATTERNS.some((pattern) => pattern.test(value))
+);
+
+const scrubCanvasSummaryString = (value: string): string => {
+  const scrubbed = value
+    .replace(CANVAS_PIN_MEDIA_ARTIFACT_PATH_PATTERN, "saved Pinterest pin media artifact")
+    .replace(CANVAS_PINTEREST_MEDIA_URL_PATTERN, "Pinterest media reference")
+    .replace(CANVAS_SOURCE_URL_PATTERN, "source reference")
+    .replace(CANVAS_PINTEREST_HOST_PATTERN, "Pinterest source reference")
+    .replace(CANVAS_BARE_SOURCE_HOST_PATTERN, "source reference")
+    .replace(CANVAS_SHA256_PATTERN, "media hash")
+    .replace(/media-analysis\.json summaries when present/gi, "reference summaries when present")
+    .replace(/media-analysis/gi, "reference guidance");
+  return hasCanvasMediaAnalysisText(scrubbed)
+    ? CANVAS_MEDIA_ANALYSIS_TEXT_REPLACEMENT
+    : scrubbed;
+};
+
+const scrubCanvasGenerationPlanValue = (value: JsonValue): JsonValue | undefined => {
+  if (typeof value === "string") return scrubCanvasSummaryString(value);
+  if (typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      const scrubbed = scrubCanvasGenerationPlanValue(entry);
+      return scrubbed === undefined ? [] : [scrubbed];
+    });
+  }
+  const record: JsonRecord = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (CANVAS_FORBIDDEN_GENERATION_PLAN_KEYS.has(key)) continue;
+    const scrubbed = scrubCanvasGenerationPlanValue(nested);
+    if (scrubbed !== undefined) record[key] = scrubbed;
+  }
+  return record;
+};
+
+const hasMeasuredMediaAnalysisDesignFacts = (
+  reference: InspiredesignMediaAnalysisReference
+): boolean => reference.claimLevels.some((claimLevel) => MEASURED_MEDIA_ANALYSIS_CLAIM_LEVELS.has(claimLevel));
+
+const summarizeMediaDerivedDesignVectors = (designVectors: InspiredesignDesignVectors): string => {
+  const summaries = [
+    ...designVectors.premiumPosture,
+    ...designVectors.compositionModel,
+    ...designVectors.typographyPosture,
+    ...designVectors.imageryPosture,
+    ...designVectors.motionPosture,
+    ...designVectors.interactionMoments,
+    ...designVectors.materialEffects
+  ].filter(isMediaDerivedSummary).slice(0, MEDIA_DERIVED_SUMMARY_LIMIT);
+  if (summaries.length === 0) return "";
+  return `Media-derived facts from ${INSPIREDESIGN_MEDIA_ANALYSIS_ARTIFACT_FILE}: ${summaries.join(" ")}`;
+};
+
+const mediaAnalysisLookupKey = (referenceId: string, mediaPath: string): string => `${referenceId}\u0000${mediaPath}`;
+
+const buildMediaAnalysisReferenceLookup = (
+  mediaAnalysis: InspiredesignMediaAnalysis
+): Map<string, InspiredesignMediaAnalysisReference[]> => {
+  const lookup = new Map<string, InspiredesignMediaAnalysisReference[]>();
+  for (const reference of mediaAnalysis.references) {
+    if (reference.authority === "design_evidence" && reference.referenceId.trim().length > 0 && reference.mediaPath.trim().length > 0) {
+      const key = mediaAnalysisLookupKey(reference.referenceId, reference.mediaPath);
+      lookup.set(key, [...(lookup.get(key) ?? []), reference]);
+    }
+  }
+  return lookup;
+};
+
+const normalizePinterestSourceUrlForMediaAnalysis = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  const normalized = normalizePinterestReferenceUrl(value);
+  if (!normalized) return undefined;
+  try {
+    const url = new URL(normalized);
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments[0] === "pin") url.hostname = "www.pinterest.com";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return normalized.replace(/\/$/, "");
+  }
+};
+
+const normalizeMediaUrlForMediaAnalysis = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  try {
+    return new URL(value).href;
+  } catch {
+    return undefined;
+  }
+};
+
+const mediaAnalysisSourceUrlMatches = (
+  pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference
+): boolean => {
+  const pinMediaSourceUrl = pinMedia.firstPartyProvenance.canonicalSourceUrl ?? pinMedia.sourceUrl;
+  const persistedSourceUrl = normalizePinterestSourceUrlForMediaAnalysis(pinMediaSourceUrl);
+  const mediaSourceUrl = normalizePinterestSourceUrlForMediaAnalysis(mediaReference.sourceUrl);
+  return Boolean(persistedSourceUrl && mediaSourceUrl && persistedSourceUrl === mediaSourceUrl);
+};
+
+const mediaAnalysisMediaUrlMatches = (
+  pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference
+): boolean => {
+  const persistedMediaUrl = normalizeMediaUrlForMediaAnalysis(pinMedia.mediaUrl);
+  const mediaUrl = normalizeMediaUrlForMediaAnalysis(mediaReference.mediaUrl);
+  return Boolean(persistedMediaUrl && mediaUrl && persistedMediaUrl === mediaUrl);
+};
+
+const expectedMediaAnalysisKindForPinMedia = (
+  pinMedia: Pick<InspiredesignPersistedPinterestPinMediaEvidence, "kind" | "contentType">
+): InspiredesignMediaKind => {
+  if (pinMedia.contentType === "image/gif") return "gif";
+  return pinMedia.kind;
+};
+
+const pinMediaDimensionsMatchMediaAnalysis = (
+  pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference
+): boolean => (
+  typeof pinMedia.width === "number"
+  && typeof pinMedia.height === "number"
+  && mediaReference.dimensions?.width === pinMedia.width
+  && mediaReference.dimensions.height === pinMedia.height
+);
+
+const pinMediaMatchesMediaAnalysisReference = (
+  pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference
+): boolean => (
+  mediaReference.authority === "design_evidence"
+  && mediaReference.referenceId === pinMedia.referenceId
+  && mediaReference.mediaPath === pinMedia.path
+  && mediaReference.hash === pinMedia.sha256
+  && mediaReference.kind === expectedMediaAnalysisKindForPinMedia(pinMedia)
+  && mediaReference.contentType === pinMedia.contentType
+  && mediaReference.bytes === pinMedia.bytes
+  && pinMediaDimensionsMatchMediaAnalysis(pinMedia, mediaReference)
+  && mediaAnalysisSourceUrlMatches(pinMedia, mediaReference)
+  && mediaAnalysisMediaUrlMatches(pinMedia, mediaReference)
+);
+
+const persistedPinMediaPathForReference = (reference: InspiredesignReferenceEvidence): string | undefined => {
+  const pinMedia = normalizeInspiredesignCaptureEvidence(reference.capture)?.pinMedia;
+  if (pinMedia?.status !== "captured") return undefined;
+  return persistInspiredesignPinterestPinMediaEvidence(pinMedia).path;
+};
+
+const mediaAnalysisReferencesForDesignReference = (
+  reference: InspiredesignReferenceEvidence,
+  lookup: Map<string, InspiredesignMediaAnalysisReference[]>
+): readonly InspiredesignMediaAnalysisReference[] | undefined => {
+  const mediaPath = persistedPinMediaPathForReference(reference);
+  return mediaPath ? lookup.get(mediaAnalysisLookupKey(reference.id, mediaPath)) : undefined;
+};
+
+const getTrustedMediaAnalysisForDesignReference = (
+  reference: InspiredesignReferenceEvidence,
+  mediaReferences: readonly InspiredesignMediaAnalysisReference[] | undefined
+): InspiredesignMediaAnalysisReference | undefined => {
+  if (!mediaReferences || mediaReferences.length === 0) return undefined;
+  const pinMedia = normalizeInspiredesignCaptureEvidence(reference.capture)?.pinMedia;
+  if (pinMedia?.status !== "captured") return undefined;
+  const persistedPinMedia = persistInspiredesignPinterestPinMediaEvidence(pinMedia);
+  if (persistedPinMedia.authority !== "design_evidence") return undefined;
+  return mediaReferences.find((mediaReference) => pinMediaMatchesMediaAnalysisReference(persistedPinMedia, mediaReference));
+};
+
+const summarizeMediaAnalysisReference = (
+  reference: InspiredesignMediaAnalysisReference
+): string => {
+  if (!hasMeasuredMediaAnalysisDesignFacts(reference)) {
+    return clipText([
+      `media path ${reference.mediaPath}`,
+      "metadata-only media analysis",
+      "palette, layout, typography, and motion facts were not extracted",
+      "exact readable text was not extracted"
+    ].join("; "), REFERENCE_SUMMARY_CLIP_LENGTH);
+  }
+  const guidance = reference.designGuidance;
+  return clipText([
+    `media path ${reference.mediaPath}`,
+    `layout ${guidance.layoutRecipe}`,
+    `tokens ${guidance.tokenNotes.slice(0, 2).join("; ")}`,
+    `tone ${guidance.imageryPosture}`,
+    `typography ${guidance.typographyPosture}`,
+    `motion ${guidance.motionPosture}`,
+    "exact readable text was not extracted"
+  ].filter((entry) => entry.trim().length > 0).join("; "), REFERENCE_SUMMARY_CLIP_LENGTH);
+};
+
 const isReferenceFirstPublicLanding = (designVectors: InspiredesignDesignVectors): boolean => {
   return designVectors.sourcePriority === "reference-evidence-first"
     && designVectors.surfaceIntent.toLowerCase().includes("public landing page");
@@ -994,12 +1279,13 @@ const TARGET_SIGNAL_PROFILES: Record<InspiredesignTargetKind, TargetSignalBucket
 const buildTargetCorpus = (
   brief: string,
   references: InspiredesignReferenceEvidence[],
-  synthesis: InspiredesignReferenceSynthesis
+  synthesis: InspiredesignReferenceSynthesis,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): string => [
   brief,
   synthesis.lines.join(" "),
   ...references
-    .filter(hasInspiredesignUsableReferenceEvidence)
+    .filter((reference) => hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex))
     .flatMap((reference) => getInspiredesignReferenceSignals(reference))
 ].join(" ").toLowerCase();
 
@@ -1283,8 +1569,14 @@ const buildGenerationPlan = ({
   const plan = cloneTemplate(BASE_GENERATION_PLAN);
   const profile = format.route.profile;
   const vectorSummary = summarizeDesignVectors(designVectors);
+  const mediaSummary = summarizeMediaDerivedDesignVectors(designVectors);
   plan.targetOutcome.summary = clipText(
-    `${summarizeBrief(brief)} Reference cues: ${synthesis.summary} ${vectorSummary}`,
+    [
+      summarizeBrief(brief),
+      `Reference cues: ${synthesis.summary}`,
+      mediaSummary,
+      vectorSummary
+    ].filter((summary) => summary.length > 0).join(" "),
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.visualDirection.profile = profile;
@@ -1292,11 +1584,22 @@ const buildGenerationPlan = ({
   plan.layoutStrategy.approach = format.route.layoutApproach;
   plan.layoutStrategy.navigationModel = format.route.navigationModel;
   plan.contentStrategy.source = clipText(
-    `${INSPIREDESIGN_HANDOFF_FILES.evidence}, ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief}, ${INSPIREDESIGN_HANDOFF_FILES.designMarkdown}. Use reference pattern board and design vectors from evidence/handoff artifacts. ${synthesis.summary} ${vectorSummary}`,
+    [
+      `${INSPIREDESIGN_HANDOFF_FILES.evidence}, ${INSPIREDESIGN_HANDOFF_FILES.advancedBrief}, ${INSPIREDESIGN_HANDOFF_FILES.designMarkdown}.`,
+      `Use reference pattern board and design vectors from evidence/handoff artifacts plus ${INSPIREDESIGN_MEDIA_ANALYSIS_ARTIFACT_FILE} summaries when present.`,
+      synthesis.summary,
+      mediaSummary,
+      vectorSummary
+    ].filter((summary) => summary.length > 0).join(" "),
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.componentStrategy.mode = clipText(
-    `reuse-first, adapted from captured references: ${synthesis.summary}. Include hero entrance reveal, section scroll reveal, CTA/focus feedback, microinteractions, hover effects, evidence-gated cursor effects, material depth, parallax constraints, glass/translucency policy, and prefers-reduced-motion behavior. Capture desktop and mobile browser proof for responsive layout, reduced-motion behavior, focus states, and primary CTA visibility.`,
+    [
+      `reuse-first, adapted from captured references: ${synthesis.summary}.`,
+      mediaSummary,
+      "Include hero entrance reveal, section scroll reveal, CTA/focus feedback, microinteractions, hover effects, evidence-gated cursor effects, material depth, parallax constraints, glass/translucency policy, and prefers-reduced-motion behavior.",
+      "Capture desktop and mobile browser proof for responsive layout, reduced-motion behavior, focus states, and primary CTA visibility."
+    ].filter((summary) => summary.length > 0).join(" "),
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.componentStrategy.interactionStates = ["default", "hover", "focus", "disabled", "loading"];
@@ -1339,7 +1642,8 @@ const buildIntentBlock = (
 
 const buildDesignLanguageBlock = (
   profile: CanvasVisualDirectionProfile,
-  format: InspiredesignBriefFormat
+  format: InspiredesignBriefFormat,
+  designVectors: InspiredesignDesignVectors
 ): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.designLanguage);
   const config = PROFILE_CONFIG[profile];
@@ -1353,7 +1657,10 @@ const buildDesignLanguageBlock = (
     shapeLanguage: format.shapeLanguage,
     paletteIntent: format.paletteIntent,
     visualDensity: format.visualDensity,
-    designVariance: format.designVariance
+    designVariance: format.designVariance,
+    mediaDerivedDirection: designVectors.directionLabel,
+    mediaDerivedPosture: designVectors.premiumPosture,
+    mediaDerivedImagery: designVectors.imageryPosture
   };
 };
 
@@ -1370,7 +1677,7 @@ const buildContentModelBlock = (
 };
 
 const buildLayoutSystemBlock = (
-  plan: CanvasGenerationPlan,
+  plan: InspiredesignGenerationPlan,
   format: InspiredesignBriefFormat
 ): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.layoutSystem);
@@ -1379,11 +1686,15 @@ const buildLayoutSystemBlock = (
     layoutArchetype: format.layoutArchetype,
     layoutApproach: plan.layoutStrategy.approach,
     navigationModel: plan.layoutStrategy.navigationModel,
-    pagePatterns: [format.layoutArchetype, ...PROFILE_CONFIG[plan.visualDirection.profile].pagePatterns]
+    pagePatterns: [format.layoutArchetype, ...PROFILE_CONFIG[plan.visualDirection.profile].pagePatterns],
+    mediaDerivedComposition: plan.designVectors.compositionModel
   };
 };
 
-const buildTypographySystemBlock = (format: InspiredesignBriefFormat): JsonRecord => {
+const buildTypographySystemBlock = (
+  format: InspiredesignBriefFormat,
+  designVectors: InspiredesignDesignVectors
+): JsonRecord => {
   const block = cloneTemplate(BASE_CONTRACT_TEMPLATE.typographySystem);
   return {
     ...block,
@@ -1396,13 +1707,16 @@ const buildTypographySystemBlock = (format: InspiredesignBriefFormat): JsonRecor
       body: "16/1.6",
       label: "14/1.4",
       caption: "12/1.4"
-    }
+    },
+    mediaDerivedHierarchy: designVectors.typographyPosture,
+    readableTextPolicy: "Exact readable text was not extracted by v1 media analysis; use brief or fetched metadata for copy."
   };
 };
 
 const buildColorSystemBlock = (
   profile: CanvasVisualDirectionProfile,
-  format: InspiredesignBriefFormat
+  format: InspiredesignBriefFormat,
+  designVectors: InspiredesignDesignVectors
 ): JsonRecord => {
   const colors = PROFILE_CONFIG[profile].colors;
   return {
@@ -1413,11 +1727,15 @@ const buildColorSystemBlock = (
       bodyText: "4.5:1",
       largeText: "3:1",
       focusRing: "3:1"
-    }
+    },
+    mediaDerivedTokenNotes: designVectors.materialEffects.filter(isMediaDerivedSummary)
   };
 };
 
-const buildSurfaceSystemBlock = (format: InspiredesignBriefFormat): JsonRecord => ({
+const buildSurfaceSystemBlock = (
+  format: InspiredesignBriefFormat,
+  designVectors: InspiredesignDesignVectors
+): JsonRecord => ({
   surfaceTreatment: format.surfaceTreatment,
   shapeLanguage: format.shapeLanguage,
   radiusScale: {
@@ -1431,7 +1749,9 @@ const buildSurfaceSystemBlock = (format: InspiredesignBriefFormat): JsonRecord =
     sm: "0 1px 2px rgba(15, 23, 42, 0.06)",
     md: "0 10px 30px rgba(15, 23, 42, 0.10)",
     lg: "0 24px 60px rgba(15, 23, 42, 0.14)"
-  }
+  },
+  mediaDerivedImageryPosture: designVectors.imageryPosture,
+  mediaDerivedMaterialEffects: designVectors.materialEffects
 });
 
 const buildIconSystemBlock = (): JsonRecord => ({
@@ -1550,20 +1870,23 @@ const buildCanvasPlanRequest = (
   generationPlan: toCanvasGenerationPlan(generationPlan)
 });
 
-const toCanvasGenerationPlan = (plan: InspiredesignGenerationPlan): CanvasPlanRequestTemplate["generationPlan"] => cloneTemplate({
-  targetOutcome: plan.targetOutcome,
-  visualDirection: plan.visualDirection,
-  layoutStrategy: plan.layoutStrategy,
-  contentStrategy: plan.contentStrategy,
-  componentStrategy: plan.componentStrategy,
-  motionPosture: plan.motionPosture,
-  responsivePosture: plan.responsivePosture,
-  accessibilityPosture: plan.accessibilityPosture,
-  validationTargets: plan.validationTargets,
-  interactionMoments: [...plan.interactionMoments],
-  materialEffects: [...plan.materialEffects],
-  designVectors: plan.designVectors as JsonRecord
-});
+const toCanvasGenerationPlan = (plan: InspiredesignGenerationPlan): CanvasPlanRequestTemplate["generationPlan"] => {
+  const generationPlan = cloneTemplate({
+    targetOutcome: plan.targetOutcome,
+    visualDirection: plan.visualDirection,
+    layoutStrategy: plan.layoutStrategy,
+    contentStrategy: plan.contentStrategy,
+    componentStrategy: plan.componentStrategy,
+    motionPosture: plan.motionPosture,
+    responsivePosture: plan.responsivePosture,
+    accessibilityPosture: plan.accessibilityPosture,
+    validationTargets: plan.validationTargets,
+    interactionMoments: [...plan.interactionMoments],
+    materialEffects: [...plan.materialEffects],
+    designVectors: plan.designVectors as JsonRecord
+  });
+  return scrubCanvasGenerationPlanValue(generationPlan as JsonValue) as CanvasPlanRequestTemplate["generationPlan"];
+};
 
 const buildContractScope = (): InspiredesignContractScope => ({
   emittedContract: "CanvasDesignGovernance",
@@ -1588,6 +1911,7 @@ const buildRequiredReferenceArtifacts = (includePrototypeGuidance: boolean): str
     INSPIREDESIGN_HANDOFF_FILES.motionEvidence,
     INSPIREDESIGN_HANDOFF_FILES.pinMediaEvidence,
     INSPIREDESIGN_HANDOFF_FILES.pinMediaIndex,
+    INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis,
     INSPIREDESIGN_HANDOFF_FILES.rankedReferences,
     INSPIREDESIGN_HANDOFF_FILES.metaPrompt,
     INSPIREDESIGN_HANDOFF_FILES.advancedBrief,
@@ -1659,12 +1983,12 @@ const buildDesignContract = ({
 }: BuildDesignContractInput): CanvasDesignGovernance => ({
   intent: buildIntentBlock(brief, designReferences.map((reference) => reference.url), designReferences, format),
   generationPlan: toCanvasGenerationPlan(plan),
-  designLanguage: buildDesignLanguageBlock(plan.visualDirection.profile, format),
+  designLanguage: buildDesignLanguageBlock(plan.visualDirection.profile, format, plan.designVectors),
   contentModel: buildContentModelBlock(brief, designReferences),
   layoutSystem: buildLayoutSystemBlock(plan, format),
-  typographySystem: buildTypographySystemBlock(format),
-  colorSystem: buildColorSystemBlock(plan.visualDirection.profile, format),
-  surfaceSystem: buildSurfaceSystemBlock(format),
+  typographySystem: buildTypographySystemBlock(format, plan.designVectors),
+  colorSystem: buildColorSystemBlock(plan.visualDirection.profile, format, plan.designVectors),
+  surfaceSystem: buildSurfaceSystemBlock(format, plan.designVectors),
   iconSystem: buildIconSystemBlock(),
   motionSystem: buildMotionSystemBlock(format, plan.designVectors),
   responsiveSystem: buildResponsiveSystemBlock(format),
@@ -1829,6 +2153,82 @@ const referenceMotionNote = (reference: InspiredesignReferenceEvidence): string 
   return "Motion is inferred from the brief rather than directly observed.";
 };
 
+const referenceMediaObservation = (
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  if (!mediaReference) return "No trusted media-analysis entry is available for this source.";
+  return summarizeMediaAnalysisReference(mediaReference);
+};
+
+const referenceTypographyObservation = (
+  reference: InspiredesignReferenceEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  if (mediaReference && hasMeasuredMediaAnalysisDesignFacts(mediaReference)) {
+    return `${mediaReference.designGuidance.typographyPosture} Exact readable text was not extracted by v1 media analysis.`;
+  }
+  if (mediaReference) {
+    return "Metadata-only media analysis did not extract typography structure; exact readable text was not extracted by v1 media analysis.";
+  }
+  return reference.title
+    ? "Headline density and copy hierarchy were inferred from the fetched title and excerpt."
+    : "Typography is inferred.";
+};
+
+const referenceColorObservation = (
+  reference: InspiredesignReferenceEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  if (mediaReference && hasMeasuredMediaAnalysisDesignFacts(mediaReference)) {
+    const tokenNotes = mediaReference.designGuidance.tokenNotes.join(" ");
+    return tokenNotes || mediaReference.designGuidance.imageryPosture;
+  }
+  if (mediaReference) {
+    return "Metadata-only media analysis did not extract measured palette, tone, or theme facts.";
+  }
+  if (reference.captureStatus === "captured") {
+    return "Color posture should be validated against the captured page before cloning brand treatment.";
+  }
+  return "Color posture remains a synthesis decision.";
+};
+
+const referenceLayoutObservationFromMedia = (
+  reference: InspiredesignReferenceEvidence,
+  excerpt: string,
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  if (mediaReference && hasMeasuredMediaAnalysisDesignFacts(mediaReference)) return mediaReference.designGuidance.layoutRecipe;
+  if (mediaReference) {
+    return "Metadata-only media analysis did not extract measured layout or hierarchy facts.";
+  }
+  return referenceLayoutObservation(reference, excerpt);
+};
+
+const referenceMotionObservation = (
+  reference: InspiredesignReferenceEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  if (mediaReference && hasMeasuredMediaAnalysisDesignFacts(mediaReference)) return mediaReference.designGuidance.motionPosture;
+  if (mediaReference) {
+    return "Metadata-only media analysis did not extract sampled motion facts.";
+  }
+  return referenceMotionNote(reference);
+};
+
+const referenceComponentPatterns = (
+  reference: InspiredesignReferenceEvidence,
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  if (mediaReference && hasMeasuredMediaAnalysisDesignFacts(mediaReference)) return mediaReference.designGuidance.componentFamilies.join(", ");
+  if (mediaReference) {
+    return "Metadata-only media analysis did not extract measured component-family facts.";
+  }
+  if (reference.capture?.clone) {
+    return "Buttons, cards, or layout wrappers can be inferred from the captured clone preview.";
+  }
+  return "Component families were inferred from available reference text.";
+};
+
 const referenceLayoutObservation = (
   reference: InspiredesignReferenceEvidence,
   excerpt: string
@@ -1838,18 +2238,23 @@ const referenceLayoutObservation = (
   return signals.find((signal) => signal !== reference.title) ?? signals[0] ?? excerpt;
 };
 
-const renderReferenceMarkdown = (reference: InspiredesignReferenceEvidence, index: number): string => {
+const renderReferenceMarkdown = (
+  reference: InspiredesignReferenceEvidence,
+  index: number,
+  mediaReference?: InspiredesignMediaAnalysisReference
+): string => {
   const excerpt = reference.excerpt ? clipText(reference.excerpt, 220) : "No fetched excerpt captured.";
   const title = reference.title ?? reference.url;
   return [
     `### Source ${index + 1}: ${title}`,
     `- what it contributes: ${referenceContribution(reference)}`,
     `- notable UI patterns: ${reference.capture?.snapshot ? "Primary hierarchy and actionables were captured from the live page." : "Patterns inferred from brief and fetched content."}`,
-    `- typography observations: ${reference.title ? "Headline density and copy hierarchy were inferred from the fetched title and excerpt." : "Typography is inferred."}`,
-    `- color and theme observations: ${reference.captureStatus === "captured" ? "Color posture should be validated against the captured page before cloning brand treatment." : "Color posture remains a synthesis decision."}`,
-    `- layout and hierarchy observations: ${referenceLayoutObservation(reference, excerpt)}`,
-    `- component patterns: ${reference.capture?.clone ? "Buttons, cards, or layout wrappers can be inferred from the captured clone preview." : "Component families were inferred from available reference text."}`,
-    `- motion/interaction observations: ${referenceMotionNote(reference)}`,
+    `- media observations: ${referenceMediaObservation(mediaReference)}`,
+    `- typography observations: ${referenceTypographyObservation(reference, mediaReference)}`,
+    `- color and theme observations: ${referenceColorObservation(reference, mediaReference)}`,
+    `- layout and hierarchy observations: ${referenceLayoutObservationFromMedia(reference, excerpt, mediaReference)}`,
+    `- component patterns: ${referenceComponentPatterns(reference, mediaReference)}`,
+    `- motion/interaction observations: ${referenceMotionObservation(reference, mediaReference)}`,
     `- accessibility/responsiveness notes: ${reference.captureStatus === "captured" ? "Validate focus order, CTA prominence, and stacked layouts during build QA." : "Accessibility and responsiveness are inferred from system defaults."}`,
     `- what should be adopted, adapted, or avoided: adopt layout hierarchy, adapt it to the new brand tokens, avoid copying proprietary copy or visual assets directly.`
   ].join("\n");
@@ -1857,9 +2262,19 @@ const renderReferenceMarkdown = (reference: InspiredesignReferenceEvidence, inde
 
 const renderInspirationAnalysis = (
   references: InspiredesignReferenceEvidence[],
-  usableReferences: InspiredesignReferenceEvidence[]
+  usableReferences: InspiredesignReferenceEvidence[],
+  mediaAnalysis: InspiredesignMediaAnalysis
 ): string => {
-  if (usableReferences.length > 0) return usableReferences.map(renderReferenceMarkdown).join("\n\n");
+  const mediaLookup = buildMediaAnalysisReferenceLookup(mediaAnalysis);
+  if (usableReferences.length > 0) {
+    return usableReferences
+      .map((reference, index) => renderReferenceMarkdown(
+        reference,
+        index,
+        getTrustedMediaAnalysisForDesignReference(reference, mediaAnalysisReferencesForDesignReference(reference, mediaLookup))
+      ))
+      .join("\n\n");
+  }
   if (references.length > 0) {
     return "- Reference URLs were attempted, but no usable creative evidence was captured. See evidence.json for fetch/capture status.";
   }
@@ -2097,9 +2512,32 @@ type BuildEvidencePayloadInput = {
   advancedBriefMarkdown: string;
   urls: string[];
   references: InspiredesignReferenceEvidence[];
+  mediaAnalysis: InspiredesignMediaAnalysis;
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
   targetAnalysis: InspiredesignTargetAnalysis;
+};
+
+const buildMediaAnalysisEvidenceCitation = (
+  mediaAnalysis: InspiredesignMediaAnalysis
+): JsonRecord => {
+  const analyzedReferences: JsonValue[] = mediaAnalysis.references.map((reference) => ({
+    referenceId: reference.referenceId,
+    mediaPath: reference.mediaPath,
+    authority: reference.authority,
+    claimLevels: [...reference.claimLevels],
+    confidence: reference.confidence,
+    limitationsCount: reference.limitations.length
+  }));
+  return {
+    file: INSPIREDESIGN_MEDIA_ANALYSIS_ARTIFACT_FILE,
+    version: mediaAnalysis.version,
+    generatedAt: mediaAnalysis.generatedAt,
+    referenceCount: mediaAnalysis.references.length,
+    analyzedReferences,
+    limitationCount: mediaAnalysis.references.reduce((count, reference) => count + reference.limitations.length, 0),
+    nonGoals: [...mediaAnalysis.nonGoals]
+  };
 };
 
 const buildEvidencePayload = ({
@@ -2108,6 +2546,7 @@ const buildEvidencePayload = ({
   advancedBriefMarkdown,
   urls,
   references,
+  mediaAnalysis,
   referencePatternBoard,
   designVectors,
   targetAnalysis
@@ -2123,6 +2562,7 @@ const buildEvidencePayload = ({
   urls,
   referenceCount: references.length,
   references: references.map((reference) => toReferenceEvidenceJson(reference)),
+  mediaAnalysis: buildMediaAnalysisEvidenceCitation(mediaAnalysis),
   referencePatternBoard: referencePatternBoard as JsonRecord,
   rankedReferences: referencePatternBoard.references as unknown as JsonValue,
   designVectors: designVectors as JsonRecord,
@@ -2243,19 +2683,27 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     excerpt: reference.excerpt ? trimText(reference.excerpt) : undefined
   }));
   const referenceEvidenceRequired = input.referenceEvidenceRequired ?? (urls.length > 0 || references.length > 0);
+  const mediaAnalysis = input.mediaAnalysis ?? buildEmptyInspiredesignMediaAnalysis();
+  const pinMediaIndex = buildPinMediaIndex(references);
   const referencePatternBoard = buildInspiredesignReferencePatternBoard(
     referenceFingerprint(brief),
     selectedFormat,
     references,
-    brief
+    brief,
+    mediaAnalysis,
+    pinMediaIndex
   );
-  const readyReferenceIds = new Set(
-    referencePatternBoard.references.filter(isInspiredesignDesignReference).map((reference) => reference.id)
+  const readyReferenceKeys = new Set(
+    referencePatternBoard.references.filter(isInspiredesignDesignReference).map((reference) => (
+      `${reference.id}\u0000${reference.url}\u0000${reference.mediaArtifactPath ?? ""}`
+    ))
   );
   const usableReferences = references
-    .filter(hasInspiredesignUsableReferenceEvidence)
-    .filter((reference) => readyReferenceIds.has(reference.id));
-  const synthesis = buildReferenceSynthesis(usableReferences);
+    .filter((reference) => hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex))
+    .filter((reference) => readyReferenceKeys.has(
+      `${reference.id}\u0000${reference.url}\u0000${persistedPinMediaPathForReference(reference) ?? ""}`
+    ));
+  const synthesis = buildReferenceSynthesis(usableReferences, pinMediaIndex);
   const designVectors = buildInspiredesignDesignVectors(selectedFormat, referencePatternBoard);
   const designReferencePatternBoard = buildInspiredesignDesignReferencePatternBoard(referencePatternBoard, designVectors);
   const effectiveFormat = buildEvidenceDerivedFormat(selectedFormat, designVectors);
@@ -2337,7 +2785,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     "# 2. Inspiration Analysis",
     "",
-    renderInspirationAnalysis(references, usableReferences),
+    renderInspirationAnalysis(references, usableReferences, mediaAnalysis),
     "",
     "# 3. Unified Design Direction",
     "",
@@ -2359,6 +2807,9 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       `premium posture: ${designVectors.premiumPosture.join(" ")}`,
       `motion posture: ${designVectors.motionPosture.join(" ")}`,
       `section architecture: ${designVectors.sectionArchitecture.join(" ")}`,
+      `composition: ${designVectors.compositionModel.join(" ")}`,
+      `typography posture: ${designVectors.typographyPosture.join(" ")}`,
+      `imagery posture: ${designVectors.imageryPosture.join(" ")}`,
       `interaction moments: ${designVectors.interactionMoments.join(" ")}`,
       `material effects: ${designVectors.materialEffects.join(" ")}`,
       `advanced motion advisory: ${designVectors.advancedMotionAdvisory.join(" ")}`
@@ -2398,7 +2849,6 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
   const screenshotIndex = buildScreenshotIndex(references);
   const motionEvidence = buildMotionEvidencePayload(references);
   const pinMediaEvidence = buildPinMediaEvidencePayload(references);
-  const pinMediaIndex = buildPinMediaIndex(references);
   return {
     advancedBriefMarkdown,
     designContract,
@@ -2414,6 +2864,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     motionEvidence,
     pinMediaEvidence,
     pinMediaIndex,
+    mediaAnalysis,
     rankedReferences: designReferencePatternBoard.references,
     referencePatternBoard,
     metaPromptMarkdown,
@@ -2423,6 +2874,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       advancedBriefMarkdown,
       urls,
       references,
+      mediaAnalysis,
       referencePatternBoard: designReferencePatternBoard,
       designVectors,
       targetAnalysis

@@ -5,6 +5,10 @@ import onboardingMetadata from "../src/cli/onboarding-metadata.json";
 import { ConfigStore, resolveConfig } from "../src/config";
 import { createMockProviderRuntime } from "./provider-runtime-mock";
 
+const { runInspiredesignWorkflow } = vi.hoisted(() => ({
+  runInspiredesignWorkflow: vi.fn()
+}));
+
 vi.mock("@opencode-ai/plugin", async () => {
   const { z } = await import("zod");
   const toolFn = (input: { description: string; args: unknown; execute: (...args: unknown[]) => unknown }) => input;
@@ -14,6 +18,18 @@ vi.mock("@opencode-ai/plugin", async () => {
 
 vi.mock("fs");
 vi.mock("os");
+vi.mock("../src/cli/daemon-status", () => ({
+  fetchDaemonStatusFromMetadata: vi.fn(async () => ({
+    pid: 1234,
+    endpoint: "http://127.0.0.1:8788",
+    fingerprintCurrent: true,
+    extensionConnected: true,
+    extensionHandshakeComplete: true
+  }))
+}));
+vi.mock("../src/providers", () => ({
+  runInspiredesignWorkflow
+}));
 
 beforeEach(() => {
   vi.mocked(os.homedir).mockReturnValue("/home/testuser");
@@ -297,6 +313,175 @@ describe("tools", () => {
     await expectToolCases(tools, cases);
   }, 30000);
 
+  it("rejects invalid inspiredesign run argument combinations before workflow execution", async () => {
+    const { tools } = await loadTools();
+
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      query: "editorial studio landing page"
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: "inspiredesign_run_failed",
+        message: "query is only supported when harvest is true."
+      }
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: "inspiredesign_run_failed",
+        message: "inspiredesign harvest requires query or URLs."
+      }
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true,
+      urls: []
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: "inspiredesign_run_failed",
+        message: "inspiredesign harvest requires query or URLs."
+      }
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/123456789012345678/"]
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: "inspiredesign_run_failed",
+        message: "providers require query unless harvest uses compatible URL recovery."
+      }
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/search/pins/?q=studio"]
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: "inspiredesign_run_failed",
+        message: "URL https://www.pinterest.com/search/pins/?q=studio is not a canonical social/pinterest reference URL for provider-scoped recovery."
+      }
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true,
+      providers: ["web/default"],
+      urls: ["https://www.pinterest.com/pin/123456789012345678/"]
+    })).toMatchObject({
+      ok: false,
+      error: {
+        code: "inspiredesign_run_failed",
+        message: "Provider web/default does not support URL-only site recipe recovery."
+      }
+    });
+  }, 30000);
+
+  it("exposes inspiredesign product readiness separately from tool completion", async () => {
+    const { tools } = await loadTools();
+
+    runInspiredesignWorkflow.mockResolvedValueOnce({
+      mode: "path",
+      nextStepGuidance: { readiness: "ready" },
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true,
+      query: "editorial studio landing page"
+    })).toMatchObject({
+      ok: true,
+      ready: true,
+      readiness: "ready",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    });
+
+    runInspiredesignWorkflow.mockResolvedValueOnce({
+      ok: false,
+      mode: "path",
+      nextStepGuidance: { readiness: "diagnostic_only" },
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true,
+      query: "editorial studio landing page"
+    })).toMatchObject({
+      ok: true,
+      ready: false,
+      readiness: "diagnostic_only",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    });
+
+    runInspiredesignWorkflow.mockResolvedValueOnce({
+      mode: "path",
+      nextStepGuidance: { readiness: "ready" },
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "snapshot_ready",
+      rankedReferences: [{
+        id: "reference-1",
+        url: "https://www.pinterest.com/pin/11188699075430754/",
+        evidenceAuthority: "snapshot_ready"
+      }],
+      screenshotIndex: [{
+        referenceId: "reference-1",
+        url: "https://www.pinterest.com/pin/11188699075430754/",
+        sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+        pinterestPageQuality: "pin_media",
+        path: "visual-evidence/reference-1/viewport.png",
+        sha256: "a".repeat(64),
+        bytes: 4096,
+        warnings: []
+      }]
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true,
+      query: "editorial studio landing page"
+    })).toMatchObject({
+      ok: true,
+      ready: true,
+      readiness: "ready",
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "snapshot_ready"
+    });
+
+    runInspiredesignWorkflow.mockResolvedValueOnce({
+      mode: "path",
+      nextStepGuidance: { readiness: "ready" },
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready"
+    });
+    expect(await runTool(tools, "opendevbrowser_inspiredesign_run", {
+      brief: "Build a photography studio direction",
+      harvest: true,
+      query: "editorial studio landing page"
+    })).toMatchObject({
+      ok: true,
+      ready: true,
+      readiness: "ready",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    });
+  }, 30000);
+
   it("executes interaction tool handlers", async () => {
     const { tools } = await loadTools();
     const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
@@ -340,6 +525,126 @@ describe("tools", () => {
     for (const [name, args, expected] of cases) {
       expect(await runTool(tools, name, args)).toMatchObject(expected);
     }
+  }, 30000);
+
+  it("covers additional tool branch behavior for wait, run, status, and debug trace fallback", async () => {
+    const { deps, tools } = await loadTools();
+
+    expect(await runTool(tools, "opendevbrowser_wait", { sessionId: "s1" })).toMatchObject({
+      ok: false,
+      error: { code: "wait_invalid" }
+    });
+
+    await runTool(tools, "opendevbrowser_run", {
+      sessionId: "s1",
+      maxSnapshotChars: 1200,
+      stopOnError: false,
+      steps: [
+        { action: "snapshot" },
+        { action: "snapshot", args: { maxChars: 50 } },
+        { action: "click", args: { ref: "r1" } }
+      ]
+    });
+    expect(deps.runner.run).toHaveBeenLastCalledWith("s1", [
+      { action: "snapshot", args: { maxChars: 1200 } },
+      { action: "snapshot", args: { maxChars: 50 } },
+      { action: "click", args: { ref: "r1" } }
+    ], false);
+
+    deps.config.set({
+      ...deps.config.get(),
+      relayToken: "token",
+      relayPort: 8788,
+      checkForUpdates: true
+    });
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ version: "0.1.0" }));
+    vi.mocked(fetch).mockImplementation(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("registry.npmjs.org")) {
+        return {
+          ok: true,
+          status: 200,
+          url,
+          json: async () => ({ version: "0.2.0" })
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        url,
+        json: async () => ({
+          instanceId: "daemon-instance",
+          running: true,
+          port: 8788,
+          extensionConnected: true,
+          extensionHandshakeComplete: true,
+          cdpConnected: false,
+          opsConnected: true,
+          pairingRequired: false
+        })
+      } as Response;
+    });
+    expect(await runTool(tools, "opendevbrowser_status", { sessionId: "s1" })).toMatchObject({
+      ok: true,
+      hubEnabled: true,
+      daemon: expect.objectContaining({ fingerprintCurrent: true }),
+      updateHint: "Update available: 0.1.0 -> 0.2.0"
+    });
+
+    deps.manager.debugTraceSnapshot = undefined;
+    deps.manager.status.mockResolvedValueOnce({
+      mode: "managed",
+      activeTargetId: "t1",
+      url: "https://example.com/login",
+      title: "Login required"
+    });
+    deps.manager.consolePoll.mockReturnValueOnce({
+      events: [{ level: "error", text: "blocked" }],
+      nextSeq: 2,
+      truncated: true
+    });
+    deps.manager.networkPoll.mockReturnValueOnce({
+      events: [
+        { url: "not a url" },
+        { url: "https://Example.com/login", status: 403 }
+      ],
+      nextSeq: 3,
+      truncated: false
+    });
+    deps.manager.exceptionPoll.mockReturnValueOnce({
+      events: [{ message: "exception" }],
+      nextSeq: 4,
+      truncated: false
+    });
+
+    const trace = await runTool(tools, "opendevbrowser_debug_trace_snapshot", {
+      sessionId: "s1",
+      sinceConsoleSeq: 1,
+      sinceNetworkSeq: 1,
+      sinceExceptionSeq: 1,
+      max: 10,
+      requestId: "trace-1"
+    });
+
+    expect(trace).toMatchObject({
+      ok: true,
+      requestId: "trace-1",
+      channels: {
+        console: {
+          nextSeq: 2,
+          truncated: true,
+          events: [expect.objectContaining({ requestId: "trace-1", sessionId: "s1" })]
+        },
+        network: {
+          nextSeq: 3,
+          events: [expect.any(Object), expect.objectContaining({ requestId: "trace-1", sessionId: "s1" })]
+        },
+        exception: {
+          nextSeq: 4,
+          events: [expect.objectContaining({ requestId: "trace-1", sessionId: "s1" })]
+        }
+      }
+    });
   }, 30000);
 
   it("executes macro, canvas, and export tool handlers", async () => {

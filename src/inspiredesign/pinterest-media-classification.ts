@@ -58,6 +58,12 @@ const STRUCTURAL_IMAGE_MARKERS = [
 ];
 const STRUCTURAL_PIN_MEDIA_MARKERS = [...STRUCTURAL_VIDEO_MARKERS, ...STRUCTURAL_IMAGE_MARKERS];
 const MEDIA_GRID_MARKERS = ["data-grid", "data-test-id=\"pinwrapper", "data-test-id='pinwrapper"];
+const SEARCH_RESULT_CONTEXT_MARKERS = [
+  "data-grid=\"search-results",
+  "data-grid='search-results",
+  "aria-label=\"search results",
+  "aria-label='search results"
+];
 const SEARCH_SHELL_MARKERS = [
   "search results for",
   "related searches",
@@ -65,7 +71,9 @@ const SEARCH_SHELL_MARKERS = [
   "pin card"
 ];
 const CHROME_MARKERS = ["your profile", "updates", "messages", "settings & support", "accounts"];
+const CHROME_ONLY_URL_PATHS = new Set(["account", "accounts", "settings"]);
 const LOGIN_CHALLENGE_MARKERS = ["log in", "login", "sign in", "sign up", "continue with", "captcha", "verification", "challenge"];
+const PIN_REFERENCE_TEXT_PATTERN = /(?:https?:\/\/(?:(?:www|[a-z]{2})\.)?pinterest\.com)?\/pin\/\d+\/?(?=[?#\s"'<>)]|$)/g;
 
 const textForCandidate = (input: PinterestCandidateInput): string => (
   [
@@ -100,17 +108,62 @@ const isPinterestHost = (value: string | undefined): boolean => {
   }
 };
 
+const isPinterestSearchResultPageUrl = (value: string | undefined): boolean => {
+  const segments = pathSegmentsForUrl(value);
+  return isPinterestHost(value) && segments[0] === "search" && segments[1] === "pins";
+};
+
+const isPinterestChromeOnlyPageUrl = (value: string | undefined): boolean => {
+  const [firstSegment] = pathSegmentsForUrl(value);
+  return isPinterestHost(value) && CHROME_ONLY_URL_PATHS.has(firstSegment ?? "");
+};
+
 const includesAny = (text: string, markers: readonly string[]): boolean => markers.some((marker) => text.includes(marker));
+
+export const hasPinterestChromeMarkers = (input: PinterestCandidateInput): boolean => includesAny(
+  textForCandidate(input),
+  CHROME_MARKERS
+);
 
 export const isCanonicalPinterestPinUrl = (value: string | undefined): boolean => {
   const segments = pathSegmentsForUrl(value);
-  return isPinterestHost(value) && segments[0] === "pin" && PIN_ID_PATTERN.test(segments[1] ?? "");
+  return isPinterestHost(value)
+    && segments.length === 2
+    && segments[0] === "pin"
+    && PIN_ID_PATTERN.test(segments[1] ?? "");
 };
+
+const hasCanonicalPinterestPinReference = (input: PinterestCandidateInput): boolean => {
+  const values = [input.url, input.content, input.html, ...(input.links ?? [])]
+    .filter((value): value is string => typeof value === "string");
+  return values.some((value) => {
+    const normalized = normalizePinterestReferenceUrl(value);
+    if (isCanonicalPinterestPinUrl(normalized ?? undefined)) return true;
+    return (value.match(PIN_REFERENCE_TEXT_PATTERN) ?? [])
+      .some((match) => isCanonicalPinterestPinUrl(normalizePinterestReferenceUrl(match) ?? undefined));
+  });
+};
+
+const hasSearchResultContext = (input: PinterestCandidateInput): boolean => {
+  if (isPinterestSearchResultPageUrl(input.url)) return true;
+  if (hasPinterestChromeMarkers(input)) return false;
+  return includesAny(structuralTextForCandidate(input), SEARCH_RESULT_CONTEXT_MARKERS);
+};
+
+const hasRenderedResultSignals = (input: PinterestCandidateInput, text: string): boolean => (
+  hasSearchResultContext(input)
+  && hasCanonicalPinterestPinReference(input)
+  && (
+    includesAny(text, SEARCH_SHELL_MARKERS)
+    || includesAny(text, MEDIA_GRID_MARKERS)
+  )
+);
 
 const hardBlockerQualityForCandidate = (input: PinterestCandidateInput, text: string): PinterestSourcePageQuality | undefined => {
   if (includesAny(text, LOGIN_CHALLENGE_MARKERS)) return "login_challenge";
+  if (isPinterestChromeOnlyPageUrl(input.url)) return "chrome_only";
+  if (includesAny(text, CHROME_MARKERS) && !hasRenderedResultSignals(input, text)) return "chrome_only";
   if (includesAny(text, SEARCH_SHELL_MARKERS)) return "search_shell";
-  if (includesAny(text, CHROME_MARKERS)) return "chrome_only";
   return undefined;
 };
 
@@ -188,8 +241,8 @@ export const classifyPinterestSourcePage = (records: readonly PinterestCandidate
     allowPinMediaPageQuality: false
   }));
   const firstBlocker = classifications.find((item) => item.kind === "login_challenge")
-    ?? classifications.find((item) => item.sourcePageQuality === "search_shell")
     ?? classifications.find((item) => item.sourcePageQuality === "chrome_only")
+    ?? classifications.find((item) => item.sourcePageQuality === "search_shell")
     ?? classifications.find((item) => item.sourcePageQuality === "pin_grid_media")
     ?? classifications[0];
   return firstBlocker ?? classifyPinterestCandidate({ url: "" });

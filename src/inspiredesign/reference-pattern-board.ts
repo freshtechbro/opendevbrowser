@@ -16,13 +16,20 @@ import {
   MIN_PIN_MEDIA_EVIDENCE_HEIGHT,
   MIN_PIN_MEDIA_EVIDENCE_WIDTH,
   PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN,
-  hasPinterestPinMediaBlockingWarning,
+  hasPinterestPinMediaAuthorityBlockingWarning,
   isFirstPartyPinterestPinMediaUrl,
   persistInspiredesignPinterestPinMediaEvidence,
+  type InspiredesignPinterestPinMediaIndexEntry,
   type InspiredesignPersistedPinterestPinMediaEvidence,
   type InspiredesignPinterestPinMediaRuntimeMetadata
 } from "./pinterest-pin-media-evidence";
 import type { InspiredesignBriefFormat } from "./brief-expansion";
+import {
+  confidenceLabel,
+  type InspiredesignMediaAnalysis,
+  type InspiredesignMediaAnalysisReference,
+  type InspiredesignMediaKind
+} from "./media-analysis";
 
 type ReferenceStatus = "captured" | "failed" | "skipped";
 
@@ -102,6 +109,17 @@ export type InspiredesignReferencePatternBoard = {
     patternsToBorrow: string[];
     patternsToReject: string[];
     whyItWorks: string;
+    mediaAnalysisBacked?: boolean;
+    mediaAnalysisSource?: {
+      referenceId: string;
+      mediaPath: string;
+      sourceUrl?: string;
+      mediaUrl?: string;
+      hash?: string;
+      kind: string;
+      contentType?: string;
+    };
+    mediaArtifactPath?: string;
   }>;
   rejectedReferences: Array<{
     id: string;
@@ -143,9 +161,13 @@ export type InspiredesignDesignVectors = {
   antiPatterns: string[];
 };
 
+type InspiredesignRankedReference = InspiredesignReferencePatternBoard["references"][number];
+
 const SIGNAL_LIMIT = 5;
 const SIGNAL_CLIP = 180;
 const PATTERN_LIMIT = 6;
+const MEDIA_ANALYSIS_STRENGTH_LIMIT = 4;
+const MEDIA_ANALYSIS_RISK_LIMIT = 4;
 const SCORE_FETCH_CAPTURED = 20;
 const SCORE_CAPTURE_CAPTURED = 20;
 const SCORE_VISUAL_CAPTURED = 30;
@@ -587,9 +609,10 @@ const motionFileHasAuthority = (
 
 const MOTION_READY_REPLAY_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/replay\.json$/;
 const MOTION_READY_PREVIEW_PATH_PATTERN = /^motion-evidence\/[A-Za-z0-9._-]+\/preview\.png$/;
-const PIN_MEDIA_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/(?:main|poster)\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/(?:main|poster|video)\.(?:avif|gif|jpe?g|mp4|png|webp)$/i;
 const PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/main\.(?:avif|gif|jpe?g|png|webp)$/i;
 const PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/poster\.(?:avif|gif|jpe?g|png|webp)$/i;
+const PIN_MEDIA_VIDEO_ARTIFACT_PATH_PATTERN = /^pin-media-evidence\/[A-Za-z0-9._-]+\/video\.mp4$/i;
 
 const hasMotionReadyPinterestEvidence = (
   reference: ReferenceInput,
@@ -626,11 +649,52 @@ const pinMediaEvidenceSourceMatchesReference = (
   return Boolean(referenceUrl && sourceUrl === referenceUrl);
 };
 
+const normalizeMediaUrlForMatch = (value: string | undefined): string | undefined => {
+	if (!value) return undefined;
+	try {
+	return new URL(value).href;
+	} catch {
+	return undefined;
+	}
+};
+
+const pinMediaIndexEntryMatchesEvidence = (
+	pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+	entry: InspiredesignPinterestPinMediaIndexEntry
+): boolean => {
+	const pinMediaSourceUrl = pinMedia.firstPartyProvenance.canonicalSourceUrl ?? pinMedia.sourceUrl;
+	const persistedSourceUrl = normalizePinterestReferenceForEvidenceMatch(pinMediaSourceUrl ?? "");
+	const indexSourceUrl = normalizePinterestReferenceForEvidenceMatch(entry.sourceUrl);
+	return entry.referenceId === pinMedia.referenceId
+		&& entry.path === pinMedia.path
+		&& entry.sha256 === pinMedia.sha256
+		&& entry.kind === pinMedia.kind
+		&& entry.contentType === pinMedia.contentType
+		&& entry.bytes === pinMedia.bytes
+		&& entry.width === pinMedia.width
+		&& entry.height === pinMedia.height
+		&& Boolean(persistedSourceUrl && indexSourceUrl && persistedSourceUrl === indexSourceUrl)
+		&& normalizeMediaUrlForMatch(entry.mediaUrl) === normalizeMediaUrlForMatch(pinMedia.mediaUrl);
+};
+
+const pinMediaIndexMatchesEvidence = (
+	pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+	pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[] | undefined
+): boolean => (
+	Boolean(pinMediaIndex?.some((entry) => pinMediaIndexEntryMatchesEvidence(pinMedia, entry)))
+);
+
 const pinMediaArtifactPathHasAuthority = (pinMedia: InspiredesignPersistedPinterestPinMediaEvidence): boolean => {
   if (typeof pinMedia.path !== "string") return false;
   if (pinMedia.kind === "image") return PIN_MEDIA_MAIN_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+  if (pinMedia.kind === "video") return PIN_MEDIA_VIDEO_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
   if (pinMedia.kind === "video_poster") return PIN_MEDIA_POSTER_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
   return PIN_MEDIA_ARTIFACT_PATH_PATTERN.test(pinMedia.path);
+};
+
+const pinMediaContentTypeMatchesKind = (pinMedia: InspiredesignPersistedPinterestPinMediaEvidence): boolean => {
+  if (pinMedia.kind === "video") return pinMedia.contentType === "video/mp4";
+  return typeof pinMedia.contentType === "string" && pinMedia.contentType.startsWith("image/");
 };
 
 const readPersistedPinterestPinMediaEvidence = (
@@ -641,7 +705,8 @@ const readPersistedPinterestPinMediaEvidence = (
 
 const hasPinMediaReadyPinterestEvidence = (
 	reference: ReferenceInput,
-	diagnosticReasons: readonly string[]
+	diagnosticReasons: readonly string[],
+	pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): boolean => {
 	if (!isPinterestProductCandidateReferenceUrl(reference.url)) return false;
 	if (diagnosticReasons.some((reason) => reason !== "login_or_challenge_state")) return false;
@@ -650,6 +715,7 @@ const hasPinMediaReadyPinterestEvidence = (
 	if (pinMedia?.status !== "captured") return false;
 	const persistedPinMedia = readPersistedPinterestPinMediaEvidence(pinMedia);
 	return persistedPinMedia.authority === "design_evidence"
+		&& pinMediaIndexMatchesEvidence(persistedPinMedia, pinMediaIndex)
 		&& pinMediaEvidenceSourceMatchesReference(reference, persistedPinMedia)
 		&& hasPinterestPinMediaPageQuality(persistedPinMedia.pinterestPageQuality)
     && typeof persistedPinMedia.mediaUrl === "string"
@@ -669,21 +735,105 @@ const hasPinMediaReadyPinterestEvidence = (
     && typeof persistedPinMedia.contentType === "string"
     && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(persistedPinMedia.contentType)
     && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS as readonly string[]).includes(persistedPinMedia.kind)
+    && pinMediaContentTypeMatchesKind(persistedPinMedia)
     && !persistedPinMedia.failure
     && persistedPinMedia.rejectionReasons.length === 0
-    && !hasPinterestPinMediaBlockingWarning(persistedPinMedia.warnings)
+    && !hasPinterestPinMediaAuthorityBlockingWarning(persistedPinMedia)
     && persistedPinMedia.firstPartyProvenance.referenceUrlCanonical
     && persistedPinMedia.firstPartyProvenance.sourceUrlMatchesReference
     && persistedPinMedia.firstPartyProvenance.mediaUrlFirstParty;
 };
 
+const mediaAnalysisLookupKey = (referenceId: string, mediaPath: string): string => `${referenceId}\u0000${mediaPath}`;
+
+const buildTrustedMediaAnalysisLookup = (
+  mediaAnalysis?: InspiredesignMediaAnalysis
+): Map<string, InspiredesignMediaAnalysisReference[]> => {
+  const lookup = new Map<string, InspiredesignMediaAnalysisReference[]>();
+  for (const reference of mediaAnalysis?.references ?? []) {
+	if (reference.authority === "design_evidence" && reference.referenceId.trim().length > 0 && reference.mediaPath.trim().length > 0) {
+		const key = mediaAnalysisLookupKey(reference.referenceId, reference.mediaPath);
+		lookup.set(key, [...(lookup.get(key) ?? []), reference]);
+    }
+  }
+  return lookup;
+};
+
+const mediaAnalysisSourceUrlMatches = (
+	pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+	mediaReference: InspiredesignMediaAnalysisReference
+): boolean => {
+	const pinMediaSourceUrl = pinMedia.firstPartyProvenance.canonicalSourceUrl ?? pinMedia.sourceUrl;
+	const persistedSourceUrl = normalizePinterestReferenceForEvidenceMatch(pinMediaSourceUrl ?? "");
+	const mediaSourceUrl = normalizePinterestReferenceForEvidenceMatch(mediaReference.sourceUrl ?? "");
+	return Boolean(persistedSourceUrl && mediaSourceUrl && persistedSourceUrl === mediaSourceUrl);
+};
+
+const mediaAnalysisMediaUrlMatches = (
+	pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+	mediaReference: InspiredesignMediaAnalysisReference
+): boolean => {
+	const persistedMediaUrl = normalizeMediaUrlForMatch(pinMedia.mediaUrl);
+	const mediaUrl = normalizeMediaUrlForMatch(mediaReference.mediaUrl);
+	return Boolean(persistedMediaUrl && mediaUrl && persistedMediaUrl === mediaUrl);
+};
+
+const expectedMediaAnalysisKindForPinMedia = (
+	pinMedia: Pick<InspiredesignPersistedPinterestPinMediaEvidence, "kind" | "contentType">
+): InspiredesignMediaKind => {
+	if (pinMedia.contentType === "image/gif") return "gif";
+	return pinMedia.kind;
+};
+
+const pinMediaDimensionsMatchMediaAnalysis = (
+	pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+	mediaReference: InspiredesignMediaAnalysisReference
+): boolean => (
+	typeof pinMedia.width === "number"
+	&& typeof pinMedia.height === "number"
+	&& mediaReference.dimensions?.width === pinMedia.width
+	&& mediaReference.dimensions.height === pinMedia.height
+);
+
+const pinMediaMatchesMediaAnalysisReference = (
+	pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
+	mediaReference: InspiredesignMediaAnalysisReference
+): boolean => (
+	mediaReference.authority === "design_evidence"
+	&& mediaReference.referenceId === pinMedia.referenceId
+	&& mediaReference.mediaPath === pinMedia.path
+	&& mediaReference.hash === pinMedia.sha256
+	&& mediaReference.kind === expectedMediaAnalysisKindForPinMedia(pinMedia)
+	&& mediaReference.contentType === pinMedia.contentType
+	&& mediaReference.bytes === pinMedia.bytes
+	&& pinMediaDimensionsMatchMediaAnalysis(pinMedia, mediaReference)
+	&& mediaAnalysisSourceUrlMatches(pinMedia, mediaReference)
+	&& mediaAnalysisMediaUrlMatches(pinMedia, mediaReference)
+);
+
+const getTrustedMediaAnalysisForReference = (
+  reference: ReferenceInput,
+  mediaReferences: readonly InspiredesignMediaAnalysisReference[] | undefined,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): InspiredesignMediaAnalysisReference | undefined => {
+  if (!mediaReferences || mediaReferences.length === 0) return undefined;
+  const diagnosticReasons = referenceDiagnosticReasons(reference);
+  if (!hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons, pinMediaIndex)) return undefined;
+  const pinMedia = reference.capture?.pinMedia;
+  if (pinMedia?.status !== "captured") return undefined;
+  const persistedPinMedia = readPersistedPinterestPinMediaEvidence(pinMedia);
+  if (persistedPinMedia.authority !== "design_evidence") return undefined;
+	return mediaReferences.find((mediaReference) => pinMediaMatchesMediaAnalysisReference(persistedPinMedia, mediaReference));
+};
+
 const hasAuthoritativePinterestMediaEvidence = (
   reference: ReferenceInput,
-  diagnosticReasons: readonly string[]
+  diagnosticReasons: readonly string[],
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): boolean => (
   hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons)
   || hasMotionReadyPinterestEvidence(reference, diagnosticReasons)
-  || hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons)
+  || hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons, pinMediaIndex)
 );
 
 const hasUsableCaptureEvidence = (reference: ReferenceInput): boolean => (
@@ -800,21 +950,27 @@ const hasBlockingDiagnosticReason = (reasons: string[]): boolean => (
   reasons.some((reason) => reason !== "login_or_challenge_state")
 );
 
-const evidenceAuthorityForReference = (reference: ReferenceInput): InspiredesignEvidenceAuthority => {
+const evidenceAuthorityForReference = (
+  reference: ReferenceInput,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): InspiredesignEvidenceAuthority => {
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   if (hasMotionReadyPinterestEvidence(reference, diagnosticReasons)) return "motion_ready";
-  if (hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons)) return "pin_media_ready";
+  if (hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons, pinMediaIndex)) return "pin_media_ready";
   if (hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons)) return "snapshot_ready";
   if (!isPinterestOwnedReferenceUrl(reference.url)) return "ranked_reference";
   return "diagnostic_only";
 };
 
-export const hasInspiredesignUsableReferenceEvidence = (reference: ReferenceInput): boolean => {
+export const hasInspiredesignUsableReferenceEvidence = (
+  reference: ReferenceInput,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): boolean => {
   if (isUnapprovedPinterestReferenceUrl(reference.url)) return false;
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   if (isPinterestOwnedReferenceUrl(reference.url)) {
     return isPinterestProductCandidateReferenceUrl(reference.url)
-      && hasAuthoritativePinterestMediaEvidence(reference, diagnosticReasons);
+      && hasAuthoritativePinterestMediaEvidence(reference, diagnosticReasons, pinMediaIndex);
   }
   if (hasBlockingDiagnosticReason(diagnosticReasons)) return false;
   if (diagnosticReasons.includes("login_or_challenge_state") && !hasUsableRecoveredCreativeEvidence(reference)) {
@@ -908,12 +1064,15 @@ const appendSourceDetail = (patterns: string[], primarySignal: string): string[]
   return [...patterns, `source detail: ${primarySignal}`].slice(0, PATTERN_LIMIT);
 };
 
-const deriveCapturedVia = (reference: ReferenceInput): string[] => {
+const deriveCapturedVia = (
+  reference: ReferenceInput,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): string[] => {
   const methods: string[] = [];
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   const hasSnapshotReadyEvidence = hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons);
   const hasMotionReadyEvidence = hasMotionReadyPinterestEvidence(reference, diagnosticReasons);
-  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons);
+  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons, pinMediaIndex);
   if (reference.fetchStatus === "captured") methods.push("fetch");
   if (hasCleanSignal(reference.capture?.snapshot?.content)) methods.push("snapshot");
   if (hasUsableCloneCreativeEvidence(reference)) {
@@ -935,13 +1094,14 @@ const deriveCapturedVia = (reference: ReferenceInput): string[] => {
 const scoreReference = (
   reference: ReferenceInput,
   signals: string[],
-  isPublicLanding: boolean
+  isPublicLanding: boolean,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): number => {
   let score = 0;
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   const hasSnapshotReadyEvidence = hasSnapshotReadyPinterestVisualEvidence(reference, diagnosticReasons);
   const hasMotionReadyEvidence = hasMotionReadyPinterestEvidence(reference, diagnosticReasons);
-  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons);
+  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons, pinMediaIndex);
   if (reference.fetchStatus === "captured") score += SCORE_FETCH_CAPTURED;
   if (
     reference.captureStatus === "captured"
@@ -972,19 +1132,102 @@ const confidenceFromScore = (score: number): number => (
   Number((score / MAX_REFERENCE_SCORE).toFixed(2))
 );
 
+const cleanGuidanceEntries = (entries: readonly string[]): string[] => (
+  entries.map((entry) => entry.trim()).filter((entry) => entry.length > 0)
+);
+
+const MEASURED_MEDIA_ANALYSIS_CLAIM_LEVELS: ReadonlySet<InspiredesignMediaAnalysisReference["claimLevels"][number]> = new Set([
+  "pixel_stats",
+  "palette_quantized",
+  "layout_heuristic",
+  "typography_structure",
+  "text_region_layout",
+  "motion_sampled"
+]);
+
+const hasMeasuredMediaAnalysisDesignFacts = (
+  mediaReference: InspiredesignMediaAnalysisReference
+): boolean => mediaReference.claimLevels.some((claimLevel) => MEASURED_MEDIA_ANALYSIS_CLAIM_LEVELS.has(claimLevel));
+
+const mediaAnalysisVisualStrengths = (
+  mediaReference: InspiredesignMediaAnalysisReference
+): string[] => {
+  const confidence = `Media-analysis confidence is ${confidenceLabel(mediaReference.confidence)} (${mediaReference.confidence.toFixed(2)}).`;
+  if (!hasMeasuredMediaAnalysisDesignFacts(mediaReference)) {
+    return [
+      `Media analysis confirmed persisted ${mediaReference.kind} metadata only; inspect saved pin media before making palette, layout, typography, or motion claims.`,
+      confidence
+    ];
+  }
+  return cleanGuidanceEntries([
+    ...mediaReference.designGuidance.visualStrengths,
+    confidence
+  ]).slice(0, MEDIA_ANALYSIS_STRENGTH_LIMIT);
+};
+
+const mediaAnalysisVisualRisks = (
+  mediaReference: InspiredesignMediaAnalysisReference
+): string[] => cleanGuidanceEntries([
+  ...mediaReference.designGuidance.visualRisks,
+  ...mediaReference.limitations.map((limitation) => `Media-analysis limitation: ${limitation}`)
+]).slice(0, MEDIA_ANALYSIS_RISK_LIMIT);
+
+const mergeMediaGuidance = (
+  mediaGuidance: readonly string[] | undefined,
+  fallback: readonly string[]
+): string[] => {
+  const mediaEntries = cleanGuidanceEntries(mediaGuidance ?? []);
+  if (mediaEntries.length === 0) return [...fallback].slice(0, PATTERN_LIMIT);
+  return [...mediaEntries, ...fallback].slice(0, PATTERN_LIMIT);
+};
+
+const mediaLayoutRecipe = (
+  mediaReference: InspiredesignMediaAnalysisReference | undefined,
+  fallback: string
+): string => {
+  const recipe = mediaReference?.designGuidance.layoutRecipe.trim();
+  return recipe && recipe.length > 0 ? recipe : fallback;
+};
+
+const pinMediaVisualStrengths = (
+  hasPinMediaReadyEvidence: boolean,
+  measuredMediaStrengths: readonly string[]
+): string[] => {
+  if (!hasPinMediaReadyEvidence) return [];
+  if (measuredMediaStrengths.length > 0) return [...measuredMediaStrengths];
+  return ["Manifest-ready Pinterest pin media artifact is available for still-image direction."];
+};
+
+const referenceWhyItWorks = (
+  reference: ReferenceInput,
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  if (mediaReference) {
+    if (!hasMeasuredMediaAnalysisDesignFacts(mediaReference)) {
+      return "Trusted media-analysis metadata confirms persisted pin media provenance, but palette, layout, typography, and motion claims still require measured facts or direct media inspection.";
+    }
+    return "Trusted media-analysis facts provide palette, tone, layout, typography-structure, and motion guidance without exact text claims.";
+  }
+  if (reference.captureStatus === "captured") {
+    return "Captured reference evidence provides reusable hierarchy, rhythm, and component cues.";
+  }
+  return "Available reference text provides directional content and hierarchy cues.";
+};
+
 const deriveVisualStrengths = (
   reference: ReferenceInput,
-  patterns: string[]
+  patterns: string[],
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[],
+  mediaReference?: InspiredesignMediaAnalysisReference
 ): string[] => {
   const diagnosticReasons = referenceDiagnosticReasons(reference);
-  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons);
+  const hasPinMediaReadyEvidence = hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons, pinMediaIndex);
+  const measuredMediaStrengths = mediaReference ? mediaAnalysisVisualStrengths(mediaReference) : [];
   const strengths = [
     ...(reference.capture?.visual?.status === "captured"
       ? ["Screenshot artifact is available for direct visual inspection."]
       : []),
-    ...(hasPinMediaReadyEvidence
-      ? ["Manifest-ready Pinterest pin media artifact is available for still-image direction."]
-      : []),
+    ...pinMediaVisualStrengths(hasPinMediaReadyEvidence, measuredMediaStrengths),
     ...(reference.capture?.snapshot?.content.trim()
       ? ["Snapshot text confirms visible hierarchy and interaction targets."]
       : []),
@@ -996,8 +1239,13 @@ const deriveVisualStrengths = (
   return strengths.slice(0, PATTERN_LIMIT);
 };
 
-const deriveVisualRisks = (reference: ReferenceInput): string[] => {
+const deriveVisualRisks = (
+  reference: ReferenceInput,
+  mediaReference?: InspiredesignMediaAnalysisReference
+): string[] => {
+  const mediaRisks = mediaReference ? mediaAnalysisVisualRisks(mediaReference) : [];
   const risks = [
+    ...mediaRisks,
     ...(reference.capture?.visual?.status !== "captured"
       ? ["No finalized screenshot artifact, so visual claims must stay conservative."]
       : []),
@@ -1146,24 +1394,61 @@ const hasBriefIntentMatch = (
   return matchCount >= Math.min(2, intentTokens.length);
 };
 
+const mediaAnalysisSourceForReference = (
+  mediaReference: InspiredesignMediaAnalysisReference
+): NonNullable<InspiredesignReferencePatternBoard["references"][number]["mediaAnalysisSource"]> => ({
+  referenceId: mediaReference.referenceId,
+  mediaPath: mediaReference.mediaPath,
+  ...(mediaReference.sourceUrl ? { sourceUrl: mediaReference.sourceUrl } : {}),
+  ...(mediaReference.mediaUrl ? { mediaUrl: mediaReference.mediaUrl } : {}),
+  ...(mediaReference.hash ? { hash: mediaReference.hash } : {}),
+  kind: mediaReference.kind,
+  ...(mediaReference.contentType ? { contentType: mediaReference.contentType } : {})
+});
+
+const persistedPinMediaPathForReference = (reference: ReferenceInput): string | undefined => {
+  const pinMedia = reference.capture?.pinMedia;
+  if (pinMedia?.status !== "captured") return undefined;
+  return readPersistedPinterestPinMediaEvidence(pinMedia).path;
+};
+
+const boardReferenceKey = (reference: { id: string; url: string; mediaArtifactPath?: string }): string => (
+  `${reference.id}\u0000${reference.url}\u0000${reference.mediaArtifactPath ?? ""}`
+);
+
+const sourceReferenceBoardKey = (reference: ReferenceInput): string => (
+  boardReferenceKey({
+    id: reference.id,
+    url: reference.url,
+    mediaArtifactPath: persistedPinMediaPathForReference(reference)
+  })
+);
+
 const deriveReferenceEntry = (
   reference: ReferenceInput,
   format: InspiredesignBriefFormat,
-  briefText: string
+  briefText: string,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[],
+  mediaReference?: InspiredesignMediaAnalysisReference
 ): Omit<InspiredesignReferencePatternBoard["references"][number], "rank"> => {
   const signals = getInspiredesignReferenceSignals(reference);
   const primarySignal = firstSignal(reference);
   const patterns = appendSourceDetail(derivePatternSummaries(signals, primarySignal), primarySignal);
   const isPublicLanding = signals.some(hasPublicLandingSignal);
-  const capturedVia = deriveCapturedVia(reference);
-  const evidenceAuthority = evidenceAuthorityForReference(reference);
+  const capturedVia = deriveCapturedVia(reference, pinMediaIndex);
+  const evidenceAuthority = evidenceAuthorityForReference(reference, pinMediaIndex);
   const hasPinterestEvidenceAuthority = evidenceAuthority === "snapshot_ready"
     || evidenceAuthority === "motion_ready"
     || evidenceAuthority === "pin_media_ready";
   const intentMatched = hasPinterestEvidenceAuthority
     || hasBriefIntentMatch(signals, format, briefText);
-  const rawScore = scoreReference(reference, signals, isPublicLanding);
+  const rawScore = scoreReference(reference, signals, isPublicLanding, pinMediaIndex);
   const score = intentMatched ? rawScore : Math.max(0, rawScore - SCORE_INTENT_MISMATCH_PENALTY);
+  const fallbackLayoutRecipe = patterns.join("; ");
+  const fallbackComponentFamilies = deriveComponentFamilies(format, patterns, isPublicLanding);
+  const hasMeasuredMediaReference = mediaReference ? hasMeasuredMediaAnalysisDesignFacts(mediaReference) : false;
+  const mediaGuidance = hasMeasuredMediaReference ? mediaReference?.designGuidance : undefined;
+  const mediaArtifactPath = persistedPinMediaPathForReference(reference);
   return {
     id: reference.id,
     score,
@@ -1177,21 +1462,24 @@ const deriveReferenceEntry = (
     selectionReason: intentMatched
       ? selectionReasonForScore(score, capturedVia)
       : `${selectionReasonForScore(score, capturedVia)} Intent overlap with the brief is weak, so the score was downgraded.`,
-    visualStrengths: deriveVisualStrengths(reference, patterns),
-    visualRisks: deriveVisualRisks(reference),
-    layoutRecipe: patterns.join("; "),
-    contentHierarchy: patterns.slice(0, 4),
-    componentFamilies: deriveComponentFamilies(format, patterns, isPublicLanding),
-    motionPosture: [
+    visualStrengths: deriveVisualStrengths(reference, patterns, pinMediaIndex, mediaReference),
+    visualRisks: deriveVisualRisks(reference, mediaReference),
+	    layoutRecipe: mediaLayoutRecipe(hasMeasuredMediaReference ? mediaReference : undefined, fallbackLayoutRecipe),
+    contentHierarchy: mergeMediaGuidance(mediaGuidance?.contentHierarchy, patterns.slice(0, 4)),
+    componentFamilies: mergeMediaGuidance(mediaGuidance?.componentFamilies, fallbackComponentFamilies),
+    motionPosture: mergeMediaGuidance(mediaGuidance ? [mediaGuidance.motionPosture] : [], [
       format.motionGrammar,
       "Plan hero reveal, scroll reveal, CTA feedback, and reduced-motion behavior."
-    ].slice(0, PATTERN_LIMIT),
-    tokenNotes: [format.paletteIntent, format.typographySystem, format.surfaceTreatment],
-    patternsToBorrow: [...patterns, ...signals.slice(0, 2)].slice(0, PATTERN_LIMIT),
-    patternsToReject: [...format.antiPatterns],
-    whyItWorks: reference.captureStatus === "captured"
-      ? "Captured reference evidence provides reusable hierarchy, rhythm, and component cues."
-      : "Available reference text provides directional content and hierarchy cues."
+    ]),
+    tokenNotes: mergeMediaGuidance(mediaGuidance?.tokenNotes, [format.paletteIntent, format.typographySystem, format.surfaceTreatment]),
+    patternsToBorrow: mergeMediaGuidance(mediaGuidance?.patternsToBorrow, [...patterns, ...signals.slice(0, 2)]),
+    patternsToReject: mergeMediaGuidance(mediaGuidance?.patternsToReject, [...format.antiPatterns]),
+    whyItWorks: referenceWhyItWorks(reference, mediaReference),
+		...(hasMeasuredMediaReference && mediaReference ? {
+			mediaAnalysisBacked: true,
+			mediaAnalysisSource: mediaAnalysisSourceForReference(mediaReference)
+		} : {}),
+    ...(mediaArtifactPath ? { mediaArtifactPath } : {})
   };
 };
 
@@ -1236,20 +1524,25 @@ const hasCapturedEvidence = (reference: ReferenceInput): boolean => (
   || reference.capture?.pinMedia?.status === "captured"
 );
 
-const capturedButRejectedReason = (reference: ReferenceInput, diagnosticReasons: string[]): string => {
+const capturedButRejectedReason = (
+  reference: ReferenceInput,
+  diagnosticReasons: string[],
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): string => {
   if (diagnosticReasons.length > 0) {
     return `Captured browser evidence was rejected because it only exposed diagnostic signals: ${diagnosticReasons.join(", ")}.`;
   }
-  if (isPinterestProductCandidateReferenceUrl(reference.url) && !hasAuthoritativePinterestMediaEvidence(reference, diagnosticReasons)) {
+  if (isPinterestProductCandidateReferenceUrl(reference.url) && !hasAuthoritativePinterestMediaEvidence(reference, diagnosticReasons, pinMediaIndex)) {
     return "Captured Pinterest media was rejected because it lacks snapshot-ready, pin-media-ready, or motion-ready evidence.";
   }
   return "Captured browser evidence was rejected because it did not contain usable creative reference evidence.";
 };
 
 const buildRejectedReferences = (
-  references: ReferenceInput[]
+  references: ReferenceInput[],
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): InspiredesignReferencePatternBoard["rejectedReferences"] => references
-  .filter((reference) => !hasInspiredesignUsableReferenceEvidence(reference))
+  .filter((reference) => !hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex))
   .map((reference) => {
     const diagnosticReasons = referenceDiagnosticReasons(reference);
     const captured = hasCapturedEvidence(reference);
@@ -1262,7 +1555,7 @@ const buildRejectedReferences = (
       ...(captured ? { captured: true as const } : {}),
       ...(diagnosticReasons.length > 0 ? { diagnosticReasons } : {}),
       ...(captured ? {
-        capturedButRejectedReason: capturedButRejectedReason(reference, diagnosticReasons),
+        capturedButRejectedReason: capturedButRejectedReason(reference, diagnosticReasons, pinMediaIndex),
         evidenceGap: "Design-facing artifacts require creative layout evidence; diagnostic browser chrome is kept only as rejection metadata."
       } : {})
     };
@@ -1276,19 +1569,28 @@ const hasMotionReadyReferenceEvidence = (reference: ReferenceInput): boolean => 
   hasMotionReadyPinterestEvidence(reference, referenceDiagnosticReasons(reference))
 );
 
-const hasPinMediaReadyReferenceEvidence = (reference: ReferenceInput): boolean => (
-  hasPinMediaReadyPinterestEvidence(reference, referenceDiagnosticReasons(reference))
+const hasPinMediaReadyReferenceEvidence = (
+  reference: ReferenceInput,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): boolean => (
+  hasPinMediaReadyPinterestEvidence(reference, referenceDiagnosticReasons(reference), pinMediaIndex)
 );
 
-const isMissingRequiredScreenshotAttempt = (reference: ReferenceInput): boolean => (
+const isMissingRequiredScreenshotAttempt = (
+  reference: ReferenceInput,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): boolean => (
   !isVideoPinReference(reference)
   && !hasMotionReadyReferenceEvidence(reference)
-  && !hasPinMediaReadyReferenceEvidence(reference)
+  && !hasPinMediaReadyReferenceEvidence(reference, pinMediaIndex)
   && reference.capture?.visual?.status !== "captured"
 );
 
-const hasVisualFailureAttempt = (reference: ReferenceInput): boolean => (
-  reference.capture?.visual?.status === "failed" || isMissingRequiredScreenshotAttempt(reference)
+const hasVisualFailureAttempt = (
+  reference: ReferenceInput,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): boolean => (
+  reference.capture?.visual?.status === "failed" || isMissingRequiredScreenshotAttempt(reference, pinMediaIndex)
 );
 
 const hasMotionFailureAttempt = (reference: ReferenceInput): boolean => {
@@ -1300,13 +1602,16 @@ const hasMotionFailureAttempt = (reference: ReferenceInput): boolean => {
 const buildQualitySummary = (
   references: ReferenceInput[],
   rankedEntries: InspiredesignReferencePatternBoard["references"],
-  rejectedReferences: InspiredesignReferencePatternBoard["rejectedReferences"]
+  rejectedReferences: InspiredesignReferencePatternBoard["rejectedReferences"],
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): InspiredesignReferenceQualitySummary => {
   const diagnosticOnlyReasons = [...new Set(references.flatMap(referenceDiagnosticReasons))];
-  const rankedIds = new Set(rankedEntries.map((entry) => entry.id));
-  const rankedReferences = references.filter((reference) => rankedIds.has(reference.id));
+  const rankedReferenceKeys = new Set(rankedEntries.map(boardReferenceKey));
+  const rankedReferences = references.filter((reference) => rankedReferenceKeys.has(sourceReferenceBoardKey(reference)));
   const failedCaptureCount = rankedReferences.filter((reference) => reference.captureStatus === "failed").length;
-  const missingScreenshotCount = rankedReferences.filter(isMissingRequiredScreenshotAttempt).length;
+  const missingScreenshotCount = rankedReferences.filter((reference) => (
+    isMissingRequiredScreenshotAttempt(reference, pinMediaIndex)
+  )).length;
   const topReference = rankedEntries[0];
   return {
     rankedReferenceCount: rankedEntries.length,
@@ -1315,8 +1620,12 @@ const buildQualitySummary = (
     missingScreenshotCount,
     attemptedReferenceCount: references.length,
     allAttemptFailedCaptureCount: references.filter((reference) => reference.captureStatus === "failed").length,
-    allAttemptMissingScreenshotCount: references.filter(isMissingRequiredScreenshotAttempt).length,
-    allAttemptVisualFailureCount: references.filter(hasVisualFailureAttempt).length,
+    allAttemptMissingScreenshotCount: references.filter((reference) => (
+      isMissingRequiredScreenshotAttempt(reference, pinMediaIndex)
+    )).length,
+    allAttemptVisualFailureCount: references.filter((reference) => (
+      hasVisualFailureAttempt(reference, pinMediaIndex)
+    )).length,
     allAttemptMotionFailureCount: references.filter(hasMotionFailureAttempt).length,
     diagnosticOnlyReasons,
     ...(topReference
@@ -1376,8 +1685,9 @@ const mergeRejectedReferences = (
 ): InspiredesignReferencePatternBoard["rejectedReferences"] => {
   const seen = new Set<string>();
   return rejectedReferences.filter((reference) => {
-    if (seen.has(reference.id)) return false;
-    seen.add(reference.id);
+    const key = boardReferenceKey(reference);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 };
@@ -1396,9 +1706,9 @@ export const buildInspiredesignRankedArtifactPatternBoard = (
   designBoard: InspiredesignReferencePatternBoard,
   sourceBoard: InspiredesignReferencePatternBoard
 ): InspiredesignReferencePatternBoard => {
-  const designReferenceIds = new Set(designBoard.references.map((reference) => reference.id));
+  const designReferenceKeys = new Set(designBoard.references.map(boardReferenceKey));
   const notReadyReferences = sourceBoard.references
-    .filter((reference) => !designReferenceIds.has(reference.id))
+    .filter((reference) => !designReferenceKeys.has(boardReferenceKey(reference)))
     .map(buildNotReadyRejectedReference);
   return {
     ...designBoard,
@@ -1459,13 +1769,29 @@ export const buildInspiredesignReferencePatternBoard = (
   briefId: string,
   format: InspiredesignBriefFormat,
   references: ReferenceInput[],
-  briefText = ""
+  briefText = "",
+  mediaAnalysis?: InspiredesignMediaAnalysis,
+  pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): InspiredesignReferencePatternBoard => {
+  const mediaAnalysisLookup = buildTrustedMediaAnalysisLookup(mediaAnalysis);
   const entries = references
-    .filter(hasInspiredesignUsableReferenceEvidence)
-    .map((reference) => deriveReferenceEntry(reference, format, briefText));
+    .filter((reference) => hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex))
+    .map((reference) => deriveReferenceEntry(
+      reference,
+      format,
+      briefText,
+      pinMediaIndex,
+      getTrustedMediaAnalysisForReference(
+        reference,
+        (() => {
+          const mediaArtifactPath = persistedPinMediaPathForReference(reference);
+          return mediaArtifactPath ? mediaAnalysisLookup.get(mediaAnalysisLookupKey(reference.id, mediaArtifactPath)) : undefined;
+        })(),
+        pinMediaIndex
+      )
+    ));
   const rankedEntries = sortReferenceEntries(entries);
-  const rejectedReferences = buildRejectedReferences(references);
+  const rejectedReferences = buildRejectedReferences(references, pinMediaIndex);
   const sharedStrengths = rankedEntries.flatMap((entry) => entry.patternsToBorrow).slice(0, 6);
   const targetSurface = rankedEntries.some((entry) => entry.surfaceType === "public landing page")
     ? "reference-led public landing page"
@@ -1473,7 +1799,7 @@ export const buildInspiredesignReferencePatternBoard = (
   return {
     briefId,
     targetSurface,
-    qualitySummary: buildQualitySummary(references, rankedEntries, rejectedReferences),
+    qualitySummary: buildQualitySummary(references, rankedEntries, rejectedReferences, pinMediaIndex),
     references: rankedEntries,
     rejectedReferences,
     synthesis: {
@@ -1540,6 +1866,42 @@ const buildInteractionMoments = (
     : `Cursor effects policy: consider magnetic or follow-cursor affordances only when reference evidence supports ${cursorScope}.`;
   return referenceBacked ? [...moments, cursorPolicy] : moments;
 };
+
+const uniqueReferenceValues = (values: string[]): string[] => (
+  [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))].slice(0, PATTERN_LIMIT)
+);
+
+const collectReferenceValues = (
+  references: readonly InspiredesignRankedReference[],
+  selectValues: (reference: InspiredesignRankedReference) => readonly string[]
+): string[] => uniqueReferenceValues(references.flatMap((reference) => [...selectValues(reference)]));
+
+const hasMediaAnalysisGuidance = (reference: InspiredesignRankedReference): boolean => reference.mediaAnalysisBacked === true;
+
+const collectMediaReferenceValues = (
+	references: readonly InspiredesignRankedReference[],
+	selectValues: (reference: InspiredesignRankedReference) => readonly string[]
+): string[] => collectReferenceValues(references.filter(hasMediaAnalysisGuidance), selectValues);
+
+const buildMediaTypographyPosture = (references: readonly InspiredesignRankedReference[]): string[] => collectMediaReferenceValues(
+  references,
+  (reference) => reference.contentHierarchy
+);
+
+const buildMediaImageryPosture = (references: readonly InspiredesignRankedReference[]): string[] => collectMediaReferenceValues(
+  references,
+	(reference) => [...reference.patternsToBorrow, ...reference.visualStrengths, ...reference.tokenNotes]
+);
+
+const buildMediaInteractionMoments = (references: readonly InspiredesignRankedReference[]): string[] => collectMediaReferenceValues(
+  references,
+  (reference) => reference.componentFamilies.map((family) => `Media-derived component family: ${family}.`)
+);
+
+const buildMediaMaterialEffects = (references: readonly InspiredesignRankedReference[]): string[] => collectMediaReferenceValues(
+  references,
+  (reference) => reference.tokenNotes.map((note) => `Media-derived token note: ${note}`)
+);
 
 const buildMaterialEffects = (board: InspiredesignReferencePatternBoard): string[] => {
   if (board.references.length === 0) {
@@ -1619,6 +1981,12 @@ export const buildInspiredesignDesignVectors = (
     : [format.archetype];
   const designBoard = { ...board, references: designReferences };
   const publicLandingEvidence = hasBoardPublicLandingEvidence(designBoard);
+	const mediaPremiumPosture = collectMediaReferenceValues(designReferences, (entry) => entry.visualStrengths);
+	const mediaMotionPosture = collectMediaReferenceValues(designReferences, (entry) => entry.motionPosture);
+  const mediaTypographyPosture = buildMediaTypographyPosture(designReferences);
+  const mediaImageryPosture = buildMediaImageryPosture(designReferences);
+  const mediaInteractionMoments = buildMediaInteractionMoments(designReferences);
+  const mediaMaterialEffects = buildMediaMaterialEffects(designReferences);
   const surfaceIntent = publicLandingEvidence
     ? "reference-led public landing page"
     : format.archetype;
@@ -1631,22 +1999,24 @@ export const buildInspiredesignDesignVectors = (
     surfaceIntent,
     compositionModel: compositionModel.slice(0, 5),
     premiumPosture: [
+      ...mediaPremiumPosture,
       "premium visual hierarchy, refined spacing, and editorial image treatment.",
       "Premium typography, spacing, visual hierarchy, palette, and image treatment must lead the page.",
       format.surfaceTreatment,
       format.paletteIntent
-    ],
+    ].slice(0, PATTERN_LIMIT),
     motionPosture: [
+      ...mediaMotionPosture,
       "Use a hero entrance reveal, section scroll reveal, and CTA/focus feedback.",
       "Respect reduced-motion preference with static hierarchy preserved.",
       format.motionGrammar
-    ],
+    ].slice(0, PATTERN_LIMIT),
     sectionArchitecture: buildSectionArchitecture(format, designBoard),
-    typographyPosture: [format.typographySystem],
-    imageryPosture: buildImageryPosture(format, designBoard),
+    typographyPosture: [...mediaTypographyPosture, format.typographySystem].slice(0, PATTERN_LIMIT),
+    imageryPosture: [...mediaImageryPosture, ...buildImageryPosture(format, designBoard)].slice(0, PATTERN_LIMIT),
     interactionDensity: buildInteractionDensity(format, designBoard),
-    interactionMoments: buildInteractionMoments(format, designBoard),
-    materialEffects: buildMaterialEffects(designBoard),
+    interactionMoments: [...mediaInteractionMoments, ...buildInteractionMoments(format, designBoard)].slice(0, PATTERN_LIMIT),
+    materialEffects: [...mediaMaterialEffects, ...buildMaterialEffects(designBoard)].slice(0, PATTERN_LIMIT),
     advancedMotionAdvisory: [...ADVANCED_MOTION_FIELDS],
     referenceInfluence: influence,
     patternsToBorrow: designReferences.flatMap((entry) => entry.patternsToBorrow).slice(0, 8),

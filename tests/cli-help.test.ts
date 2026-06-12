@@ -93,6 +93,7 @@ describe("CLI help surface", () => {
       { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
       { label: "gate:", value: "Require nextStepGuidance.readiness=ready, non-empty ranked references, no matching doNotProceedIf blockers, and Pinterest snapshot_ready, motion_ready, or pin_media_ready manifest-backed evidence before Canvas continuation." },
+      { label: "media:", value: "Treat media-analysis.json as design facts only; it never grants readiness authority and raw media-analysis fields must not enter canvas-plan.request.json." },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }
     ]);

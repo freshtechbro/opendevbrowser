@@ -18,6 +18,7 @@ import {
   captureInspiredesignReferenceFromManager
 } from "../inspiredesign/capture";
 import { resolveInspiredesignHarvestCaptureMode } from "../inspiredesign/capture-mode";
+import { resolveInspiredesignUserFacingProductReadinessFields } from "../inspiredesign/product-readiness";
 
 const z = tool.schema;
 const modeSchema = z.enum(["compact", "json", "md", "context", "path"]);
@@ -40,7 +41,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
       maxReferences: z.number().int().min(1).max(MAX_HARVEST_REFERENCES).optional().describe("Maximum references to analyze"),
       visualEvidence: visualEvidenceSchema.optional().describe("Visual evidence mode: off|auto|required"),
       urls: z.array(z.string()).optional().describe("Inspiration URLs to analyze"),
-      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep. Pinterest harvest keeps deep diagnostics opt-in."),
+      captureMode: captureModeSchema.optional().describe("Capture mode: off|deep. Pinterest harvest disables deep diagnostics and uses canonical pin media evidence."),
       includePrototypeGuidance: z.boolean().optional().describe("Include prototype guidance output"),
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
@@ -133,7 +134,11 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
               cookieSource
             })
         });
-        return ok(result);
+        const productReadiness = resolveInspiredesignUserFacingProductReadinessFields(result);
+        return ok({
+          ...result,
+          ...productReadiness
+        });
       } catch (error) {
         return failure(serializeError(error).message, "inspiredesign_run_failed");
       }

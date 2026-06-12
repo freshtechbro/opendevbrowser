@@ -55,6 +55,55 @@ const readPrimarySummary = (data: unknown): string | null => {
   return readNonEmptyString(meta?.primaryConstraintSummary);
 };
 
+const hasAuthorityFields = (record: Record<string, unknown> | null): boolean => {
+  if (!record) return false;
+  return "productSuccess" in record || "artifactAuthority" in record;
+};
+
+const readGuidanceRecord = (record: Record<string, unknown> | null): Record<string, unknown> | null => (
+  asRecord(record?.nextStepGuidance) ?? asRecord(record?.next_step_guidance)
+);
+
+const hasReadyGuidance = (
+  record: Record<string, unknown> | null,
+  fallbackRecord: Record<string, unknown> | null = null,
+  expectedWorkflow: string | null = null
+): boolean => {
+  const guidance = readGuidanceRecord(record);
+  if (readNonEmptyString(guidance?.readiness) === "ready") {
+    return guidanceMatchesWorkflow(guidance, expectedWorkflow);
+  }
+  const fallbackGuidance = readGuidanceRecord(fallbackRecord);
+  return readNonEmptyString(fallbackGuidance?.readiness) === "ready"
+    && guidanceMatchesWorkflow(fallbackGuidance, expectedWorkflow);
+};
+
+const hasProductReadyAuthorityRecord = (
+  record: Record<string, unknown> | null,
+  fallbackGuidanceRecord: Record<string, unknown> | null = null,
+  expectedWorkflow: string | null = null
+): boolean => {
+  if (!record) return false;
+  const evidenceAuthority = readNonEmptyString(record.evidenceAuthority);
+  return record.productSuccess === true
+    && readNonEmptyString(record.artifactAuthority) === "product_ready"
+    && (
+      evidenceAuthority === "pin_media_ready"
+      || evidenceAuthority === "snapshot_ready"
+      || evidenceAuthority === "motion_ready"
+    )
+    && hasReadyGuidance(record, fallbackGuidanceRecord, expectedWorkflow);
+};
+
+const hasProductReadyAuthority = (data: unknown, expectedWorkflow: string | null): boolean => {
+  const record = asRecord(data);
+  const meta = readMeta(data);
+  if (hasAuthorityFields(record)) {
+    return hasProductReadyAuthorityRecord(record, meta, expectedWorkflow);
+  }
+  return hasProductReadyAuthorityRecord(meta, null, expectedWorkflow);
+};
+
 const WORKFLOW_LABEL_MATCHERS: ReadonlyArray<readonly [string, string]> = [
   ["inspiredesign", "inspiredesign"],
   ["product video", "product_video"],
@@ -200,6 +249,12 @@ export const readWorkflowGuidanceNextStep = (data: unknown, expectedWorkflow: st
 
 export const buildWorkflowCompletionMessage = (workflowLabel: string, data: unknown): string => {
   const expectedWorkflow = workflowFromLabel(workflowLabel);
+  if (hasProductReadyAuthority(data, expectedWorkflow)) {
+    return buildNextStepMessage(
+      `${workflowLabel} completed with product-ready artifacts.`,
+      readWorkflowGuidanceNextStep(data, expectedWorkflow)
+    );
+  }
   const explicitSummary = readPrimarySummary(data);
   if (explicitSummary) {
     return buildNextStepMessage(

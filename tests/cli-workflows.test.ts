@@ -643,6 +643,25 @@ describe("workflow CLI commands", () => {
     }));
   });
 
+  it("disables deep diagnostics for Pinterest provider URL recovery", async () => {
+    callDaemon.mockResolvedValue({ ok: true });
+
+    await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--provider=social/pinterest",
+      "--url=https://www.pinterest.com/pin/27654985208435505/",
+      "--capture-mode=deep"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith("inspiredesign.run", expect.objectContaining({
+      harvest: true,
+      providers: ["social/pinterest"],
+      urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+      captureMode: "off"
+    }));
+  });
+
   it("rejects Pinterest provider query runs with non-canonical explicit URLs", async () => {
     await expect(runInspiredesignCommand(makeArgs("inspiredesign", [
       "harvest",
@@ -745,7 +764,7 @@ describe("workflow CLI commands", () => {
     }));
   });
 
-  it("keeps legacy inspiredesign readiness metadata out of CLI product authority", async () => {
+  it("reports legacy inspiredesign readiness metadata as diagnostic product authority", async () => {
     const cases = [
       { readiness: "diagnostic_only", rankedReferences: [] },
       { readiness: "ready", rankedReferences: [{ id: "reference-1" }] },
@@ -755,7 +774,7 @@ describe("workflow CLI commands", () => {
         screenshotIndex: [{
           referenceId: "reference-1",
           url: "https://www.pinterest.com/pin/11188699075430754/",
-          sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+          sourceUrl: "https://www.pinterest.com/pin/22288699075430754/",
           path: "visual-evidence/reference-1/viewport.png",
           sha256: "a".repeat(64),
           bytes: 4096,
@@ -792,9 +811,11 @@ describe("workflow CLI commands", () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toContain(`readiness=${item.readiness}`);
-      expect(result).not.toHaveProperty("productSuccess");
-      expect(result).not.toHaveProperty("artifactAuthority");
-      expect(result).not.toHaveProperty("rankedReferenceCount");
+      expect(result).toEqual(expect.objectContaining({
+        productSuccess: false,
+        artifactAuthority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only"
+      }));
     }
   });
 
@@ -846,18 +867,28 @@ describe("workflow CLI commands", () => {
     }));
   });
 
-  it("reads top-level next-step readiness and keeps count-only product authority diagnostic", async () => {
+  it("reads top-level next-step readiness and exposes explicit product authority", async () => {
     callDaemon.mockResolvedValueOnce({
       ok: true,
       nextStepGuidance: { readiness: "ready" },
       productSuccess: true,
       artifactAuthority: "product_ready",
       evidenceAuthority: "snapshot_ready",
-      rankedReferenceCount: 2,
-      authoritativeReferenceCount: 2,
-      snapshotReadyReferenceCount: 2,
-      motionReadyReferenceCount: 0,
-      pinMediaReadyReferenceCount: 0
+      rankedReferences: [{
+        id: "reference-1",
+        url: "https://www.pinterest.com/pin/11188699075430754/",
+        evidenceAuthority: "snapshot_ready"
+      }],
+      screenshotIndex: [{
+        referenceId: "reference-1",
+        url: "https://www.pinterest.com/pin/11188699075430754/",
+        sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+        pinterestPageQuality: "pin_media",
+        path: "visual-evidence/reference-1/viewport.png",
+        sha256: "a".repeat(64),
+        bytes: 4096,
+        warnings: []
+      }]
     });
 
     const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
@@ -871,14 +902,41 @@ describe("workflow CLI commands", () => {
       success: true,
       ready: true,
       readiness: "ready",
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "snapshot_ready",
+      rankedReferenceCount: 1,
+      authoritativeReferenceCount: 1,
+      snapshotReadyReferenceCount: 1,
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 0
+    }));
+  });
+
+  it("keeps self-reported inspiredesign product readiness diagnostic without artifact evidence", async () => {
+    callDaemon.mockResolvedValueOnce({
+      ok: true,
+      nextStepGuidance: { readiness: "ready" },
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready"
+    });
+
+    const result = await runInspiredesignCommand(makeArgs("inspiredesign", [
+      "harvest",
+      "--brief=Build a docs landing page contract",
+      "--query=premium docs references"
+    ]));
+
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      ready: true,
+      readiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only",
-      rankedReferenceCount: 2,
-      authoritativeReferenceCount: 2,
-      snapshotReadyReferenceCount: 2,
-      motionReadyReferenceCount: 0,
-      pinMediaReadyReferenceCount: 0
+      rankedReferenceCount: 0,
+      authoritativeReferenceCount: 0
     }));
   });
 
@@ -959,6 +1017,17 @@ describe("workflow CLI commands", () => {
 
     expect(result).toEqual({
       success: true,
+      ready: false,
+      readiness: "unknown",
+      harvestReadiness: "unknown",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only",
+      rankedReferenceCount: 0,
+      authoritativeReferenceCount: 0,
+      snapshotReadyReferenceCount: 0,
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 0,
       message: `Inspiredesign workflow completed. ${buildInspiredesignFollowthroughSummary()} Next step: ${buildInspiredesignNextStep()}`,
       data: {
         followthroughSummary: buildInspiredesignFollowthroughSummary(),
@@ -991,6 +1060,17 @@ describe("workflow CLI commands", () => {
 
     expect(result).toEqual({
       success: true,
+      ready: false,
+      readiness: "unknown",
+      harvestReadiness: "unknown",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only",
+      rankedReferenceCount: 0,
+      authoritativeReferenceCount: 0,
+      snapshotReadyReferenceCount: 0,
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 0,
       message: "Inspiredesign workflow completed with provider follow-up required: Deep capture failed for 1 reference. Next step: Retry deep capture for https://example.com/reference after restoring the required browser session state.",
       data: {
         followthroughSummary: buildInspiredesignFollowthroughSummary(),

@@ -8,6 +8,7 @@ import { redactSensitive } from "../core/logging";
 import type { ChallengeAutomationMode } from "../challenges/types";
 import { readCookiesFromSource } from "../providers/cookie-source";
 import type { ProviderCookiePolicy, ProviderCookieSourceConfig } from "../providers/types";
+import { normalizePinterestReferenceUrl } from "../guidance/recipes/pinterest";
 import type {
   InspiredesignVisualEvidenceMode,
   InspiredesignVisualEvidenceRuntimeMetadata
@@ -23,6 +24,7 @@ import type {
 } from "./contract";
 import {
   classifyPinterestCandidate,
+  isCanonicalPinterestPinUrl,
   type PinterestSourcePageQuality
 } from "./pinterest-media-classification";
 
@@ -134,11 +136,25 @@ type CaptureCookieImportState = {
   sourceMessage?: string;
 };
 
+type CaptureSessionStateInput = {
+  manager: InspiredesignCaptureManagerLike;
+  sessionId: string;
+  url: string;
+  remainingTimeoutMs: () => number;
+  options: InspiredesignPrimaryCaptureCookieOptions & {
+    challengeAutomationMode?: ChallengeAutomationMode;
+  };
+};
+
 const INSPIREDESIGN_CAPTURE_TIMEOUT_MS = 30_000;
 const INSPIREDESIGN_CAPTURE_MAX_CHARS = 12_000;
 const INSPIREDESIGN_MOTION_INTERVAL_MS = 500;
 const INSPIREDESIGN_MOTION_MAX_FRAMES = 3;
 const INSPIREDESIGN_LATE_SCREENCAST_STOP_TIMEOUT_MS = 1_000;
+const INSPIREDESIGN_PIN_MEDIA_CAPTURE_TIMEOUT_MS = 90_000;
+const PINTEREST_PIN_MEDIA_EXTENSION_WARMUP_TIMEOUT_MS = 30_000;
+const PINTEREST_PIN_MEDIA_NETWORK_IDLE_TIMEOUT_MS = 5_000;
+const EXACT_CANONICAL_PINTEREST_PIN_HOST = "www.pinterest.com";
 const ACTIVE_SESSION_COOKIE_REUSE_UNAVAILABLE_MESSAGE = "Deep capture only honors configured provider cookie sources; active session cookies are not reused.";
 const DOM_CAPTURE_HELPER_UNAVAILABLE_MESSAGE = "DOM capture helper unavailable in this execution lane.";
 const VISUAL_CAPTURE_HELPER_UNAVAILABLE_MESSAGE = "Visual evidence screenshot helper unavailable in this execution lane.";
@@ -176,9 +192,22 @@ const createRemainingCaptureTimeout = (timeoutMs: number): (() => number) => {
   };
 };
 
+const createCappedRemainingCaptureTimeout = (
+  remainingTimeoutMs: () => number,
+  capMs: number
+): (() => number) => {
+  const cappedRemainingTimeoutMs = createRemainingCaptureTimeout(capMs);
+  return () => Math.min(remainingTimeoutMs(), cappedRemainingTimeoutMs());
+};
+
 const clampInspiredesignCaptureTimeout = (timeoutMs?: number): number => {
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) return INSPIREDESIGN_CAPTURE_TIMEOUT_MS;
   return Math.max(1, Math.min(timeoutMs, INSPIREDESIGN_CAPTURE_TIMEOUT_MS));
+};
+
+const clampInspiredesignPinMediaCaptureTimeout = (timeoutMs?: number): number => {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) return INSPIREDESIGN_PIN_MEDIA_CAPTURE_TIMEOUT_MS;
+  return Math.max(1, Math.min(timeoutMs, INSPIREDESIGN_PIN_MEDIA_CAPTURE_TIMEOUT_MS));
 };
 
 function sanitizeInspiredesignCaptureText(value: string): string;
@@ -397,6 +426,28 @@ const importConfiguredCaptureCookies = async (
   };
 };
 
+const prepareCaptureSessionState = async ({
+  manager,
+  sessionId,
+  url,
+  remainingTimeoutMs,
+  options
+}: CaptureSessionStateInput): Promise<void> => {
+  const cookiePolicy = resolveInspiredesignCaptureCookiePolicy(options);
+  const importState = cookiePolicy === "off"
+    ? { sourceConfigured: false, sourceAvailable: false }
+    : await importConfiguredCaptureCookies(
+      manager,
+      sessionId,
+      options.cookieSource,
+      remainingTimeoutMs()
+    );
+  if (cookiePolicy === "required") {
+    await verifyRequiredCaptureCookies(manager, sessionId, url, importState, remainingTimeoutMs());
+  }
+  manager.setSessionChallengeAutomationMode?.(sessionId, options.challengeAutomationMode);
+};
+
 type CaptureArtifactResult = {
   attempt: InspiredesignCaptureAttemptEvidence;
   transportTimedOut?: boolean;
@@ -597,6 +648,13 @@ const mergePinMediaWarnings = (
 	viewportProbe: ViewportSourceProbe,
 	result: BrowserPinterestPinMediaResult
 ): string[] => [...viewportProbe.warnings, ...(result.warnings ?? [])];
+
+const viewportProbeFromPinMediaResult = (
+  result: BrowserPinterestPinMediaResult
+): ViewportSourceProbe => ({
+  ...(result.sourceUrl ? { sourceUrl: result.sourceUrl } : {}),
+  warnings: []
+});
 
 const hasCapturedPinMediaDirectProof = (
 	result: BrowserPinterestPinMediaResult,
@@ -835,6 +893,95 @@ const shouldForceManagedPrimaryCapture = (browserMode: WorkflowBrowserMode | und
   browserMode === "managed"
 );
 
+const exactCanonicalPinterestPinCaptureUrl = (url: string): string | undefined => {
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return undefined;
+    if (!isCanonicalPinterestPinUrl(trimmed)) return undefined;
+    const pathSegments = parsed.pathname.split("/").filter(Boolean);
+    const pinId = pathSegments[1];
+    if (pathSegments[0] !== "pin" || typeof pinId !== "string") return undefined;
+    return `https://${EXACT_CANONICAL_PINTEREST_PIN_HOST}/pin/${pinId}/`;
+  } catch {
+    return undefined;
+  }
+};
+
+const shouldWarmCanonicalPinterestPinInExtension = (
+  url: string,
+  browserMode: WorkflowBrowserMode | undefined
+): boolean => exactCanonicalPinterestPinCaptureUrl(url) !== undefined
+  && resolveCanonicalPinterestPinCaptureBrowserMode(url, browserMode) === "extension";
+
+const captureNetworkIdleWaitTimeout = (
+  remainingTimeoutMs: () => number,
+  maxNetworkIdleWaitMs: number | undefined
+): number => {
+  const remaining = remainingTimeoutMs();
+  if (maxNetworkIdleWaitMs === undefined) return remaining;
+  return Math.max(1, Math.min(remaining, maxNetworkIdleWaitMs));
+};
+
+const resolveCanonicalPinterestPinCaptureBrowserMode = (
+  url: string,
+  browserMode: WorkflowBrowserMode | undefined
+): WorkflowBrowserMode | undefined => {
+  if (exactCanonicalPinterestPinCaptureUrl(url) === undefined) return browserMode;
+  return browserMode === "managed" ? "managed" : "extension";
+};
+
+const warmCanonicalPinterestPinInExtension = async (
+  manager: InspiredesignCaptureManagerLike,
+  url: string,
+  remainingTimeoutMs: () => number,
+  options: InspiredesignPrimaryCaptureCookieOptions & {
+    browserMode?: WorkflowBrowserMode;
+    challengeAutomationMode?: ChallengeAutomationMode;
+    maxNetworkIdleWaitMs?: number;
+  }
+): Promise<void> => {
+  if (!shouldWarmCanonicalPinterestPinInExtension(url, options.browserMode)) return;
+  const launchTimeoutMs = remainingTimeoutMs();
+  const session = await withCaptureDeadline(
+    manager.launch({
+      headless: false,
+      startUrl: "about:blank",
+      persistProfile: false,
+      noExtension: false
+    }, launchTimeoutMs),
+    launchTimeoutMs,
+    "Pinterest canonical pin extension warmup launch"
+  );
+  try {
+    await prepareCaptureSessionState({
+      manager,
+      sessionId: session.sessionId,
+      url,
+      remainingTimeoutMs,
+      options
+    });
+    const gotoTimeoutMs = remainingTimeoutMs();
+    await withCaptureDeadline(
+      manager.goto(session.sessionId, url, "load", gotoTimeoutMs),
+      gotoTimeoutMs,
+      "Pinterest canonical pin extension warmup navigation"
+    );
+    const waitTimeoutMs = captureNetworkIdleWaitTimeout(remainingTimeoutMs, options.maxNetworkIdleWaitMs);
+    try {
+      await withCaptureDeadline(
+        manager.waitForLoad(session.sessionId, "networkidle", waitTimeoutMs),
+        waitTimeoutMs,
+        "Pinterest canonical pin extension warmup network idle wait"
+      );
+    } catch (error) {
+      if (!isIgnorableNetworkIdleWaitError(error)) throw error;
+    }
+  } finally {
+    await manager.disconnect(session.sessionId, false).catch(() => undefined);
+  }
+};
+
 const launchPrimaryCaptureSession = async (
   manager: InspiredesignCaptureManagerLike,
   url: string,
@@ -842,9 +989,9 @@ const launchPrimaryCaptureSession = async (
   options: InspiredesignPrimaryCaptureCookieOptions & {
     browserMode?: WorkflowBrowserMode;
     challengeAutomationMode?: ChallengeAutomationMode;
+    maxNetworkIdleWaitMs?: number;
   }
 ): Promise<{ sessionId: string }> => {
-  const cookiePolicy = resolveInspiredesignCaptureCookiePolicy(options);
   const launchTimeoutMs = remainingTimeoutMs();
   const session = await withCaptureDeadline(
     manager.launch({
@@ -857,31 +1004,20 @@ const launchPrimaryCaptureSession = async (
     "primary media capture session launch"
   );
   try {
-    const importState = cookiePolicy === "off"
-      ? { sourceConfigured: false, sourceAvailable: false }
-      : await importConfiguredCaptureCookies(
-        manager,
-        session.sessionId,
-        options.cookieSource,
-        remainingTimeoutMs()
-      );
-    if (cookiePolicy === "required") {
-      await verifyRequiredCaptureCookies(
-        manager,
-        session.sessionId,
-        url,
-        importState,
-        remainingTimeoutMs()
-      );
-    }
-    manager.setSessionChallengeAutomationMode?.(session.sessionId, options.challengeAutomationMode);
+    await prepareCaptureSessionState({
+      manager,
+      sessionId: session.sessionId,
+      url,
+      remainingTimeoutMs,
+      options
+    });
     const gotoTimeoutMs = remainingTimeoutMs();
     await withCaptureDeadline(
       manager.goto(session.sessionId, url, "load", gotoTimeoutMs),
       gotoTimeoutMs,
       "primary media capture navigation"
     );
-    const waitTimeoutMs = remainingTimeoutMs();
+    const waitTimeoutMs = captureNetworkIdleWaitTimeout(remainingTimeoutMs, options.maxNetworkIdleWaitMs);
     try {
       await withCaptureDeadline(
         manager.waitForLoad(session.sessionId, "networkidle", waitTimeoutMs),
@@ -974,17 +1110,33 @@ export async function captureInspiredesignPrimaryPinMediaEvidenceFromManager(
 		rejectionReasons: ["pin_media_capture_helper_unavailable"]
 		}
 	);
-	}
-	const captureTimeoutMs = clampInspiredesignCaptureTimeout(options.timeoutMs);
-	const remainingTimeoutMs = createRemainingCaptureTimeout(captureTimeoutMs);
-	let session: { sessionId: string };
-	try {
-	session = await launchPrimaryCaptureSession(
-		manager,
-		url,
-		remainingTimeoutMs,
-		options
-	);
+		}
+		const captureTimeoutMs = clampInspiredesignPinMediaCaptureTimeout(options.timeoutMs);
+		const captureUrl = exactCanonicalPinterestPinCaptureUrl(url) ?? url;
+		const resolvedBrowserMode = resolveCanonicalPinterestPinCaptureBrowserMode(captureUrl, options.browserMode);
+	const captureOptions = resolvedBrowserMode === options.browserMode
+		? options
+		: { ...options, browserMode: resolvedBrowserMode };
+	const pinMediaCaptureOptions = {
+			...captureOptions,
+			maxNetworkIdleWaitMs: PINTEREST_PIN_MEDIA_NETWORK_IDLE_TIMEOUT_MS
+		};
+		let session: { sessionId: string };
+		const remainingTimeoutMs = createRemainingCaptureTimeout(captureTimeoutMs);
+		try {
+			const warmupTimeoutMs = Math.min(captureTimeoutMs, PINTEREST_PIN_MEDIA_EXTENSION_WARMUP_TIMEOUT_MS);
+			await warmCanonicalPinterestPinInExtension(
+				manager,
+				captureUrl,
+				createCappedRemainingCaptureTimeout(remainingTimeoutMs, warmupTimeoutMs),
+				pinMediaCaptureOptions
+			).catch(() => undefined);
+			session = await launchPrimaryCaptureSession(
+				manager,
+				captureUrl,
+			remainingTimeoutMs,
+			pinMediaCaptureOptions
+		);
 	} catch (error) {
 	return buildPinMediaEvidenceMetadata(
 		"failed",
@@ -998,20 +1150,20 @@ export async function captureInspiredesignPrimaryPinMediaEvidenceFromManager(
 	);
 	}
 	try {
-	await mkdir(dirname(options.pinMediaEvidencePath), { recursive: true });
-	const viewportProbe = await captureViewportSourceUrl(manager, session.sessionId, remainingTimeoutMs);
-	const captureTimeout = remainingTimeoutMs();
-	const result = await withCaptureDeadline(
-		manager.capturePinterestPinMedia(session.sessionId, {
-		path: options.pinMediaEvidencePath,
-		timeoutMs: captureTimeout
+		await mkdir(dirname(options.pinMediaEvidencePath), { recursive: true });
+		const captureTimeout = remainingTimeoutMs();
+		const result = await withCaptureDeadline(
+			manager.capturePinterestPinMedia(session.sessionId, {
+			path: options.pinMediaEvidencePath,
+			timeoutMs: captureTimeout
 		}),
 		captureTimeout,
-		"Pinterest pin media evidence capture"
-	);
-	if (result.status === "not_found") {
-		const sourceUrl = result.sourceUrl || viewportProbe.sourceUrl;
-		return buildPinMediaEvidenceMetadata(
+			"Pinterest pin media evidence capture"
+		);
+		const viewportProbe = viewportProbeFromPinMediaResult(result);
+		if (result.status === "not_found") {
+			const sourceUrl = result.sourceUrl || viewportProbe.sourceUrl;
+			return buildPinMediaEvidenceMetadata(
 		"skipped",
 		options.referenceId,
 		url,
@@ -1019,7 +1171,7 @@ export async function captureInspiredesignPrimaryPinMediaEvidenceFromManager(
 		{
 			sourceUrl,
 			endedSourceUrl: sourceUrl,
-			pinterestPageQuality: viewportProbe.pinterestPageQuality ?? options.pinterestPageQuality,
+			pinterestPageQuality: viewportProbe.pinterestPageQuality ?? options.pinterestPageQuality ?? "unknown",
 			warnings: mergePinMediaWarnings(viewportProbe, result),
 			rejectionReasons: collectPinterestPinMediaNotFoundReasons(result)
 		}

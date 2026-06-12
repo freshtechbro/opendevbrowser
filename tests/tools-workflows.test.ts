@@ -900,10 +900,13 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
+    const fetchCallOptions = deps.providerRuntime.fetch.mock.calls[0]?.[1];
     expect(deps.providerRuntime.fetch).toHaveBeenCalledWith(
       { url: "https://example.com/reference" },
-      expect.objectContaining({ timeoutMs: DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS })
+      expect.objectContaining({ timeoutMs: expect.any(Number) })
     );
+    expect(fetchCallOptions?.timeoutMs).toBeGreaterThan(DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS - 1_000);
+    expect(fetchCallOptions?.timeoutMs).toBeLessThanOrEqual(DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS);
     expect(deps.manager.launch).toHaveBeenCalledWith(expect.any(Object), 30_000);
     expect(deps.manager.snapshot.mock.calls[0]?.[5]).toEqual(expect.any(Number));
   });

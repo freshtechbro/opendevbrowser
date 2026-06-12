@@ -175,6 +175,16 @@ import {
   type InspiredesignPinterestPinMediaRuntimeMetadata
 } from "../inspiredesign/pinterest-pin-media-evidence";
 import {
+  INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
+  INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS,
+  INSPIREDESIGN_MEDIA_ANALYSIS_VERSION,
+  analyzeInspiredesignMediaArtifacts,
+  type InspiredesignMediaAnalysis,
+  type InspiredesignMediaAnalysisInput,
+  type InspiredesignMediaAnalyzerOptions,
+  type InspiredesignMediaKind
+} from "../inspiredesign/media-analysis";
+import {
   buildInspiredesignProductReadinessFields,
   countInspiredesignArtifactBackedEvidenceAuthorities,
   countInspiredesignAuthoritativePinterestReferences,
@@ -348,6 +358,10 @@ export interface InspiredesignWorkflowOptions {
     url: string,
     options: InspiredesignWorkflowPinMediaCaptureOptions
   ) => Promise<InspiredesignPinterestPinMediaRuntimeMetadata | undefined>;
+  analyzeMediaArtifacts?: (
+    inputs: readonly InspiredesignMediaAnalysisInput[],
+    options?: InspiredesignMediaAnalyzerOptions
+  ) => Promise<InspiredesignMediaAnalysis>;
 }
 
 type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited" | "transcript_unavailable";
@@ -1227,6 +1241,10 @@ export const workflowTestUtils = {
     referenceId: string,
     tempPath: string | undefined
   ): Promise<string | undefined> => trustedPinMediaTempPath(pinMediaTempRoot, referenceId, tempPath),
+	createPinMediaAnalysisTempDir: (pinMediaTempRoot: string, referenceId: string): Promise<string> =>
+	createPinMediaAnalysisTempDir(pinMediaTempRoot, referenceId),
+	readTrustedPinMediaRuntimeFile: (pinMediaTempRoot: string, absolutePath: string): Promise<Buffer> =>
+	readTrustedPinMediaRuntimeFile(pinMediaTempRoot, absolutePath),
   sanitizeProductBrandCandidate: (candidate: string | undefined, productUrl: string): string | undefined =>
     sanitizeProductBrandCandidate(candidate, productUrl),
   extractProductBrandFromTitle: (title: string | undefined, productUrl: string): string | undefined =>
@@ -1495,6 +1513,20 @@ const createRemainingTimeoutResolver = (timeoutMs?: number): (() => number | und
     return Math.max(1, timeoutMs - Math.max(0, Date.now() - startedAtMs));
   };
 };
+
+const resolveInspiredesignReferenceBudgetMs = (
+  workflowRemainingTimeoutMs: number | undefined,
+  remainingReferenceCount: number
+): number | undefined => {
+  if (typeof workflowRemainingTimeoutMs !== "number" || !Number.isFinite(workflowRemainingTimeoutMs) || workflowRemainingTimeoutMs <= 0) {
+    return undefined;
+  }
+  return Math.max(1, Math.ceil(workflowRemainingTimeoutMs / Math.max(1, remainingReferenceCount)));
+};
+
+const isInspiredesignWorkflowDeadlineExhausted = (
+  workflowRemainingTimeoutMs: number | undefined
+): boolean => typeof workflowRemainingTimeoutMs === "number" && workflowRemainingTimeoutMs <= 1;
 
 const resolveResearchProviderStepTimeoutMs = (timeoutMs?: number): number | undefined => {
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -3434,6 +3466,8 @@ const PIN_MEDIA_RUNTIME_OPEN_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLL
 const PIN_MEDIA_RUNTIME_MAX_BYTES = 20_000_000;
 const PIN_MEDIA_RUNTIME_READ_CHUNK_BYTES = 65_536;
 const PIN_MEDIA_RUNTIME_TOO_LARGE_REASON = "pin_media_temp_file_too_large";
+const PIN_MEDIA_ANALYSIS_TEMP_FILE_MODE = 0o600;
+const PIN_MEDIA_ANALYSIS_TEMP_OPEN_FLAGS = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW;
 
 export type PinMediaRuntimeReadableFile = {
   read: (
@@ -3485,6 +3519,31 @@ const buildPinMediaTempCapturePath = (
     throw new Error("Pinterest pin media temp path escaped the workflow temp root.");
   }
   return absolutePath;
+};
+
+const createPinMediaAnalysisTempDir = async (
+  pinMediaTempRoot: string,
+  referenceId: string
+): Promise<string> => {
+  const safeReferenceId = sanitizeInspiredesignPinterestPinMediaReferenceId(referenceId);
+  const tempDirPrefix = resolve(pinMediaTempRoot, `${safeReferenceId}-media-analysis-`);
+  if (!isPathInsideRoot(pinMediaTempRoot, tempDirPrefix)) {
+    throw new Error("Pinterest pin media analysis temp path escaped the workflow temp root.");
+  }
+	const tempDir = await mkdtemp(tempDirPrefix);
+  const absoluteTempDir = resolve(tempDir);
+  if (!isPathInsideRoot(pinMediaTempRoot, absoluteTempDir)) {
+    throw new Error("Pinterest pin media analysis temp path escaped the workflow temp root.");
+  }
+  const [tempRoot, parent, tempDirStat] = await Promise.all([
+    realpath(pinMediaTempRoot).catch(() => undefined),
+    realpath(dirname(absoluteTempDir)).catch(() => undefined),
+    lstat(absoluteTempDir)
+  ]);
+  if (tempRoot !== pinMediaTempRoot || parent !== pinMediaTempRoot || !tempDirStat.isDirectory()) {
+    throw new Error("Pinterest pin media analysis temp path parent was not trusted.");
+  }
+  return absoluteTempDir;
 };
 
 export const readBoundedPinMediaRuntimeFile = async (file: PinMediaRuntimeReadableFile): Promise<Buffer> => {
@@ -3614,7 +3673,7 @@ const finalizeInspiredesignReferencePinMedia = async (
 			reference: failReferencePinMediaFinalization(
 			reference,
 			runtimePinMedia,
-			"Pinterest pin media bytes did not match a supported image format.",
+			"Pinterest pin media bytes did not match a supported media format.",
 			byteInspection.reasons[0] ?? "unsupported_byte_signature"
 			)
 		};
@@ -3681,6 +3740,129 @@ const finalizeInspiredesignPinMediaArtifacts = async (
 	files: finalized.map((entry) => entry.file).filter((file): file is ArtifactFile => Boolean(file))
 	};
 };
+
+const mediaAnalysisKindFromPinMedia = (
+	pinMedia: Pick<InspiredesignPersistedPinterestPinMediaEvidence, "kind" | "contentType">
+): InspiredesignMediaKind => {
+	if (pinMedia.contentType === "image/gif") return "gif";
+	return pinMedia.kind;
+};
+
+const pinMediaAnalysisHash = (buffer: Buffer): string => createHash("sha256").update(buffer).digest("hex");
+
+const findScheduledPinMediaArtifact = (
+	filesByPath: ReadonlyMap<string, ArtifactFile>,
+	path: string | undefined
+): ArtifactFile | undefined => {
+	if (!path) return undefined;
+	const file = filesByPath.get(path);
+	return file && Buffer.isBuffer(file.content) ? file : undefined;
+};
+
+type PinMediaAnalysisSourceFile = {
+	filePath: string;
+	tempDir: string;
+};
+
+const cleanupPinMediaAnalysisTempDirs = async (tempDirs: readonly string[]): Promise<void> => {
+	await Promise.all(tempDirs.map((tempDir) => rm(tempDir, { recursive: true, force: true }).catch(() => undefined)));
+};
+
+const assertPinMediaAnalysisTempWriteDeadline = (timeoutMs: number | undefined): void => {
+	if (typeof timeoutMs === "number" && timeoutMs <= 1) {
+		throw new Error("Pinterest pin media analysis temp write deadline was exhausted.");
+	}
+};
+
+const writePinMediaAnalysisSourceFile = async (
+	pinMediaTempRoot: string,
+	referenceId: string,
+	buffer: Buffer,
+	timeoutMs: number | undefined
+): Promise<PinMediaAnalysisSourceFile> => {
+	assertPinMediaAnalysisTempWriteDeadline(timeoutMs);
+	let tempDir: string | undefined;
+	let file: FileHandle | undefined;
+	try {
+		tempDir = await createPinMediaAnalysisTempDir(pinMediaTempRoot, referenceId);
+		assertPinMediaAnalysisTempWriteDeadline(timeoutMs);
+		const filePath = resolve(tempDir, "source-media");
+		if (!isPathInsideRoot(pinMediaTempRoot, filePath)) {
+			throw new Error("Pinterest pin media analysis temp path escaped the workflow temp root.");
+		}
+		assertPinMediaAnalysisTempWriteDeadline(timeoutMs);
+		file = await open(filePath, PIN_MEDIA_ANALYSIS_TEMP_OPEN_FLAGS, PIN_MEDIA_ANALYSIS_TEMP_FILE_MODE);
+		assertPinMediaAnalysisTempWriteDeadline(timeoutMs);
+		await file.writeFile(buffer);
+		return { filePath, tempDir };
+	} catch (error) {
+		if (tempDir) {
+			await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+		}
+		throw error;
+	} finally {
+		await file?.close().catch(() => undefined);
+	}
+};
+
+const buildTrustedInspiredesignMediaAnalysisInputs = async (args: {
+	references: InspiredesignReferenceEvidence[];
+	pinMediaFiles: readonly ArtifactFile[];
+	pinMediaTempRoot: string | undefined;
+	stagedTempDirs: string[];
+	remainingTimeoutMs: () => number | undefined;
+}): Promise<InspiredesignMediaAnalysisInput[]> => {
+	if (!args.pinMediaTempRoot) return [];
+	const filesByPath = new Map(args.pinMediaFiles.map((file) => [file.path, file]));
+	const inputs: InspiredesignMediaAnalysisInput[] = [];
+	for (const reference of args.references) {
+		const pinMedia = reference.capture?.pinMedia;
+		if (pinMedia?.status !== "captured") continue;
+		const persisted = persistInspiredesignPinterestPinMediaEvidence(pinMedia);
+		if (persisted.authority !== "design_evidence") continue;
+		if (persisted.referenceId !== reference.id) continue;
+		const mediaPath = persisted.path;
+		if (!mediaPath) continue;
+		const scheduledFile = findScheduledPinMediaArtifact(filesByPath, mediaPath);
+		if (!scheduledFile || !Buffer.isBuffer(scheduledFile.content)) continue;
+		if (persisted.bytes !== scheduledFile.content.length) continue;
+		if (persisted.sha256 !== pinMediaAnalysisHash(scheduledFile.content)) continue;
+		const sourceFile = await writePinMediaAnalysisSourceFile(
+			args.pinMediaTempRoot,
+			reference.id,
+			scheduledFile.content,
+			args.remainingTimeoutMs()
+		);
+		args.stagedTempDirs.push(sourceFile.tempDir);
+		inputs.push({
+			referenceId: reference.id,
+			mediaPath,
+			filePath: sourceFile.filePath,
+			sourceUrl: persisted.sourceUrl,
+			mediaUrl: persisted.mediaUrl,
+			kind: mediaAnalysisKindFromPinMedia(persisted),
+			contentType: persisted.contentType,
+			bytes: persisted.bytes,
+			hash: persisted.sha256,
+			width: persisted.width,
+			height: persisted.height,
+			authority: "design_evidence",
+			scheduledForBundle: true
+		});
+	}
+	return inputs;
+};
+
+const buildDiagnosticInspiredesignMediaAnalysis = (): InspiredesignMediaAnalysis => ({
+	version: INSPIREDESIGN_MEDIA_ANALYSIS_VERSION,
+	generatedAt: INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
+	nonGoals: INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS,
+	references: []
+});
+
+const mediaAnalysisFailureMessage = (error: unknown): string => (
+	error instanceof Error ? error.message : "Media analysis failed."
+);
 
 type InspiredesignMotionRuntimeFileCollection = {
   files: ArtifactFile[];
@@ -5703,6 +5885,8 @@ export const runInspiredesignWorkflow = async (
   let workflowInput: InspiredesignResolvedInput = { ...rawWorkflowInput, outputDir: artifactRoot };
   const requestedReferenceUrls = [...workflowInput.urls];
   const remainingTimeoutMs = createRemainingTimeoutResolver(workflowInput.timeoutMs);
+  // Start the workflow deadline now; reference captures get their own per-reference budgets below.
+  remainingTimeoutMs();
   const visualEvidenceTempDir = workflowInput.visualEvidence !== "off"
     ? await mkdtemp(join(tmpdir(), "inspiredesign-visual-"))
     : undefined;
@@ -5744,11 +5928,22 @@ export const runInspiredesignWorkflow = async (
   const references: InspiredesignReferenceEvidence[] = [];
   const failures: ProviderFailureEntry[] = [...discovery.failures];
   for (const [index, url] of workflowInput.urls.entries()) {
+    const workflowRemainingBudgetMs = remainingTimeoutMs();
+    if (isInspiredesignWorkflowDeadlineExhausted(workflowRemainingBudgetMs)) {
+      trace = appendWorkflowTrace(trace, "execute", "reference_skipped", {
+        stepIndex: index,
+        url,
+        reason: "workflow_timeout_exhausted"
+      });
+      break;
+    }
+    const referenceBudgetMs = resolveInspiredesignReferenceBudgetMs(workflowRemainingBudgetMs, workflowInput.urls.length - index);
+    const referenceRemainingTimeoutMs = createRemainingTimeoutResolver(referenceBudgetMs);
     const stepTrace = appendWorkflowTrace(trace, "execute", "reference_started", {
       stepIndex: index,
       url
     });
-    const fetchTimeoutMs = remainingTimeoutMs();
+    const fetchTimeoutMs = referenceRemainingTimeoutMs();
     const fetchResult = await runtime.fetch(
       { url },
       buildInspiredesignReferenceFetchOptions(
@@ -5784,7 +5979,7 @@ export const runInspiredesignWorkflow = async (
         visualPlan.referenceId,
         pinMediaEvidenceTempDir,
         classification,
-        remainingTimeoutMs()
+        referenceRemainingTimeoutMs()
       )
       : undefined;
     const visual = visualFirst
@@ -5794,7 +5989,7 @@ export const runInspiredesignWorkflow = async (
           workflowInput,
           options.captureVisualEvidence,
           visualPlan,
-          remainingTimeoutMs()
+          referenceRemainingTimeoutMs()
         ),
         visualPlan
       )
@@ -5806,7 +6001,7 @@ export const runInspiredesignWorkflow = async (
         options.captureMotionEvidence,
         visualPlan.referenceId,
         motionEvidenceTempDir,
-        remainingTimeoutMs()
+        referenceRemainingTimeoutMs()
       )
       : undefined;
     const primaryCapture = mergeCapturePinMediaEvidence(
@@ -5822,7 +6017,7 @@ export const runInspiredesignWorkflow = async (
       workflowInput,
       options.captureReference,
       visualPlan,
-      remainingTimeoutMs(),
+      referenceRemainingTimeoutMs(),
       visual || motion || pinMedia ? primaryCapture : undefined
     );
     const reference = buildInspiredesignReference(url, result, capture);
@@ -5842,12 +6037,33 @@ export const runInspiredesignWorkflow = async (
   const motionCollation = await finalizeInspiredesignMotionArtifacts(references, motionEvidenceTempDir);
 	const pinMediaCollation = await finalizeInspiredesignPinMediaArtifacts(motionCollation.references, pinMediaEvidenceTempDir);
 	const visualCollation = await finalizeInspiredesignVisualArtifacts(pinMediaCollation.references, workflowInput.visualEvidence);
+	const mediaAnalysisTempDirs: string[] = [];
+	let mediaAnalysis = buildDiagnosticInspiredesignMediaAnalysis();
+	let mediaAnalysisFailure: string | undefined;
+	try {
+		const mediaAnalysisInputs = await buildTrustedInspiredesignMediaAnalysisInputs({
+			references: visualCollation.references,
+			pinMediaFiles: pinMediaCollation.files,
+			pinMediaTempRoot: pinMediaEvidenceTempDir,
+			stagedTempDirs: mediaAnalysisTempDirs,
+			remainingTimeoutMs
+		});
+		mediaAnalysis = await (options.analyzeMediaArtifacts ?? analyzeInspiredesignMediaArtifacts)(mediaAnalysisInputs, {
+			generatedAt: INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
+			timeoutMs: remainingTimeoutMs()
+		});
+	} catch (error) {
+		mediaAnalysisFailure = mediaAnalysisFailureMessage(error);
+	} finally {
+		await cleanupPinMediaAnalysisTempDirs(mediaAnalysisTempDirs);
+	}
 
   const packet = buildInspiredesignPacket({
     brief: workflowInput.brief,
     briefExpansion: workflowInput.briefExpansion,
     urls: workflowInput.urls,
     references: visualCollation.references,
+    mediaAnalysis,
     includePrototypeGuidance: workflowInput.includePrototypeGuidance,
     referenceEvidenceRequired: isInspiredesignReferenceEvidenceRequired(workflowInput)
   });
@@ -5950,9 +6166,11 @@ export const runInspiredesignWorkflow = async (
   }
   const metaWithGuidance = {
     ...meta,
+	...(mediaAnalysisFailure ? { mediaAnalysisFailure } : {}),
 	metrics: {
 		...existingMetrics,
 		attempted_reference_count: quality.attemptedReferenceCount,
+		missing_screenshot_count: quality.missingScreenshotCount,
 		all_attempt_failed_capture_count: quality.allAttemptFailedCaptureCount,
 		all_attempt_missing_screenshot_count: quality.allAttemptMissingScreenshotCount,
 		all_attempt_visual_failure_count: quality.allAttemptVisualFailureCount,
@@ -5985,6 +6203,7 @@ export const runInspiredesignWorkflow = async (
       pinMediaEvidence: packet.pinMediaEvidence,
       pinMediaIndex: packet.pinMediaIndex,
       authorityPinMediaIndex: manifestBackedPinMediaIndex,
+      mediaAnalysis: packet.mediaAnalysis,
 	    rankedReferences: packet.rankedReferences,
     referencePatternBoard: buildInspiredesignRankedArtifactPatternBoard(
       packet.generationPlan.referencePatternBoard,

@@ -306,6 +306,45 @@ describe("guidance context adapters", () => {
         rankedReferenceUrls: ["not a url"]
       }
     }).providerUnavailable).toBe(true);
+    const primaryConstraintContext = createInspiredesignGuidanceContext({
+      ...source,
+      discovery: {
+        ...source.discovery,
+        acceptedUrls: [],
+        failures: 0,
+        hardFailureReasonCodes: []
+      },
+      quality: {
+        ...source.quality,
+        rankedReferenceUrls: ["http://pinterest.com/pin/61572719900827789/?utm=1#media"]
+      },
+      primaryConstraint: {
+        reasonCode: "auth_required",
+        summary: "Pinterest login was required during upstream discovery."
+      }
+    });
+    expect(primaryConstraintContext.providerUnavailable).toBe(false);
+    expect(primaryConstraintContext.reasonCode).toBe("design_ready");
+    const primaryConstraintWithoutUserRankedUrlContext = createInspiredesignGuidanceContext({
+      ...source,
+      urls: [],
+      discovery: {
+        ...source.discovery,
+        acceptedUrls: [],
+        failures: 0,
+        hardFailureReasonCodes: []
+      },
+      quality: {
+        ...source.quality,
+        rankedReferenceUrls: ["https://www.pinterest.com/pin/61572719900827789/"]
+      },
+      primaryConstraint: {
+        reasonCode: "auth_required",
+        summary: "Pinterest login was required during upstream discovery."
+      }
+    });
+    expect(primaryConstraintWithoutUserRankedUrlContext.providerUnavailable).toBe(true);
+    expect(primaryConstraintWithoutUserRankedUrlContext.reasonCode).toBe("provider_unavailable");
   });
 
   it("keeps brief-only Inspired Design handoffs ready when reference evidence was not required", () => {

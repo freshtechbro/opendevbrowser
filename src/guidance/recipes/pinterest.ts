@@ -34,7 +34,7 @@ const pinterestGuidance: NextStepGuidance = {
     { path: "visual-evidence.json", purpose: "Reject login, challenge, empty-grid, and search-shell screenshots.", required: true },
     { path: "screenshot-index.json", purpose: "Confirm screenshot paths exist when snapshot_ready evidence is claimed.", required: true },
     { path: "motion-evidence.json", purpose: "Confirm screencast replay and preview paths exist when motion_ready evidence is claimed.", required: true },
-    { path: "pin-media-evidence.json", purpose: "Inspect persisted first-party Pinterest pin image or video-poster metadata for canonical pins; remote media URLs alone are not proof.", required: true },
+    { path: "pin-media-evidence.json", purpose: "Inspect persisted first-party Pinterest pin image, GIF, video, or video-poster metadata for canonical pins; remote media URLs alone are not proof.", required: true },
     { path: "pin-media-index.json", purpose: "Confirm pin_media_ready entries are manifest-backed before treating pin media as design evidence.", required: true }
   ],
   validationChecks: [
@@ -92,6 +92,7 @@ const RESERVED_PINTEREST_PROFILE_TABS = new Set([
   "saved",
   "tried"
 ]);
+const PINTEREST_TEXT_URL_PATTERN = /(?:https?:\/\/(?:(?:www|[a-z]{2})\.)?pinterest\.com\/(?:pin|ideas|[a-zA-Z0-9_-]+)\/[^\s"'<>)]*|(?<![A-Za-z0-9.])\/(?:pin|ideas|[a-zA-Z0-9_-]+)\/[^\s"'<>)]*)/g;
 
 export const isAllowedPinterestReferenceHost = (hostname: string): boolean => (
   hostname === "pinterest.com"
@@ -114,13 +115,13 @@ export const normalizePinterestReferenceUrl = (value: string): string | null => 
     const isPin = (
       pathSegments[0] === "pin"
       && pathSegments.length === 2
-      && PINTEREST_PIN_ID_PATTERN.test(pathSegments[1] ?? "")
+      && PINTEREST_PIN_ID_PATTERN.test(pathSegments[1]!)
     );
     const isIdea = (
       pathSegments[0] === "ideas"
       && pathSegments.length >= 3
       && !RESERVED_PINTEREST_IDEA_PATHS.has(pathSegments[1] ?? "")
-      && PINTEREST_PIN_ID_PATTERN.test(pathSegments[pathSegments.length - 1] ?? "")
+      && PINTEREST_PIN_ID_PATTERN.test(pathSegments[pathSegments.length - 1]!)
     );
     const isBoard = pathSegments.length === 2
       && !RESERVED_PINTEREST_BOARD_PATHS.has(pathSegments[0] ?? "")
@@ -136,7 +137,7 @@ export const normalizePinterestReferenceUrl = (value: string): string | null => 
 };
 
 const extractPinterestUrlsFromText = (value: string): string[] => {
-  const candidates = value.match(/(?:https?:\/\/(?:(?:www|[a-z]{2})\.)?pinterest\.com\/(?:pin\/[a-zA-Z0-9_-]+|ideas\/[a-zA-Z0-9/_-]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)|(?<![A-Za-z0-9.])\/(?:pin\/[a-zA-Z0-9_-]+|ideas\/[a-zA-Z0-9/_-]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+))\/?/g) ?? [];
+  const candidates = value.match(PINTEREST_TEXT_URL_PATTERN) ?? [];
   return candidates
     .map(normalizePinterestReferenceUrl)
     .filter((url): url is string => url !== null);
