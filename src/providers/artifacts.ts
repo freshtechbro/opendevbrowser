@@ -1,7 +1,6 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
 import { dirname, join, resolve } from "path";
 import { randomUUID } from "crypto";
-import { tmpdir } from "os";
 
 export const DEFAULT_ARTIFACT_TTL_HOURS = 72;
 export const MAX_ARTIFACT_TTL_HOURS = 168;
@@ -41,18 +40,24 @@ const serializeContent = (content: ArtifactContent): string | Buffer => {
   return `${JSON.stringify(content, null, 2)}\n`;
 };
 
-export const createArtifactBundle = async (args: {
+export interface CreateArtifactBundleArgs {
   namespace: string;
   files: ArtifactFile[];
-  outputDir?: string;
+  outputDir: string;
   ttlHours?: number;
   now?: Date;
-}): Promise<ArtifactBundle> => {
+}
+
+export const createArtifactBundle = async (args: CreateArtifactBundleArgs): Promise<ArtifactBundle> => {
+  if (args.outputDir.trim().length === 0) {
+    throw new Error("outputDir cannot be empty");
+  }
+
   const runId = randomUUID();
   const now = args.now ?? new Date();
   const ttlHours = clampTtlHours(args.ttlHours);
   const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
-  const root = args.outputDir ? resolve(args.outputDir) : join(tmpdir(), "opendevbrowser");
+  const root = resolve(args.outputDir);
   const basePath = join(root, args.namespace, runId);
 
   await mkdir(basePath, { recursive: true, mode: 0o700 });

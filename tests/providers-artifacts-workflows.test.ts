@@ -1,10 +1,11 @@
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "fs/promises";
-import { basename, dirname, join } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { tmpdir } from "os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanupExpiredArtifacts, createArtifactBundle, type ArtifactManifest } from "../src/providers/artifacts";
 import {
   workflowTestUtils,
+  runInspiredesignWorkflow,
   runProductVideoWorkflow,
   runResearchWorkflow,
   runShoppingWorkflow,
@@ -94,19 +95,28 @@ describe("artifact and workflow runtime", () => {
     expect(cleaned.skipped.some((entry) => entry.includes(active.runId))).toBe(true);
   });
 
-  it("uses the temporary artifact root for direct bundles without outputDir", async () => {
+  it("uses explicit temporary artifact roots for direct bundles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-explicit-"));
+    createdDirs.push(root);
+
     const bundle = await createArtifactBundle({
       namespace: "research",
+      outputDir: root,
       now: new Date("2026-02-16T00:00:00.000Z"),
       files: [{ path: "summary.md", content: "summary" }]
     });
 
-    try {
-      expectArtifactPath(bundle.basePath, join(tmpdir(), "opendevbrowser"), "research");
-      expect(await stat(join(bundle.basePath, "bundle-manifest.json"))).toBeDefined();
-    } finally {
-      await rm(bundle.basePath, { recursive: true, force: true });
-    }
+    expectArtifactPath(bundle.basePath, root, "research");
+    expect(await stat(join(bundle.basePath, "bundle-manifest.json"))).toBeDefined();
+  });
+
+  it("rejects blank direct bundle output roots", async () => {
+    await expect(createArtifactBundle({
+      namespace: "research",
+      outputDir: "   ",
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("outputDir cannot be empty");
   });
 
   it("skips invalid manifest layouts and non-expiring manifests safely", async () => {
@@ -764,10 +774,42 @@ describe("artifact and workflow runtime", () => {
         mode: "json"
       });
 
-      expectArtifactPath(String(output.artifact_path), join(workspaceDir, ".opendevbrowser"), "shopping");
+      const artifactPath = String(output.artifact_path);
+      expectArtifactPath(artifactPath, join(workspaceDir, ".opendevbrowser"), "shopping");
+      const manifest = JSON.parse(
+        await readFile(join(artifactPath, "bundle-manifest.json"), "utf8")
+      ) as ArtifactManifest;
+      expect(manifest.files).toContain("offers.json");
     } finally {
       cwdSpy.mockRestore();
     }
+  });
+
+  it("stores inspiredesign artifacts under the resolved root", async () => {
+    const root = await makeWorkspaceDir("odb-inspiredesign-resolved-");
+    const requestedRoot = join(root, "nested", "..", "artifacts");
+    const resolvedRoot = resolve(root, "artifacts");
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate()),
+      fetch: vi.fn(async () => makeAggregate())
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Create a resolved-root artifact bundle",
+      mode: "path",
+      outputDir: requestedRoot
+    });
+
+    const artifactPath = String(output.artifact_path);
+    expectArtifactPath(artifactPath, resolvedRoot, "inspiredesign");
+    const manifest = JSON.parse(
+      await readFile(join(artifactPath, "bundle-manifest.json"), "utf8")
+    ) as ArtifactManifest;
+    expect(manifest.files).toContain("design.md");
+    expect((output.meta as { artifact_manifest?: ArtifactManifest }).artifact_manifest).toMatchObject({
+      run_id: manifest.run_id,
+      files: manifest.files
+    });
   });
 
   it("rejects blank workflow artifact roots", async () => {
@@ -1568,7 +1610,12 @@ describe("artifact and workflow runtime", () => {
         product_url: "https://example.com/product-artifact"
       });
 
-      expectArtifactPath(String(output.artifact_path), join(workspaceDir, ".opendevbrowser"), "product-video");
+      const artifactPath = String(output.artifact_path);
+      expectArtifactPath(artifactPath, join(workspaceDir, ".opendevbrowser"), "product-video");
+      const manifest = JSON.parse(
+        await readFile(join(artifactPath, "bundle-manifest.json"), "utf8")
+      ) as ArtifactManifest;
+      expect(manifest.files).toContain("manifest.json");
     } finally {
       cwdSpy.mockRestore();
     }
@@ -1648,9 +1695,11 @@ describe("artifact and workflow runtime", () => {
     const shoppingRuns = await readdir(join(root, "shopping"));
     expect(shoppingRuns).toHaveLength(1);
     const productVideoPath = String(output.artifact_path);
+    const shoppingPath = join(root, "shopping", shoppingRuns[0] ?? "");
     expectArtifactPath(productVideoPath, root, "product-video");
+    expectArtifactPath(shoppingPath, root, "shopping");
     const shoppingManifest = JSON.parse(
-      await readFile(join(root, "shopping", shoppingRuns[0] ?? "", "bundle-manifest.json"), "utf8")
+      await readFile(join(shoppingPath, "bundle-manifest.json"), "utf8")
     ) as ArtifactManifest;
     const productManifest = JSON.parse(
       await readFile(join(productVideoPath, "bundle-manifest.json"), "utf8")
