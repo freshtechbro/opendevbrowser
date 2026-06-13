@@ -26,6 +26,8 @@ export interface ArtifactBundle {
   manifest: ArtifactManifest;
 }
 
+const SAFE_NAMESPACE_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 const clampTtlHours = (value: number | undefined): number => {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return DEFAULT_ARTIFACT_TTL_HOURS;
@@ -43,6 +45,30 @@ const serializeContent = (content: ArtifactContent): string | Buffer => {
 const isInsideDirectory = (parent: string, child: string): boolean => {
   const relativePath = relative(parent, child);
   return relativePath === "" || (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !isAbsolute(relativePath));
+};
+
+const validateArtifactNamespace = (namespace: string): string => {
+  if (typeof namespace !== "string" || !SAFE_NAMESPACE_PATTERN.test(namespace)) {
+    throw new Error("Artifact namespace must be a safe path segment");
+  }
+  return namespace;
+};
+
+const ensureSafeArtifactDirectory = async (directoryPath: string, errorMessage: string): Promise<string> => {
+  await mkdir(directoryPath, { recursive: true, mode: 0o700 });
+  const metadata = await lstat(directoryPath);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error(errorMessage);
+  }
+  return realpath(directoryPath);
+};
+
+const readSafeArtifactDirectory = async (directoryPath: string, errorMessage: string): Promise<string> => {
+  const metadata = await lstat(directoryPath);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error(errorMessage);
+  }
+  return realpath(directoryPath);
 };
 
 const validateArtifactFilePath = (filePath: string, basePath: string): { manifestPath: string; absolutePath: string } => {
@@ -88,10 +114,21 @@ export const createArtifactBundle = async (args: CreateArtifactBundleArgs): Prom
   const now = args.now ?? new Date();
   const ttlHours = clampTtlHours(args.ttlHours);
   const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
+  const namespace = validateArtifactNamespace(args.namespace);
   const root = resolve(outputDir);
-  const basePath = join(root, args.namespace, runId);
+  const realRoot = await ensureSafeArtifactDirectory(root, "Artifact output directory must be a real directory");
+  const namespacePath = join(root, namespace);
+  const realNamespace = await ensureSafeArtifactDirectory(namespacePath, "Artifact namespace directory must be a real directory");
+  if (!isInsideDirectory(realRoot, realNamespace)) {
+    throw new Error("Artifact namespace directory must stay inside output directory");
+  }
+  const basePath = join(namespacePath, runId);
 
-  await mkdir(basePath, { recursive: true, mode: 0o700 });
+  await mkdir(basePath, { mode: 0o700 });
+  const realBasePath = await readSafeArtifactDirectory(basePath, "Artifact bundle directory must be a real directory");
+  if (!isInsideDirectory(realRoot, realBasePath) || !isInsideDirectory(realNamespace, realBasePath)) {
+    throw new Error("Artifact bundle directory must stay inside output directory");
+  }
 
   const writtenFiles: string[] = [];
   for (const file of args.files) {
@@ -200,7 +237,12 @@ export const cleanupExpiredArtifacts = async (
         const manifestRaw = await readFile(manifestPath, "utf8");
         const manifest = JSON.parse(manifestRaw) as ArtifactManifest;
         if (isExpired(manifest, now)) {
-          await rm(runPath, { recursive: true, force: true });
+          const deletionTarget = await realpath(runPath);
+          if (deletionTarget !== realRunPath || !isInsideDirectory(realRoot, deletionTarget) || !isInsideDirectory(namespaceDirectory.realPath, deletionTarget)) {
+            skipped.push(runPath);
+            continue;
+          }
+          await rm(deletionTarget, { recursive: true, force: true });
           removed.push(runPath);
         } else {
           skipped.push(runPath);

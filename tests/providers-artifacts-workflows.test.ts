@@ -153,6 +153,169 @@ describe("artifact and workflow runtime", () => {
     })).rejects.toThrow("outputDir cannot be empty");
   });
 
+  it.each([
+    "",
+    "   ",
+    ".",
+    "..",
+    "../research",
+    "/tmp/research",
+    "research/nested",
+    "research\\nested",
+    "research.name"
+  ])("rejects unsafe artifact namespace %s", async (namespace) => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-unsafe-namespace-"));
+    createdDirs.push(root);
+
+    await expect(createArtifactBundle({
+      namespace,
+      outputDir: root,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("Artifact namespace must be a safe path segment");
+  });
+
+  it("rejects symlinked bundle output roots before writing files", async () => {
+    const targetRoot = await mkdtemp(join(tmpdir(), "odb-artifacts-output-target-"));
+    const linkParent = await mkdtemp(join(tmpdir(), "odb-artifacts-output-link-"));
+    createdDirs.push(targetRoot, linkParent);
+    const linkedRoot = join(linkParent, ".opendevbrowser");
+    await symlink(targetRoot, linkedRoot, "dir");
+
+    await expect(createArtifactBundle({
+      namespace: "research",
+      outputDir: linkedRoot,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("Artifact output directory must be a real directory");
+    expect(await readdir(targetRoot)).toEqual([]);
+  });
+
+  it("rejects symlinked bundle namespaces before writing files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-namespace-link-root-"));
+    const targetNamespace = await mkdtemp(join(tmpdir(), "odb-artifacts-namespace-link-target-"));
+    createdDirs.push(root, targetNamespace);
+    await symlink(targetNamespace, join(root, "research"), "dir");
+
+    await expect(createArtifactBundle({
+      namespace: "research",
+      outputDir: root,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("Artifact namespace directory must be a real directory");
+    expect(await readdir(targetNamespace)).toEqual([]);
+  });
+
+  it("rejects namespace directories whose real path escapes the output root", async () => {
+    const root = "/virtual-artifacts-create-namespace";
+    const namespacePath = join(root, "research");
+    vi.doMock("fs/promises", () => ({
+      mkdir: vi.fn(async () => undefined),
+      lstat: vi.fn(async (target: string) => {
+        if (target === root || target === namespacePath) {
+          return {
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false
+          };
+        }
+        throw new Error(`unexpected lstat ${target}`);
+      }),
+      realpath: vi.fn(async (target: string) => target === namespacePath ? "/outside/research" : target),
+      readdir: vi.fn(async () => []),
+      readFile: vi.fn(async () => ""),
+      rm: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined)
+    }));
+
+    const mockedFs = await import("fs/promises");
+    const { createArtifactBundle: createBundleWithMocks } = await import("../src/providers/artifacts");
+    await expect(createBundleWithMocks({
+      namespace: "research",
+      outputDir: root,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("Artifact namespace directory must stay inside output directory");
+    expect(mockedFs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects bundle directories that are replaced before file writes", async () => {
+    vi.doMock("crypto", () => ({ randomUUID: () => "00000000-0000-4000-8000-000000000000" }));
+    const root = "/virtual-artifacts-create-base";
+    const namespacePath = join(root, "research");
+    const basePath = join(namespacePath, "00000000-0000-4000-8000-000000000000");
+    vi.doMock("fs/promises", () => ({
+      mkdir: vi.fn(async () => undefined),
+      lstat: vi.fn(async (target: string) => {
+        if (target === root || target === namespacePath) {
+          return {
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false
+          };
+        }
+        if (target === basePath) {
+          return {
+            isDirectory: () => false,
+            isFile: () => true,
+            isSymbolicLink: () => false
+          };
+        }
+        throw new Error(`unexpected lstat ${target}`);
+      }),
+      realpath: vi.fn(async (target: string) => target),
+      readdir: vi.fn(async () => []),
+      readFile: vi.fn(async () => ""),
+      rm: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined)
+    }));
+
+    const mockedFs = await import("fs/promises");
+    const { createArtifactBundle: createBundleWithMocks } = await import("../src/providers/artifacts");
+    await expect(createBundleWithMocks({
+      namespace: "research",
+      outputDir: root,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("Artifact bundle directory must be a real directory");
+    expect(mockedFs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects bundle directories whose real path escapes the namespace", async () => {
+    vi.doMock("crypto", () => ({ randomUUID: () => "11111111-1111-4111-8111-111111111111" }));
+    const root = "/virtual-artifacts-create-base-escape";
+    const namespacePath = join(root, "research");
+    const basePath = join(namespacePath, "11111111-1111-4111-8111-111111111111");
+    vi.doMock("fs/promises", () => ({
+      mkdir: vi.fn(async () => undefined),
+      lstat: vi.fn(async (target: string) => {
+        if (target === root || target === namespacePath || target === basePath) {
+          return {
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false
+          };
+        }
+        throw new Error(`unexpected lstat ${target}`);
+      }),
+      realpath: vi.fn(async (target: string) => target === basePath ? "/outside/run" : target),
+      readdir: vi.fn(async () => []),
+      readFile: vi.fn(async () => ""),
+      rm: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined)
+    }));
+
+    const mockedFs = await import("fs/promises");
+    const { createArtifactBundle: createBundleWithMocks } = await import("../src/providers/artifacts");
+    await expect(createBundleWithMocks({
+      namespace: "research",
+      outputDir: root,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("Artifact bundle directory must stay inside output directory");
+    expect(mockedFs.writeFile).not.toHaveBeenCalled();
+  });
+
   it("writes nested safe artifact file paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "odb-artifacts-nested-"));
     createdDirs.push(root);
@@ -358,6 +521,131 @@ describe("artifact and workflow runtime", () => {
       skipped: [runPath]
     });
     expect(mockedFs.readFile).not.toHaveBeenCalled();
+    expect(mockedFs.rm).not.toHaveBeenCalled();
+  });
+
+  it("removes expired cleanup runs by their validated canonical path", async () => {
+    const root = "/virtual-artifacts-canonical";
+    const namespacePath = join(root, "research");
+    const runPath = join(namespacePath, "run-1");
+    const realRunPath = join(namespacePath, "run-real");
+    const manifestPath = join(runPath, "bundle-manifest.json");
+    vi.doMock("fs/promises", () => ({
+      readdir: vi.fn(async (target: string) => {
+        if (target === root) {
+          return ["research"];
+        }
+        if (target === namespacePath) {
+          return ["run-1"];
+        }
+        throw new Error(`unexpected path ${target}`);
+      }),
+      lstat: vi.fn(async (target: string) => {
+        if (target === root || target === namespacePath || target === runPath) {
+          return {
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false
+          };
+        }
+        if (target === manifestPath) {
+          return {
+            isDirectory: () => false,
+            isFile: () => true,
+            isSymbolicLink: () => false
+          };
+        }
+        throw new Error(`unexpected lstat ${target}`);
+      }),
+      realpath: vi.fn(async (target: string) => {
+        if (target === runPath) {
+          return realRunPath;
+        }
+        return target;
+      }),
+      readFile: vi.fn(async () => JSON.stringify({
+        run_id: "run-1",
+        created_at: "2026-02-01T00:00:00.000Z",
+        ttl_hours: 1,
+        expires_at: "2026-02-01T01:00:00.000Z",
+        files: ["summary.md", "bundle-manifest.json"]
+      })),
+      rm: vi.fn(async () => undefined),
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined)
+    }));
+
+    const mockedFs = await import("fs/promises");
+    const { cleanupExpiredArtifacts: cleanupWithMocks } = await import("../src/providers/artifacts");
+    const cleaned = await cleanupWithMocks(root, new Date("2026-02-20T00:00:00.000Z"));
+
+    expect(cleaned).toEqual({
+      removed: [runPath],
+      skipped: []
+    });
+    expect(mockedFs.rm).toHaveBeenCalledWith(realRunPath, { recursive: true, force: true });
+  });
+
+  it("skips expired cleanup runs whose canonical path changes before deletion", async () => {
+    const root = "/virtual-artifacts-race";
+    const namespacePath = join(root, "research");
+    const runPath = join(namespacePath, "run-1");
+    const manifestPath = join(runPath, "bundle-manifest.json");
+    let runRealpathCalls = 0;
+    vi.doMock("fs/promises", () => ({
+      readdir: vi.fn(async (target: string) => {
+        if (target === root) {
+          return ["research"];
+        }
+        if (target === namespacePath) {
+          return ["run-1"];
+        }
+        throw new Error(`unexpected path ${target}`);
+      }),
+      lstat: vi.fn(async (target: string) => {
+        if (target === root || target === namespacePath || target === runPath) {
+          return {
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false
+          };
+        }
+        if (target === manifestPath) {
+          return {
+            isDirectory: () => false,
+            isFile: () => true,
+            isSymbolicLink: () => false
+          };
+        }
+        throw new Error(`unexpected lstat ${target}`);
+      }),
+      realpath: vi.fn(async (target: string) => {
+        if (target === runPath) {
+          runRealpathCalls += 1;
+          return runRealpathCalls === 1 ? runPath : "/outside/run-1";
+        }
+        return target;
+      }),
+      readFile: vi.fn(async () => JSON.stringify({
+        run_id: "run-1",
+        created_at: "2026-02-01T00:00:00.000Z",
+        ttl_hours: 1,
+        expires_at: "2026-02-01T01:00:00.000Z",
+        files: ["summary.md", "bundle-manifest.json"]
+      })),
+      rm: vi.fn(async () => undefined),
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined)
+    }));
+
+    const mockedFs = await import("fs/promises");
+    const { cleanupExpiredArtifacts: cleanupWithMocks } = await import("../src/providers/artifacts");
+    const cleaned = await cleanupWithMocks(root, new Date("2026-02-20T00:00:00.000Z"));
+
+    expect(cleaned).toEqual({
+      removed: [],
+      skipped: [runPath]
+    });
     expect(mockedFs.rm).not.toHaveBeenCalled();
   });
 
