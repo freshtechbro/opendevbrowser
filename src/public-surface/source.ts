@@ -286,7 +286,7 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       {
         name: "artifacts",
         description: "Manage workflow artifact lifecycle",
-        usage: "npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]",
+        usage: "npx opendevbrowser artifacts cleanup --expired-only [--output-dir <path>]",
         flags: ["--expired-only", "--output-dir"]
       },
       {

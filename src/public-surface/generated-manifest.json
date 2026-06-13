@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-06-13T18:01:04.769Z",
+  "generatedAt": "2026-06-13T18:21:10.153Z",
   "cli": {
     "groups": [
       {
@@ -612,7 +612,7 @@
       {
         "name": "artifacts",
         "description": "Manage workflow artifact lifecycle",
-        "usage": "npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]",
+        "usage": "npx opendevbrowser artifacts cleanup --expired-only [--output-dir <path>]",
         "flags": [
           "--expired-only",
           "--output-dir"
