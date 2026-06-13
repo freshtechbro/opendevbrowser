@@ -120,6 +120,21 @@ describe("artifact and workflow runtime", () => {
     await expect(createArtifactBundle(missingOutputDirArgs)).rejects.toThrow("outputDir is required");
   });
 
+  it("rejects non-string direct bundle output roots at runtime", async () => {
+    await expect(createArtifactBundle({
+      namespace: "research",
+      outputDir: null as never,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("outputDir is required");
+    await expect(createArtifactBundle({
+      namespace: "research",
+      outputDir: 42 as never,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("outputDir is required");
+  });
+
   it("rejects empty direct bundle output roots", async () => {
     await expect(createArtifactBundle({
       namespace: "research",
@@ -313,7 +328,7 @@ describe("artifact and workflow runtime", () => {
       await readFile(join(pathModeArtifactPath, "bundle-manifest.json"), "utf8")
     ) as ArtifactManifest;
     const pathModeReport = await readFile(join(pathModeArtifactPath, "report.md"), "utf8");
-    expect(pathModeArtifactPath.startsWith(pathModeRoot)).toBe(true);
+    expectArtifactPath(pathModeArtifactPath, pathModeRoot, "research");
     expect(pathModeManifest.files).toEqual(RESEARCH_ARTIFACT_FILES);
     expect(pathMode.meta).toMatchObject({ artifact_manifest: { files: RESEARCH_ARTIFACT_FILES } });
     expect(pathModeReport).toContain("# Research Report");
