@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "fs/promises";
 import { basename, dirname, join, resolve } from "path";
 import { tmpdir } from "os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -153,6 +153,45 @@ describe("artifact and workflow runtime", () => {
     })).rejects.toThrow("outputDir cannot be empty");
   });
 
+  it("writes nested safe artifact file paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-nested-"));
+    createdDirs.push(root);
+
+    const bundle = await createArtifactBundle({
+      namespace: "research",
+      outputDir: root,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "reports/summary.md", content: "summary" }]
+    });
+
+    const manifest = JSON.parse(
+      await readFile(join(bundle.basePath, "bundle-manifest.json"), "utf8")
+    ) as ArtifactManifest;
+    expect(await readFile(join(bundle.basePath, "reports", "summary.md"), "utf8")).toBe("summary");
+    expect(manifest.files).toEqual(["reports/summary.md", "bundle-manifest.json"]);
+  });
+
+  it.each([
+    "",
+    "   ",
+    ".",
+    "reports/./summary.md",
+    "../escape.md",
+    "reports/../escape.md",
+    "/tmp/escape.md",
+    String.raw`reports\summary.md`
+  ])("rejects unsafe artifact file path %s", async (artifactPath) => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-unsafe-path-"));
+    createdDirs.push(root);
+
+    await expect(createArtifactBundle({
+      namespace: "research",
+      outputDir: root,
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: artifactPath, content: "summary" }]
+    })).rejects.toThrow("Artifact file path must be a safe relative path");
+  });
+
   it("skips invalid manifest layouts and non-expiring manifests safely", async () => {
     const root = await mkdtemp(join(tmpdir(), "odb-artifacts-layout-"));
     createdDirs.push(root);
@@ -231,14 +270,24 @@ describe("artifact and workflow runtime", () => {
         }
         throw new Error(`unexpected path ${target}`);
       }),
-      stat: vi.fn(async (target: string) => {
+      lstat: vi.fn(async (target: string) => {
+        if (target === root || target === namespacePath || target === runPath) {
+          return {
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false
+          };
+        }
         if (target !== manifestPath) {
-          throw new Error(`unexpected stat ${target}`);
+          throw new Error(`unexpected lstat ${target}`);
         }
         return {
-          isFile: () => false
+          isDirectory: () => false,
+          isFile: () => false,
+          isSymbolicLink: () => false
         };
       }),
+      realpath: vi.fn(async (target: string) => target),
       readFile: vi.fn(async () => {
         throw new Error("read should not occur for non-file manifests");
       }),
@@ -256,6 +305,67 @@ describe("artifact and workflow runtime", () => {
       skipped: [runPath]
     });
     expect(mockedFs.readFile).not.toHaveBeenCalled();
+  });
+
+  it("skips symlinked cleanup roots without deleting target runs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-root-target-"));
+    const linkParent = await mkdtemp(join(tmpdir(), "odb-artifacts-root-link-"));
+    createdDirs.push(root, linkParent);
+    const linkedRoot = join(linkParent, ".opendevbrowser");
+    const expired = await createArtifactBundle({
+      namespace: "research",
+      outputDir: root,
+      ttlHours: 1,
+      now: new Date("2026-02-01T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "expired" }]
+    });
+    await symlink(root, linkedRoot, "dir");
+
+    const cleaned = await cleanupExpiredArtifacts(linkedRoot, new Date("2026-02-16T12:00:00.000Z"));
+
+    expect(cleaned).toEqual({ removed: [], skipped: [linkedRoot] });
+    expect(await stat(expired.basePath)).toBeDefined();
+  });
+
+  it("skips symlinked cleanup namespaces without deleting target runs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-namespace-root-"));
+    const outsideRoot = await mkdtemp(join(tmpdir(), "odb-artifacts-namespace-target-"));
+    createdDirs.push(root, outsideRoot);
+    const expired = await createArtifactBundle({
+      namespace: "research",
+      outputDir: outsideRoot,
+      ttlHours: 1,
+      now: new Date("2026-02-01T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "expired" }]
+    });
+    await symlink(join(outsideRoot, "research"), join(root, "research"), "dir");
+
+    const cleaned = await cleanupExpiredArtifacts(root, new Date("2026-02-16T12:00:00.000Z"));
+
+    expect(cleaned.removed).toEqual([]);
+    expect(await stat(expired.basePath)).toBeDefined();
+  });
+
+  it("skips symlinked cleanup runs without deleting target runs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "odb-artifacts-run-root-"));
+    const outsideRoot = await mkdtemp(join(tmpdir(), "odb-artifacts-run-target-"));
+    createdDirs.push(root, outsideRoot);
+    const expired = await createArtifactBundle({
+      namespace: "research",
+      outputDir: outsideRoot,
+      ttlHours: 1,
+      now: new Date("2026-02-01T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "expired" }]
+    });
+    const namespaceDir = join(root, "research");
+    const linkedRun = join(namespaceDir, expired.runId);
+    await mkdir(namespaceDir, { recursive: true });
+    await symlink(expired.basePath, linkedRun, "dir");
+
+    const cleaned = await cleanupExpiredArtifacts(root, new Date("2026-02-16T12:00:00.000Z"));
+
+    expect(cleaned).toEqual({ removed: [], skipped: [linkedRun] });
+    expect(await stat(expired.basePath)).toBeDefined();
   });
 
   it("runs research workflow with strict source resolution and artifacts", async () => {

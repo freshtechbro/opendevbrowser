@@ -1,5 +1,7 @@
 # Investigation: Output Storage Architecture
 
+Historical note: this investigation records the pre-implementation state that motivated the output-storage alignment work. The branch implementing `docs/plans/output-storage-contract-alignment-2026-06-13.md` removes the `${TMPDIR:-/tmp}/opendevbrowser` cleanup default, removes the low-level bundle writer temp fallback, and hardens bundle cleanup and file writes against path escape risks.
+
 ## Summary
 The critique is mostly confirmed. The four main artifact bundle workflows use `.opendevbrowser/<namespace>/<run-id>/bundle-manifest.json` when their entrypoint supplies or resolves a workflow root, but adjacent output lanes are intentionally non-bundle contracts and two legacy seams still point at `${TMPDIR:-/tmp}/opendevbrowser`.
 

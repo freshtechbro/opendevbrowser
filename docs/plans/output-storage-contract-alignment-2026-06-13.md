@@ -1,10 +1,12 @@
 # Output Storage Contract Alignment: Plan
 
-Status: ready to execute
+Status: implemented in `codex/investigate-output-storage-architecture`
 Last updated: 2026-06-13
 
 ## Goal
 Align artifact-bearing workflow storage around a stable project/worktree-local `.opendevbrowser` contract, remove cleanup and low-level bundle drift, preserve intentional non-bundle lanes, and add tests/docs that prevent future output-storage drift.
+
+Implementation note: this plan is retained as the execution record for the branch. The implemented code also hardens bundle cleanup and bundle file writes against symlink and path traversal escapes found during the final adversarial review.
 
 Success criteria:
 - Research, shopping, inspiredesign, and product-video omitted outputs resolve to the active project/worktree `.opendevbrowser` root for CLI, direct daemon RPC, and direct OpenCode tools.
