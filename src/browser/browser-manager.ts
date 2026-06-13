@@ -545,6 +545,7 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
     "img.closeup-image-main-MainPinImage",
     "img[class*='closeup-image-main-MainPinImage']",
     "img[elementtiming='closeup-image-main-MainPinImage']",
+    "img[elementtiming='StoryPinImageBlock-MainPinImage']",
     "img.StoryPinImageBlock-MainPinImage",
     "img[class*='StoryPinImageBlock-MainPinImage']",
     "[data-test-id='closeup-image-main'] img",
@@ -598,6 +599,7 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
     const container = element.closest([
       "[data-test-id='pin-closeup']",
       "[data-test-id='story-pin']",
+      "[data-test-id='story-pin-image-block']",
       "[data-test-id='closeup-layout']",
       "[data-test-id='closeup-image']",
       "[data-test-id='closeup-image-main']",
@@ -717,6 +719,7 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
       classText.includes("closeup-image-main-mainpinimage") ? "closeup-image-main-MainPinImage" : "",
       element.getAttribute("elementtiming") === "closeup-image-main-MainPinImage" ? "closeup-image-main-MainPinImage" : "",
       classText.includes("storypinimageblock-mainpinimage") ? "StoryPinImageBlock-MainPinImage" : "",
+      element.getAttribute("elementtiming") === "StoryPinImageBlock-MainPinImage" ? "StoryPinImageBlock-MainPinImage" : "",
       tag === "video" ? "video" : "",
       tag === "video" && element.hasAttribute("poster") ? "video[poster]" : ""
     ].filter(Boolean);
