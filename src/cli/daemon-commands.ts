@@ -76,7 +76,7 @@ const createDaemonWorkflowRuntime = (
 const resolveDaemonWorkflowOutputDir = (
   core: OpenDevBrowserCore,
   outputDir?: string
-): string => resolveWorkflowArtifactRoot(outputDir, { workspaceRoot: core.cacheRoot });
+): string => resolveWorkflowArtifactRoot(outputDir, { workspaceRoot: core.workspaceRoot });
 
 const captureScreenshotBuffer = async (
   core: OpenDevBrowserCore,

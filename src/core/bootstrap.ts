@@ -172,6 +172,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
 
   return {
     cacheRoot,
+    workspaceRoot: cacheRoot,
     config,
     parallelismPolicy: config.parallelism,
     configStore,

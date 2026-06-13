@@ -290,6 +290,24 @@ describe("workflow tools", () => {
     expect(resolveWorkflowToolOutputDir({ workspaceRoot: undefined })).toBeUndefined();
   });
 
+  it("falls through to provider cwd .opendevbrowser for direct research without a workspace root", async () => {
+    const invocationRoot = await makeTempDir("odb-direct-provider-cwd-");
+    process.chdir(invocationRoot);
+    const invocationCwd = process.cwd();
+    const deps = makeDeps();
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const tool = createResearchRunTool(deps as never);
+
+    const response = parse(await tool.execute({
+      topic: "provider cwd fallback",
+      mode: "compact",
+      sourceSelection: "web"
+    } as never));
+
+    expect(response.ok).toBe(true);
+    expectArtifactPath(response.artifact_path as string, join(invocationCwd, ".opendevbrowser"), "research");
+  });
+
   it("preserves explicit relative direct workflow output roots", async () => {
     const invocationRoot = await makeTempDir("odb-direct-explicit-cwd-");
     const workspaceRoot = await makeTempDir("odb-direct-explicit-workspace-");
