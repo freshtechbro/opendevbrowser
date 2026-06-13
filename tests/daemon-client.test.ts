@@ -884,45 +884,48 @@ describe("daemon-client error parsing", () => {
     }
   });
 
-  it("falls back to a current metadata daemon when the configured daemon does not prove current over the retry window", async () => {
-    await writeDaemonConfig(tempRoot, 23456, "configured-token");
-    const fetchCalls: string[] = [];
-
-    fetchSpy = vi.fn(async (input, options) => {
-      const url = String(input);
-      fetchCalls.push(url);
-      const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
-      if (url === "http://127.0.0.1:23456/status") {
-        expect(authorization).toBe("Bearer configured-token");
-        return new Response("stale", { status: 503 });
-      }
-      if (url === "http://127.0.0.1:12345/command") {
-        expect(authorization).toBe("Bearer test-token");
-        return new Response(JSON.stringify({ ok: true, data: { ok: true, source: "metadata" } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    }) as ReturnType<typeof vi.fn>;
-
-    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
-
-    const client = new DaemonClient({ autoRenew: false });
-    const result = await client.call("some.command");
-
-    expect(result).toEqual({ ok: true, source: "metadata" });
-    expect(fetchCalls).toEqual([
-      "http://127.0.0.1:23456/status",
-      "http://127.0.0.1:23456/status",
-      "http://127.0.0.1:23456/status",
-      "http://127.0.0.1:12345/command"
-    ]);
-  });
-
-  it.each(["canvas.execute", "inspiredesign.run"])(
-    "waits for the configured daemon instead of hopping to current metadata for %s",
+  it.each(["some.command", "inspiredesign.run"])(
+    "falls back to a current metadata daemon when the configured daemon does not prove current over the retry window for %s",
     async (commandName) => {
+      await writeDaemonConfig(tempRoot, 23456, "configured-token");
+      const fetchCalls: string[] = [];
+
+      fetchSpy = vi.fn(async (input, options) => {
+        const url = String(input);
+        fetchCalls.push(url);
+        const authorization = String((options?.headers as Record<string, string> | undefined)?.Authorization ?? "");
+        if (url === "http://127.0.0.1:23456/status") {
+          expect(authorization).toBe("Bearer configured-token");
+          return new Response("stale", { status: 503 });
+        }
+        if (url === "http://127.0.0.1:12345/command") {
+          expect(authorization).toBe("Bearer test-token");
+          return new Response(JSON.stringify({ ok: true, data: { ok: true, source: "metadata" } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }) as ReturnType<typeof vi.fn>;
+
+      (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+      const client = new DaemonClient({ autoRenew: false });
+      const result = await client.call(commandName, commandName === "inspiredesign.run"
+        ? { brief: "Build a compact design brief." }
+        : {});
+
+      expect(result).toEqual({ ok: true, source: "metadata" });
+      expect(fetchCalls).toEqual([
+        "http://127.0.0.1:23456/status",
+        "http://127.0.0.1:23456/status",
+        "http://127.0.0.1:23456/status",
+        "http://127.0.0.1:12345/command"
+      ]);
+    }
+  );
+
+  it("waits for the configured daemon instead of hopping to current metadata for canvas.execute", async () => {
     await writeDaemonConfig(tempRoot, 23456, "configured-token");
     vi.useFakeTimers();
 
@@ -979,7 +982,7 @@ describe("daemon-client error parsing", () => {
         });
       }
       if (url === "http://127.0.0.1:12345/command") {
-        throw new Error(`${commandName} must not hop to metadata`);
+        throw new Error("canvas.execute must not hop to metadata");
       }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as ReturnType<typeof vi.fn>;
@@ -988,12 +991,10 @@ describe("daemon-client error parsing", () => {
 
     try {
       const client = new DaemonClient({ autoRenew: false });
-      const resultPromise = client.call(commandName, commandName === "canvas.execute"
-        ? {
-            command: "document.load",
-            params: { canvasSessionId: "canvas-1", leaseId: "lease-1" }
-          }
-        : { brief: "Build a compact design brief." });
+      const resultPromise = client.call("canvas.execute", {
+        command: "document.load",
+        params: { canvasSessionId: "canvas-1", leaseId: "lease-1" }
+      });
       await vi.advanceTimersByTimeAsync(3_000);
       const result = await resultPromise;
 
