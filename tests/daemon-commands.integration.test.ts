@@ -2010,6 +2010,9 @@ describe("daemon-commands integration", () => {
 
   it("uses core workspace root for omitted daemon research output roots", async () => {
     const core = makeCore();
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "odb-daemon-workspace-root-"));
+    tempRoots.push(workspaceRoot);
+    core.workspaceRoot = workspaceRoot;
     const workflowSpy = vi.spyOn(workflowModule, "runResearchWorkflow").mockResolvedValue({
       records: [],
       meta: {}
@@ -2023,12 +2026,10 @@ describe("daemon-commands integration", () => {
       }
     });
 
-    expect(workflowSpy).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        outputDir: join(core.workspaceRoot, ".opendevbrowser")
-      })
-    );
+    const workflowOptions = workflowSpy.mock.calls[0]?.[1] as { outputDir?: string } | undefined;
+    expect(core.workspaceRoot).not.toBe(core.cacheRoot);
+    expect(workflowOptions?.outputDir).toBe(join(core.workspaceRoot, ".opendevbrowser"));
+    expect(workflowOptions?.outputDir).not.toBe(join(core.cacheRoot, ".opendevbrowser"));
   });
 
   it("forwards inspiredesign timeout and capture mode through the daemon router", async () => {
