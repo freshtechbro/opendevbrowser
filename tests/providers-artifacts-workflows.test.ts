@@ -307,6 +307,60 @@ describe("artifact and workflow runtime", () => {
     expect(mockedFs.readFile).not.toHaveBeenCalled();
   });
 
+  it("skips cleanup entries whose resolved paths escape the cleanup root", async () => {
+    const root = "/virtual-artifacts-containment";
+    const escapedNamespacePath = join(root, "linked-namespace");
+    const namespacePath = join(root, "research");
+    const runPath = join(namespacePath, "run-1");
+    vi.doMock("fs/promises", () => ({
+      readdir: vi.fn(async (target: string) => {
+        if (target === root) {
+          return ["linked-namespace", "research"];
+        }
+        if (target === namespacePath) {
+          return ["run-1"];
+        }
+        throw new Error(`unexpected path ${target}`);
+      }),
+      lstat: vi.fn(async (target: string) => {
+        if (target === root || target === escapedNamespacePath || target === namespacePath || target === runPath) {
+          return {
+            isDirectory: () => true,
+            isFile: () => false,
+            isSymbolicLink: () => false
+          };
+        }
+        throw new Error(`unexpected lstat ${target}`);
+      }),
+      realpath: vi.fn(async (target: string) => {
+        if (target === escapedNamespacePath) {
+          return "/outside/linked-namespace";
+        }
+        if (target === runPath) {
+          return "/outside/run-1";
+        }
+        return target;
+      }),
+      readFile: vi.fn(async () => {
+        throw new Error("read should not occur for escaped cleanup entries");
+      }),
+      rm: vi.fn(async () => undefined),
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async () => undefined)
+    }));
+
+    const mockedFs = await import("fs/promises");
+    const { cleanupExpiredArtifacts: cleanupWithMocks } = await import("../src/providers/artifacts");
+    const cleaned = await cleanupWithMocks(root, new Date("2026-02-20T00:00:00.000Z"));
+
+    expect(cleaned).toEqual({
+      removed: [],
+      skipped: [runPath]
+    });
+    expect(mockedFs.readFile).not.toHaveBeenCalled();
+    expect(mockedFs.rm).not.toHaveBeenCalled();
+  });
+
   it("skips symlinked cleanup roots without deleting target runs", async () => {
     const root = await mkdtemp(join(tmpdir(), "odb-artifacts-root-target-"));
     const linkParent = await mkdtemp(join(tmpdir(), "odb-artifacts-root-link-"));
