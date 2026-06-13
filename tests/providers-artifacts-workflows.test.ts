@@ -64,7 +64,7 @@ describe("artifact and workflow runtime", () => {
   };
 
   const expectArtifactPath = (artifactPath: string, root: string, namespace: string): void => {
-    expect(dirname(dirname(artifactPath))).toBe(root);
+    expect(resolve(dirname(dirname(artifactPath)))).toBe(resolve(root));
     expect(basename(dirname(artifactPath))).toBe(namespace);
     expect(basename(artifactPath)).toMatch(/^[0-9a-f-]{36}$/);
   };
@@ -110,7 +110,26 @@ describe("artifact and workflow runtime", () => {
     expect(await stat(join(bundle.basePath, "bundle-manifest.json"))).toBeDefined();
   });
 
-  it("rejects blank direct bundle output roots", async () => {
+  it("rejects omitted direct bundle output roots at runtime", async () => {
+    const missingOutputDirArgs = {
+      namespace: "research",
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    } as Parameters<typeof createArtifactBundle>[0];
+
+    await expect(createArtifactBundle(missingOutputDirArgs)).rejects.toThrow("outputDir is required");
+  });
+
+  it("rejects empty direct bundle output roots", async () => {
+    await expect(createArtifactBundle({
+      namespace: "research",
+      outputDir: "",
+      now: new Date("2026-02-16T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "summary" }]
+    })).rejects.toThrow("outputDir cannot be empty");
+  });
+
+  it("rejects whitespace direct bundle output roots", async () => {
     await expect(createArtifactBundle({
       namespace: "research",
       outputDir: "   ",

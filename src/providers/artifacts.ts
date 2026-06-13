@@ -49,7 +49,11 @@ export interface CreateArtifactBundleArgs {
 }
 
 export const createArtifactBundle = async (args: CreateArtifactBundleArgs): Promise<ArtifactBundle> => {
-  if (args.outputDir.trim().length === 0) {
+  const outputDir = args.outputDir;
+  if (typeof outputDir !== "string") {
+    throw new Error("outputDir is required");
+  }
+  if (outputDir.trim().length === 0) {
     throw new Error("outputDir cannot be empty");
   }
 
@@ -57,7 +61,7 @@ export const createArtifactBundle = async (args: CreateArtifactBundleArgs): Prom
   const now = args.now ?? new Date();
   const ttlHours = clampTtlHours(args.ttlHours);
   const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
-  const root = resolve(args.outputDir);
+  const root = resolve(outputDir);
   const basePath = join(root, args.namespace, runId);
 
   await mkdir(basePath, { recursive: true, mode: 0o700 });
