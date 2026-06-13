@@ -624,7 +624,6 @@ Script helper:
 
 ```bash
 ./scripts/artifacts-cleanup.sh
-./scripts/artifacts-cleanup.sh /tmp/opendevbrowser
 ```
 
 Notes:
