@@ -33,6 +33,7 @@ export type CoreOptions = {
 
 export type OpenDevBrowserCore = {
   cacheRoot: string;
+  workspaceRoot: string;
   config: OpenDevBrowserConfig;
   parallelismPolicy: ParallelismGovernorConfig;
   configStore: ConfigStore;

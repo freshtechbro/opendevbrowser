@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-06-07T15:30:29.514Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-06-13T18:21:10.153Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-06-07T15:30:29.514Z",
+  "generatedAt": "2026-06-13T18:21:10.153Z",
   "cli": {
     "groups": [
       {
@@ -629,15 +629,20 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "artifacts",
         "description": "Manage workflow artifact lifecycle",
-        "usage": "npx opendevbrowser artifacts cleanup [--expired-only] [--output-dir <path>]",
+        "usage": "npx opendevbrowser artifacts cleanup --expired-only [--output-dir <path>]",
         "flags": [
           "--expired-only",
           "--output-dir"
         ],
         "examples": [
+          "npx opendevbrowser artifacts cleanup --expired-only --output-format json",
           "npx opendevbrowser artifacts cleanup --expired-only --output-dir /tmp/opendevbrowser --output-format json"
         ],
-        "notes": [],
+        "notes": [
+          "When --output-dir is omitted, cleanup targets the current working directory's .opendevbrowser root.",
+          "Use --output-dir for explicit artifact roots such as /tmp/opendevbrowser; omitted cleanup is not a temp-root cleanup shortcut.",
+          "Cleanup removes expired workflow bundles with bundle-manifest.json and does not manage Canvas, screenshot, screencast, annotation, desktop audit, or release proof outputs."
+        ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
         "groupSummary": "Run research, shopping, product presentation, inspiredesign, and artifact workflows."

@@ -1,8 +1,7 @@
-import { join, resolve } from "path";
-import { tmpdir } from "os";
 import type { ParsedArgs } from "../args";
 import { createUsageError } from "../errors";
 import { cleanupExpiredArtifacts } from "../../providers/artifacts";
+import { resolveWorkflowOutputDirFlag } from "./workflow-output";
 
 type ArtifactsSubcommand = "cleanup";
 
@@ -81,7 +80,7 @@ const parseArtifactsArgs = (rawArgs: string[]): CleanupArgs => {
     }
 
     if (arg === "--output-dir") {
-      outputDir = requireValue(rest, index, "--output-dir");
+      outputDir = resolveWorkflowOutputDirFlag(requireValue(rest, index, "--output-dir"));
       index += 1;
       continue;
     }
@@ -91,7 +90,7 @@ const parseArtifactsArgs = (rawArgs: string[]): CleanupArgs => {
       if (!value) {
         throw createUsageError("Missing value for --output-dir");
       }
-      outputDir = value;
+      outputDir = resolveWorkflowOutputDirFlag(value);
       continue;
     }
 
@@ -117,7 +116,7 @@ const parseArtifactsArgs = (rawArgs: string[]): CleanupArgs => {
 
 export async function runArtifactsCommand(args: ParsedArgs) {
   const parsed = parseArtifactsArgs(args.rawArgs);
-  const rootDir = parsed.outputDir ? resolve(parsed.outputDir) : join(tmpdir(), "opendevbrowser");
+  const rootDir = resolveWorkflowOutputDirFlag(parsed.outputDir);
   const cleaned = await cleanupExpiredArtifacts(rootDir);
 
   return {

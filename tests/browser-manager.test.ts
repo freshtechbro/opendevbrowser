@@ -4474,6 +4474,57 @@ describe("BrowserManager", () => {
     await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
   });
 
+  it("captures Pinterest story pin images marked only by element timing", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <div data-test-id="story-pin-image-block">
+        <img
+          alt="Story pin image"
+          class="iFOUS5"
+          draggable="true"
+          fetchpriority="high"
+          loading="auto"
+          elementtiming="StoryPinImageBlock-MainPinImage"
+          src="https://i.pinimg.com/736x/aa/df/3a/aadf3a49ff58a4a7304ea87216804e46.jpg"
+          data-natural-width="736"
+          data-natural-height="1558"
+          data-rect="24,0,360,762"
+        />
+      </div>
+    `, "https://uk.pinterest.com/pin/27654985208435505/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-story-elementtiming-")), "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://uk.pinterest.com/pin/27654985208435505/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "image",
+      sourceUrl: "https://uk.pinterest.com/pin/27654985208435505/",
+      mediaUrl: "https://i.pinimg.com/736x/aa/df/3a/aadf3a49ff58a4a7304ea87216804e46.jpg",
+      candidateSelector: "StoryPinImageBlock-MainPinImage",
+      alt: "Story pin image",
+      width: 736,
+      height: 1558,
+      bytes: PINTEREST_TEST_JPEG_BYTES.length,
+      rejectedCandidates: []
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://i.pinimg.com/736x/aa/df/3a/aadf3a49ff58a4a7304ea87216804e46.jpg",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
   it("falls back to child image srcset when defensive Pinterest selectors return containers", async () => {
     const { context, page } = createBrowserBundle([]);
     findChromeExecutable.mockResolvedValue("/bin/chrome");

@@ -1,10 +1,19 @@
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, realpath, rm, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
 import { createArtifactBundle } from "../src/providers/artifacts";
 import { __test__, runArtifactsCommand } from "../src/cli/commands/artifacts";
+
+const pathExists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const makeArgs = (rawArgs: string[]): ParsedArgs => ({
   command: "artifacts",
@@ -65,6 +74,27 @@ describe("artifacts command", () => {
     expect(() => __test__.parseArtifactsArgs(["cleanup"])).toThrow("Usage: opendevbrowser artifacts cleanup --expired-only");
   });
 
+  it("rejects blank output dirs", () => {
+    expect(() => __test__.parseArtifactsArgs([
+      "cleanup",
+      "--expired-only",
+      "--output-dir="
+    ])).toThrow("Missing value for --output-dir");
+
+    expect(() => __test__.parseArtifactsArgs([
+      "cleanup",
+      "--expired-only",
+      "--output-dir=   "
+    ])).toThrow("Missing value for --output-dir");
+
+    expect(() => __test__.parseArtifactsArgs([
+      "cleanup",
+      "--expired-only",
+      "--output-dir",
+      "   "
+    ])).toThrow("Missing value for --output-dir");
+  });
+
   it("cleans expired artifact runs", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "odb-artifacts-cli-"));
     createdDirs.push(rootDir);
@@ -106,7 +136,61 @@ describe("artifacts command", () => {
       removed: string[];
       skipped: string[];
     };
-    expect(data.removed.some((entry) => entry.includes(expired.runId))).toBe(true);
-    expect(data.skipped.some((entry) => entry.includes(active.runId))).toBe(true);
+    expect(data.removed).toContain(expired.basePath);
+    expect(data.skipped).toContain(active.basePath);
+    expect(await pathExists(expired.basePath)).toBe(false);
+    expect(await pathExists(active.basePath)).toBe(true);
+  });
+
+  it("defaults omitted cleanup roots to the cwd .opendevbrowser directory", async () => {
+    const workspaceDir = await realpath(await mkdtemp(join(tmpdir(), "odb-artifacts-cwd-")));
+    createdDirs.push(workspaceDir);
+    const rootDir = join(workspaceDir, ".opendevbrowser");
+
+    const expired = await createArtifactBundle({
+      namespace: "shopping",
+      outputDir: rootDir,
+      ttlHours: 1,
+      now: new Date("2026-02-01T00:00:00.000Z"),
+      files: [{ path: "summary.md", content: "expired" }]
+    });
+
+    const active = await createArtifactBundle({
+      namespace: "shopping",
+      outputDir: rootDir,
+      ttlHours: 48,
+      files: [{ path: "summary.md", content: "active" }]
+    });
+
+    const previousCwd = process.cwd();
+    try {
+      process.chdir(workspaceDir);
+      const result = await runArtifactsCommand(makeArgs([
+        "cleanup",
+        "--expired-only",
+        "--output-format",
+        "json"
+      ]));
+
+      expect(result).toMatchObject({
+        success: true,
+        data: {
+          rootDir,
+          expiredOnly: true,
+          removedCount: 1
+        }
+      });
+
+      const data = result.data as {
+        removed: string[];
+        skipped: string[];
+      };
+      expect(data.removed).toContain(expired.basePath);
+      expect(data.skipped).toContain(active.basePath);
+      expect(await pathExists(expired.basePath)).toBe(false);
+      expect(await pathExists(active.basePath)).toBe(true);
+    } finally {
+      process.chdir(previousCwd);
+    }
   });
 });

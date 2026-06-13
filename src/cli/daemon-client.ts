@@ -694,7 +694,7 @@ const sleep = async (delayMs: number): Promise<void> => {
 };
 
 const requiresConfiguredRecovery = (name: string): boolean => {
-  return name === "canvas.execute" || name === "inspiredesign.run";
+  return name === "canvas.execute";
 };
 
 const getConfiguredDaemonConnection = (): DaemonConnection | null => {

@@ -133,6 +133,8 @@ describe("createOpenDevBrowserCore", () => {
     const core = createOpenDevBrowserCore({ directory: "/tmp/root", config });
 
     expect(core.cacheRoot).toBe("/tmp/root");
+    expect(core.workspaceRoot).toBe("/tmp/root");
+    expect(core.workspaceRoot).toBe(core.cacheRoot);
     expect(core.config).toEqual(expectedConfig);
     expect(core.config).not.toBe(config);
     expect(managerInstances[0]?.cacheRoot).toBe("/tmp/root");
@@ -164,6 +166,8 @@ describe("createOpenDevBrowserCore", () => {
       });
 
       expect(core.cacheRoot).toBe("/tmp/worktree");
+      expect(core.workspaceRoot).toBe("/tmp/worktree");
+      expect(core.workspaceRoot).toBe(core.cacheRoot);
       expect(managerInstances[0]?.cacheRoot).toBe("/tmp/worktree");
       expect(skillsInstances[0]?.root).toBe("/tmp/worktree");
       expect(cwdSpy).not.toHaveBeenCalled();
@@ -181,6 +185,8 @@ describe("createOpenDevBrowserCore", () => {
     });
 
     expect(core.cacheRoot).toBe("/tmp/root");
+    expect(core.workspaceRoot).toBe("/tmp/root");
+    expect(core.workspaceRoot).toBe(core.cacheRoot);
     expect(managerInstances[0]?.cacheRoot).toBe("/tmp/root");
   });
 
@@ -197,6 +203,8 @@ describe("createOpenDevBrowserCore", () => {
       });
 
       expect(core.cacheRoot).toBe("/tmp/from-cwd");
+      expect(core.workspaceRoot).toBe("/tmp/from-cwd");
+      expect(core.workspaceRoot).toBe(core.cacheRoot);
       expect(managerInstances[0]?.cacheRoot).toBe("/tmp/from-cwd");
     } finally {
       process.env.PWD = previousPwd;

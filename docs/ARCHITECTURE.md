@@ -368,6 +368,25 @@ sequenceDiagram
   - `enrichment` (engagement/recency/date-confidence)
   - `renderer` (`compact|json|md|context|path`)
   - `artifact writer` (owner-only paths, TTL metadata, cleanup support)
+
+Provider artifact storage matrix:
+
+| Lane | Omitted output root | Bundle manifest | Cleanup behavior | Policy |
+|---|---|---:|---|---|
+| CLI research, shopping, inspiredesign, product-video | Invocation cwd `.opendevbrowser` resolved before daemon dispatch | Yes | `artifacts cleanup --expired-only` from the same cwd | Canonical workflow bundle lane |
+| Direct daemon RPC workflows | `core.workspaceRoot/.opendevbrowser` | Yes | Explicit cleanup root or cwd cleanup from the project | Preserve through workspace-root alias |
+| Direct OpenCode workflow tools | `deps.workspaceRoot/.opendevbrowser` when wired by `src/index.ts`; otherwise provider cwd fallback | Yes | Explicit cleanup root or cwd cleanup from the project | Preserve through workspace-root alias |
+| Direct provider workflow call | `process.cwd()/.opendevbrowser` when no output is supplied | Yes | Explicit cleanup root or cwd cleanup from the same process cwd | Preserve |
+| Low-level bundle writer | Requires explicit `outputDir` | Yes | Caller-owned | Hardened against implicit temp bundles |
+| Canvas | `.opendevbrowser/canvas` | No | Not bundle cleanup | Intentional non-bundle lane |
+| Browser screenshot | `.opendevbrowser/screenshot/<uuid>` | No | Not bundle cleanup | Intentional non-bundle lane |
+| Screencast | `.opendevbrowser/screencast/<uuid>` | No | Not bundle cleanup | Intentional non-bundle lane |
+| Annotation inbox | `.opendevbrowser/annotate`; screenshot bytes can be temp-only | No | Own bounded retention | Intentional non-bundle lane |
+| Desktop audit | `.opendevbrowser/desktop-runtime` by default | No | Own audit policy | Intentional non-bundle lane |
+| Release proof artifacts | `artifacts/release/...` or explicit script output | No | Release-owned | Intentional non-bundle lane |
+
+Only the workflow bundle lanes above promise `bundle-manifest.json` and participate in bundle manifest cleanup. Canvas, browser screenshot, screencast, annotation, desktop audit, and release proof outputs are adjacent artifact lanes with their own lifecycle rules.
+
 - Macro engine resolves `@macro(...)` expressions into provider operations (`src/macros/*`) and is exposed through tool/CLI/daemon (`macro_resolve`, `macro-resolve`, `macro.resolve`) with resolve-only and execute modes.
 - Execute-mode macro responses keep existing shapes and add metadata fields: `meta.tier.selected`, `meta.tier.reasonCode`, `meta.provenance.provider`, `meta.provenance.retrievalPath`, and `meta.provenance.retrievedAt`.
 - Diagnostics include a session-first inspection lane (`session.inspect`, `opendevbrowser_session_inspector`, `session-inspector`) plus console/network/exception trackers and a combined debug bundle endpoint (`debug_trace_snapshot`, `debug-trace-snapshot`, `devtools.debugTraceSnapshot`).

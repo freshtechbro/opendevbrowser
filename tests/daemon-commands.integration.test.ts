@@ -151,6 +151,7 @@ const makeCore = (overrides: {
   const agentInbox = new AgentInbox(inboxRoot);
   const cacheRoot = mkdtempSync(join(tmpdir(), "odb-daemon-cache-root-"));
   tempRoots.push(cacheRoot);
+  const workspaceRoot = cacheRoot;
   const desktopRuntime = {
     status: vi.fn().mockResolvedValue({
       platform: "darwin",
@@ -229,6 +230,7 @@ const makeCore = (overrides: {
     annotationManager,
     desktopRuntime,
     cacheRoot,
+    workspaceRoot,
     config: makeConfig(overrides.config)
   } as unknown as OpenDevBrowserCore;
 };
@@ -2006,8 +2008,11 @@ describe("daemon-commands integration", () => {
     );
   });
 
-  it("uses core cache root for omitted daemon research output roots", async () => {
+  it("uses core workspace root for omitted daemon research output roots", async () => {
     const core = makeCore();
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "odb-daemon-workspace-root-"));
+    tempRoots.push(workspaceRoot);
+    core.workspaceRoot = workspaceRoot;
     const workflowSpy = vi.spyOn(workflowModule, "runResearchWorkflow").mockResolvedValue({
       records: [],
       meta: {}
@@ -2021,12 +2026,10 @@ describe("daemon-commands integration", () => {
       }
     });
 
-    expect(workflowSpy).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        outputDir: join(core.cacheRoot, ".opendevbrowser")
-      })
-    );
+    const workflowOptions = workflowSpy.mock.calls[0]?.[1] as { outputDir?: string } | undefined;
+    expect(core.workspaceRoot).not.toBe(core.cacheRoot);
+    expect(workflowOptions?.outputDir).toBe(join(core.workspaceRoot, ".opendevbrowser"));
+    expect(workflowOptions?.outputDir).not.toBe(join(core.cacheRoot, ".opendevbrowser"));
   });
 
   it("forwards inspiredesign timeout and capture mode through the daemon router", async () => {
@@ -2207,7 +2210,7 @@ describe("daemon-commands integration", () => {
     });
   });
 
-  it("uses core cache root for omitted daemon inspiredesign output roots", async () => {
+  it("uses core workspace root for omitted daemon inspiredesign output roots", async () => {
     const core = makeCore();
     const workflowSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
       mode: "json",
@@ -2226,7 +2229,7 @@ describe("daemon-commands integration", () => {
     expect(workflowSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        outputDir: join(core.cacheRoot, ".opendevbrowser")
+        outputDir: join(core.workspaceRoot, ".opendevbrowser")
       }),
       expect.objectContaining({
         captureReference: expect.any(Function)
@@ -2324,7 +2327,7 @@ describe("daemon-commands integration", () => {
     );
   });
 
-  it("uses core cache root for omitted daemon shopping output roots", async () => {
+  it("uses core workspace root for omitted daemon shopping output roots", async () => {
     const core = makeCore();
     const workflowSpy = vi.spyOn(workflowModule, "runShoppingWorkflow").mockResolvedValue({
       mode: "json",
@@ -2342,12 +2345,12 @@ describe("daemon-commands integration", () => {
     expect(workflowSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        outputDir: join(core.cacheRoot, ".opendevbrowser")
+        outputDir: join(core.workspaceRoot, ".opendevbrowser")
       })
     );
   });
 
-  it("uses core cache root for omitted daemon product-video output roots", async () => {
+  it("uses core workspace root for omitted daemon product-video output roots", async () => {
     const core = makeCore();
     const workflowSpy = vi.spyOn(workflowModule, "runProductVideoWorkflow").mockResolvedValue({
       artifact_path: "/tmp/product-video",
@@ -2369,7 +2372,7 @@ describe("daemon-commands integration", () => {
     expect(workflowSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        output_dir: join(core.cacheRoot, ".opendevbrowser")
+        output_dir: join(core.workspaceRoot, ".opendevbrowser")
       }),
       expect.any(Object)
     );

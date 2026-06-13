@@ -65,7 +65,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
   // Minimal startup signal for local testing/debugging.
   // Avoid logging secrets (relayToken can be a string).
   console.info(
-    `[opendevbrowser] loaded (cacheRoot=${core.cacheRoot}, relay=${config.relayToken === false ? "disabled" : "enabled"})`
+    `[opendevbrowser] loaded (workspaceRoot=${core.workspaceRoot}, relay=${config.relayToken === false ? "disabled" : "enabled"})`
   );
 
   try {
@@ -77,7 +77,7 @@ const OpenDevBrowserPlugin: Plugin = async ({ directory, worktree }) => {
 
   const toolDeps: ToolDeps = {
     manager,
-    workspaceRoot: core.cacheRoot,
+    workspaceRoot: core.workspaceRoot,
     canvasManager,
     annotationManager,
     runner,
