@@ -84,6 +84,12 @@ describe("artifacts command", () => {
     expect(() => __test__.parseArtifactsArgs([
       "cleanup",
       "--expired-only",
+      "--output-dir=   "
+    ])).toThrow("Missing value for --output-dir");
+
+    expect(() => __test__.parseArtifactsArgs([
+      "cleanup",
+      "--expired-only",
       "--output-dir",
       "   "
     ])).toThrow("Missing value for --output-dir");
