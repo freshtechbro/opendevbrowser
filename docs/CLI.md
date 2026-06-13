@@ -597,7 +597,7 @@ Wrapper behavior:
 - Successful research, shopping, inspiredesign, and product-video artifact-bearing outputs include `artifact_path`.
 - `inspiredesign run` returns a reusable design contract plus a typed handoff bundle. Canvas is primary only when the guidance readiness is `ready`.
 - `inspiredesign harvest` extends the same workflow with query discovery, ranked references, screenshot, screencast, and pin-media evidence metadata, persisted evidence artifacts, typed recovery guidance, and Canvas follow-through only when harvest readiness is `ready`.
-- Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata in manifest files. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `<invocation-or-workspace-root>/.opendevbrowser/<namespace>/<runId>`. CLI runs use the process invocation directory, while direct OpenCode tools and daemon direct RPC use the workspace root equivalent from `core.cacheRoot`. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-video`. Direct tool or daemon callers can still pass an explicit output directory for caller-specific placement.
+- Path-bearing workflow outputs persist artifacts under the explicit `--output-dir` when provided and include TTL metadata plus `bundle-manifest.json`. The CLI rejects blank `--output-dir` values and resolves relative paths from the invocation directory before daemon dispatch. When `--output-dir` is omitted, research, shopping, inspiredesign, and product-video asset packs write to `<invocation-or-workspace-root>/.opendevbrowser/<namespace>/<runId>`. CLI runs use the process invocation directory. Direct daemon RPC uses `core.workspaceRoot/.opendevbrowser`, and direct OpenCode tools use the injected `deps.workspaceRoot/.opendevbrowser`; `src/index.ts` wires that value from `core.workspaceRoot`. Direct provider workflow calls without an injected workspace root keep the provider-level `process.cwd()/.opendevbrowser` fallback. Namespaces are `research`, `shopping`, `inspiredesign`, and `product-video`. Direct tool or daemon callers can still pass an explicit output directory for caller-specific placement.
 - Workflow cookie policy defaults to `providers.cookiePolicy=auto` and source defaults to `providers.cookieSource` (`file`, `env`, or `inline`).
 - Effective policy precedence is `--cookie-policy-override`/`--cookie-policy` > `--use-cookies` > config defaults.
 - `auto` attempts injection when cookies are available and continues when cookies are missing/unusable.
@@ -629,8 +629,11 @@ Script helper:
 
 Notes:
 - `--expired-only` is required.
-- Default cleanup root is `${TMPDIR:-/tmp}/opendevbrowser`. This helper cleanup default is separate from omitted workflow output roots. To clean workspace-local workflow artifacts, pass `--output-dir ./.opendevbrowser`.
+- When `--output-dir` is omitted, cleanup targets the current working directory's `.opendevbrowser` root, matching omitted CLI workflow output roots.
+- Use `--output-dir /tmp/opendevbrowser` only when intentionally cleaning an explicit temp artifact root.
+- The script helper changes to the repository root before invoking the CLI, so omitted script cleanup targets the repository root `.opendevbrowser`.
 - Output includes `removed` and `skipped` run paths.
+- Cleanup removes expired workflow bundles with `bundle-manifest.json`; Canvas, browser screenshot, screencast, annotation, desktop audit, and release proof outputs are intentional non-bundle lanes and are not targets for bundle manifest cleanup.
 
 ### Run (single-shot script)
 

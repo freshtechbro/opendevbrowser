@@ -736,7 +736,10 @@ const CLI_COMMAND_EXAMPLES = {
     cliExample("inspiredesign harvest", "--brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"),
     cliExample("inspiredesign harvest", "--brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json")
   ],
-  artifacts: [cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")],
+  artifacts: [
+    cliExample("artifacts cleanup", "--expired-only --output-format json"),
+    cliExample("artifacts cleanup", "--expired-only --output-dir /tmp/opendevbrowser --output-format json")
+  ],
   "macro-resolve": [cliExample("macro-resolve", "--expression '@community.search(\"browser automation failures\", 4)' --execute --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --output-format json")],
   canvas: [
     cliExample("canvas", "--command canvas.session.open --params '{\"label\":\"design review\"}' --timeout-ms 120000 --output-format json"),
@@ -822,6 +825,11 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   ],
   "product-video": [
     "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
+  ],
+  artifacts: [
+    "When --output-dir is omitted, cleanup targets the current working directory's .opendevbrowser root.",
+    "Use --output-dir for explicit artifact roots such as /tmp/opendevbrowser; omitted cleanup is not a temp-root cleanup shortcut.",
+    "Cleanup removes expired workflow bundles with bundle-manifest.json and does not manage Canvas, screenshot, screencast, annotation, desktop audit, or release proof outputs."
   ],
   inspiredesign: [
     "Pinterest harvest uses screenshot evidence, screencast evidence, and manifest-backed pin-media evidence as primary readiness signals; DOM/clone/deep capture is disabled for Pinterest harvest, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
