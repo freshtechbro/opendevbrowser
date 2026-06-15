@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readdir, rm } from "fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -3002,6 +3002,98 @@ describe("workflow branch coverage", () => {
       providers: ["unknown-provider"],
       mode: "json"
     })).rejects.toThrow("No valid shopping providers were requested");
+  });
+
+  it("writes decision-ready shopping artifacts with runtime freshness provenance", async () => {
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-shopping-report-"));
+    const observedTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const makeShoppingOfferRecord = (args: {
+      id: string;
+      title: string;
+      amount: number;
+      nestedRetrievedAt?: string;
+    }): NormalizedRecord => makeRecord({
+      id: args.id,
+      source: "shopping",
+      provider: "shopping/amazon",
+      url: `https://www.amazon.com/dp/${args.id}`,
+      title: args.title,
+      content: `$${args.amount.toFixed(2)} with free shipping`,
+      attributes: {
+        retrievalPath: "shopping:search:result-card",
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: args.id,
+          title: args.title,
+          url: `https://www.amazon.com/dp/${args.id}`,
+          price: {
+            amount: args.amount,
+            currency: "USD",
+            ...(args.nestedRetrievedAt ? { retrieved_at: args.nestedRetrievedAt } : {})
+          },
+          shipping: { amount: 0, currency: "USD", notes: "free" },
+          availability: "in_stock",
+          rating: 4.5,
+          reviews_count: 25,
+          price_source: "structured_metadata",
+          price_is_trustworthy: true
+        }
+      }
+    });
+    const runtime = toRuntime({
+      search: async (_input, options) => {
+        const providerId = options?.providerIds?.[0] ?? "shopping/amazon";
+        return makeAggregate({
+          sourceSelection: "shopping",
+          providerOrder: [providerId],
+          records: [
+            makeShoppingOfferRecord({
+              id: "B0OBSERVED001",
+              title: "Logitech Lift Vertical Ergonomic Mouse",
+              amount: 79.99,
+              nestedRetrievedAt: observedTime
+            }),
+            makeShoppingOfferRecord({
+              id: "B0INFERRED002",
+              title: "Anker Vertical Ergonomic Mouse",
+              amount: 89.99
+            })
+          ]
+        });
+      }
+    });
+
+    try {
+      const output = await runShoppingWorkflow(runtime, {
+        query: "ergonomic mouse",
+        providers: ["shopping/amazon"],
+        mode: "path",
+        outputDir
+      });
+      const artifactPath = String(output.artifact_path);
+      const artifactFiles = await readdir(artifactPath);
+      const dealsMarkdown = await readFile(join(artifactPath, "deals.md"), "utf8");
+      const offersJson = JSON.parse(await readFile(join(artifactPath, "offers.json"), "utf8")) as { offers: Array<{ title: string }> };
+      const contextJson = JSON.parse(await readFile(join(artifactPath, "deals-context.json"), "utf8")) as { highlights: string[] };
+      const comparisonCsv = await readFile(join(artifactPath, "comparison.csv"), "utf8");
+
+      expect(artifactFiles).toEqual(expect.arrayContaining([
+        "bundle-manifest.json",
+        "comparison.csv",
+        "deals-context.json",
+        "deals.md",
+        "meta.json",
+        "offers.json"
+      ]));
+      expect(dealsMarkdown).toContain("# Shopping Buying Brief");
+      expect(dealsMarkdown).toContain("freshness observed");
+      expect(dealsMarkdown).toContain("price freshness inferred");
+      expect(offersJson.offers).toHaveLength(2);
+      expect(contextJson.highlights.join("\n")).toContain("Buying readiness: partial");
+      expect(comparisonCsv.split("\n")[0]).toContain("provider,title,price,shipping,deal_score,availability,url");
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
   });
 
   it("prefers direct product matches over accessories for best-deal shopping queries", async () => {
