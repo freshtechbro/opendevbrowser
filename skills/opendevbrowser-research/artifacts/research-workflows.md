@@ -11,7 +11,7 @@ Use these workflows to plan evidence first, run provider-constrained collection 
 5. Inspect candidates and follow useful destination pages before synthesis. Never treat account, privacy, cookie, login, consent, search shell, not-found, or JavaScript shell pages as final evidence.
 6. If a selected destination is blocked, record the blocker and continue to the next relevant candidate before escalating to cookies or authenticated browser recovery.
 7. Persist `summary.md`, `report.md`, `records.json`, `context.json`, `meta.json`, and `bundle-manifest.json`.
-8. Review `records.json`, `context.json`, and `meta.json` before using `report.md`.
+8. Read `report.md` as the primary deterministic evidence briefing, then audit its claim map and confidence against `records.json`, `context.json`, and `meta.json`.
 9. If the selected evidence page itself proves auth, token, challenge, or cookie gating after public candidate triage, rerun through user-authorized browser recovery only after relevant public destination pages are exhausted: `--browser-mode extension` for an existing signed-in relay session, `--use-cookies` only when legitimate cookies are available, and `--challenge-automation-mode browser_with_helper` for browser-scoped assistance.
 10. Publish supported claims, mark weak claims as tentative, and exclude unsupported claims.
 
@@ -30,8 +30,8 @@ Use this when the first pass returns shells, login pages, privacy/cookie pages, 
 ## Claim-to-source review workflow
 
 1. Extract the claims that the final answer would make.
-2. Map each claim to accepted destination evidence in `records.json`.
-3. Check source date, fetch date, provider, extraction quality, and source independence.
+2. Start from the `report.md` claim map, then map each claim to accepted destination evidence in `records.json`.
+3. Check source date, fetch date, provider, extraction quality, source independence, and the confidence factors listed in `report.md`.
 4. Require corroboration for critical claims when the topic allows it.
 5. Record evidence gaps, stale pages, login walls, challenge pages, rate limits, and extraction limits.
 6. Do not use shell-only, stale-only, login-only, not-found-only, or zero-source-evidence runs as final support.

@@ -1,7 +1,7 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-06-12
+Last updated: 2026-06-15
 
 This document tracks runtime and build dependencies across the repository.
 
@@ -30,6 +30,7 @@ Verified source files:
 | `jsonc-parser` | `^3.2.0` | JSONC config parsing |
 | `parse5` | `^8.0.0` | HTML parsing for export and DOM normalization paths |
 | `playwright-core` | `^1.58.2` | Browser control + CDP sessions |
+| `tldts` | `^7.4.2` | Public suffix parsing for deterministic research-report source independence |
 | `typescript` | `^5.9.3` | Runtime TSX parsing/printing for canvas code sync plus repository TypeScript builds |
 | `ws` | `^8.19.0` | Relay and daemon websocket transport |
 | `yjs` | `^13.6.29` | CRDT-backed canvas document state and convergence |

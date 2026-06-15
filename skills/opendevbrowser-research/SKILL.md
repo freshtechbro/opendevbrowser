@@ -8,7 +8,7 @@ version: 2.1.0
 
 Load this skill before research tasks. Use it to plan source families, gather provider-constrained evidence, review artifacts, and publish only claims that survive the evidence gate.
 
-`opendevbrowser research run` is a low-level, best-effort primitive. It can collect and render provider results, but the skill owns source planning, blocker review, confidence, limitations, and final synthesis.
+`opendevbrowser research run` is a provider-constrained collection primitive with a deterministic evidence briefing renderer. It collects accepted records, then renders `report.md` with an evidence gate, final answer, claim map, theme synthesis, source agreement or disagreement, confidence by claim, limitations, recommendations, and an evidence appendix. The skill still owns source planning, blocker review, and audit discipline before publishing claims.
 
 ## Pack Contents
 
@@ -61,12 +61,13 @@ Preserved artifact files:
 
 Required review:
 
-1. Read `records.json` for fetched source records, timestamps, providers, extraction quality, and blockers.
-2. Read `context.json` for source ledger, evidence gaps, unsupported claims, staleness checks, and search-engine provenance when used.
-3. Read `meta.json` for provider limits, warnings, no-evidence failures, cookie diagnostics, challenge/auth/token failures, and artifact generation details.
-4. When gated providers such as Reddit block evidence, rerun with user-authorized recovery only after candidate triage has exhausted relevant public destination pages: `--browser-mode extension` for an existing signed-in relay session, `--use-cookies` only when legitimate cookies are available, and `--challenge-automation-mode browser_with_helper` for browser-scoped assistance.
-5. Use `report.md` and `summary.md` only after confirming claims map back to accepted evidence.
-6. Do not use shell-only, stale-only, login-only, not-found-only, or zero-source-evidence runs to support final claims.
+1. Read `report.md` first for evidence gate status, final answer, claim map, confidence, limitations, recommendations, and the evidence appendix.
+2. Read `records.json` for fetched source records, timestamps, providers, extraction quality, and blockers that support or constrain each claim.
+3. Read `context.json` for source ledger, evidence gaps, unsupported claims, staleness checks, and search-engine provenance when used.
+4. Read `meta.json` for provider limits, warnings, no-evidence failures, cookie diagnostics, challenge/auth/token failures, and artifact generation details.
+5. When gated providers such as Reddit block evidence, rerun with user-authorized recovery only after candidate triage has exhausted relevant public destination pages: `--browser-mode extension` for an existing signed-in relay session, `--use-cookies` only when legitimate cookies are available, and `--challenge-automation-mode browser_with_helper` for browser-scoped assistance.
+6. Use `summary.md` only as a compact index. Treat `report.md` as primary only after confirming claims map back to accepted evidence.
+7. Do not use shell-only, stale-only, login-only, not-found-only, or zero-source-evidence runs to support final claims.
 
 ## Guided Research Loop
 
@@ -114,7 +115,7 @@ Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-i
 2. Choose explicit source families and document why they fit the topic.
 3. Optionally run the search-engine discovery lane to find destination candidates.
 4. Run `opendevbrowser research run` as a low-level best-effort primitive.
-5. Review `records.json`, `context.json`, and `meta.json` before trusting `report.md`.
+5. Review `report.md` as the deterministic briefing, then audit its claims against `records.json`, `context.json`, and `meta.json`.
 6. If `meta.json` shows auth, token, challenge, or cookie-gated providers, make the next run skill-first only after the candidate queue has no relevant public destination evidence left: use the existing signed-in browser session when authorized, cookies only when legitimate cookies are available, and browser-scoped challenge assistance only for that browser session.
 7. Return final claims only when they are supported by accepted evidence.
 
