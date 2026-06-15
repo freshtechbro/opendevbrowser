@@ -181,17 +181,21 @@ describe("workflow primitives", () => {
       const report = rendered.files.find((file) => file.path === "report.md");
       expect(report?.content).toContain("# Research Report");
       expect(report?.content).toContain("agentic systems");
+      expect(report?.content).toContain("## Evidence Gate Status");
+      expect(report?.content).toContain("## Final Answer");
+      expect(report?.content).toContain("## Claim Map");
+      expect(report?.content).toContain("## Theme Synthesis");
+      expect(report?.content).toContain("## Source Agreement or Disagreement");
+      expect(report?.content).toContain("## Confidence by Claim");
+      expect(report?.content).toContain("## Limitations");
+      expect(report?.content).toContain("## Recommendations");
+      expect(report?.content).toContain("## Evidence Appendix");
       expect(report?.content).toContain("- Source: community");
       expect(report?.content).toContain("- Provider: community/default");
       expect(report?.content).not.toContain("community/community/default");
-      expect(report?.content).toContain("## Report Files");
-      expect(report?.content).toContain("## Search Direction");
-      expect(report?.content).toContain("## Candidate Triage");
-      expect(report?.content).toContain("## Rejected Candidates");
-      expect(report?.content).toContain("## Deep Dives");
-      expect(report?.content).toContain("## Synthesis Feedback");
+      expect(report?.content).toContain("### Report Files");
       expect(report?.content).toContain("Rejected candidate: search_index_shell from web/default (web; rejected_before_synthesis");
-      expect(report?.content).toContain("bundle-manifest.json");
+      expect(report?.content).toContain("bundle-manifest.json (added by artifact bundle storage)");
       const contextFile = rendered.files.find((file) => file.path === "context.json");
       expect(contextFile?.content).toMatchObject({
         candidate_triage: {
@@ -213,7 +217,23 @@ describe("workflow primitives", () => {
         }),
         synthesis_feedback: expect.stringContaining("Synthesize")
       });
+      expect((contextFile?.content as { artifact_files?: string[] }).artifact_files).toEqual([
+        "summary.md",
+        "report.md",
+        "records.json",
+        "context.json",
+        "meta.json",
+        "bundle-manifest.json"
+      ]);
       expect(rendered.response.mode).toBe(mode === "path" ? "path" : mode);
+      if (mode === "md") {
+        expect(rendered.response).toMatchObject({
+          markdown: expect.stringContaining("## Evidence Gate Status")
+        });
+        expect(rendered.response).toMatchObject({
+          markdown: report?.content
+        });
+      }
     }
   });
 
@@ -252,7 +272,8 @@ describe("workflow primitives", () => {
     });
 
     const report = rendered.files.find((file) => file.path === "report.md")?.content ?? "";
-    expect(report).toContain("unknown_reason from unknown_provider (unknown_source; not_recorded): URL not recorded");
+    expect(report).toContain("Malformed rejected candidate metadata ignored for final claims: unknown_reason");
+    expect(report).toContain("Rejected candidate: unknown_reason from unknown_provider (unknown_source; not_recorded; path=not_recorded): URL not recorded");
     expect(report).toContain("1 more provider failure omitted from this report; see meta.json");
   });
 
@@ -274,7 +295,7 @@ describe("workflow primitives", () => {
       }
     }).files.find((file) => file.path === "report.md")?.content ?? "");
 
-    expect(report).toContain("- Rejected shell or dead-end candidates: 3");
+    expect(report).toContain("Rejected-candidate pressure for pass: observed 1.00");
     expect(report).toContain("- Dead-end search failures: 1");
   });
 
@@ -335,14 +356,14 @@ describe("workflow primitives", () => {
     }).files.find((file) => file.path === "report.md")?.content ?? "");
 
     expect(emptySummary).toBe("No usable research findings were available.");
-    expect(emptyReport).toContain("No usable findings were available.");
-    expect(emptyReport).toContain("No provider limitations or sanitization gaps were reported.");
-    expect(emptyReport).toContain("No sources available.");
+    expect(emptyReport).toContain("Evidence gate: fail");
+    expect(emptyReport).toContain("No accepted records available.");
+    expect(emptyReport).toContain("No provider diagnostics were reported.");
     expect(constrainedReport).toContain("Primary constraint: Provider returned only shell pages.");
     expect(constrainedReport).toContain("web/provider-10");
     expect(constrainedReport).toContain("2 more provider failures omitted from this report; see meta.json");
     expect(constrainedReport).not.toContain("web/provider-11");
-    expect(malformedFailureReport).toContain("unknown (unknown): provider failure");
+    expect(malformedFailureReport).toContain("unknown (unknown): provider_failure: provider failure");
     expect(sparseReport).toContain("web/provider-only");
     expect(sparseReport).toContain("URL not provided");
     expect(sparseReport).toContain("No content excerpt was available.");
@@ -366,17 +387,10 @@ describe("workflow primitives", () => {
       meta: {}
     }).files.find((file) => file.path === "report.md")?.content ?? "");
 
-    expect(report).toContain("Usable findings: 21");
-    expect(report).toContain("Findings shown in report: 10");
-    expect(report).toContain("Sources shown in report: 20");
-    expect(report).toContain("Usable records are persisted in records.json.");
-    expect(report).toContain("Run metadata, failures, and constraints are persisted in meta.json");
-    expect(report).toContain("11 more findings omitted from this report; see records.json");
-    expect(report).toContain("1 more source omitted from this report; see records.json");
-    expect(report).toContain("### 10. Finding 10");
-    expect(report).not.toContain("### 11. Finding 11");
-    expect(report).toContain("Finding 20: https://example.com/20");
-    expect(report).not.toContain("Finding 21: https://example.com/21");
+    expect(report).toContain("Accepted records: observed 21");
+    expect(report).toContain("Record: finding-20");
+    expect(report).toContain("1 more accepted source omitted from this report; see records.json.");
+    expect(report).not.toContain("Record: finding-21");
   });
 
   it("discloses truncated research evidence excerpts", () => {

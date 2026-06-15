@@ -442,7 +442,7 @@ and the shared inspiredesign artifact source at `src/inspiredesign/handoff.ts`.
 
 #### Research (`research run`)
 
-`research run` is a low-level, provider-constrained primitive. Load `opendevbrowser-research` before research tasks so planning, evidence review, confidence, limitations, and final synthesis stay evidence-gated.
+`research run` is a provider-constrained evidence collection primitive with a deterministic evidence briefing renderer. Load `opendevbrowser-research` before research tasks so source planning, artifact review, confidence, limitations, and final conclusions stay evidence-gated.
 
 ```bash
 npx opendevbrowser research run --topic "browser automation" --days 30 --mode compact
@@ -474,8 +474,9 @@ Notes:
 - Use `--browser-mode extension` when X, Threads, Facebook, Reddit, or another signed-in social provider needs an existing relay-backed browser session; use `managed` for reproducible no-auth reruns.
 - In the current contract, `auto` and `all` both stay inside the public topical families (`web`, `community`, `social`), but neither value guarantees reliability.
 - Add shopping only with `--source-selection shopping` or explicit `--sources ...shopping...` when the task is deliberately commercial.
-- Successful research artifact bundles include human-readable `report.md` alongside `summary.md`, `records.json`, `context.json`, `meta.json`, and `bundle-manifest.json`.
-- Inspect `records.json`, `context.json`, `meta.json`, and `report.md` before publishing final claims.
+- Successful research artifact bundles include `report.md`, `summary.md`, `records.json`, `context.json`, `meta.json`, and `bundle-manifest.json`.
+- `report.md` is the primary deterministic evidence briefing. It renders evidence gate status, final answer, claim map, theme synthesis, source agreement or disagreement, confidence by claim, limitations, recommendations, and an evidence appendix from accepted records and metadata.
+- `report.md` does not call a paid API, hidden LLM, or external interpretation step. Audit claims against `records.json`, `context.json`, and `meta.json` before publishing final claims.
 - Research runs fail instead of emitting a successful empty report when providers return only shell records, stale records, or no source evidence; successful runs persist diagnostics in `meta.json`.
 
 #### Shopping (`shopping run`)

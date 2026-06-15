@@ -811,7 +811,13 @@ describe("artifact and workflow runtime", () => {
           provider: "web/default",
           url: "https://example.com/research",
           title: "Research record",
-          content: "A concrete research artifact record.",
+          content: [
+            "A concrete research artifact record explains that artifact storage should keep report files under the workspace research directory.",
+            "The accepted page gives enough detail for a deterministic report to cite the source URL, preserve records.json as the audit trail, and keep bundle manifests stable.",
+            "This content-rich fixture prevents the evidence gate from treating the artifact-path assertion as a failed research run while still checking where report.md is written.",
+            "The report remains useful because it ties the accepted record to artifact storage behavior, source evidence, and project-local output expectations.",
+            "Agents can inspect the generated report, then open the raw metadata files when they need to audit timestamps, providers, and bundle paths."
+          ].join(" "),
           timestamp: "2026-02-10T00:00:00.000Z",
           confidence: 0.9,
           attributes: {}
@@ -836,7 +842,7 @@ describe("artifact and workflow runtime", () => {
       const report = await readFile(join(artifactPath, "report.md"), "utf8");
       expect(manifest.files).toEqual(RESEARCH_ARTIFACT_FILES);
       expect(report).toContain("# Research Report");
-      expect(report).toContain("A concrete research artifact record.");
+      expect(report).toContain("artifact storage should keep report files under the workspace research directory.");
       expect(report).toContain("https://example.com/research");
     } finally {
       cwdSpy.mockRestore();

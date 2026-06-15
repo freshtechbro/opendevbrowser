@@ -1,5 +1,6 @@
 import { canonicalizeUrl } from "./web/crawler";
 import type { ResearchRecord } from "./enrichment";
+import { buildResearchBriefing, renderResearchBriefingMarkdown } from "./research-report";
 import {
   formatInspiredesignCaptureAttemptSummary,
   type InspiredesignFollowthrough,
@@ -213,19 +214,16 @@ const compactResearchLines = (records: ResearchRecord[], meta: Record<string, un
   });
 };
 
-const RESEARCH_REPORT_LIMITS = {
-  findings: 10,
-  sources: 20,
-  failures: 10,
-  excerptCharacters: 240,
-  failureMessageCharacters: 240
-} as const;
-const RESEARCH_REPORT_FILE_NAMES = [
+const RESEARCH_RENDER_FILE_NAMES = [
   "summary.md",
   "report.md",
   "records.json",
   "context.json",
-  "meta.json",
+  "meta.json"
+] as const;
+
+const RESEARCH_BUNDLE_FILE_NAMES = [
+  ...RESEARCH_RENDER_FILE_NAMES,
   "bundle-manifest.json"
 ] as const;
 
@@ -234,42 +232,6 @@ const plainObject = (value: unknown): Record<string, unknown> => (
 );
 
 const researchTitle = (record: ResearchRecord): string => record.title ?? record.url ?? record.provider;
-
-const normalizedInlineText = (content: string | undefined): string => content?.replace(/\s+/g, " ").trim() ?? "";
-
-const boundedInlineText = (args: {
-  content: string | undefined;
-  fallback: string;
-  limit: number;
-  target: string;
-}): string => {
-  const normalized = normalizedInlineText(args.content);
-  if (!normalized) {
-    return args.fallback;
-  }
-  if (normalized.length <= args.limit) {
-    return normalized;
-  }
-  return `${normalized.slice(0, args.limit)} [truncated; see ${args.target}]`;
-};
-
-const researchExcerpt = (content: string | undefined): string => (
-  boundedInlineText({
-    content,
-    fallback: "No content excerpt was available.",
-    limit: RESEARCH_REPORT_LIMITS.excerptCharacters,
-    target: "records.json for full content"
-  })
-);
-
-const researchFailureMessage = (content: string | undefined): string => (
-  boundedInlineText({
-    content,
-    fallback: "provider failure",
-    limit: RESEARCH_REPORT_LIMITS.failureMessageCharacters,
-    target: "meta.json"
-  })
-);
 
 const CANVAS_CONTINUATION_BLOCKED_COMMAND = "Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence.";
 const CANVAS_PLAN_OMITTED_GUIDANCE = "Canvas plan request omitted until harvest readiness is ready with authoritative visual, motion, or pin-media evidence.";
@@ -583,69 +545,6 @@ const buildBlockedInspiredesignCanvasHandoff = (): {
   };
 };
 
-const limitedCount = (total: number, limit: number): number => Math.min(total, limit);
-
-const omissionLine = (args: {
-  total: number;
-  limit: number;
-  singular: string;
-  plural: string;
-  target: string;
-}): string[] => {
-  const omitted = args.total - limitedCount(args.total, args.limit);
-  if (omitted <= 0) {
-    return [];
-  }
-  const noun = omitted === 1 ? args.singular : args.plural;
-  return [`- ${omitted} more ${noun} omitted from this report; see ${args.target} for the complete dataset.`];
-};
-
-const researchFindingsLines = (records: ResearchRecord[]): string[] => (
-  records.length === 0
-    ? ["- No usable findings were available."]
-    : [
-      ...records.slice(0, RESEARCH_REPORT_LIMITS.findings).flatMap((record, index) => [
-        `### ${index + 1}. ${researchTitle(record)}`,
-        `- Source: ${record.source}`,
-        `- Provider: ${record.provider}`,
-        `- URL: ${record.url ?? "not provided"}`,
-        `- Published: ${record.timestamp}`,
-        `- Confidence: ${record.confidence.toFixed(2)}`,
-        `- Evidence: ${researchExcerpt(record.content)}`
-      ]),
-      ...omissionLine({
-        total: records.length,
-        limit: RESEARCH_REPORT_LIMITS.findings,
-        singular: "finding",
-        plural: "findings",
-        target: "records.json"
-      })
-    ]
-);
-
-const researchSourcesLines = (records: ResearchRecord[]): string[] => (
-  records.length === 0
-    ? ["- No sources available."]
-    : [
-      ...records
-      .slice(0, RESEARCH_REPORT_LIMITS.sources)
-      .map((record) => `- ${researchTitle(record)}: ${record.url ?? "URL not provided"}`),
-      ...omissionLine({
-        total: records.length,
-        limit: RESEARCH_REPORT_LIMITS.sources,
-        singular: "source",
-        plural: "sources",
-        target: "records.json"
-      })
-    ]
-);
-
-const researchReasonLine = (metrics: Record<string, unknown>): string[] => {
-  const reasons = Object.entries(plainObject(metrics.sanitized_reason_distribution))
-    .map(([reason, count]) => `${reason}: ${String(count)}`);
-  return reasons.length === 0 ? [] : [`- Sanitized record reasons: ${reasons.join(", ")}`];
-};
-
 const deadEndSearchFailures = (failures: unknown): Record<string, unknown>[] => {
   if (!Array.isArray(failures)) return [];
   return failures.filter((failure): failure is Record<string, unknown> => {
@@ -673,63 +572,6 @@ const rejectedCandidateCount = (meta: Record<string, unknown>): number => {
   }
   const sanitized = typeof metrics.sanitized_records === "number" ? metrics.sanitized_records : 0;
   return sanitized + deadEndSearchFailureCount(meta);
-};
-
-const deadEndSearchFailureLines = (meta: Record<string, unknown>): string[] => {
-  const failures = deadEndSearchFailures(meta.failures);
-  if (failures.length === 0) return [];
-  return [`- Dead-end search failures: ${failures.length}`];
-};
-
-const researchRejectedCandidateSummary = (candidate: Record<string, unknown>): string => {
-  const reason = typeof candidate.reason === "string" ? candidate.reason : "unknown_reason";
-  const provider = typeof candidate.provider === "string" ? candidate.provider : "unknown_provider";
-  const source = typeof candidate.source === "string" ? candidate.source : "unknown_source";
-  const status = typeof candidate.replacement_status === "string" ? candidate.replacement_status : "not_recorded";
-  const retrievalPath = typeof candidate.retrievalPath === "string" ? `; path=${candidate.retrievalPath}` : "";
-  const url = typeof candidate.url === "string" ? candidate.url : "URL not recorded";
-  return `${reason} from ${provider} (${source}; ${status}${retrievalPath}): ${url}`;
-};
-
-const researchFailureSummary = (failure: unknown): string => {
-  const record = plainObject(failure);
-  const error = plainObject(record.error);
-  const provider = typeof record.provider === "string" ? record.provider : "unknown";
-  const source = typeof record.source === "string" ? record.source : "unknown";
-  const reason = typeof error.reasonCode === "string" ? `${error.reasonCode}: ` : "";
-  const message = researchFailureMessage(typeof error.message === "string" ? error.message : undefined);
-  return `${provider} (${source}): ${reason}${message}`;
-};
-
-const researchFailureLines = (failures: unknown): string[] => {
-  if (!Array.isArray(failures) || failures.length === 0) {
-    return [];
-  }
-  const summaries = failures.slice(0, RESEARCH_REPORT_LIMITS.failures).map(researchFailureSummary);
-  const omitted = failures.length - summaries.length;
-  const noun = omitted === 1 ? "failure" : "failures";
-  const suffix = omitted > 0
-    ? `; ${omitted} more provider ${noun} omitted from this report; see meta.json`
-    : "";
-  return [`- Provider failures: ${summaries.join("; ")}${suffix}`];
-};
-
-const researchGapLines = (meta: Record<string, unknown>): string[] => {
-  const metrics = plainObject(meta.metrics);
-  const details = [
-    typeof metrics.final_records === "number" ? `- Final records reported by workflow: ${metrics.final_records}` : "",
-    typeof metrics.sanitized_records === "number" ? `- Sanitized records excluded: ${metrics.sanitized_records}` : "",
-    ...researchReasonLine(metrics),
-    ...researchFailureLines(meta.failures)
-  ].filter(Boolean);
-  const constraint = primaryConstraintSummaryFromMeta(meta);
-  const fallback = "- No provider limitations or sanitization gaps were reported.";
-  const gapDetails = details.length > 0 || constraint ? details : [fallback];
-  return [
-    "## Confidence and Gaps",
-    ...(constraint ? [`- Primary constraint: ${constraint}`] : []),
-    ...gapDetails
-  ];
 };
 
 const researchSearchDirectionLines = (meta: Record<string, unknown>): string[] => {
@@ -764,55 +606,11 @@ const researchCandidateTriageSchema = (): Record<string, unknown> => ({
   extraction_status: "pending|fetched|blocked|shell|stale|irrelevant"
 });
 
-const researchCandidateTriageLines = (records: ResearchRecord[], meta: Record<string, unknown>): string[] => {
-  const rejected = rejectedCandidateCount(meta);
-  return [
-    "## Candidate Triage",
-    `- Accepted destination records: ${records.length}`,
-    `- Rejected shell or dead-end candidates: ${rejected}`,
-    "- Rejection policy: search pages, login/account pages, privacy/cookie pages, JavaScript shells, not-found pages, and unsupported shells are not final evidence."
-  ];
-};
-
-const researchRejectedCandidateLines = (meta: Record<string, unknown>): string[] => {
-  const rejectedCandidates = rejectedCandidatesFromMeta(meta);
-  const rejectionLines = [
-    ...researchReasonLine(plainObject(meta.metrics)),
-    ...rejectedCandidates.slice(0, RESEARCH_REPORT_LIMITS.failures)
-      .map((candidate) => `- Rejected candidate: ${researchRejectedCandidateSummary(candidate)}`),
-    ...deadEndSearchFailureLines(meta)
-  ];
-  return [
-    "## Rejected Candidates",
-    ...rejectionLines,
-    ...(rejectionLines.length === 0
-      ? ["- No rejected candidate distribution was reported."]
-      : [])
-  ];
-};
-
-const researchDeepDiveLines = (records: ResearchRecord[]): string[] => [
-  "## Deep Dives",
-  ...(records.length === 0
-    ? ["- No destination pages passed the evidence gate."]
-    : records.slice(0, RESEARCH_REPORT_LIMITS.sources).map((record) => {
-      const retrievalPath = typeof record.attributes.retrievalPath === "string"
-        ? record.attributes.retrievalPath
-        : "";
-      const prefix = retrievalPath.includes(":fetch:") ? "Opened destination evidence" : "Accepted evidence record";
-      return `- ${prefix}: ${record.url ?? researchTitle(record)}`;
-    }))
-];
-
 const researchSynthesisFeedbackText = (records: ResearchRecord[], meta: Record<string, unknown>): string => {
   const rejected = rejectedCandidateCount(meta);
   return records.length === 0 || rejected > records.length
     ? "Continue with remaining public destination candidates or narrow the query; use auth/cookies only when a selected evidence page itself requires authorized access."
     : "Synthesize only the accepted destination evidence and cite records.json for full source text.";
-};
-
-const researchSynthesisFeedbackLines = (records: ResearchRecord[], meta: Record<string, unknown>): string[] => {
-  return ["## Synthesis Feedback", `- Next step: ${researchSynthesisFeedbackText(records, meta)}`];
 };
 
 const researchContextPayload = (args: {
@@ -828,7 +626,7 @@ const researchContextPayload = (args: {
     status: "pending_review",
     reviewed_artifacts: []
   },
-  artifact_files: RESEARCH_REPORT_FILE_NAMES,
+  artifact_files: RESEARCH_BUNDLE_FILE_NAMES,
   source_ledger: args.records.map((record) => ({
     title: researchTitle(record),
     url: record.url,
@@ -856,46 +654,16 @@ const researchContextPayload = (args: {
   meta: args.meta
 });
 
-const researchArtifactFileLines = (): string[] => [
-  "## Report Files",
-  ...RESEARCH_REPORT_FILE_NAMES.map((fileName) => `- ${fileName}`)
-];
-
 const buildResearchReport = (args: {
   topic: string;
   records: ResearchRecord[];
   meta: Record<string, unknown>;
-}): string => [
-  "# Research Report",
-  "",
-  "## Executive Summary",
-  `- Topic: ${args.topic}`,
-  `- Usable findings: ${args.records.length}`,
-  `- Findings shown in report: ${limitedCount(args.records.length, RESEARCH_REPORT_LIMITS.findings)}`,
-  `- Sources shown in report: ${limitedCount(args.records.length, RESEARCH_REPORT_LIMITS.sources)}`,
-  "- Final output: Usable records are persisted in records.json.",
-  "- Diagnostics: Run metadata, failures, and constraints are persisted in meta.json; this report summarizes the bounded inline subset.",
-  "",
-  ...researchArtifactFileLines(),
-  "",
-  ...researchSearchDirectionLines(args.meta),
-  "",
-  ...researchCandidateTriageLines(args.records, args.meta),
-  "",
-  ...researchRejectedCandidateLines(args.meta),
-  "",
-  ...researchDeepDiveLines(args.records),
-  "",
-  ...researchSynthesisFeedbackLines(args.records, args.meta),
-  "",
-  "## Findings",
-  ...researchFindingsLines(args.records),
-  "",
-  ...researchGapLines(args.meta),
-  "",
-  "## Sources",
-  ...researchSourcesLines(args.records)
-].join("\n");
+}): string => renderResearchBriefingMarkdown(buildResearchBriefing({
+  topic: args.topic,
+  records: args.records,
+  meta: args.meta,
+  artifactFiles: RESEARCH_BUNDLE_FILE_NAMES
+}));
 
 export const renderResearch = (args: {
   mode: RenderMode;
@@ -958,7 +726,7 @@ export const renderResearch = (args: {
     return {
       response: {
         mode: args.mode,
-        markdown,
+        markdown: report,
         meta: args.meta
       },
       files
