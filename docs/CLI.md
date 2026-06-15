@@ -506,7 +506,14 @@ Flags:
 
 Notes:
 - Use explicit providers plus `--browser-mode managed` for the most reproducible live reruns.
-- Treat `--region` as advisory unless `meta.selection.region_authoritative=true`.
+- `deals.md` is the primary deterministic buying brief. It renders `# Shopping Buying Brief`, a Buying Readiness Gate, Recommendation, Best Candidate Offers, Market Baseline, Warnings and Constraints, Excluded or Constrained Offers, and an Evidence Appendix.
+- Buying readiness is `pass`, `partial`, or `fail`. `pass` allows bounded buying guidance, `partial` means use the output as a constrained shortlist, and `fail` means no confident purchase recommendation is allowed from the current evidence.
+- Raw audit surfaces stay separate: `offers.json` preserves structured offers, `comparison.csv` preserves the tabular comparison with appended currency and total-status audit fields, `meta.json` preserves workflow diagnostics, and `deals-context.json` preserves `query`, report-derived `highlights`, raw `offers`, and `meta` for agent handoff.
+- `compact` and `context` modes summarize the same report guidance as `deals.md`; `json` mode still returns raw offers and meta.
+- Expect warnings for stale, inferred, or missing price freshness; unknown or out-of-stock availability; weak query relevance; suspicious titles; duplicate same-title or same-product pressure; workflow alerts; and advisory region handling.
+- Treat `--region` as advisory unless `meta.selection.region_authoritative=true`. If `meta.alerts` includes `reasonCode=region_unenforced`, do not present the output as a trustworthy regional comparison.
+- The Market Baseline section is computed only from deterministic same-currency evidence. If sample size or currency coverage is insufficient, the report says `market baseline unavailable` instead of inventing savings.
+- Seller trust, return policy, warranty, condition, shipping certainty, and price history are not guaranteed fields. Treat them as unavailable unless the raw offer attributes and report text explicitly include them.
 - When a run returns no final offers, inspect `meta.primaryConstraintSummary` first.
 - If `meta.primaryConstraint.guidance` is present, follow `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]` before classifying the provider path as broken.
 - If `meta.primaryConstraint.guidance` is absent, inspect `meta.offerFilterDiagnostics`; summary-only outcomes are usually offer-filter constraints such as budget or region heuristics, not provider outage proof.

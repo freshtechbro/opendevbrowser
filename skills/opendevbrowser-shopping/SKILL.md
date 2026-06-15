@@ -6,7 +6,7 @@ version: 2.1.0
 
 # Shopping Skill
 
-Use this skill for robust deal hunting across providers with market-baseline validation and savings analysis.
+Use this skill for deterministic shopping runs, conservative deal comparison, and decision-ready review of generated shopping artifacts.
 
 Reliable defaults:
 - before daemon-backed `shopping run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`
@@ -43,17 +43,49 @@ Reliable defaults:
 - Use desktop observation only for read-only evidence around sibling desktop surfaces; provider collection stays browser-first.
 - Use `--challenge-automation-mode off|browser|browser_with_helper` for bounded browser-scoped computer use on provider challenge branches; it is not desktop automation.
 
-## Deal-Hunting Model
+## Runtime Artifact Contract
 
-Use a two-layer check for each offer:
+Successful shopping bundles preserve separate user and audit surfaces:
 
-1. Provider discount check
-- Compare listed total to provider anchor price (MSRP/list/original) when available.
-- Capture absolute savings and percentage savings.
+- `deals.md`: primary deterministic buying brief with a Buying Readiness Gate, Recommendation, Best Candidate Offers, Market Baseline, Warnings and Constraints, Excluded or Constrained Offers, and Evidence Appendix.
+- `offers.json`: raw structured offer evidence.
+- `comparison.csv`: tabular provider, title, price, shipping, deal score, availability, and URL comparison, with appended currency and total-status audit fields.
+- `meta.json`: workflow diagnostics, selected providers, alerts, failures, and filter diagnostics.
+- `deals-context.json`: agent handoff context with `query`, report-derived `highlights`, raw `offers`, and `meta`.
 
-2. Market baseline check
-- Compare listed total against cross-provider market average and median.
-- Flag offers that are truly cheaper than market, not just marked "on sale".
+`compact` and `context` modes summarize the report guidance. `json` mode still returns raw offers plus meta.
+
+## Decision Model
+
+Use the runtime buying brief as the source of truth for purchase guidance:
+
+1. Read the Buying Readiness Gate.
+- `pass`: evidence supports bounded buying guidance for the current shortlist.
+- `partial`: offers are usable as a constrained shortlist, but evidence gaps limit confidence.
+- `fail`: no confident purchase recommendation is allowed.
+
+2. Review warnings before naming a candidate.
+- Freshness warnings include stale, inferred, or missing price timestamps.
+- Availability warnings include unknown or out-of-stock offers.
+- Relevance warnings include weak query fit or suspicious titles.
+- Duplicate warnings mean same-title or same-product offers appear across multiple URLs.
+- Advisory region warnings mean requested regional comparison is not authoritative.
+
+3. Check raw artifacts when decisions matter.
+- Audit prices and URLs in `offers.json` and `comparison.csv`.
+- Audit workflow failures, alerts, and filter constraints in `meta.json`.
+- Do not claim seller trust, return policy, warranty, condition, shipping certainty, or price history unless the raw offer attributes and report text explicitly include them.
+
+## Market Baseline And Savings
+
+The runtime Market Baseline section is conservative:
+
+- It computes average, median, and lowest total only from a deterministic same-currency sample.
+- It reports `market baseline unavailable` when sample size or currency coverage is insufficient.
+- It reports anchor/list discount only when explicit anchor, list, original, or MSRP evidence is present.
+- It does not invent savings from a sale label, hidden list price, unrelated currency, or missing price-history source.
+
+The helper script `scripts/analyze-market.sh` can be used for offline analysis of exported offers, but it is not automatically invoked by `opendevbrowser shopping run`. Treat script output as supplemental unless it is copied into the final evidence review with its inputs.
 
 ## Parallel Multitab Alignment
 
@@ -62,23 +94,6 @@ Use a two-layer check for each offer:
 - Keep one session per worker for parallel offer collection and avoid session-level target contention.
 - For browser-backed release proof and mode sweeps, follow the canonical direct-run evidence policy in `../opendevbrowser-best-practices/SKILL.md`.
 
-## Savings Math
-
-Per offer:
-- `total_price = item_price + shipping`
-- `anchor_savings_abs = max(anchor_price - total_price, 0)`
-- `anchor_savings_pct = anchor_savings_abs / anchor_price * 100`
-
-Per market group (same currency):
-- `market_avg = average(total_price)`
-- `market_median = median(total_price)`
-- `market_savings_abs = market_avg - offer_total`
-- `market_savings_pct = market_savings_abs / market_avg * 100`
-
-This captures both:
-- high-percentage discounts (for example 50% off)
-- high-absolute savings (for example $500 saved)
-
 ## Robustness Coverage (Known-Issue Matrix)
 
 Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-issues-matrix.md`
@@ -86,15 +101,16 @@ Matrix source: `../opendevbrowser-best-practices/artifacts/browser-agent-known-i
 - `ISSUE-06`: rate-limit/backoff handling while collecting offers
 - `ISSUE-09`: dedupe and pagination drift controls in offer collection
 - `ISSUE-10`: currency normalization and same-currency grouping
-- `ISSUE-11`: weak/missing anchor price detection
+- `ISSUE-11`: weak or missing anchor price detection
 - `ISSUE-12`: stale price and unsupported claim controls
 
 ## Canonical Workflow
 
 1. Run shopping search across selected providers.
-2. Normalize offers into stable records.
-3. Compute market analysis with `analyze-market.sh`.
-4. Render markdown/json summary for user decision.
+2. Open `deals.md` first and classify readiness as `pass`, `partial`, or `fail`.
+3. Inspect warnings for freshness, availability, relevance, duplicate pressure, market baseline, workflow alerts, and advisory region limits.
+4. Audit raw evidence in `offers.json`, `comparison.csv`, and `meta.json` before giving buying advice.
+5. Use helper scripts only as optional offline analysis over exported raw artifacts.
 
 ```bash
 opendevbrowser shopping run --query "<query>" --providers shopping/amazon,shopping/walmart --mode json --output-format json
@@ -104,32 +120,18 @@ opendevbrowser shopping run --query "27 inch 4k monitor" --providers shopping/be
 
 Diagnostics rules:
 - inspect `meta.primaryConstraintSummary` before classifying a zero-offer run as a provider failure
-- inspect `meta.offerFilterDiagnostics` to see whether zero price, budget, or region-currency filters removed the candidate offers
+- inspect `meta.offerFilterDiagnostics` to see whether zero price, budget, or region-currency filters removed candidate offers
 - if `meta.alerts` includes `reasonCode=region_unenforced`, do not present the output as a trustworthy regional comparison
 
-## Classification Heuristics
+## Candidate Decision Rules
 
-Default tags from analysis script:
-- `high_percent` when anchor discount percent exceeds threshold.
-- `high_absolute` when anchor discount absolute exceeds threshold.
-- `high_value` when both are true.
-- `market_beating` when offer is materially below market average.
+Use confident wording only when the report gate allows it:
 
-Threshold defaults are in `assets/templates/deal-thresholds.json`.
-
-Confidence model:
-- score combines sample size, anchor coverage, and freshness coverage.
-- warnings call out low-sample, missing-anchor, and stale/missing timestamp risk.
-
-## Good Deal Decision Rules
-
-Mark as strong only when at least one is true:
-- anchor discount is material and market gap is positive
-- market price is materially below average/median even without anchor
-
-Avoid false positives:
-- anchor discount exists but market total is not competitive
-- low total due to unavailable stock or hidden constraints
+- Do not override a `fail` gate with a buying recommendation.
+- Treat `partial` as a constrained shortlist, not a final answer.
+- Treat out-of-stock, weak-relevance, suspicious-title, stale-freshness, duplicate-pressure, and advisory-region warnings as constraints.
+- Prefer candidates with observed fresh price evidence, usable title, strong query fit, available stock, and an available same-currency market baseline.
+- State when market baseline, anchor/list discount, seller trust, returns, warranty, condition, or price history are unavailable.
 
 ## References
 
