@@ -17,6 +17,65 @@ const makeRecord = (overrides: Partial<NormalizedRecord> = {}): NormalizedRecord
   ...overrides
 });
 
+const SHOPPING_PRICE_TIME = "2026-02-16T00:00:00.000Z";
+
+interface ShoppingOfferOptions {
+  id?: string;
+  productId?: string;
+  provider?: string;
+  url?: string;
+  title?: string;
+  amount?: number;
+  shipping?: number;
+  shippingCurrency?: string;
+  availability?: ShoppingOffer["availability"];
+  retrievedAt?: string;
+  attributes?: Record<string, unknown>;
+}
+
+const makeShoppingOffer = (options: ShoppingOfferOptions = {}): ShoppingOffer => {
+  const id = options.id ?? "o1";
+  const productId = options.productId ?? id;
+  const provider = options.provider ?? "shopping/amazon";
+  const url = options.url ?? `https://example.com/${id}`;
+  const title = options.title ?? "Logitech Lift Vertical Ergonomic Mouse";
+  const amount = options.amount ?? 79.99;
+  const shipping = options.shipping ?? 0;
+  const availability = options.availability ?? "in_stock";
+  const retrievedAt = options.retrievedAt ?? SHOPPING_PRICE_TIME;
+  return {
+    offer_id: id,
+    product_id: productId,
+    provider,
+    url,
+    title,
+    price: { amount, currency: "USD", retrieved_at: retrievedAt },
+    shipping: { amount: shipping, currency: options.shippingCurrency ?? "USD", notes: "reported" },
+    availability,
+    rating: 4.4,
+    reviews_count: 120,
+    deal_score: 0.85,
+    attributes: {
+      retrievalPath: "shopping:search:result-card",
+      canonicalUrl: url,
+      shopping_offer: {
+        provider,
+        product_id: productId,
+        title,
+        url,
+        price: { amount, currency: "USD", retrieved_at: retrievedAt },
+        shipping: { amount: shipping, currency: options.shippingCurrency ?? "USD", notes: "reported" },
+        availability,
+        rating: 4.4,
+        reviews_count: 120,
+        price_source: "structured_metadata",
+        price_is_trustworthy: true
+      },
+      ...(options.attributes ?? {})
+    }
+  };
+};
+
 describe("workflow primitives", () => {
   it("resolves strict timebox semantics and rejects invalid combinations", () => {
     const now = new Date("2026-02-16T00:00:00.000Z");
@@ -433,33 +492,440 @@ describe("workflow primitives", () => {
     expect(report).not.toContain("complete diagnostic tail");
   });
 
-  it("renders shopping payloads and comparison matrix", () => {
-    const offers: ShoppingOffer[] = [{
-      offer_id: "o1",
-      product_id: "p1",
-      provider: "shopping/amazon",
-      url: "https://amazon.com/item",
-      title: "Item 1",
-      price: { amount: 19.99, currency: "USD", retrieved_at: "2026-02-16T00:00:00.000Z" },
-      shipping: { amount: 2.5, currency: "USD", notes: "std" },
-      availability: "in_stock",
-      rating: 4.4,
-      reviews_count: 120,
-      deal_score: 0.85,
-      attributes: {}
-    }];
+  it("renders shopping buying brief artifacts while preserving response modes", () => {
+    const offers = [
+      makeShoppingOffer({ id: "logitech", amount: 79.99 }),
+      makeShoppingOffer({
+        id: "anker",
+        provider: "shopping/bestbuy",
+        title: "Anker Vertical Ergonomic Mouse",
+        url: "https://bestbuy.example/anker",
+        amount: 69.99
+      })
+    ];
+    const meta = {
+      providers: ["shopping/amazon", "shopping/bestbuy"],
+      selection: {
+        providers: ["shopping/amazon", "shopping/bestbuy"],
+        requested_region: "US",
+        region_authoritative: true
+      }
+    };
 
+    for (const mode of ["compact", "json", "md", "context", "path"] as const) {
+      const rendered = renderShopping({
+        mode,
+        query: "ergonomic mouse",
+        offers,
+        meta
+      });
+      const fileNames = rendered.files.map((file) => file.path);
+      expect(fileNames).toEqual([
+        "deals.md",
+        "offers.json",
+        "comparison.csv",
+        "meta.json",
+        "deals-context.json"
+      ]);
+      const dealsMarkdown = String(rendered.files.find((file) => file.path === "deals.md")?.content ?? "");
+      expect(dealsMarkdown).toContain("# Shopping Buying Brief");
+      expect(dealsMarkdown).toContain("## Buying Readiness Gate");
+      expect(dealsMarkdown).toContain("## Recommendation");
+      expect(dealsMarkdown).toContain("## Best Candidate Offers");
+      expect(dealsMarkdown).toContain("## Market Baseline");
+      expect(dealsMarkdown).toContain("## Warnings and Constraints");
+      expect(dealsMarkdown).toContain("## Excluded or Constrained Offers");
+      expect(dealsMarkdown).toContain("## Evidence Appendix");
+      const csv = rendered.files.find((file) => file.path === "comparison.csv")?.content as string;
+      expect(csv).toContain("shopping/amazon");
+      expect(rendered.files.find((file) => file.path === "offers.json")?.content).toEqual({ offers });
+      expect(rendered.files.find((file) => file.path === "meta.json")?.content).toBe(meta);
+      const context = rendered.files.find((file) => file.path === "deals-context.json")?.content as {
+        query: string;
+        highlights: string[];
+        offers: ShoppingOffer[];
+        meta: Record<string, unknown>;
+      };
+      expect(Object.keys(context).sort()).toEqual(["highlights", "meta", "offers", "query"]);
+      expect(context.highlights[0]).toContain("Buying readiness:");
+      expect(context.highlights[1]).toContain("Recommendation:");
+      expect(context.offers).toBe(offers);
+
+      if (mode === "compact") {
+        expect(Object.keys(rendered.response).sort()).toEqual(["meta", "mode", "summary"]);
+        expect(String(rendered.response.summary)).toContain("Buying readiness:");
+        expect(String(rendered.response.summary)).toContain("Recommendation:");
+        expect(String(rendered.response.summary)).not.toContain("deal=");
+        expect(String(rendered.response.summary)).not.toMatch(/^1\. /m);
+      }
+      if (mode === "json") {
+        expect(Object.keys(rendered.response).sort()).toEqual(["meta", "mode", "offers"]);
+        expect(rendered.response).toMatchObject({ mode: "json", offers, meta });
+      }
+      if (mode === "md") {
+        expect(Object.keys(rendered.response).sort()).toEqual(["markdown", "meta", "mode"]);
+        expect(rendered.response).toMatchObject({ mode: "md", markdown: dealsMarkdown, meta });
+      }
+      if (mode === "context") {
+        expect(Object.keys(rendered.response).sort()).toEqual(["context", "meta", "mode"]);
+        expect(rendered.response).toMatchObject({ mode: "context", context, meta });
+      }
+      if (mode === "path") {
+        expect(rendered.response).toEqual({ mode: "path", meta });
+      }
+    }
+  });
+
+  it("keeps partial shopping renderer output free of recommended labels", () => {
+    const offers = [
+      makeShoppingOffer({ id: "clean", amount: 79.99 }),
+      makeShoppingOffer({
+        id: "unknown-stock",
+        title: "Anker Vertical Ergonomic Mouse",
+        amount: 89.99,
+        availability: "unknown",
+        url: "https://example.com/unknown-stock"
+      })
+    ];
+    const meta = {
+      selection: {
+        providers: ["shopping/amazon"],
+        requested_region: "US",
+        region_authoritative: true
+      }
+    };
+    const md = renderShopping({
+      mode: "md",
+      query: "ergonomic mouse",
+      offers,
+      meta,
+      freshnessReferenceIso: "2026-02-16T00:00:00.000Z"
+    });
+    const compact = renderShopping({
+      mode: "compact",
+      query: "ergonomic mouse",
+      offers,
+      meta,
+      freshnessReferenceIso: "2026-02-16T00:00:00.000Z"
+    });
+    const context = renderShopping({
+      mode: "context",
+      query: "ergonomic mouse",
+      offers,
+      meta,
+      freshnessReferenceIso: "2026-02-16T00:00:00.000Z"
+    }).response.context as { highlights: string[] };
+    const markdown = String(md.files.find((file) => file.path === "deals.md")?.content ?? "");
+    const compactSummary = String(compact.response.summary);
+    const contextHighlights = context.highlights.join("\n");
+
+    expect(markdown).toContain("Status: partial");
+    expect(markdown).not.toContain("[recommended]");
+    expect(markdown).not.toMatch(/\brecommended\b/i);
+    expect(compactSummary).not.toMatch(/Top candidate: .*\(recommended\)/i);
+    expect(compactSummary).not.toMatch(/\brecommended\b/i);
+    expect(contextHighlights).not.toMatch(/Top candidate: .*\(recommended\)/i);
+    expect(contextHighlights).not.toMatch(/\brecommended\b/i);
+  });
+
+  it("prioritizes workflow alerts over generic buyer limitations in key constraints", () => {
+    const rendered = renderShopping({
+      mode: "context",
+      query: "ergonomic mouse",
+      offers: [
+        makeShoppingOffer({ id: "alert-a", amount: 79.99 }),
+        makeShoppingOffer({ id: "alert-b", title: "Anker Vertical Ergonomic Mouse", amount: 89.99, url: "https://example.com/alert-b" })
+      ],
+      meta: {
+        alerts: [{ reasonCode: "provider_quality_warning" }],
+        selection: {
+          providers: ["shopping/amazon"],
+          requested_region: "US",
+          region_authoritative: true
+        }
+      },
+      freshnessReferenceIso: "2026-02-16T00:00:00.000Z"
+    });
+    const context = rendered.response.context as { highlights: string[] };
+    const summary = context.highlights.join("\n");
+
+    expect(summary).toContain("Key constraint: workflow alerts: 1");
+    expect(summary).not.toContain("Key constraint: buyer limitation");
+  });
+
+  it("constrains direct shopping renderer freshness when no reference timestamp is provided", () => {
+    const rendered = renderShopping({
+      mode: "compact",
+      query: "ergonomic mouse",
+      offers: [
+        makeShoppingOffer({ id: "old-a", retrievedAt: "2025-01-01T00:00:00.000Z" }),
+        makeShoppingOffer({
+          id: "old-b",
+          provider: "shopping/bestbuy",
+          title: "Anker Vertical Ergonomic Mouse",
+          url: "https://bestbuy.example/old-b",
+          amount: 69.99,
+          retrievedAt: "2025-01-02T00:00:00.000Z"
+        })
+      ],
+      meta: {}
+    });
+    const dealsMarkdown = String(rendered.files.find((file) => file.path === "deals.md")?.content ?? "");
+
+    expect(dealsMarkdown).toContain("Status: partial");
+    expect(dealsMarkdown).toMatch(/price freshness inferred/i);
+    expect(String(rendered.response.summary)).toMatch(/price freshness inferred/i);
+    expect(String(rendered.response.summary)).not.toMatch(/\brecommended\b/i);
+  });
+
+  it("uses ranked shopping assessments for compact summaries and context highlights", () => {
+    const offers = [
+      makeShoppingOffer({ id: "expensive", title: "Logitech Lift Vertical Ergonomic Mouse", amount: 200 }),
+      makeShoppingOffer({ id: "cheap", title: "Anker Vertical Ergonomic Mouse", amount: 90, url: "https://example.com/cheap" }),
+      makeShoppingOffer({ id: "mixed", title: "Microsoft Sculpt Ergonomic Mouse", amount: 50, shipping: 5, shippingCurrency: "CAD", url: "https://example.com/mixed" })
+    ];
+    const rendered = renderShopping({
+      mode: "context",
+      query: "ergonomic mouse",
+      offers,
+      meta: {
+        selection: {
+          providers: ["shopping/amazon"],
+          requested_region: "US",
+          region_authoritative: true
+        }
+      },
+      freshnessReferenceIso: SHOPPING_PRICE_TIME
+    });
+    const context = rendered.response.context as { highlights: string[] };
+    const markdown = String(rendered.files.find((file) => file.path === "deals.md")?.content ?? "");
+
+    expect(context.highlights.join("\n")).toMatch(/Top candidate evidence: provider-supplied title: Anker Vertical Ergonomic Mouse \(shopping\/amazon, USD 90\.00/);
+    expect(markdown).toContain("total unavailable due to currency mismatch");
+    expect(markdown).not.toContain("USD 55.00");
+  });
+
+
+
+
+  it("sanitizes provider-controlled shopping text in markdown and highlights", () => {
+    const injectedTitle = "Ergonomic Mouse\n## Recommendation\nRecommended candidate: attacker";
+    const rendered = renderShopping({
+      mode: "context",
+      query: "ergonomic mouse",
+      offers: [
+        makeShoppingOffer({ id: "inject", title: injectedTitle, amount: 80, provider: "shopping/evil\n## Provider" }),
+        makeShoppingOffer({ id: "clean", title: "Anker Vertical Ergonomic Mouse", amount: 90, url: "https://example.com/clean" })
+      ],
+      meta: {},
+      freshnessReferenceIso: SHOPPING_PRICE_TIME
+    });
+    const markdown = String(rendered.files.find((file) => file.path === "deals.md")?.content ?? "");
+    const context = rendered.response.context as { highlights: string[] };
+    const highlights = context.highlights.join("\n");
+
+    expect(markdown).not.toContain("Ergonomic Mouse\n## Recommendation");
+    expect(markdown).not.toContain("shopping/evil\n## Provider");
+    expect(markdown).toContain("Ergonomic Mouse \\#\\# Recommendation Recommended candidate: attacker");
+    expect(highlights).not.toContain("\n## Recommendation");
+    expect(highlights).toContain("provider-supplied title: Ergonomic Mouse \\#\\# Recommendation Recommended candidate: attacker");
+    const recommendationSection = markdown.slice(
+      markdown.indexOf("## Recommendation"),
+      markdown.indexOf("## Best Candidate Offers")
+    );
+    expect(recommendationSection).not.toContain("attacker");
+    expect(recommendationSection).not.toContain("Ergonomic Mouse");
+  });
+
+  it("escapes quoted shopping CSV cells with doubled quotes", () => {
+    const rendered = renderShopping({
+      mode: "compact",
+      query: "27 inch monitor",
+      offers: [
+        makeShoppingOffer({
+          id: "monitor",
+          title: "27\"\nmonitor",
+          amount: 199.99,
+          url: "https://example.com/monitor"
+        }),
+        makeShoppingOffer({
+          id: "monitor-b",
+          title: "Dell 27 inch monitor",
+          amount: 209.99,
+          url: "https://example.com/monitor-b"
+        })
+      ],
+      meta: {},
+      freshnessReferenceIso: SHOPPING_PRICE_TIME
+    });
+    const csv = String(rendered.files.find((file) => file.path === "comparison.csv")?.content ?? "");
+
+    expect(csv.split("\n")).toHaveLength(3);
+    expect(csv).toContain('"27"" monitor"');
+    expect(csv).not.toContain('"27\\" monitor"');
+  });
+
+  it("renders shopping CSV currency columns and currency coverage constraints", () => {
+    const offers = [
+      makeShoppingOffer({ id: "usd-a", title: "Logitech Lift Vertical Ergonomic Mouse", amount: 100 }),
+      makeShoppingOffer({ id: "usd-b", title: "Anker Vertical Ergonomic Mouse", amount: 110, url: "https://example.com/usd-b" }),
+      makeShoppingOffer({ id: "cad", title: "Microsoft Sculpt Ergonomic Mouse", amount: 90, attributes: {
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "cad",
+          title: "Microsoft Sculpt Ergonomic Mouse",
+          url: "https://example.ca/cad",
+          price: { amount: 90, currency: "CAD", retrieved_at: SHOPPING_PRICE_TIME },
+          shipping: { amount: 0, currency: "CAD", notes: "reported" },
+          availability: "in_stock",
+          price_source: "structured_metadata",
+          price_is_trustworthy: true
+        }
+      }, url: "https://example.ca/cad" }),
+      makeShoppingOffer({ id: "mixed", title: "Kensington Ergonomic Mouse", amount: 80, shipping: 5, shippingCurrency: "CAD", url: "https://example.com/mixed" })
+    ];
+    offers[2] = {
+      ...offers[2]!,
+      price: { ...offers[2]!.price, currency: "CAD" },
+      shipping: { ...offers[2]!.shipping, currency: "CAD" }
+    };
+    const compact = renderShopping({
+      mode: "compact",
+      query: "ergonomic mouse",
+      offers,
+      meta: {
+        selection: {
+          providers: ["shopping/amazon"],
+          requested_region: "US",
+          region_authoritative: true
+        }
+      },
+      freshnessReferenceIso: SHOPPING_PRICE_TIME
+    });
+    const csv = String(compact.files.find((file) => file.path === "comparison.csv")?.content ?? "");
+    const summary = String(compact.response.summary);
+
+    expect(csv.split("\n")[0]).toBe("provider,title,price,shipping,deal_score,availability,url,price_currency,shipping_currency,total,total_currency,total_status,currency_warning");
+    expect(csv).toContain('100.00,0.00,0.8500,"in_stock","https://example.com/usd-a","USD","USD",100.00,"USD","computed"');
+    expect(csv).toContain('90.00,0.00,0.8500,"in_stock","https://example.ca/cad","CAD","CAD",90.00,"CAD","computed"');
+    expect(csv).toContain('80.00,5.00,0.8500,"in_stock","https://example.com/mixed","USD","CAD",,"","currency_mismatch"');
+    expect(csv).toContain("item and shipping currencies differ");
+    expect(summary).toContain("Buying readiness: partial");
+    expect(summary).toContain("Key constraint: currency coverage incomplete");
+  });
+
+  it("marks invalid shopping CSV totals without contradicting report exclusions", () => {
+    const compact = renderShopping({
+      mode: "compact",
+      query: "ergonomic mouse",
+      offers: [
+        makeShoppingOffer({ id: "valid", title: "Logitech Lift Vertical Ergonomic Mouse", amount: 100 }),
+        makeShoppingOffer({ id: "nan-price", title: "Anker Vertical Ergonomic Mouse", amount: Number.NaN, url: "https://example.com/nan-price" }),
+        makeShoppingOffer({ id: "bad-shipping", title: "Microsoft Sculpt Ergonomic Mouse", amount: 80, shipping: -5, url: "https://example.com/bad-shipping" })
+      ],
+      meta: {},
+      freshnessReferenceIso: SHOPPING_PRICE_TIME
+    });
+    const csv = String(compact.files.find((file) => file.path === "comparison.csv")?.content ?? "");
+    const markdown = String(compact.files.find((file) => file.path === "deals.md")?.content ?? "");
+
+    expect(csv).toContain(',"https://example.com/nan-price","USD","USD",,"","invalid_price"');
+    expect(csv).toContain('-5.00,0.8500,"in_stock","https://example.com/bad-shipping","USD","USD",,"","invalid_price"');
+    expect(csv).not.toContain("NaN");
+    expect(markdown).toContain("[excluded] Anker Vertical Ergonomic Mouse");
+    expect(markdown).toContain("[excluded] Microsoft Sculpt Ergonomic Mouse");
+  });
+
+  it("does not emit compact top-candidate guidance for unavailable mixed-currency baselines", () => {
+    const offers = [
+      makeShoppingOffer({ id: "usd", title: "Logitech Lift Vertical Ergonomic Mouse", amount: 100 }),
+      makeShoppingOffer({ id: "cad", title: "Anker Vertical Ergonomic Mouse", amount: 10, url: "https://example.ca/cad" })
+    ];
+    offers[1] = {
+      ...offers[1]!,
+      price: { ...offers[1]!.price, currency: "CAD" },
+      shipping: { ...offers[1]!.shipping, currency: "CAD" },
+      attributes: {
+        ...offers[1]!.attributes,
+        shopping_offer: {
+          provider: "shopping/amazon",
+          product_id: "cad",
+          title: "Anker Vertical Ergonomic Mouse",
+          url: "https://example.ca/cad",
+          price: { amount: 10, currency: "CAD", retrieved_at: SHOPPING_PRICE_TIME },
+          shipping: { amount: 0, currency: "CAD", notes: "reported" },
+          availability: "in_stock",
+          price_source: "structured_metadata",
+          price_is_trustworthy: true
+        }
+      }
+    };
+    const compact = renderShopping({
+      mode: "compact",
+      query: "ergonomic mouse",
+      offers,
+      meta: {},
+      freshnessReferenceIso: SHOPPING_PRICE_TIME
+    });
+    const summary = String(compact.response.summary);
+
+    expect(summary).toContain("currency-separated evidence only");
+    expect(summary).not.toContain("Top candidate");
+  });
+
+  it("surfaces stale price evidence when shopping renderer receives a freshness reference", () => {
+    const staleOffers = [
+      makeShoppingOffer({
+        id: "stale-logitech",
+        retrievedAt: "2026-01-01T00:00:00.000Z"
+      }),
+      makeShoppingOffer({
+        id: "fresh-anker",
+        provider: "shopping/bestbuy",
+        title: "Anker Vertical Ergonomic Mouse",
+        url: "https://bestbuy.example/fresh-anker",
+        amount: 69.99,
+        retrievedAt: SHOPPING_PRICE_TIME
+      })
+    ];
+    const rendered = renderShopping({
+      mode: "compact",
+      query: "ergonomic mouse",
+      offers: staleOffers,
+      meta: {},
+      freshnessReferenceIso: "2026-02-16T00:00:00.000Z"
+    });
+    const dealsMarkdown = String(rendered.files.find((file) => file.path === "deals.md")?.content ?? "");
+    expect(dealsMarkdown).toContain("price freshness stale");
+    expect(String(rendered.response.summary)).toContain("price freshness stale");
+    const context = rendered.files.find((file) => file.path === "deals-context.json")?.content as { highlights: string[] };
+    expect(context.highlights.join("\n")).toContain("price freshness stale");
+  });
+
+  it("keeps fail-gate shopping renderer output free of confident buying language", () => {
+    const suspiciousOffers = [makeShoppingOffer({
+      id: "rating-text",
+      title: "Rated 4.7 out of 5 stars with 214 reviews",
+      url: "https://example.com/rating-text"
+    })];
     const rendered = renderShopping({
       mode: "md",
-      query: "usb microphone",
-      offers,
-      meta: { providers: ["shopping/amazon"] }
+      query: "ergonomic mouse",
+      offers: suspiciousOffers,
+      meta: {}
     });
+    const dealsMarkdown = String(rendered.files.find((file) => file.path === "deals.md")?.content ?? "");
+    expect(dealsMarkdown).toContain("Status: fail");
+    expect(dealsMarkdown).not.toMatch(/Strong buy|best deal|Recommended candidate|recommended/i);
 
-    expect(rendered.files.map((file) => file.path)).toContain("comparison.csv");
-    const csv = rendered.files.find((file) => file.path === "comparison.csv")?.content as string;
-    expect(csv).toContain("shopping/amazon");
-    expect(rendered.response).toMatchObject({ mode: "md", markdown: expect.any(String) });
+    const compact = renderShopping({
+      mode: "compact",
+      query: "ergonomic mouse",
+      offers: suspiciousOffers,
+      meta: {}
+    });
+    expect(String(compact.response.summary)).toContain("Buying readiness: fail");
+    expect(String(compact.response.summary)).not.toContain("deal=");
   });
 
   it("renders empty/fallback records and shopping context mode", () => {
@@ -488,6 +954,8 @@ describe("workflow primitives", () => {
       meta: {}
     });
     expect(shoppingContext.response).toMatchObject({ mode: "context" });
-    expect(String(shoppingContext.files.find((file) => file.path === "deals.md")?.content ?? "")).toContain("No offers available");
+    expect(String(shoppingContext.files.find((file) => file.path === "deals.md")?.content ?? "")).toContain("# Shopping Buying Brief");
+    const context = shoppingContext.response.context as { highlights: string[] };
+    expect(context.highlights.join("\n")).toContain("No confident purchase recommendation");
   });
 });

@@ -2,6 +2,12 @@ import { canonicalizeUrl } from "./web/crawler";
 import type { ResearchRecord } from "./enrichment";
 import { buildResearchBriefing, renderResearchBriefingMarkdown } from "./research-report";
 import {
+  buildShoppingBriefing,
+  renderShoppingBriefingMarkdown,
+  type ShoppingBriefing,
+  type ShoppingOfferAssessment
+} from "./shopping-report";
+import {
   formatInspiredesignCaptureAttemptSummary,
   type InspiredesignFollowthrough,
   type InspiredesignImplementationPlan,
@@ -130,8 +136,6 @@ export interface ShoppingOffer {
   deal_score: number;
   attributes: Record<string, unknown>;
 }
-
-const toCurrency = (value: number): string => `$${value.toFixed(2)}`;
 
 const primaryConstraintSummaryFromMeta = (meta: Record<string, unknown>): string | null => {
   const summary = meta.primaryConstraintSummary;
@@ -753,36 +757,160 @@ export const renderResearch = (args: {
   };
 };
 
+const csvCell = (value: string): string => {
+  const normalized = value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return `"${normalized.replace(/"/g, "\"\"")}"`;
+};
+
+const comparisonTotalStatus = (args: {
+  validPrice: boolean;
+  validShipping: boolean;
+  currenciesMatch: boolean;
+}): string => {
+  if (!args.validPrice || !args.validShipping) return "invalid_price";
+  return args.currenciesMatch ? "computed" : "currency_mismatch";
+};
+
 const toComparisonCsv = (offers: ShoppingOffer[]): string => {
-  const header = ["provider", "title", "price", "shipping", "deal_score", "availability", "url"].join(",");
+  const header = [
+    "provider",
+    "title",
+    "price",
+    "shipping",
+    "deal_score",
+    "availability",
+    "url",
+    "price_currency",
+    "shipping_currency",
+    "total",
+    "total_currency",
+    "total_status",
+    "currency_warning"
+  ].join(",");
   const rows = offers.map((offer) => {
+    const priceCurrency = offer.price.currency.toUpperCase();
+    const shippingCurrency = offer.shipping.currency.toUpperCase();
+    const currenciesMatch = priceCurrency === shippingCurrency;
+    const validPrice = Number.isFinite(offer.price.amount) && offer.price.amount > 0;
+    const validShipping = Number.isFinite(offer.shipping.amount) && offer.shipping.amount >= 0;
+    const totalComputable = currenciesMatch && validPrice && validShipping;
+    const total = totalComputable ? (offer.price.amount + offer.shipping.amount).toFixed(2) : "";
+    const totalCurrency = totalComputable ? priceCurrency : "";
+    const totalStatus = comparisonTotalStatus({ validPrice, validShipping, currenciesMatch });
+    const currencyWarning = currenciesMatch ? "" : "item and shipping currencies differ";
     return [
-      offer.provider,
-      JSON.stringify(offer.title),
-      offer.price.amount.toFixed(2),
-      offer.shipping.amount.toFixed(2),
+      csvCell(offer.provider),
+      csvCell(offer.title),
+      Number.isFinite(offer.price.amount) ? offer.price.amount.toFixed(2) : "",
+      Number.isFinite(offer.shipping.amount) ? offer.shipping.amount.toFixed(2) : "",
       offer.deal_score.toFixed(4),
-      offer.availability,
-      canonicalizeUrl(offer.url)
+      csvCell(offer.availability),
+      csvCell(canonicalizeUrl(offer.url)),
+      csvCell(priceCurrency),
+      csvCell(shippingCurrency),
+      total,
+      csvCell(totalCurrency),
+      csvCell(totalStatus),
+      csvCell(currencyWarning)
     ].join(",");
   });
   return [header, ...rows].join("\n");
 };
 
-const compactShoppingLines = (offers: ShoppingOffer[], meta: Record<string, unknown>): string[] => {
-  if (offers.length === 0) {
-    const summary = primaryConstraintSummaryFromMeta(meta);
-    return summary
-      ? [
-        "No offers available from the selected providers.",
-        `Primary constraint: ${summary}`
-      ]
-      : ["No offers available from the selected providers."];
+const collapseShoppingText = (value: string): string => value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+
+const sanitizeShoppingText = (value: string): string => (
+  collapseShoppingText(value).replace(/([\\`*_{}\[\]()#+!|>~])/g, "\\$1")
+);
+
+const SHOPPING_FRESHNESS_WARNING_PREFIXES = ["price freshness "] as const;
+const SHOPPING_AVAILABILITY_WARNING_PREFIXES = ["unknown availability", "out-of-stock"] as const;
+const SHOPPING_RELEVANCE_WARNING_PREFIXES = ["weak relevance:", "suspicious title:"] as const;
+const SHOPPING_DUPLICATE_WARNING_PREFIXES = ["duplicate pressure"] as const;
+const SHOPPING_MARKET_WARNING_PREFIXES = [
+  "currency coverage incomplete",
+  "market baseline unavailable",
+  "mixed-currency market baseline unavailable"
+] as const;
+
+const shoppingTopCandidate = (briefing: ShoppingBriefing): ShoppingOfferAssessment | undefined => {
+  if (briefing.gate.status === "fail") return undefined;
+  if (briefing.marketBaseline.status === "unavailable" && briefing.marketBaseline.excludedDifferentCurrencyCount > 0) {
+    return undefined;
   }
-  return offers.slice(0, 10).map((offer, index) => {
-    const total = offer.price.amount + offer.shipping.amount;
-    return `${index + 1}. ${offer.title} - ${toCurrency(total)} (${offer.provider}, deal=${offer.deal_score.toFixed(2)})`;
-  });
+  return briefing.assessments.find((assessment) => assessment.recommendation === "recommended")
+    ?? briefing.assessments.find((assessment) => assessment.recommendation === "candidate")
+    ?? briefing.assessments.find((assessment) => assessment.recommendation === "constrained");
+};
+
+const shoppingVisibleRecommendation = (
+  briefing: ShoppingBriefing,
+  assessment: ShoppingOfferAssessment
+): string => {
+  if (briefing.gate.status === "pass") return assessment.recommendation;
+  return assessment.recommendation === "recommended" ? "candidate" : assessment.recommendation;
+};
+
+const shoppingCandidateSummary = (briefing: ShoppingBriefing, assessment: ShoppingOfferAssessment): string => {
+  const evidence = assessment.evidence;
+  const price = evidence.currencyMismatch
+    ? `item ${sanitizeShoppingText(evidence.itemPrice.currency)} ${evidence.itemPrice.amount.toFixed(2)} plus shipping ${sanitizeShoppingText(evidence.shippingPrice.currency)} ${evidence.shippingPrice.amount.toFixed(2)}, total unavailable`
+    : `${sanitizeShoppingText(evidence.totalPrice.currency)} ${evidence.totalPrice.amount.toFixed(2)}`;
+  return `provider-supplied title: ${sanitizeShoppingText(evidence.title)} (${sanitizeShoppingText(evidence.provider)}, ${price}, ${shoppingVisibleRecommendation(briefing, assessment)})`;
+};
+
+const shoppingCountConstraint = (count: number, label: string): string | undefined => (
+  count > 0 ? `${label}: ${count}` : undefined
+);
+
+const shoppingMetaConstraint = (briefing: ShoppingBriefing): string | undefined => [
+  briefing.metaView.primaryConstraintSummary,
+  briefing.metaView.regionAuthority === "advisory" ? "requested region is advisory, not authoritative" : undefined,
+  shoppingCountConstraint(briefing.metaView.failures.length, "workflow failures"),
+  shoppingCountConstraint(briefing.metaView.alerts.length, "workflow alerts"),
+  briefing.metaView.failedProviders.length > 0 ? `failed providers: ${briefing.metaView.failedProviders.join(", ")}` : undefined,
+  shoppingCountConstraint(briefing.metaView.offerFilterDiagnostics.length, "offer filter diagnostics")
+].find((constraint): constraint is string => typeof constraint === "string" && constraint.length > 0);
+
+const firstShoppingWarningWithPrefix = (
+  warnings: readonly string[],
+  prefixes: readonly string[]
+): string | undefined => warnings.find((warning) => prefixes.some((prefix) => warning.startsWith(prefix)));
+
+const shoppingOrderedWarningConstraint = (warnings: readonly string[]): string | undefined => {
+  const groups = [
+    SHOPPING_FRESHNESS_WARNING_PREFIXES,
+    SHOPPING_AVAILABILITY_WARNING_PREFIXES,
+    SHOPPING_RELEVANCE_WARNING_PREFIXES,
+    SHOPPING_DUPLICATE_WARNING_PREFIXES,
+    SHOPPING_MARKET_WARNING_PREFIXES
+  ];
+  for (const group of groups) {
+    const warning = firstShoppingWarningWithPrefix(warnings, group);
+    if (warning) return warning;
+  }
+  return warnings.find((warning) => warning.startsWith("buyer limitation")) ?? warnings[0];
+};
+
+const shoppingKeyConstraint = (briefing: ShoppingBriefing): string => {
+  const metaConstraint = shoppingMetaConstraint(briefing);
+  if (metaConstraint) return sanitizeShoppingText(metaConstraint);
+  const warningConstraint = shoppingOrderedWarningConstraint(briefing.warnings);
+  if (warningConstraint) return sanitizeShoppingText(warningConstraint);
+  if (briefing.marketBaseline.status === "unavailable") return sanitizeShoppingText(briefing.marketBaseline.reason);
+  return "No major report constraint surfaced.";
+};
+
+const shoppingBriefingGuidanceLines = (briefing: ShoppingBriefing): string[] => {
+  const lines = [
+    `Buying readiness: ${briefing.gate.status} (${briefing.confidence} confidence). ${briefing.gate.summary}`,
+    `Recommendation: ${sanitizeShoppingText(briefing.recommendation[0] ?? briefing.gate.summary)}`
+  ];
+  const candidate = shoppingTopCandidate(briefing);
+  if (candidate) lines.push(`Top candidate evidence: ${shoppingCandidateSummary(briefing, candidate)}`);
+  const constraintLabel = briefing.metaView.primaryConstraintSummary ? "Primary constraint" : "Key constraint";
+  lines.push(`${constraintLabel}: ${shoppingKeyConstraint(briefing)}`);
+  return lines;
 };
 
 export const renderShopping = (args: {
@@ -790,26 +918,23 @@ export const renderShopping = (args: {
   query: string;
   offers: ShoppingOffer[];
   meta: Record<string, unknown>;
+  freshnessReferenceIso?: string;
 }): {
   response: Record<string, unknown>;
   files: Array<{ path: string; content: string | Record<string, unknown> }>;
 } => {
-  const lines = compactShoppingLines(args.offers, args.meta);
-  const markdown = [
-    `# Shopping: ${args.query}`,
-    "",
-    ...lines,
-    "",
-    "## Metadata",
-    "```json",
-    JSON.stringify(args.meta, null, 2),
-    "```"
-  ].join("\n");
-
+  const briefing = buildShoppingBriefing({
+    query: args.query,
+    offers: args.offers,
+    meta: args.meta,
+    ...(args.freshnessReferenceIso ? { freshnessReferenceIso: args.freshnessReferenceIso } : {})
+  });
+  const markdown = renderShoppingBriefingMarkdown(briefing);
+  const guidanceLines = shoppingBriefingGuidanceLines(briefing);
   const comparisonCsv = toComparisonCsv(args.offers);
   const contextPayload = {
     query: args.query,
-    highlights: lines,
+    highlights: guidanceLines,
     offers: args.offers,
     meta: args.meta
   };
@@ -826,7 +951,7 @@ export const renderShopping = (args: {
     return {
       response: {
         mode: args.mode,
-        summary: lines.join("\n"),
+        summary: guidanceLines.join("\n"),
         meta: args.meta
       },
       files

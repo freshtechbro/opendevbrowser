@@ -5835,12 +5835,14 @@ export const runShoppingWorkflow = async (
     sort: workflowInput.sort
   });
   const responseMeta = withFollowthroughMeta(meta, handoff);
+  const renderedAt = new Date().toISOString();
 
   const rendered = renderShopping({
     mode: workflowInput.mode,
     query: plan.compiled.query,
     offers,
-    meta: responseMeta
+    meta: responseMeta,
+    freshnessReferenceIso: renderedAt
   });
 
   const bundle = await createArtifactBundle({
