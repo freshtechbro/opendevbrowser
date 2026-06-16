@@ -6,7 +6,7 @@ version: 2.0.0
 
 # Product Presentation Asset Skill
 
-Use this skill to build complete product-video input packs and assembly instructions for UGC-style content production.
+Use this skill to build product-video input packs and readiness-gated assembly instructions for UGC-style content production.
 
 ## Pack Contents
 
@@ -45,16 +45,19 @@ Use this skill to build complete product-video input packs and assembly instruct
 ## Final Assets Produced
 
 Expected output pack always includes:
-- `manifest.json` with canonical product metadata
-- `product.json` and `pricing.json`
-- `copy.md` and `features.md`
-- `raw/source-record.json` for auditability
+- `manifest.json` with canonical product metadata and `manifest.readiness.presentation` plus `manifest.readiness.productVideo`
+- `presentation-readiness.json` with readiness status, warnings, reason codes, selected-record identity, candidate summaries, promoted claims, rejected candidate summaries, evidence references, and compact counts
+- `product.json` and `pricing.json`; `product.json.presentationReadiness` mirrors the presentation gate
+- `copy.md` and `features.md`, which are production input only when readiness allows it
+- `raw/source-record.json` for auditability and raw evidence preservation
+
+Workflow JSON output also exposes `product.presentationReadiness`, `meta.presentationReadiness`, and `meta.productVideoReadiness` so callers can gate automation without opening files first.
 
 When visual capture succeeds, the pack may also include:
 - `images/` for product stills
 - `screenshots/` for page context and UI proof
 
-Metadata-first packs with `0` images and `0` screenshots are still valid intermediate outputs when the workflow captured canonical product data, copy, and pricing. Those packs need additional visual sourcing before final video publication.
+Metadata-first packs with `0` images and `0` screenshots are valid intermediate outputs only when readiness is reviewed. They usually produce `partial` readiness and need additional visual sourcing before final video publication.
 
 The `render-video-brief.sh` helper adds:
 - `video-brief.md`
@@ -62,15 +65,23 @@ The `render-video-brief.sh` helper adds:
 - `ugc-brief.md`
 - `claims-evidence-map.md`
 
+Helper behavior:
+- `pass`: generates normal production brief files, still requiring human evidence and visual review.
+- `partial`: generates gated brief files with warnings and reason codes. Treat copy and features as constrained draft input.
+- `fail`: exits nonzero after writing warning-only diagnostics. Do not label copy, features, or product claims as verified production input.
+
 ## What the User Should Do
 
 1. Pick product URL or product name.
 2. Before daemon-backed `product-video run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`.
 3. Run collection workflow and confirm output pack path.
-4. Review generated manifest/copy/features for accuracy and check whether the pack is visual-ready or metadata-first.
-5. Run `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh` to generate production instructions and visual sourcing notes.
+4. Review `presentation-readiness.json`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.json.presentationReadiness`, and returned `meta.presentationReadiness` when available.
+5. Confirm raw evidence remains preserved in `raw/source-record.json`, but do not treat raw marketplace text as verified production copy.
+6. Run `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh` only after readiness review.
 	Canonical helper path: `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh`.
-6. If no visuals were captured, source or capture visuals before handing the brief to the editor/creator pipeline.
+7. If readiness is `partial`, resolve warnings and reason codes before final publication.
+8. If readiness is `fail`, stop production use and recollect or repair evidence before briefing creators.
+9. If no visuals were captured, source or capture visuals before handing the brief to the editor or creator pipeline.
 
 ## Parallel Multitab Alignment
 
@@ -80,13 +91,23 @@ The `render-video-brief.sh` helper adds:
 
 ## How to Combine the Assets
 
-1. Use `manifest.json` as source of truth.
-2. Build hooks and claims from `copy.md` + `features.md`.
-3. Pair each claim with supporting asset (`images` or `screenshots`) when available.
-4. If the pack is metadata-first, source visuals before final edit and update `shot-list.md` plus `claims-evidence-map.md` with the new asset paths.
-5. Sequence assets using `shot-list.md`.
-6. Validate pricing/availability freshness before publishing.
-7. Validate every claim appears in `claims-evidence-map.md` before publish.
+1. Use `manifest.json` plus `presentation-readiness.json` as the readiness source of truth.
+2. Use `copy.md` and `features.md` as production inputs only when readiness is `pass` and claims map to evidence.
+3. For `partial`, keep the brief gated and carry reason codes into `video-brief.md`, `shot-list.md`, and `claims-evidence-map.md`.
+4. For `fail`, use helper output as diagnostics only and do not brief production.
+5. Pair each claim with supporting asset (`images` or `screenshots`) when available.
+6. If the pack is metadata-first, source visuals before final edit and update `shot-list.md` plus `claims-evidence-map.md` with the new asset paths.
+7. Sequence assets using `shot-list.md`.
+8. Validate pricing and availability freshness before publishing.
+9. Validate every claim appears in `claims-evidence-map.md` before publish.
+
+## Production Rules
+
+- `success:true`, `ok:true`, or an artifact path means the workflow wrote files. It does not by itself mean production-ready.
+- `presentation-readiness.json.summary.status`, `manifest.readiness.presentation.status`, and `manifest.readiness.productVideo.status` are the production gates.
+- Raw evidence is preserved for audit and debugging. It must not be copied into creator scripts unless promoted through readiness-backed claims.
+- Marketplace chrome, seller language, shipping, returns, condition, and unsupported superlatives are rejected unless they are explicitly promoted as evidence-backed product claims.
+- Keep partial and fail reason codes visible in every handoff so downstream editors know what still needs review.
 
 ## Robustness Coverage (Known-Issue Matrix)
 

@@ -14,5 +14,19 @@
     "images": ["images/image-01.jpg"],
     "screenshots": ["screenshots/screenshot-01.png"],
     "raw": ["raw/source-record.json"]
+  },
+  "readiness": {
+    "presentation": {
+      "status": "pass",
+      "warnings": [],
+      "reasonCodes": ["positive_spec_promoted"],
+      "criteria": []
+    },
+    "productVideo": {
+      "status": "pass",
+      "warnings": [],
+      "reasonCodes": ["positive_spec_promoted"],
+      "criteria": []
+    }
   }
 }

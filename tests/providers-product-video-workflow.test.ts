@@ -353,15 +353,21 @@ describe("product-video substrate adoption", () => {
     const fetch = vi.fn(async () => makeAggregate({
       records: [makeRecord()]
     }));
-    const handoff = buildProductVideoSuccessHandoff({
-      productUrl: "https://www.amazon.com/dp/B0PHASE5001",
-      providerHint: "shopping/amazon",
-      browserMode: "extension"
-    });
 
     const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput({
       browserMode: "extension"
     }));
+    const readinessMeta = output.meta as {
+      presentationReadiness: NonNullable<Parameters<typeof buildProductVideoSuccessHandoff>[0]>["presentationReadiness"];
+      productVideoReadiness: NonNullable<Parameters<typeof buildProductVideoSuccessHandoff>[0]>["productVideoReadiness"];
+    };
+    const handoff = buildProductVideoSuccessHandoff({
+      productUrl: "https://www.amazon.com/dp/B0PHASE5001",
+      providerHint: "shopping/amazon",
+      browserMode: "extension",
+      presentationReadiness: readinessMeta.presentationReadiness,
+      productVideoReadiness: readinessMeta.productVideoReadiness
+    });
 
     expect(search).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);

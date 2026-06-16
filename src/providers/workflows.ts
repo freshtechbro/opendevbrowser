@@ -7003,7 +7003,9 @@ export const runProductVideoWorkflow = async (
     browserMode: workflowInput.browserMode,
     includeScreenshots: workflowInput.include_screenshots,
     includeAllImages: workflowInput.include_all_images,
-    includeCopy: workflowInput.include_copy
+    includeCopy: workflowInput.include_copy,
+    presentationReadiness: presentation.presentationReadiness,
+    productVideoReadiness: presentation.productVideoReadiness
   });
   const meta = withFollowthroughMeta({
     ...(workflowInput.browserMode

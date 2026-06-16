@@ -3,6 +3,7 @@ import { renderWorkflowCompatibility, renderWorkflowGuidance } from "../guidance
 import { routeNextStepGuidance } from "../guidance/router";
 import type { NextStepGuidance } from "../guidance/types";
 import { isProviderReasonCode, normalizeProviderReasonCode } from "./errors";
+import type { ProductVideoReadinessStatus, ProductVideoReadinessSummary } from "./product-video-presentation";
 import type { JsonValue, ProviderFailureEntry, ProviderReasonCode } from "./types";
 
 export type WorkflowSuccessStep = {
@@ -228,6 +229,8 @@ const buildShoppingRerunCommand = (input: ShoppingHandoffInput): string => {
   );
 };
 
+type ProductVideoReadinessHandoffInput = Pick<ProductVideoReadinessSummary, "status" | "warnings" | "reasonCodes">;
+
 type ProductVideoHandoffInput = {
   productUrl?: string;
   productName?: string;
@@ -236,6 +239,8 @@ type ProductVideoHandoffInput = {
   includeScreenshots?: boolean;
   includeAllImages?: boolean;
   includeCopy?: boolean;
+  presentationReadiness?: ProductVideoReadinessHandoffInput;
+  productVideoReadiness?: ProductVideoReadinessHandoffInput;
 };
 
 const buildProductVideoRerunCommand = (input: ProductVideoHandoffInput = {}): string => {
@@ -394,22 +399,103 @@ export const buildShoppingSuccessHandoff = (input: ShoppingHandoffInput): Workfl
   );
 };
 
+const PRODUCT_VIDEO_READINESS_SEVERITY: Record<ProductVideoReadinessStatus, number> = {
+  pass: 0,
+  partial: 1,
+  fail: 2
+};
+
+const productVideoHandoffStatus = (input: ProductVideoHandoffInput): ProductVideoReadinessStatus | undefined => {
+  const statuses = [
+    input.presentationReadiness?.status,
+    input.productVideoReadiness?.status
+  ].filter((status): status is ProductVideoReadinessStatus => Boolean(status));
+  if (statuses.length === 0) return undefined;
+  return statuses.reduce((worst, status) => (
+    PRODUCT_VIDEO_READINESS_SEVERITY[status] > PRODUCT_VIDEO_READINESS_SEVERITY[worst] ? status : worst
+  ));
+};
+
+const productVideoHandoffReasonCodes = (input: ProductVideoHandoffInput): string => {
+  const reasonCodes = [
+    ...(input.presentationReadiness?.reasonCodes ?? []),
+    ...(input.productVideoReadiness?.reasonCodes ?? [])
+  ];
+  const uniqueCodes = Array.from(new Set(reasonCodes));
+  return uniqueCodes.length > 0 ? uniqueCodes.join(", ") : "none";
+};
+
+const productVideoHandoffWarnings = (input: ProductVideoHandoffInput): string => {
+  const warnings = [
+    ...(input.presentationReadiness?.warnings ?? []),
+    ...(input.productVideoReadiness?.warnings ?? [])
+  ];
+  const uniqueWarnings = Array.from(new Set(warnings));
+  return uniqueWarnings.length > 0 ? uniqueWarnings.join("; ") : "none";
+};
+
+const productVideoHandoffFollowthroughSummary = (input: ProductVideoHandoffInput): string => {
+  const status = productVideoHandoffStatus(input);
+  if (status === "fail") {
+    return "Product-video readiness is fail. Treat copy.md and features.md as diagnostics only until presentation-readiness.json reason codes are fixed.";
+  }
+  if (status === "partial") {
+    return "Product-video readiness is partial. Use generated copy and features only as gated draft input until warnings and reason codes are resolved.";
+  }
+  if (status === "pass") {
+    return "Product-video readiness is pass. Review readiness evidence and raw/source-record.json before briefing production.";
+  }
+  return "Review presentation-readiness.json and manifest.readiness before briefing production from the generated asset pack.";
+};
+
+const productVideoHandoffNextAction = (input: ProductVideoHandoffInput): string => {
+  const status = productVideoHandoffStatus(input);
+  const reasonCodes = productVideoHandoffReasonCodes(input);
+  const warningSummary = productVideoHandoffWarnings(input);
+  if (status === "fail") {
+    return `Open presentation-readiness.json and manifest.readiness before briefing production. Readiness failed with reason codes: ${reasonCodes}. The product-video brief helper exits nonzero for fail and must not label copy or features as verified production input.`;
+  }
+  if (status === "partial") {
+    return `Open presentation-readiness.json and manifest.readiness, then run the product-video brief helper to generate a gated brief with warnings. Reason codes: ${reasonCodes}. Warnings: ${warningSummary}.`;
+  }
+  if (status === "pass") {
+    return "Open the returned pack path, inspect manifest.json, presentation-readiness.json, copy.md, features.md, and raw/source-record.json, then run the product-video brief helper with that manifest path to generate production briefs and sourcing notes.";
+  }
+  return "Open the returned pack path, inspect manifest.json, presentation-readiness.json, copy.md, features.md, and raw/source-record.json, then run the product-video brief helper only after readiness is known.";
+};
+
+const productVideoReadinessInspectionReason = (input: ProductVideoHandoffInput): string => {
+  const status = productVideoHandoffStatus(input) ?? "unknown";
+  return `Inspect presentation-readiness.json plus manifest.readiness.presentation and manifest.readiness.productVideo before production use. Current readiness: ${status}. Reason codes: ${productVideoHandoffReasonCodes(input)}.`;
+};
+
+const productVideoBriefHelperReason = (input: ProductVideoHandoffInput): string => {
+  const status = productVideoHandoffStatus(input);
+  if (status === "fail") {
+    return "Run the product-presentation-asset brief helper only for a warning diagnostic. It exits nonzero and blocks production briefs when readiness is fail.";
+  }
+  if (status === "partial") {
+    return "Run the product-presentation-asset brief helper on manifest.json to generate gated brief files with warnings and reason codes.";
+  }
+  return "Run the product-presentation-asset brief helper on manifest.json to generate readiness-aware production brief files.";
+};
+
 export const buildProductVideoSuccessHandoff = (input: ProductVideoHandoffInput = {}): WorkflowSuccessHandoff => {
   const rerunCommand = buildProductVideoRerunCommand(input);
   return createSuccessHandoff(
-    "Review the generated asset pack to confirm whether it is visual-ready or metadata-first before briefing production.",
-    "Open the returned pack path, inspect manifest.json plus copy and features, then run the product-video brief helper with that manifest path to generate production briefs and sourcing notes.",
+    productVideoHandoffFollowthroughSummary(input),
+    productVideoHandoffNextAction(input),
     [
-      { reason: "Confirm whether the pack already includes enough images or screenshots for production." },
+      { reason: productVideoReadinessInspectionReason(input) },
       {
-        reason: "Run the product-presentation-asset brief helper on manifest.json to generate the production brief files.",
+        reason: productVideoBriefHelperReason(input),
         command: PRODUCT_VIDEO_BRIEF_HELPER_COMMAND
       },
       {
-        reason: "Rerun the asset workflow with adjusted provider or media flags when the current pack is too thin.",
+        reason: "Rerun the asset workflow with adjusted provider or media flags when readiness is partial, fail, or the current pack is too thin.",
         command: rerunCommand
       },
-      { reason: "Source or capture visuals before final handoff if the pack is metadata-first." }
+      { reason: "Source or capture visuals before final handoff when readiness reports missing visual assets or the pack is metadata-first." }
     ]
   );
 };

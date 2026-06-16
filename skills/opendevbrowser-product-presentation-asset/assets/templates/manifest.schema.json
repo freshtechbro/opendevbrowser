@@ -2,13 +2,40 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ProductAssetManifest",
   "type": "object",
-  "required": ["run_id", "created_at", "source_url", "provider", "product", "assets"],
+  "required": ["run_id", "created_at", "source_url", "provider", "product", "assets", "readiness"],
   "properties": {
     "run_id": { "type": "string" },
     "created_at": { "type": "string", "format": "date-time" },
     "source_url": { "type": "string" },
     "provider": { "type": "string" },
     "product": { "type": "object" },
-    "assets": { "type": "object" }
+    "assets": {
+      "type": "object",
+      "properties": {
+        "images": { "type": "array", "items": { "type": "string" } },
+        "screenshots": { "type": "array", "items": { "type": "string" } },
+        "raw": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "required": ["presentation", "productVideo"],
+      "properties": {
+        "presentation": { "$ref": "#/$defs/readinessSummary" },
+        "productVideo": { "$ref": "#/$defs/readinessSummary" }
+      }
+    }
+  },
+  "$defs": {
+    "readinessSummary": {
+      "type": "object",
+      "required": ["status", "warnings", "reasonCodes"],
+      "properties": {
+        "status": { "enum": ["pass", "partial", "fail"] },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "reasonCodes": { "type": "array", "items": { "type": "string" } },
+        "criteria": { "type": "array" }
+      }
+    }
   }
 }

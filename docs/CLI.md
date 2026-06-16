@@ -541,6 +541,15 @@ Flags:
 - `--cookie-policy-override` (`off|auto|required`)
 - `--cookie-policy` (alias of `--cookie-policy-override`)
 
+Notes:
+- Successful product-video runs write `manifest.json`, `product.json`, `pricing.json`, `copy.md`, `features.md`, `presentation-readiness.json`, `raw/source-record.json`, and `bundle-manifest.json`.
+- `presentation-readiness.json` is the audit surface for `presentationReadiness`, `productVideoReadiness`, selected and original record ids, bounded candidate summaries, promoted claims, rejected candidate summaries, evidence references, and compact counts.
+- `manifest.readiness.presentation` and `manifest.readiness.productVideo` are the manifest production gates. `product.json.presentationReadiness` and returned `product.presentationReadiness` mirror the product-facing gate, while JSON workflow output exposes `meta.presentationReadiness` and `meta.productVideoReadiness`.
+- Readiness status is `pass`, `partial`, or `fail`. `pass` can feed a normal production brief after human evidence review. `partial` is a constrained draft and must carry warnings plus reason codes. `fail` blocks production use.
+- Raw evidence stays preserved under `raw/source-record.json` for audit and debugging. Do not treat raw marketplace, seller, shipping, condition, or returns text as verified copy unless it is promoted through `presentation-readiness.json.promotedClaims[]`.
+- `copy.md` and `features.md` are not automatically verified production input. They are production-safe only when readiness permits and the claims evidence map ties each claim to captured or structured evidence.
+- `render-video-brief.sh <pack>/manifest.json [output-dir]` reads `manifest.readiness`: `pass` writes normal production briefs, `partial` writes gated briefs with warnings and reason codes, and `fail` exits nonzero after warning-only diagnostics.
+
 #### Inspiredesign (`inspiredesign run`) and `inspiredesign harvest`
 
 ```bash
@@ -1809,7 +1818,7 @@ What it covers:
 Key report fields:
 - `data.guidanceReason` and `data.recommendedNextCommand` summarize the first actionable provider follow-up emitted by the workflow or failure envelope.
 - Shopping and research workflow payloads keep the canonical structured source at `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]`.
-- Product-video remains summary-first today: inspect `meta.primaryConstraintSummary` plus failure reason-code distributions when no structured guidance is present.
+- Product-video payloads expose `meta.presentationReadiness`, `meta.productVideoReadiness`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.presentationReadiness`, and `presentation-readiness.json`; inspect those gates before treating copy or features as production input.
 
 Key options:
 - `--include-auth-gated` includes auth-dependent provider scenarios.
@@ -1947,7 +1956,7 @@ Provider runtime anti-bot/transcript controls default to a public-first YouTube 
 Provider workflow and execution outputs now include normalized transcript/anti-bot telemetry:
 - Primary provider follow-up summary: `meta.primaryConstraintSummary`.
 - Research and shopping workflow follow-up guidance: `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]` when provider recovery steps are known.
-- Failure reason codes: `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, and `reasonCode` on provider failures.
+- Failure reason codes: `meta.metrics.reasonCodeDistribution` for research/shopping, `meta.reasonCodeDistribution` for product-video, readiness `reasonCodes` under `meta.presentationReadiness`, `meta.productVideoReadiness`, and `presentation-readiness.json`, plus `reasonCode` on provider failures.
 - Transcript fallback diagnostics: `meta.metrics.transcript_strategy_failures` (legacy) and `meta.metrics.transcriptStrategyFailures` (camelCase alias).
 - Strategy-detail diagnostics: `meta.metrics.transcript_strategy_detail_failures`/`meta.metrics.transcriptStrategyDetailFailures` and `meta.metrics.transcript_strategy_detail_distribution`/`meta.metrics.transcriptStrategyDetailDistribution`.
 - Durability/pressure dimensions: `meta.metrics.transcriptDurability` and `meta.metrics.antiBotPressure` (snake_case aliases are also emitted).
