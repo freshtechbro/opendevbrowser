@@ -118,6 +118,15 @@ import {
   type ProductVideoWorkflowCheckpointState,
   type ProductVideoWorkflowExecutionStep
 } from "./product-video-compiler";
+import {
+  buildProductVideoPresentation,
+  type ProductVideoCandidateSummary,
+  type ProductVideoEvidenceReference,
+  type ProductVideoPresentation,
+  type ProductVideoPresentationMetadata,
+  type ProductVideoPresentationSourceRecord,
+  type ProductVideoPromotedClaim
+} from "./product-video-presentation";
 import { filterByTimebox } from "./timebox";
 import {
   SHOPPING_PROVIDER_IDS,
@@ -135,7 +144,7 @@ import {
   isLikelyResearchDestinationUrl
 } from "./shared/traversal-url";
 import { canonicalizeUrl } from "./web/crawler";
-import { extractStructuredContent, toSnippet } from "./web/extract";
+import { extractStructuredContent, toSnippet, type ExtractedMetadata } from "./web/extract";
 import type { ProviderAntiBotSnapshot } from "./registry";
 import { compileResearchExecutionPlan, type ResearchWorkflowExecutionStep } from "./research-compiler";
 import { executeResearchWorkflowPlan } from "./research-executor";
@@ -5222,6 +5231,248 @@ const resolveProductCopy = (
   return toSnippet(trimProductCopy(record.content ?? ""), 8000);
 };
 
+const PRODUCT_VIDEO_SELECTION_CLEAN_SPEC_WEIGHT = 10;
+const PRODUCT_VIDEO_SELECTION_REJECTION_PENALTY = 2;
+const PRODUCT_VIDEO_SELECTION_TITLE_BONUS = 3;
+const PRODUCT_VIDEO_SELECTION_PRICE_BONUS = 2;
+const PRODUCT_VIDEO_SELECTION_IMAGE_BONUS = 1;
+const PRODUCT_VIDEO_SELECTION_PASS_BONUS = 5;
+const PRODUCT_VIDEO_SELECTION_PARTIAL_BONUS = 2;
+const PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS = 180;
+
+type ProductVideoRecordCandidate = {
+  record: NormalizedRecord;
+  presentation: ProductVideoPresentation;
+  imageCount: number;
+  summary: ProductVideoCandidateSummary;
+  score: number;
+};
+
+type ProductVideoRecordSelection = {
+  selectedRecord: NormalizedRecord;
+  originalPrimaryRecord: NormalizedRecord;
+  candidateSummaries: ProductVideoCandidateSummary[];
+};
+
+const productVideoPresentationSourceRecord = (record: NormalizedRecord): ProductVideoPresentationSourceRecord => ({
+  id: record.id,
+  provider: record.provider,
+  ...(record.url ? { url: record.url } : {}),
+  ...(record.title ? { title: record.title } : {}),
+  ...(record.content ? { content: record.content } : {}),
+  attributes: record.attributes
+});
+
+const buildProductVideoPresentationMetadata = (
+  record: NormalizedRecord,
+  refreshedMetadata: ExtractedMetadata | null,
+  featureCandidates: readonly string[]
+): ProductVideoPresentationMetadata => {
+  const description = normalizePlainText(refreshedMetadata?.description)
+    || normalizePlainText(typeof record.attributes.description === "string" ? record.attributes.description : undefined);
+  const features = [...new Set([
+    ...(refreshedMetadata?.features ?? []),
+    ...featureCandidates
+  ].map(normalizePlainText).filter(Boolean))];
+  return {
+    ...(description ? { description } : {}),
+    ...(features.length > 0 ? { features } : {})
+  };
+};
+
+const productVideoReadinessSelectionBonus = (presentation: ProductVideoPresentation): number => {
+  if (presentation.presentationReadiness.status === "pass") return PRODUCT_VIDEO_SELECTION_PASS_BONUS;
+  if (presentation.presentationReadiness.status === "partial") return PRODUCT_VIDEO_SELECTION_PARTIAL_BONUS;
+  return 0;
+};
+
+const productVideoRecordShoppingOffer = (record: NormalizedRecord): Record<string, JsonValue> | undefined => {
+  const offer = record.attributes.shopping_offer;
+  if (!offer || typeof offer !== "object" || Array.isArray(offer)) return undefined;
+  return offer as Record<string, JsonValue>;
+};
+
+const productVideoRecordProductId = (record: NormalizedRecord): string | undefined => {
+  const productId = productVideoRecordShoppingOffer(record)?.product_id;
+  return typeof productId === "string" && productId.trim() ? productId.trim().toLowerCase() : undefined;
+};
+
+const productVideoRecordOfferUrlIdentity = (record: NormalizedRecord): string | undefined => {
+  const offerUrl = productVideoRecordShoppingOffer(record)?.url;
+  return typeof offerUrl === "string" && offerUrl.trim() ? canonicalizeUrl(offerUrl) : undefined;
+};
+
+const productVideoRecordUrlIdentities = (record: NormalizedRecord): string[] => (
+  [...new Set([
+    record.url,
+    productVideoRecordShoppingOffer(record)?.url
+  ].filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).map(canonicalizeUrl))]
+);
+
+const hasProductVideoUrlIdentityMatch = (
+  candidate: NormalizedRecord,
+  originalPrimaryRecord: NormalizedRecord,
+  productUrl: string
+): boolean => (
+  productVideoRecordUrlIdentities(candidate).some((candidateUrl) => (
+    candidateUrl === canonicalizeUrl(productUrl)
+    || productVideoRecordUrlIdentities(originalPrimaryRecord).includes(candidateUrl)
+  ))
+);
+
+const hasProductVideoExplicitIdentityConflict = (
+  candidate: NormalizedRecord,
+  originalPrimaryRecord: NormalizedRecord,
+  productUrl: string
+): boolean => {
+  const candidateOfferUrl = productVideoRecordOfferUrlIdentity(candidate);
+  if (
+    candidateOfferUrl
+    && candidateOfferUrl !== canonicalizeUrl(productUrl)
+    && !productVideoRecordUrlIdentities(originalPrimaryRecord).includes(candidateOfferUrl)
+  ) {
+    return true;
+  }
+  const candidateProductId = productVideoRecordProductId(candidate);
+  const originalProductId = productVideoRecordProductId(originalPrimaryRecord);
+  return Boolean(candidateProductId && originalProductId && candidateProductId !== originalProductId);
+};
+
+const canSelectProductVideoRecordCandidate = (
+  candidate: NormalizedRecord,
+  originalPrimaryRecord: NormalizedRecord,
+  productUrl: string
+): boolean => {
+  if (candidate === originalPrimaryRecord) return true;
+  if (hasProductVideoExplicitIdentityConflict(candidate, originalPrimaryRecord, productUrl)) return false;
+  if (hasProductVideoUrlIdentityMatch(candidate, originalPrimaryRecord, productUrl)) return true;
+  const candidateProductId = productVideoRecordProductId(candidate);
+  return Boolean(candidateProductId && candidateProductId === productVideoRecordProductId(originalPrimaryRecord));
+};
+
+const scoreProductVideoRecordCandidate = (candidate: ProductVideoRecordCandidate): number => (
+  (candidate.presentation.promotedClaims.length * PRODUCT_VIDEO_SELECTION_CLEAN_SPEC_WEIGHT)
+  - (candidate.presentation.rejectedCandidates.length * PRODUCT_VIDEO_SELECTION_REJECTION_PENALTY)
+  + (normalizePlainText(candidate.record.title) ? PRODUCT_VIDEO_SELECTION_TITLE_BONUS : 0)
+  + (hasStructuredShoppingPrice(candidate.record) ? PRODUCT_VIDEO_SELECTION_PRICE_BONUS : 0)
+  + (candidate.imageCount > 0 ? PRODUCT_VIDEO_SELECTION_IMAGE_BONUS : 0)
+  + productVideoReadinessSelectionBonus(candidate.presentation)
+);
+
+const buildProductVideoRecordCandidate = (
+  record: NormalizedRecord,
+  productUrl: string,
+  includeCopy: boolean
+): ProductVideoRecordCandidate => {
+  const recordUrl = record.url ?? productUrl;
+  const featureCandidates = deriveFeatureList(record, recordUrl);
+  const imageUrls = mergeImageUrls(record);
+  const presentation = buildProductVideoPresentation({
+    title: normalizePlainText(record.title) || recordUrl,
+    provider: record.provider,
+    productUrl: recordUrl,
+    includeCopy,
+    images: imageUrls,
+    sourceRecord: productVideoPresentationSourceRecord(record),
+    metadata: buildProductVideoPresentationMetadata(record, null, featureCandidates),
+    featureCandidates
+  });
+  const candidate = {
+    record,
+    presentation,
+    imageCount: imageUrls.length,
+    summary: {
+      recordId: record.id,
+      provider: record.provider,
+      ...(record.title ? { title: record.title } : {}),
+      cleanSpecCount: presentation.promotedClaims.length,
+      rejectedCandidateCount: presentation.rejectedCandidates.length
+    },
+    score: 0
+  };
+  return { ...candidate, score: scoreProductVideoRecordCandidate(candidate) };
+};
+
+const selectProductVideoPresentationRecord = (
+  records: readonly NormalizedRecord[],
+  productUrl: string,
+  includeCopy: boolean
+): ProductVideoRecordSelection => {
+  const [originalPrimaryRecord, ...remainingRecords] = records;
+  if (!originalPrimaryRecord) {
+    throw new Error("Product details unavailable");
+  }
+  const candidates = [
+    buildProductVideoRecordCandidate(originalPrimaryRecord, productUrl, includeCopy),
+    ...remainingRecords.map((record) => buildProductVideoRecordCandidate(record, productUrl, includeCopy))
+  ];
+  let selected = candidates[0] as ProductVideoRecordCandidate;
+  for (const candidate of candidates.slice(1)) {
+    if (
+      candidate.score > selected.score
+      && canSelectProductVideoRecordCandidate(candidate.record, originalPrimaryRecord, productUrl)
+    ) {
+      selected = candidate;
+    }
+  }
+  return {
+    selectedRecord: selected.record,
+    originalPrimaryRecord,
+    candidateSummaries: candidates.map((candidate) => candidate.summary)
+  };
+};
+
+const updateProductVideoSelectedCandidateSummary = (
+  summaries: readonly ProductVideoCandidateSummary[],
+  selectedRecord: NormalizedRecord,
+  presentation: ProductVideoPresentation
+): ProductVideoCandidateSummary[] => {
+  const selectedSummary = {
+    recordId: selectedRecord.id,
+    provider: selectedRecord.provider,
+    ...(selectedRecord.title ? { title: selectedRecord.title } : {}),
+    cleanSpecCount: presentation.promotedClaims.length,
+    rejectedCandidateCount: presentation.rejectedCandidates.length
+  };
+  if (!summaries.some((summary) => summary.recordId === selectedRecord.id)) {
+    return [...summaries, selectedSummary];
+  }
+  return summaries.map((summary) => (summary.recordId === selectedRecord.id ? selectedSummary : summary));
+};
+
+const productVideoReadinessEvidenceReferenceSummaries = (
+  evidenceReferences: readonly ProductVideoEvidenceReference[]
+) => evidenceReferences.map((reference) => ({
+  ...reference,
+  excerpt: toSnippet(reference.excerpt, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS)
+}));
+
+const productVideoReadinessCandidateSummaries = (
+  candidateSummaries: readonly ProductVideoCandidateSummary[]
+) => candidateSummaries.map((summary) => ({
+  ...summary,
+  ...(summary.title ? { title: toSnippet(summary.title, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS) } : {})
+}));
+
+const productVideoReadinessPromotedClaimSummaries = (
+  promotedClaims: readonly ProductVideoPromotedClaim[]
+) => promotedClaims.map((claim) => ({
+  ...claim,
+  claim: toSnippet(claim.claim, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS),
+  specValue: toSnippet(claim.specValue, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS),
+  evidenceReferences: productVideoReadinessEvidenceReferenceSummaries(claim.evidenceReferences)
+}));
+
+const productVideoReadinessRejectedCandidateSummaries = (presentation: ProductVideoPresentation) => (
+  presentation.rejectedCandidates.map((candidate) => ({
+    source: candidate.source,
+    reasonCode: candidate.reasonCode,
+    reason: candidate.reason,
+    candidateExcerpt: toSnippet(candidate.candidate, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS),
+    evidenceReferences: productVideoReadinessEvidenceReferenceSummaries(candidate.evidenceReferences)
+  }))
+);
+
 const resolveShoppingSourceForUrl = (url: string): ProviderSource => {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -6551,7 +6802,8 @@ export const runProductVideoWorkflow = async (
     stepKind: extractStep.kind
   });
   stepIndex += 1;
-  const primary = details.records[0] as NormalizedRecord;
+  const recordSelection = selectProductVideoPresentationRecord(details.records, productUrl, includeCopy);
+  const primary = recordSelection.selectedRecord;
   const invalidTarget = classifyInvalidProductTarget(primary);
   if (invalidTarget) {
     throw new Error(invalidTarget.message);
@@ -6575,15 +6827,19 @@ export const runProductVideoWorkflow = async (
   ) {
     throw new Error(buildManualProductPriceFollowUpMessage(productUrl));
   }
-  const featureList = deriveFeatureList(primary, productUrl, refreshedMetadata?.features ?? []);
+  const legacyFeatureList = deriveFeatureList(primary, productUrl, refreshedMetadata?.features ?? []);
   const imageUrls = mergeImageUrls(primary, refreshedMetadata?.imageUrls ?? []);
   const selectedImageUrls = includeAllImages ? imageUrls : imageUrls.slice(0, 1);
   trace = appendProductVideoTrace(trace, "execute", "step_completed", {
     stepId: extractStep.id,
     stepKind: extractStep.kind,
     imageCandidates: imageUrls.length,
-    featureCount: featureList.length,
-    refreshedMetadata: Boolean(refreshedMetadata)
+    featureCount: legacyFeatureList.length,
+    refreshedMetadata: Boolean(refreshedMetadata),
+    selectedRecordId: primary.id,
+    originalPrimaryRecordId: recordSelection.originalPrimaryRecord.id,
+    selectedRecordChanged: primary.id !== recordSelection.originalPrimaryRecord.id,
+    candidateRecords: details.records.length
   });
 
   const assembleStep = getRequiredProductVideoStep(PRODUCT_VIDEO_STEP_IDS.assembleArtifacts);
@@ -6621,16 +6877,63 @@ export const runProductVideoWorkflow = async (
     }
   }
 
-  const copyText = includeCopy ? resolveProductCopy(primary, productUrl, refreshedMetadata?.description, featureList) : "";
   const pricing = resolvedPrice;
-
-  const productPayload = {
+  const legacyCopyText = includeCopy
+    ? resolveProductCopy(primary, productUrl, refreshedMetadata?.description, legacyFeatureList)
+    : "";
+  const presentation = buildProductVideoPresentation({
     title: resolvedTitle,
     brand: resolvedBrand,
     provider: providerHint ?? primary.provider,
+    productUrl,
+    price: {
+      amount: pricing.amount,
+      currency: pricing.currency
+    },
+    includeCopy,
+    images: imagePaths,
+    screenshots: screenshotPaths,
+    sourceRecord: productVideoPresentationSourceRecord(primary),
+    metadata: buildProductVideoPresentationMetadata(primary, refreshedMetadata, legacyFeatureList),
+    featureCandidates: legacyFeatureList,
+    copyCandidates: legacyCopyText ? [legacyCopyText] : [],
+    selectedRecordId: primary.id,
+    originalPrimaryRecordId: recordSelection.originalPrimaryRecord.id,
+    candidateSummaries: recordSelection.candidateSummaries
+  });
+  const presentationCandidateSummaries = updateProductVideoSelectedCandidateSummary(
+    presentation.candidateSummaries,
+    primary,
+    presentation
+  );
+  const presentationReadinessPayload = {
+    presentationReadiness: presentation.presentationReadiness,
+    productVideoReadiness: presentation.productVideoReadiness,
+    selectedRecordId: primary.id,
+    originalPrimaryRecordId: recordSelection.originalPrimaryRecord.id,
+    candidateSummaries: productVideoReadinessCandidateSummaries(presentationCandidateSummaries),
+    promotedClaims: productVideoReadinessPromotedClaimSummaries(presentation.promotedClaims),
+    rejectedCandidates: productVideoReadinessRejectedCandidateSummaries(presentation),
+    evidenceReferences: productVideoReadinessEvidenceReferenceSummaries(presentation.evidenceReferences),
+    summary: {
+      status: presentation.presentationReadiness.status,
+      promotedFeatureCount: presentation.features.length,
+      promotedClaimCount: presentation.promotedClaims.length,
+      rejectedCandidateCount: presentation.rejectedCandidates.length,
+      evidenceReferenceCount: presentation.evidenceReferences.length,
+      imageCount: imagePaths.length,
+      screenshotCount: screenshotPaths.length
+    }
+  };
+
+  const productPayload = {
+    title: presentation.title,
+    brand: resolvedBrand,
+    provider: providerHint ?? primary.provider,
     url: productUrl,
-    features: featureList,
-    copy: copyText
+    features: presentation.features,
+    copy: presentation.copy,
+    presentationReadiness: presentation.presentationReadiness
   };
 
   const manifestPayload = {
@@ -6642,13 +6945,17 @@ export const runProductVideoWorkflow = async (
       title: productPayload.title,
       brand: productPayload.brand,
       price: pricing,
-      features: featureList,
-      copy: copyText
+      features: presentation.features,
+      copy: presentation.copy
     },
     assets: {
       images: imagePaths,
       screenshots: screenshotPaths,
       raw: ["raw/source-record.json"]
+    },
+    readiness: {
+      presentation: presentation.presentationReadiness,
+      productVideo: presentation.productVideoReadiness
     }
   };
 
@@ -6656,8 +6963,9 @@ export const runProductVideoWorkflow = async (
     { path: "manifest.json", content: manifestPayload },
     { path: "product.json", content: productPayload },
     { path: "pricing.json", content: pricing },
-    { path: "copy.md", content: copyText || "" },
-    { path: "features.md", content: featureList.map((feature) => `- ${feature}`).join("\n") },
+    { path: "copy.md", content: presentation.copyMarkdown },
+    { path: "features.md", content: presentation.featuresMarkdown },
+    { path: "presentation-readiness.json", content: presentationReadinessPayload },
     {
       path: "raw/source-record.json",
       content: redactRawCapture(JSON.parse(JSON.stringify(primary)) as Record<string, unknown>)
@@ -6668,6 +6976,9 @@ export const runProductVideoWorkflow = async (
     stepKind: assembleStep.kind,
     images: imagePaths.length,
     screenshots: screenshotPaths.length,
+    presentationReadinessStatus: presentation.presentationReadiness.status,
+    promotedFeatureCount: presentation.features.length,
+    rejectedCandidateCount: presentation.rejectedCandidates.length,
     files: files.length
   });
 
@@ -6714,6 +7025,8 @@ export const runProductVideoWorkflow = async (
     cookieDiagnostics,
     anti_bot_pressure: antiBotPressure,
     antiBotPressure,
+    presentationReadiness: presentation.presentationReadiness,
+    productVideoReadiness: presentation.productVideoReadiness,
     artifact_manifest: bundle.manifest
   }, handoff);
 

@@ -85,6 +85,46 @@ const toRuntime = (handlers: {
   ...(handlers.getAntiBotSnapshots ? { getAntiBotSnapshots: handlers.getAntiBotSnapshots } : {})
 });
 
+type ProductVideoWorkflowBranchOutput = Awaited<ReturnType<typeof runProductVideoWorkflow>>;
+type ProductVideoBranchReadiness = {
+  reasonCodes: string[];
+  status: "fail" | "partial" | "pass";
+};
+type ProductVideoBranchProduct = ProductVideoWorkflowBranchOutput["product"] & {
+  copy: string;
+  features: string[];
+  presentationReadiness: ProductVideoBranchReadiness;
+};
+type ProductVideoBranchMeta = ProductVideoWorkflowBranchOutput["meta"] & {
+  presentationReadiness: ProductVideoBranchReadiness;
+};
+
+const getProductVideoProduct = (output: ProductVideoWorkflowBranchOutput): ProductVideoBranchProduct => (
+  output.product as ProductVideoBranchProduct
+);
+
+const getProductVideoMeta = (output: ProductVideoWorkflowBranchOutput): ProductVideoBranchMeta => (
+  output.meta as ProductVideoBranchMeta
+);
+
+const expectProductVideoReasonCodes = (
+  output: ProductVideoWorkflowBranchOutput,
+  reasonCodes: readonly string[]
+): void => {
+  expect(getProductVideoProduct(output).presentationReadiness.reasonCodes).toEqual(expect.arrayContaining(reasonCodes));
+  expect(getProductVideoMeta(output).presentationReadiness.reasonCodes).toEqual(expect.arrayContaining(reasonCodes));
+};
+
+const productVideoPublicText = (product: ProductVideoBranchProduct): string => (
+  [product.copy, ...product.features].join("\n")
+);
+
+const expectTextNotToMatch = (text: string, patterns: readonly RegExp[]): void => {
+  for (const pattern of patterns) {
+    expect(text).not.toMatch(pattern);
+  }
+};
+
 const withArtifactRoot = async <T>(callback: (outputDir: string) => Promise<T>): Promise<T> => {
   const outputDir = await mkdtemp(join(tmpdir(), "odb-research-failure-"));
   try {
@@ -6845,15 +6885,18 @@ describe("workflow branch coverage", () => {
       amount: 699,
       currency: "USD"
     });
-    expect(output.product).toMatchObject({
+    const product = getProductVideoProduct(output);
+    expect(product).toMatchObject({
       title: "Buy iPhone 16 and iPhone 16 Plus",
-      brand: "Apple",
-      features: [
-        "Apple Intelligence",
-        "Camera Control for faster access to photo and video tools"
-      ],
-      copy: "Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping."
+      brand: "Apple"
     });
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringContaining("Apple Intelligence"),
+      expect.stringContaining("Camera Control for faster access to photo and video tools")
+    ]));
+    expect(product.copy).toContain("Apple Intelligence");
+    expect(product.copy).not.toContain("trade in an iPhone 8");
+    expectProductVideoReasonCodes(output, ["positive_spec_promoted"]);
   });
 
   it("refreshes weak product metadata before building product-video outputs", async () => {
@@ -6932,15 +6975,18 @@ describe("workflow branch coverage", () => {
       amount: 699,
       currency: "USD"
     });
-    expect(output.product).toMatchObject({
+    const product = getProductVideoProduct(output);
+    expect(product).toMatchObject({
       title: "Buy iPhone 16 and iPhone 16 Plus",
-      brand: "Apple",
-      features: [
-        "Apple Intelligence",
-        "Camera Control for faster access to photo and video tools"
-      ],
-      copy: "Get $35 - $685 off a new iPhone 16 or iPhone 16 Plus when you trade in an iPhone 8 or newer. 0% financing available. Buy now with free shipping."
+      brand: "Apple"
     });
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringContaining("Apple Intelligence"),
+      expect.stringContaining("Camera Control for faster access to photo and video tools")
+    ]));
+    expect(product.copy).toContain("Apple Intelligence");
+    expect(product.copy).not.toContain("trade in an iPhone 8");
+    expectProductVideoReasonCodes(output, ["positive_spec_promoted"]);
     expect(output.images).toEqual(["images/image-01.jpg"]);
     expect(seenSignals.length).toBeGreaterThan(0);
   });
@@ -7039,11 +7085,14 @@ describe("workflow branch coverage", () => {
       amount: 699,
       currency: "USD"
     });
-    expect(output.product).toMatchObject({
+    const product = getProductVideoProduct(output);
+    expect(product).toMatchObject({
       title: "Fallback description title.",
-      brand: "Apple",
-      copy: "Fallback description title. Additional backup copy survives."
+      brand: "Apple"
     });
+    expect(product.copy).toContain("Super Retina XDR display");
+    expect(product.copy).not.toContain("Additional backup copy survives");
+    expectProductVideoReasonCodes(output, ["positive_spec_promoted"]);
     expect(output.images).toEqual([]);
   });
 
@@ -7248,15 +7297,18 @@ describe("workflow branch coverage", () => {
       amount: 249.99,
       currency: "USD"
     });
-    expect(output.product).toMatchObject({
+    const product = getProductVideoProduct(output);
+    expect(product).toMatchObject({
       brand: "Apple",
-      title: "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging",
-      copy: "Apple AirPods Pro (2nd Generation) with USB-C deliver adaptive audio and all-day comfort."
+      title: "Apple AirPods Pro (2nd Generation) Wireless Ear Buds with USB-C Charging"
     });
-    expect((output.product as { features: string[] }).features).toEqual([
-      "The Apple-designed H2 chip helps to create more intelligent noise cancellation and deeply immersive sound.",
-      "Up to 2x more Active Noise Cancellation for dramatically less noise when you want to focus."
-    ]);
+    expect(product.copy).toContain("Apple-designed H2 chip");
+    expect(product.copy).toContain("Active Noise Cancellation");
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringContaining("Apple-designed H2 chip"),
+      expect.stringContaining("Active Noise Cancellation")
+    ]));
+    expectProductVideoReasonCodes(output, ["positive_spec_promoted"]);
   });
 
   it("prefers Walmart key item features over retailer branding, specs, and shipping chrome", async () => {
@@ -7336,21 +7388,28 @@ describe("workflow branch coverage", () => {
       amount: 23.99,
       currency: "USD"
     });
-    expect(output.product).toMatchObject({
+    const product = getProductVideoProduct(output);
+    const publicText = productVideoPublicText(product);
+    expect(product).toMatchObject({
       brand: "FIFINE",
-      title: "FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings",
-      copy: expect.stringContaining("Durable metal construction and a 16mm capsule reduce vibrations")
+      title: "FIFINE K669B USB Microphone for PC, Laptop, PS5 Gaming, Metal Condenser Microphone with Gain Control for Streaming, Vocal Recording, Online Meetings"
     });
-    expect((output.product as { copy: string }).copy).not.toContain("Free Shipping!");
-    expect((output.product as { copy: string }).copy).not.toContain("Departments");
-    expect((output.product as { features: string[] }).features).toEqual([
-      "Durable metal construction and a 16mm capsule reduce vibrations and focus on mouth sounds, rejecting 70% of fan/AC noise for clear output.",
-      "An integrated volume knob allows for smooth and stable sound adjustment, enabling precise volume setting for meetings or voice recording without software.",
-      "Features a solid, sturdy metal design with a stable tripod stand, making it convenient for voice-overs or livestreams.",
-      "Comes with a Type-B to Type-C USB cable, offering plug-and-play compatibility with PC, PS4, and PS5 for gaming or recording.",
-      "The PC microphone is only 4.8 inches long, lightweight, and portable, suitable for urgent meetings during business trips or outdoor communication.",
-      "The box contains one condenser microphone with a USB cable, one tripod stand, and a user manual."
+    expect(product.copy).toContain("Durable metal construction and a 16mm capsule reduce vibrations");
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringContaining("Durable metal construction"),
+      expect.stringContaining("integrated volume knob"),
+      expect.stringContaining("stable tripod stand"),
+      expect.stringContaining("Type-B to Type-C USB cable"),
+      expect.stringContaining("portable"),
+      expect.stringContaining("user manual")
+    ]));
+    expectTextNotToMatch(publicText, [
+      /Free Shipping!/i,
+      /Pickup or delivery/i,
+      /Departments/i,
+      /Generated by AI Specs/i
     ]);
+    expectProductVideoReasonCodes(output, ["positive_spec_promoted"]);
   });
 
   it("strips Walmart storefront chrome from direct product-video title and brand output without a metadata refresh", async () => {
@@ -7519,19 +7578,27 @@ describe("workflow branch coverage", () => {
       amount: 110,
       currency: "USD"
     });
-    expect(output.product).toMatchObject({
+    const product = getProductVideoProduct(output);
+    const publicText = productVideoPublicText(product);
+    expect(product).toMatchObject({
       brand: "Apple",
-      title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White",
-      copy: expect.stringContaining("With Active Noise Cancellation and water-resistant features")
+      title: "Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case (USB‑C) - White"
     });
-    expect((output.product as { copy: string }).copy).not.toContain("Expand Cart Loading");
-    expect((output.product as { copy: string }).copy).not.toContain("Watchlist");
-    expect((output.product as { features: string[] }).features).toEqual([
-      "The Apple AirPods Pro 2nd Generation with MagSafe Wireless Charging Case is a premium pair of wireless earbuds designed for an immersive listening experience.",
-      "With Active Noise Cancellation and water-resistant features, these white earbuds provide high-quality sound in a sleek and compact design.",
-      "The built-in microphone and Bluetooth connectivity ensure hands-free calls and easy connection to your devices.",
-      "Perfect for those who value style, functionality, and convenience in their audio accessories."
+    expect(publicText).toContain("With Active Noise Cancellation and water-resistant features");
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringContaining("immersive listening experience"),
+      expect.stringContaining("Active Noise Cancellation"),
+      expect.stringContaining("built-in microphone"),
+      expect.stringContaining("style, functionality")
+    ]));
+    expectTextNotToMatch(publicText, [
+      /Expand Cart Loading/i,
+      /Watchlist/i,
+      /Buy It Now/i,
+      /Sign in/i,
+      /Condition:/i
     ]);
+    expectProductVideoReasonCodes(output, ["marketplace_chrome_rejected", "positive_spec_promoted"]);
   });
 
   it("does not treat eBay color suffixes or host names as product brands", async () => {
@@ -8022,11 +8089,19 @@ describe("workflow branch coverage", () => {
       amount: 699,
       currency: "USD"
     });
-    expect((output.product as { brand: string }).brand).toBe("Studio Display Co.");
-    expect((output.product as { features: string[] }).features).toEqual([
-      "Brilliant OLED panel stays color-accurate in daylight studio work.",
-      "Battery life lasts up to 18 hours for travel-friendly review sessions."
+    const product = getProductVideoProduct(output);
+    expect(product.brand).toBe("Studio Display Co.");
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringContaining("Brilliant OLED panel stays color-accurate"),
+      expect.stringContaining("Battery life lasts up to 18 hours")
+    ]));
+    expectTextNotToMatch(productVideoPublicText(product), [
+      /Trade-in credit/i,
+      /Setup fee/i,
+      /Frequently Asked Questions/i,
+      /Privacy policy/i
     ]);
+    expectProductVideoReasonCodes(output, ["positive_spec_promoted"]);
   });
 
   it("drops invalid fallback features and returns zero price when only negative-context pricing exists", async () => {
@@ -8064,9 +8139,16 @@ describe("workflow branch coverage", () => {
       amount: 0,
       currency: "USD"
     });
-    expect((output.product as { features: string[] }).features).toEqual([
-      "Battery lasts 18 hours through review and capture sessions."
+    const product = getProductVideoProduct(output);
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringContaining("Battery lasts 18 hours through review and capture sessions")
+    ]));
+    expectTextNotToMatch(productVideoPublicText(product), [
+      /monthly service fee/i,
+      /Trade-in credit/i,
+      /Privacy policy/i
     ]);
+    expectProductVideoReasonCodes(output, ["positive_spec_promoted"]);
   });
 
   it("routes known shopping domains through shopping source and applies image extension fallback", async () => {
