@@ -329,6 +329,21 @@ describe("workflow handoff builders", () => {
     expect(mixed.followthroughSummary).toContain("fail");
     expect(mixed.suggestedNextAction).toContain("exits nonzero");
 
+    const presentationOnlyPass = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      presentationReadiness: {
+        status: "pass",
+        warnings: [],
+        reasonCodes: ["positive_spec_promoted"]
+      }
+    });
+
+    expect(presentationOnlyPass.followthroughSummary).toContain("partial");
+    expect(presentationOnlyPass.suggestedNextAction).toContain("readiness_missing");
+    expect(presentationOnlyPass.suggestedNextAction).toContain(
+      "both presentation and product-video readiness surfaces are required"
+    );
+
     const failed = buildProductVideoSuccessHandoff({
       productUrl: "https://shop.example/item-1",
       presentationReadiness: {

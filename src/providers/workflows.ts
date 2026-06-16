@@ -1184,6 +1184,14 @@ export const workflowTestUtils = {
     refreshedDescription: string | undefined,
     featureList: string[]
   ): string => resolveProductCopy(record, productUrl, refreshedDescription, featureList),
+  resolveProductTitle: (
+    record: NormalizedRecord,
+    productUrl: string,
+    brand: string,
+    refreshedTitle: string | undefined
+  ): string => resolveProductTitle(record, productUrl, brand, refreshedTitle),
+  inferTitleFromContent: (content: string | undefined, productUrl?: string): string | undefined =>
+    inferTitleFromContent(content, productUrl),
   getRequiredProductVideoExecutionStep: <
     TStepId extends ProductVideoWorkflowExecutionStep["id"]
   >(
@@ -4749,6 +4757,30 @@ const inferEbayBrandFromTitle = (title: string | undefined): string | undefined 
   return brand;
 };
 
+const inferLabeledTitleFromContent = (normalized: string, productUrl?: string): string | undefined => {
+  const boundaryIndexes = [
+    normalized.search(/\s+(?=(?:Key item features\b|(?:Brand|Condition|Type|Maximum DPI|Connectivity|Features|Model|MPN|Color|Item Width|Item Height|Number of Buttons)\b\s*:))/i),
+    normalized.search(/\s+(?=(?:Brand|Condition|Type|Connectivity|Features|Model|MPN|Color|Item Width|Item Height|Number of Buttons)\s+[A-Z0-9]|\bMaximum DPI\s+\d)/)
+  ].filter((index) => index >= 0);
+  const boundaryIndex = boundaryIndexes.length > 0 ? Math.min(...boundaryIndexes) : -1;
+  if (boundaryIndex <= 0) return undefined;
+  const framed = normalizePlainText(normalized.slice(0, boundaryIndex))
+    .replace(/^(?:(?:Skip to main content|Main content|Product details|About this item|Key item features)\s+)+/i, "")
+    .replace(/^Visit the [A-Z][A-Za-z0-9&+' -]{1,60} Store\s+/i, "")
+    .trim();
+  const candidate = productUrl ? stripMarketplaceTitleFraming(framed, productUrl) : framed;
+  if (
+    candidate.length < 3
+    || candidate.length > 120
+    || /^(?:Key item features|Brand|Condition|Type|Maximum DPI|Connectivity|Features|Model|MPN|Color|Item Width|Item Height|Number of Buttons)\b/i.test(candidate)
+    || LOOKS_LIKE_URL_RE.test(candidate)
+    || (productUrl ? isMarketplaceTitleChrome(candidate, productUrl) : false)
+  ) {
+    return undefined;
+  }
+  return candidate;
+};
+
 const inferTitleFromContent = (content: string | undefined, productUrl?: string): string | undefined => {
   const normalized = normalizePlainText(content);
   if (!normalized) return undefined;
@@ -4761,6 +4793,10 @@ const inferTitleFromContent = (content: string | undefined, productUrl?: string)
     if (ebayTitle) {
       return ebayTitle;
     }
+  }
+  const labeledTitle = inferLabeledTitleFromContent(normalized, productUrl);
+  if (labeledTitle) {
+    return labeledTitle;
   }
   const storeMatch = /\bVisit the [A-Z][A-Za-z0-9&+' -]{1,60} Store\s+(.+?)(?=\s+(?:Brand [A-Z]|About this item|Key item features|Current price is|Actual Color|[0-9]+(?:\.[0-9]+)? stars out of|Best seller\b))/i.exec(normalized);
   const candidate = normalizePlainText(storeMatch?.[1]);
@@ -4836,6 +4872,7 @@ const stripMarketplaceTitleFraming = (title: string, productUrl: string): string
       const escapedHostBrand = hostBrand.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
       cleaned = cleaned.replace(new RegExp(`\\s*[-|:]\\s*${escapedHostBrand}(?:\\.com)?\\s*$`, "i"), "").trim();
     }
+    cleaned = cleaned.replace(/\s*[-|:]\s*(?:seller\s+listing|seller\s+page|marketplace\s+listing|product\s+listing)\s*$/i, "").trim();
   } catch {
     return cleaned;
   }
@@ -6933,7 +6970,8 @@ export const runProductVideoWorkflow = async (
     url: productUrl,
     features: presentation.features,
     copy: presentation.copy,
-    presentationReadiness: presentation.presentationReadiness
+    presentationReadiness: presentation.presentationReadiness,
+    productVideoReadiness: presentation.productVideoReadiness
   };
 
   const manifestPayload = {

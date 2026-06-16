@@ -10,7 +10,7 @@ import {
   buildProductVideoSuccessHandoff
 } from "../src/providers/workflow-handoff";
 import { buildWorkflowResumeEnvelope, type WorkflowCheckpoint } from "../src/providers/workflow-contracts";
-import { runProductVideoWorkflow, type ProviderExecutor, type ProductVideoRunInput } from "../src/providers/workflows";
+import { runProductVideoWorkflow, workflowTestUtils, type ProviderExecutor, type ProductVideoRunInput } from "../src/providers/workflows";
 import type {
   JsonValue,
   NormalizedRecord,
@@ -479,6 +479,58 @@ describe("product-video substrate adoption", () => {
     expect(publicText).not.toMatch(/Buy It Now/i);
     expect(publicText).not.toMatch(/original packaging/i);
     expect(publicText).not.toMatch(/Returns accepted/i);
+  });
+
+  it("recovers product title from labeled content when fetched title is URL-like", async () => {
+    const productUrl = "http://127.0.0.1:60731/noisy-marketplace-product.html";
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "generic-noisy-product-record",
+        provider: "web/default",
+        url: productUrl,
+        title: productUrl,
+        content: [
+          "Aurora Trackball Mouse",
+          "Condition: New: A brand-new unopened item.",
+          "Quantity: 3 available.",
+          "Seller feedback 99%.",
+          "Shipping may not ship to all regions.",
+          "Returns accepted within 30 days.",
+          "Buy It Now.",
+          "Type: Vertical Trackball Mouse",
+          "Maximum DPI: 1600",
+          "Connectivity: Wireless",
+          "Features: Thumb rest. Compact shell. Quiet buttons."
+        ].join(" "),
+        attributes: { links: [] }
+      })]
+    }));
+    const record = (await fetch()).records[0]!;
+
+    expect(workflowTestUtils.inferTitleFromContent(record.content, productUrl)).toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.inferTitleFromContent([
+      "Main content Visit the Apple Store Apple AirPods Pro",
+      "Brand Apple",
+      "About this item",
+      "Adaptive Audio. Active Noise Cancellation."
+    ].join(" "), "https://www.amazon.com/dp/B0TEST1234")).toBe("Apple AirPods Pro");
+    expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", undefined)).toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", productUrl)).toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", "Aurora Trackball Mouse - seller listing"))
+      .toBe("Aurora Trackball Mouse");
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: productUrl,
+      include_copy: true,
+      include_screenshots: true
+    }));
+    const product = output.product as { title: string; copy: string; features: string[] };
+    const publicText = [product.copy, ...product.features].join("\n");
+
+    expect(product.title).toBe("Aurora Trackball Mouse");
+    expect(product.copy).toContain("Aurora Trackball Mouse combines captured product details");
+    expect(publicText).not.toContain(productUrl);
+    expect(publicText).not.toMatch(/Condition: New|Quantity:|Seller feedback|Shipping may not ship|Returns accepted|Buy It Now/i);
   });
 
   it("does not switch selected records to a cleaner unrelated product with conflicting offer identity", async () => {

@@ -47,11 +47,11 @@ Use this skill to build product-video input packs and readiness-gated assembly i
 Expected output pack always includes:
 - `manifest.json` with canonical product metadata and `manifest.readiness.presentation` plus `manifest.readiness.productVideo`
 - `presentation-readiness.json` with readiness status, warnings, reason codes, selected-record identity, candidate summaries, promoted claims, rejected candidate summaries, evidence references, and compact counts
-- `product.json` and `pricing.json`; `product.json.presentationReadiness` mirrors the presentation gate
+- `product.json` and `pricing.json`; `product.json.presentationReadiness` and `product.json.productVideoReadiness` mirror the production gates
 - `copy.md` and `features.md`, which are production input only when readiness allows it
 - `raw/source-record.json` for auditability and raw evidence preservation
 
-Workflow JSON output also exposes `product.presentationReadiness`, `meta.presentationReadiness`, and `meta.productVideoReadiness` so callers can gate automation without opening files first.
+Workflow JSON output also exposes `product.presentationReadiness`, `product.productVideoReadiness`, `meta.presentationReadiness`, and `meta.productVideoReadiness` so callers can gate automation without opening files first.
 
 When visual capture succeeds, the pack may also include:
 - `images/` for product stills
@@ -75,7 +75,7 @@ Helper behavior:
 1. Pick product URL or product name.
 2. Before daemon-backed `product-video run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`.
 3. Run collection workflow and confirm output pack path.
-4. Review `presentation-readiness.json`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.json.presentationReadiness`, and returned `meta.presentationReadiness` when available.
+4. Review `presentation-readiness.json`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.json.presentationReadiness`, `product.json.productVideoReadiness`, and returned `meta.presentationReadiness` when available.
 5. Confirm raw evidence remains preserved in `raw/source-record.json`, but do not treat raw marketplace text as verified production copy.
 6. Run `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh` only after readiness review.
 	Canonical helper path: `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh`.

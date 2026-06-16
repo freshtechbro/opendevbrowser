@@ -18,9 +18,43 @@ const manifestPath = process.argv[2];
 const outdir = process.argv[3];
 const manifestDir = path.dirname(manifestPath);
 const readinessArtifactPath = path.join(manifestDir, "presentation-readiness.json");
+const productArtifactPath = path.join(manifestDir, "product.json");
 
 const READINESS_SEVERITY = { pass: 0, partial: 1, fail: 2 };
 const SUPPORTED_STATUSES = new Set(Object.keys(READINESS_SEVERITY));
+const BLOCKING_PASS_REASON_CODES = new Set([
+  "missing_visual_assets",
+  "insufficient_clean_feature_evidence",
+  "copy_omitted_by_request",
+  "copy_generation_blocked",
+  "readiness_invalid",
+  "readiness_missing",
+  "readiness_review_required",
+  "readiness_surface_mismatch"
+]);
+
+function invalidReadinessSummary(message) {
+  return {
+    status: "fail",
+    warnings: [message],
+    reasonCodes: ["readiness_invalid"],
+    criteria: []
+  };
+}
+
+function invalidReadinessArtifact(message) {
+  return {
+    presentationReadiness: invalidReadinessSummary(`presentation readiness schema is invalid at presentation-readiness.json: ${message}`),
+    productVideoReadiness: invalidReadinessSummary(`productVideo readiness schema is invalid at presentation-readiness.json: ${message}`)
+  };
+}
+
+function invalidProductArtifact(message) {
+  return {
+    presentationReadiness: invalidReadinessSummary(`presentation readiness schema is invalid at product.json: ${message}`),
+    productVideoReadiness: invalidReadinessSummary(`productVideo readiness schema is invalid at product.json: ${message}`)
+  };
+}
 
 function readRequiredJsonFile(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -35,23 +69,98 @@ function readRequiredJsonFile(filePath) {
 
 function readOptionalJsonFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
-  const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return invalidReadinessArtifact("file must be a JSON object");
+    }
+    if (!("presentationReadiness" in value) || !("productVideoReadiness" in value)) {
+      return invalidReadinessArtifact("file must include presentationReadiness and productVideoReadiness");
+    }
+    return value;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return invalidReadinessArtifact(`file could not be parsed: ${message}`);
+  }
+}
+
+function readOptionalProductJsonFile(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return invalidProductArtifact("file must be a JSON object");
+    }
+    return value;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return invalidProductArtifact(`file could not be parsed: ${message}`);
+  }
 }
 
 function normalizeStringArray(value) {
   return Array.isArray(value) ? value.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim()) : [];
 }
 
-function normalizeReadiness(value, label) {
-  if (!value || typeof value !== "object") {
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isReadinessObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isReadinessCriterion(value) {
+  return isReadinessObject(value)
+    && typeof value.label === "string"
+    && typeof value.observed === "string"
+    && typeof value.threshold === "string"
+    && typeof value.passed === "boolean";
+}
+
+function isCriterionArray(value) {
+  return Array.isArray(value) && value.every(isReadinessCriterion);
+}
+
+function readReadinessStatus(value) {
+  return isReadinessObject(value) && typeof value.status === "string" ? value.status : undefined;
+}
+
+function readinessSchemaError(value) {
+  if (!isReadinessObject(value)) return "readiness value must be an object";
+  if (!isStringArray(value.warnings)) return "warnings must be a string array";
+  if (!isStringArray(value.reasonCodes)) return "reasonCodes must be a string array";
+  if (!isCriterionArray(value.criteria)) return "criteria must contain readiness criterion objects";
+  if (value.status === "pass" && value.criteria.length === 0) return "pass readiness must include criteria";
+  if (value.status === "pass" && value.criteria.some((entry) => entry.passed === false)) return "pass readiness cannot contain failed criteria";
+  if (value.status === "pass" && value.reasonCodes.some((entry) => BLOCKING_PASS_REASON_CODES.has(entry))) return "pass readiness cannot contain blocking reason codes";
+  return undefined;
+}
+
+function normalizeReadiness(value, label, location) {
+  if (value === undefined) {
     return {
       status: "partial",
-      warnings: [`${label} readiness was not present in manifest.readiness`],
+      warnings: [`${label} readiness was not present`],
       reasonCodes: ["readiness_missing"]
     };
   }
-  const status = typeof value.status === "string" && SUPPORTED_STATUSES.has(value.status) ? value.status : "partial";
+  const schemaError = readinessSchemaError(value);
+  if (schemaError) {
+    return {
+      status: "fail",
+      warnings: [`${label} readiness schema is invalid at ${location}: ${schemaError}`],
+      reasonCodes: ["readiness_invalid"]
+    };
+  }
+  const status = readReadinessStatus(value);
+  if (!status || !SUPPORTED_STATUSES.has(status)) {
+    return {
+      status: "fail",
+      warnings: [`${label} readiness status is invalid at ${location}`],
+      reasonCodes: ["readiness_invalid"]
+    };
+  }
   const warnings = normalizeStringArray(value.warnings);
   const reasonCodes = normalizeStringArray(value.reasonCodes);
   return {
@@ -76,6 +185,26 @@ function combineReadiness(presentation, productVideo) {
   };
 }
 
+function resolveReadiness(label, surfaces) {
+  const present = surfaces.filter((surface) => surface.value !== undefined);
+  if (present.length === 0) return normalizeReadiness(undefined, label, "none");
+  const normalized = present.map((surface) => normalizeReadiness(surface.value, label, surface.location));
+  const resolved = normalized.reduce((worst, entry) => (
+    READINESS_SEVERITY[entry.status] > READINESS_SEVERITY[worst.status] ? entry : worst
+  ));
+  const statuses = unique(normalized.map((entry) => entry.status));
+  const surfaceStatuses = unique(present.map((surface) => `${surface.location}:${readReadinessStatus(surface.value) || "invalid"}`));
+  const mismatchWarnings = statuses.length > 1
+    ? [`${label} readiness surfaces disagree: ${surfaceStatuses.join(", ")}`]
+    : [];
+  const mismatchReasonCodes = statuses.length > 1 ? ["readiness_surface_mismatch"] : [];
+  return {
+    status: statuses.length > 1 ? "fail" : resolved.status,
+    warnings: unique([...normalized.flatMap((entry) => entry.warnings), ...mismatchWarnings]),
+    reasonCodes: unique([...normalized.flatMap((entry) => entry.reasonCodes), ...mismatchReasonCodes])
+  };
+}
+
 function formatList(values, fallback) {
   return values.length > 0 ? values.join(", ") : fallback;
 }
@@ -90,20 +219,25 @@ function tableCell(value) {
 
 const data = readRequiredJsonFile(manifestPath);
 const readinessArtifact = readOptionalJsonFile(readinessArtifactPath);
-const product = data.product || {};
+const productArtifact = readOptionalProductJsonFile(productArtifactPath);
+const manifestProduct = data.product || {};
+const product = Object.keys(productArtifact).some((key) => (
+  key !== "presentationReadiness" && key !== "productVideoReadiness"
+)) ? productArtifact : manifestProduct;
 const pricing = product.price || {};
-const presentationReadiness = normalizeReadiness(
-  data?.readiness?.presentation || product.presentationReadiness || readinessArtifact.presentationReadiness,
-  "presentation"
-);
-const productVideoReadiness = normalizeReadiness(
-  data?.readiness?.productVideo || readinessArtifact.productVideoReadiness,
-  "productVideo"
-);
-const readiness = combineReadiness(presentationReadiness, productVideoReadiness);
-const readinessStatus = readiness.status;
-const reasonCodeText = formatList(readiness.reasonCodes, "none");
-const warningLines = readiness.warnings.length > 0 ? readiness.warnings.map((entry) => `- ${entry}`) : ["- none"];
+const presentationReadiness = resolveReadiness("presentation", [
+  { location: "manifest.readiness.presentation", value: data?.readiness?.presentation },
+  { location: "manifest.product.presentationReadiness", value: manifestProduct.presentationReadiness },
+  { location: "product.json.presentationReadiness", value: productArtifact.presentationReadiness },
+  { location: "presentation-readiness.json.presentationReadiness", value: readinessArtifact.presentationReadiness }
+]);
+const productVideoReadiness = resolveReadiness("productVideo", [
+  { location: "manifest.readiness.productVideo", value: data?.readiness?.productVideo },
+  { location: "manifest.product.productVideoReadiness", value: manifestProduct.productVideoReadiness },
+  { location: "product.json.productVideoReadiness", value: productArtifact.productVideoReadiness },
+  { location: "presentation-readiness.json.productVideoReadiness", value: readinessArtifact.productVideoReadiness }
+]);
+let readiness = combineReadiness(presentationReadiness, productVideoReadiness);
 
 const title = product.title || "Unknown product";
 const brand = product.brand || "Unknown brand";
@@ -116,17 +250,66 @@ const screenshots = Array.isArray(data?.assets?.screenshots) ? data.assets.scree
 const rawEvidence = Array.isArray(data?.assets?.raw) ? data.assets.raw : [];
 const noVisualAsset = "metadata-only-pack:no-captured-visual";
 const hasVisuals = images.length > 0 || screenshots.length > 0;
+const promotedClaims = Array.isArray(readinessArtifact.promotedClaims)
+  ? readinessArtifact.promotedClaims.filter((entry) => (
+    entry
+    && typeof entry === "object"
+    && typeof entry.claim === "string"
+    && typeof entry.reasonCode === "string"
+  ))
+  : [];
+
+function promotedClaimFor(claim, index) {
+  const exactMatch = promotedClaims.find((entry) => entry.claim === claim);
+  return readiness.status === "pass" ? exactMatch : exactMatch || promotedClaims[index];
+}
+
+function promotedClaimHasEvidence(promotedClaim) {
+  return Array.isArray(promotedClaim?.evidenceReferences)
+    && promotedClaim.evidenceReferences.some((entry) => entry && typeof entry.path === "string");
+}
+
+function passPromotedEvidenceWarning() {
+  if (readiness.status !== "pass") return undefined;
+  if (features.length === 0) return "pass readiness requires feature claims backed by presentation-readiness.json";
+  const missingEvidence = features.some((claim, index) => {
+    const promotedClaim = promotedClaimFor(claim, index);
+    return !promotedClaim || promotedClaim.reasonCode !== "positive_spec_promoted" || !promotedClaimHasEvidence(promotedClaim);
+  });
+  return missingEvidence ? "pass readiness requires promotedClaims with evidence references in presentation-readiness.json" : undefined;
+}
+
+const promotedEvidenceWarning = passPromotedEvidenceWarning();
+if (promotedEvidenceWarning) {
+  readiness = {
+    status: "fail",
+    warnings: unique([...readiness.warnings, promotedEvidenceWarning]),
+    reasonCodes: unique([...readiness.reasonCodes, "readiness_invalid"])
+  };
+}
+
+const readinessStatus = readiness.status;
+const reasonCodeText = formatList(readiness.reasonCodes, "none");
+const warningLines = readiness.warnings.length > 0 ? readiness.warnings.map((entry) => `- ${entry}`) : ["- none"];
 const featureClaims = readinessStatus === "fail"
   ? ["Readiness failed. Do not use copy.md or features.md as verified production input."]
   : features.length > 0
     ? features
     : ["Review manifest data and add only evidence-backed feature claims"];
 
+function evidenceFieldFor(promotedClaim, fallback) {
+  const reference = Array.isArray(promotedClaim?.evidenceReferences)
+    ? promotedClaim.evidenceReferences.find((entry) => entry && typeof entry.path === "string")
+    : undefined;
+  return reference?.path || fallback;
+}
+
 const claimRows = featureClaims.map((claim, index) => {
   const evidence = pickVisual(screenshots[index], images[index], images[0], screenshots[0]);
   const verified = readinessStatus === "fail" ? "blocked" : readinessStatus === "partial" ? "gated" : "review_required";
-  const sourceField = readinessStatus === "fail" ? "presentation-readiness.json" : `product.features[${index}]`;
-  const reasonCode = readiness.reasonCodes[index] || readiness.reasonCodes[0] || "none";
+  const promotedClaim = promotedClaimFor(claim, index);
+  const sourceField = readinessStatus === "fail" ? "presentation-readiness.json" : evidenceFieldFor(promotedClaim, `product.features[${index}]`);
+  const reasonCode = readinessStatus === "fail" ? (readiness.reasonCodes[0] || "readiness_invalid") : promotedClaim?.reasonCode || "positive_spec_promoted";
   return `| ${tableCell(claim)} | ${tableCell(evidence)} | ${sourceField} | ${reasonCode} | ${verified} |`;
 });
 

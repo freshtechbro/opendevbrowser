@@ -406,20 +406,28 @@ const PRODUCT_VIDEO_READINESS_SEVERITY: Record<ProductVideoReadinessStatus, numb
 };
 
 const productVideoHandoffStatus = (input: ProductVideoHandoffInput): ProductVideoReadinessStatus | undefined => {
+  const hasPresentationReadiness = Boolean(input.presentationReadiness);
+  const hasProductVideoReadiness = Boolean(input.productVideoReadiness);
   const statuses = [
     input.presentationReadiness?.status,
     input.productVideoReadiness?.status
   ].filter((status): status is ProductVideoReadinessStatus => Boolean(status));
   if (statuses.length === 0) return undefined;
+  if (!hasPresentationReadiness || !hasProductVideoReadiness) statuses.push("partial");
   return statuses.reduce((worst, status) => (
     PRODUCT_VIDEO_READINESS_SEVERITY[status] > PRODUCT_VIDEO_READINESS_SEVERITY[worst] ? status : worst
   ));
 };
 
+const productVideoHandoffHasMissingReadiness = (input: ProductVideoHandoffInput): boolean => (
+  Boolean(input.presentationReadiness) !== Boolean(input.productVideoReadiness)
+);
+
 const productVideoHandoffReasonCodes = (input: ProductVideoHandoffInput): string => {
   const reasonCodes = [
     ...(input.presentationReadiness?.reasonCodes ?? []),
-    ...(input.productVideoReadiness?.reasonCodes ?? [])
+    ...(input.productVideoReadiness?.reasonCodes ?? []),
+    ...(productVideoHandoffHasMissingReadiness(input) ? ["readiness_missing"] : [])
   ];
   const uniqueCodes = Array.from(new Set(reasonCodes));
   return uniqueCodes.length > 0 ? uniqueCodes.join(", ") : "none";
@@ -428,7 +436,8 @@ const productVideoHandoffReasonCodes = (input: ProductVideoHandoffInput): string
 const productVideoHandoffWarnings = (input: ProductVideoHandoffInput): string => {
   const warnings = [
     ...(input.presentationReadiness?.warnings ?? []),
-    ...(input.productVideoReadiness?.warnings ?? [])
+    ...(input.productVideoReadiness?.warnings ?? []),
+    ...(productVideoHandoffHasMissingReadiness(input) ? ["both presentation and product-video readiness surfaces are required before production pass"] : [])
   ];
   const uniqueWarnings = Array.from(new Set(warnings));
   return uniqueWarnings.length > 0 ? uniqueWarnings.join("; ") : "none";
@@ -440,10 +449,10 @@ const productVideoHandoffFollowthroughSummary = (input: ProductVideoHandoffInput
     return "Product-video readiness is fail. Treat copy.md and features.md as diagnostics only until presentation-readiness.json reason codes are fixed.";
   }
   if (status === "partial") {
-    return "Product-video readiness is partial. Use generated copy and features only as gated draft input until warnings and reason codes are resolved.";
+    return "Product-video readiness is partial for the generated asset pack. Use copy.md and features.md only as gated draft input until warnings and reason codes are resolved.";
   }
   if (status === "pass") {
-    return "Product-video readiness is pass. Review readiness evidence and raw/source-record.json before briefing production.";
+    return "Product-video readiness is pass. Review the visual-ready asset pack, readiness evidence, and raw/source-record.json before briefing production.";
   }
   return "Review presentation-readiness.json and manifest.readiness before briefing production from the generated asset pack.";
 };

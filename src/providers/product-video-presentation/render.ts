@@ -41,7 +41,7 @@ export const buildProductVideoCopyText = (args: {
 }): string => {
   if (!args.includeCopy || args.promotedClaims.length === 0) return "";
   const benefits = args.promotedClaims.slice(0, MAX_COPY_BENEFIT_CLAIMS).map((claim) => claim.claim).join(" ");
-  return `${args.title} is supported by captured product evidence. ${benefits}`;
+  return `${args.title} combines captured product details into a concise presentation. ${benefits}`;
 };
 
 export const renderProductVideoCopyMarkdown = (args: {

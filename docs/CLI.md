@@ -544,7 +544,7 @@ Flags:
 Notes:
 - Successful product-video runs write `manifest.json`, `product.json`, `pricing.json`, `copy.md`, `features.md`, `presentation-readiness.json`, `raw/source-record.json`, and `bundle-manifest.json`.
 - `presentation-readiness.json` is the audit surface for `presentationReadiness`, `productVideoReadiness`, selected and original record ids, bounded candidate summaries, promoted claims, rejected candidate summaries, evidence references, and compact counts.
-- `manifest.readiness.presentation` and `manifest.readiness.productVideo` are the manifest production gates. `product.json.presentationReadiness` and returned `product.presentationReadiness` mirror the product-facing gate, while JSON workflow output exposes `meta.presentationReadiness` and `meta.productVideoReadiness`.
+- `manifest.readiness.presentation` and `manifest.readiness.productVideo` are the manifest production gates. `product.json.presentationReadiness`, `product.json.productVideoReadiness`, returned `product.presentationReadiness`, and returned `product.productVideoReadiness` mirror the product-facing gates, while JSON workflow output exposes `meta.presentationReadiness` and `meta.productVideoReadiness`.
 - Readiness status is `pass`, `partial`, or `fail`. `pass` can feed a normal production brief after human evidence review. `partial` is a constrained draft and must carry warnings plus reason codes. `fail` blocks production use.
 - Raw evidence stays preserved under `raw/source-record.json` for audit and debugging. Do not treat raw marketplace, seller, shipping, condition, or returns text as verified copy unless it is promoted through `presentation-readiness.json.promotedClaims[]`.
 - `copy.md` and `features.md` are not automatically verified production input. They are production-safe only when readiness permits and the claims evidence map ties each claim to captured or structured evidence.
@@ -1818,7 +1818,7 @@ What it covers:
 Key report fields:
 - `data.guidanceReason` and `data.recommendedNextCommand` summarize the first actionable provider follow-up emitted by the workflow or failure envelope.
 - Shopping and research workflow payloads keep the canonical structured source at `meta.primaryConstraint.guidance.reason` and `meta.primaryConstraint.guidance.recommendedNextCommands[]`.
-- Product-video payloads expose `meta.presentationReadiness`, `meta.productVideoReadiness`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.presentationReadiness`, and `presentation-readiness.json`; inspect those gates before treating copy or features as production input.
+- Product-video payloads expose `meta.presentationReadiness`, `meta.productVideoReadiness`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.presentationReadiness`, `product.productVideoReadiness`, and `presentation-readiness.json`; inspect those gates before treating copy or features as production input.
 
 Key options:
 - `--include-auth-gated` includes auth-dependent provider scenarios.

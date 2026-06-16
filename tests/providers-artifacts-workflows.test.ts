@@ -2076,6 +2076,7 @@ describe("artifact and workflow runtime", () => {
     const productRaw = await readFile(join(outputByUrlPath, "product.json"), "utf8");
     const product = JSON.parse(productRaw) as {
       presentationReadiness?: { status?: string; reasonCodes?: string[] };
+      productVideoReadiness?: { status?: string; reasonCodes?: string[] };
       features?: string[];
       copy?: string;
     };
@@ -2083,8 +2084,12 @@ describe("artifact and workflow runtime", () => {
       status: "pass",
       reasonCodes: expect.arrayContaining(["selected_record_changed", "positive_spec_promoted"])
     });
+    expect(product.productVideoReadiness).toMatchObject({
+      status: "pass",
+      reasonCodes: expect.arrayContaining(["selected_record_changed", "positive_spec_promoted"])
+    });
     expect(product.features?.join("\n")).toMatch(/Vertical Mouse/i);
-    expect(product.copy).toMatch(/captured product evidence/i);
+    expect(product.copy).toMatch(/captured product details/i);
 
     const readinessRaw = await readFile(join(outputByUrlPath, "presentation-readiness.json"), "utf8");
     const readiness = JSON.parse(readinessRaw) as {

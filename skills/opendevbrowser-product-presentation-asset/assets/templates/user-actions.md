@@ -3,7 +3,7 @@
 - [ ] Collected assets from target product
 - [ ] Reviewed `manifest.readiness.presentation` and `manifest.readiness.productVideo`
 - [ ] Reviewed `presentation-readiness.json` reason codes, warnings, promoted claims, and rejected candidates
-- [ ] Confirmed `product.json.presentationReadiness` and JSON output `meta.presentationReadiness` match the expected gate when those surfaces are available
+- [ ] Confirmed `product.json.presentationReadiness`, `product.json.productVideoReadiness`, and JSON output `meta.presentationReadiness` match the expected gate when those surfaces are available
 - [ ] Preserved raw audit evidence in `raw/source-record.json` without treating it as verified production copy
 - [ ] Generated video brief files only after readiness review
 - [ ] For `partial`, kept the brief gated with warnings and reason codes

@@ -7096,7 +7096,7 @@ describe("workflow branch coverage", () => {
     expect(output.images).toEqual([]);
   });
 
-  it("uses site_name brand fallback and preserves the product url when refreshed metadata stays empty", async () => {
+  it("uses site_name brand fallback and preserves product url separately when refreshed metadata stays empty", async () => {
     const runtime = toRuntime({
       fetch: async () => makeAggregate({
         sourceSelection: "shopping",
@@ -7141,7 +7141,8 @@ describe("workflow branch coverage", () => {
 
     expect(output.product).toMatchObject({
       brand: "Acme Surface",
-      title: "https://brandless.example/item",
+      title: "Product",
+      url: "https://brandless.example/item",
       copy: ""
     });
     expect(output.images).toEqual([]);
@@ -7984,9 +7985,11 @@ describe("workflow branch coverage", () => {
     });
 
     expect((fromString.product as { brand: string; title: string }).brand).toBe("Fallback Site");
-    expect((fromString.product as { title: string }).title).toBe("https://fallback.example/device");
+    expect((fromString.product as { title: string; url: string }).title).toBe("Product");
+    expect((fromString.product as { title: string; url: string }).url).toBe("https://fallback.example/device");
     expect((fromMissingPrice.product as { brand: string; title: string }).brand).toBe("Fallback Site");
-    expect((fromMissingPrice.product as { title: string }).title).toBe("https://fallback.example/device");
+    expect((fromMissingPrice.product as { title: string; url: string }).title).toBe("Product");
+    expect((fromMissingPrice.product as { title: string; url: string }).url).toBe("https://fallback.example/device");
   });
 
   it("emits canonical product-video summary keys when detail fetch succeeds with follow-up failures", async () => {

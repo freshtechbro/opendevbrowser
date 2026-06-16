@@ -12,6 +12,7 @@ import type {
 
 export const PRODUCT_VIDEO_MIN_PASS_PROMOTED_CLAIMS = 3;
 export const PRODUCT_VIDEO_MIN_PARTIAL_PROMOTED_CLAIMS = 1;
+export const PRODUCT_VIDEO_MIN_PASS_SPEC_KEY_COUNT = 2;
 
 const MAX_EVIDENCE_EXCERPT_CHARS = 180;
 const MIN_CANDIDATE_CHARS = 4;
@@ -47,6 +48,7 @@ export interface ProductVideoEvidenceCollection {
   candidateCount: number;
   marketplaceRejectedCount: number;
   unsupportedRejectedCount: number;
+  rawFragmentRejectedCount: number;
 }
 
 const TYPE_SPEC_DEFINITION: ProductVideoSpecDefinition = {
@@ -122,11 +124,16 @@ const UNSUPPORTED_CLAIM_PATTERNS = [
   /\b(?:lifetime warranty|free returns?|risk-free)\b/i
 ] as const;
 
+const RAW_FRAGMENT_LABEL_THRESHOLD = 2;
+
 const CLAIM_BUILDERS: Record<ProductVideoSupportedSpecKey, (value: string) => string> = {
   type: (value) => `${value} design gives the product a clear presentation category.`,
   maximum_dpi: (value) => `${dpiValue(value)} tracking supports everyday pointer control.`,
   connectivity: (value) => `${value} connectivity supports a cleaner setup.`,
-  features: (value) => `${featurePhrase(value)} supports comfort and control.`
+  features: (value) => {
+    const phrase = presentationFeaturePhrase(value);
+    return `${phrase} ${featureSupportVerb(phrase)} comfort and control.`;
+  }
 };
 
 export const normalizeProductVideoText = (text: string): string => (
@@ -143,8 +150,33 @@ const isUnsupportedClaimText = (text: string): boolean => {
   return UNSUPPORTED_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized));
 };
 
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const isRawSpecFragmentText = (text: string): boolean => {
+  const normalized = normalizeProductVideoText(text);
+  let labelCount = 0;
+  for (const label of CONTENT_BOUNDARY_LABELS) {
+    const pattern = new RegExp(`\\b${escapeRegex(label)}\\b\\s*:`, "i");
+    if (pattern.test(normalized)) labelCount += 1;
+    if (labelCount >= RAW_FRAGMENT_LABEL_THRESHOLD) return true;
+  }
+  return false;
+};
+
+const normalizeProductVideoSpecValue = (value: string): string => (
+  normalizeProductVideoText(value).replace(/[.!?]+$/u, "").trim()
+);
+
 const featurePhrase = (value: string): string => (
-  normalizeProductVideoText(value).replace(/,\s*([^,]+)$/u, " and $1")
+  normalizeProductVideoSpecValue(value).replace(/,\s*([^,]+)$/u, " and $1")
+);
+
+const presentationFeaturePhrase = (value: string): string => {
+  return featurePhrase(value);
+};
+
+const featureSupportVerb = (value: string): string => (
+  /\b(?:buttons|controls|features|tools|earbuds|sessions)\b/i.test(value) ? "support" : "supports"
 );
 
 const dpiValue = (value: string): string => (/\bdpi\b/i.test(value) ? value : `${value} DPI`);
@@ -173,8 +205,18 @@ const jsonValueToStringArray = (value: JsonValue | undefined): string[] => (
 );
 
 const specValueToText = (value: ProductVideoSpecValue): string => {
-  if (Array.isArray(value)) return normalizeProductVideoText(value.join(", "));
-  return normalizeProductVideoText(String(value));
+  if (Array.isArray(value)) return normalizeProductVideoSpecValue(value.join(", "));
+  return normalizeProductVideoSpecValue(String(value));
+};
+
+const specValueToTexts = (value: ProductVideoSpecValue): string[] => (
+  Array.isArray(value) ? value.map(specValueToText).filter(Boolean) : [specValueToText(value)].filter(Boolean)
+);
+
+const jsonValueToSpecTexts = (value: JsonValue | undefined): string[] => {
+  const text = jsonValueToText(value);
+  if (text) return [text];
+  return jsonValueToStringArray(value);
 };
 
 const evidenceExcerpt = (value: string): string => normalizeProductVideoText(value).slice(0, MAX_EVIDENCE_EXCERPT_CHARS);
@@ -201,8 +243,8 @@ const specEvidence = (args: {
   source: ProductVideoCandidateSource;
   path: string;
 }): ProductVideoSpecEvidence | undefined => {
-  const normalized = normalizeProductVideoText(args.value);
-  if (!normalized || isMarketplaceChromeText(normalized)) return undefined;
+  const normalized = normalizeProductVideoSpecValue(args.value);
+  if (!normalized || isMarketplaceChromeText(normalized) || isUnsupportedClaimText(normalized) || isRawSpecFragmentText(normalized)) return undefined;
   return {
     key: args.definition.key,
     label: args.definition.label,
@@ -222,8 +264,11 @@ const metadataSpecEvidence = (input: ProductVideoPresentationInput): ProductVide
   return Object.entries(specs).flatMap(([key, value]) => {
     const definition = specDefinitionForKey(key);
     if (!definition) return [];
-    const evidence = specEvidence({ input, definition, value: specValueToText(value), source: "metadata_feature", path: `metadata.specs.${key}` });
-    return evidence ? [evidence] : [];
+    return specValueToTexts(value).flatMap((entry, index) => {
+      const path = Array.isArray(value) ? `metadata.specs.${key}.${index}` : `metadata.specs.${key}`;
+      const evidence = specEvidence({ input, definition, value: entry, source: "metadata_feature", path });
+      return evidence ? [evidence] : [];
+    });
   });
 };
 
@@ -239,9 +284,12 @@ const specEvidenceFromAttributeAliases = (
   attributes: Record<string, JsonValue>,
   definition: ProductVideoSpecDefinition
 ): ProductVideoSpecEvidence[] => definition.aliases.flatMap((alias) => {
-  const value = jsonValueToText(attributes[alias]) ?? jsonValueToStringArray(attributes[alias]).join(", ");
-  const evidence = specEvidence({ input, definition, value, source: "source_attribute", path: `attributes.${alias}` });
-  return evidence ? [evidence] : [];
+  const rawValue = attributes[alias];
+  return jsonValueToSpecTexts(rawValue).flatMap((value, index) => {
+    const path = Array.isArray(rawValue) ? `attributes.${alias}.${index}` : `attributes.${alias}`;
+    const evidence = specEvidence({ input, definition, value, source: "source_attribute", path });
+    return evidence ? [evidence] : [];
+  });
 });
 
 const specEvidenceFromNestedAttributes = (
@@ -253,9 +301,12 @@ const specEvidenceFromNestedAttributes = (
   if (!nested) return [];
   return Object.entries(nested).flatMap(([nestedKey, value]) => {
     const definition = specDefinitionForKey(nestedKey);
-    const text = jsonValueToText(value) ?? jsonValueToStringArray(value).join(", ");
-    const evidence = definition ? specEvidence({ input, definition, value: text, source: "source_attribute", path: `attributes.${key}.${nestedKey}` }) : undefined;
-    return evidence ? [evidence] : [];
+    if (!definition) return [];
+    return jsonValueToSpecTexts(value).flatMap((text, index) => {
+      const path = Array.isArray(value) ? `attributes.${key}.${nestedKey}.${index}` : `attributes.${key}.${nestedKey}`;
+      const evidence = specEvidence({ input, definition, value: text, source: "source_attribute", path });
+      return evidence ? [evidence] : [];
+    });
   });
 };
 
@@ -290,8 +341,6 @@ const attributeFeatureEvidence = (input: ProductVideoPresentationInput): Product
     return evidence ? [evidence] : [];
   });
 };
-
-const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const splitCandidateText = (text: string): string[] => {
   const normalized = normalizeProductVideoText(text);
@@ -346,6 +395,9 @@ const candidateRejection = (candidate: ProductVideoCandidateEvidence): Candidate
   if (isUnsupportedClaimText(candidate.text)) {
     return { reasonCode: "unsupported_claim_rejected", reason: "candidate contains unsupported superlative, guarantee, medical, warranty, or returns claim" };
   }
+  if (isRawSpecFragmentText(candidate.text)) {
+    return { reasonCode: "raw_fragment_rejected", reason: "candidate contains multiple product spec labels and appears to be an over-broad page fragment" };
+  }
   return undefined;
 };
 
@@ -359,6 +411,71 @@ const rejectedCandidate = (
   reason: rejection.reason,
   evidenceReferences: [candidate.evidenceReference]
 });
+
+const rejectedSpecValue = (args: {
+  input: ProductVideoPresentationInput;
+  value: string;
+  source: ProductVideoCandidateSource;
+  path: string;
+  label: string;
+}): ProductVideoRejectedCandidate[] => {
+  const normalized = normalizeProductVideoText(args.value);
+  if (!normalized) return [];
+  const candidate: ProductVideoCandidateEvidence = {
+    text: normalized,
+    source: args.source,
+    evidenceReference: referenceFor({
+      input: args.input,
+      source: args.source,
+      path: args.path,
+      label: args.label,
+      excerpt: normalized
+    })
+  };
+  const rejection = candidateRejection(candidate);
+  return rejection ? [rejectedCandidate(candidate, rejection)] : [];
+};
+
+const rejectedMetadataSpecValues = (input: ProductVideoPresentationInput): ProductVideoRejectedCandidate[] => {
+  const specs = input.metadata?.specs ?? {};
+  return Object.entries(specs).flatMap(([key, value]) => {
+    const definition = specDefinitionForKey(key);
+    if (!definition) return [];
+    return specValueToTexts(value).flatMap((entry, index) => {
+      const path = Array.isArray(value) ? `metadata.specs.${key}.${index}` : `metadata.specs.${key}`;
+      return rejectedSpecValue({ input, value: entry, source: "metadata_feature", path, label: definition.label });
+    });
+  });
+};
+
+const rejectedAttributeSpecValues = (input: ProductVideoPresentationInput): ProductVideoRejectedCandidate[] => {
+  const attributes = input.sourceRecord?.attributes ?? {};
+  const direct = SPEC_DEFINITIONS.flatMap((definition) => definition.aliases.flatMap((alias) => {
+    const rawValue = attributes[alias];
+    return jsonValueToSpecTexts(rawValue).flatMap((value, index) => {
+      const path = Array.isArray(rawValue) ? `attributes.${alias}.${index}` : `attributes.${alias}`;
+      return rejectedSpecValue({ input, value, source: "source_attribute", path, label: definition.label });
+    });
+  }));
+  const nested = ["specs", "specifications", "details"].flatMap((key) => {
+    const nestedRecord = jsonRecord(attributes[key]);
+    if (!nestedRecord) return [];
+    return Object.entries(nestedRecord).flatMap(([nestedKey, rawValue]) => {
+      const definition = specDefinitionForKey(nestedKey);
+      if (!definition) return [];
+      return jsonValueToSpecTexts(rawValue).flatMap((value, index) => {
+        const path = Array.isArray(rawValue) ? `attributes.${key}.${nestedKey}.${index}` : `attributes.${key}.${nestedKey}`;
+        return rejectedSpecValue({ input, value, source: "source_attribute", path, label: definition.label });
+      });
+    });
+  });
+  return [...direct, ...nested];
+};
+
+const rejectedSpecValues = (input: ProductVideoPresentationInput): ProductVideoRejectedCandidate[] => [
+  ...rejectedMetadataSpecValues(input),
+  ...rejectedAttributeSpecValues(input)
+];
 
 const dedupeSpecs = (specs: readonly ProductVideoSpecEvidence[]): ProductVideoSpecEvidence[] => {
   const seen = new Set<string>();
@@ -383,12 +500,15 @@ export const collectProductVideoEvidence = (input: ProductVideoPresentationInput
     const rejection = candidateRejection(candidate);
     return rejection ? [rejectedCandidate(candidate, rejection)] : [];
   });
+  const specRejectedCandidates = rejectedSpecValues(input);
+  const allRejectedCandidates = [...specRejectedCandidates, ...rejectedCandidates];
   return {
     specs,
-    rejectedCandidates,
+    rejectedCandidates: allRejectedCandidates,
     candidateCount: candidates.length,
-    marketplaceRejectedCount: rejectedCandidates.filter((entry) => entry.reasonCode === "marketplace_chrome_rejected").length,
-    unsupportedRejectedCount: rejectedCandidates.filter((entry) => entry.reasonCode === "unsupported_claim_rejected").length
+    marketplaceRejectedCount: allRejectedCandidates.filter((entry) => entry.reasonCode === "marketplace_chrome_rejected").length,
+    unsupportedRejectedCount: allRejectedCandidates.filter((entry) => entry.reasonCode === "unsupported_claim_rejected").length,
+    rawFragmentRejectedCount: allRejectedCandidates.filter((entry) => entry.reasonCode === "raw_fragment_rejected").length
   };
 };
 

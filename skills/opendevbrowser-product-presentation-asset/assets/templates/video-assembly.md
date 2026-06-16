@@ -14,8 +14,8 @@
 ## Readiness Gate
 
 - `manifest.readiness.presentation` and `manifest.readiness.productVideo` are the first production gate.
-- `product.json.presentationReadiness` mirrors the product-facing presentation gate.
-- JSON workflow output exposes the same gate through `meta.presentationReadiness` and `meta.productVideoReadiness`.
+- `product.json.presentationReadiness` and `product.json.productVideoReadiness` mirror the product-facing gates.
+- JSON workflow output exposes the same gates through `meta.presentationReadiness` and `meta.productVideoReadiness`.
 - Raw evidence remains audit input. It is not production copy or feature proof by itself.
 
 ## Assembly Steps

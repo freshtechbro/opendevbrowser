@@ -9,6 +9,7 @@ export type ProductVideoPresentationReasonCode =
   | "copy_omitted_by_request"
   | "missing_visual_assets"
   | "unsupported_claim_rejected"
+  | "raw_fragment_rejected"
   | "selected_record_changed"
   | "copy_generation_blocked";
 

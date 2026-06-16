@@ -18,6 +18,7 @@ import type {
 } from "./types";
 
 const DEFAULT_PRESENTATION_TITLE = "Product";
+const URL_TITLE_RE = /^https?:\/\/\S+$/i;
 
 const visualAssetCount = (input: ProductVideoPresentationInput): number => (
   (input.images?.length ?? 0) + (input.screenshots?.length ?? 0)
@@ -30,7 +31,7 @@ const selectedRecordChanged = (input: ProductVideoPresentationInput): boolean =>
 const cleanTitleCandidate = (value: string | undefined): string | undefined => {
   if (!value) return undefined;
   const normalized = normalizeProductVideoText(value);
-  return normalized && !isMarketplaceChromeText(normalized) ? normalized : undefined;
+  return normalized && !URL_TITLE_RE.test(normalized) && !isMarketplaceChromeText(normalized) ? normalized : undefined;
 };
 
 const presentationTitle = (input: ProductVideoPresentationInput): string => (
@@ -48,6 +49,10 @@ const generatedLeakCount = (
 const evidenceReferences = (
   promotedClaims: readonly ProductVideoPromotedClaim[]
 ) => promotedClaims.flatMap((claim) => claim.evidenceReferences);
+
+const promotedSpecKeyCount = (promotedClaims: readonly ProductVideoPromotedClaim[]): number => (
+  new Set(promotedClaims.map((claim) => claim.specKey)).size
+);
 
 const defaultCandidateSummaries = (
   input: ProductVideoPresentationInput,
@@ -72,9 +77,11 @@ export const buildProductVideoPresentation = (input: ProductVideoPresentationInp
   const readiness = evaluateProductVideoPresentationReadiness({
     includeCopy: input.includeCopy,
     promotedClaimCount: promotedClaims.length,
+    promotedSpecKeyCount: promotedSpecKeyCount(promotedClaims),
     visualAssetCount: visualAssetCount(input),
     marketplaceRejectedCount: evidence.marketplaceRejectedCount,
     unsupportedRejectedCount: evidence.unsupportedRejectedCount,
+    rawFragmentRejectedCount: evidence.rawFragmentRejectedCount,
     finalMarketplaceLeakCount: generatedLeakCount(title, promotedClaims),
     selectedRecordChanged: selectedRecordChanged(input)
   });
