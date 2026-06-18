@@ -62,8 +62,8 @@ for rel in assets/templates/validation-matrix.json assets/templates/challenge-de
   fi
 done
 
-parallel_alignment_section="$(awk '/^## Parallel Multitab Alignment/{flag=1; next} /^## /{flag=0} flag' "$skill_file")"
-if printf '%s\n' "$parallel_alignment_section" | tr -d '`' | grep -Eiq '((workflow|browser-mode)[^.]*cdpconnect|cdpconnect[^.]*workflow|cdpconnect[^.]*browser-mode)'; then
+skill_without_ticks="$(tr -d '`' < "$skill_file")"
+if printf '%s\n' "$skill_without_ticks" | grep -Eiq -- '((workflow|browser-mode)[^.]*cdpconnect|cdpconnect[^.]*workflow|cdpconnect[^.]*browser-mode|--browser-mode[[:space:]]+cdpconnect)'; then
   echo "Form testing skill must not present cdpConnect in workflow browser-mode guidance." >&2
   status=1
 fi

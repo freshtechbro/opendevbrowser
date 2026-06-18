@@ -517,6 +517,13 @@ describe("workflow skill packs", () => {
         dependencies: ["opendevbrowser-best-practices"]
       },
       {
+        skillName: "opendevbrowser-research",
+        relativePath: "SKILL.md",
+        mutate: (content) => `${content}\n## Stale Workflow Example\nRun with \`--browser-mode cdpConnect\` before release.\n`,
+        expectedError: "Research skill must not present cdpConnect in workflow browser-mode guidance.",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
         skillName: "opendevbrowser-login-automation",
         relativePath: "scripts/run-login-workflow.sh",
         mutate: (content) => content
