@@ -9,27 +9,27 @@ import { SkillLoader } from "../src/skills/skill-loader";
 const repoRoot = process.cwd();
 const bundledSkillsDir = join(repoRoot, "skills");
 
-type ResearchValidatorMutation = {
+type SkillValidatorMutation = {
+  skillName: string;
   relativePath: string;
   mutate: (content: string) => string;
   expectedError: string;
+  dependencies?: string[];
 };
 
-const runResearchValidatorWithMutation = async (mutation: ResearchValidatorMutation) => {
-  const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-research-validator-"));
+const runSkillValidatorWithMutation = async (mutation: SkillValidatorMutation) => {
+  const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-skill-validator-"));
   const tempSkillsDir = join(tempRoot, "skills");
-  const skillName = "opendevbrowser-research";
   try {
     await mkdir(tempSkillsDir, { recursive: true });
-    await cp(join(bundledSkillsDir, skillName), join(tempSkillsDir, skillName), { recursive: true });
-    await cp(
-      join(bundledSkillsDir, "opendevbrowser-best-practices"),
-      join(tempSkillsDir, "opendevbrowser-best-practices"),
-      { recursive: true }
-    );
-    const target = join(tempSkillsDir, skillName, mutation.relativePath);
+    const skillCopies = new Set([mutation.skillName, ...(mutation.dependencies ?? [])]);
+    for (const skillName of skillCopies) {
+      await cp(join(bundledSkillsDir, skillName), join(tempSkillsDir, skillName), { recursive: true });
+    }
+
+    const target = join(tempSkillsDir, mutation.skillName, mutation.relativePath);
     await writeFile(target, mutation.mutate(await readFile(target, "utf8")));
-    return spawnSync("/bin/bash", [join(tempSkillsDir, skillName, "scripts/validate-skill-assets.sh")], {
+    return spawnSync("/bin/bash", [join(tempSkillsDir, mutation.skillName, "scripts/validate-skill-assets.sh")], {
       cwd: tempRoot,
       encoding: "utf8",
       env: process.env
@@ -461,27 +461,116 @@ describe("workflow skill packs", () => {
   it("rejects research skill validator contract drift", async () => {
     if (process.platform === "win32") return;
 
-    const cases: ResearchValidatorMutation[] = [
+    const cases: SkillValidatorMutation[] = [
       {
+        skillName: "opendevbrowser-research",
         relativePath: "assets/templates/context.json",
         mutate: (content) => content.replace("bundle-manifest.json", "bundle-manifest.removed"),
-        expectedError: "assets/templates/context.json missing required marker: bundle-manifest.json"
+        expectedError: "assets/templates/context.json missing required marker: bundle-manifest.json",
+        dependencies: ["opendevbrowser-best-practices"]
       },
       {
+        skillName: "opendevbrowser-research",
         relativePath: "SKILL.md",
         mutate: (content) => `${content}\nauto is the recommended default\n`,
-        expectedError: "Research assets contain forbidden marker in SKILL.md: auto is the recommended default"
+        expectedError: "Research assets contain forbidden marker in SKILL.md: auto is the recommended default",
+        dependencies: ["opendevbrowser-best-practices"]
       },
       {
+        skillName: "opendevbrowser-research",
         relativePath: "artifacts/research-workflows.md",
         mutate: (content) => content.replace("Keep SERPs discovery-only", "Use SERPs as final support"),
-        expectedError: "artifacts/research-workflows.md missing required marker: Keep SERPs discovery-only"
+        expectedError: "artifacts/research-workflows.md missing required marker: Keep SERPs discovery-only",
+        dependencies: ["opendevbrowser-best-practices"]
       }
     ];
 
     for (const testCase of cases) {
-      const result = await runResearchValidatorWithMutation(testCase);
+      const result = await runSkillValidatorWithMutation(testCase);
       expect(result.status).not.toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(testCase.expectedError);
+    }
+  }, 60000);
+
+  it("rejects representative stale workflow validator mutations", async () => {
+    if (process.platform === "win32") return;
+
+    const cases: SkillValidatorMutation[] = [
+      {
+        skillName: "opendevbrowser-research",
+        relativePath: "scripts/validate-skill-assets.sh",
+        mutate: (content) => content.replace(
+          'context "web,community"',
+          'context "web,docs"'
+        ),
+        expectedError: "Invalid --sources value: docs",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-research",
+        relativePath: "SKILL.md",
+        mutate: (content) => content.replace(
+          "Run research workflow browser-mode sweeps with `auto`, `extension`, and `managed` where browser-backed evidence capture is used.",
+          "Run research workflow parity sweeps with `auto`, `extension`, and `cdpConnect` where browser-backed evidence capture is used."
+        ),
+        expectedError: "Research skill must not present cdpConnect in workflow browser-mode guidance.",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-login-automation",
+        relativePath: "scripts/run-login-workflow.sh",
+        mutate: (content) => content
+          .replace("fromX=<start-x>", "startX=<start-x>")
+          .replace("fromY=<start-y>", "startY=<start-y>")
+          .replace("toX=<end-x>", "endX=<end-x>")
+          .replace("toY=<end-y>", "endY=<end-y>"),
+        expectedError: "pointer-checkpoint workflow contains stale marker: startX="
+      },
+      {
+        skillName: "opendevbrowser-motion-design",
+        relativePath: "scripts/motion-workflow.sh",
+        mutate: (content) => content.replace(
+          "pointer-drag --session-id <session-id> --from-x <x> --from-y <y> --to-x <x2> --to-y <y2>",
+          "pointer-drag --session-id <session-id> --to-x <x2> --to-y <y2>"
+        ),
+        expectedError: "gesture-motion pointer-drag missing coordinate marker: --from-x <x>",
+        dependencies: ["opendevbrowser-best-practices", "opendevbrowser-design-agent"]
+      },
+      {
+        skillName: "opendevbrowser-form-testing",
+        relativePath: "scripts/run-form-workflow.sh",
+        mutate: (content) => content
+          .replace(
+            'opendevbrowser_upload sessionId="<session-id>" ref="<file-input-ref>" files=["<absolute-file-path>"]',
+            'opendevbrowser_click sessionId="<session-id>" ref="<file-input-ref>"'
+          )
+          .replace(
+            "# CLI equivalent: opendevbrowser upload --session-id <session-id> --ref <file-input-ref> --files <absolute-file-path>",
+            "# Click the file input and select a file manually."
+          ),
+        expectedError: "file-upload workflow missing marker: opendevbrowser_upload"
+      },
+      {
+        skillName: "opendevbrowser-product-presentation-asset",
+        relativePath: "scripts/write-manifest.sh",
+        mutate: (content) => content.replace(
+          [
+            '  "$manifest_out"',
+            '  "$bundle_path/presentation-readiness.json"',
+            '  "$bundle_path/product.json"',
+            '  "$bundle_path/copy.md"',
+            '  "$bundle_path/features.md"'
+          ].join("\n"),
+          '  "$manifest_out"'
+        ),
+        expectedError: "write-manifest.sh succeeded with missing adjacent sidecars.",
+        dependencies: ["opendevbrowser-best-practices"]
+      }
+    ];
+
+    for (const testCase of cases) {
+      const result = await runSkillValidatorWithMutation(testCase);
+      expect(result.status, `${testCase.skillName}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).not.toBe(0);
       expect(`${result.stdout}\n${result.stderr}`).toContain(testCase.expectedError);
     }
   }, 60000);
