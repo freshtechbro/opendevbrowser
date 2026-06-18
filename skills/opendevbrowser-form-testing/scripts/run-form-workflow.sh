@@ -60,9 +60,10 @@ FLOW
     ;;
   file-upload)
     cat <<'FLOW'
-# Validate upload constraints and submission behavior.
+# Validate upload constraints and submission behavior with the deterministic upload surface.
 opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
-opendevbrowser_click sessionId="<session-id>" ref="<file-input-ref>"
+opendevbrowser_upload sessionId="<session-id>" ref="<file-input-ref>" files=["<absolute-file-path>"]
+# CLI equivalent: opendevbrowser upload --session-id <session-id> --ref <file-input-ref> --files <absolute-file-path>
 opendevbrowser_network_poll sessionId="<session-id>" max=50
 FLOW
     ;;

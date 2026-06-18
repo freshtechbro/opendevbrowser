@@ -54,7 +54,8 @@ Use this skill for robust form automation across dynamic, multi-step, challenge-
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").
-- Validate form workflows in `managed`, `extension`, and `cdpConnect` paths before parity sign-off.
+- Validate form workflow browser-mode sweeps with `auto`, `extension`, and `managed` before parity sign-off.
+- For lower-level session parity, separately validate direct connect or CDP attach sessions where form tests use browser action tools.
 - Keep one session per worker and avoid alternating `target-use` inside one command stream.
 
 ## Robustness Coverage (Known-Issue Matrix)

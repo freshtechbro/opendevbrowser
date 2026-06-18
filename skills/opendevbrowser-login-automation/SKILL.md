@@ -61,7 +61,8 @@ Use this skill for deterministic auth testing that handles MFA and anti-bot chec
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").
-- Validate login paths across `managed`, `extension`, and `cdpConnect` before parity sign-off.
+- Validate login workflow browser-mode sweeps with `auto`, `extension`, and `managed` before parity sign-off.
+- For lower-level session parity, separately validate direct connect or CDP attach sessions where login tests use browser action tools.
 - Treat extension headless attempts as expected `unsupported_mode`; do not force unsupported auth runs.
 
 ## Robustness Coverage (Known-Issue Matrix)

@@ -25,6 +25,16 @@ require_marker() {
     status=1
   fi
 }
+
+reject_marker() {
+  local label="$1"
+  local output="$2"
+  local marker="$3"
+  if [[ "$output" == *"$marker"* ]]; then
+    echo "$label contains stale marker: $marker" >&2
+    status=1
+  fi
+}
 for rel in "${required[@]}"; do
   if [[ ! -f "$root/$rel" ]]; then
     echo "Missing required asset: $rel" >&2
@@ -51,6 +61,20 @@ for rel in assets/templates/validation-matrix.json assets/templates/challenge-de
     fi
   fi
 done
+
+parallel_alignment_section="$(awk '/^## Parallel Multitab Alignment/{flag=1; next} /^## /{flag=0} flag' "$skill_file")"
+if printf '%s\n' "$parallel_alignment_section" | tr -d '`' | grep -Eiq '((workflow|browser-mode)[^.]*cdpconnect|cdpconnect[^.]*workflow|cdpconnect[^.]*browser-mode)'; then
+  echo "Form testing skill must not present cdpConnect in workflow browser-mode guidance." >&2
+  status=1
+fi
+if ! grep -Fq 'form workflow browser-mode sweeps with `auto`, `extension`, and `managed`' "$skill_file"; then
+  echo "Form testing skill must document current workflow browser modes." >&2
+  status=1
+fi
+if ! grep -Fq "lower-level session parity" "$skill_file"; then
+  echo "Form testing skill must keep CDP attach guidance scoped to lower-level parity." >&2
+  status=1
+fi
 
 list_output="$("$root/scripts/run-form-workflow.sh" list)"
 for workflow_name in \
@@ -82,7 +106,18 @@ require_marker "dynamic-required workflow" "$dynamic_required_output" "opendevbr
 
 file_upload_output="$("$root/scripts/run-form-workflow.sh" file-upload)"
 require_marker "file-upload workflow" "$file_upload_output" "file-input-ref"
+require_marker "file-upload workflow" "$file_upload_output" "opendevbrowser_upload"
+require_marker "file-upload workflow" "$file_upload_output" "files=["
+require_marker "file-upload workflow" "$file_upload_output" "upload --session-id"
+require_marker "file-upload workflow" "$file_upload_output" "--files <absolute-file-path>"
 require_marker "file-upload workflow" "$file_upload_output" "opendevbrowser_network_poll"
+reject_marker "file-upload workflow" "$file_upload_output" "opendevbrowser_click sessionId=\"<session-id>\" ref=\"<file-input-ref>\""
+
+form_workflows="$(cat "$root/artifacts/form-workflows.md")"
+require_marker "form workflow artifact" "$form_workflows" "opendevbrowser_upload"
+require_marker "form workflow artifact" "$form_workflows" "upload --session-id"
+require_marker "form workflow artifact" "$form_workflows" "--files <absolute-file-path>"
+reject_marker "form workflow artifact" "$form_workflows" "Click the file input"
 
 if ! node - "$root" <<'NODE'
 const fs = require("node:fs");

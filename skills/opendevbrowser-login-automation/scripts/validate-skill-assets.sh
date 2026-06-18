@@ -26,6 +26,16 @@ require_marker() {
   fi
 }
 
+reject_marker() {
+  local label="$1"
+  local output="$2"
+  local marker="$3"
+  if [[ "$output" == *"$marker"* ]]; then
+    echo "$label contains stale marker: $marker" >&2
+    status=1
+  fi
+}
+
 for rel in "${required[@]}"; do
   if [[ ! -f "$root/$rel" ]]; then
     echo "Missing required asset: $rel" >&2
@@ -52,6 +62,20 @@ for rel in assets/templates/login-scenario-matrix.json assets/templates/auth-sig
     fi
   fi
 done
+
+parallel_alignment_section="$(awk '/^## Parallel Multitab Alignment/{flag=1; next} /^## /{flag=0} flag' "$skill_file")"
+if printf '%s\n' "$parallel_alignment_section" | tr -d '`' | grep -Eiq '((workflow|browser-mode)[^.]*cdpconnect|cdpconnect[^.]*workflow|cdpconnect[^.]*browser-mode)'; then
+  echo "Login automation skill must not present cdpConnect in workflow browser-mode guidance." >&2
+  status=1
+fi
+if ! grep -Fq 'login workflow browser-mode sweeps with `auto`, `extension`, and `managed`' "$skill_file"; then
+  echo "Login automation skill must document current workflow browser modes." >&2
+  status=1
+fi
+if ! grep -Fq "lower-level session parity" "$skill_file"; then
+  echo "Login automation skill must keep CDP attach guidance scoped to lower-level parity." >&2
+  status=1
+fi
 
 list_output="$("$root/scripts/run-login-workflow.sh" list)"
 for workflow_name in \
@@ -81,7 +105,14 @@ require_marker "challenge-checkpoint workflow" "$challenge_output" "opendevbrows
 
 pointer_output="$("$root/scripts/run-login-workflow.sh" pointer-checkpoint)"
 require_marker "pointer-checkpoint workflow" "$pointer_output" "opendevbrowser_pointer_drag"
+require_marker "pointer-checkpoint workflow" "$pointer_output" "fromX=<start-x>"
+require_marker "pointer-checkpoint workflow" "$pointer_output" "fromY=<start-y>"
+require_marker "pointer-checkpoint workflow" "$pointer_output" "toX=<end-x>"
+require_marker "pointer-checkpoint workflow" "$pointer_output" "toY=<end-y>"
 require_marker "pointer-checkpoint workflow" "$pointer_output" "steps=12"
+for stale_marker in "startX=" "startY=" "endX=" "endY="; do
+  reject_marker "pointer-checkpoint workflow" "$pointer_output" "$stale_marker"
+done
 
 challenge_loop_output="$("$root/scripts/run-login-workflow.sh" challenge-loop-guard)"
 require_marker "challenge-loop-guard workflow" "$challenge_loop_output" "Retry-After"

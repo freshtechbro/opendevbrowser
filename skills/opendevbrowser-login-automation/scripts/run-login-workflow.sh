@@ -77,7 +77,7 @@ FLOW
 opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
 opendevbrowser_pointer_move sessionId="<session-id>" x=<start-x> y=<start-y>
 opendevbrowser_pointer_down sessionId="<session-id>" x=<start-x> y=<start-y> button="left"
-opendevbrowser_pointer_drag sessionId="<session-id>" startX=<start-x> startY=<start-y> endX=<end-x> endY=<end-y> steps=12
+opendevbrowser_pointer_drag sessionId="<session-id>" fromX=<start-x> fromY=<start-y> toX=<end-x> toY=<end-y> steps=12
 opendevbrowser_pointer_up sessionId="<session-id>" x=<end-x> y=<end-y> button="left"
 # Resume only after challenge is solved.
 opendevbrowser_snapshot sessionId="<session-id>" format="actionables"
