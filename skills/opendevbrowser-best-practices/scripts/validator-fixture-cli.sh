@@ -37,6 +37,22 @@ function emitJson(payload) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
 }
 
+function validateResearchSources(rawSources) {
+  const allowedSources = new Set(["web", "community", "social", "shopping"]);
+  const sources = rawSources
+    .split(",")
+    .map((source) => source.trim().toLowerCase())
+    .filter(Boolean);
+  if (sources.length === 0) {
+    fail("--sources requires at least one source");
+  }
+  for (const source of new Set(sources)) {
+    if (!allowedSources.has(source)) {
+      fail(`Invalid --sources value: ${source}`);
+    }
+  }
+}
+
 function buildShoppingOffers(query) {
   return [
     {
@@ -107,7 +123,8 @@ if (domain === "research" && command === "run") {
   const mode = String(flags.mode || "context");
   const outputDir = typeof flags.outputDir === "string" ? flags.outputDir : "";
   const sourceSelection = String(flags.sourceSelection || "auto");
-  const sources = String(flags.sources || "web,docs");
+  const sources = String(flags.sources || "web,community");
+  validateResearchSources(sources);
 
   if (mode === "path") {
     if (!outputDir) {

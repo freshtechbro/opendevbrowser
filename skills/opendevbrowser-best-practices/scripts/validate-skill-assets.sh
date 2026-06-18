@@ -7,6 +7,7 @@ skill_file="$skill_root/SKILL.md"
 node - "$skill_root" "$skill_file" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
 const [skillRoot, skillFile] = process.argv.slice(2);
@@ -165,6 +166,26 @@ const failures = [];
 
 const readUtf8 = (relPath) => fs.readFileSync(path.join(skillRoot, relPath), "utf8");
 const hasMarker = (content, marker) => content.includes(marker);
+const requireResearchFixtureRejectsDocsSource = () => {
+  const fixturePath = path.join(skillRoot, "scripts/validator-fixture-cli.sh");
+  if (!fs.existsSync(fixturePath)) return;
+  const fixture = fs.readFileSync(fixturePath, "utf8");
+  const staleSourcePair = ["web", "docs"].join(",");
+  if (fixture.includes(staleSourcePair)) {
+    failures.push("Validator fixture contains stale concrete research source pair.");
+  }
+  const result = spawnSync(
+    fixturePath,
+    ["research", "run", "--topic", "fixture topic", "--mode", "context", "--sources", "docs"],
+    { encoding: "utf8" }
+  );
+  const combinedOutput = `${result.stdout || ""}\n${result.stderr || ""}`;
+  if (result.status === 0) {
+    failures.push("Validator fixture accepted invalid concrete research source: docs.");
+  } else if (!combinedOutput.includes("Invalid --sources value: docs")) {
+    failures.push("Validator fixture invalid source rejection missing expected diagnostics.");
+  }
+};
 (async () => {
   const { getSurfaceCounts } = await import(pathToFileURL(path.join(repoRoot, "scripts", "docs-drift-check.mjs")).href);
   const { getBundledSkillDirectoryPackIds } = await import(pathToFileURL(path.join(repoRoot, "scripts", "skill-runtime-scenarios.mjs")).href);
@@ -285,6 +306,8 @@ const hasMarker = (content, marker) => content.includes(marker);
       failures.push(`Invalid JSON template: ${relPath}`);
     }
   }
+
+  requireResearchFixtureRejectsDocsSource();
 
   const packMatrixPath = path.join(skillRoot, "assets/templates/skill-runtime-pack-matrix.json");
   if (fs.existsSync(packMatrixPath)) {

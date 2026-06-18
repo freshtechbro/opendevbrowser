@@ -172,6 +172,20 @@ for marker in "${forbidden_markers[@]}"; do
   reject_forbidden_marker "$marker"
 done
 
+parallel_alignment_section="$(awk '/^## Parallel Multitab Alignment/{flag=1; next} /^## /{flag=0} flag' "$skill_file")"
+if printf '%s\n' "$parallel_alignment_section" | tr -d '`' | grep -Eiq '((workflow|browser-mode)[^.]*cdpconnect|cdpconnect[^.]*workflow|cdpconnect[^.]*browser-mode)'; then
+  echo "Research skill must not present cdpConnect in workflow browser-mode guidance." >&2
+  status=1
+fi
+if ! grep -Fq 'research workflow browser-mode sweeps with `auto`, `extension`, and `managed`' "$skill_file"; then
+  echo "Research skill must document current workflow browser modes." >&2
+  status=1
+fi
+if ! grep -Fq "lower-level attach parity" "$skill_file"; then
+  echo "Research skill must keep CDP attach guidance scoped to lower-level parity." >&2
+  status=1
+fi
+
 if [[ -f "$root/assets/templates/context.json" ]]; then
   if ! node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$root/assets/templates/context.json" >/dev/null 2>&1; then
     echo "Invalid JSON template: assets/templates/context.json" >&2
@@ -179,9 +193,17 @@ if [[ -f "$root/assets/templates/context.json" ]]; then
   fi
 fi
 
-context_output="$("$root/scripts/run-research.sh" "ai browser automation" 30 context "web,docs")"
+context_output="$("$root/scripts/run-research.sh" "ai browser automation" 30 context "web,community")"
 require_marker "run-research context" "$context_output" "# Research Context"
 require_marker "run-research context" "$context_output" "ISSUE-09"
+
+if invalid_sources_output="$("$root/scripts/run-research.sh" "ai browser automation" 30 context "docs" 2>&1)"; then
+  echo "run-research accepted invalid concrete source: docs" >&2
+  status=1
+elif [[ "$invalid_sources_output" != *"Invalid --sources value: docs"* ]]; then
+  echo "run-research invalid source rejection missing expected diagnostics." >&2
+  status=1
+fi
 
 report_output="$("$root/scripts/render-output.sh" "ai browser automation" report)"
 require_marker "render-output report" "$report_output" "# Research Report"
