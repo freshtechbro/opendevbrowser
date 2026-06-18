@@ -33,8 +33,11 @@ Use this skill to build product-video input packs and readiness-gated assembly i
 ```bash
 ./skills/opendevbrowser-product-presentation-asset/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-product-presentation-asset/scripts/collect-product.sh "https://example.com/product/123"
-./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh /path/to/manifest.json /tmp/product-video-brief
+./skills/opendevbrowser-product-presentation-asset/scripts/write-manifest.sh "https://example.com/product/123" /tmp/product-video-pack
+./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh /path/to/bundle/manifest.json /tmp/product-video-brief
 ```
+
+Use the bundle `manifest.json` path printed by `write-manifest.sh`; required sidecars must be adjacent to that manifest.
 
 ## Supporting Surfaces
 
@@ -86,7 +89,8 @@ Helper behavior:
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").
-- Validate asset capture flows across `managed`, `extension`, and `cdpConnect` when browser capture is involved.
+- Validate product-video workflow browser-mode sweeps with `auto`, `extension`, and `managed` when browser capture is involved.
+- For lower-level attach parity, separately validate direct connect or CDP attach sessions where asset capture uses browser action tools.
 - Keep one session per worker for concurrent product-page captures; avoid target-switch thrash in one session.
 
 ## How to Combine the Assets
