@@ -45,7 +45,8 @@ Use this skill to extract structured, auditable datasets from dynamic pages with
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").
-- Run extraction acceptance on `managed`, `extension`, and `cdpConnect` before claiming mode parity.
+- Run extraction acceptance on `auto`, `extension`, and `managed` when using workflow browser-mode sweeps.
+- For lower-level attach parity, separately validate direct connect or CDP attach sessions where extraction uses browser action tools.
 - Keep one session per worker; avoid interleaving `target-use` streams inside a single session.
 
 ## Robustness Coverage (Known-Issue Matrix)

@@ -796,10 +796,13 @@ export function runDocsDriftChecks() {
 
   checks.push({
     id: "skill.continuity_ledger.core_markers_documented",
-    ok: continuitySkill.includes("CONTINUITY.md")
+    ok: continuitySkill.includes("opendevbrowser_continuity.md")
+      && continuitySkill.includes("continuity.filePath")
+      && continuitySkill.includes("CONTINUITY.md")
+      && continuitySkill.includes("repo-policy override")
       && continuitySkill.includes("sub_continuity.md")
       && continuitySkill.includes("Reply Pattern"),
-    detail: "continuity-ledger skill must document ledger files and the reply pattern."
+    detail: "continuity-ledger skill must document runtime default, override policy, ledger files, and the reply pattern."
   });
 
   checks.push({

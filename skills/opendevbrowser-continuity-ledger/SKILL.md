@@ -1,12 +1,12 @@
 ---
 name: opendevbrowser-continuity-ledger
-description: This skill should be used when the user asks to "track continuity", "resume a long task", "maintain CONTINUITY.md", or run multi-step work that may span context compaction.
+description: This skill should be used when the user asks to track continuity, resume a long task, maintain opendevbrowser_continuity.md or a configured continuity ledger, or run multi-step work that may span context compaction.
 version: 1.2.0
 ---
 
 # OpenDevBrowser Continuity Ledger
 
-Use this guide to maintain compaction-safe project state in `CONTINUITY.md`.
+Use this guide to maintain compaction-safe project state in the configured continuity ledger. Runtime default: `opendevbrowser_continuity.md`. Override it with `continuity.filePath` when project guidance requires another ledger name such as `CONTINUITY.md`.
 
 Validation helper:
 
@@ -22,23 +22,30 @@ Use this skill when any of these are true:
 
 Start with `opendevbrowser-best-practices` quick start for execution. Switch here once continuity tracking is required.
 
+## Ledger Filename Policy
+
+- Use `opendevbrowser_continuity.md` unless `continuity.filePath` or explicit project guidance selects another path.
+- Treat `CONTINUITY.md` as a repo-policy override only when project guidance or configuration explicitly names it.
+- Keep `sub_continuity.md` as the sub-agent note convention unless project guidance says otherwise.
+
 ## Ownership Rules
 
 Apply these rules exactly:
 
-- Allow only the main orchestrator agent to edit `CONTINUITY.md`.
-- Instruct sub-agents to never edit `CONTINUITY.md`.
+- Allow only the main orchestrator agent to edit the configured continuity ledger.
+- Instruct sub-agents to never edit the configured continuity ledger.
 - Require sub-agents to append their outcomes to `sub_continuity.md`.
-- If `CONTINUITY.md` is modified incorrectly by another agent, restore it immediately and continue.
+- If the configured continuity ledger is modified incorrectly by another agent, restore it immediately and continue.
 
 ## Start-of-Turn Protocol
 
 Run this sequence at the beginning of each turn:
 
-1. Read `CONTINUITY.md`.
-2. Read `sub_continuity.md`.
-3. Update `CONTINUITY.md` to reflect the current goal, constraints, decisions, and execution state.
-4. Proceed with implementation.
+1. Resolve the ledger path from `continuity.filePath`; use `opendevbrowser_continuity.md` when no override is configured.
+2. Read the configured continuity ledger.
+3. Read `sub_continuity.md` when present.
+4. Update the configured continuity ledger to reflect the current goal, constraints, decisions, and execution state.
+5. Proceed with implementation.
 
 If recall is incomplete, rebuild from visible context, mark gaps `UNCONFIRMED`, then continue.
 
@@ -62,7 +69,7 @@ Goal (incl. success criteria):
 
 ## Update Triggers
 
-Update `CONTINUITY.md` whenever one of these changes:
+Update the configured continuity ledger whenever one of these changes:
 
 - Goal or success criteria
 - Constraints or assumptions
@@ -76,7 +83,10 @@ Keep entries factual and concise. Avoid transcript-style logging.
 
 The validator must confirm all of these remain documented:
 
-- `CONTINUITY.md` and `sub_continuity.md` ownership boundaries
+- runtime default `opendevbrowser_continuity.md`
+- `continuity.filePath` override policy
+- `CONTINUITY.md` as an explicit repo-policy override, not the universal runtime default
+- `sub_continuity.md` ownership boundary
 - start-of-turn read and update protocol
 - required ledger headings and `UNCONFIRMED` handling
 - reply pattern with a short ledger snapshot before the main answer

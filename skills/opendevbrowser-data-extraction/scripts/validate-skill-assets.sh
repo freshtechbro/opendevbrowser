@@ -43,6 +43,20 @@ for rel in scripts/run-extraction-workflow.sh scripts/validate-skill-assets.sh; 
   fi
 done
 
+parallel_alignment_section="$(awk '/^## Parallel Multitab Alignment/{flag=1; next} /^## /{flag=0} flag' "$skill_file")"
+if printf '%s\n' "$parallel_alignment_section" | tr -d '`' | grep -Eiq '((workflow|browser-mode)[^.]*cdpconnect|cdpconnect[^.]*workflow|cdpconnect[^.]*browser-mode)'; then
+  echo "Data extraction skill must not present cdpConnect in workflow browser-mode guidance." >&2
+  status=1
+fi
+if ! grep -Fq 'extraction acceptance on `auto`, `extension`, and `managed` when using workflow browser-mode sweeps' "$skill_file"; then
+  echo "Data extraction skill must document current workflow browser modes where sweeps are mentioned." >&2
+  status=1
+fi
+if ! grep -Fq "lower-level attach parity" "$skill_file"; then
+  echo "Data extraction skill must keep CDP attach guidance scoped to lower-level parity." >&2
+  status=1
+fi
+
 for rel in assets/templates/extraction-schema.json assets/templates/pagination-state.json assets/templates/quality-gates.json; do
   if [[ -f "$root/$rel" ]]; then
     if ! node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$root/$rel" >/dev/null 2>&1; then

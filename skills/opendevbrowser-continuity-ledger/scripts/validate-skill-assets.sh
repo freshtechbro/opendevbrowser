@@ -13,9 +13,12 @@ const failures = [];
 
 const requiredMarkers = [
   "scripts/validate-skill-assets.sh",
+  "opendevbrowser_continuity.md",
+  "continuity.filePath",
   "CONTINUITY.md",
+  "repo-policy override only when project guidance or configuration explicitly names it",
   "sub_continuity.md",
-  "Allow only the main orchestrator agent to edit `CONTINUITY.md`.",
+  "Allow only the main orchestrator agent to edit the configured continuity ledger.",
   "Run this sequence at the beginning of each turn:",
   "Goal (incl. success criteria):",
   "Constraints/Assumptions:",
@@ -35,10 +38,11 @@ for (const marker of requiredMarkers) {
 }
 
 const turnSteps = [
-  "1. Read `CONTINUITY.md`.",
-  "2. Read `sub_continuity.md`.",
-  "3. Update `CONTINUITY.md` to reflect the current goal, constraints, decisions, and execution state.",
-  "4. Proceed with implementation."
+  "1. Resolve the ledger path from `continuity.filePath`; use `opendevbrowser_continuity.md` when no override is configured.",
+  "2. Read the configured continuity ledger.",
+  "3. Read `sub_continuity.md` when present.",
+  "4. Update the configured continuity ledger to reflect the current goal, constraints, decisions, and execution state.",
+  "5. Proceed with implementation."
 ];
 for (const step of turnSteps) {
   if (!content.includes(step)) {

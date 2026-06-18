@@ -90,7 +90,8 @@ The helper script `scripts/analyze-market.sh` can be used for offline analysis o
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").
-- Validate shopping workflows across `managed`, `extension`, and `cdpConnect` when browser-backed provider paths are exercised.
+- Validate shopping workflow browser-mode sweeps with `auto`, `extension`, and `managed` when browser-backed provider paths are exercised.
+- For lower-level attach parity, separately validate direct connect or CDP attach sessions where shopping uses browser action tools.
 - Keep one session per worker for parallel offer collection and avoid session-level target contention.
 - For browser-backed release proof and mode sweeps, follow the canonical direct-run evidence policy in `../opendevbrowser-best-practices/SKILL.md`.
 
