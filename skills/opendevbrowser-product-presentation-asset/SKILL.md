@@ -106,7 +106,7 @@ Helper behavior:
 - `success:true`, `ok:true`, or an artifact path means the workflow wrote files. It does not by itself mean production-ready.
 - `presentation-readiness.json.summary.status`, `manifest.readiness.presentation.status`, and `manifest.readiness.productVideo.status` are the production gates.
 - Raw evidence is preserved for audit and debugging. It must not be copied into creator scripts unless promoted through readiness-backed claims.
-- Marketplace chrome, seller language, shipping, returns, condition, and unsupported superlatives are rejected unless they are explicitly promoted as evidence-backed product claims.
+- Marketplace chrome, site navigation, catalog labels, seller language, shipping, returns, condition, and unsupported superlatives are rejected unless they are explicitly promoted as evidence-backed product claims.
 - Keep partial and fail reason codes visible in every handoff so downstream editors know what still needs review.
 
 ## Robustness Coverage (Known-Issue Matrix)

@@ -4675,7 +4675,7 @@ const inferBrandFromContent = (content: string | undefined, productUrl?: string)
   if (isEbayProduct) {
     return undefined;
   }
-  const brandMatch = /\bBrand ([A-Z][A-Za-z0-9&+' -]{1,60})\b/i.exec(normalized);
+  const brandMatch = /\bBrand\s+([A-Z][A-Za-z0-9&+' -]{1,60}?)(?=\s+(?:About this item|Key item features|Condition|Type|Maximum DPI|Connectivity|Features|Model|MPN|Color|Quantity|Seller|Returns|Shipping|Buy It Now|Item Width|Item Height|Number of Buttons)\b|$)/i.exec(normalized);
   if (brandMatch?.[1]) {
     return brandMatch[1].trim();
   }
@@ -4757,12 +4757,16 @@ const inferEbayBrandFromTitle = (title: string | undefined): string | undefined 
   return brand;
 };
 
-const inferLabeledTitleFromContent = (normalized: string, productUrl?: string): string | undefined => {
+const productSpecBoundaryIndex = (normalized: string): number => {
   const boundaryIndexes = [
     normalized.search(/\s+(?=(?:Key item features\b|(?:Brand|Condition|Type|Maximum DPI|Connectivity|Features|Model|MPN|Color|Item Width|Item Height|Number of Buttons)\b\s*:))/i),
     normalized.search(/\s+(?=(?:Brand|Condition|Type|Connectivity|Features|Model|MPN|Color|Item Width|Item Height|Number of Buttons)\s+[A-Z0-9]|\bMaximum DPI\s+\d)/)
   ].filter((index) => index >= 0);
-  const boundaryIndex = boundaryIndexes.length > 0 ? Math.min(...boundaryIndexes) : -1;
+  return boundaryIndexes.length > 0 ? Math.min(...boundaryIndexes) : -1;
+};
+
+const inferLabeledTitleFromContent = (normalized: string, productUrl?: string): string | undefined => {
+  const boundaryIndex = productSpecBoundaryIndex(normalized);
   if (boundaryIndex <= 0) return undefined;
   const framed = normalizePlainText(normalized.slice(0, boundaryIndex))
     .replace(/^(?:(?:Skip to main content|Main content|Product details|About this item|Key item features)\s+)+/i, "")
@@ -4806,8 +4810,14 @@ const inferTitleFromContent = (content: string | undefined, productUrl?: string)
   return candidate;
 };
 
+const trimProductSpecBoundaryTail = (candidate: string): string => {
+  const normalized = normalizePlainText(candidate).replace(/^Brand\s*[:\-]?\s+/i, "");
+  const boundaryIndex = productSpecBoundaryIndex(normalized);
+  return normalizePlainText(boundaryIndex > 0 ? normalized.slice(0, boundaryIndex) : normalized);
+};
+
 const sanitizeProductBrandCandidate = (candidate: string | undefined, productUrl: string): string | undefined => {
-  const normalized = normalizePlainText(candidate);
+  const normalized = trimProductSpecBoundaryTail(candidate ?? "");
   if (!normalized) return undefined;
   try {
     const host = new URL(productUrl).hostname.toLowerCase();
@@ -5467,7 +5477,7 @@ const updateProductVideoSelectedCandidateSummary = (
   const selectedSummary = {
     recordId: selectedRecord.id,
     provider: selectedRecord.provider,
-    ...(selectedRecord.title ? { title: selectedRecord.title } : {}),
+    ...(presentation.title ? { title: presentation.title } : {}),
     cleanSpecCount: presentation.promotedClaims.length,
     rejectedCandidateCount: presentation.rejectedCandidates.length
   };
@@ -5495,7 +5505,11 @@ const productVideoReadinessPromotedClaimSummaries = (
   promotedClaims: readonly ProductVideoPromotedClaim[]
 ) => promotedClaims.map((claim) => ({
   ...claim,
+  claimHash: hash(claim.claim),
+  claimLength: claim.claim.length,
   claim: toSnippet(claim.claim, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS),
+  specValueHash: hash(claim.specValue),
+  specValueLength: claim.specValue.length,
   specValue: toSnippet(claim.specValue, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS),
   evidenceReferences: productVideoReadinessEvidenceReferenceSummaries(claim.evidenceReferences)
 }));
@@ -5505,8 +5519,15 @@ const productVideoReadinessRejectedCandidateSummaries = (presentation: ProductVi
     source: candidate.source,
     reasonCode: candidate.reasonCode,
     reason: candidate.reason,
-    candidateExcerpt: toSnippet(candidate.candidate, PRODUCT_VIDEO_READINESS_CANDIDATE_EXCERPT_CHARS),
-    evidenceReferences: productVideoReadinessEvidenceReferenceSummaries(candidate.evidenceReferences)
+    candidateHash: hash(candidate.candidate),
+    evidenceReferenceCount: candidate.evidenceReferences.length,
+    evidenceReferences: candidate.evidenceReferences.map((reference) => ({
+      ...(reference.recordId ? { recordId: reference.recordId } : {}),
+      ...(reference.provider ? { provider: reference.provider } : {}),
+      source: reference.source,
+      path: reference.path,
+      label: reference.label
+    }))
   }))
 );
 
@@ -6965,7 +6986,7 @@ export const runProductVideoWorkflow = async (
 
   const productPayload = {
     title: presentation.title,
-    brand: resolvedBrand,
+    brand: presentation.brand ?? "unknown",
     provider: providerHint ?? primary.provider,
     url: productUrl,
     features: presentation.features,

@@ -1,5 +1,6 @@
 export { buildProductVideoPresentation } from "./synthesis";
 export { evaluateProductVideoPresentationReadiness, evaluateProductVideoReadiness } from "./gate";
+export { countPublicProductVideoIdentityViolations, countPublicProductVideoTextViolations } from "./rules";
 export { renderProductVideoCopyMarkdown, renderProductVideoFeaturesMarkdown } from "./render";
 export type {
   ProductVideoCandidateSource,

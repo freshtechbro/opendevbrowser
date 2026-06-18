@@ -54,18 +54,21 @@ interface ProductVideoReadinessSummary {
 
 Initial reason-code namespace:
 - `marketplace_chrome_rejected`
+- `site_chrome_rejected`
 - `positive_spec_promoted`
 - `insufficient_clean_feature_evidence`
 - `copy_omitted_by_request`
 - `missing_visual_assets`
 - `unsupported_claim_rejected`
+- `raw_fragment_rejected`
 - `selected_record_changed`
+- `title_fallback_used`
 - `copy_generation_blocked`
 
 Readiness statuses:
 - `pass`: clean evidence supports presentation copy, benefit bullets, and no blocking marketplace-chrome leakage.
 - `partial`: useful evidence exists but copy was omitted, too few benefits were found, visuals are missing, or non-blocking warnings constrain production use.
-- `fail`: no clean product benefit evidence can be promoted, or final copy/features would rely on marketplace chrome.
+- `fail`: no clean product benefit evidence can be promoted, or final copy/features would rely on marketplace chrome, site chrome, unsupported claims, or raw page fragments.
 
 `include_copy=false` decision:
 - Preserve opt-out intent by not generating creative copy.
@@ -83,7 +86,7 @@ Record/evidence identity:
 ## Architecture Critique
 The current architecture correctly preserves raw evidence but conflates extraction with publishable presentation writing. `runProductVideoWorkflow()` selects a primary record, derives raw-ish features and copy, and writes them directly to user-facing artifacts. That shortcut makes string filters such as `sanitizeFeatureList()` the de facto quality gate, which is not enough for product-presentation output.
 
-The right fix is raw/presentation separation. Provider collection and raw records should continue to preserve page evidence, including noisy marketplace text. The presentation compiler should read that evidence, reject marketplace chrome, promote clean specs into conservative benefits, emit readiness metadata, and abstain when evidence is insufficient.
+The right fix is raw/presentation separation. Provider collection and raw records should continue to preserve page evidence, including noisy marketplace and site navigation text. The presentation compiler should read that evidence, reject marketplace and site chrome, promote clean specs into conservative benefits, emit readiness metadata, and abstain when evidence is insufficient.
 
 Alternatives rejected:
 - Do not rewrite shopping/provider collection in this plan. Collection can improve later, but raw noisy text is still valid audit evidence.
@@ -165,7 +168,7 @@ Dependencies: None.
 Acceptance criteria:
 - Current code fails the new presentation compiler tests.
 - Current code fails the noisy eBay workflow artifact test.
-- Tests assert both absence of marketplace chrome and presence of promoted clean specs.
+- Tests assert absence of marketplace/site chrome and presence of promoted clean specs.
 - Tests assert `raw/source-record.json` preserves original noisy evidence.
 
 ## Task 2 - Add The Pure Presentation Compiler
@@ -283,7 +286,7 @@ Files impacted: generated `.opendevbrowser/**` artifacts only.
 Dependencies: Task 6.
 Acceptance criteria:
 - All full gates pass with zero errors and zero warnings.
-- Live bundle has no marketplace chrome in `copy.md` or `features.md`.
+- Live bundle has no marketplace or site chrome in `copy.md` or `features.md`.
 - Clean specs are promoted when present.
 - Readiness metadata matches inspected artifact quality.
 - Raw source evidence remains preserved.

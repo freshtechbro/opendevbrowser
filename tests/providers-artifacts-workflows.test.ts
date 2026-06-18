@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "fs/promises";
 import { basename, dirname, join, resolve } from "path";
 import { tmpdir } from "os";
@@ -32,6 +33,8 @@ const toRuntime = (handlers: {
   search: handlers.search,
   fetch: handlers.fetch
 });
+
+const summaryHash = (value: string): string => createHash("sha1").update(value).digest("hex").slice(0, 16);
 
 const RESEARCH_ARTIFACT_FILES = [
   "summary.md",
@@ -2089,7 +2092,7 @@ describe("artifact and workflow runtime", () => {
       reasonCodes: expect.arrayContaining(["selected_record_changed", "positive_spec_promoted"])
     });
     expect(product.features?.join("\n")).toMatch(/Vertical Mouse/i);
-    expect(product.copy).toMatch(/captured product details/i);
+    expect(product.copy).toMatch(/presentation highlights verified product details/i);
 
     const readinessRaw = await readFile(join(outputByUrlPath, "presentation-readiness.json"), "utf8");
     const readiness = JSON.parse(readinessRaw) as {
@@ -2097,6 +2100,7 @@ describe("artifact and workflow runtime", () => {
       originalPrimaryRecordId?: string;
       candidateSummaries?: Array<{
         recordId?: string;
+        title?: string;
         cleanSpecCount?: number;
         rejectedCandidateCount?: number;
       }>;
@@ -2116,6 +2120,9 @@ describe("artifact and workflow runtime", () => {
         cleanSpecCount: 0
       })
     ]));
+    expect(readiness.candidateSummaries?.some((summary) => (
+      /Quantity 1 available Buy It Now/i.test(summary.title ?? "")
+    ))).toBe(false);
     const selectedCandidateSummary = readiness.candidateSummaries?.find((summary) => summary.recordId === "product-1");
     expect(selectedCandidateSummary?.cleanSpecCount).toBeGreaterThanOrEqual(4);
 
@@ -2147,7 +2154,6 @@ describe("artifact and workflow runtime", () => {
   it("persists bounded product-video readiness summaries for noisy marketplace records", async () => {
     const outputRoot = await makeWorkspaceDir("odb-product-noisy-");
     const repeatedChromeFragments = 40;
-    const maxCandidateExcerptLength = 180;
     const longMarketplaceText = [
       "Quantity 1 available",
       "Condition: New: A brand-new unused unopened item",
@@ -2201,7 +2207,12 @@ describe("artifact and workflow runtime", () => {
     const readinessRaw = await readFile(join(outputPath, "presentation-readiness.json"), "utf8");
     const rawSourceRaw = await readFile(join(outputPath, "raw/source-record.json"), "utf8");
     const readiness = JSON.parse(readinessRaw) as {
-      rejectedCandidates?: Array<{ candidateExcerpt?: string }>;
+      rejectedCandidates?: Array<{
+        candidateHash?: string;
+        candidateExcerpt?: string;
+        evidenceReferenceCount?: number;
+        evidenceReferences?: Array<{ excerpt?: string; path?: string }>;
+      }>;
       summary?: { status?: string };
     };
     const publicMarkdown = [copyMarkdown, featuresMarkdown].join("\n");
@@ -2211,7 +2222,13 @@ describe("artifact and workflow runtime", () => {
     expect(publicMarkdown).not.toMatch(/Returns accepted/i);
     expect(readiness.summary?.status).toBe("fail");
     expect(readinessRaw).not.toContain(longMarketplaceText);
-    expect(readiness.rejectedCandidates?.[0]?.candidateExcerpt?.length).toBeLessThanOrEqual(maxCandidateExcerptLength);
+    expect(readinessRaw).not.toMatch(/Seller feedback|Buy It Now|Returns accepted/i);
+    expect(readiness.rejectedCandidates?.[0]?.candidateHash).toMatch(/^[a-f0-9]{16}$/);
+    expect(readiness.rejectedCandidates?.[0]?.candidateExcerpt).toBeUndefined();
+    expect(readiness.rejectedCandidates?.[0]?.evidenceReferenceCount).toBeGreaterThan(0);
+    expect(readiness.rejectedCandidates?.[0]?.evidenceReferences?.some((reference) => (
+      "excerpt" in reference
+    ))).toBe(false);
     expect(rawSourceRaw).toContain(longMarketplaceText);
   });
 
@@ -2274,7 +2291,14 @@ describe("artifact and workflow runtime", () => {
     const rawSourceRaw = await readFile(join(outputPath, "raw/source-record.json"), "utf8");
     const readiness = JSON.parse(readinessRaw) as {
       candidateSummaries?: Array<{ title?: string }>;
-      promotedClaims?: Array<{ claim?: string; specValue?: string }>;
+      promotedClaims?: Array<{
+        claim?: string;
+        claimHash?: string;
+        claimLength?: number;
+        specValue?: string;
+        specValueHash?: string;
+        specValueLength?: number;
+      }>;
     };
 
     expect(readinessRaw).not.toContain(longCandidateTitle);
@@ -2288,6 +2312,14 @@ describe("artifact and workflow runtime", () => {
       (claim.claim?.length ?? 0) <= maxSummaryExcerptLength
       && (claim.specValue?.length ?? 0) <= maxSummaryExcerptLength
     ))).toBe(true);
+    const expectedFeatureClaim = `${longFeatureValue.charAt(0).toUpperCase()}${longFeatureValue.slice(1)}.`;
+    const boundedFeatureClaim = readiness.promotedClaims?.find((claim) => claim.specValue?.endsWith("…"));
+    expect(boundedFeatureClaim).toEqual(expect.objectContaining({
+      claimHash: summaryHash(expectedFeatureClaim),
+      claimLength: expectedFeatureClaim.length,
+      specValueHash: summaryHash(longFeatureValue),
+      specValueLength: longFeatureValue.length
+    }));
   });
 
   it("stores default product-video artifacts under the workspace product-video directory", async () => {

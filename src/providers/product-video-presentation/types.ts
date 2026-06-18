@@ -4,6 +4,7 @@ export type ProductVideoReadinessStatus = "pass" | "partial" | "fail";
 
 export type ProductVideoPresentationReasonCode =
   | "marketplace_chrome_rejected"
+  | "site_chrome_rejected"
   | "positive_spec_promoted"
   | "insufficient_clean_feature_evidence"
   | "copy_omitted_by_request"
@@ -11,6 +12,7 @@ export type ProductVideoPresentationReasonCode =
   | "unsupported_claim_rejected"
   | "raw_fragment_rejected"
   | "selected_record_changed"
+  | "title_fallback_used"
   | "copy_generation_blocked";
 
 export type ProductVideoSupportedSpecKey = "type" | "maximum_dpi" | "connectivity" | "features";

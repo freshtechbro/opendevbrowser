@@ -1285,7 +1285,10 @@ describe("workflow branch coverage", () => {
 
     expect(
       workflowTestUtils.inferBrandFromContent("Brand Acme Audio keeps setup simple for travel.")
-    ).toBe("Acme Audio keeps setup simple for travel");
+    ).toBeUndefined();
+    expect(
+      workflowTestUtils.inferBrandFromContent("Brand Acme Audio Type Wireless Speaker")
+    ).toBe("Acme Audio");
 
     expect(workflowTestUtils.isValidHttpUrl("http://shop.example/item")).toBe(true);
     expect(workflowTestUtils.isValidHttpUrl("https://shop.example/item")).toBe(true);

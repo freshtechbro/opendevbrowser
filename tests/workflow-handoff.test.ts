@@ -344,6 +344,18 @@ describe("workflow handoff builders", () => {
       "both presentation and product-video readiness surfaces are required"
     );
 
+    const productVideoOnlyPass = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      productVideoReadiness: {
+        status: "pass",
+        warnings: [],
+        reasonCodes: ["positive_spec_promoted"]
+      }
+    });
+
+    expect(productVideoOnlyPass.followthroughSummary).toContain("partial");
+    expect(productVideoOnlyPass.suggestedNextAction).toContain("readiness_missing");
+
     const failed = buildProductVideoSuccessHandoff({
       productUrl: "https://shop.example/item-1",
       presentationReadiness: {

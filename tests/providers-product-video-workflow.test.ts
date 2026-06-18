@@ -497,6 +497,7 @@ describe("product-video substrate adoption", () => {
           "Shipping may not ship to all regions.",
           "Returns accepted within 30 days.",
           "Buy It Now.",
+          "Brand Aurora Labs",
           "Type: Vertical Trackball Mouse",
           "Maximum DPI: 1600",
           "Connectivity: Wireless",
@@ -508,6 +509,7 @@ describe("product-video substrate adoption", () => {
     const record = (await fetch()).records[0]!;
 
     expect(workflowTestUtils.inferTitleFromContent(record.content, productUrl)).toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.inferBrandFromContent(record.content, productUrl)).toBe("Aurora Labs");
     expect(workflowTestUtils.inferTitleFromContent([
       "Main content Visit the Apple Store Apple AirPods Pro",
       "Brand Apple",
@@ -518,17 +520,20 @@ describe("product-video substrate adoption", () => {
     expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", productUrl)).toBe("Aurora Trackball Mouse");
     expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", "Aurora Trackball Mouse - seller listing"))
       .toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.sanitizeProductBrandCandidate("Brand Aurora Labs Type Vertical Trackball Mouse Maximum DPI 1600", productUrl))
+      .toBe("Aurora Labs");
 
     const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
       product_url: productUrl,
       include_copy: true,
       include_screenshots: true
     }));
-    const product = output.product as { title: string; copy: string; features: string[] };
+    const product = output.product as { title: string; brand: string; copy: string; features: string[] };
     const publicText = [product.copy, ...product.features].join("\n");
 
     expect(product.title).toBe("Aurora Trackball Mouse");
-    expect(product.copy).toContain("Aurora Trackball Mouse combines captured product details");
+    expect(product.brand).toBe("Aurora Labs");
+    expect(product.copy).toContain("Aurora Trackball Mouse presentation highlights verified product details");
     expect(publicText).not.toContain(productUrl);
     expect(publicText).not.toMatch(/Condition: New|Quantity:|Seller feedback|Shipping may not ship|Returns accepted|Buy It Now/i);
   });

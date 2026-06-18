@@ -15,10 +15,15 @@ export interface ProductVideoReadinessFacts {
   promotedSpecKeyCount: number;
   visualAssetCount: number;
   marketplaceRejectedCount: number;
+  siteChromeRejectedCount: number;
   unsupportedRejectedCount: number;
   rawFragmentRejectedCount: number;
   finalMarketplaceLeakCount: number;
+  finalSiteChromeLeakCount: number;
+  finalUnsupportedClaimLeakCount: number;
+  finalRawFragmentLeakCount: number;
   selectedRecordChanged: boolean;
+  titleFallbackUsed: boolean;
 }
 
 const criterion = (args: ProductVideoPresentationCriterion): ProductVideoPresentationCriterion => args;
@@ -28,14 +33,22 @@ const hasPassEvidence = (facts: ProductVideoReadinessFacts): boolean => (
   && facts.promotedSpecKeyCount >= PRODUCT_VIDEO_MIN_PASS_SPEC_KEY_COUNT
 );
 
+const finalPublicLeakCount = (facts: ProductVideoReadinessFacts): number => (
+  facts.finalMarketplaceLeakCount
+  + facts.finalSiteChromeLeakCount
+  + facts.finalUnsupportedClaimLeakCount
+  + facts.finalRawFragmentLeakCount
+);
+
 const readinessStatus = (facts: ProductVideoReadinessFacts): ProductVideoReadinessSummary["status"] => {
-  if (facts.promotedClaimCount < PRODUCT_VIDEO_MIN_PARTIAL_PROMOTED_CLAIMS || facts.finalMarketplaceLeakCount > 0) return "fail";
-  if (!facts.includeCopy || !hasPassEvidence(facts) || facts.visualAssetCount === 0) return "partial";
+  if (facts.promotedClaimCount < PRODUCT_VIDEO_MIN_PARTIAL_PROMOTED_CLAIMS || finalPublicLeakCount(facts) > 0) return "fail";
+  if (!facts.includeCopy || !hasPassEvidence(facts) || facts.visualAssetCount === 0 || facts.titleFallbackUsed) return "partial";
   return "pass";
 };
 
 const readinessWarnings = (facts: ProductVideoReadinessFacts): string[] => [
   ...(facts.marketplaceRejectedCount > 0 ? [`rejected ${facts.marketplaceRejectedCount} marketplace chrome candidate(s) from presentation output`] : []),
+  ...(facts.siteChromeRejectedCount > 0 ? [`rejected ${facts.siteChromeRejectedCount} site chrome candidate(s) from presentation output`] : []),
   ...(facts.unsupportedRejectedCount > 0 ? [`rejected ${facts.unsupportedRejectedCount} unsupported presentation claim candidate(s)`] : []),
   ...(facts.rawFragmentRejectedCount > 0 ? [`rejected ${facts.rawFragmentRejectedCount} raw page fragment candidate(s)`] : []),
   ...(!hasPassEvidence(facts)
@@ -44,7 +57,11 @@ const readinessWarnings = (facts: ProductVideoReadinessFacts): string[] => [
   ...(!facts.includeCopy ? ["creative copy was omitted because include_copy=false"] : []),
   ...(facts.visualAssetCount === 0 ? ["visual assets are missing from the presentation pack"] : []),
   ...(facts.finalMarketplaceLeakCount > 0 ? ["marketplace chrome appeared in generated presentation text"] : []),
-  ...(facts.selectedRecordChanged ? ["presentation source record changed from the original primary record"] : [])
+  ...(facts.finalSiteChromeLeakCount > 0 ? ["site chrome appeared in generated presentation text"] : []),
+  ...(facts.finalUnsupportedClaimLeakCount > 0 ? ["unsupported claims appeared in generated presentation text"] : []),
+  ...(facts.finalRawFragmentLeakCount > 0 ? ["raw page fragments appeared in generated presentation text"] : []),
+  ...(facts.selectedRecordChanged ? ["presentation source record changed from the original primary record"] : []),
+  ...(facts.titleFallbackUsed ? ["clean product title was not available; public copy remains gated"] : [])
 ];
 
 const uniqueReasonCodes = (codes: readonly ProductVideoPresentationReasonCode[]): ProductVideoPresentationReasonCode[] => (
@@ -53,14 +70,16 @@ const uniqueReasonCodes = (codes: readonly ProductVideoPresentationReasonCode[])
 
 const readinessReasonCodes = (facts: ProductVideoReadinessFacts): ProductVideoPresentationReasonCode[] => uniqueReasonCodes([
   ...(facts.marketplaceRejectedCount > 0 || facts.finalMarketplaceLeakCount > 0 ? ["marketplace_chrome_rejected" as const] : []),
+  ...(facts.siteChromeRejectedCount > 0 || facts.finalSiteChromeLeakCount > 0 ? ["site_chrome_rejected" as const] : []),
   ...(facts.promotedClaimCount > 0 ? ["positive_spec_promoted" as const] : []),
   ...(!hasPassEvidence(facts) ? ["insufficient_clean_feature_evidence" as const] : []),
   ...(!facts.includeCopy ? ["copy_omitted_by_request" as const] : []),
   ...(facts.visualAssetCount === 0 ? ["missing_visual_assets" as const] : []),
-  ...(facts.unsupportedRejectedCount > 0 ? ["unsupported_claim_rejected" as const] : []),
-  ...(facts.rawFragmentRejectedCount > 0 ? ["raw_fragment_rejected" as const] : []),
+  ...(facts.unsupportedRejectedCount > 0 || facts.finalUnsupportedClaimLeakCount > 0 ? ["unsupported_claim_rejected" as const] : []),
+  ...(facts.rawFragmentRejectedCount > 0 || facts.finalRawFragmentLeakCount > 0 ? ["raw_fragment_rejected" as const] : []),
   ...(facts.selectedRecordChanged ? ["selected_record_changed" as const] : []),
-  ...(facts.includeCopy && (facts.promotedClaimCount === 0 || facts.finalMarketplaceLeakCount > 0) ? ["copy_generation_blocked" as const] : [])
+  ...(facts.titleFallbackUsed ? ["title_fallback_used" as const] : []),
+  ...(facts.includeCopy && (facts.promotedClaimCount === 0 || finalPublicLeakCount(facts) > 0) ? ["copy_generation_blocked" as const] : [])
 ]);
 
 const readinessCriteria = (facts: ProductVideoReadinessFacts): ProductVideoPresentationCriterion[] => [
@@ -71,16 +90,22 @@ const readinessCriteria = (facts: ProductVideoReadinessFacts): ProductVideoPrese
     passed: hasPassEvidence(facts)
   }),
   criterion({
-    label: "Marketplace chrome isolation",
-    observed: `${facts.marketplaceRejectedCount} rejected candidate(s), ${facts.finalMarketplaceLeakCount} generated leak(s)`,
-    threshold: "Generated presentation text excludes non-product marketplace transaction chrome",
-    passed: facts.finalMarketplaceLeakCount === 0
+    label: "Public text isolation",
+    observed: `${facts.marketplaceRejectedCount} marketplace rejected candidate(s), ${facts.siteChromeRejectedCount} site chrome rejected candidate(s), ${facts.finalMarketplaceLeakCount} marketplace generated leak(s), ${facts.finalSiteChromeLeakCount} site chrome generated leak(s), ${facts.finalUnsupportedClaimLeakCount} unsupported generated leak(s), ${facts.finalRawFragmentLeakCount} raw fragment generated leak(s)`,
+    threshold: "Generated presentation text excludes marketplace chrome, site chrome, unsupported claims, and raw page fragments",
+    passed: finalPublicLeakCount(facts) === 0
   }),
   criterion({
     label: "Copy generation",
     observed: facts.includeCopy ? "copy requested" : "copy omitted by request",
     threshold: "Copy is requested and clean evidence is available",
-    passed: facts.includeCopy && facts.promotedClaimCount > 0 && facts.finalMarketplaceLeakCount === 0
+    passed: facts.includeCopy && facts.promotedClaimCount > 0 && finalPublicLeakCount(facts) === 0
+  }),
+  criterion({
+    label: "Product identity",
+    observed: facts.titleFallbackUsed ? "clean product title unavailable" : "clean product title available",
+    threshold: "Presentation-ready output uses a specific clean product title",
+    passed: !facts.titleFallbackUsed
   }),
   criterion({
     label: "Visual assets",
