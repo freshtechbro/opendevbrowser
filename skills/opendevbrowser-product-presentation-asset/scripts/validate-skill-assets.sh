@@ -1190,6 +1190,206 @@ for rel in scripts/collect-product.sh scripts/capture-screenshots.sh scripts/dow
   fi
 done
 
+skill_without_ticks="$(tr -d '`' < "$skill_file")"
+if printf '%s\n' "$skill_without_ticks" | grep -Eiq -- '((workflow|browser-mode)[^.]*cdpconnect|cdpconnect[^.]*workflow|cdpconnect[^.]*browser-mode|--browser-mode[[:space:]]+cdpconnect)'; then
+  echo "Product presentation skill must not present cdpConnect in workflow browser-mode guidance." >&2
+  status=1
+fi
+if ! grep -Fq 'workflow browser-mode sweeps with `auto`, `extension`, and `managed`' "$skill_file"; then
+  echo "Product presentation skill must document current workflow browser modes." >&2
+  status=1
+fi
+if ! grep -Fq "lower-level attach parity" "$skill_file"; then
+  echo "Product presentation skill must keep CDP attach guidance scoped to lower-level parity." >&2
+  status=1
+fi
+if grep -Fq 'find "$OUTDIR"' "$root/scripts/write-manifest.sh" || grep -Fq 'cp "$source_manifest"' "$root/scripts/write-manifest.sh"; then
+  echo "write-manifest.sh must not copy a root-only manifest as the returned render input." >&2
+  status=1
+fi
+
+write_manifest_mock="$tmpdir/write-manifest-cli"
+cat > "$write_manifest_mock" <<'MOCKCLI'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "status" ]]; then
+  printf '{"data":{"fingerprintCurrent":true}}\n'
+  exit 0
+fi
+if [[ "${1:-}" == "product-video" && "${2:-}" == "run" ]]; then
+  output_dir=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --output-dir)
+        output_dir="$2"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  bundle="$output_dir/product-video/mock-run"
+  mkdir -p "$bundle"
+  cat > "$bundle/manifest.json" <<'JSON'
+{
+  "product": {
+    "title": "Mock Product",
+    "brand": "Mock Brand",
+    "features": ["Wireless connectivity supports a cleaner setup."],
+    "copy": "Mock Product presentation highlights verified product details: Wireless connectivity supports a cleaner setup.",
+    "price": { "amount": 29.99, "currency": "USD" }
+  },
+  "assets": { "images": [], "screenshots": [], "raw": [] },
+  "readiness": {
+    "presentation": {
+      "status": "partial",
+      "warnings": ["missing visual assets"],
+      "reasonCodes": ["missing_visual_assets"],
+      "criteria": []
+    },
+    "productVideo": {
+      "status": "partial",
+      "warnings": ["missing visual assets"],
+      "reasonCodes": ["missing_visual_assets"],
+      "criteria": []
+    }
+  }
+}
+JSON
+  cat > "$bundle/presentation-readiness.json" <<'JSON'
+{
+  "presentationReadiness": {
+    "status": "partial",
+    "warnings": ["missing visual assets"],
+    "reasonCodes": ["missing_visual_assets"],
+    "criteria": []
+  },
+  "productVideoReadiness": {
+    "status": "partial",
+    "warnings": ["missing visual assets"],
+    "reasonCodes": ["missing_visual_assets"],
+    "criteria": []
+  },
+  "selectedRecordId": "mock-record",
+  "originalPrimaryRecordId": "mock-record",
+  "summary": {
+    "status": "partial",
+    "promotedFeatureCount": 1,
+    "promotedClaimCount": 1,
+    "rejectedCandidateCount": 0,
+    "evidenceReferenceCount": 1,
+    "imageCount": 0,
+    "screenshotCount": 0
+  },
+  "candidateSummaries": [{
+    "recordId": "mock-record",
+    "provider": "shopping/fixture",
+    "title": "Mock Product",
+    "cleanSpecCount": 1,
+    "rejectedCandidateCount": 0
+  }],
+  "promotedClaims": [{
+    "claim": "Wireless connectivity supports a cleaner setup.",
+    "specKey": "connectivity",
+    "specLabel": "Connectivity",
+    "specValue": "Wireless connectivity supports a cleaner setup.",
+    "reasonCode": "positive_spec_promoted",
+    "evidenceReferences": [{
+      "recordId": "mock-record",
+      "provider": "shopping/fixture",
+      "source": "metadata_spec",
+      "path": "metadata.specs.connectivity",
+      "label": "Connectivity",
+      "excerpt": "Wireless connectivity supports a cleaner setup."
+    }]
+  }],
+  "rejectedCandidates": [],
+  "evidenceReferences": [{
+    "recordId": "mock-record",
+    "provider": "shopping/fixture",
+    "source": "metadata_spec",
+    "path": "metadata.specs.connectivity",
+    "label": "Connectivity",
+    "excerpt": "Wireless connectivity supports a cleaner setup."
+  }]
+}
+JSON
+  cat > "$bundle/product.json" <<'JSON'
+{
+  "title": "Mock Product",
+  "brand": "Mock Brand",
+  "features": ["Wireless connectivity supports a cleaner setup."],
+  "copy": "Mock Product presentation highlights verified product details: Wireless connectivity supports a cleaner setup.",
+  "price": { "amount": 29.99, "currency": "USD" },
+  "presentationReadiness": {
+    "status": "partial",
+    "warnings": ["missing visual assets"],
+    "reasonCodes": ["missing_visual_assets"],
+    "criteria": []
+  },
+  "productVideoReadiness": {
+    "status": "partial",
+    "warnings": ["missing visual assets"],
+    "reasonCodes": ["missing_visual_assets"],
+    "criteria": []
+  }
+}
+JSON
+  printf '# Product Copy\n' > "$bundle/copy.md"
+  if [[ "${ODB_MOCK_MISSING_SIDECAR:-}" != "1" ]]; then
+    printf '# Product Features\n' > "$bundle/features.md"
+  fi
+  escaped_bundle="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$bundle")"
+  printf '{"success":true,"data":{"artifact_path":%s}}\n' "$escaped_bundle"
+  exit 0
+fi
+echo "unexpected mock CLI args: $*" >&2
+exit 64
+MOCKCLI
+chmod +x "$write_manifest_mock"
+
+write_manifest_outdir="$tmpdir/write-manifest-output"
+write_manifest_output="$(ODB_CLI_VALIDATOR_OVERRIDE="$write_manifest_mock" "$root/scripts/write-manifest.sh" "Mock Product" "$write_manifest_outdir")"
+expected_manifest="$write_manifest_outdir/product-video/mock-run/manifest.json"
+if [[ "$write_manifest_output" != *"Manifest ready: $expected_manifest"* ]]; then
+  echo "write-manifest.sh did not print the adjacent bundle manifest path." >&2
+  status=1
+fi
+if [[ -f "$write_manifest_outdir/manifest.json" ]]; then
+  echo "write-manifest.sh wrote a root-only manifest path." >&2
+  status=1
+fi
+for sidecar in presentation-readiness.json product.json copy.md features.md; do
+  if [[ ! -f "$write_manifest_outdir/product-video/mock-run/$sidecar" ]]; then
+    echo "write-manifest.sh adjacency fixture missing sidecar: $sidecar" >&2
+    status=1
+  fi
+done
+
+render_valid_dir="$tmpdir/write-manifest-render-valid"
+if ! "$root/scripts/render-video-brief.sh" "$expected_manifest" "$render_valid_dir" > "$tmpdir/write-manifest-render-valid.log" 2>&1; then
+  echo "render-video-brief.sh could not consume write-manifest.sh emitted manifest path." >&2
+  status=1
+fi
+if [[ ! -f "$render_valid_dir/video-brief.md" ]] || ! grep -Fq "Production gate: partial" "$render_valid_dir/video-brief.md"; then
+  echo "render-video-brief.sh did not produce a gated brief from the write-manifest.sh emitted manifest path." >&2
+  status=1
+fi
+
+if ODB_MOCK_MISSING_SIDECAR=1 ODB_CLI_VALIDATOR_OVERRIDE="$write_manifest_mock" "$root/scripts/write-manifest.sh" "Mock Product" "$tmpdir/write-manifest-missing" > "$tmpdir/write-manifest-missing.log" 2>&1; then
+  echo "write-manifest.sh succeeded with missing adjacent sidecars." >&2
+  status=1
+fi
+if grep -Fq "Manifest ready:" "$tmpdir/write-manifest-missing.log"; then
+  echo "write-manifest.sh printed a consumable manifest path before sidecar validation." >&2
+  status=1
+fi
+if ! grep -Fq "missing required adjacent file" "$tmpdir/write-manifest-missing.log"; then
+  echo "write-manifest.sh did not report the missing adjacent sidecar." >&2
+  status=1
+fi
+
 if [[ -f "$root/assets/templates/manifest.schema.json" ]]; then
   if ! node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$root/assets/templates/manifest.schema.json" >/dev/null 2>&1; then
     echo "Invalid JSON template: assets/templates/manifest.schema.json" >&2

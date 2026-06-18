@@ -366,6 +366,28 @@ for (const marker of ["screencast-start", "screencast-stop", "snapshot", "screen
   }
 }
 
+const gestureMotion = spawnSync(workflowScript, ["gesture-motion"], { encoding: "utf8" });
+const gestureLines = gestureMotion.stdout.split("\n");
+const pointerDownLine = gestureLines.find((line) => line.includes(" pointer-down ")) ?? "";
+const pointerDragLine = gestureLines.find((line) => line.includes(" pointer-drag ")) ?? "";
+const pointerUpLine = gestureLines.find((line) => line.includes(" pointer-up ")) ?? "";
+
+for (const marker of ["--x <x>", "--y <y>"]) {
+  if (!pointerDownLine.includes(marker)) {
+    failures.push(`gesture-motion pointer-down missing coordinate marker: ${marker}`);
+  }
+}
+for (const marker of ["--from-x <x>", "--from-y <y>", "--to-x <x2>", "--to-y <y2>"]) {
+  if (!pointerDragLine.includes(marker)) {
+    failures.push(`gesture-motion pointer-drag missing coordinate marker: ${marker}`);
+  }
+}
+for (const marker of ["--x <x2>", "--y <y2>"]) {
+  if (!pointerUpLine.includes(marker)) {
+    failures.push(`gesture-motion pointer-up missing coordinate marker: ${marker}`);
+  }
+}
+
 if (failures.length > 0) {
   console.error(failures.join("\n"));
   process.exit(1);

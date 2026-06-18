@@ -97,7 +97,8 @@ This lane is optional, skill-guided, provider-constrained, and discovery-only. I
 ## Parallel Multitab Alignment
 
 - Apply shared concurrency policy from `../opendevbrowser-best-practices/SKILL.md` ("Parallel Operations").
-- Run research acceptance in `managed`, `extension`, and `cdpConnect` where browser-backed evidence capture is used.
+- Run research workflow browser-mode sweeps with `auto`, `extension`, and `managed` where browser-backed evidence capture is used.
+- For lower-level attach parity, separately validate direct connect or CDP attach sessions where research uses browser action tools.
 - Keep provider query orchestration mode-agnostic; isolate browser interaction per session worker.
 
 ## Robustness Coverage (Known-Issue Matrix)

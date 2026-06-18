@@ -130,9 +130,9 @@ EOF
     cat <<EOF
 $CLI_PREFIX launch --no-extension --start-url <url> --output-format json
 $CLI_PREFIX pointer-move --session-id <session-id> --x <x> --y <y>
-$CLI_PREFIX pointer-down --session-id <session-id>
-$CLI_PREFIX pointer-drag --session-id <session-id> --to-x <x2> --to-y <y2>
-$CLI_PREFIX pointer-up --session-id <session-id>
+$CLI_PREFIX pointer-down --session-id <session-id> --x <x> --y <y>
+$CLI_PREFIX pointer-drag --session-id <session-id> --from-x <x> --from-y <y> --to-x <x2> --to-y <y2>
+$CLI_PREFIX pointer-up --session-id <session-id> --x <x2> --y <y2>
 $CLI_PREFIX snapshot --session-id <session-id>
 EOF
     ;;

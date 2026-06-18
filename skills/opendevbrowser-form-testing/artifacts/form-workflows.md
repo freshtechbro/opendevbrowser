@@ -23,9 +23,16 @@
 
 ## File upload workflow
 
+Use deterministic upload surfaces instead of opening an OS file chooser.
+
+```text
+opendevbrowser_upload sessionId="<session-id>" ref="<file-input-ref>" files=["<absolute-file-path>"]
+opendevbrowser upload --session-id <session-id> --ref <file-input-ref> --files <absolute-file-path>
+```
+
 1. Validate accepted type/size constraints
-2. Validate invalid file rejection path
-3. Validate success path and server response correlation
+2. Upload invalid files with `opendevbrowser_upload` and assert the rejection path
+3. Upload a valid file with `opendevbrowser_upload` and correlate server response
 4. Confirm upload state survives step transitions
 
 ## Challenge checkpoint workflow
