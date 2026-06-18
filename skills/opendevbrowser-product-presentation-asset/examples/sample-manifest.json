@@ -7,12 +7,56 @@
     "title": "Example Product",
     "brand": "Example",
     "price": { "amount": 29.99, "currency": "USD", "retrieved_at": "2026-02-16T00:00:00.000Z" },
-    "features": ["Feature 1", "Feature 2"],
+    "features": [
+      "Wireless connectivity supports a cleaner setup.",
+      "Adjustable DPI tracking supports everyday pointer control.",
+      "Includes ergonomic shell to support comfort and control."
+    ],
     "copy": "Example copy"
   },
   "assets": {
     "images": ["images/image-01.jpg"],
     "screenshots": ["screenshots/screenshot-01.png"],
     "raw": ["raw/source-record.json"]
+  },
+  "readiness": {
+    "presentation": {
+      "status": "pass",
+      "warnings": [],
+      "reasonCodes": ["positive_spec_promoted"],
+      "criteria": [
+        {
+          "label": "Clean benefit evidence",
+          "observed": "3 promoted claim(s) across 3 evidence dimension(s)",
+          "threshold": "At least 3 promoted product benefit claims across 2 evidence dimension(s) for pass",
+          "passed": true
+        },
+        {
+          "label": "Visual assets",
+          "observed": "2 image or screenshot asset(s)",
+          "threshold": "At least 1 visual asset for presentation-ready output",
+          "passed": true
+        }
+      ]
+    },
+    "productVideo": {
+      "status": "pass",
+      "warnings": [],
+      "reasonCodes": ["positive_spec_promoted"],
+      "criteria": [
+        {
+          "label": "Clean benefit evidence",
+          "observed": "3 promoted claim(s) across 3 evidence dimension(s)",
+          "threshold": "At least 3 promoted product benefit claims across 2 evidence dimension(s) for pass",
+          "passed": true
+        },
+        {
+          "label": "Visual assets",
+          "observed": "2 image or screenshot asset(s)",
+          "threshold": "At least 1 visual asset for presentation-ready output",
+          "passed": true
+        }
+      ]
+    }
   }
 }

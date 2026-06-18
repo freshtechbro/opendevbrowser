@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "fs/promises";
 import { basename, dirname, join, resolve } from "path";
 import { tmpdir } from "os";
@@ -32,6 +33,8 @@ const toRuntime = (handlers: {
   search: handlers.search,
   fetch: handlers.fetch
 });
+
+const summaryHash = (value: string): string => createHash("sha1").update(value).digest("hex").slice(0, 16);
 
 const RESEARCH_ARTIFACT_FILES = [
   "summary.md",
@@ -1970,12 +1973,41 @@ describe("artifact and workflow runtime", () => {
         sourceSelection: "shopping",
         providerOrder: ["shopping/amazon"],
         records: [{
+          id: "product-1-marketplace-shell",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://example.com/product/1",
+          title: "Quantity 1 available Buy It Now",
+          content: [
+            "Quantity 1 available.",
+            "Condition: New: A brand-new, unused, unopened, undamaged item in its original packaging.",
+            "May not ship to Canada.",
+            "Seller feedback is 98% positive.",
+            "Buy It Now and add to cart."
+          ].join(" "),
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.5,
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "p-1",
+              title: "Quantity 1 available Buy It Now",
+              url: "https://example.com/product/1",
+              price: { amount: 19.99, currency: "USD", retrieved_at: "2026-02-16T00:00:00.000Z" },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.5,
+              reviews_count: 11
+            }
+          }
+        }, {
           id: "product-1",
           source: "shopping",
           provider: "shopping/amazon",
           url: "https://example.com/product/1",
           title: "Sample Product",
-          content: "Feature one. Feature two. Feature three.",
+          content: "Type Vertical Mouse Maximum DPI 1200 Connectivity Wireless Features Adjustable DPI, Ergonomic.",
           timestamp: "2026-02-16T00:00:00.000Z",
           confidence: 0.9,
           attributes: {
@@ -2022,18 +2054,87 @@ describe("artifact and workflow runtime", () => {
     });
 
     const outputByUrlPath = String(outputByUrl.artifact_path);
+    const outputByUrlFiles = await readdir(outputByUrlPath);
+    expect(outputByUrlFiles).toEqual(expect.arrayContaining([
+      "manifest.json",
+      "product.json",
+      "pricing.json",
+      "copy.md",
+      "features.md",
+      "presentation-readiness.json",
+      "bundle-manifest.json"
+    ]));
     const manifestRaw = await readFile(join(outputByUrlPath, "manifest.json"), "utf8");
-    expect(JSON.parse(manifestRaw)).toMatchObject({
-      source_url: "https://example.com/product/1"
+    const manifest = JSON.parse(manifestRaw) as {
+      source_url: string;
+      readiness?: { presentation?: { status?: string }; productVideo?: { status?: string } };
+    };
+    expect(manifest).toMatchObject({
+      source_url: "https://example.com/product/1",
+      readiness: {
+        presentation: { status: "pass" },
+        productVideo: { status: "pass" }
+      }
     });
+    const productRaw = await readFile(join(outputByUrlPath, "product.json"), "utf8");
+    const product = JSON.parse(productRaw) as {
+      presentationReadiness?: { status?: string; reasonCodes?: string[] };
+      productVideoReadiness?: { status?: string; reasonCodes?: string[] };
+      features?: string[];
+      copy?: string;
+    };
+    expect(product.presentationReadiness).toMatchObject({
+      status: "pass",
+      reasonCodes: expect.arrayContaining(["selected_record_changed", "positive_spec_promoted"])
+    });
+    expect(product.productVideoReadiness).toMatchObject({
+      status: "pass",
+      reasonCodes: expect.arrayContaining(["selected_record_changed", "positive_spec_promoted"])
+    });
+    expect(product.features?.join("\n")).toMatch(/Vertical Mouse/i);
+    expect(product.copy).toMatch(/presentation highlights verified product details/i);
+
+    const readinessRaw = await readFile(join(outputByUrlPath, "presentation-readiness.json"), "utf8");
+    const readiness = JSON.parse(readinessRaw) as {
+      selectedRecordId?: string;
+      originalPrimaryRecordId?: string;
+      candidateSummaries?: Array<{
+        recordId?: string;
+        title?: string;
+        cleanSpecCount?: number;
+        rejectedCandidateCount?: number;
+      }>;
+      summary?: { status?: string; promotedFeatureCount?: number; rejectedCandidateCount?: number };
+    };
+    expect(readiness).toMatchObject({
+      selectedRecordId: "product-1",
+      originalPrimaryRecordId: "product-1-marketplace-shell",
+      summary: {
+        status: "pass"
+      }
+    });
+    expect(readiness.summary?.promotedFeatureCount).toBeGreaterThanOrEqual(4);
+    expect(readiness.candidateSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        recordId: "product-1-marketplace-shell",
+        cleanSpecCount: 0
+      })
+    ]));
+    expect(readiness.candidateSummaries?.some((summary) => (
+      /Quantity 1 available Buy It Now/i.test(summary.title ?? "")
+    ))).toBe(false);
+    const selectedCandidateSummary = readiness.candidateSummaries?.find((summary) => summary.recordId === "product-1");
+    expect(selectedCandidateSummary?.cleanSpecCount).toBeGreaterThanOrEqual(4);
 
     const rawSourceRaw = await readFile(join(outputByUrlPath, "raw/source-record.json"), "utf8");
     const rawSource = JSON.parse(rawSourceRaw) as {
+      id?: string;
       attributes?: {
         headers?: { authorization?: string };
         api_token?: string;
       };
     };
+    expect(rawSource.id).toBe("product-1");
     expect(rawSource.attributes?.headers?.authorization).toBe("[REDACTED]");
     expect(rawSource.attributes?.api_token).toBe("[REDACTED]");
 
@@ -2048,6 +2149,177 @@ describe("artifact and workflow runtime", () => {
     });
 
     await expect(runProductVideoWorkflow(runtime, {})).rejects.toThrow("product_url or product_name is required");
+  });
+
+  it("persists bounded product-video readiness summaries for noisy marketplace records", async () => {
+    const outputRoot = await makeWorkspaceDir("odb-product-noisy-");
+    const repeatedChromeFragments = 40;
+    const longMarketplaceText = [
+      "Quantity 1 available",
+      "Condition: New: A brand-new unused unopened item",
+      Array.from({ length: repeatedChromeFragments }, () => "Seller feedback stays visible in the raw capture").join(" "),
+      "May not ship to Canada",
+      "Buy It Now and checkout today",
+      "Returns accepted within 30 days"
+    ].join(" ");
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate()),
+      fetch: vi.fn(async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/ebay"],
+        records: [{
+          id: "noisy-selected-record",
+          source: "shopping",
+          provider: "shopping/ebay",
+          url: "https://www.ebay.com/itm/456",
+          title: "Marketplace Noise Mouse",
+          content: longMarketplaceText,
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.8,
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/ebay",
+              product_id: "456",
+              title: "Marketplace Noise Mouse",
+              url: "https://www.ebay.com/itm/456",
+              price: { amount: 39.99, currency: "USD", retrieved_at: "2026-02-16T00:00:00.000Z" },
+              shipping: { amount: 0, currency: "USD", notes: "unknown" },
+              availability: "in_stock",
+              rating: 4.3,
+              reviews_count: 7
+            }
+          }
+        }]
+      }))
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://www.ebay.com/itm/456",
+      output_dir: outputRoot,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+    const outputPath = String(output.artifact_path);
+    const copyMarkdown = await readFile(join(outputPath, "copy.md"), "utf8");
+    const featuresMarkdown = await readFile(join(outputPath, "features.md"), "utf8");
+    const readinessRaw = await readFile(join(outputPath, "presentation-readiness.json"), "utf8");
+    const rawSourceRaw = await readFile(join(outputPath, "raw/source-record.json"), "utf8");
+    const readiness = JSON.parse(readinessRaw) as {
+      rejectedCandidates?: Array<{
+        candidateHash?: string;
+        candidateExcerpt?: string;
+        evidenceReferenceCount?: number;
+        evidenceReferences?: Array<{ excerpt?: string; path?: string }>;
+      }>;
+      summary?: { status?: string };
+    };
+    const publicMarkdown = [copyMarkdown, featuresMarkdown].join("\n");
+
+    expect(publicMarkdown).not.toMatch(/Seller feedback/i);
+    expect(publicMarkdown).not.toMatch(/Buy It Now/i);
+    expect(publicMarkdown).not.toMatch(/Returns accepted/i);
+    expect(readiness.summary?.status).toBe("fail");
+    expect(readinessRaw).not.toContain(longMarketplaceText);
+    expect(readinessRaw).not.toMatch(/Seller feedback|Buy It Now|Returns accepted/i);
+    expect(readiness.rejectedCandidates?.[0]?.candidateHash).toMatch(/^[a-f0-9]{16}$/);
+    expect(readiness.rejectedCandidates?.[0]?.candidateExcerpt).toBeUndefined();
+    expect(readiness.rejectedCandidates?.[0]?.evidenceReferenceCount).toBeGreaterThan(0);
+    expect(readiness.rejectedCandidates?.[0]?.evidenceReferences?.some((reference) => (
+      "excerpt" in reference
+    ))).toBe(false);
+    expect(rawSourceRaw).toContain(longMarketplaceText);
+  });
+
+  it("bounds product-video readiness summaries for clean promoted claims and candidate titles", async () => {
+    const outputRoot = await makeWorkspaceDir("odb-product-bounded-clean-");
+    const repeatedTitleParts = 30;
+    const repeatedFeatureParts = 30;
+    const maxSummaryExcerptLength = 180;
+    const longCandidateTitle = [
+      "Clean Ergonomic Mouse",
+      ...Array.from({ length: repeatedTitleParts }, () => "long evidence title segment")
+    ].join(" ");
+    const longFeatureValue = Array.from({ length: repeatedFeatureParts }, () => "adaptive grip control").join(" ");
+    const runtime = toRuntime({
+      search: vi.fn(async () => makeAggregate()),
+      fetch: vi.fn(async () => makeAggregate({
+        sourceSelection: "shopping",
+        providerOrder: ["shopping/amazon"],
+        records: [{
+          id: "bounded-clean-record",
+          source: "shopping",
+          provider: "shopping/amazon",
+          url: "https://example.com/product/bounded",
+          title: longCandidateTitle,
+          content: [
+            "Type Vertical Mouse.",
+            "Maximum DPI 1200.",
+            "Connectivity Wireless.",
+            `Features ${longFeatureValue}.`
+          ].join(" "),
+          timestamp: "2026-02-16T00:00:00.000Z",
+          confidence: 0.9,
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "bounded-clean-record",
+              title: longCandidateTitle,
+              url: "https://example.com/product/bounded",
+              price: { amount: 59.99, currency: "USD", retrieved_at: "2026-02-16T00:00:00.000Z" },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.6,
+              reviews_count: 21
+            }
+          }
+        }]
+      }))
+    });
+
+    const output = await runProductVideoWorkflow(runtime, {
+      product_url: "https://example.com/product/bounded",
+      output_dir: outputRoot,
+      include_screenshots: false,
+      include_all_images: false,
+      include_copy: true
+    });
+    const outputPath = String(output.artifact_path);
+    const readinessRaw = await readFile(join(outputPath, "presentation-readiness.json"), "utf8");
+    const rawSourceRaw = await readFile(join(outputPath, "raw/source-record.json"), "utf8");
+    const readiness = JSON.parse(readinessRaw) as {
+      candidateSummaries?: Array<{ title?: string }>;
+      promotedClaims?: Array<{
+        claim?: string;
+        claimHash?: string;
+        claimLength?: number;
+        specValue?: string;
+        specValueHash?: string;
+        specValueLength?: number;
+      }>;
+    };
+
+    expect(readinessRaw).not.toContain(longCandidateTitle);
+    expect(readinessRaw).not.toContain(longFeatureValue);
+    expect(rawSourceRaw).toContain(longCandidateTitle);
+    expect(rawSourceRaw).toContain(longFeatureValue);
+    expect(readiness.candidateSummaries?.every((summary) => (
+      (summary.title?.length ?? 0) <= maxSummaryExcerptLength
+    ))).toBe(true);
+    expect(readiness.promotedClaims?.every((claim) => (
+      (claim.claim?.length ?? 0) <= maxSummaryExcerptLength
+      && (claim.specValue?.length ?? 0) <= maxSummaryExcerptLength
+    ))).toBe(true);
+    const expectedFeatureClaim = `${longFeatureValue.charAt(0).toUpperCase()}${longFeatureValue.slice(1)}.`;
+    const boundedFeatureClaim = readiness.promotedClaims?.find((claim) => claim.specValue?.endsWith("…"));
+    expect(boundedFeatureClaim).toEqual(expect.objectContaining({
+      claimHash: summaryHash(expectedFeatureClaim),
+      claimLength: expectedFeatureClaim.length,
+      specValueHash: summaryHash(longFeatureValue),
+      specValueLength: longFeatureValue.length
+    }));
   });
 
   it("stores default product-video artifacts under the workspace product-video directory", async () => {

@@ -291,6 +291,91 @@ describe("workflow handoff builders", () => {
     );
   });
 
+  it("gates product-video handoff wording from readiness", () => {
+    const partial = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      presentationReadiness: {
+        status: "partial",
+        warnings: ["missing visual assets"],
+        reasonCodes: ["missing_visual_assets"]
+      },
+      productVideoReadiness: {
+        status: "partial",
+        warnings: ["missing visual assets"],
+        reasonCodes: ["missing_visual_assets"]
+      }
+    });
+
+    expect(partial.followthroughSummary).toContain("partial");
+    expect(partial.suggestedNextAction).toContain("gated brief");
+    expect(partial.suggestedNextAction).toContain("missing_visual_assets");
+    expect(partial.suggestedSteps[0]?.reason).toContain("manifest.readiness.presentation");
+    expect(partial.suggestedSteps[1]?.reason).toContain("gated brief files");
+
+    const mixed = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      presentationReadiness: {
+        status: "pass",
+        warnings: [],
+        reasonCodes: ["positive_spec_promoted"]
+      },
+      productVideoReadiness: {
+        status: "fail",
+        warnings: ["clean feature evidence missing"],
+        reasonCodes: ["copy_generation_blocked"]
+      }
+    });
+
+    expect(mixed.followthroughSummary).toContain("fail");
+    expect(mixed.suggestedNextAction).toContain("exits nonzero");
+
+    const presentationOnlyPass = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      presentationReadiness: {
+        status: "pass",
+        warnings: [],
+        reasonCodes: ["positive_spec_promoted"]
+      }
+    });
+
+    expect(presentationOnlyPass.followthroughSummary).toContain("partial");
+    expect(presentationOnlyPass.suggestedNextAction).toContain("readiness_missing");
+    expect(presentationOnlyPass.suggestedNextAction).toContain(
+      "both presentation and product-video readiness surfaces are required"
+    );
+
+    const productVideoOnlyPass = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      productVideoReadiness: {
+        status: "pass",
+        warnings: [],
+        reasonCodes: ["positive_spec_promoted"]
+      }
+    });
+
+    expect(productVideoOnlyPass.followthroughSummary).toContain("partial");
+    expect(productVideoOnlyPass.suggestedNextAction).toContain("readiness_missing");
+
+    const failed = buildProductVideoSuccessHandoff({
+      productUrl: "https://shop.example/item-1",
+      presentationReadiness: {
+        status: "fail",
+        warnings: ["clean feature evidence missing"],
+        reasonCodes: ["insufficient_clean_feature_evidence", "copy_generation_blocked"]
+      },
+      productVideoReadiness: {
+        status: "fail",
+        warnings: ["clean feature evidence missing"],
+        reasonCodes: ["insufficient_clean_feature_evidence", "copy_generation_blocked"]
+      }
+    });
+
+    expect(failed.followthroughSummary).toContain("diagnostics only");
+    expect(failed.suggestedNextAction).toContain("exits nonzero");
+    expect(failed.suggestedNextAction).toContain("must not label copy or features");
+    expect(failed.suggestedSteps[1]?.reason).toContain("warning diagnostic");
+  });
+
   it("falls back to the placeholder product-name token when no rerun target is known yet", () => {
     const handoff = buildProductVideoSuccessHandoff();
 

@@ -88,11 +88,14 @@ const makeDeps = (workspaceRoot?: string) => {
         provider: "shopping/amazon",
         url: "https://example.com/product",
         title: "Product",
-        content: "Feature one. Feature two.",
+        content: "Feature one. Feature two. Feature three.",
         timestamp: "2026-02-16T00:00:00.000Z",
         confidence: 0.9,
         attributes: {
           links: [],
+          product_type: "Wireless Mouse",
+          connectivity: "Wireless",
+          features: ["Ergonomic shell"],
           shopping_offer: {
             provider: "shopping/amazon",
             product_id: "p1",

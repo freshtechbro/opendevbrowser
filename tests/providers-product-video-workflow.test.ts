@@ -10,7 +10,7 @@ import {
   buildProductVideoSuccessHandoff
 } from "../src/providers/workflow-handoff";
 import { buildWorkflowResumeEnvelope, type WorkflowCheckpoint } from "../src/providers/workflow-contracts";
-import { runProductVideoWorkflow, type ProviderExecutor, type ProductVideoRunInput } from "../src/providers/workflows";
+import { runProductVideoWorkflow, workflowTestUtils, type ProviderExecutor, type ProductVideoRunInput } from "../src/providers/workflows";
 import type {
   JsonValue,
   NormalizedRecord,
@@ -353,15 +353,21 @@ describe("product-video substrate adoption", () => {
     const fetch = vi.fn(async () => makeAggregate({
       records: [makeRecord()]
     }));
-    const handoff = buildProductVideoSuccessHandoff({
-      productUrl: "https://www.amazon.com/dp/B0PHASE5001",
-      providerHint: "shopping/amazon",
-      browserMode: "extension"
-    });
 
     const output = await runProductVideoWorkflow(toRuntime({ search, fetch }), productVideoInput({
       browserMode: "extension"
     }));
+    const readinessMeta = output.meta as {
+      presentationReadiness: NonNullable<Parameters<typeof buildProductVideoSuccessHandoff>[0]>["presentationReadiness"];
+      productVideoReadiness: NonNullable<Parameters<typeof buildProductVideoSuccessHandoff>[0]>["productVideoReadiness"];
+    };
+    const handoff = buildProductVideoSuccessHandoff({
+      productUrl: "https://www.amazon.com/dp/B0PHASE5001",
+      providerHint: "shopping/amazon",
+      browserMode: "extension",
+      presentationReadiness: readinessMeta.presentationReadiness,
+      productVideoReadiness: readinessMeta.productVideoReadiness
+    });
 
     expect(search).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -387,11 +393,295 @@ describe("product-video substrate adoption", () => {
       `${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`
     );
     expect(output.meta).toMatchObject({
-      followthroughSummary: handoff.followthroughSummary
+      followthroughSummary: handoff.followthroughSummary,
+      presentationReadiness: {
+        status: "partial",
+        reasonCodes: expect.arrayContaining(["copy_omitted_by_request", "positive_spec_promoted"])
+      },
+      productVideoReadiness: {
+        status: "partial"
+      }
     });
     expect((output.manifest as { assets: { raw: string[] } }).assets.raw).toEqual(["raw/source-record.json"]);
+    expect((output.manifest as {
+      readiness: { presentation: { status: string }; productVideo: { status: string } };
+    }).readiness).toMatchObject({
+      presentation: { status: "partial" },
+      productVideo: { status: "partial" }
+    });
+    expect((output.product as {
+      presentationReadiness: { status: string; reasonCodes: string[] };
+    }).presentationReadiness.reasonCodes).toEqual(expect.arrayContaining([
+      "copy_omitted_by_request",
+      "positive_spec_promoted"
+    ]));
     expect(output.images).toEqual([]);
     expect(output.screenshots).toEqual([]);
+  });
+
+  it("uses presentation compiler output for noisy marketplace copy and features", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "ebay-noisy-product-record",
+        provider: "shopping/ebay",
+        url: "https://www.ebay.com/itm/123456",
+        title: "Logitech Lift Vertical Ergonomic Mouse",
+        content: [
+          "Type Vertical Mouse Maximum DPI 1200 Connectivity Wireless Features Adjustable DPI, Ergonomic.",
+          "Quantity 1 available.",
+          "Condition: New: A brand-new, unused, unopened, undamaged item in its original packaging.",
+          "May not ship to Canada.",
+          "Seller feedback is 98% positive.",
+          "Buy It Now and add to cart.",
+          "Returns accepted within 30 days."
+        ].join(" "),
+        attributes: {
+          links: [],
+          brand: "Logitech",
+          shopping_offer: {
+            provider: "shopping/ebay",
+            product_id: "123456",
+            title: "Logitech Lift Vertical Ergonomic Mouse",
+            url: "https://www.ebay.com/itm/123456",
+            price: { amount: 79.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "unknown" },
+            availability: "in_stock",
+            rating: 4.8,
+            reviews_count: 42
+          }
+        }
+      })]
+    }));
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.ebay.com/itm/123456",
+      include_copy: true
+    }));
+    const publicText = [
+      (output.product as { copy: string }).copy,
+      ...((output.product as { features: string[] }).features)
+    ].join("\n");
+
+    expect((output.meta as {
+      presentationReadiness: { status: string; reasonCodes: string[] };
+    }).presentationReadiness).toMatchObject({
+      status: "partial",
+      reasonCodes: expect.arrayContaining(["marketplace_chrome_rejected", "positive_spec_promoted"])
+    });
+    expect(publicText).toMatch(/Vertical Mouse/i);
+    expect(publicText).toMatch(/1200 DPI/i);
+    expect(publicText).toMatch(/Wireless connectivity/i);
+    expect(publicText).toMatch(/Adjustable DPI/i);
+    expect(publicText).not.toMatch(/Quantity 1/i);
+    expect(publicText).not.toMatch(/Condition: New/i);
+    expect(publicText).not.toMatch(/May not ship to Canada/i);
+    expect(publicText).not.toMatch(/Seller feedback/i);
+    expect(publicText).not.toMatch(/Buy It Now/i);
+    expect(publicText).not.toMatch(/original packaging/i);
+    expect(publicText).not.toMatch(/Returns accepted/i);
+  });
+
+  it("recovers product title from labeled content when fetched title is URL-like", async () => {
+    const productUrl = "http://127.0.0.1:60731/noisy-marketplace-product.html";
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        id: "generic-noisy-product-record",
+        provider: "web/default",
+        url: productUrl,
+        title: productUrl,
+        content: [
+          "Aurora Trackball Mouse",
+          "Condition: New: A brand-new unopened item.",
+          "Quantity: 3 available.",
+          "Seller feedback 99%.",
+          "Shipping may not ship to all regions.",
+          "Returns accepted within 30 days.",
+          "Buy It Now.",
+          "Brand Aurora Labs",
+          "Type: Vertical Trackball Mouse",
+          "Maximum DPI: 1600",
+          "Connectivity: Wireless",
+          "Features: Thumb rest. Compact shell. Quiet buttons."
+        ].join(" "),
+        attributes: { links: [] }
+      })]
+    }));
+    const record = (await fetch()).records[0]!;
+
+    expect(workflowTestUtils.inferTitleFromContent(record.content, productUrl)).toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.inferBrandFromContent(record.content, productUrl)).toBe("Aurora Labs");
+    expect(workflowTestUtils.inferTitleFromContent([
+      "Main content Visit the Apple Store Apple AirPods Pro",
+      "Brand Apple",
+      "About this item",
+      "Adaptive Audio. Active Noise Cancellation."
+    ].join(" "), "https://www.amazon.com/dp/B0TEST1234")).toBe("Apple AirPods Pro");
+    expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", undefined)).toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", productUrl)).toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.resolveProductTitle(record, productUrl, "unknown", "Aurora Trackball Mouse - seller listing"))
+      .toBe("Aurora Trackball Mouse");
+    expect(workflowTestUtils.sanitizeProductBrandCandidate("Brand Aurora Labs Type Vertical Trackball Mouse Maximum DPI 1600", productUrl))
+      .toBe("Aurora Labs");
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: productUrl,
+      include_copy: true,
+      include_screenshots: true
+    }));
+    const product = output.product as { title: string; brand: string; copy: string; features: string[] };
+    const publicText = [product.copy, ...product.features].join("\n");
+
+    expect(product.title).toBe("Aurora Trackball Mouse");
+    expect(product.brand).toBe("Aurora Labs");
+    expect(product.copy).toContain("Aurora Trackball Mouse presentation highlights verified product details");
+    expect(publicText).not.toContain(productUrl);
+    expect(publicText).not.toMatch(/Condition: New|Quantity:|Seller feedback|Shipping may not ship|Returns accepted|Buy It Now/i);
+  });
+
+  it("does not switch selected records to a cleaner unrelated product with conflicting offer identity", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [
+        makeRecord({
+          id: "requested-product-record",
+          title: "Requested Product",
+          content: [
+            "Quantity 1 available.",
+            "Condition: New: A brand-new item.",
+            "Seller feedback is 98% positive.",
+            "Buy It Now and checkout today."
+          ].join(" "),
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0REQUESTED",
+              title: "Requested Product",
+              url: "https://www.amazon.com/dp/B0REQUESTED",
+              price: { amount: 29.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.8,
+              reviews_count: 42
+            }
+          }
+        }),
+        makeRecord({
+          id: "unrelated-clean-record",
+          url: "https://www.amazon.com/dp/B0REQUESTED",
+          title: "Unrelated Clean Product",
+          content: "Type Vertical Mouse Maximum DPI 1200 Connectivity Wireless Features Adjustable DPI, Ergonomic.",
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0OTHER",
+              title: "Unrelated Clean Product",
+              url: "https://www.amazon.com/dp/B0OTHER",
+              price: { amount: 49.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.8,
+              reviews_count: 42
+            }
+          }
+        })
+      ]
+    }));
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.amazon.com/dp/B0REQUESTED",
+      include_copy: true
+    }));
+    const readiness = (output.meta as {
+      presentationReadiness: { status: string; reasonCodes: string[] };
+    }).presentationReadiness;
+
+    expect((output.product as { title: string }).title).toBe("Requested Product");
+    expect(readiness.status).toBe("fail");
+    expect(readiness.reasonCodes).not.toContain("selected_record_changed");
+    expect((output.product as { features: string[] }).features).toEqual([]);
+  });
+
+  it("switches selected records only when cleaner candidates share product identity", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [
+        makeRecord({
+          id: "same-product-marketplace-record",
+          title: "Same Product Marketplace Shell",
+          url: "https://www.amazon.com/dp/B0SAMEPRODUCT",
+          content: [
+            "Quantity 1 available.",
+            "Condition: New: A brand-new item.",
+            "Seller feedback is 98% positive.",
+            "Buy It Now and checkout today."
+          ].join(" "),
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0SAMEPRODUCT",
+              title: "Same Product Marketplace Shell",
+              price: { amount: 29.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.8,
+              reviews_count: 42
+            }
+          }
+        }),
+        makeRecord({
+          id: "clean-record-with-malformed-offer",
+          url: undefined,
+          title: "Malformed Offer Clean Product",
+          content: "Type Vertical Mouse Maximum DPI 1200 Connectivity Wireless Features Adjustable DPI, Ergonomic.",
+          attributes: {
+            links: [],
+            shopping_offer: []
+          }
+        }),
+        makeRecord({
+          id: "same-product-clean-record",
+          url: undefined,
+          title: "Same Product Clean Detail",
+          content: "Type Vertical Mouse Maximum DPI 1200 Connectivity Wireless Features Adjustable DPI, Ergonomic.",
+          attributes: {
+            links: [],
+            shopping_offer: {
+              provider: "shopping/amazon",
+              product_id: "B0SAMEPRODUCT",
+              title: "Same Product Clean Detail",
+              price: { amount: 29.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+              shipping: { amount: 0, currency: "USD", notes: "free" },
+              availability: "in_stock",
+              rating: 4.8,
+              reviews_count: 42
+            }
+          }
+        })
+      ]
+    }));
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.amazon.com/dp/B0SAMEPRODUCT",
+      include_copy: true
+    }));
+    const product = output.product as { title: string; features: string[] };
+    const readiness = (output.meta as {
+      presentationReadiness: { status: string; reasonCodes: string[] };
+    }).presentationReadiness;
+
+    expect(product.title).toBe("Same Product Clean Detail");
+    expect(product.features).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Vertical Mouse/i),
+      expect.stringMatching(/1200 DPI/i),
+      expect.stringMatching(/Wireless connectivity/i),
+      expect.stringMatching(/Adjustable DPI/i)
+    ]));
+    expect(readiness.reasonCodes).toEqual(expect.arrayContaining([
+      "selected_record_changed",
+      "positive_spec_promoted"
+    ]));
+    expect(readiness.status).not.toBe("fail");
   });
 
   it("uses shopping only for URL resolution when the product name must be resolved", async () => {
