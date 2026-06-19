@@ -6,11 +6,11 @@
   "generationPlan": {
     "targetOutcome": {
       "mode": "high-fi-live-edit",
-      "summary": "Clarify hierarchy, trust, and action flow"
+      "summary": "Improve hierarchy, clarity, and conversion confidence"
     },
     "visualDirection": {
       "profile": "product-story",
-      "themeStrategy": "single-theme"
+      "themeStrategy": "light-dark-parity"
     },
     "layoutStrategy": {
       "approach": "hero-led-grid",
@@ -25,7 +25,12 @@
         "default",
         "hover",
         "focus",
-        "disabled"
+        "active",
+        "disabled",
+        "loading",
+        "empty",
+        "error",
+        "success"
       ]
     },
     "motionPosture": {
@@ -47,13 +52,24 @@
     "validationTargets": {
       "blockOn": [
         "contrast-failure",
-        "responsive-mismatch"
+        "responsive-mismatch",
+        "reduced-motion-violation",
+        "runtime-budget-exceeded"
       ],
       "requiredThemes": [
-        "light"
+        "light",
+        "dark"
       ],
       "browserValidation": "required",
       "maxInteractionLatencyMs": 160
+    },
+    "designVectors": {
+      "advancedMotionAdvisory": [
+        "Advisory shader-like gradient depth",
+        "Advisory WebGL-style spatial reveal",
+        "Advisory Spline-style product orbit",
+        "Runtime support: none. Library policy authorization: none."
+      ]
     }
   }
 }

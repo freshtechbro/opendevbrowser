@@ -1,0 +1,58 @@
+{
+  "canvasSessionId": "<canvas-session-id>",
+  "leaseId": "<lease-id>",
+  "baseRevision": 0,
+  "patches": [
+    {
+      "op": "governance.update",
+      "block": "intent",
+      "changes": {
+        "summary": "Canvas smoke page hierarchy and primary action are defined"
+      }
+    },
+    {
+      "op": "page.update",
+      "pageId": "<page-id>",
+      "changes": {
+        "name": "Design smoke page",
+        "description": "Minimal Canvas patch smoke page"
+      }
+    },
+    {
+      "op": "node.insert",
+      "pageId": "<page-id>",
+      "parentId": "<root-node-id>",
+      "node": {
+        "id": "node_design_smoke_hero",
+        "kind": "frame",
+        "name": "Design smoke hero",
+        "rect": {
+          "x": 48,
+          "y": 48,
+          "width": 720,
+          "height": 360
+        },
+        "props": {
+          "role": "region",
+          "label": "Design smoke hero"
+        },
+        "style": {
+          "backgroundColor": "{color.surface.elevated}",
+          "borderRadius": 24,
+          "padding": 32
+        },
+        "metadata": {
+          "purpose": "minimal-executable-smoke"
+        }
+      }
+    },
+    {
+      "op": "node.update",
+      "nodeId": "node_design_smoke_hero",
+      "changes": {
+        "style.boxShadow": "0 24px 80px rgba(15, 23, 42, 0.18)",
+        "metadata.contractRole": "primary-hero"
+      }
+    }
+  ]
+}
