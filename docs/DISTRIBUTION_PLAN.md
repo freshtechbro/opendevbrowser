@@ -18,9 +18,9 @@ Public repo no longer carries the `frontend/` application directory.
 ### Current public package baseline
 
 As of the 2026-06-12 package metadata audit:
-- root package version: `0.0.35`
-- root lockfile version and root package entry: `0.0.35`
-- extension manifest and extension package version: `0.0.35`
+- root package version: `0.0.36`
+- root lockfile version and root package entry: `0.0.36`
+- extension manifest and extension package version: `0.0.36`
 - package binary: `opendevbrowser` -> `dist/cli/index.js`
 - package file allowlist includes `dist`, bundled `skills`, native scripts, and built extension assets listed in `package.json`
 
@@ -174,7 +174,7 @@ npm run build --prefix frontend
 - [x] Public repo frontend source was extracted after private validation baseline.
 - [ ] Hosting production branch is enforced to `website-production`.
 - [x] Public first tagged release completed through new workflow path.
-- [x] Current public package metadata is aligned at `0.0.35` across root package, root lockfile, extension manifest, and extension package.
+- [x] Current public package metadata is aligned at `0.0.36` across root package, root lockfile, extension manifest, and extension package.
 
 ## Operational references
 
