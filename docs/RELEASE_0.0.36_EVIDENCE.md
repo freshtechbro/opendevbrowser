@@ -1,6 +1,6 @@
 # v0.0.36 Release Evidence
 
-Status: local gates complete, PR/release pending
+Status: released
 Target release date: 2026-06-19
 Target tag: `v0.0.36`
 
@@ -87,13 +87,23 @@ Current status note:
 
 ## External Release Evidence
 
-- Pending PR merge, npm publish, and GitHub release creation.
+- Release PR: `https://github.com/freshtechbro/opendevbrowser/pull/88`
+- Merge commit: `8ea77b35591e77c848d7cff004c2719ebca69b91`
+- npm package: `opendevbrowser@0.0.36`
+- npm `latest` dist-tag: `0.0.36`
+- npm tarball: `https://registry.npmjs.org/opendevbrowser/-/opendevbrowser-0.0.36.tgz`
+- npm shasum: `2c38d6ba3eadbc164af149569098013b77274816`
+- GitHub release: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.36`
+- GitHub release workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/27803202778`
+- Release workflow result: success.
+- Release tag `v0.0.36` points to `8ea77b35591e77c848d7cff004c2719ebca69b91`.
+- Release asset verification: downloaded `opendevbrowser-extension.zip` validated successfully against `opendevbrowser-extension.zip.sha256`.
 
 ## Post-Release Verification
 
-- [ ] `npm view opendevbrowser version dist-tags --json` returns `0.0.36` and `latest: 0.0.36`.
-- [ ] `node scripts/registry-consumer-smoke.mjs --version 0.0.36 --output artifacts/release/v0.0.36/registry-consumer-smoke.json` passes.
-- [ ] GitHub release `v0.0.36` exists and includes `opendevbrowser-extension.zip` plus `opendevbrowser-extension.zip.sha256`.
+- [x] `npm view opendevbrowser version dist-tags --json` returns `0.0.36` and `latest: 0.0.36`.
+- [x] `node scripts/registry-consumer-smoke.mjs --version 0.0.36 --output artifacts/release/v0.0.36/registry-consumer-smoke.json` passes.
+- [x] GitHub release `v0.0.36` exists and includes `opendevbrowser-extension.zip` plus `opendevbrowser-extension.zip.sha256`.
 
 ## Out Of Scope
 
