@@ -29,6 +29,8 @@ src/
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
 ├── export/               # DOM capture, React emitter
+├── guidance/             # Site/workflow guidance recipes and renderers
+├── inspiredesign/        # Design-inspiration contracts, media analysis, readiness, handoff
 ├── cli/                  # Commands, daemon, installers
 │   ├── daemon-status.ts  # Hub /status lookup + metadata recovery
 │   └── remote-relay.ts   # Relay status + instanceId cache
@@ -54,6 +56,8 @@ src/
 | `desktop/` | Read-only desktop observation: surface capture, window listing, accessibility snapshot. See `desktop/AGENTS.md` |
 | `devtools/` | Console/network trackers, redaction |
 | `export/` | DOM capture, React emitter, sanitization |
+| `guidance/` | Site and workflow guidance recipes, readiness routing, and renderer helpers |
+| `inspiredesign/` | Inspiredesign contracts, reference discovery, Pinterest/media evidence, media analysis, readiness, and design-agent handoff artifacts |
 | `integrations/` | External integration adapters such as Figma import and normalization |
 | `macros/` | Macro registry, execution, and provider action expansion |
 | `providers/` | Tier routing, blocker policy, browser fallback, workflow orchestration. See `providers/AGENTS.md` |

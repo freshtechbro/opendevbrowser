@@ -2,18 +2,18 @@
 
 ## Context/Scope
 
-Reviewed only `docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md` against the original context-builder export at `prompt-exports/oracle-plan-2026-06-18-161832-canvas-plan-guidance-6f0d.md`. No implementation review or broad exploration was performed.
+Reviewed only `docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md` against the original local context-builder export. No implementation review or broad exploration was performed.
 
 ## Findings
 
 1. **Top under-specified seams**
-   - **Runtime plan value authority:** Task 2 names required nested fields, but leaves actual allowed values and source-of-truth lookup implicit (`docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md:64-78`). The export was slightly clearer about using runtime enum constants, for example `CANVAS_VISUAL_DIRECTION_PROFILES` (`prompt-exports/oracle-plan-2026-06-18-161832-canvas-plan-guidance-6f0d.md:223-235`). Implementers may guess values for `profile`, `reducedMotion`, `browserValidation`, and latency.
+   - **Runtime plan value authority:** Task 2 names required nested fields, but leaves actual allowed values and source-of-truth lookup implicit (`docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md:64-78`). The local export was slightly clearer about using runtime enum constants, for example `CANVAS_VISUAL_DIRECTION_PROFILES`. Implementers may guess values for `profile`, `reducedMotion`, `browserValidation`, and latency.
    - **Patch template shape:** Task 7 says to add one concrete patch template with governance, page, node, prototype, token, and optional inventory operations (`docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md:185-194`). It does not say whether this should be a single executable minimal smoke payload or a reference catalog. That choice changes validator checks and the real CLI smoke.
    - **Durable handoff artifact:** Task 6 lists `design-agent-handoff.json` and possible new handoff template/artifact files, while the open question defers the template decision (`docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md:162-168`, `:556-558`). This affects Task 10 validator scope and should be decided before editing docs.
 
 2. **Specificity balance**
    - Potential over-specification: Task 8 requires `canvas.starter.list` before hand-authoring standard shells (`docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md:213-219`). Better as a decision branch unless product policy mandates starter-first.
-   - Dropped useful framing: the export required each work item to include `Size` and `Done when` (`prompt-exports/oracle-plan-2026-06-18-161832-canvas-plan-guidance-6f0d.md:4-6`). The final plan uses compact tasks, which is consistent with repo plan style, but losing `Size` makes optional artifacts harder to sequence.
+   - Dropped useful framing: the local export required each work item to include `Size` and `Done when`. The final plan uses compact tasks, which is consistent with repo plan style, but losing `Size` makes optional artifacts harder to sequence.
 
 3. **Contradictions or missing dependencies**
    - Task 7 makes `canvas-patch.request.v1.json` a new required file, Task 9 references `.tmp/canvas-patch.request.json`, but no step copies or derives the asset template into the scratch params file (`docs/plans/design-agent-canvas-contract-guidance-2026-06-18.md:185`, `:248`).

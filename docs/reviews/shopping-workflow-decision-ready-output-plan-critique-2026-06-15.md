@@ -10,7 +10,7 @@
 
 - Over-specified: Task 2 mandates exact files `rules.ts`, `gate.ts`, `synthesis.ts`, and `render.ts` (`docs/plans/...:123-127`). The implementation agent should own that split once complexity is visible. Keep the pure compiler boundary and exported functions as the requirement.
 - Over-specified: Task 6 prescribes a token-based relevance algorithm and one exact ergonomic-mouse fixture (`docs/plans/...:195`, `:204`). Better to specify deterministic relevance outcomes and false-positive classes, not the algorithm.
-- Dropped framing: the export warned to use `src/providers/research-report/*` as an architecture precedent, not as the shopping implementation (`prompt-exports/oracle-plan-2026-06-15-122318-shopping-plan-e1bbd6-e0b7.md:22-23`). The final plan leans toward copying the package shape.
+- Dropped framing: the local planning export warned to use `src/providers/research-report/*` as an architecture precedent, not as the shopping implementation. The final plan leans toward copying the package shape.
 
 ## 3. Contradictions or missing dependencies
 

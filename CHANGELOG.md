@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.36] - 2026-06-19
+
+### Changed
+- Refreshed agent guidance for current module ownership, provider workflow artifact storage, release evidence pointers, and generated artifact cleanup boundaries.
+- Aligned release-facing package, lockfile, extension manifest, extension package metadata, and evidence docs for `0.0.36`.
+
+### Fixed
+- Documented the extension ops `page.dialog` command in layered agent guidance.
+- Removed dead local prompt-export and transient skill-pack planning references from tracked plan and review docs.
+
 ## [0.0.35] - 2026-06-12
 
 ### Added
@@ -269,7 +279,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.35...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.36...HEAD
+[0.0.36]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.35...v0.0.36
 [0.0.35]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.34...v0.0.35
 [0.0.34]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.33...v0.0.34
 [0.0.33]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.32...v0.0.33

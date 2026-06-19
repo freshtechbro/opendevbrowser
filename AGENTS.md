@@ -1,6 +1,6 @@
 # OpenDevBrowser - Agent Guidelines
 
-**Generated:** 2026-04-14 | **Commit:** d7d579f | **Branch:** codex/provider-guidance-live
+Maintained project guide. Verify volatile counts and release evidence pointers from source files and generated docs before updating them.
 
 ## Overview
 
@@ -106,6 +106,8 @@ Do not conflate `daemon_fingerprint_mismatch` with native messaging host drift.
 │   ├── desktop/      # Read-only desktop observation runtime; `desktop.*` config; see `desktop/AGENTS.md`
 │   ├── devtools/     # Console/network trackers with redaction
 │   ├── export/       # DOM capture, React emitter, CSS extraction
+│   ├── guidance/     # Site/workflow guidance recipes and rendering
+│   ├── inspiredesign/ # Inspiredesign contracts, media analysis, readiness, handoff
 │   ├── integrations/ # External integration adapters (Figma import, etc.)
 │   ├── macros/       # Macro parsing, resolution, provider-action expansion
 │   ├── providers/    # Provider runtime, policy, workflows, browser fallback
@@ -117,7 +119,7 @@ Do not conflate `daemon_fingerprint_mismatch` with native messaging host drift.
 │   └── utils/        # Shared utilities
 ├── extension/        # Chrome extension (relay client)
 ├── scripts/          # Operational scripts (build/sync/smoke)
-├── skills/           # 10 canonical bundled skill directories
+├── skills/           # Canonical bundled skill directories
 ├── tests/            # Vitest tests (97% coverage required)
 └── docs/             # Architecture, CLI, extension, plans, and version-scoped evidence
 ```
@@ -132,6 +134,8 @@ Do not conflate `daemon_fingerprint_mismatch` with native messaging host drift.
 | Browser replay capture | `src/browser/screencast-recorder.ts`, `src/browser/browser-manager.ts` | Manager-owned replay artifacts layered on the screenshot lane |
 | Chrome-family cookie bootstrap | `src/browser/system-chrome-cookies.ts`, `src/cache/chrome-user-data.ts`, `src/browser/browser-manager.ts` | Managed and `cdpConnect` import readable cookies from the discovered Chrome-family profile; extension mode reuses live tabs |
 | Snapshot/refs | `src/snapshot/` | AX-tree, RefStore, outline/actionables |
+| Inspiredesign | `src/inspiredesign/` | Design inspiration contracts, Pinterest/media analysis, readiness, and handoff artifacts |
+| Guidance recipes | `src/guidance/` | Workflow and site-specific guidance routing/rendering |
 | Extension relay | `src/relay/` | Protocol types, WebSocket security |
 | Hub/relay status | `src/cli/daemon-status.ts`, `src/cli/remote-relay.ts` | Daemon status + relay cache |
 | Hub enablement | `src/utils/hub-enabled.ts` | Hub-only gating + config checks |
@@ -260,7 +264,7 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 - Treat generated CLI help as part of the documentation surface.
 - When first-contact capability wording changes, keep browser replay screencasts, public read-only desktop observation, and browser-scoped computer use explicit across help, docs, release docs, and skills; use the exact generated-help lookup labels where those surfaces are enumerated, and never describe the extension or helper as a desktop agent.
 - When release-facing wording or release-gate policy changes, update `docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, and the active version-scoped release evidence ledger in the same pass.
-- Keep local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `CONTINUITY*.md`, and `sub_continuity.md` out of commits; `.gitignore` is authoritative.
+- Keep local-only generated artifacts such as `prompt-exports/`, root `artifacts/`, `coverage/`, `.tmp/`, untracked `.opendevbrowser` workflow/run outputs, `CONTINUITY*.md`, and `sub_continuity.md` out of commits; `.gitignore` is authoritative. Before cleaning `.opendevbrowser`, preserve every path returned by `git ls-files .opendevbrowser`, including `.opendevbrowser/canvas/adapters.json`.
 - If tool list, command outputs, or help inventory changes, update `src/cli/help.ts`, `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, and this file together, then verify both `npx opendevbrowser --help` and `npx opendevbrowser help`.
 
 ## AGENTS.md Governance
@@ -278,6 +282,7 @@ Subdirectory guides override this root file:
 - `src/cli/AGENTS.md` — CLI command and daemon conventions
 - `src/cli/commands/AGENTS.md` — CLI command handler subdomains and thin-command rules
 - `src/core/AGENTS.md` — bootstrap, DI, and runtime assembly
+- `src/desktop/AGENTS.md` — read-only desktop observation runtime
 - `src/devtools/AGENTS.md` — console/network/exception trackers and redaction rules
 - `src/export/AGENTS.md` — DOM capture, sanitization, and React export constraints
 - `src/integrations/AGENTS.md` — external integration adapters such as Figma import

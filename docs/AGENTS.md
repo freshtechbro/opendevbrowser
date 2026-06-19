@@ -19,7 +19,7 @@ Applies to all markdown and reference assets under `docs/`.
 - If numbers (commands/tools/coverage) are mentioned, verify from code or generated artifacts in the same pass.
 - Keep first-contact help wording explicit for the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; do not imply a desktop agent.
 - Prefer adding status context (for example `active`, `historical`) over deleting useful historical design docs.
-- Treat `prompt-exports/`, root `artifacts/`, `coverage/`, continuity ledgers, and duplicate `* 2.*` scratch files as local-only artifacts; do not cite or commit them as documentation truth.
+- Treat `prompt-exports/`, root `artifacts/`, `coverage/`, `.tmp/`, untracked `.opendevbrowser` workflow/run outputs, continuity ledgers, and duplicate `* 2.*` scratch files as local-only artifacts; do not cite or commit them as documentation truth. Before cleaning `.opendevbrowser`, preserve every path returned by `git ls-files .opendevbrowser`, including `.opendevbrowser/canvas/adapters.json`.
 
 ## Required sync points
 
@@ -64,7 +64,7 @@ When release-gate automation changes:
 - `docs/RELEASE_RUNBOOK.md`
 - `docs/EXTENSION_RELEASE_RUNBOOK.md`
 - `docs/DISTRIBUTION_PLAN.md`
-- the current version-scoped release evidence doc (for this release: `docs/RELEASE_0.0.35_EVIDENCE.md`)
+- the current version-scoped release evidence doc (for this release: `docs/RELEASE_0.0.36_EVIDENCE.md`)
 - older ledgers stay historical-only and should receive explicit status clarifications only
 - automation scripts:
   - `scripts/audit-zombie-files.mjs`

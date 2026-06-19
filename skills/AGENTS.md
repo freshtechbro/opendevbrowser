@@ -1,6 +1,6 @@
 # skills/ — Agent Guidelines
 
-Bundled OpenDevBrowser skill directories (10 canonical packs). Extends root `AGENTS.md`.
+Bundled OpenDevBrowser skill directories (canonical packs). Extends root `AGENTS.md`.
 
 ## Structure
 
@@ -64,4 +64,4 @@ Content organized by topic for filtering.
 
 1. Create `skills/<skill-name>/SKILL.md`
 2. Follow frontmatter format above
-3. Update `README.md`, root `AGENTS.md`, and `docs/CLI.md` when the canonical skill-pack count changes
+3. Update `README.md`, root `AGENTS.md`, and `docs/CLI.md` when the canonical skill-pack inventory changes
