@@ -43,8 +43,8 @@ Success means the skill becomes construction-strong, not only schema-strong: it 
 - Strong patch examples exist mostly in tests: governance bootstrap at `tests/canvas-manager.test.ts:69`, `node.insert` and `node.update` at `tests/canvas-manager.test.ts:392`, additive page/node patches at `tests/canvas-document-store.test.ts:2206`, and inventory setup/insertion at `tests/canvas-inventory.test.ts:138`.
 - Inspiredesign has the strongest existing guide model: artifact filenames at `src/inspiredesign/handoff.ts:1`, guide entry shape at `src/inspiredesign/handoff.ts:21`, artifact guide at `src/inspiredesign/handoff.ts:82`, contract section guide at `src/inspiredesign/handoff.ts:193`, and followthrough inclusion at `src/inspiredesign/contract.ts:1950`.
 - Prior output-storage investigation distinguishes artifact bundles under `.opendevbrowser/<workflow>/<run-id>/` from Canvas repo-native persistence under `.opendevbrowser/canvas/...`: `docs/investigations/output-storage-architecture-2026-06-13.md:11`, `docs/investigations/output-storage-architecture-2026-06-13.md:41`.
-- Previous skill-pack investigation flagged design-agent temp setup directly: `docs/investigations/skill-pack-runtime-guidance-fixes-2026-06-18.md:238`.
-- Closeout conventions require review-fix-rerun loops, local gates, atomic commits, PR checks, PR review, merge checks, merge, and final `main` verification: `docs/plans/skill-pack-runtime-guidance-fixes-2026-06-18.md:266`, `docs/plans/skill-pack-runtime-guidance-fixes-2026-06-18.md:307`.
+- Previous design-agent audit work flagged the temporary setup issue that led to this plan.
+- Closeout conventions are captured directly in this plan's validation and delivery tasks: review-fix-rerun loops, local gates, atomic commits, PR checks, PR review, merge checks, merge, and final `main` verification.
 
 ## Task 1 - Guard Scope and Baseline
 Reasoning: The known weakness is skill guidance and validation drift. Runtime Canvas already exposes the plan, patch, starter, inventory, preview, feedback, save, and export surfaces the skill needs.

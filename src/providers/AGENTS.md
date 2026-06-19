@@ -1,10 +1,10 @@
 # src/providers/ — Agent Guidelines
 
-Provider system for web, social, shopping, and community data retrieval. Extends `src/AGENTS.md`.
+Provider system for web, social, shopping, community retrieval, artifact-bearing workflows, and deterministic workflow reports. Extends `src/AGENTS.md`.
 
 ## Overview
 
-Multi-source provider runtime with tiered execution, safety guards, and browser fallback. Supports search, fetch, crawl, and post operations across web, social, community, and shopping sources.
+Multi-source provider runtime with tiered execution, safety guards, browser fallback, deterministic product reports, and artifact bundle writing. Supports search, fetch, crawl, and post operations across web, social, community, and shopping sources.
 
 ## Structure
 
@@ -13,6 +13,11 @@ src/providers/
 ├── adaptive-concurrency.ts # Global/per-domain concurrency controller
 ├── artifacts.ts            # Artifact lifecycle + cleanup
 ├── blocker.ts              # Blocker classification + artifact helpers
+├── browser-native-discovery.ts # Browser-discovered reference extraction
+├── browser-output-artifacts.ts # Browser fallback output artifact helpers
+├── workflow-output-root.ts  # Project/worktree-local workflow artifact root policy
+├── workflow-contracts.ts    # Workflow response and summary contracts
+├── workflow-handoff.ts      # Workflow follow-through guidance
 ├── enrichment.ts           # Enrichment scoring/metadata helpers
 ├── errors.ts               # Provider error types
 ├── index.ts                # Provider runtime entrypoint
@@ -25,6 +30,9 @@ src/providers/
 ├── timebox.ts              # Timebox resolution/filtering
 ├── types.ts                # Core types - ProviderSource, ProviderOperation, ProviderAdapter
 ├── workflows.ts            # High-level research/shopping/product-video orchestration
+├── research-report/         # Deterministic research report compiler and renderer
+├── shopping-report/         # Deterministic shopping buying-brief compiler and renderer
+├── product-video-presentation/ # Product-video presentation readiness compiler
 ├── community/              # Community/forum providers
 │   └── index.ts
 ├── web/                    # Web crawling and extraction
@@ -95,6 +103,13 @@ When providers fail (e.g., YouTube transcript extraction), `createBrowserFallbac
 
 `social/youtube-resolver.ts` follows `providers.transcript.strategyOrder` and normalizes transcript resolution metadata.
 `runtime-factory.ts` also exposes `createBrowserFallbackPort()` for managed-browser recovery paths used by workflows and transcript resolution.
+
+## Workflow Artifacts
+
+- Omitted outputs for artifact-bearing workflows resolve through the project/worktree-local `.opendevbrowser` contract.
+- Workflow bundles use `.opendevbrowser/<workflow-namespace>/<run-id>/` with `bundle-manifest.json`.
+- Canvas, screenshot, screencast, annotation, desktop audit, and release proof lanes are related output lanes but not provider workflow bundles.
+- Low-level bundle creation must receive an explicit output root; do not reintroduce temp-root fallback behavior.
 
 ## Anti-Patterns
 

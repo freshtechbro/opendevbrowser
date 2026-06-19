@@ -137,5 +137,5 @@ src/cli/
 - Run strict live release gates:
   - `node scripts/provider-direct-runs.mjs --release-gate`
   - `node scripts/live-regression-direct.mjs --release-gate`
-- Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc (for this cycle: `docs/RELEASE_0.0.34_EVIDENCE.md`) for final sign-off.
+- Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc for final sign-off. For package version `0.0.35`, use `docs/RELEASE_0.0.35_EVIDENCE.md`.
 - Keep command/flag/channel inventories synchronized with `docs/CLI.md` and `docs/SURFACE_REFERENCE.md`.

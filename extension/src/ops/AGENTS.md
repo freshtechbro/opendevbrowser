@@ -36,7 +36,7 @@ extension/src/ops/
 | DOM | `dom.getHtml`, `dom.getText`, `dom.getAttr`, `dom.getValue`, `dom.isVisible`, `dom.isEnabled`, `dom.isChecked`, `dom.refPoint` |
 | Canvas/Preview | `canvas.tab.open`, `canvas.tab.close`, `canvas.tab.sync`, `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`, `canvas.overlay.sync`, `canvas.applyRuntimePreviewBridge` |
 | Export | `export.clonePage`, `export.cloneComponent` |
-| DevTools | `devtools.perf`, `devtools.consolePoll`, `devtools.networkPoll`, `page.screenshot` |
+| DevTools | `devtools.perf`, `devtools.consolePoll`, `devtools.networkPoll`, `page.screenshot`, `page.dialog` |
 
 ## Session Lifecycle
 
