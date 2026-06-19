@@ -1,149 +1,301 @@
 # Design Contract Playbook
 
-The design contract is the single source of truth for frontend decisions in this skill.
+The design contract is the single source of truth for frontend decisions in this skill. Build it before implementation or Canvas mutation.
+
+Each section below uses the same structure:
+
+- purpose: why the section exists.
+- expectedContents: what the agent must fill.
+- howToUse: how the section guides work.
+- mustNot: common misuse to avoid.
+- Canvas mapping: how the section maps to `/canvas` plan, governance, patch, preview, or implementation-only context.
 
 ## 1. Intent
 
-Capture why the design exists.
-
-- `audience`: who is this for
-- `task`: what must they accomplish
-- `successCriteria`: how the UI proves it succeeded
-- `trustPosture`: conservative, neutral, bold, editorial, etc.
-
-If the task does not have a crisp audience or job-to-be-done, stop and define it before styling anything.
+- purpose: define why the design exists and what success means.
+- expectedContents: audience, task, successCriteria, trustPosture, primary journey, and non-goals.
+- howToUse: use this to choose hierarchy, density, risk posture, and validation evidence.
+- mustNot: do not start styling without a crisp audience and job-to-be-done.
+- Canvas mapping: informs `generationPlan.targetOutcome`, preview scenarios, and validation evidence.
 
 ## 2. Design Language
 
-Choose one coherent direction.
+- purpose: choose one coherent visual direction.
+- expectedContents: direction, styleAxes, semanticTokenSource, approvedLibraries, texture, depth, shape language, and contrast posture.
+- howToUse: translate the direction into semantic tokens, component anatomy, and patch naming.
+- mustNot: do not mix unrelated design languages, and do not approve new libraries through design language alone.
+- Canvas mapping: maps to `generationPlan.visualDirection`, token patches, and governance notes.
 
-- `direction`: a named visual family
-- `styleAxes`: contrast, density, warmth, shape language, texture, depth, motion
-- `semanticTokenSource`: which shell or provider owns semantic color, spacing, radius, shadow, and motion tokens
-- `approvedLibraries`: allowed component, icon, and styling libraries
+Valid example:
 
-Do not mix multiple unrelated directions inside one screen.
+```json
+{
+  "direction": "editorial command center",
+  "semanticTokenSource": "repo theme tokens",
+  "approvedLibraries": ["existing design system only"]
+}
+```
+
+Invalid example:
+
+```json
+{
+  "direction": "make it modern with Three.js",
+  "approvedLibraries": ["any animation package"]
+}
+```
+
+The invalid example uses a vague direction and implies unsupported runtime libraries.
 
 ## 3. Content Model
 
-Content is part of the design system, not filler.
+- purpose: make content part of the design system.
+- expectedContents: primary message, supporting messages, real data requirements, copy tone, state list, loading, empty, error, success, and transient feedback surfaces.
+- howToUse: use this before writing nodes so the Canvas document has realistic text and states.
+- mustNot: do not use placeholder copy when real content or product-specific labels are available.
+- Canvas mapping: maps to `generationPlan.contentStrategy`, node text, feedback states, and preview scenarios.
 
-- define the primary message
-- define the supporting messages
-- require real content when possible
-- list the UI states that must exist
-- define loading, empty, error, and transient feedback behavior
-- avoid placeholder copy unless the task explicitly needs scaffolding
+## 4. Navigation Model
 
-## 4. Async Model
+- purpose: define how routes, tabs, overlays, drawers, and deep links become screen state.
+- expectedContents: owner, primaryRouteModel, deepLinkPolicy, invalidRouteFallback, overlayEntryPoints, and history behavior.
+- howToUse: use this to decide whether navigation belongs in a shell patch, prototype link, implementation route, or future code task.
+- mustNot: do not let buttons, tabs, and row actions invent route strings independently.
+- Canvas mapping: implementation context unless represented through Canvas-safe prototype or governance fields. `generationPlan.layoutStrategy.navigationModel` can summarize the Canvas-safe navigation posture.
 
-State how async work begins, restarts, and stops.
+## 5. Async Model
 
-- `owner`: which layer owns query, result, and status transitions
-- `loadTrigger`: load-on-enter, restart-on-input, or long-lived workflow
-- `restartTriggers`: query, scope, sort, selection, or route changes
-- `debounceMs`: the delay for user-driven restarts
-- `emptyQueryBehavior`: what happens when the query clears
-- `cancellationPolicy`: how stale work is ignored
-- `urlOwnership`: when query, scope, or sort belongs in the URL
-
-If async ownership is unclear, the design contract is incomplete even if the visual direction is strong.
-
-## 5. Navigation Model
-
-State how routes, tabs, overlays, and deep links are translated into UI state.
-
-- `owner`: which shell or controller owns route resolution
-- `primaryRouteModel`: the canonical route, tab, or view map
-- `deepLinkPolicy`: which params survive refresh, sharing, or external entry
-- `invalidRouteFallback`: what happens when params are missing, stale, or malformed
-- `overlayEntryPoints`: which routes or actions are allowed to open drawers, sheets, or modal review states
-
-Do not let buttons, tabs, and row actions invent route strings independently. One navigation owner should translate external entry points into screen state.
+- purpose: define how async work begins, restarts, cancels, and reports feedback.
+- expectedContents: owner, loadTrigger, restartTriggers, debounceMs, emptyQueryBehavior, cancellationPolicy, URL ownership, stale-result handling, and retry behavior.
+- howToUse: use this to design loading and recovery surfaces before wiring data calls.
+- mustNot: do not encode network behavior as Canvas governance unless a Canvas field explicitly supports it.
+- Canvas mapping: mostly implementation context. Canvas can represent loading, empty, error, and feedback states through nodes and `generationPlan.componentStrategy.interactionStates`.
 
 ## 6. Layout System
 
-State the page architecture, not just the component list.
-
-- grid type
-- container strategy
-- spacing rhythm
-- alignment rules
-- section sequencing
-- scan unit for dense collections or dashboards
+- purpose: define page architecture instead of a component list.
+- expectedContents: grid type, container strategy, spacing rhythm, alignment rules, section sequence, scan unit, and responsive structure.
+- howToUse: use this to choose starter fit, page structure, parent nodes, node placement, and patch order.
+- mustNot: do not build tiled cards, side panels, or hero media by default without a layout reason.
+- Canvas mapping: maps to `generationPlan.layoutStrategy`, starter choice, page mutations, and node insertion hierarchy.
 
 ## 7. Typography System
 
-Decide typography deliberately.
-
-- primary and secondary families
-- scale
-- measure
-- fallback policy
-- loading strategy
+- purpose: make type hierarchy intentional.
+- expectedContents: primary family, secondary family, scale, measure, weight, fallback policy, and loading strategy.
+- howToUse: use this to create or update token values and text node styles.
+- mustNot: do not default to generic system type unless the existing design system requires it.
+- Canvas mapping: maps to token patches, node text styles, and validation targets for readability.
 
 ## 8. Motion System
 
-Motion must help comprehension.
+- purpose: define motion that clarifies hierarchy, continuity, feedback, or state change.
+- expectedContents: timing, easing, allowed surfaces, reduced-motion posture, transition inventory, and advisory advanced cues.
+- howToUse: route motion-heavy work through the motion skill before patching or coding.
+- mustNot: do not let shader, WebGL, Spline-style, 3D, or parallax references authorize new runtime libraries.
+- Canvas mapping: maps to `generationPlan.motionPosture`, interaction-state representation, and preview evidence. Advanced cues belong in `designVectors` as advisory metadata only.
 
-- timing and easing
-- where motion is allowed
-- reduced-motion posture
-- whether depth, 3D, or parallax are justified
-- advisory-only shader, WebGL, Spline-style, or spatial cues when references suggest them
-- confirmation that motion cues do not authorize `libraryPolicy.motion` or `libraryPolicy.threeD`
+Valid example:
+
+```json
+{
+  "motionSystem": {
+    "allowed": ["focus transition", "panel reveal"],
+    "reducedMotion": "preserve state changes without decorative movement"
+  }
+}
+```
+
+Invalid example:
+
+```json
+{
+  "motionSystem": {
+    "allowed": ["shader particle background"],
+    "libraryPolicy": { "motion": ["new animation runtime"] }
+  }
+}
+```
+
+The invalid example promotes unsupported runtime capability from visual intent.
 
 ## 9. Performance Model
 
-State the performance posture before interaction regressions appear.
+- purpose: prevent visually correct but unstable interfaces.
+- expectedContents: renderHotspots, stableIdentityPolicy, listStrategy, secondaryPanelPolicy, measurementPlan, and performance budget.
+- howToUse: use this before designing dense lists, dashboards, scroll stages, or heavy previews.
+- mustNot: do not add virtualization, memoization, or lazy loading without an ownership and measurement reason.
+- Canvas mapping: implementation context unless represented by Canvas-safe layout, validation, or governance notes. `generationPlan.validationTargets.maxInteractionLatencyMs` carries the measurable Canvas latency target.
 
-- `renderHotspots`: which subtree is most likely to churn
-- `stableIdentityPolicy`: how rows, cards, tabs, or stages keep stable ids
-- `listStrategy`: static list, lazy container, progressive reveal, or virtualization threshold
-- `secondaryPanelPolicy`: whether inspectors, previews, or editors load eagerly or on demand
-- `measurementPlan`: which profiler or browser evidence proves the screen is healthy under realistic data
+Valid Canvas generation plan example:
 
-If scan-heavy or motion-heavy screens have no performance model, the design contract is incomplete.
+```json
+{
+  "generationPlan": {
+    "targetOutcome": {
+      "mode": "high-fi-live-edit",
+      "summary": "Improve hierarchy, clarity, and conversion confidence"
+    },
+    "visualDirection": {
+      "profile": "product-story",
+      "themeStrategy": "light-dark-parity"
+    },
+    "layoutStrategy": {
+      "approach": "hero-led-grid",
+      "navigationModel": "global-header"
+    },
+    "contentStrategy": {
+      "source": "real-content-first"
+    },
+    "componentStrategy": {
+      "mode": "reuse-first",
+      "interactionStates": ["default", "hover", "focus", "active"]
+    },
+    "motionPosture": {
+      "level": "subtle",
+      "reducedMotion": "respect-user-preference"
+    },
+    "responsivePosture": {
+      "primaryViewport": "desktop",
+      "requiredViewports": ["desktop", "tablet", "mobile"]
+    },
+    "accessibilityPosture": {
+      "target": "WCAG_2_2_AA",
+      "keyboardNavigation": "full"
+    },
+    "validationTargets": {
+      "blockOn": ["contrast-failure", "responsive-mismatch"],
+      "requiredThemes": ["light", "dark"],
+      "browserValidation": "required",
+      "maxInteractionLatencyMs": 160
+    }
+  }
+}
+```
 
 ## 10. Responsive System
 
-Responsive behavior is an authored outcome.
-
-- breakpoints
-- layout changes by breakpoint
-- touch targets
-- overflow rules
-- collapsed navigation or panel behavior
+- purpose: make responsive behavior an authored outcome.
+- expectedContents: breakpoints, primary viewport, required viewports, layout shifts, collapsed navigation, touch targets, overflow rules, and mobile validation steps.
+- howToUse: design mobile, tablet, and desktop before declaring the layout complete.
+- mustNot: do not assume desktop layout scales down cleanly.
+- Canvas mapping: maps to `generationPlan.responsivePosture` and `generationPlan.responsivePosture.requiredViewports`.
 
 ## 11. Accessibility Policy
 
-Accessibility must be explicit.
-
-- WCAG target
-- keyboard requirements
-- focus visibility rules
-- semantic structure requirements
-- color contrast expectations
+- purpose: set explicit accessibility requirements.
+- expectedContents: WCAG target, semantic structure, focus visibility, keyboard navigation, color contrast, reduced-motion requirements, and screen-reader expectations.
+- howToUse: use this to construct nodes, labels, focus states, and feedback surfaces.
+- mustNot: do not rely on color alone or treat accessibility as final polish.
+- Canvas mapping: maps to `generationPlan.accessibilityPosture`, `validationTargets`, preview checks, and feedback evidence.
 
 ## 12. Generation Plan
 
-This is the mutation-safe subset used by `/canvas`.
+- purpose: provide the mutation-safe subset used by `/canvas`.
+- expectedContents: `targetOutcome`, `visualDirection`, `layoutStrategy`, `contentStrategy`, `componentStrategy`, `motionPosture`, `responsivePosture`, `accessibilityPosture`, and `validationTargets`.
+- howToUse: extract it from the full contract, submit it with `canvas.plan.set`, and wait for accepted plan status before mutating.
+- mustNot: do not use `generationPlan` as a generic notes bucket, and do not put unsupported implementation context into it.
+- Canvas mapping: direct `canvas.plan.set` payload. This is the mutation gate for `canvas.document.patch`, starter use, and inventory mutation.
 
-Required keys:
+Valid example:
 
-- `targetOutcome`
-- `visualDirection`
-- `layoutStrategy`
-- `contentStrategy`
-- `componentStrategy`
-- `motionPosture`
-- `responsivePosture`
-- `accessibilityPosture`
-- `validationTargets`
+```json
+{
+  "generationPlan": {
+    "targetOutcome": {
+      "mode": "high-fi-live-edit",
+      "summary": "Improve hierarchy, clarity, and conversion confidence"
+    },
+    "visualDirection": {
+      "profile": "product-story",
+      "themeStrategy": "light-dark-parity"
+    },
+    "layoutStrategy": {
+      "approach": "hero-led-grid",
+      "navigationModel": "global-header"
+    },
+    "contentStrategy": {
+      "source": "real-content-first"
+    },
+    "componentStrategy": {
+      "mode": "reuse-first",
+      "interactionStates": ["default", "hover", "focus", "active"]
+    },
+    "motionPosture": {
+      "level": "subtle",
+      "reducedMotion": "respect-user-preference"
+    },
+    "responsivePosture": {
+      "primaryViewport": "desktop",
+      "requiredViewports": ["desktop", "tablet", "mobile"]
+    },
+    "accessibilityPosture": {
+      "target": "WCAG_2_2_AA",
+      "keyboardNavigation": "full"
+    },
+    "validationTargets": {
+      "blockOn": ["contrast-failure", "responsive-mismatch"],
+      "requiredThemes": ["light", "dark"],
+      "browserValidation": "required",
+      "maxInteractionLatencyMs": 160
+    }
+  }
+}
+```
 
-Optional `designVectors` can carry advanced motion advisories when references suggest shader-like, WebGL-style, Spline-style, or spatial behavior. Keep those values descriptive. They do not add runtime support, change the required plan shape, or approve new motion or 3D libraries.
+Invalid example:
 
-Use `scripts/extract-canvas-plan.sh` to derive this from the full contract.
+```json
+{
+  "generationPlan": {
+    "notes": "Use any library that looks premium",
+    "navigationModel": "the app router can decide later"
+  }
+}
+```
+
+The invalid example omits required Canvas fields and stores implementation uncertainty in the mutation gate.
+
+## 13. Design Vectors
+
+- purpose: carry advisory metadata that helps interpret a visual direction.
+- expectedContents: borrow cues, reject cues, motion advisories, reference notes, and tone constraints.
+- howToUse: use vectors to guide human and agent judgment while keeping runtime contracts strict.
+- mustNot: do not treat vectors as authorization for unsupported Canvas fields, new dependencies, shaders, WebGL, Spline-style assets, or 3D runtime behavior.
+- Canvas mapping: advisory metadata only. It may inform patch choices but does not change the required `CanvasGenerationPlan` shape.
+
+## Canvas Governance Versus Implementation Context
+
+Canvas governance-relevant:
+
+- `generationPlan`
+- semantic tokens and token source
+- accessibility target
+- responsive validation targets
+- motion posture and reduced-motion policy
+- preview, feedback, save, and export evidence
+
+Implementation-only unless mapped to a Canvas-safe field:
+
+- detailed app router behavior from `navigationModel`
+- async fetch, cancellation, cache, and retry behavior from `asyncModel`
+- performance implementation choices from `performanceModel`
+- vendor-specific libraries or framework internals
+
+Do not patch omitted implementation context into Canvas governance just to make the contract feel complete.
+
+## Patch Construction Guidance
+
+- Read `guidance.recommendedNextCommands` after every successful Canvas command.
+- Use the latest accepted lease and latest returned revision as `baseRevision`.
+- Build small coherent patches: governance update, page update or insert, node insert, token update, then prototype or inventory operations only when needed.
+- Use prototype or navigation targets only when the contract defines the navigation owner and target state.
+- Use tokens for reusable color, typography, spacing, radius, shadow, and motion values instead of repeated raw values.
+- Inspect `canvas.starter.list` before hand-authoring common dashboard, auth, marketing, settings, or docs shells when they match the brief.
+- Reject a starter when it does not satisfy the design contract.
+- Call `canvas.inventory.list` after plan acceptance to inspect reusable sections or components.
+- Use `canvas.inventory.insert` when an item fits the accepted plan, lease, page, parent, and placement.
+- Promote custom nodes into inventory only after the contract and preview evidence prove they are reusable.
 
 ## Review Questions
 

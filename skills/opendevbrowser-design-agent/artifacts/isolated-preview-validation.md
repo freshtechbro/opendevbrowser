@@ -62,7 +62,7 @@ npx opendevbrowser launch --no-extension --start-url http://127.0.0.1:3000/previ
 npx opendevbrowser snapshot --session-id <session-id>
 npx opendevbrowser screenshot --session-id <session-id>
 npx opendevbrowser debug-trace-snapshot --session-id <session-id>
-npx opendevbrowser canvas --command canvas.preview.render --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","projection":"canvas_html"}' --output-format json
+npx opendevbrowser canvas --command canvas.preview.render --params '{"canvasSessionId":"<canvas-session-id>","leaseId":"<lease-id>","targetId":"<target-id>","prototypeId":"<prototype-id>"}' --output-format json
 ```
 
 Use the same fixture states as the contract when comparing preview and integrated behavior.

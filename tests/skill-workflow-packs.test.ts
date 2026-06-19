@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import { join } from "path";
 import * as os from "os";
 import { describe, expect, it } from "vitest";
+import { validateGenerationPlan } from "../src/canvas/document-store";
 import { PRODUCT_VIDEO_BRIEF_HELPER_PATH } from "../src/providers/workflow-handoff";
 import { SkillLoader } from "../src/skills/skill-loader";
 
@@ -15,6 +16,37 @@ type SkillValidatorMutation = {
   mutate: (content: string) => string;
   expectedError: string;
   dependencies?: string[];
+};
+
+type GenerationPlanTemplate = {
+  generationPlan: object;
+};
+
+type CanvasPatchTemplate = {
+  canvasSessionId: string;
+  leaseId: string;
+  baseRevision: number;
+  patches: Array<{
+    op: string;
+    block?: string;
+    changes?: object;
+    pageId?: string;
+    parentId?: string;
+    nodeId?: string;
+    node?: {
+      id?: string;
+      kind?: string;
+      rect?: object;
+      props?: object;
+      style?: object;
+      metadata?: object;
+    };
+  }>;
+};
+
+const readJsonFile = async <Template>(filePath: string): Promise<Template> => {
+  const content = await readFile(filePath, "utf8");
+  return JSON.parse(content) as Template;
 };
 
 const runSkillValidatorWithMutation = async (mutation: SkillValidatorMutation) => {
@@ -48,6 +80,7 @@ const requiredFilesBySkill: Record<string, string[]> = {
     "SKILL.md",
     "artifacts/design-workflows.md",
     "artifacts/design-contract-playbook.md",
+    "artifacts/design-agent-work-products.md",
     "artifacts/frontend-evaluation-rubric.md",
     "artifacts/external-pattern-synthesis.md",
     "artifacts/component-pattern-index.md",
@@ -68,6 +101,7 @@ const requiredFilesBySkill: Record<string, string[]> = {
     "assets/templates/design-audit-report.v1.md",
     "assets/templates/design-contract.v1.json",
     "assets/templates/canvas-generation-plan.design.v1.json",
+    "assets/templates/canvas-patch.request.v1.json",
     "assets/templates/design-review-checklist.json",
     "assets/templates/real-surface-design-matrix.json",
     "assets/templates/reference-pattern-board.v1.json",
@@ -458,6 +492,83 @@ describe("workflow skill packs", () => {
     }
   }, 60000);
 
+  it("keeps design-agent canvas plan templates valid against the runtime validator", async () => {
+    const templatePaths = [
+      "assets/templates/design-contract.v1.json",
+      "assets/templates/canvas-generation-plan.design.v1.json"
+    ];
+
+    for (const templatePath of templatePaths) {
+      const template = await readJsonFile<GenerationPlanTemplate>(
+        join(bundledSkillsDir, "opendevbrowser-design-agent", templatePath)
+      );
+      const validation = validateGenerationPlan(template.generationPlan);
+      expect(validation, templatePath).toMatchObject({ ok: true });
+    }
+  });
+
+  it("keeps the design-agent canvas patch template as a minimal supported smoke payload", async () => {
+    const template = await readJsonFile<CanvasPatchTemplate>(
+      join(
+        bundledSkillsDir,
+        "opendevbrowser-design-agent",
+        "assets/templates/canvas-patch.request.v1.json"
+      )
+    );
+    const supportedOperations = new Set([
+      "page.create",
+      "page.update",
+      "node.insert",
+      "node.update",
+      "node.remove",
+      "node.reparent",
+      "node.reorder",
+      "node.duplicate",
+      "node.visibility.set",
+      "variant.patch",
+      "token.set",
+      "tokens.merge",
+      "tokens.replace",
+      "governance.update",
+      "asset.attach",
+      "binding.set",
+      "binding.remove",
+      "prototype.upsert",
+      "inventory.promote",
+      "inventory.update",
+      "inventory.upsert",
+      "inventory.remove",
+      "starter.apply"
+    ]);
+    const operationNames = template.patches.map((patch) => patch.op);
+
+    expect(template.canvasSessionId).toBe("<canvas-session-id>");
+    expect(template.leaseId).toBe("<lease-id>");
+    expect(template.baseRevision).toBe(0);
+    expect(operationNames).toEqual(["governance.update", "page.update", "node.insert", "node.update"]);
+    expect(operationNames.every((operation) => supportedOperations.has(operation))).toBe(true);
+    expect(operationNames).not.toEqual(expect.arrayContaining(["prototype.upsert", "inventory.promote", "starter.apply"]));
+    expect(template.patches.length).toBeLessThanOrEqual(4);
+    expect(template.patches[0]).toMatchObject({ block: "intent", changes: expect.any(Object) });
+    expect(template.patches[1]).toMatchObject({ pageId: "<page-id>", changes: expect.any(Object) });
+    expect(template.patches[2]).toMatchObject({
+      pageId: "<page-id>",
+      parentId: "<root-node-id>",
+      node: {
+        id: "node_design_smoke_hero",
+        kind: "frame",
+        rect: expect.any(Object),
+        props: expect.any(Object),
+        style: expect.any(Object),
+        metadata: expect.any(Object)
+      }
+    });
+    expect(template.patches[3]).toMatchObject({
+      nodeId: "node_design_smoke_hero",
+      changes: expect.any(Object)
+    });
+  });
+
   it("rejects research skill validator contract drift", async () => {
     if (process.platform === "win32") return;
 
@@ -571,6 +682,198 @@ describe("workflow skill packs", () => {
           '  "$manifest_out"'
         ),
         expectedError: "write-manifest.sh succeeded with missing adjacent sidecars.",
+        dependencies: ["opendevbrowser-best-practices"]
+      }
+    ];
+
+    for (const testCase of cases) {
+      const result = await runSkillValidatorWithMutation(testCase);
+      expect(result.status, `${testCase.skillName}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).not.toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).toContain(testCase.expectedError);
+    }
+  }, 60000);
+
+  it("rejects representative design-agent canvas validator mutations", async () => {
+    if (process.platform === "win32") return;
+
+    const cases: SkillValidatorMutation[] = [
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/design-contract.v1.json",
+        mutate: (content) => content.replace(
+          '"themeStrategy": "light-dark-parity"',
+          '"themeStrategyRemoved": "light-dark-parity"'
+        ),
+        expectedError: "assets/templates/design-contract.v1.json generationPlan missing visualDirection.themeStrategy",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/canvas-generation-plan.design.v1.json",
+        mutate: (content) => content.replace(
+          '"maxInteractionLatencyMs": 160',
+          '"maxInteractionLatencyMsRemoved": 160'
+        ),
+        expectedError: "assets/templates/canvas-generation-plan.design.v1.json generationPlan missing validationTargets.maxInteractionLatencyMs",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/canvas-generation-plan.design.v1.json",
+        mutate: (content) => content.replace(
+          '"profile": "product-story"',
+          '"profile": "invalid-profile"'
+        ),
+        expectedError: "Invalid generationPlan.visualDirection.profile: expected one of",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/design-contract.v1.json",
+        mutate: (content) => content.replace(
+          '"targetOutcome": {',
+          '"interactionMoments": [42],\n    "targetOutcome": {'
+        ),
+        expectedError: "Invalid generationPlan.interactionMoments: expected only non-empty strings",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "scripts/design-workflow.sh",
+        mutate: (content) => content.replace(
+          "mkdir -p .tmp",
+          "printf '%s\\n' preparing-scratch"
+        ),
+        expectedError: "design-workflow.sh output for canvas-contract missing marker: mkdir -p .tmp",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "SKILL.md",
+        mutate: (content) => content.replace(
+          ".tmp/canvas-plan.request.json",
+          "./tmp/canvas-plan.json"
+        ),
+        expectedError: "Stale scratch guidance marker ./tmp/ in SKILL.md",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "scripts/design-workflow.sh",
+        mutate: (content) => content.replace(
+          'DESIGN_RUN_DIR=".opendevbrowser/design-agent/\\$RUN_ID"',
+          'DESIGN_RUN_DIR=".opendevbrowser/design-agent-run/\\$RUN_ID"'
+        ),
+        expectedError: "design-workflow.sh output for canvas-contract missing marker: .opendevbrowser/design-agent/",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "artifacts/design-workflows.md",
+        mutate: (content) => content.replace(
+          /\.opendevbrowser\/canvas\/\.\.\./g,
+          ".opendevbrowser/design-agent/<run-id>/..."
+        ),
+        expectedError: "artifacts/design-workflows.md storage policy missing marker: .opendevbrowser/canvas/...",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/canvas-patch.request.v1.json",
+        mutate: (content) => content.replace(
+          '"op": "node.insert"',
+          '"op": "node.add"'
+        ),
+        expectedError: "assets/templates/canvas-patch.request.v1.json uses unsupported patch operation: node.add",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/canvas-patch.request.v1.json",
+        mutate: (content) => content.replace(
+          '  "baseRevision": 0,\n',
+          ""
+        ),
+        expectedError: "assets/templates/canvas-patch.request.v1.json missing required key: baseRevision",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/canvas-patch.request.v1.json",
+        mutate: (content) => content.replace(
+          '        "id": "node_design_smoke_hero",\n',
+          ""
+        ),
+        expectedError: "assets/templates/canvas-patch.request.v1.json node.insert at index 2 missing node.id",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "assets/templates/canvas-patch.request.v1.json",
+        mutate: (content) => content.replace(
+          "\n  ]",
+          ',\n    { "op": "prototype.upsert" }\n  ]'
+        ),
+        expectedError: "assets/templates/canvas-patch.request.v1.json should stay a minimal smoke payload with exactly these operations: governance.update, page.update, node.insert, node.update",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "scripts/extract-canvas-plan.sh",
+        mutate: (content) => content.replace(
+          'requestId: payload.requestId ?? "req_plan_from_contract",',
+          'requestId: "req_plan_from_contract",'
+        ),
+        expectedError: "extract-canvas-plan output for assets/templates/canvas-generation-plan.design.v1.json did not preserve wrapper key: requestId",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "scripts/design-workflow.sh",
+        mutate: (content) => content.replace(
+          "cp skills/opendevbrowser-design-agent/assets/templates/canvas-patch.request.v1.json .tmp/canvas-patch.request.json",
+          "printf '%s\\n' prepare-canvas-patch"
+        ),
+        expectedError: "design-workflow.sh output for canvas-contract missing marker: cp skills/opendevbrowser-design-agent/assets/templates/canvas-patch.request.v1.json .tmp/canvas-patch.request.json",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "scripts/design-workflow.sh",
+        mutate: (content) => content.replace(
+          '"itemId":"<inventory-item-id>"',
+          '"inventoryItemId":"<inventory-item-id>"'
+        ),
+        expectedError: "Stale inventory insert param inventoryItemId in scripts/design-workflow.sh",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "scripts/design-workflow.sh",
+        mutate: (content) => content.replace(
+          ',"prototypeId":"<prototype-id>"',
+          ',"projection": "canvas_html"'
+        ),
+        expectedError: "Stale canvas.preview.render projection param in scripts/design-workflow.sh",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "artifacts/isolated-preview-validation.md",
+        mutate: (content) => content.replace(
+          '"prototypeId":"<prototype-id>"',
+          '"projection": "canvas_html"'
+        ),
+        expectedError: "Stale canvas.preview.render projection param in artifacts/isolated-preview-validation.md",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
+        relativePath: "scripts/design-workflow.sh",
+        mutate: (content) => content
+          .replace(/canvas\.starter\.list/g, "canvas.starter.lookup")
+          .replace(/canvas\.inventory\.list/g, "canvas.inventory.lookup"),
+        expectedError: "design-workflow.sh output for canvas-contract missing marker: canvas.starter.list",
         dependencies: ["opendevbrowser-best-practices"]
       }
     ];
