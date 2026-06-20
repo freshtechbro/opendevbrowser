@@ -40,6 +40,8 @@ src/cli/
 ├── installers/             # Installation scripts
 │   ├── global.ts           # Global npm install
 │   ├── local.ts            # Local project install
+│   ├── package-postinstall.ts # Best-effort package lifecycle orchestration
+│   ├── postinstall-skill-sync.ts # Skill sync API plus stable package-postinstall re-exports
 │   └── skills.ts           # Skill pack installer
 ├── utils/                  # CLI utilities
 │   ├── config.ts           # Config loading
@@ -92,7 +94,8 @@ src/cli/
 - **Client:** `daemon-client.ts` - HTTP client for CLI → daemon
 - **Proxy:** `remote-manager.ts` - Proxies tool calls through daemon
 - **Remote desktop:** `remote-desktop-runtime.ts` - Proxies the daemon-owned `DesktopRuntimeLike` surface; desktop observation stays outside extension relay
-- **Autostart:** `daemon-autostart.ts` - LaunchAgent/Task Scheduler
+- **Autostart:** `daemon-autostart.ts` - LaunchAgent/Task Scheduler platform safety owner; refuses transient `_npx`, `/tmp`, `/private/tmp`, and onboarding workspace entrypoints before writes
+- **Package postinstall:** `installers/package-postinstall.ts` - best-effort raw npm global package autostart reconciliation; re-export through `installers/postinstall-skill-sync.ts` preserves the shipped built import path
 - **Status:** `daemon-status.ts` - Hub status with metadata recovery
 - **Internal inbox hooks:** `daemon-commands.ts` exposes `agent.inbox.*` hub-only helpers that proxy the same core-local `AgentInbox` store used by plugin delivery
 
@@ -110,6 +113,7 @@ src/cli/
 - **Thin handlers:** Delegate to managers in `src/browser/`
 - **JSON pipes:** Ensure valid JSON for piping
 - **Help discoverability:** Generated help must keep the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` easy to find without describing a desktop agent.
+- **Package lifecycle:** Raw npm global package postinstall targets `dist/cli/index.js`, not `scripts/postinstall-sync-skills.mjs`; local, ambiguous, conflicting, or non-npm package-manager contexts skip autostart without failing install.
 - **Parity contract:** Keep CLI runtime commands aligned with tool/runtime parity gate in `tests/parity-matrix.test.ts` (`rpc` remains CLI-only by design)
 
 ## Anti-Patterns

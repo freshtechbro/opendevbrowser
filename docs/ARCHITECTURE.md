@@ -42,12 +42,9 @@ Daemon-backed `canvas` CLI requests inject the caller worktree as `repoRoot`; `C
 Canonical inventory and channel contracts: `docs/SURFACE_REFERENCE.md`.
 Frontend architecture and generation flow are documented in `docs/FRONTEND.md`.
 
-The CLI installer reconciles daemon auto-start after every successful install
-(macOS LaunchAgent, Windows Task Scheduler). Existing per-user entries are rechecked and repaired when they are missing or stale on
-supported platforms, and when the macOS LaunchAgent is malformed or lacks the stable `~/.cache/opendevbrowser` working directory; unsupported platforms are skipped and continue without auto-start. If the current CLI entrypoint is running from a
-transient temp-root path, install-time reconciliation refuses to persist it and surfaces guidance to rerun `daemon install` from a
-stable install location. `getAutostartStatus()` remains the canonical source of auto-start truth for both install reconciliation
-and `daemon status`, and a stable persisted auto-start entry remains authoritative even when the current invocation is transient.
+Install-time daemon auto-start reconciliation has two entrypoints. CLI/plugin install still reconciles after every successful install. Raw npm global package postinstall runs `src/cli/installers/package-postinstall.ts` best effort, re-exported through `src/cli/installers/postinstall-skill-sync.ts` to keep the shipped built import path stable, and only attempts auto-start when npm lifecycle context clearly indicates a global install. Local, ambiguous, conflicting, or non-npm package-manager contexts skip package postinstall auto-start without failing package installation.
+
+Both entrypoints reuse the same reconciliation and platform safety owner in `src/cli/daemon-autostart.ts` (macOS LaunchAgent, Windows Task Scheduler). Existing per-user entries are rechecked and repaired when they are missing or stale on supported platforms, and when the macOS LaunchAgent is malformed or lacks the stable `~/.cache/opendevbrowser` working directory; unsupported platforms are skipped and continue without auto-start. Package postinstall injects the packaged CLI entrypoint `dist/cli/index.js`, not the lifecycle shim at `scripts/postinstall-sync-skills.mjs`. If the current CLI entrypoint is running from a transient `_npx`, `/tmp`, `/private/tmp`, or onboarding workspace path, install-time reconciliation refuses to persist it and surfaces guidance to rerun `daemon install` from a stable install location. `getAutostartStatus()` remains the canonical source of auto-start truth for both install reconciliation and `daemon status`, and a stable persisted auto-start entry remains authoritative even when the current invocation is transient.
 
 ## Challenge orchestration ownership
 
@@ -565,7 +562,7 @@ Validation script:
 - `src/devtools/`: console/network/exception trackers and debug bundle channels.
 - `src/tools/`: tool definitions and response shaping.
 - `src/relay/`: relay server and protocol types.
-- `src/cli/`: CLI commands, daemon/autostart, `DaemonClient`, `RemoteManager`, `RemoteCanvasManager`, relay status cache, and installers.
+- `src/cli/`: CLI commands, daemon/autostart, `DaemonClient`, `RemoteManager`, `RemoteCanvasManager`, relay status cache, and installers, including package postinstall orchestration.
 - `src/cli/commands/artifacts.ts`: artifact lifecycle cleanup (`artifacts cleanup --expired-only`).
 - `extension/`: Chrome extension UI and background logic.
 - `opendevbrowser-website-deploy/frontend/`: private website app and generated content pipeline.

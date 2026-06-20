@@ -33,6 +33,7 @@ npm run test -- -t "test name"      # Single test by name
 - **Never delete tests** without understanding why they fail
 - **Add regression tests** for every bug fix
 - **Keep mocks hermetic** (no real Chrome/network)
+- **Keep package postinstall tests hermetic** by injecting npm lifecycle env, package roots, `dist/cli/index.js` paths, and autostart dependencies instead of writing real LaunchAgent or Task Scheduler state
 
 ## Coverage Scope
 
@@ -46,6 +47,7 @@ Covers `src/**/*.ts` with explicit exclusions from `vitest.config.ts` (including
 ## Documentation Sync
 
 Update `docs/CLI.md` when CLI output or exit codes change.
+Update README, `docs/CLI.md`, `docs/FIRST_RUN_ONBOARDING.md`, `docs/ARCHITECTURE.md`, and relevant AGENTS files when install, package postinstall, or daemon auto-start behavior changes.
 Update release docs/runbooks when release-gate script behavior changes (`docs/RELEASE_RUNBOOK.md`, `docs/EXTENSION_RELEASE_RUNBOOK.md`, and the current version-scoped release evidence doc such as `docs/RELEASE_0.0.36_EVIDENCE.md`).
 
 ## CLI Smoke Tests
