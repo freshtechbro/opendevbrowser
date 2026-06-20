@@ -62,6 +62,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 **Tools NEVER own business logic.** They delegate.
 
 Keep tool names and counts in sync with `src/tools/index.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
+Workflow tool examples and notes in generated public surface are owned by `src/public-surface/source.ts`; regenerate manifests instead of editing generated files. Prefer omitted workflow output roots, or `--output-dir .opendevbrowser` when an explicit workflow root is required.
 When inventory-affecting tools change, re-run `node scripts/docs-drift-check.mjs` and update release evidence docs.
 When `opendevbrowser_canvas` subcommands change, also sync `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, and the relevant `AGENTS.md` files such as `src/browser/AGENTS.md` and `src/canvas/AGENTS.md`. If validator behavior changes, keep `scripts/canvas-competitive-validation.mjs` aligned in the same pass.
 

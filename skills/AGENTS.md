@@ -59,6 +59,8 @@ Content organized by topic for filtering.
 - Note that extension relay requires Chrome 125+ and uses hub-only relay ownership when enabled.
 - Refer to root `AGENTS.md` for connection flag/status semantics (extensionConnected, handshake, cdpConnected, pairingRequired).
 - Keep skill operational guidance aligned with release-gate scripts in `docs/CLI.md` (`provider-direct-runs --release-gate`, `live-regression-direct --release-gate`).
+- Bundled workflow examples should prefer omitted `--output-dir`; if a wrapper requires an explicit workflow root, use `.opendevbrowser` so the runtime appends `<namespace>/<runId>`. External roots must be clearly labeled as debug, release, cleanup, screenshot, screencast, or other exception lanes.
+- Keep `opendevbrowser-best-practices` workflow output guidance aligned with `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, public-surface source, generated manifests, and relevant guidance tests.
 
 ## Adding Skills
 

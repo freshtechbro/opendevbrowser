@@ -731,7 +731,7 @@ const CLI_COMMAND_EXAMPLES = {
   shopping: [cliExample("shopping run", "--query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json")],
   "product-video": [cliExample("product-video run", "--product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json")],
   inspiredesign: [
-    cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"),
+    cliExample("inspiredesign run", "--brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-format json"),
     cliExample("inspiredesign harvest", "--brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json"),
     cliExample("inspiredesign harvest", "--brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"),
     cliExample("inspiredesign harvest", "--brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json")
@@ -807,6 +807,8 @@ const CLI_COMMAND_EXAMPLES = {
   rpc: [cliExample("rpc", "--unsafe-internal --name browser.status --params-file ./rpc-params.json --output-format json")]
 } as const satisfies Record<PublicSurfaceCliCommandName, readonly string[]>;
 
+const WORKFLOW_OUTPUT_PREFERENCE_NOTE = "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.";
+
 const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly string[]>> = {
   help: [
     "Generated help is the canonical first-contact discovery surface and should stay source-owned."
@@ -818,12 +820,15 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
   ],
   research: [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
     "Load opendevbrowser-research first, use explicit source families such as --sources web,community, and inspect artifacts before final claims."
   ],
   shopping: [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
     "Treat --region as advisory unless the workflow output reports region_authoritative=true."
   ],
   "product-video": [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
     "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
   ],
   artifacts: [
@@ -832,6 +837,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Cleanup removes expired workflow bundles with bundle-manifest.json and does not manage Canvas, screenshot, screencast, annotation, desktop audit, or release proof outputs."
   ],
   inspiredesign: [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
     "Pinterest harvest uses screenshot evidence, screencast evidence, and manifest-backed pin-media evidence as primary readiness signals; DOM/clone/deep capture is disabled for Pinterest harvest, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
     "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested.",
     "Repeat --url for multiple references. There is no --urls alias.",
@@ -990,6 +996,18 @@ const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
   ],
   opendevbrowser_skill_load: [
     "Tool-only helper. Use it to load opendevbrowser-best-practices or design-agent guidance directly into the current agent context."
+  ],
+  opendevbrowser_research_run: [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+  ],
+  opendevbrowser_shopping_run: [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+  ],
+  opendevbrowser_product_video_run: [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+  ],
+  opendevbrowser_inspiredesign_run: [
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE
   ]
 };
 

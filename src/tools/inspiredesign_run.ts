@@ -3,7 +3,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
-import { resolveWorkflowToolOutputDir } from "./workflow-output";
+import { WORKFLOW_OUTPUT_DIR_ARGUMENT_DESCRIPTION, resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 import { DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS } from "../cli/transport-timeouts";
 import {
@@ -45,7 +45,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
       includePrototypeGuidance: z.boolean().optional().describe("Include prototype guidance output"),
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
-      outputDir: z.string().optional().describe("Optional artifact output directory"),
+      outputDir: z.string().optional().describe(WORKFLOW_OUTPUT_DIR_ARGUMENT_DESCRIPTION),
       ttlHours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
       browserMode: browserModeSchema.optional().describe("Browser transport mode: auto|extension|managed"),
       useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),

@@ -36,6 +36,8 @@ src/cli/commands/
 - Return `CommandResult`; shared output and fatal-error shaping live above this layer.
 - Reuse shared helpers for pointer, session, and output behavior instead of duplicating transport logic.
 - Keep command categories aligned with `src/cli/help.ts`, `src/cli/args.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
+- Keep workflow command examples and output-root wording aligned with `src/public-surface/source.ts`, generated manifests, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
+- Routine workflow examples should omit `--output-dir`; use `--output-dir .opendevbrowser` only when demonstrating an explicit workflow root, and label external roots as exception lanes.
 - Keep desktop commands daemon/core-owned; do not route them through extension-only helpers or CDP service layers.
 
 ## Anti-Patterns

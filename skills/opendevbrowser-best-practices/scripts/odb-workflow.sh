@@ -41,12 +41,13 @@ print_pinterest_multi_pin_harvest_guidance() {
 # 1. Run the query discovery command above with --query and --provider social/pinterest.
 # 2. Read meta.discovery.acceptedUrls from the JSON output or artifact metadata.
 # 3. Keep only canonical https://www.pinterest.com/pin/<id>/ URLs.
-# 4. Run one canonical harvest per selected pin:
-$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json --output-dir "artifacts/pinterest-harvest/<pin-id>"
-# 5. Extension-mode canonical harvest opens the exact canonical pin in the extension before byte-backed pin-media extraction.
-# 6. Trust only outputs with nextStepGuidance.readiness=ready, non-empty ranked-references.json, and pin-media-index.json, screenshot-index.json, or motion-evidence.json authority.
-# 7. Use media-analysis.json for deterministic design facts from trusted saved pin media only. It is not readiness authority, and pin-media-index.json remains the only pin-media readiness authority.
-# 8. Do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, new dependencies, or raw mediaAnalysis in canvas-plan.request.json.
+# 4. Run one canonical harvest per selected pin and omit --output-dir:
+$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+# 5. Each omitted run returns its own artifact_path under .opendevbrowser/inspiredesign/<runId>; inspect that path instead of creating a custom workflow root.
+# 6. Extension-mode canonical harvest opens the exact canonical pin in the extension before byte-backed pin-media extraction.
+# 7. Trust only outputs with nextStepGuidance.readiness=ready, non-empty ranked-references.json, and pin-media-index.json, screenshot-index.json, or motion-evidence.json authority.
+# 8. Use media-analysis.json for deterministic design facts from trusted saved pin media only. It is not readiness authority, and pin-media-index.json remains the only pin-media readiness authority.
+# 9. Do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, new dependencies, or raw mediaAnalysis in canvas-plan.request.json.
 EOF
 }
 
@@ -108,7 +109,8 @@ EOF
     print_daemon_preflight
     cat <<EOF
 # Pair with opendevbrowser-design-agent when the contract will flow into implementation or /canvas work.
-# When --output-dir is omitted, inspect .opendevbrowser/inspiredesign/<runId> for workflow artifacts.
+# Routine workflow runs should omit --output-dir; inspect returned artifact_path or .opendevbrowser/inspiredesign/<runId> for workflow artifacts.
+# Use --output-dir .opendevbrowser only when a wrapper requires an explicit workflow root.
 # URL-backed inspiredesign run forces deep capture for DOM/layout diagnostics; do not disable capture for URL-backed runs.
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
 EOF
@@ -241,7 +243,8 @@ EOF
 # Public-first YouTube transcript probe
 node $TRANSCRIPT_PROBE_PATH --url "https://www.youtube.com/watch?v=aircAruvnKk" --youtube-mode auto --out artifacts/capability-fix/youtube-transcript-auto.json
 
-# When --output-dir or --out is omitted, inspect .opendevbrowser/<workflow>/<runId> for workflow artifacts.
+# Routine workflow runs should omit --output-dir; inspect returned artifact_path or .opendevbrowser/<workflow>/<runId> for workflow artifacts.
+# Use --output-dir .opendevbrowser only when a wrapper requires an explicit workflow root.
 
 # Evidence-gated research primitive with explicit public source families
 # Load opendevbrowser-research first, then inspect records.json, context.json, meta.json, and report.md before publishing claims.

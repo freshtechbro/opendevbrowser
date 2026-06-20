@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-06-13T18:21:10.153Z",
+  "generatedAt": "2026-06-20T04:18:25.685Z",
   "cli": {
     "groups": [
       {
@@ -494,6 +494,7 @@
           "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json"
         ],
         "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
           "Load opendevbrowser-research first, use explicit source families such as --sources web,community, and inspect artifacts before final claims."
         ],
         "groupId": "provider_workflows",
@@ -524,6 +525,7 @@
           "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
           "Treat --region as advisory unless the workflow output reports region_authoritative=true."
         ],
         "groupId": "provider_workflows",
@@ -554,6 +556,7 @@
           "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json"
         ],
         "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
           "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
         ],
         "groupId": "provider_workflows",
@@ -584,12 +587,13 @@
           "--cookie-policy"
         ],
         "examples": [
-          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json",
+          "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-format json",
           "npx opendevbrowser inspiredesign harvest --brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json",
           "npx opendevbrowser inspiredesign harvest --brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json",
           "npx opendevbrowser inspiredesign harvest --brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
           "Pinterest harvest uses screenshot evidence, screencast evidence, and manifest-backed pin-media evidence as primary readiness signals; DOM/clone/deep capture is disabled for Pinterest harvest, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
           "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested.",
           "Repeat --url for multiple references. There is no --urls alias.",
@@ -2562,25 +2566,37 @@
         "name": "opendevbrowser_research_run",
         "description": "Run the research workflow directly.",
         "cliEquivalent": "research",
-        "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json"
+        "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json",
+        "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>."
+        ]
       },
       {
         "name": "opendevbrowser_shopping_run",
         "description": "Run the shopping workflow directly.",
         "cliEquivalent": "shopping",
-        "example": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json"
+        "example": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json",
+        "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>."
+        ]
       },
       {
         "name": "opendevbrowser_product_video_run",
         "description": "Run the product-video asset workflow directly.",
         "cliEquivalent": "product-video",
-        "example": "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json"
+        "example": "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json",
+        "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>."
+        ]
       },
       {
         "name": "opendevbrowser_inspiredesign_run",
         "description": "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, screenshot evidence, screencast evidence, and manifest-backed pin-media evidence for canonical Pinterest pins.",
         "cliEquivalent": "inspiredesign",
-        "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-dir /tmp/inspiredesign --output-format json"
+        "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-format json",
+        "notes": [
+          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>."
+        ]
       },
       {
         "name": "opendevbrowser_canvas",

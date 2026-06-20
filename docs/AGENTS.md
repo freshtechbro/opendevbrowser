@@ -10,12 +10,13 @@ Applies to all markdown and reference assets under `docs/`.
 
 - Treat implementation code as source of truth before editing docs:
   - CLI commands/flags: `src/cli/args.ts`
-  - Generated help/public-surface metadata: `src/public-surface/source.ts`, `src/public-surface/generated-manifest.ts`, `src/public-surface/generated-manifest.json`, `src/cli/help.ts`, `src/cli/onboarding-metadata.json`
+  - Generated help/public-surface metadata source: `src/public-surface/source.ts`; generated outputs: `src/public-surface/generated-manifest.ts`, `src/public-surface/generated-manifest.json`; related help sources: `src/cli/help.ts`, `src/cli/onboarding-metadata.json`
   - Tool inventory: `src/tools/index.ts`
   - Relay/ops surfaces: `extension/src/ops/ops-runtime.ts`, `src/relay/protocol.ts`
   - Canvas/session/code-sync surface: `src/browser/canvas-manager.ts`, `src/canvas/repo-store.ts`, `extension/src/canvas/canvas-runtime.ts`
   - Website ownership/sync contract: `docs/FRONTEND.md` and private repo `opendevbrowser-website-deploy/frontend/src/**`
 - Keep public docs concise and operational; avoid speculative claims.
+- Workflow docs should teach omitted workflow output roots first. Routine workflow examples must not normalize `/tmp/...` or custom `artifacts/...` roots; preserve external roots only when explicitly scoped as cleanup, debug, release, screenshot, screencast, or other evidence exceptions.
 - If numbers (commands/tools/coverage) are mentioned, verify from code or generated artifacts in the same pass.
 - Keep first-contact help wording explicit for the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`; do not imply a desktop agent.
 - Prefer adding status context (for example `active`, `historical`) over deleting useful historical design docs.
@@ -40,6 +41,15 @@ When install, package postinstall, or daemon auto-start behavior changes:
 - `src/cli/AGENTS.md`
 - `scripts/AGENTS.md`
 - `tests/AGENTS.md`
+
+When workflow output guidance changes:
+- `docs/CLI.md`
+- `docs/SURFACE_REFERENCE.md`
+- `src/public-surface/source.ts`
+- `src/public-surface/generated-manifest.ts`
+- `src/public-surface/generated-manifest.json`
+- `skills/opendevbrowser-best-practices/SKILL.md`
+- relevant workflow guidance tests
 
 When canvas session/code-sync/projection behavior changes:
 - `docs/CLI.md`

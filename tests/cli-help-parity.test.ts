@@ -10,6 +10,18 @@ import { LOCAL_ONLY_TOOL_NAMES } from "../src/tools";
 import { TOOL_SURFACE_ENTRIES } from "../src/public-surface/generated-manifest";
 
 const MIN_LAZY_COMMAND_IMPORTS = 40;
+const GENERATED_WORKFLOW_COMMANDS = ["research", "shopping", "product-video", "inspiredesign"] as const;
+const GENERATED_WORKFLOW_TOOL_NAMES = [
+  "opendevbrowser_research_run",
+  "opendevbrowser_shopping_run",
+  "opendevbrowser_product_video_run",
+  "opendevbrowser_inspiredesign_run"
+] as const;
+const FORBIDDEN_GENERATED_WORKFLOW_ROOTS = [
+  "/tmp/inspiredesign",
+  "/tmp/product-video",
+  "artifacts/pinterest-harvest"
+] as const;
 
 function getRuntimeCommandDescriptions(): Record<string, string> {
   const source = readFileSync(resolve(process.cwd(), "src/cli/index.ts"), "utf8");
@@ -173,6 +185,39 @@ describe("cli help parity", () => {
     const runtimeToolNames = [...source.matchAll(/\s(opendevbrowser_[a-z_]+):/g)].map((match) => match[1]);
 
     expect(new Set(runtimeToolNames)).toEqual(new Set(TOOL_SURFACE_ENTRIES.map((entry) => entry.name)));
+  });
+
+  it("keeps generated workflow examples on preferred output roots", () => {
+    for (const command of GENERATED_WORKFLOW_COMMANDS) {
+      const detail = COMMAND_HELP_DETAILS[command];
+      const generatedCommandText = [...detail.examples, ...detail.notes].join("\n");
+
+      for (const forbiddenRoot of FORBIDDEN_GENERATED_WORKFLOW_ROOTS) {
+        expect(generatedCommandText, `${command} generated help should not teach ${forbiddenRoot}`)
+          .not.toContain(forbiddenRoot);
+      }
+
+      expect(generatedCommandText).toContain("Routine workflow runs should omit --output-dir");
+      expect(generatedCommandText).toContain("--output-dir .opendevbrowser");
+    }
+
+    for (const toolName of GENERATED_WORKFLOW_TOOL_NAMES) {
+      const entry = HELP_TOOL_ENTRIES.find((candidate) => candidate.name === toolName);
+
+      expect(entry, `${toolName} should be present in generated tool help`).toBeDefined();
+      if (!entry) {
+        throw new Error(`${toolName} should be present in generated tool help`);
+      }
+      const generatedToolText = [entry.example, ...(entry.notes ?? [])].join("\n");
+
+      expect(entry.example.length).toBeGreaterThan(0);
+      for (const forbiddenRoot of FORBIDDEN_GENERATED_WORKFLOW_ROOTS) {
+        expect(generatedToolText, `${toolName} generated help should not teach ${forbiddenRoot}`)
+          .not.toContain(forbiddenRoot);
+      }
+      expect(generatedToolText).toContain("Routine workflow runs should omit --output-dir");
+      expect(generatedToolText).toContain("--output-dir .opendevbrowser");
+    }
   });
 
   it("keeps multi-flag help metadata aligned for workflow and run commands", () => {

@@ -12,6 +12,7 @@ Applies to script files under `scripts/`.
 - Prefer explicit paths and clear failure messages.
 - Preserve cross-platform behavior where feasible (macOS/Linux first, Windows-aware where already supported).
 - Keep script outputs machine-readable when used by docs or CI flows.
+- Keep generation scripts deterministic. `scripts/generate-public-surface-manifest.mjs` is the only way to update public-surface generated manifests; do not patch those outputs by hand.
 
 ## Safety
 
