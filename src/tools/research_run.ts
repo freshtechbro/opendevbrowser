@@ -3,7 +3,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
-import { resolveWorkflowToolOutputDir } from "./workflow-output";
+import { WORKFLOW_OUTPUT_DIR_ARGUMENT_DESCRIPTION, resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 
 const z = tool.schema;
@@ -27,7 +27,7 @@ export function createResearchRunTool(deps: ToolDeps): ToolDefinition {
       mode: modeSchema.optional().describe("compact|json|md|context|path"),
       includeEngagement: z.boolean().optional().describe("Include engagement enrichment"),
       limitPerSource: z.number().int().positive().optional().describe("Result limit per source"),
-      outputDir: z.string().optional().describe("Optional artifact output directory"),
+      outputDir: z.string().optional().describe(WORKFLOW_OUTPUT_DIR_ARGUMENT_DESCRIPTION),
       ttlHours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
       browserMode: browserModeSchema.optional().describe("Browser transport mode: auto|extension|managed"),
       useCookies: z.boolean().optional().describe("Enable/disable provider cookie injection for this run"),

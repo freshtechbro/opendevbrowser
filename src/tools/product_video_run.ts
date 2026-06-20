@@ -6,7 +6,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
 import { resolveProviderRuntime } from "./workflow-runtime";
-import { resolveWorkflowToolOutputDir } from "./workflow-output";
+import { WORKFLOW_OUTPUT_DIR_ARGUMENT_DESCRIPTION, resolveWorkflowToolOutputDir } from "./workflow-output";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 
 const z = tool.schema;
@@ -59,7 +59,7 @@ export function createProductVideoRunTool(deps: ToolDeps): ToolDefinition {
       include_screenshots: z.boolean().optional().describe("Include screenshots (default true)"),
       include_all_images: z.boolean().optional().describe("Include all discovered images (default true)"),
       include_copy: z.boolean().optional().describe("Include product copy extraction (default true)"),
-      output_dir: z.string().optional().describe("Optional output directory"),
+      output_dir: z.string().optional().describe(WORKFLOW_OUTPUT_DIR_ARGUMENT_DESCRIPTION),
       ttl_hours: z.number().int().positive().optional().describe("Artifact retention TTL in hours"),
       timeoutMs: z.number().int().positive().optional().describe("Workflow timeout in milliseconds"),
       browserMode: browserModeSchema.optional().describe("Browser transport mode: auto|extension|managed"),

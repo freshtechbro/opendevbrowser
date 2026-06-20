@@ -61,7 +61,7 @@ src/
 | `integrations/` | External integration adapters such as Figma import and normalization |
 | `macros/` | Macro registry, execution, and provider action expansion |
 | `providers/` | Tier routing, blocker policy, browser fallback, workflow orchestration. See `providers/AGENTS.md` |
-| `public-surface/` | Canonical public CLI/tool/help metadata consumed by generated manifests and docs |
+| `public-surface/` | Canonical public CLI/tool/help metadata source consumed by generated manifests and docs. Regenerate manifest outputs from source; do not hand-edit generated manifests |
 | `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
 | `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
 | `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |

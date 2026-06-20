@@ -102,7 +102,7 @@ opendevbrowser_skill_load opendevbrowser-best-practices "validated capability la
 
 Current validated lanes:
 
-When `--output-dir` or `--out` is omitted, inspect `.opendevbrowser/<workflow>/<runId>` for workflow artifacts before publishing claims.
+Routine workflow runs should omit `--output-dir`; inspect the returned `artifact_path` first, then `.opendevbrowser/<workflow>/<runId>` for workflow artifacts before publishing claims. If a wrapper requires an explicit workflow root, use `--output-dir .opendevbrowser`; the runtime appends `<workflow>/<runId>`.
 
 1. Public-first YouTube transcript retrieval.
 
@@ -149,7 +149,7 @@ Rules:
 npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --mode json --output-format json
 npx opendevbrowser inspiredesign harvest --brief "Design a premium docs workspace" --query "best docs product landing pages" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --mode path --output-format json
 npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
-npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json --output-dir "artifacts/pinterest-harvest/<pin-id>"
+npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 ```
 
 Rules:
@@ -158,7 +158,7 @@ Rules:
 - provide `--query` or at least one `--url` for `inspiredesign harvest`; use `--query` when provider discovery is part of the task
 - use `inspiredesign harvest` when visual reference discovery, screenshot PNG artifacts, ranked references, metadata-only visual JSON, deterministic `media-analysis.json`, `meta-prompt.md`, or motion-design follow-through is required
 - treat `social/pinterest` as a browser-native site recipe, not a default full social provider; use extension mode, cookies, and `--cookie-policy required` for logged-in Pinterest search
-- for multi-pin Pinterest design harvests, treat search-to-canonical-pin capture as an agent pattern over `inspiredesign harvest`, not as a separate workflow: run query discovery with `--query ... --provider social/pinterest`, read `meta.discovery.acceptedUrls` from the JSON output or artifact metadata, keep only canonical `https://www.pinterest.com/pin/<id>/` URLs, then run one canonical harvest command per selected pin
+- for multi-pin Pinterest design harvests, treat search-to-canonical-pin capture as an agent pattern over `inspiredesign harvest`, not as a separate workflow: run query discovery with `--query ... --provider social/pinterest`, read `meta.discovery.acceptedUrls` from the JSON output or artifact metadata, keep only canonical `https://www.pinterest.com/pin/<id>/` URLs, then run one canonical harvest command per selected pin with omitted `--output-dir`; each run returns its own `artifact_path` under `.opendevbrowser/inspiredesign/<runId>`
 - canonical Pinterest pin harvests and recovery paths in extension mode use `captureMode=off` and open the exact canonical pin in the extension before byte-backed pin-media extraction, which is required for reliable GIF and video pin capture in live sessions
 - trust multi-pin Pinterest harvest outputs only when `nextStepGuidance.readiness=ready`, `ranked-references.json` is non-empty, and `pin-media-index.json`, `screenshot-index.json`, or `motion-evidence.json` proves manifest-backed authority for the selected pin
 - treat `media-analysis.json` as a deterministic design-fact surface from trusted saved pin media, not as readiness authority; `pin-media-index.json` remains the only pin-media readiness and provenance authority
@@ -259,7 +259,7 @@ opendevbrowser_network_poll sessionId="<session-id>" max=100
 opendevbrowser_screenshot sessionId="<session-id>"
 ```
 
-Use browser replay when timing matters:
+QA replay debug evidence lane exception: use browser replay when timing matters:
 
 ```text
 opendevbrowser_screencast_start sessionId="<session-id>" outputDir="./artifacts/qa-replay"

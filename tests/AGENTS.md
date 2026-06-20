@@ -34,6 +34,7 @@ npm run test -- -t "test name"      # Single test by name
 - **Add regression tests** for every bug fix
 - **Keep mocks hermetic** (no real Chrome/network)
 - **Keep package postinstall tests hermetic** by injecting npm lifecycle env, package roots, `dist/cli/index.js` paths, and autostart dependencies instead of writing real LaunchAgent or Task Scheduler state
+- **Keep workflow output guidance tests focused** on preventing routine `/tmp/...` or custom `artifacts/...` workflow roots while preserving explicit cleanup, debug, release, screenshot, screencast, and other evidence exceptions
 
 ## Coverage Scope
 

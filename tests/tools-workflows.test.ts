@@ -15,6 +15,12 @@ vi.mock("@opencode-ai/plugin", async () => {
 
 const parse = (value: string): Record<string, unknown> => JSON.parse(value) as Record<string, unknown>;
 
+function expectPreferredWorkflowOutputDescription(schema: { description?: string }): void {
+  expect(schema.description).toContain("Omit for the default .opendevbrowser/<workflow>/<runId> bundle");
+  expect(schema.description).toContain("prefer .opendevbrowser");
+  expect(schema.description).toContain("intentional temp, release, debug, audit, screenshot, or screencast lane");
+}
+
 const makeDeps = (workspaceRoot?: string) => {
   const manager = {
     launch: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
@@ -158,6 +164,19 @@ describe("workflow tools", () => {
         await rm(directory, { recursive: true, force: true });
       }
     }
+  });
+
+  it("guides tool callers toward preferred workflow output roots", async () => {
+    const deps = makeDeps();
+    const { createResearchRunTool } = await import("../src/tools/research_run");
+    const { createShoppingRunTool } = await import("../src/tools/shopping_run");
+    const { createInspiredesignRunTool } = await import("../src/tools/inspiredesign_run");
+    const { createProductVideoRunTool } = await import("../src/tools/product_video_run");
+
+    expectPreferredWorkflowOutputDescription(createResearchRunTool(deps as never).args.outputDir);
+    expectPreferredWorkflowOutputDescription(createShoppingRunTool(deps as never).args.outputDir);
+    expectPreferredWorkflowOutputDescription(createInspiredesignRunTool(deps as never).args.outputDir);
+    expectPreferredWorkflowOutputDescription(createProductVideoRunTool(deps as never).args.output_dir);
   });
 
   it("uses workspace .opendevbrowser for omitted direct research output roots", async () => {
