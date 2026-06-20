@@ -115,11 +115,13 @@ npx --no-install opendevbrowser help
 
 Published npm consumer proof is tracked separately in [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md) through `scripts/registry-consumer-smoke.mjs`.
 
-Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that avoids the install-time managed-skill refresh entirely.
+Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that exits the legacy package lifecycle shim before built postinstall code imports. Set `OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION=1` when you only want to skip install-time daemon auto-start reconciliation.
 
 See [docs/FIRST_RUN_ONBOARDING.md](docs/FIRST_RUN_ONBOARDING.md) for the full onboarding checklist, [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for runtime inventory, and [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the live CLI and tool surface.
 
-Successful installs reconcile daemon auto-start on supported platforms so the relay is available on login. macOS LaunchAgents persist a stable `WorkingDirectory` under `~/.cache/opendevbrowser` so launchd does not start the daemon from `/`. If the current CLI entrypoint lives under a transient temp-root path such as a first-run `/tmp` or `/private/tmp` workspace, OpenDevBrowser refuses to persist that path as auto-start. Rerun `opendevbrowser daemon install`, or `npx --no-install opendevbrowser daemon install` from a persistent local package install, from a stable install location if you want login auto-start; remove it later with `opendevbrowser daemon uninstall`.
+CLI/plugin installs still reconcile daemon auto-start on supported platforms after successful install so the relay is available on login. Raw npm global package postinstall also best-effort reconciles auto-start when npm lifecycle context clearly indicates a global install. Local, ambiguous, conflicting, or non-npm package-manager contexts skip package postinstall auto-start without failing package installation.
+
+Auto-start always targets the packaged CLI entrypoint `dist/cli/index.js`, not the lifecycle shim at `scripts/postinstall-sync-skills.mjs`. `src/cli/daemon-autostart.ts` owns platform safety and refuses to persist `_npx`, `/tmp`, `/private/tmp`, or onboarding workspace paths before writing LaunchAgent or Task Scheduler state. Package postinstall warnings are non-fatal; repair with `opendevbrowser daemon install`, inspect with `opendevbrowser daemon status`, or remove with `opendevbrowser daemon uninstall`.
 
 Bundled skills sync to **OpenCode, Codex, ClaudeCode, and AmpCLI** targets during install. `npx opendevbrowser` manages global or project-local targets according to the selected skills mode, and package installation (`npm install -g`, local tarball install, or equivalent) best-effort syncs the canonical bundled packs into the managed global targets during package `postinstall`. See [docs/CLI.md](docs/CLI.md) for exact target paths.
 
@@ -751,7 +753,7 @@ See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accura
 | `npx opendevbrowser --local` | Install to project config |
 | `npx opendevbrowser --with-config` | Also create opendevbrowser.jsonc |
 | `npx opendevbrowser --full` | Full install (config + extension assets) |
-| `npm install -g opendevbrowser` | Install persistent global CLI |
+| `npm install -g opendevbrowser` | Install persistent global CLI; npm global postinstall best-effort reconciles daemon auto-start |
 | `npx opendevbrowser --update` | Repair OpenCode package caches and plugin pins |
 | `npx opendevbrowser --uninstall` | Remove from config |
 | `npx opendevbrowser --version` | Show version |

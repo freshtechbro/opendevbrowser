@@ -32,6 +32,15 @@ When command/tool/channel surface changes:
 - `README.md`
 - relevant `AGENTS.md` files
 
+When install, package postinstall, or daemon auto-start behavior changes:
+- `README.md`
+- `docs/CLI.md`
+- `docs/FIRST_RUN_ONBOARDING.md`
+- `docs/ARCHITECTURE.md`
+- `src/cli/AGENTS.md`
+- `scripts/AGENTS.md`
+- `tests/AGENTS.md`
+
 When canvas session/code-sync/projection behavior changes:
 - `docs/CLI.md`
 - `docs/SURFACE_REFERENCE.md`
@@ -85,6 +94,7 @@ When mirrored website inputs change (`docs/`, `skills/`, `assets/`, `CHANGELOG.m
 
 - Do not keep stale numeric claims when source has changed.
 - Do not document unsupported flags/commands.
+- Do not conflate CLI/plugin install auto-start reconciliation with raw package postinstall. Package postinstall is best effort, uses `dist/cli/index.js`, and skips local, ambiguous, conflicting, or non-npm package-manager contexts without failing installation.
 - Do not describe `canvas.starter.list` or `canvas.starter.apply` as unshipped once `PUBLIC_CANVAS_COMMANDS` includes them.
 - Do not describe `tsx-react-v1` as the shipped adapter lane; current docs must describe it as a legacy binding that migrates to `builtin:react-tsx-v2`.
 - Do not imply public-repo ownership of `frontend/`; website source is private.

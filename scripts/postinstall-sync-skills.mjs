@@ -16,18 +16,23 @@ if (fs.existsSync(path.join(packageRoot, ".git"))) {
 const entryPath = path.join(packageRoot, "dist", "cli", "installers", "postinstall-skill-sync.js");
 
 if (!fs.existsSync(entryPath)) {
-  console.warn("[opendevbrowser] postinstall skill sync skipped: built installer entry missing.");
+  console.warn("[opendevbrowser] package postinstall skipped: built installer entry missing.");
   process.exit(0);
 }
 
 try {
-  const { runPostinstallSkillSync } = await import(pathToFileURL(entryPath).href);
-  const result = runPostinstallSkillSync();
+  const installer = await import(pathToFileURL(entryPath).href);
+  if (typeof installer.runPackagePostinstall !== "function") {
+    console.warn("[opendevbrowser] package postinstall skipped: built installer entry missing runPackagePostinstall export.");
+    process.exit(0);
+  }
 
-  if (!result.success || result.skipped) {
-    console.warn(`[opendevbrowser] ${result.message}`);
+  const result = installer.runPackagePostinstall();
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  for (const warning of warnings) {
+    console.warn(`[opendevbrowser] ${warning}`);
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.warn(`[opendevbrowser] postinstall skill sync failed: ${message}`);
+  console.warn(`[opendevbrowser] package postinstall failed: ${message}`);
 }

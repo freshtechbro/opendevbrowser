@@ -56,6 +56,7 @@ Expected:
   - `$CODEX_HOME/skills`
   - `$CLAUDECODE_HOME/skills`
   - `$AMP_CLI_HOME/skills`
+- local tarball package postinstall skips daemon auto-start because the npm lifecycle context is local, not a clear global install
 - each populated global skill directory contains `.opendevbrowser-managed-skills.json` plus one `.opendevbrowser-managed-skill.json` sentinel per bundled canonical pack
 
 ## 2b) Validate the help-led quick-start path
@@ -147,7 +148,8 @@ Expected:
 - extension assets are extracted to `~/.config/opencode/opendevbrowser/extension`
 - extracted assets now include `manifest.json`, `popup.html`, `canvas.html`, `dist/`, and `icons/`
 - `OPENCODE_CONFIG_DIR` isolates config lookup only; it does not relocate the extracted extension asset directory
-- because this guide uses a temp `WORKDIR`, install-time daemon auto-start reconciliation may warn instead of persisting a background entry
+- because this guide uses a temp `WORKDIR`, CLI/plugin install-time daemon auto-start reconciliation may warn instead of persisting a background entry
+- raw package postinstall auto-start is best effort and skips local, ambiguous, conflicting, or non-npm package-manager contexts without failing package installation
 - if persistent login auto-start is desired after onboarding, rerun `opendevbrowser daemon install` from a stable install location outside the temp workspace; macOS should persist `WorkingDirectory=~/.cache/opendevbrowser`
 
 ## 3c) Stable auto-start follow-up
@@ -155,7 +157,7 @@ Expected:
 The onboarding workspace proves first-run package behavior, not long-lived daemon auto-start. Do **not** treat `$WORKDIR` as the
 final login-start location.
 
-When you want to validate daemon auto-start, rerun from the intended persistent install location:
+When you want to validate daemon auto-start, rerun from the intended persistent install location. A raw `npm install -g opendevbrowser` may already reconcile auto-start during package postinstall when npm lifecycle context clearly indicates a global install, but the explicit daemon commands remain the repair and verification surface:
 
 ```bash
 # Global install

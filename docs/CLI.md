@@ -70,9 +70,9 @@ npx --no-install opendevbrowser help
 Load extension unpacked from:
 - `$WORKDIR/node_modules/opendevbrowser/extension`
 
-Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that avoids the install-time managed-skill refresh entirely.
+Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that exits the legacy package lifecycle shim before built postinstall code imports. Set `OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION=1` when you only want to skip install-time daemon auto-start reconciliation.
 
-By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Raw npm global package postinstall best-effort reconciles daemon auto-start only when npm lifecycle context clearly indicates a global install; local, ambiguous, conflicting, or non-npm package-manager contexts skip auto-start without failing package installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
 - `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
@@ -220,13 +220,11 @@ npx opendevbrowser --skills-local
 npx opendevbrowser --no-skills
 ```
 
-On successful installs, the CLI reconciles daemon auto-start on supported platforms (macOS/Windows) so the relay is available on
+On successful installs, the CLI/plugin installer reconciles daemon auto-start on supported platforms (macOS/Windows) so the relay is available on
 login. Existing installs are rechecked and repaired when the per-user auto-start entry is missing or stale on macOS and Windows,
-and when the macOS LaunchAgent is malformed or missing its stable non-root working directory. If the current CLI entrypoint lives under a transient temp-root path (for example a
-first-run `/tmp` or `/private/tmp` `npx` workspace), OpenDevBrowser refuses to persist that path as auto-start. Plugin install
-still succeeds, but auto-start repair warns and you must rerun `opendevbrowser daemon install` from a stable install location, or
-`npx --no-install opendevbrowser daemon install` from a persistent local package install. You can remove auto-start later with
-`opendevbrowser daemon uninstall`.
+and when the macOS LaunchAgent is malformed or missing its stable non-root working directory. Raw npm global package postinstall also runs the same reconciliation best effort when npm lifecycle context clearly indicates a global install. Package postinstall targets `dist/cli/index.js`, not `scripts/postinstall-sync-skills.mjs`, and all package warnings are non-fatal.
+
+If the current CLI entrypoint lives under a transient temp-root path (for example a first-run `/tmp` or `/private/tmp` `npx` workspace), OpenDevBrowser refuses to persist that path as auto-start. Plugin install still succeeds, and package install still exits successfully, but auto-start repair warns or skips. Rerun `opendevbrowser daemon install` from a stable install location, or `npx --no-install opendevbrowser daemon install` from a persistent local package install. You can inspect with `opendevbrowser daemon status` and remove auto-start later with `opendevbrowser daemon uninstall`.
 
 ### Update
 
@@ -382,7 +380,10 @@ Behavior:
 - when the current invocation is transient, a stable persisted auto-start entry can still report `health="healthy"`; `expectedCommand` is omitted instead of advertising the transient current path as the repair target.
 - `daemon status` returns exit code `0` when the daemon is reachable even if auto-start is missing, stale, or malformed, and `10` when the daemon is not running.
 - Successful plugin installs surface auto-start reconciliation through `autostartAction`; `autostartError` is included only when repair fails.
-- If install-time reconciliation is running from a transient temp-root CLI path, it refuses to write auto-start and reports `autostartAction="repair_failed"` with guidance to rerun `opendevbrowser daemon install` from a stable install location.
+- Raw npm global package postinstall best-effort reconciles auto-start only when npm lifecycle context clearly indicates a global install. Local, ambiguous, conflicting, or non-npm package-manager contexts skip auto-start without failing package installation.
+- Package postinstall auto-start uses `dist/cli/index.js` as the packaged CLI entrypoint and never persists `scripts/postinstall-sync-skills.mjs`.
+- `OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION=1` skips install-time auto-start reconciliation only. `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` remains the legacy full package lifecycle shim skip because the shim exits before importing built code.
+- If install-time reconciliation is running from a transient temp-root CLI path, it refuses to write auto-start and reports `autostartAction="repair_failed"` for plugin installs or a non-fatal package postinstall warning, with guidance to rerun `opendevbrowser daemon install` from a stable install location.
 
 Exit codes align with the CLI:
 - `0`: success

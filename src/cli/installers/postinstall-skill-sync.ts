@@ -20,14 +20,22 @@ export interface PostinstallSkillSyncResult {
 export interface RunPostinstallSkillSyncOptions {
   mode?: SkillInstallMode;
   skipRepoCheckoutGuard?: boolean;
+  env?: NodeJS.ProcessEnv;
+  packageRoot?: string;
+  existsSync?: typeof fs.existsSync;
 }
 
-function getSkipReason(packageRoot: string, skipRepoCheckoutGuard: boolean): PostinstallSkipReason | null {
-  if (process.env.OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC === "1") {
+function getSkipReason(
+  packageRoot: string,
+  skipRepoCheckoutGuard: boolean,
+  env: NodeJS.ProcessEnv,
+  existsSync: typeof fs.existsSync
+): PostinstallSkipReason | null {
+  if (env.OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC === "1") {
     return "disabled";
   }
 
-  if (!skipRepoCheckoutGuard && fs.existsSync(path.join(packageRoot, ".git"))) {
+  if (!skipRepoCheckoutGuard && existsSync(path.join(packageRoot, ".git"))) {
     return "repo_checkout";
   }
 
@@ -51,8 +59,10 @@ export function runPostinstallSkillSync(
   options: RunPostinstallSkillSyncOptions = {}
 ): PostinstallSkillSyncResult {
   const mode = options.mode ?? "global";
-  const packageRoot = getPackageRoot();
-  const skipReason = getSkipReason(packageRoot, options.skipRepoCheckoutGuard === true);
+  const packageRoot = options.packageRoot ?? getPackageRoot();
+  const env = options.env ?? process.env;
+  const existsSync = options.existsSync ?? fs.existsSync;
+  const skipReason = getSkipReason(packageRoot, options.skipRepoCheckoutGuard === true, env, existsSync);
 
   if (skipReason) {
     return createSkippedResult(skipReason);
@@ -66,3 +76,18 @@ export function runPostinstallSkillSync(
     syncResult
   };
 }
+
+export {
+  detectNpmGlobalPackagePostinstall,
+  resolvePackagedCliEntrypoint,
+  runPackagePostinstall
+} from "./package-postinstall";
+export type {
+  PackagePostinstallAutostartDeps,
+  PackagePostinstallContextSkipReason,
+  PackagePostinstallGlobalContext,
+  PackagePostinstallResult,
+  PostinstallAutostartResult,
+  PostinstallAutostartSkipReason,
+  RunPackagePostinstallOptions
+} from "./package-postinstall";
