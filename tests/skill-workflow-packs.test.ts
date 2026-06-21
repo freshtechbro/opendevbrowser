@@ -693,10 +693,7 @@ describe("workflow skill packs", () => {
     }
   }, 60000);
 
-  it("rejects representative design-agent canvas validator mutations", async () => {
-    if (process.platform === "win32") return;
-
-    const cases: SkillValidatorMutation[] = [
+  const designAgentCanvasValidatorMutationCases: SkillValidatorMutation[] = [
       {
         skillName: "opendevbrowser-design-agent",
         relativePath: "assets/templates/design-contract.v1.json",
@@ -876,14 +873,17 @@ describe("workflow skill packs", () => {
         expectedError: "design-workflow.sh output for canvas-contract missing marker: canvas.starter.list",
         dependencies: ["opendevbrowser-best-practices"]
       }
-    ];
+  ];
 
-    for (const testCase of cases) {
+  for (const testCase of designAgentCanvasValidatorMutationCases) {
+    it(`rejects design-agent canvas validator mutation: ${testCase.expectedError}`, async () => {
+      if (process.platform === "win32") return;
+
       const result = await runSkillValidatorWithMutation(testCase);
       expect(result.status, `${testCase.skillName}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).not.toBe(0);
       expect(`${result.stdout}\n${result.stderr}`).toContain(testCase.expectedError);
-    }
-  }, 60000);
+    }, 60000);
+  }
 
   it("accepts review-only canvas audit ids in the best-practices robustness audit", async () => {
     if (process.platform === "win32") return;

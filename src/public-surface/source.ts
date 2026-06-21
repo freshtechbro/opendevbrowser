@@ -808,6 +808,8 @@ const CLI_COMMAND_EXAMPLES = {
 } as const satisfies Record<PublicSurfaceCliCommandName, readonly string[]>;
 
 const WORKFLOW_OUTPUT_PREFERENCE_NOTE = "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.";
+const MEDIA_ANALYSIS_DEPENDENCY_NOTE = "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.";
+const MEDIA_ANALYSIS_STATUS_NOTE = "status-capabilities reports FFmpeg and FFprobe availability under host.mediaAnalysis so operators can verify optional media-analysis host capability before Inspiredesign runs.";
 
 const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly string[]>> = {
   help: [
@@ -818,6 +820,9 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   ],
   launch: [
     "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
+  ],
+  "status-capabilities": [
+    MEDIA_ANALYSIS_STATUS_NOTE
   ],
   research: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
@@ -844,6 +849,8 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
     "Inspect productSuccess, artifactAuthority, evidenceAuthority, harvestReadiness, and nextStepGuidance.readiness before continuing. Canvas continuation requires readiness=ready, non-empty ranked references, and Pinterest references with manifest-backed snapshot_ready screenshot evidence, motion_ready screencast evidence, or pin_media_ready first-party pin-media evidence.",
     "media-analysis.json is a design-fact artifact only: it enriches guidance after trusted saved media matches pin-media-index.json, never grants readiness authority, and raw media-analysis fields must not enter canvas-plan.request.json.",
+    MEDIA_ANALYSIS_DEPENDENCY_NOTE,
+    MEDIA_ANALYSIS_STATUS_NOTE,
     "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshot, screencast, or pin-media evidence, provider unavailability, or diagnostic-only captures.",
     "CLI completion text includes readiness=<value> when the workflow reports nextStepGuidance.readiness, so success output is not confused with design readiness.",
     "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted; use one canonical /pin/{id}/ URL per harvest when validating design-ready pin media.",
@@ -1006,8 +1013,13 @@ const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
   opendevbrowser_product_video_run: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE
   ],
+  opendevbrowser_status_capabilities: [
+    MEDIA_ANALYSIS_STATUS_NOTE
+  ],
   opendevbrowser_inspiredesign_run: [
-    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
+    MEDIA_ANALYSIS_DEPENDENCY_NOTE,
+    MEDIA_ANALYSIS_STATUS_NOTE
   ]
 };
 

@@ -13,9 +13,8 @@ import {
   INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES,
   INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS,
   MIN_PIN_MEDIA_EVIDENCE_BYTES,
-  MIN_PIN_MEDIA_EVIDENCE_HEIGHT,
-  MIN_PIN_MEDIA_EVIDENCE_WIDTH,
   PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN,
+  hasPinterestPinMediaEvidenceMinimumDimensions,
   hasPinterestPinMediaAuthorityBlockingWarning,
   isFirstPartyPinterestPinMediaUrl,
   persistInspiredesignPinterestPinMediaEvidence,
@@ -726,12 +725,11 @@ const hasPinMediaReadyPinterestEvidence = (
     && typeof persistedPinMedia.bytes === "number"
     && Number.isFinite(persistedPinMedia.bytes)
     && persistedPinMedia.bytes >= MIN_PIN_MEDIA_EVIDENCE_BYTES
-    && typeof persistedPinMedia.width === "number"
-    && Number.isFinite(persistedPinMedia.width)
-    && persistedPinMedia.width >= MIN_PIN_MEDIA_EVIDENCE_WIDTH
-    && typeof persistedPinMedia.height === "number"
-    && Number.isFinite(persistedPinMedia.height)
-    && persistedPinMedia.height >= MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+    && hasPinterestPinMediaEvidenceMinimumDimensions(
+      persistedPinMedia.kind,
+      persistedPinMedia.width,
+      persistedPinMedia.height
+    )
     && typeof persistedPinMedia.contentType === "string"
     && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(persistedPinMedia.contentType)
     && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS as readonly string[]).includes(persistedPinMedia.kind)

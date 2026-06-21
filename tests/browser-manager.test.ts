@@ -420,7 +420,7 @@ function usePinterestMediaDom(
   page: PageLike,
   html: string,
   url = "https://www.pinterest.com/pin/123/",
-  resourceUrls: string[] = [],
+  resourceUrls: Array<string | Record<string, unknown>> = [],
   selectorOverrides: Record<string, string[]> = {}
 ): void {
   page.evaluate.mockImplementation(async (fn: () => unknown) => {
@@ -430,7 +430,7 @@ function usePinterestMediaDom(
       configurable: true,
       value: {
         getEntriesByType: (type: string) => type === "resource"
-          ? resourceUrls.map((name) => ({ name }))
+          ? resourceUrls.map((entry) => typeof entry === "string" ? { name: entry } : entry)
           : []
       }
     });
@@ -5228,45 +5228,45 @@ describe("BrowserManager", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://v.pinimg.com/videos/mc/720p/reference.mp4", expect.objectContaining({
       signal: expect.any(AbortSignal)
     }));
-	  await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
-	});
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
 
-	it("accepts first-party Pinterest MP4 bytes served with a generic content type", async () => {
-		const { context, page } = createBrowserBundle([]);
-		findChromeExecutable.mockResolvedValue("/bin/chrome");
-		launchPersistentContext.mockResolvedValue(context);
-		usePinterestMediaDom(page, `
-			<main data-test-id="pin-closeup">
-				<video
-					data-current-src="https://v.pinimg.com/videos/mc/720p/generic-content-type.mp4"
-					data-video-width="720"
-					data-video-height="1280"
-					data-rect="0,0,360,640"
-				></video>
-			</main>
-		`, "https://www.pinterest.com/pin/789/");
-		const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_MP4_BYTES, {
-			headers: { "content-type": "application/octet-stream" }
-		}));
-		globalThis.fetch = fetchMock;
+  it("accepts first-party Pinterest MP4 bytes served with a generic content type", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          data-current-src="https://v.pinimg.com/videos/mc/720p/generic-content-type.mp4"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_MP4_BYTES, {
+      headers: { "content-type": "application/octet-stream" }
+    }));
+    globalThis.fetch = fetchMock;
 
-		const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-generic-video-")), "video.mp4");
-		const { BrowserManager } = await import("../src/browser/browser-manager");
-		const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-		const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-generic-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
 
-		const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
 
-		expect(result).toMatchObject({
-			status: "captured",
-			kind: "video",
-			mediaUrl: "https://v.pinimg.com/videos/mc/720p/generic-content-type.mp4",
-			contentType: "video/mp4",
-			width: 720,
-			height: 1280
-		});
-		await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
-	});
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v.pinimg.com/videos/mc/720p/generic-content-type.mp4",
+      contentType: "video/mp4",
+      width: 720,
+      height: 1280
+    });
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
 
   it("falls back to poster media when the selected Pinterest video fetch fails", async () => {
     const { context, page } = createBrowserBundle([]);
@@ -5421,7 +5421,65 @@ describe("BrowserManager", () => {
     await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
   });
 
-  it("rejects page-global resource entries for blob-backed Pinterest videos before poster fallback", async () => {
+  it("captures canonical blob-backed Pinterest video bytes from one first-party resource before poster fallback", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.jpg"
+          data-current-src="blob:https://www.pinterest.com/player-resource"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+    `, "https://www.pinterest.com/pin/789/", [
+      "https://v.pinimg.com/videos/mc/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4"
+    ]);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-resource-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v.pinimg.com/videos/mc/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.jpg",
+      contentType: "video/mp4",
+      width: 720,
+      height: 1280,
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
+        kind: "video",
+        mediaUrl: "blob:https://www.pinterest.com/player-resource",
+        reasons: expect.arrayContaining(["non_first_party_media_url"])
+      })])
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://v.pinimg.com/videos/mc/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("falls back to poster media when a poster-only Pinterest video has one first-party resource", async () => {
     const { context, page } = createBrowserBundle([]);
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     launchPersistentContext.mockResolvedValue(context);
@@ -5430,21 +5488,27 @@ describe("BrowserManager", () => {
       <main data-test-id="pin-closeup">
         <video
           poster="https://i.pinimg.com/videos/poster.jpg"
-          data-current-src="blob:https://www.pinterest.com/player-resource"
           data-video-width="720"
           data-video-height="1280"
           data-rect="0,0,360,640"
         ></video>
       </main>
     `, "https://www.pinterest.com/pin/789/", [
-      "https://v.pinimg.com/videos/mc/720p/resource-entry.mp4"
+      "https://v.pinimg.com/videos/mc/720p/poster-resource-entry.mp4"
     ]);
-    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
-      headers: { "content-type": "image/jpeg" }
-    }));
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
     globalThis.fetch = fetchMock;
 
-    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-resource-video-")), "poster.jpg");
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-poster-resource-fallback-")), "poster.jpg");
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
     const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
@@ -5457,13 +5521,9 @@ describe("BrowserManager", () => {
       mediaUrl: "https://i.pinimg.com/videos/poster.jpg",
       poster: "https://i.pinimg.com/videos/poster.jpg",
       contentType: "image/jpeg",
+      candidateSelector: "video[poster]",
       width: 720,
-      height: 1280,
-      rejectedCandidates: [expect.objectContaining({
-        kind: "video",
-        mediaUrl: "blob:https://www.pinterest.com/player-resource",
-        reasons: expect.arrayContaining(["non_first_party_media_url"])
-      })]
+      height: 1280
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster.jpg", expect.objectContaining({
@@ -5472,7 +5532,7 @@ describe("BrowserManager", () => {
     await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
   });
 
-  it("ignores page-global HLS resource entries for blob-backed Pinterest video and uses poster media", async () => {
+  it("derives canonical blob-backed Pinterest MP4 bytes from one first-party HLS resource", async () => {
     const { context, page } = createBrowserBundle([]);
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     launchPersistentContext.mockResolvedValue(context);
@@ -5480,7 +5540,7 @@ describe("BrowserManager", () => {
     usePinterestMediaDom(page, `
       <main data-test-id="pin-closeup">
         <video
-          poster="https://i.pinimg.com/videos/poster.jpg"
+          poster="https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.jpg"
           data-current-src="blob:https://www.pinterest.com/player-resource"
           data-video-width="960"
           data-video-height="720"
@@ -5490,12 +5550,372 @@ describe("BrowserManager", () => {
     `, "https://www.pinterest.com/pin/789/", [
       "https://v1-e.pinimg.com/videos/mc/hls/87/6b/16/876b1613d8712ed602d5162ef393d306_960w.m3u8"
     ]);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-hls-resource-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1-e.pinimg.com/videos/mc/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.jpg",
+      contentType: "video/mp4",
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
+        kind: "video",
+        mediaUrl: "blob:https://www.pinterest.com/player-resource",
+        reasons: expect.arrayContaining(["non_first_party_media_url"])
+      })]),
+      width: 960,
+      height: 720
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://v1-e.pinimg.com/videos/mc/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures live-shaped wrapper signature HLS resource before poster fallback", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <div data-video-signature="f8c180d46d95c4deed055a663f8ef67f">
+          <video
+            poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+            data-current-src="blob:https://www.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </main>
+    `, "https://www.pinterest.com/pin/101542166600010076/", [
+      "https://v1.pinimg.com/videos/iht/hls/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.m3u8"
+    ]);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-wrapper-signature-resource-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.mp4",
+      poster: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "video[resource]",
+      width: 736,
+      height: 552
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://v1.pinimg.com/videos/iht/720p/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.mp4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures a live-shaped story-pin video block wrapper signature resource before poster fallback", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <div data-test-id="story-pin-video-block">
+        <div data-video-signature="6a4921426d95c4deed055a663f8ef67f">
+          <video
+            poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+            data-current-src="blob:https://uk.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </div>
+    `, "https://uk.pinterest.com/pin/101542166600010076/", [
+      "https://v1.pinimg.com/videos/iht/hls/6a/49/21/6a4921426d95c4deed055a663f8ef67f.m3u8"
+    ]);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-story-video-block-resource-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://uk.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/6a/49/21/6a4921426d95c4deed055a663f8ef67f.mp4",
+      poster: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "video[resource]",
+      width: 736,
+      height: 552
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://v1.pinimg.com/videos/iht/720p/6a/49/21/6a4921426d95c4deed055a663f8ef67f.mp4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures a live-shaped story-pin video block HLS segment resource before poster fallback", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <div data-test-id="story-pin-video-block">
+        <div data-video-signature="6a4921426d95c4deed055a663f8ef67f">
+          <video
+            poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+            data-current-src="blob:https://uk.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </div>
+    `, "https://uk.pinterest.com/pin/101542166600010076/", [
+      "https://v1.pinimg.com/videos/iht/hls/6a/49/21/6a4921426d95c4deed055a663f8ef67f/720p_000000.ts"
+    ]);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-story-video-segment-resource-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://uk.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/6a/49/21/6a4921426d95c4deed055a663f8ef67f.mp4",
+      poster: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "video[resource]",
+      width: 736,
+      height: 552
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://v1.pinimg.com/videos/iht/720p/6a/49/21/6a4921426d95c4deed055a663f8ef67f.mp4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("rejects related story-pin video block resource and poster media", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <div data-test-id="story-pin-video-block">
+        <div data-test-id="related-story-video" data-video-signature="6a4921426d95c4deed055a663f8ef67f">
+          <video
+            poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+            data-current-src="blob:https://uk.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </div>
+    `, "https://uk.pinterest.com/pin/101542166600010076/", [
+      "https://v1.pinimg.com/videos/iht/hls/6a/49/21/6a4921426d95c4deed055a663f8ef67f.m3u8"
+    ]);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-related-story-video-block-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://uk.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "not_found",
+      rejectedCandidates: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "video",
+          mediaUrl: "blob:https://uk.pinterest.com/player-resource",
+          reasons: expect.arrayContaining(["non_first_party_media_url", "missing_pin_source_proof", "noise_ancestry:related"])
+        }),
+        expect.objectContaining({
+          kind: "video_poster",
+          mediaUrl: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+          reasons: expect.arrayContaining(["missing_pin_source_proof", "noise_ancestry:related"])
+        })
+      ])
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(readFile(outputPath)).rejects.toThrow();
+  });
+
+  it("rejects story-pin video block resource when a related wrapper is outside the block", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <section data-test-id="related-story-video" data-video-signature="6a4921426d95c4deed055a663f8ef67f">
+        <div data-test-id="story-pin-video-block">
+          <video
+            poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+            data-current-src="blob:https://uk.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </section>
+    `, "https://uk.pinterest.com/pin/101542166600010076/", [
+      "https://v1.pinimg.com/videos/iht/hls/6a/49/21/6a4921426d95c4deed055a663f8ef67f.m3u8"
+    ]);
     const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
       headers: { "content-type": "image/jpeg" }
     }));
     globalThis.fetch = fetchMock;
 
-    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-hls-resource-video-")), "poster.jpg");
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-related-wrapper-story-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://uk.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "not_found",
+      rejectedCandidates: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "video",
+          mediaUrl: "blob:https://uk.pinterest.com/player-resource",
+          reasons: expect.arrayContaining(["non_first_party_media_url", "missing_pin_source_proof", "noise_ancestry:related"])
+        }),
+        expect.objectContaining({
+          kind: "video_poster",
+          mediaUrl: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+          reasons: expect.arrayContaining(["missing_pin_source_proof", "noise_ancestry:related"])
+        })
+      ])
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(readFile(outputPath)).rejects.toThrow();
+  });
+
+  it("falls back to poster media for a sole active-pin HLS resource without poster digest match", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg"
+          data-current-src="blob:https://www.pinterest.com/player-resource"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+    `, "https://www.pinterest.com/pin/789/", [
+      "https://v1.pinimg.com/videos/iht/hls/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.m3u8"
+    ]);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-sole-active-resource-video-")), "poster.jpg");
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
     const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
@@ -5505,23 +5925,27 @@ describe("BrowserManager", () => {
     expect(result).toMatchObject({
       status: "captured",
       kind: "video_poster",
-      mediaUrl: "https://i.pinimg.com/videos/poster.jpg",
-      rejectedCandidates: [expect.objectContaining({
+      mediaUrl: "https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg",
+      poster: "https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg",
+      contentType: "image/jpeg",
+      candidateSelector: "video[poster]",
+      width: 720,
+      height: 1280,
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
         kind: "video",
         mediaUrl: "blob:https://www.pinterest.com/player-resource",
         reasons: expect.arrayContaining(["non_first_party_media_url"])
-      })],
-      width: 960,
-      height: 720
+      })])
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster.jpg", expect.objectContaining({
-      signal: expect.any(AbortSignal)
-    }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
   });
 
-  it("ignores page-global resource entries even when one is a first-party MP4", async () => {
+  it("falls back to poster media when a sole first-party resource has multiple active blob videos", async () => {
     const { context, page } = createBrowserBundle([]);
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     launchPersistentContext.mockResolvedValue(context);
@@ -5529,7 +5953,1319 @@ describe("BrowserManager", () => {
     usePinterestMediaDom(page, `
       <main data-test-id="pin-closeup">
         <video
-          poster="https://i.pinimg.com/videos/poster.jpg"
+          poster="https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg"
+          data-current-src="blob:https://www.pinterest.com/player-resource"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+        <video
+          poster="https://i.pinimg.com/736x/44/55/66/44556677889900aabbccddeeff001122.jpg"
+          data-current-src="blob:https://www.pinterest.com/second-player-resource"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="380,0,360,640"
+        ></video>
+      </main>
+    `, "https://www.pinterest.com/pin/789/", [
+      "https://v1.pinimg.com/videos/iht/hls/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.m3u8"
+    ]);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-multi-active-resource-fallback-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg",
+      candidateSelector: "video[poster]",
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
+        kind: "video",
+        mediaUrl: "blob:https://www.pinterest.com/player-resource",
+        reasons: expect.arrayContaining(["non_first_party_media_url"])
+      })])
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("falls back to poster media when multiple active blob videos share the resource signature", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <div data-video-signature="f8c180d46d95c4deed055a663f8ef67f">
+          <video
+            poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+            data-current-src="blob:https://www.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+        <div data-video-signature="f8c180d46d95c4deed055a663f8ef67f">
+          <video
+            poster="https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg"
+            data-current-src="blob:https://www.pinterest.com/second-player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="760,0,736,552"
+          ></video>
+        </div>
+      </main>
+    `, "https://www.pinterest.com/pin/101542166600010076/", [
+      "https://v1.pinimg.com/videos/iht/hls/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.m3u8"
+    ]);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-shared-signature-resource-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("captures Pinterest video bytes from matching VideoObject structured data before poster fallback", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/ld+json">
+        {
+          "@type": "VideoObject",
+          "thumbnailUrl": "https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg",
+          "contentUrl": "https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4",
+          "width": "720 px",
+          "height": "1280 px"
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-structured-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "script[type='application/ld+json'][VideoObject]",
+      width: 720,
+      height: 1280
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures Pinterest video bytes from matching JSON-LD graph VideoObject data", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@graph": [
+            { "@type": "BreadcrumbList" },
+            {
+              "@type": "VideoObject",
+              "thumbnailUrl": "https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg",
+              "contentUrl": "https://v1.pinimg.com/videos/iht/hls/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.m3u8",
+              "width": 720,
+              "height": 1280
+            }
+          ]
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-graph-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "script[type='application/ld+json'][VideoObject]",
+      width: 720,
+      height: 1280
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://v1.pinimg.com/videos/iht/720p/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.mp4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures Pinterest video bytes from array-shaped VideoObject metadata after ignoring malformed JSON-LD", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/ld+json">{not-json</script>
+      <script type="application/ld+json">
+        {
+          "@type": ["CreativeWork", "VideoObject"],
+          "thumbnailUrl": [
+            "https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg"
+          ],
+          "contentUrl": "https://v1.pinimg.com/videos/iht/hls/87/6b/16/876b1613d8712ed602d5162ef393d306.m3u8",
+          "width": 720,
+          "height": "1280 px"
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-array-videoobject-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "script[type='application/ld+json'][VideoObject]",
+      width: 720,
+      height: 1280
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://v1.pinimg.com/videos/iht/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("keeps correlated MP4 selection across noisy structured and embedded Pinterest video metadata", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    const digest = "abcdef1234567890abcdef1234567890";
+    const posterUrl = `https://i.pinimg.com/videos/thumbnails/originals/ab/cd/ef/${digest}.0000000.jpg`;
+    const hlsUrl = `https://v1.pinimg.com/videos/iht/hls/ab/cd/ef/${digest}.m3u8`;
+    const mp4Url = `https://v1.pinimg.com/videos/iht/720p/ab/cd/ef/${digest}.mp4`;
+    const escapedHlsUrl = String.raw`https\u003A\u002F\u002Fv1.pinimg.com\u002Fvideos\u002Fiht\u002Fhls\u002Fab\u002Fcd\u002Fef\u002Fabcdef1234567890abcdef1234567890.m3u8`;
+    const longEmbeddedVideoScript = JSON.stringify({
+      videoUrls: [escapedHlsUrl, escapedHlsUrl, "https://example.com/not-pinterest.mp4"],
+      padding: "x".repeat(181000)
+    });
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="${posterUrl}"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/ld+json"></script>
+      <script type="application/ld+json">
+        ${JSON.stringify({
+          "@graph": {
+            "@graph": {
+              "@graph": {
+                "@graph": {
+                  "@graph": {
+                    "@type": "VideoObject",
+                    contentUrl: hlsUrl
+                  }
+                }
+              }
+            }
+          }
+        })}
+      </script>
+      <script type="application/ld+json">
+        ${JSON.stringify([
+          "ignored",
+          null,
+          {
+            "@type": "VideoObject",
+            contentUrl: 42,
+            thumbnailUrl: { url: posterUrl },
+            width: "wide",
+            height: { value: "1280" }
+          },
+          {
+            "@type": "VideoObject",
+            contentUrl: "not a url",
+            thumbnailUrl: [false, posterUrl]
+          },
+          {
+            "@type": "VideoObject",
+            contentUrl: hlsUrl,
+            width: 720,
+            height: 1280
+          }
+        ])}
+      </script>
+      <script type="application/json">${longEmbeddedVideoScript}</script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-noisy-video-metadata-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: mp4Url,
+      poster: posterUrl,
+      contentType: "video/mp4",
+      candidateSelector: "script[type='application/ld+json'][VideoObject]",
+      width: 720,
+      height: 1280
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(mp4Url, expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures live-shaped VideoObject bytes when data-video-signature matches the contentUrl digest", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          data-video-signature="f8c180d46d95c4deed055a663f8ef67f"
+          poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+          data-current-src="blob:https://www.pinterest.com/player-resource"
+          data-video-width="736"
+          data-video-height="552"
+          data-rect="0,0,736,552"
+        ></video>
+      </main>
+      <script type="application/ld+json">
+        {
+          "@type": "VideoObject",
+          "thumbnailUrl": "https://i.pinimg.com/videos/thumbnails/originals/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.0000000.jpg",
+          "contentUrl": "https://v1.pinimg.com/videos/iht/hls/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.m3u8",
+          "width": "736 px",
+          "height": "552 px"
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/101542166600010076/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-structured-signature-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.0000000.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "script[type='application/ld+json'][VideoObject]",
+      width: 736,
+      height: 552
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://v1.pinimg.com/videos/iht/720p/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.mp4", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures signature-only Pinterest VideoObject bytes without poster metadata", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <div data-video-signature="f8c180d46d95c4deed055a663f8ef67f">
+          <video
+            data-current-src="blob:https://www.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </main>
+      <script type="application/ld+json">
+        {
+          "@type": "VideoObject",
+          "contentUrl": "https://v1.pinimg.com/videos/iht/hls/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.m3u8"
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/101542166600010076/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-signature-only-videoobject-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.mp4",
+      contentType: "video/mp4",
+      candidateSelector: "script[type='application/ld+json'][VideoObject]",
+      width: 736,
+      height: 552
+    });
+    expect(result.poster).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://v1.pinimg.com/videos/iht/720p/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.mp4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("uses visible video fallback facts when VideoObject poster and dimensions are not usable", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup" role="group">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/1a/2b/3c/1a2b3c4d5e6f78901a2b3c4d5e6f7890.0000000.jpg"
+          data-video-width="640"
+          data-video-height="360"
+          data-rect="0,0,320,180"
+        ></video>
+      </main>
+      <script type="application/ld+json">
+        {
+          "@type": "VideoObject",
+          "thumbnailUrl": [false, {"url": "not-promoted"}],
+          "contentUrl": "https://v1.pinimg.com/videos/iht/hls/1a/2b/3c/1a2b3c4d5e6f78901a2b3c4d5e6f7890.m3u8",
+          "width": "wide",
+          "height": {"value": "360"}
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-videoobject-fallback-facts-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/1a/2b/3c/1a2b3c4d5e6f78901a2b3c4d5e6f7890.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/1a/2b/3c/1a2b3c4d5e6f78901a2b3c4d5e6f7890.0000000.jpg",
+      contentType: "video/mp4",
+      candidateRole: "group",
+      candidateSelector: "script[type='application/ld+json'][VideoObject]",
+      width: 640,
+      height: 360
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://v1.pinimg.com/videos/iht/720p/1a/2b/3c/1a2b3c4d5e6f78901a2b3c4d5e6f7890.mp4", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("falls back to poster media when VideoObject data-video-signature does not match the contentUrl digest", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          data-video-signature="aabbccddeeff00112233445566778899"
+          poster="https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/ld+json">
+        {
+          "@type": "VideoObject",
+          "thumbnailUrl": "https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg",
+          "contentUrl": "https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4"
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-structured-video-fallback-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.0000000.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.0000000.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("falls back to poster media when two visible videos have the same data-video-signature", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          data-video-signature="f8c180d46d95c4deed055a663f8ef67f"
+          poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+          data-video-width="736"
+          data-video-height="552"
+          data-rect="0,0,736,552"
+        ></video>
+        <video
+          data-video-signature="f8c180d46d95c4deed055a663f8ef67f"
+          poster="https://i.pinimg.com/736x/13/02/76/130276fd451a068318579498c634d0d7.jpg"
+          data-video-width="736"
+          data-video-height="552"
+          data-rect="760,0,736,552"
+        ></video>
+      </main>
+      <script type="application/ld+json">
+        {
+          "@type": "VideoObject",
+          "thumbnailUrl": "https://i.pinimg.com/videos/thumbnails/originals/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.0000000.jpg",
+          "contentUrl": "https://v1.pinimg.com/videos/iht/hls/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f.m3u8"
+        }
+      </script>
+    `, "https://www.pinterest.com/pin/101542166600010076/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-ambiguous-signature-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it.each([
+    {
+      label: "videos.videoUrls MP4",
+      scriptJson: String.raw`{"props":{"pin":{"videos":{"videoUrls":["https\u003A\u002F\u002Fv1.pinimg.com\u002Fvideos\u002Fiht\u002FexpMp4\u002Ff2\u002Fa5\u002F9d\u002Ff2a59d3deca87221b786074a934d3d73_720w.mp4"]}}}}`,
+      expectedMediaUrl: "https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4"
+    },
+    {
+      label: "videoList.v720P.url HLS",
+      scriptJson: JSON.stringify({
+        props: {
+          pin: {
+            videoList: {
+              v720P: {
+                url: "https://v1.pinimg.com/videos/iht/hls/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.m3u8"
+              }
+            }
+          }
+        }
+      }),
+      expectedMediaUrl: "https://v1.pinimg.com/videos/iht/720p/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.mp4"
+    }
+  ] as const)("captures Pinterest video bytes from embedded $label before poster fallback", async ({ scriptJson, expectedMediaUrl }) => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/json">
+        ${scriptJson}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-embedded-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: expectedMediaUrl,
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "script[pinterest-video-json]",
+      width: 720,
+      height: 1280
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(expectedMediaUrl, expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures signature-only embedded Pinterest video bytes before poster fallback", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <div data-video-signature="f8c180d46d95c4deed055a663f8ef67f">
+          <video
+            data-current-src="blob:https://www.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </main>
+      <script type="application/json">
+        {"videoUrls":["https://v1.pinimg.com/videos/iht/expMp4/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f_720w.mp4"]}
+      </script>
+    `, "https://www.pinterest.com/pin/101542166600010076/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-signature-only-embedded-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/expMp4/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f_720w.mp4",
+      contentType: "video/mp4",
+      candidateSelector: "script[pinterest-video-json]",
+      width: 736,
+      height: 552
+    });
+    expect(result.poster).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://v1.pinimg.com/videos/iht/expMp4/f8/c1/80/f8c180d46d95c4deed055a663f8ef67f_720w.mp4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("deduplicates repeated embedded Pinterest MP4 metadata before video capture", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    const mediaUrl = "https://v1.pinimg.com/videos/iht/720p/de/ad/be/deadbeefcafefeeddeadbeefcafefeed.mp4";
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/de/ad/be/deadbeefcafefeeddeadbeefcafefeed.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/json">
+        {"videoUrls":["${mediaUrl}","${mediaUrl}"]}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-dedupe-embedded-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl,
+      contentType: "video/mp4",
+      candidateSelector: "script[pinterest-video-json]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(mediaUrl, expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("captures Pinterest Story Pin video bytes from embedded videoDataV2 before poster fallback", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <section data-test-id="story-pin">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </section>
+      <script type="application/json">
+        ${JSON.stringify({
+          props: {
+            pin: {
+              storyPinData: {
+                pages: [{
+                  blocks: [{
+                    videoDataV2: {
+                      videoList720P: {
+                        v720P: {
+                          url: "https://v1.pinimg.com/videos/iht/hls/87/6b/16/876b1613d8712ed602d5162ef393d306.m3u8"
+                        }
+                      }
+                    }
+                  }]
+                }]
+              }
+            }
+          }
+        })}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-story-embedded-video-")), "video.mp4");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video",
+      mediaUrl: "https://v1.pinimg.com/videos/iht/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4",
+      poster: "https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg",
+      contentType: "video/mp4",
+      candidateSelector: "script[pinterest-video-json]",
+      width: 720,
+      height: 1280
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://v1.pinimg.com/videos/iht/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_MP4_BYTES);
+  });
+
+  it("falls back to poster media instead of promoting uncorrelated embedded Pinterest video data", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/json">
+        ${JSON.stringify({
+          props: {
+            pin: {
+              videos: {
+                videoUrls: ["https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4"]
+              }
+            }
+          }
+        })}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-uncorrelated-embedded-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.0000000.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.0000000.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("does not promote embedded Pinterest video data when multiple current posters match the digest", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="380,0,360,640"
+        ></video>
+      <script type="application/json">
+        ${JSON.stringify({
+          props: {
+            pin: {
+              videos: {
+                videoUrls: ["https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4"]
+              }
+            }
+          }
+        })}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-ambiguous-embedded-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/thumbnails/originals/f2/a5/9d/f2a59d3deca87221b786074a934d3d73.0000000.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("bounds embedded Pinterest video script scanning before unrelated later metadata", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    const noisyScripts = Array.from({ length: 17 }, (_entry, index) => `
+      <script type="application/json">
+        {"videoUrls":["https://v1.pinimg.com/videos/iht/expMp4/aa/bb/cc/aabbccddeeff001122334455667788${String(index).padStart(2, "0")}_720w.mp4"]}
+      </script>
+    `).join("\n");
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/json">{"unrelated":true}</script>
+      ${noisyScripts}
+      <script type="application/json">
+        {"videoUrls":["https://v1.pinimg.com/videos/iht/expMp4/87/6b/16/876b1613d8712ed602d5162ef393d306_720w.mp4"]}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-bounded-embedded-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://i.pinimg.com/videos/thumbnails/originals/87/6b/16/876b1613d8712ed602d5162ef393d306.0000000.jpg",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("keeps poster fallback when embedded metadata only matches the current poster URL", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+          data-video-width="736"
+          data-video-height="552"
+          data-rect="0,0,736,552"
+        ></video>
+      </main>
+      <script type="application/json">
+        ${JSON.stringify({
+          props: {
+            pin: {
+              imageLargeUrl: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+              videos: {
+                videoUrls: ["https://v1.pinimg.com/videos/iht/expMp4/f2/a5/9d/f2a59d3deca87221b786074a934d3d73_720w.mp4"]
+              }
+            }
+          }
+        })}
+      </script>
+    `, "https://www.pinterest.com/pin/101542166600010076/");
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith(".mp4")) {
+        return new Response(PINTEREST_TEST_MP4_BYTES, {
+          headers: { "content-type": "video/mp4" }
+        });
+      }
+      return new Response(PINTEREST_TEST_JPEG_BYTES, {
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-embedded-poster-fallback-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      poster: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      contentType: "image/jpeg",
+      candidateSelector: "video[poster]",
+      width: 736,
+      height: 552
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("keeps poster fallback when embedded video text has no safe first-party Pinterest video", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/poster-fallback.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/json">
+        {"videoDataV2":{"videoList720P":{"v720P":{"url":"https://cdn.example.com/video.mp4"}}}}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-no-safe-embedded-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/poster-fallback.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster-fallback.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("keeps poster fallback when oversized embedded video text has no safe first-party Pinterest video", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    const oversizedScriptText = Array.from({ length: 10 }, (_entry, index) => (
+      `${"x".repeat(22000)}"videoUrls":["https://cdn.example.com/not-pinterest-${index}.mp4"]`
+    )).join("");
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/poster-fallback.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/json">${oversizedScriptText}</script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-oversized-embedded-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/poster-fallback.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster-fallback.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("keeps poster fallback when embedded Pinterest video text has only invalid first-party paths", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/poster-fallback.jpg"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+      <script type="application/json">
+        {"videoUrls":["https://v1.pinimg.com/videos/iht/hls/not-a-canonical-path.m3u8"]}
+      </script>
+    `, "https://www.pinterest.com/pin/789/");
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-invalid-first-party-embedded-video-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/poster-fallback.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster-fallback.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("ignores ambiguous page-global resource entries when multiple first-party videos are present", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/12/34/56/1234567890abcdef.jpg"
           data-current-src="blob:https://www.pinterest.com/player-resource"
           data-video-width="720"
           data-video-height="1280"
@@ -5541,7 +7277,8 @@ describe("BrowserManager", () => {
       "http://v.pinimg.com/videos/mc/720p/insecure.mp4",
       "https://i.pinimg.com/videos/mc/720p/not-video-host.mp4",
       "https://v.pinimg.com/videos/mc/720p/not-mp4.webm",
-      "https://v.pinimg.com/videos/mc/720p/resource-entry.mp4"
+      "https://v.pinimg.com/videos/mc/720p/12/34/56/1234567890abcdef0000000000000000.mp4",
+      "https://v.pinimg.com/videos/mc/720p/12/34/56/1234567890abcdef1111111111111111.mp4"
     ]);
     const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
       headers: { "content-type": "image/jpeg" }
@@ -5558,15 +7295,204 @@ describe("BrowserManager", () => {
     expect(result).toMatchObject({
       status: "captured",
       kind: "video_poster",
-      mediaUrl: "https://i.pinimg.com/videos/poster.jpg",
-      rejectedCandidates: [expect.objectContaining({
+      mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/12/34/56/1234567890abcdef.jpg",
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
         kind: "video",
         mediaUrl: "blob:https://www.pinterest.com/player-resource",
         reasons: expect.arrayContaining(["non_first_party_media_url"])
-      })]
+      })])
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster.jpg", expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/thumbnails/originals/12/34/56/1234567890abcdef.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("falls back to poster media when a Pinterest resource timing entry has no name", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/poster-fallback.jpg"
+          data-current-src="blob:https://www.pinterest.com/player-resource"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+    `, "https://www.pinterest.com/pin/789/", [
+      { initiatorType: "video", transferSize: 1234 }
+    ]);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-resource-entry-no-name-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/poster-fallback.jpg",
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
+        kind: "video",
+        mediaUrl: "blob:https://www.pinterest.com/player-resource",
+        reasons: expect.arrayContaining(["non_first_party_media_url"])
+      })])
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster-fallback.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("falls back to poster media when a blob-backed resource only matches the poster digest prefix", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/12/34/56/1234567890abcdef.jpg"
+          data-current-src="blob:https://www.pinterest.com/player-resource"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+    `, "https://www.pinterest.com/pin/789/", [
+      "https://v.pinimg.com/videos/mc/720p/12/34/56/1234567890abcdef0000000000000000.mp4"
+    ]);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-prefix-resource-fallback-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/12/34/56/1234567890abcdef.jpg",
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
+        kind: "video",
+        mediaUrl: "blob:https://www.pinterest.com/player-resource",
+        reasons: expect.arrayContaining(["non_first_party_media_url"])
+      })])
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/thumbnails/originals/12/34/56/1234567890abcdef.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("falls back to poster media when a blob-backed Pinterest resource has no video digest", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <div data-video-signature="f8c180d46d95c4deed055a663f8ef67f">
+          <video
+            poster="https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg"
+            data-current-src="blob:https://www.pinterest.com/player-resource"
+            data-video-width="736"
+            data-video-height="552"
+            data-rect="0,0,736,552"
+          ></video>
+        </div>
+      </main>
+    `, "https://www.pinterest.com/pin/101542166600010076/", [
+      "https://v.pinimg.com/videos/mc/720p/no-digest.mp4"
+    ]);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-digestless-resource-fallback-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({
+      profile: "default",
+      startUrl: "https://www.pinterest.com/pin/101542166600010076/"
+    });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg",
+      candidateSelector: "video[poster]"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/736x/fc/f5/d6/fcf5d695eb1e523637a5f09dc857019b.jpg", expect.objectContaining({
+      signal: expect.any(AbortSignal)
+    }));
+    await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
+  });
+
+  it("falls back to poster media when a blob-backed resource does not match the current poster", async () => {
+    const { context, page } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    usePinterestMediaDom(page, `
+      <main data-test-id="pin-closeup">
+        <video
+          poster="https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.jpg"
+          data-current-src="blob:https://www.pinterest.com/player-resource"
+          data-video-width="720"
+          data-video-height="1280"
+          data-rect="0,0,360,640"
+        ></video>
+      </main>
+    `, "https://www.pinterest.com/pin/789/", [
+      "https://v.pinimg.com/videos/mc/720p/87/6b/16/876b1613d8712ed602d5162ef393d306.mp4"
+    ]);
+    const fetchMock = vi.fn(async () => new Response(PINTEREST_TEST_JPEG_BYTES, {
+      headers: { "content-type": "image/jpeg" }
+    }));
+    globalThis.fetch = fetchMock;
+
+    const outputPath = join(await mkdtemp(join(tmpdir(), "odb-pinterest-unmatched-resource-fallback-")), "poster.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/789/" });
+
+    const result = await manager.capturePinterestPinMedia(launch.sessionId, { path: outputPath });
+
+    expect(result).toMatchObject({
+      status: "captured",
+      kind: "video_poster",
+      mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.jpg",
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
+        kind: "video",
+        mediaUrl: "blob:https://www.pinterest.com/player-resource",
+        reasons: expect.arrayContaining(["non_first_party_media_url"])
+      })])
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/thumbnails/originals/aa/bb/cc/aabbccddeeff00112233445566778899.jpg", expect.objectContaining({
       signal: expect.any(AbortSignal)
     }));
     await expect(readFile(outputPath)).resolves.toEqual(PINTEREST_TEST_JPEG_BYTES);
@@ -5606,11 +7532,11 @@ describe("BrowserManager", () => {
       status: "captured",
       kind: "video_poster",
       mediaUrl: "https://i.pinimg.com/videos/poster-fallback.jpg",
-      rejectedCandidates: [expect.objectContaining({
+      rejectedCandidates: expect.arrayContaining([expect.objectContaining({
         kind: "video",
         mediaUrl: "blob:https://www.pinterest.com/player-resource",
         reasons: expect.arrayContaining(["non_first_party_media_url"])
-      })]
+      })])
     });
     expect(fetchMock).toHaveBeenCalledWith("https://i.pinimg.com/videos/poster-fallback.jpg", expect.objectContaining({
       signal: expect.any(AbortSignal)

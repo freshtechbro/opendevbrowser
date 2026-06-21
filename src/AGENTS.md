@@ -57,7 +57,7 @@ src/
 | `devtools/` | Console/network trackers, redaction |
 | `export/` | DOM capture, React emitter, sanitization |
 | `guidance/` | Site and workflow guidance recipes, readiness routing, and renderer helpers |
-| `inspiredesign/` | Inspiredesign contracts, reference discovery, Pinterest/media evidence, media analysis, readiness, and design-agent handoff artifacts |
+| `inspiredesign/` | Inspiredesign contracts, reference discovery, Pinterest/media evidence, deterministic media-analysis facts from trusted saved media, readiness, and design-agent handoff artifacts |
 | `integrations/` | External integration adapters such as Figma import and normalization |
 | `macros/` | Macro registry, execution, and provider action expansion |
 | `providers/` | Tier routing, blocker policy, browser fallback, workflow orchestration. See `providers/AGENTS.md` |
@@ -152,6 +152,8 @@ src/config.ts (Zod schema)
 ```
 
 Config toggles: `devtools.showFullUrls`, `snapshot.maxNodes`, `security.allowUnsafeExport`
+
+Inspiredesign media-analysis config belongs in `inspiredesign.mediaAnalysis`. FFmpeg and FFprobe are optional host tools, not bundled or default-downloaded binaries; resolve paths from env, then config, then `PATH`. `status-capabilities.host.mediaAnalysis` is diagnostic/preflight visibility only, missing binaries degrade `media-analysis.json` only, and `media-analysis.json` must not replace `pin-media-index.json` or `motion-evidence.json` authority.
 
 ## Hub-only relay semantics
 

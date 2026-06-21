@@ -25,7 +25,8 @@ import type {
   SessionChallengeSummary
 } from "./types";
 
-type RuntimeConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "security" | "providers">;
+type RuntimeConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "security" | "providers">
+  & Partial<Pick<OpenDevBrowserConfig, "inspiredesign">>;
 type BrowserFallbackRequest = Parameters<NonNullable<BrowserFallbackPort>["resolve"]>[0];
 
 type BrowserFallbackCookieConfig = {
@@ -1681,6 +1682,7 @@ export const buildRuntimeInitFromConfig = (
     ...(effectiveChallengeConfig?.mode
       ? { challengeAutomationModeDefault: effectiveChallengeConfig.mode }
       : {}),
+    inspiredesignMediaAnalysis: config?.inspiredesign?.mediaAnalysis ?? {},
     ...(browserFallbackPort ? { browserFallbackPort } : {})
   };
 };

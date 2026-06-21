@@ -13,7 +13,7 @@ import {
 import type { RuntimeInit } from "./index";
 
 export type ProviderRuntimeBundleConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "security" | "providers">
-  & Partial<Pick<OpenDevBrowserConfig, "relayPort" | "relayToken">>;
+  & Partial<Pick<OpenDevBrowserConfig, "inspiredesign" | "relayPort" | "relayToken">>;
 
 export type BundledProviderRuntime = Pick<
   ReturnType<typeof createConfiguredProviderRuntime>,
@@ -38,23 +38,37 @@ type ResolveBundledProviderRuntimeArgs = ProviderRuntimeBundleArgs & {
   existingRuntime?: BundledProviderRuntime;
 };
 
-const runtimeChallengeConfigFingerprints = new WeakMap<BundledProviderRuntime, string | null>();
+const runtimeConfigFingerprints = new WeakMap<BundledProviderRuntime, string>();
 const fallbackPortFingerprints = new WeakMap<BrowserFallbackPort, string>();
+
+const hasExplicitMediaAnalysisConfig = (
+  config: ProviderRuntimeBundleConfig | undefined
+): boolean => Boolean(config?.inspiredesign?.mediaAnalysis.ffmpegPath || config?.inspiredesign?.mediaAnalysis.ffprobePath);
+
+const runtimeConfigFingerprint = (
+  challengeFingerprint: string | null,
+  config: ProviderRuntimeBundleConfig | undefined,
+  init: Omit<RuntimeInit, "providers"> | undefined
+): string => JSON.stringify({
+  challengeFingerprint,
+  mediaAnalysis: init?.inspiredesignMediaAnalysis ?? config?.inspiredesign?.mediaAnalysis ?? {}
+});
 
 const canReuseRuntime = (
   runtime: BundledProviderRuntime | undefined,
-  challengeFingerprint: string | null,
+  runtimeFingerprint: string,
   hasInitOverride: boolean,
-  hasExplicitChallengeConfig: boolean
+  hasExplicitChallengeConfig: boolean,
+  hasExplicitMediaAnalysisOverride: boolean
 ): runtime is BundledProviderRuntime => {
   if (!runtime || hasInitOverride) {
     return false;
   }
-  const fingerprint = runtimeChallengeConfigFingerprints.get(runtime);
+  const fingerprint = runtimeConfigFingerprints.get(runtime);
   if (fingerprint === undefined) {
-    return !hasExplicitChallengeConfig;
+    return !hasExplicitChallengeConfig && !hasExplicitMediaAnalysisOverride;
   }
-  return fingerprint === challengeFingerprint;
+  return fingerprint === runtimeFingerprint;
 };
 
 const canReuseFallbackPort = (
@@ -93,6 +107,7 @@ export const createProviderRuntimeBundle = (
   const challengeConfig = resolveEffectiveChallengeConfig(args.config, args.challengeConfig);
   const challengeFingerprint = challengeConfig ? JSON.stringify(challengeConfig) : null;
   const transportConfig = resolveFallbackTransportConfig(args.config);
+  const runtimeFingerprint = runtimeConfigFingerprint(challengeFingerprint, args.config, args.init);
   const fallbackFingerprint = fallbackPortFingerprint(challengeFingerprint, transportConfig);
   const challengeOrchestrator = args.challengeOrchestrator
     ?? (challengeConfig ? new ChallengeOrchestrator(challengeConfig) : undefined);
@@ -120,9 +135,9 @@ export const createProviderRuntimeBundle = (
     challengeOrchestrator,
     init: args.init
   });
-  runtimeChallengeConfigFingerprints.set(
+  runtimeConfigFingerprints.set(
     providerRuntime,
-    challengeFingerprint
+    runtimeFingerprint
   );
 
   return {
@@ -136,11 +151,13 @@ export const resolveBundledProviderRuntime = (
 ): BundledProviderRuntime => {
   const challengeConfig = resolveEffectiveChallengeConfig(args.config, args.challengeConfig);
   const challengeFingerprint = challengeConfig ? JSON.stringify(challengeConfig) : null;
+  const runtimeFingerprint = runtimeConfigFingerprint(challengeFingerprint, args.config, args.init);
   if (canReuseRuntime(
     args.existingRuntime,
-    challengeFingerprint,
+    runtimeFingerprint,
     Boolean(args.init),
-    typeof args.challengeConfig !== "undefined"
+    typeof args.challengeConfig !== "undefined",
+    hasExplicitMediaAnalysisConfig(args.config)
   )) {
     return args.existingRuntime;
   }

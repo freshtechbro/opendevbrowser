@@ -123,6 +123,24 @@ describe("inspiredesign product readiness helpers", () => {
     });
 
     expect(readExplicitInspiredesignProductReadinessFields({
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      rankedReferenceCount: 0,
+      authoritativeReferenceCount: 0,
+      snapshotReadyReferenceCount: 0,
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 0
+    })).toEqual(expect.objectContaining({
+      ready: false,
+      readiness: "unknown",
+      harvestReadiness: "unknown",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    }));
+
+    expect(readExplicitInspiredesignProductReadinessFields({
       ready: true,
       readiness: "ready",
       harvestReadiness: "ready",

@@ -3,12 +3,17 @@ export const INSPIREDESIGN_MEDIA_ANALYSIS_PROCESS_TIMEOUT_MS = 5_000;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_PROCESS_OUTPUT_BYTES = 8_000_000;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_DECODED_FRAME_WIDTH = 160;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_DECODED_FRAME_HEIGHT = 160;
-export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_SAMPLED_FRAMES = 5;
+export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_SAMPLED_FRAMES = 8;
+export const INSPIREDESIGN_MEDIA_ANALYSIS_MIN_TEMPORAL_SAMPLE_DURATION_SECONDS = 1;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_SERIALIZED_REFERENCES = 24;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_PALETTE_SWATCHES = 8;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_LAYOUT_ZONES = 8;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_TEXT_REGIONS = 12;
 export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_GUIDANCE_ENTRIES = 8;
+export const INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS = 2_500;
+export const INSPIREDESIGN_MEDIA_ANALYSIS_MAX_BINARY_PROBE_OUTPUT_BYTES = 64_000;
+export const OPENDEVBROWSER_FFMPEG_PATH_ENV = "OPENDEVBROWSER_FFMPEG_PATH";
+export const OPENDEVBROWSER_FFPROBE_PATH_ENV = "OPENDEVBROWSER_FFPROBE_PATH";
 
 export const INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS = [
   "Sharp image decoding is not part of v1.",
@@ -22,6 +27,43 @@ export const INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS = [
 
 export type InspiredesignMediaKind = "image" | "gif" | "video" | "video_poster";
 export type InspiredesignMediaAuthority = "design_evidence" | "diagnostic";
+
+export type InspiredesignMediaAnalysisBinaryPathsConfig = {
+  ffmpegPath?: string;
+  ffprobePath?: string;
+};
+
+export type InspiredesignMediaAnalysisBinaryTool = "ffmpeg" | "ffprobe";
+export type InspiredesignMediaAnalysisBinarySource = "env" | "config" | "path";
+export type InspiredesignMediaAnalysisBinaryCapabilityTier =
+  | "frame_decode"
+  | "metadata_probe"
+  | "unavailable";
+
+export type InspiredesignMediaAnalysisHostCapabilityTier =
+  | "full"
+  | "metadata_only"
+  | "frame_decode_only"
+  | "unavailable";
+
+export type InspiredesignMediaAnalysisBinaryStatus = {
+  tool: InspiredesignMediaAnalysisBinaryTool;
+  available: boolean;
+  source: InspiredesignMediaAnalysisBinarySource;
+  requestedPath: string;
+  resolvedPath?: string;
+  version?: string;
+  limitation?: string;
+  capabilityTier: InspiredesignMediaAnalysisBinaryCapabilityTier;
+};
+
+export type InspiredesignMediaAnalysisBinaryResolution = {
+  available: boolean;
+  capabilityTier: InspiredesignMediaAnalysisHostCapabilityTier;
+  ffmpeg: InspiredesignMediaAnalysisBinaryStatus;
+  ffprobe: InspiredesignMediaAnalysisBinaryStatus;
+  limitations: string[];
+};
 
 export type InspiredesignMediaClaimLevel =
   | "metadata_only"

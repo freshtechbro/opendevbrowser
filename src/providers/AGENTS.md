@@ -110,6 +110,7 @@ When providers fail (e.g., YouTube transcript extraction), `createBrowserFallbac
 - Workflow bundles use `.opendevbrowser/<workflow-namespace>/<run-id>/` with `bundle-manifest.json`.
 - Canvas, screenshot, screencast, annotation, desktop audit, and release proof lanes are related output lanes but not provider workflow bundles.
 - Low-level bundle creation must receive an explicit output root; do not reintroduce temp-root fallback behavior.
+- Inspiredesign workflows may schedule trusted persisted Pinterest media for deterministic `media-analysis.json` and pass optional host FFmpeg/FFprobe binary options resolved env, then config, then `PATH` into that seam. FFmpeg/FFprobe are not bundled static binaries or default downloads. `status-capabilities.host.mediaAnalysis` is diagnostic/preflight visibility only; missing binaries degrade `media-analysis.json` only. Readiness must remain driven by `pin-media-index.json`, `motion-evidence.json`, ranked references, and product-readiness gates; `media-analysis.json` is design guidance, not authority.
 
 ## Anti-Patterns
 

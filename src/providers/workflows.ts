@@ -184,11 +184,15 @@ import {
   type InspiredesignPinterestPinMediaRuntimeMetadata
 } from "../inspiredesign/pinterest-pin-media-evidence";
 import {
+  INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS,
   INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
   INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS,
   INSPIREDESIGN_MEDIA_ANALYSIS_VERSION,
   analyzeInspiredesignMediaArtifacts,
+  resolveInspiredesignMediaAnalysisBinaries,
   type InspiredesignMediaAnalysis,
+  type InspiredesignMediaAnalysisBinaryPathsConfig,
+  type InspiredesignMediaAnalysisBinaryResolution,
   type InspiredesignMediaAnalysisInput,
   type InspiredesignMediaAnalyzerOptions,
   type InspiredesignMediaKind
@@ -371,6 +375,8 @@ export interface InspiredesignWorkflowOptions {
     inputs: readonly InspiredesignMediaAnalysisInput[],
     options?: InspiredesignMediaAnalyzerOptions
   ) => Promise<InspiredesignMediaAnalysis>;
+  mediaAnalysisConfig?: InspiredesignMediaAnalysisBinaryPathsConfig;
+  resolveMediaAnalysisBinaries?: (options?: { timeoutMs?: number }) => Promise<InspiredesignMediaAnalysisBinaryResolution>;
 }
 
 type ProviderSignal = "ok" | "anti_bot_challenge" | "rate_limited" | "transcript_unavailable";
@@ -3877,6 +3883,47 @@ const buildDiagnosticInspiredesignMediaAnalysis = (): InspiredesignMediaAnalysis
 	references: []
 });
 
+const hasExplicitInspiredesignMediaAnalysisConfig = (
+	config: InspiredesignMediaAnalysisBinaryPathsConfig | undefined
+): boolean => Boolean(config?.ffmpegPath || config?.ffprobePath);
+
+const shouldResolveInspiredesignMediaAnalysisBinaries = (
+	options: InspiredesignWorkflowOptions
+): boolean => Boolean(
+	options.resolveMediaAnalysisBinaries
+	|| !options.analyzeMediaArtifacts
+	|| hasExplicitInspiredesignMediaAnalysisConfig(options.mediaAnalysisConfig)
+);
+
+const buildInspiredesignMediaAnalyzerBinaryOptions = (
+	binaries: InspiredesignMediaAnalysisBinaryResolution | undefined
+): Pick<
+	InspiredesignMediaAnalyzerOptions,
+	"ffmpegBinaryPath" | "ffprobeBinaryPath" | "ffmpegUnavailableLimitation" | "ffprobeUnavailableLimitation"
+> => ({
+	...(binaries?.ffmpeg.available && binaries.ffmpeg.resolvedPath ? { ffmpegBinaryPath: binaries.ffmpeg.resolvedPath } : {}),
+	...(binaries?.ffprobe.available && binaries.ffprobe.resolvedPath ? { ffprobeBinaryPath: binaries.ffprobe.resolvedPath } : {}),
+	...(!binaries?.ffmpeg.available && binaries?.ffmpeg.limitation ? { ffmpegUnavailableLimitation: binaries.ffmpeg.limitation } : {}),
+	...(!binaries?.ffprobe.available && binaries?.ffprobe.limitation ? { ffprobeUnavailableLimitation: binaries.ffprobe.limitation } : {})
+});
+
+const resolveInspiredesignMediaAnalyzerBinaryOptions = async (
+  options: InspiredesignWorkflowOptions,
+  timeoutMs: number | undefined
+): Promise<Partial<InspiredesignMediaAnalyzerOptions>> => {
+  if (!shouldResolveInspiredesignMediaAnalysisBinaries(options)) return {};
+  const probeTimeoutMs = typeof timeoutMs === "number" && Number.isFinite(timeoutMs)
+    ? Math.max(1, Math.min(timeoutMs, INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS))
+    : INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS;
+  const binaries = await (options.resolveMediaAnalysisBinaries
+    ? options.resolveMediaAnalysisBinaries({ timeoutMs: probeTimeoutMs })
+    : resolveInspiredesignMediaAnalysisBinaries({
+      config: options.mediaAnalysisConfig,
+      timeoutMs: probeTimeoutMs
+    }));
+  return buildInspiredesignMediaAnalyzerBinaryOptions(binaries);
+};
+
 const mediaAnalysisFailureMessage = (error: unknown): string => (
 	error instanceof Error ? error.message : "Media analysis failed."
 );
@@ -6359,9 +6406,21 @@ export const runInspiredesignWorkflow = async (
 			stagedTempDirs: mediaAnalysisTempDirs,
 			remainingTimeoutMs
 		});
-		mediaAnalysis = await (options.analyzeMediaArtifacts ?? analyzeInspiredesignMediaArtifacts)(mediaAnalysisInputs, {
-			generatedAt: INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
-			timeoutMs: remainingTimeoutMs()
+			const binaryPreflightTimeoutMs = remainingTimeoutMs();
+			if (typeof binaryPreflightTimeoutMs === "number" && binaryPreflightTimeoutMs <= 1) {
+				throw new Error("Pinterest pin media analysis deadline was exhausted.");
+			}
+			const binaryOptions = mediaAnalysisInputs.length > 0
+				? await resolveInspiredesignMediaAnalyzerBinaryOptions(options, binaryPreflightTimeoutMs)
+				: {};
+			const analyzerTimeoutMs = remainingTimeoutMs();
+			if (typeof analyzerTimeoutMs === "number" && analyzerTimeoutMs <= 1) {
+				throw new Error("Pinterest pin media analysis deadline was exhausted.");
+			}
+			mediaAnalysis = await (options.analyzeMediaArtifacts ?? analyzeInspiredesignMediaArtifacts)(mediaAnalysisInputs, {
+				generatedAt: INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
+				timeoutMs: analyzerTimeoutMs,
+			...binaryOptions
 		});
 	} catch (error) {
 		mediaAnalysisFailure = mediaAnalysisFailureMessage(error);

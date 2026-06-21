@@ -70,6 +70,7 @@ describe("loadGlobalConfig", () => {
       type: "file",
       value: "~/.config/opencode/opendevbrowser.provider-cookies.json"
     });
+    expect(config.inspiredesign.mediaAnalysis).toEqual({});
     expect(config.devtools.showFullUrls).toBe(false);
     expect(config.devtools.showFullConsole).toBe(false);
     expect(config.fingerprint.tier1.enabled).toBe(true);
@@ -146,6 +147,12 @@ describe("loadGlobalConfig", () => {
           }]
         }
       },
+      inspiredesign: {
+        mediaAnalysis: {
+          ffmpegPath: "/opt/bin/ffmpeg",
+          ffprobePath: "/opt/bin/ffprobe"
+        }
+      },
       devtools: { showFullUrls: true, showFullConsole: true },
       fingerprint: {
         tier1: { enabled: true, warnOnly: false, locale: "en-US", timezone: "America/New_York", languages: ["en-US"], requireProxy: true, geolocationRequired: false },
@@ -199,6 +206,10 @@ describe("loadGlobalConfig", () => {
         path: "/",
         secure: true
       }]
+    });
+    expect(config.inspiredesign.mediaAnalysis).toEqual({
+      ffmpegPath: "/opt/bin/ffmpeg",
+      ffprobePath: "/opt/bin/ffprobe"
     });
     expect(config.devtools.showFullUrls).toBe(true);
     expect(config.devtools.showFullConsole).toBe(true);
@@ -493,6 +504,33 @@ describe("resolveConfig", () => {
 
   it("rejects invalid overrides", () => {
     expect(() => resolveConfig({ relayPort: -1 })).toThrow("Invalid opendevbrowser config override");
+  });
+
+  it("parses inspiredesign media-analysis binary path overrides without executable checks", () => {
+    const config = resolveConfig({
+      inspiredesign: {
+        mediaAnalysis: {
+          ffmpegPath: "/missing/ffmpeg",
+          ffprobePath: "/missing/ffprobe"
+        }
+      }
+    });
+
+    expect(config.inspiredesign.mediaAnalysis).toEqual({
+      ffmpegPath: "/missing/ffmpeg",
+      ffprobePath: "/missing/ffprobe"
+    });
+    expect(fs.accessSync).not.toHaveBeenCalledWith("/missing/ffmpeg", expect.anything());
+    expect(fs.accessSync).not.toHaveBeenCalledWith("/missing/ffprobe", expect.anything());
+  });
+
+  it("rejects blank and wrong-type inspiredesign media-analysis binary paths", () => {
+    expect(() => resolveConfig({
+      inspiredesign: { mediaAnalysis: { ffmpegPath: "   " } }
+    })).toThrow("Invalid opendevbrowser config override");
+    expect(() => resolveConfig({
+      inspiredesign: { mediaAnalysis: { ffprobePath: 123 } }
+    })).toThrow("Invalid opendevbrowser config override");
   });
 });
 

@@ -9,6 +9,7 @@ import {
   workflowTestUtils,
 	type PinMediaRuntimeReadableFile,
 	type InspiredesignWorkflowPinMediaCaptureOptions,
+	type InspiredesignWorkflowOptions,
   type ReferenceRetrievalPort
 } from "../src/providers/workflows";
 import type {
@@ -21,6 +22,7 @@ import {
   INSPIREDESIGN_CONTRACT_SECTION_GUIDE,
   INSPIREDESIGN_HANDOFF_FILES
 } from "../src/inspiredesign/handoff";
+import { INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS } from "../src/inspiredesign/media-analysis";
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
 import type {
   JsonValue,
@@ -285,6 +287,8 @@ const makeJpegBytes = (width: number, height: number, minBytes: number): Buffer 
 };
 
 const validPinMediaBytes = (): Buffer => makeJpegBytes(1200, 1600, 2048);
+const LIVE_PIN_MEDIA_VIDEO_WIDTH = 240;
+const LIVE_PIN_MEDIA_VIDEO_HEIGHT = 180;
 
 const validPinMediaVideoBytes = (): Buffer => {
   const ftyp = Buffer.alloc(24, 0);
@@ -297,8 +301,8 @@ const validPinMediaVideoBytes = (): Buffer => {
   const tkhd = Buffer.alloc(92, 0);
   tkhd.writeUInt32BE(92, 0);
   tkhd.write("tkhd", 4, "ascii");
-  tkhd.writeUInt32BE(720 * 65_536, 84);
-  tkhd.writeUInt32BE(1280 * 65_536, 88);
+  tkhd.writeUInt32BE(LIVE_PIN_MEDIA_VIDEO_WIDTH * 65_536, 84);
+  tkhd.writeUInt32BE(LIVE_PIN_MEDIA_VIDEO_HEIGHT * 65_536, 88);
   const trak = Buffer.alloc(100, 0);
   trak.writeUInt32BE(100, 0);
   trak.write("trak", 4, "ascii");
@@ -1210,9 +1214,206 @@ describe("inspiredesign workflow", () => {
 	]));
 	});
 
-	it("writes media analysis sources with fresh safe paths and remaining timeout", async () => {
-	vi.useFakeTimers();
-	vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
+	it("passes resolved media-analysis binaries into analyzer options without changing authority", async () => {
+	const outputDir = makeOutputDir();
+	const runtime = toRuntime({
+		fetch: async (input: { url: string }) => makeAggregate({
+			records: [
+				normalizeRecord("social/pinterest", "social", {
+					url: input.url,
+					title: "Pinterest image pin reference",
+					content: "Full-bleed editorial image pin with premium product staging",
+					attributes: PINTEREST_IMAGE_PIN_ATTRIBUTES
+				})
+			]
+		})
+	});
+	const resolveMediaAnalysisBinaries = vi.fn(async (probeOptions?: { timeoutMs?: number }) => {
+		expect(probeOptions).toEqual({ timeoutMs: INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS });
+		return {
+			available: true,
+			capabilityTier: "full" as const,
+			limitations: [],
+			ffmpeg: {
+				tool: "ffmpeg" as const,
+				available: true,
+				source: "config" as const,
+				requestedPath: "/fake/ffmpeg",
+				resolvedPath: "/fake/ffmpeg",
+				version: "ffmpeg version fake",
+				capabilityTier: "frame_decode" as const
+			},
+			ffprobe: {
+				tool: "ffprobe" as const,
+				available: true,
+				source: "config" as const,
+				requestedPath: "/fake/ffprobe",
+				resolvedPath: "/fake/ffprobe",
+				version: "ffprobe version fake",
+				capabilityTier: "metadata_probe" as const
+			}
+		};
+	});
+	const analyzeMediaArtifacts = vi.fn<NonNullable<InspiredesignWorkflowOptions["analyzeMediaArtifacts"]>>(async (inputs, options) => {
+		expect(inputs[0]).toEqual(expect.objectContaining({
+			authority: "design_evidence",
+			scheduledForBundle: true
+		}));
+		expect(options).toEqual(expect.objectContaining({
+			ffmpegBinaryPath: "/fake/ffmpeg",
+			ffprobeBinaryPath: "/fake/ffprobe"
+		}));
+		return {
+			version: 1,
+			generatedAt: "2026-05-23T00:00:00.000Z",
+			nonGoals: ["media-analysis.json cannot satisfy product readiness."],
+			references: []
+		};
+	});
+
+	const output = await runInspiredesignWorkflow(runtime, {
+		brief: "Design a premium Pinterest-inspired product story",
+		harvest: true,
+		providers: ["social/pinterest"],
+		urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+		outputDir,
+		mode: "path",
+		visualEvidence: "off"
+	}, {
+		resolveMediaAnalysisBinaries,
+		capturePinMediaEvidence: async (_url, options) => {
+			writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+			return {
+				status: "captured" as const,
+				kind: "image" as const,
+				capturedAt: "2026-05-23T00:00:00.000Z",
+				referenceId: options.referenceId,
+				url: _url,
+				sourceUrl: _url,
+				endedSourceUrl: _url,
+				pinterestPageQuality: "pin_media" as const,
+				mediaUrl: "https://i.pinimg.com/originals/pin-main-final.jpg",
+				width: 1200,
+				height: 1600,
+				contentType: "image/jpeg",
+				tempPath: options.pinMediaEvidencePath,
+				warnings: [],
+				rejectionReasons: []
+			};
+		},
+		analyzeMediaArtifacts
+	});
+
+	const artifactPath = String(output.artifact_path);
+	const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis), "utf8")) as Record<string, unknown>;
+	expect(resolveMediaAnalysisBinaries).toHaveBeenCalledOnce();
+	expect(analyzeMediaArtifacts).toHaveBeenCalledOnce();
+	expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
+		expect(mediaAnalysis).not.toHaveProperty("evidenceAuthority");
+		expect(mediaAnalysis).not.toHaveProperty("productSuccess");
+		});
+
+		it("skips media analysis non-fatally when binary preflight exhausts the remaining timeout", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
+		const outputDir = makeOutputDir();
+		const analyzeMediaArtifacts = vi.fn();
+		const expectedPreflightBudgetMs = 500;
+		const resolveMediaAnalysisBinaries = vi.fn(async (probeOptions?: { timeoutMs?: number }) => {
+			expect(probeOptions).toEqual({ timeoutMs: expectedPreflightBudgetMs });
+			vi.setSystemTime(new Date("2026-05-23T00:00:01.500Z"));
+			return {
+				available: true,
+				capabilityTier: "full" as const,
+				limitations: [],
+				ffmpeg: {
+					tool: "ffmpeg" as const,
+					available: true,
+					source: "path" as const,
+					requestedPath: "ffmpeg",
+					resolvedPath: "ffmpeg",
+					version: "ffmpeg version fake",
+					capabilityTier: "frame_decode" as const
+				},
+				ffprobe: {
+					tool: "ffprobe" as const,
+					available: true,
+					source: "path" as const,
+					requestedPath: "ffprobe",
+					resolvedPath: "ffprobe",
+					version: "ffprobe version fake",
+					capabilityTier: "metadata_probe" as const
+				}
+			};
+		});
+		const runtime = toRuntime({
+			fetch: async (input: { url: string }) => makeAggregate({
+				records: [
+					normalizeRecord("social/pinterest", "social", {
+						url: input.url,
+						title: "Pinterest image pin reference",
+						content: "Full-bleed editorial image pin with premium product staging",
+						attributes: PINTEREST_IMAGE_PIN_ATTRIBUTES
+					})
+				]
+			})
+		});
+		try {
+			const output = await runInspiredesignWorkflow(runtime, {
+				brief: "Design a premium Pinterest-inspired product story",
+				harvest: true,
+				providers: ["social/pinterest"],
+				urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+				outputDir,
+				mode: "path",
+				visualEvidence: "off",
+				timeoutMs: 1000
+			}, {
+				resolveMediaAnalysisBinaries,
+				capturePinMediaEvidence: async (_url, options) => {
+					writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+					vi.setSystemTime(new Date("2026-05-23T00:00:00.500Z"));
+					return {
+						status: "captured",
+						kind: "image",
+						capturedAt: "2026-05-23T00:00:00.500Z",
+						referenceId: options.referenceId,
+						url: _url,
+						sourceUrl: _url,
+						endedSourceUrl: _url,
+						pinterestPageQuality: "pin_media",
+						mediaUrl: "https://i.pinimg.com/originals/pin-main-final.jpg",
+						width: 1200,
+						height: 1600,
+						contentType: "image/jpeg",
+						tempPath: options.pinMediaEvidencePath,
+						warnings: [],
+						rejectionReasons: []
+					};
+				},
+				analyzeMediaArtifacts
+			});
+			const artifactPath = String(output.artifact_path);
+			const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis), "utf8")) as {
+				references: unknown[];
+			};
+			expect(resolveMediaAnalysisBinaries).toHaveBeenCalledOnce();
+			expect(analyzeMediaArtifacts).not.toHaveBeenCalled();
+			expect(mediaAnalysis).toEqual(expect.objectContaining({ references: [] }));
+			expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
+			expect(mediaAnalysis).not.toHaveProperty("evidenceAuthority");
+			expect(mediaAnalysis).not.toHaveProperty("productSuccess");
+			expect(output.meta).toEqual(expect.objectContaining({
+				mediaAnalysisFailure: "Pinterest pin media analysis deadline was exhausted."
+			}));
+		} finally {
+			vi.useRealTimers();
+		}
+		});
+
+		it("writes media analysis sources with fresh safe paths and remaining timeout", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-05-23T00:00:00.000Z"));
 	const outputDir = makeOutputDir();
 	const escapeRoot = mkdtempSync(join(tmpdir(), "inspiredesign-analysis-escape-"));
 	tempDirs.push(escapeRoot);
@@ -1472,8 +1673,8 @@ describe("inspiredesign workflow", () => {
 			pinterestPageQuality: "pin_media" as const,
 			mediaUrl: "https://v.pinimg.com/videos/mc/720p/pin-main-final.mp4",
 			candidateSelector: "video",
-			width: 720,
-			height: 1280,
+				width: LIVE_PIN_MEDIA_VIDEO_WIDTH,
+				height: LIVE_PIN_MEDIA_VIDEO_HEIGHT,
 			contentType: "video/mp4",
 			tempPath: options.pinMediaEvidencePath,
 			warnings: ["interface_chrome_shell"],
@@ -1539,7 +1740,7 @@ describe("inspiredesign workflow", () => {
 				contentHierarchy: ["motion-first hero headline candidate"],
 				componentFamilies: ["hero", "showreel panel"],
 				motionPosture: "Use sampled MP4 cadence for restrained scroll reveals and hero pacing.",
-				tokenNotes: ["Treat the vertical 720 by 1280 frame as the dominant media ratio."],
+					tokenNotes: ["Treat the compact 240 by 180 frame as the dominant media ratio."],
 				patternsToBorrow: ["Borrow the vertical motion frame as a hero composition source."],
 				patternsToReject: ["Do not invent readable text from the video."],
 				typographyPosture: "Use OCR-free hierarchy only.",

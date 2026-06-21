@@ -49,6 +49,20 @@ Recovery:
 3. In shared machines, first-run smoke tests, or CI, isolate with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports.
 4. Re-run `npx opendevbrowser status --daemon --output-format json` and continue only after `data.fingerprintCurrent === true`.
 
+## Inspiredesign media analysis is degraded
+
+If `media-analysis.json` is missing metadata, palette, tone, or sampled GIF/video motion facts for trusted saved media, check FFmpeg and FFprobe availability before rerunning:
+
+```bash
+npx opendevbrowser status-capabilities --output-format json
+```
+
+Inspect `host.mediaAnalysis` in the JSON output. FFmpeg and FFprobe are recommended optional host tools, not bundled static binaries, and they are not downloaded by default.
+
+Resolution order is environment, then config, then `PATH`: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`. Set env vars for one-off runs or CI, use config for durable operator paths, or install the tools so the same shell or daemon environment can resolve them from `PATH`.
+
+Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They do not fail pin-media readiness, do not replace `pin-media-index.json`, and `media-analysis.json` never satisfies product readiness.
+
 ## Desktop observation returns `desktop_unsupported` on macOS
 
 If `desktop-status` or another `desktop-*` command reports `reason=desktop_unsupported` on macOS:

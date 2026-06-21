@@ -75,6 +75,7 @@ src/cli/
 | `automation` | macro-resolve | Provider macro planning utilities |
 | `canvas` | canvas | Design-canvas session/document/preview orchestration |
 | `providers` | research, shopping, product-video, artifacts | Provider-backed workflow commands |
+| `status` | status-capabilities | Host capability preflight, including optional Inspiredesign FFmpeg/FFprobe media-analysis availability |
 | `annotate` | annotate | Visual annotations plus shared `--stored` retrieval |
 | `power` | rpc | Internal daemon command passthrough (guarded, unsafe/power-user only) |
 | `export` | clone-page, clone-component | Page/component export |
@@ -97,6 +98,7 @@ src/cli/
 - **Autostart:** `daemon-autostart.ts` - LaunchAgent/Task Scheduler platform safety owner; refuses transient `_npx`, `/tmp`, `/private/tmp`, and onboarding workspace entrypoints before writes
 - **Package postinstall:** `installers/package-postinstall.ts` - best-effort raw npm global package autostart reconciliation; re-export through `installers/postinstall-skill-sync.ts` preserves the shipped built import path
 - **Status:** `daemon-status.ts` - Hub status with metadata recovery
+- **Capabilities:** `status-capabilities.host.mediaAnalysis` reports optional host FFmpeg/FFprobe availability as diagnostic/preflight visibility only, not daemon freshness or product-readiness proof. FFmpeg/FFprobe are not bundled static binaries or default downloads. Resolve binaries env, then config, then `PATH`; missing binaries degrade `media-analysis.json` only and cannot replace `pin-media-index.json` or `motion-evidence.json` authority.
 - **Internal inbox hooks:** `daemon-commands.ts` exposes `agent.inbox.*` hub-only helpers that proxy the same core-local `AgentInbox` store used by plugin delivery
 
 ### Hub Mode

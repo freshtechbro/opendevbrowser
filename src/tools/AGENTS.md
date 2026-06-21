@@ -45,7 +45,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 | Export | clone_page, clone_component |
 | Skills | skill_list, skill_load |
 | Run | run (multi-action) |
-| Provider workflows | research_run, shopping_run, product_video_run |
+| Provider workflows | research_run, shopping_run, product_video_run, inspiredesign_run |
 | Prompting | prompting_guide |
 
 ## Where Logic Lives
@@ -63,6 +63,7 @@ export function createFooTool(deps: ToolDeps): ToolDefinition {
 
 Keep tool names and counts in sync with `src/tools/index.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
 Workflow tool examples and notes in generated public surface are owned by `src/public-surface/source.ts`; regenerate manifests instead of editing generated files. Prefer omitted workflow output roots, or `--output-dir .opendevbrowser` when an explicit workflow root is required.
+Inspiredesign tool notes that mention FFmpeg/FFprobe must preserve the same contract in `src/public-surface/source.ts`: optional host tools, no bundled static binaries or default downloads, env then config then `PATH` resolution, `status-capabilities.host.mediaAnalysis` as diagnostic/preflight only, missing binaries degrading `media-analysis.json` only, and `pin-media-index.json` plus `motion-evidence.json` as authority surfaces; generated manifests are regenerated only.
 When inventory-affecting tools change, re-run `node scripts/docs-drift-check.mjs` and update release evidence docs.
 When `opendevbrowser_canvas` subcommands change, also sync `docs/CLI.md`, `docs/SURFACE_REFERENCE.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN_CANVAS_TECHNICAL_SPEC.md`, `docs/CANVAS_BIDIRECTIONAL_CODE_SYNC_TECHNICAL_SPEC.md`, `docs/CANVAS_ADAPTER_PLUGIN_CONTRACT.md`, and the relevant `AGENTS.md` files such as `src/browser/AGENTS.md` and `src/canvas/AGENTS.md`. If validator behavior changes, keep `scripts/canvas-competitive-validation.mjs` aligned in the same pass.
 

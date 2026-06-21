@@ -17,6 +17,11 @@ import type {
   ChallengeGovernedLaneKind,
   ChallengeInspectPlan
 } from "../challenges";
+import {
+  resolveInspiredesignMediaAnalysisBinaries,
+  type InspiredesignMediaAnalysisBinaryPathsConfig,
+  type InspiredesignMediaAnalysisBinaryResolution
+} from "../inspiredesign/media-analysis";
 
 type WindowScopedObservationMode = "active_window" | "hinted_window";
 type DesktopObservationFailure = Extract<DesktopResult<never>, { ok: false }>;
@@ -86,6 +91,7 @@ export type RuntimeCapabilityDiscovery = {
       helperBridgeEnabled: boolean;
       governedLanes: ChallengeGovernedLaneKind[];
     };
+    mediaAnalysis: InspiredesignMediaAnalysisBinaryResolution;
     firstClassSurfaces: {
       reviewDesktop: true;
       sessionInspectorPlan: true;
@@ -132,6 +138,8 @@ type CreateAutomationCoordinatorArgs = {
   governedLanes: ProvidersChallengeGovernedLanesConfig;
   helperBridgeEnabled: boolean;
   snapshotMaxChars: number;
+  mediaAnalysisConfig?: InspiredesignMediaAnalysisBinaryPathsConfig;
+  resolveMediaAnalysisBinaries?: () => Promise<InspiredesignMediaAnalysisBinaryResolution>;
 };
 
 const normalizeText = (value: string | undefined): string | undefined => {
@@ -404,6 +412,10 @@ export function createAutomationCoordinator(
     runMode?: ChallengeAutomationMode;
   }): Promise<RuntimeCapabilityDiscovery> => {
     const status = await args.desktopRuntime.status();
+    const mediaAnalysis = await (
+      args.resolveMediaAnalysisBinaries
+      ?? (() => resolveInspiredesignMediaAnalysisBinaries({ config: args.mediaAnalysisConfig }))
+    )();
     const host: RuntimeCapabilityDiscovery["host"] = {
       desktopObservation: {
         ...status,
@@ -417,6 +429,7 @@ export function createAutomationCoordinator(
         helperBridgeEnabled: args.helperBridgeEnabled,
         governedLanes: resolveGovernedLanes(args.governedLanes)
       },
+      mediaAnalysis,
       firstClassSurfaces: {
         reviewDesktop: true,
         sessionInspectorPlan: true,
