@@ -112,6 +112,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
           challengeAutomationMode: args.challengeAutomationMode,
           cookiePolicyOverride: args.cookiePolicyOverride
         }, {
+          mediaAnalysisConfig: deps.config.get().inspiredesign.mediaAnalysis,
           captureReference: shouldProvideCaptureReference
             ? async (url, options) => captureInspiredesignReferenceFromManager(deps.manager, url, {
               ...options,

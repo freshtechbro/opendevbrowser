@@ -4,6 +4,7 @@ import {
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_DECODED_FRAME_WIDTH,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_PROCESS_OUTPUT_BYTES,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_SAMPLED_FRAMES,
+  INSPIREDESIGN_MEDIA_ANALYSIS_MIN_TEMPORAL_SAMPLE_DURATION_SECONDS,
   INSPIREDESIGN_MEDIA_ANALYSIS_PROCESS_TIMEOUT_MS,
   type InspiredesignMediaAdapterResult,
   type InspiredesignMediaAnalysisInput,
@@ -45,7 +46,7 @@ const SCALE_FILTER_TEMPLATE = "scale=%WIDTH%:%HEIGHT%:force_original_aspect_rati
 export const extractInspiredesignFfmpegFrames: InspiredesignFfmpegFrameRunner = async (input, options = {}) => {
   const outputSize = calculateBoundedFrameSize(input, options.metadata, options);
   const maxFrames = resolveMaxFrames(input, options.maxFrames);
-  const args = buildFfmpegArgs(input.filePath, outputSize.width, outputSize.height, maxFrames);
+  const args = buildFfmpegArgs(input, outputSize.width, outputSize.height, maxFrames, options.metadata);
 
   try {
     const result = await runProcess(options.binaryPath ?? DEFAULT_FFMPEG_BINARY, args, options.timeoutMs);
@@ -85,15 +86,21 @@ const resolveMaxFrames = (input: Pick<InspiredesignMediaAnalysisInput, "kind">, 
   return input.kind === "image" || input.kind === "video_poster" ? IMAGE_FRAME_COUNT : boundedFrames;
 };
 
-const buildFfmpegArgs = (filePath: string, width: number, height: number, maxFrames: number): string[] => [
+const buildFfmpegArgs = (
+  input: InspiredesignMediaAnalysisInput,
+  width: number,
+  height: number,
+  maxFrames: number,
+  metadata?: InspiredesignMediaMetadataFacts
+): string[] => [
   "-hide_banner",
   "-loglevel",
   "error",
   "-nostdin",
   "-i",
-  filePath,
+  input.filePath,
   "-vf",
-  SCALE_FILTER_TEMPLATE.replaceAll("%WIDTH%", String(width)).replaceAll("%HEIGHT%", String(height)),
+  buildVideoFilter(input, width, height, maxFrames, metadata),
   "-frames:v",
   String(maxFrames),
   "-pix_fmt",
@@ -102,6 +109,37 @@ const buildFfmpegArgs = (filePath: string, width: number, height: number, maxFra
   "rawvideo",
   "pipe:1"
 ];
+
+const buildVideoFilter = (
+  input: Pick<InspiredesignMediaAnalysisInput, "kind">,
+  width: number,
+  height: number,
+  maxFrames: number,
+  metadata?: InspiredesignMediaMetadataFacts
+): string => {
+  const scaleFilter = SCALE_FILTER_TEMPLATE.replaceAll("%WIDTH%", String(width)).replaceAll("%HEIGHT%", String(height));
+  const sampleFps = resolveTemporalSampleFps(input, maxFrames, metadata);
+  return sampleFps ? `fps=${sampleFps},${scaleFilter}` : scaleFilter;
+};
+
+const resolveTemporalSampleFps = (
+  input: Pick<InspiredesignMediaAnalysisInput, "kind">,
+  maxFrames: number,
+  metadata?: InspiredesignMediaMetadataFacts
+): string | undefined => {
+  if (input.kind !== "gif" && input.kind !== "video") return undefined;
+  if (maxFrames <= IMAGE_FRAME_COUNT) return undefined;
+  const durationSeconds = metadata?.durationSeconds;
+  if (typeof durationSeconds !== "number" || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return undefined;
+  const sampledDurationSeconds = Math.max(durationSeconds, INSPIREDESIGN_MEDIA_ANALYSIS_MIN_TEMPORAL_SAMPLE_DURATION_SECONDS);
+  const sampleFps = maxFrames / sampledDurationSeconds;
+  return formatFps(sampleFps);
+};
+
+const formatFps = (value: number): string => {
+  const rounded = Math.max(0.001, value);
+  return rounded.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+};
 
 const runProcess = (binaryPath: string, args: string[], timeoutMs = INSPIREDESIGN_MEDIA_ANALYSIS_PROCESS_TIMEOUT_MS): Promise<ProcessResult> =>
   new Promise((resolve, reject) => {

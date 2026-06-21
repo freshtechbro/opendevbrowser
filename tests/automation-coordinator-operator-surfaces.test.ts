@@ -3,6 +3,7 @@ import { createAutomationCoordinator } from "../src/automation/coordinator";
 import { buildBrowserReviewResult } from "../src/browser/review-surface";
 import type { BrowserManagerLike, BrowserReviewResult } from "../src/browser/manager-types";
 import type { ProvidersChallengeGovernedLanesConfig } from "../src/config";
+import type { InspiredesignMediaAnalysisBinaryResolution } from "../src/inspiredesign/media-analysis";
 import type { ChallengeInspectPlan } from "../src/challenges";
 import type {
   DesktopAccessibilityValue,
@@ -54,6 +55,30 @@ const okResult = <T,>(value: T) => ({
   value,
   audit: auditInfo
 });
+
+const mediaAnalysisCapabilities: InspiredesignMediaAnalysisBinaryResolution = {
+  available: true,
+  capabilityTier: "full",
+  limitations: [],
+  ffmpeg: {
+    tool: "ffmpeg",
+    available: true,
+    source: "config",
+    requestedPath: "/fake/ffmpeg",
+    resolvedPath: "/fake/ffmpeg",
+    version: "ffmpeg version test",
+    capabilityTier: "frame_decode"
+  },
+  ffprobe: {
+    tool: "ffprobe",
+    available: true,
+    source: "config",
+    requestedPath: "/fake/ffprobe",
+    resolvedPath: "/fake/ffprobe",
+    version: "ffprobe version test",
+    capabilityTier: "metadata_probe"
+  }
+};
 
 const makeDesktopRuntime = (
   overrides: Partial<DesktopRuntimeLike> = {}
@@ -137,7 +162,12 @@ describe("automation coordinator operator surfaces", () => {
       challengeMode: "browser_with_helper",
       governedLanes,
       helperBridgeEnabled: true,
-      snapshotMaxChars: 333
+      snapshotMaxChars: 333,
+      mediaAnalysisConfig: {
+        ffmpegPath: "/fake/ffmpeg",
+        ffprobePath: "/fake/ffprobe"
+      },
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
     });
 
     const result = await coordinator.statusCapabilities({});
@@ -160,6 +190,7 @@ describe("automation coordinator operator surfaces", () => {
             "service_adapter"
           ]
         },
+        mediaAnalysis: mediaAnalysisCapabilities,
         firstClassSurfaces: {
           reviewDesktop: true,
           sessionInspectorPlan: true,
@@ -168,6 +199,58 @@ describe("automation coordinator operator surfaces", () => {
         }
       }
     });
+  });
+
+  it("reports status-capabilities through the default media-analysis resolver", async () => {
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime: makeDesktopRuntime({
+        status: vi.fn(async () => ({
+          ...desktopStatus,
+          capabilities: ["observe.screen"]
+        }))
+      }),
+      challengeMode: "browser_only",
+      governedLanes: {
+        allowOwnedEnvironmentFixtures: false,
+        allowSanctionedIdentity: false,
+        allowServiceAdapters: false,
+        requireAuditMetadata: true
+      },
+      helperBridgeEnabled: false,
+      snapshotMaxChars: 333,
+      mediaAnalysisConfig: {
+        ffmpegPath: "/missing/ffmpeg",
+        ffprobePath: "/missing/ffprobe"
+      }
+    });
+
+    const result = await coordinator.statusCapabilities({});
+
+    expect(result.host.desktopObservation.accessibilityAvailable).toBe(false);
+    expect(result.host.browserScopedComputerUse).toEqual({
+      mode: "browser_only",
+      helperBridgeEnabled: false,
+      governedLanes: []
+    });
+    expect(result.host.mediaAnalysis).toEqual(expect.objectContaining({
+      available: false,
+      capabilityTier: "unavailable",
+      limitations: [
+        "ffmpeg binary was not found.",
+        "ffprobe binary was not found."
+      ]
+    }));
+    expect(result.host.mediaAnalysis.ffmpeg).toEqual(expect.objectContaining({
+      available: false,
+      source: "config",
+      requestedPath: "/missing/ffmpeg"
+    }));
+    expect(result.host.mediaAnalysis.ffprobe).toEqual(expect.objectContaining({
+      available: false,
+      source: "config",
+      requestedPath: "/missing/ffprobe"
+    }));
   });
 
   it("omits targetId when session capability discovery is requested without one", async () => {
@@ -180,7 +263,8 @@ describe("automation coordinator operator surfaces", () => {
       challengeMode: "browser_with_helper",
       governedLanes,
       helperBridgeEnabled: true,
-      snapshotMaxChars: 333
+      snapshotMaxChars: 333,
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
     });
 
     const result = await coordinator.statusCapabilities({
@@ -210,7 +294,8 @@ describe("automation coordinator operator surfaces", () => {
       challengeMode: "browser_with_helper",
       governedLanes,
       helperBridgeEnabled: true,
-      snapshotMaxChars: 333
+      snapshotMaxChars: 333,
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
     });
 
     const result = await coordinator.statusCapabilities({
@@ -243,7 +328,8 @@ describe("automation coordinator operator surfaces", () => {
       challengeMode: "browser_with_helper",
       governedLanes,
       helperBridgeEnabled: true,
-      snapshotMaxChars: 333
+      snapshotMaxChars: 333,
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
     });
 
     const result = await coordinator.reviewDesktop({
@@ -286,7 +372,8 @@ describe("automation coordinator operator surfaces", () => {
       challengeMode: "browser_with_helper",
       governedLanes,
       helperBridgeEnabled: true,
-      snapshotMaxChars: 333
+      snapshotMaxChars: 333,
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
     });
 
     await expect(coordinator.inspectChallengePlan({

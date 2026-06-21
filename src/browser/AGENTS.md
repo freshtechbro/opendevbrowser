@@ -36,6 +36,7 @@ src/browser/
 - **Chrome resolution:** System Chrome → Chrome for Testing download
 - **Session cookie bootstrap:** managed and `cdpConnect` sessions import readable cookies from the discovered system Chrome-family profile before navigation; extension mode reuses the attached tab's existing cookies
 - **Replay capture:** start/stop screencast lifecycle writes `replay.json`, `replay.html`, `frames/`, and `preview.png` through manager-owned recorder helpers
+- **Pinterest pin media capture:** captures provenance-checked first-party Pinterest image, GIF, MP4, and video-poster bytes for Inspiredesign. Prefer actual `video` MP4 evidence over posters when strict URL and byte validation pass. Browser code owns capture only: optional downstream FFmpeg/FFprobe host tools are not bundled static binaries or default downloads, resolve env, then config, then `PATH`; `status-capabilities.host.mediaAnalysis` is diagnostic/preflight only; missing binaries degrade `media-analysis.json` only; and media-analysis facts must not supersede `pin-media-index.json` or `motion-evidence.json` authority.
 
 ### TargetManager
 - UUID-based target registry

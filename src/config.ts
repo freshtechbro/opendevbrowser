@@ -9,6 +9,7 @@ import { generateSecureToken } from "./utils/crypto";
 import { writeFileAtomic } from "./utils/fs";
 import type { CanvasAdapterPluginDeclaration } from "./canvas/adapter-plugins/types";
 import type { ChallengeAutomationMode } from "./challenges/types";
+import type { InspiredesignMediaAnalysisBinaryPathsConfig } from "./inspiredesign/media-analysis/types";
 import type {
   ProviderCookieImportRecord,
   ProviderCookiePolicy,
@@ -226,6 +227,10 @@ export type IntegrationsConfig = {
   figma?: FigmaIntegrationConfig;
 };
 
+export type InspiredesignConfig = {
+  mediaAnalysis: InspiredesignMediaAnalysisBinaryPathsConfig;
+};
+
 export type CanvasConfig = {
   adapterPlugins: CanvasAdapterPluginDeclaration[];
 };
@@ -272,6 +277,7 @@ export type OpenDevBrowserConfig = {
   blockerArtifactCaps: BlockerArtifactCapsConfig;
   providers?: ProvidersConfig;
   integrations?: IntegrationsConfig;
+  inspiredesign: InspiredesignConfig;
   canvas: CanvasConfig;
   devtools: DevtoolsConfig;
   fingerprint: FingerprintConfig;
@@ -609,6 +615,17 @@ const integrationsSchema = z.object({
   figma: figmaIntegrationSchema.default({})
 }).default({});
 
+const optionalPathSchema = z.string()
+  .min(1)
+  .refine((value) => value.trim().length > 0, { message: "Path must not be blank." });
+
+const inspiredesignSchema = z.object({
+  mediaAnalysis: z.object({
+    ffmpegPath: optionalPathSchema.optional(),
+    ffprobePath: optionalPathSchema.optional()
+  }).default({})
+}).default({});
+
 const canvasAdapterPluginDeclarationSchema = z.union([
   z.string().min(1),
   z.object({
@@ -633,6 +650,7 @@ const configSchema = z.object({
   blockerArtifactCaps: blockerArtifactCapsSchema,
   providers: providersSchema.default({}),
   integrations: integrationsSchema.default({}),
+  inspiredesign: inspiredesignSchema.default({}),
   canvas: canvasSchema.default({}),
   devtools: devtoolsSchema.default({}),
   fingerprint: fingerprintSchema.default({}),

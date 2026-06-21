@@ -9,10 +9,9 @@ import {
   INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES,
   INSPIREDESIGN_PIN_MEDIA_EVIDENCE_KINDS,
   MIN_PIN_MEDIA_EVIDENCE_BYTES,
-  MIN_PIN_MEDIA_EVIDENCE_HEIGHT,
-  MIN_PIN_MEDIA_EVIDENCE_WIDTH,
   PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN,
   extensionForPinterestPinMediaContentType,
+  hasPinterestPinMediaEvidenceMinimumDimensions,
   hasPinterestPinMediaAuthorityBlockingWarning,
   isFirstPartyPinterestPinMediaUrl,
   isPinterestPinMediaEvidenceContentType,
@@ -448,12 +447,7 @@ const hasValidPinMediaCoreShape = (pinMedia: InspiredesignPinMediaAuthorityInput
     && typeof pinMedia.bytes === "number"
     && Number.isFinite(pinMedia.bytes)
     && pinMedia.bytes >= MIN_PIN_MEDIA_EVIDENCE_BYTES
-    && typeof pinMedia.width === "number"
-    && Number.isFinite(pinMedia.width)
-    && pinMedia.width >= MIN_PIN_MEDIA_EVIDENCE_WIDTH
-    && typeof pinMedia.height === "number"
-    && Number.isFinite(pinMedia.height)
-    && pinMedia.height >= MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+    && hasPinterestPinMediaEvidenceMinimumDimensions(pinMedia.kind, pinMedia.width, pinMedia.height)
     && typeof pinMedia.contentType === "string"
     && (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(pinMedia.contentType)
     && typeof pinMedia.kind === "string"

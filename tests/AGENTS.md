@@ -33,6 +33,8 @@ npm run test -- -t "test name"      # Single test by name
 - **Never delete tests** without understanding why they fail
 - **Add regression tests** for every bug fix
 - **Keep mocks hermetic** (no real Chrome/network)
+- **Keep Inspiredesign media-analysis dependency tests hermetic** by using fake FFmpeg/FFprobe executables, injected env/config paths, and synthetic media bytes. Do not require host FFmpeg/FFprobe for unit tests, and assert missing binaries degrade `media-analysis.json` only.
+- **Keep AGENTS sync tests focused** for Inspiredesign media-analysis guidance: lock only the optional host FFmpeg/FFprobe contract, env/config/PATH resolution, `status-capabilities.host.mediaAnalysis` as diagnostic/preflight only, no bundled or default-downloaded static binaries, missing binaries degrading `media-analysis.json` only, and authority separation among `pin-media-index.json`, `motion-evidence.json`, and `media-analysis.json`.
 - **Keep package postinstall tests hermetic** by injecting npm lifecycle env, package roots, `dist/cli/index.js` paths, and autostart dependencies instead of writing real LaunchAgent or Task Scheduler state
 - **Keep workflow output guidance tests focused** on preventing routine `/tmp/...` or custom `artifacts/...` workflow roots while preserving explicit cleanup, debug, release, screenshot, screencast, and other evidence exceptions
 

@@ -916,6 +916,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
         },
         {
+          mediaAnalysisConfig: core.config.inspiredesign?.mediaAnalysis ?? {},
           captureReference: async (url, options) =>
             captureInspiredesignReferenceFromManager(core.manager, url, {
               ...options,
@@ -2171,7 +2172,7 @@ function parseFallbackMacro(expression: string, defaultProvider?: string): {
 
 async function resolveMacroExpression(
   options: MacroResolveOptions,
-  config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security" | "providers">,
+  config: Pick<OpenDevBrowserCore["config"], "blockerDetectionThreshold" | "security" | "providers" | "inspiredesign">,
   manager: OpenDevBrowserCore["manager"],
   browserFallbackPort: OpenDevBrowserCore["browserFallbackPort"],
   existingRuntime?: OpenDevBrowserCore["providerRuntime"]

@@ -220,6 +220,39 @@ describe("cli help parity", () => {
     }
   });
 
+  it("exposes media-analysis dependency guidance in generated command and tool help", () => {
+    const inspiredesignCommandText = [
+      ...COMMAND_HELP_DETAILS.inspiredesign.examples,
+      ...COMMAND_HELP_DETAILS.inspiredesign.notes
+    ].join("\n");
+    const statusCapabilitiesText = [
+      ...COMMAND_HELP_DETAILS["status-capabilities"].examples,
+      ...COMMAND_HELP_DETAILS["status-capabilities"].notes
+    ].join("\n");
+    const inspiredesignTool = HELP_TOOL_ENTRIES.find((entry) => entry.name === "opendevbrowser_inspiredesign_run");
+    const inspiredesignToolText = [inspiredesignTool?.example ?? "", ...(inspiredesignTool?.notes ?? [])].join("\n");
+
+    for (const generatedText of [inspiredesignCommandText, statusCapabilitiesText, inspiredesignToolText]) {
+      expect(generatedText).toContain("FFmpeg");
+      expect(generatedText).toContain("FFprobe");
+    }
+
+    expect(inspiredesignCommandText).toContain("recommended optional host tools");
+    expect(inspiredesignCommandText).toContain("OPENDEVBROWSER_FFMPEG_PATH");
+    expect(inspiredesignCommandText).toContain("OPENDEVBROWSER_FFPROBE_PATH");
+    expect(inspiredesignCommandText).toContain("inspiredesign.mediaAnalysis.ffmpegPath");
+    expect(inspiredesignCommandText).toContain("inspiredesign.mediaAnalysis.ffprobePath");
+    expect(inspiredesignCommandText).toContain("then ffmpeg and ffprobe on PATH");
+    expect(inspiredesignCommandText).toContain("Missing binaries degrade media-analysis.json only");
+    expect(inspiredesignCommandText).toContain("never make media-analysis.json satisfy product readiness");
+    expect(statusCapabilitiesText).toContain("host.mediaAnalysis");
+    expect(statusCapabilitiesText).toContain("optional media-analysis host capability");
+    expect(statusCapabilitiesText).not.toContain("media-analysis prerequisites");
+    expect(inspiredesignToolText).toContain("host.mediaAnalysis");
+    expect(inspiredesignToolText).toContain("optional media-analysis host capability");
+    expect(inspiredesignToolText).not.toContain("media-analysis prerequisites");
+  });
+
   it("keeps multi-flag help metadata aligned for workflow and run commands", () => {
     expect(COMMAND_HELP_DETAILS.uninstall.usage).toContain("--quiet");
     expect(COMMAND_HELP_DETAILS.run.examples[0]).toContain("run --script ./workflow.json");

@@ -5,6 +5,11 @@ export {
   type InspiredesignMediaAnalyzerOptions
 } from "./analyzer";
 export {
+  resolveInspiredesignMediaAnalysisBinaries,
+  type InspiredesignMediaAnalysisBinaryResolverEnv,
+  type InspiredesignMediaAnalysisBinaryResolverOptions
+} from "./binaries";
+export {
   buildEmptyInspiredesignMediaDesignGuidance,
   buildInspiredesignMediaDesignGuidance,
   confidenceLabel,
@@ -37,6 +42,12 @@ export { analyzeInspiredesignTypographyStructure } from "./typography-structure"
 export type {
   InspiredesignMediaAdapterResult,
   InspiredesignMediaAnalysis,
+  InspiredesignMediaAnalysisBinaryCapabilityTier,
+  InspiredesignMediaAnalysisBinaryPathsConfig,
+  InspiredesignMediaAnalysisBinaryResolution,
+  InspiredesignMediaAnalysisBinarySource,
+  InspiredesignMediaAnalysisBinaryStatus,
+  InspiredesignMediaAnalysisBinaryTool,
   InspiredesignMediaAnalysisInput,
   InspiredesignMediaAnalysisReference,
   InspiredesignMediaAuthority,
@@ -45,6 +56,7 @@ export type {
   InspiredesignMediaDimensions,
   InspiredesignMediaFacts,
   InspiredesignMediaFrameToneSummary,
+  InspiredesignMediaAnalysisHostCapabilityTier,
   InspiredesignMediaKind,
   InspiredesignMediaLayoutFacts,
   InspiredesignMediaLayoutZone,
@@ -58,8 +70,10 @@ export type {
   InspiredesignRgbFrame
 } from "./types";
 export {
+  INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_DECODED_FRAME_HEIGHT,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_DECODED_FRAME_WIDTH,
+  INSPIREDESIGN_MEDIA_ANALYSIS_MAX_BINARY_PROBE_OUTPUT_BYTES,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_GUIDANCE_ENTRIES,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_LAYOUT_ZONES,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_PALETTE_SWATCHES,
@@ -68,5 +82,7 @@ export {
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_SERIALIZED_REFERENCES,
   INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS,
   INSPIREDESIGN_MEDIA_ANALYSIS_PROCESS_TIMEOUT_MS,
-  INSPIREDESIGN_MEDIA_ANALYSIS_VERSION
+  INSPIREDESIGN_MEDIA_ANALYSIS_VERSION,
+  OPENDEVBROWSER_FFMPEG_PATH_ENV,
+  OPENDEVBROWSER_FFPROBE_PATH_ENV
 } from "./types";

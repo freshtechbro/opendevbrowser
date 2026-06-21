@@ -595,11 +595,11 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
     const match = href.match(/\/pin\/(\d+)/i);
     return match?.[1];
   };
-  const isInsideCanonicalMainPinMediaContainer = (element: Element): boolean => {
-    const container = element.closest([
+  const mainPinMediaContainerSelector = [
       "[data-test-id='pin-closeup']",
       "[data-test-id='story-pin']",
       "[data-test-id='story-pin-image-block']",
+      "[data-test-id='story-pin-video-block']",
       "[data-test-id='closeup-layout']",
       "[data-test-id='closeup-image']",
       "[data-test-id='closeup-image-main']",
@@ -607,8 +607,33 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
       "[data-test-id='pin-closeup-image']",
       "[data-test-id='pin-closeup-image-container']",
       "[data-test-id='visual-content-container']"
-    ].join(","));
+    ].join(",");
+  const storyPinBlockSelector = [
+    "[data-test-id='story-pin-image-block']",
+    "[data-test-id='story-pin-video-block']"
+  ].join(",");
+  const strongMainPinRootSelector = [
+    "[data-test-id='pin-closeup']",
+    "[data-test-id='story-pin']",
+    "[data-test-id='closeup-layout']",
+    "[data-test-id='pdp-container']",
+    "[data-test-id='visual-content-container']"
+  ].join(",");
+  const hasNoisyWrapperBeforeStrongPinRoot = (container: Element): boolean => {
+    let current = container.parentElement;
+    while (current && current !== document.body && current !== document.documentElement) {
+      if (current.matches(strongMainPinRootSelector)) return false;
+      if (readNoiseSignals(describeElement(current).toLowerCase()).length > 0) return true;
+      current = current.parentElement;
+    }
+    return false;
+  };
+  const isInsideCanonicalMainPinMediaContainer = (element: Element): boolean => {
+    const container = element.closest(mainPinMediaContainerSelector);
     if (!container) {
+      return false;
+    }
+    if (container.matches(storyPinBlockSelector) && hasNoisyWrapperBeforeStrongPinRoot(container)) {
       return false;
     }
     let current: Element | null = element;
@@ -685,10 +710,9 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
       if (parsed.protocol !== "https:" || !isFirstPartyPinterestVideoHost(hostname)) {
         return undefined;
       }
-      const match = parsed.pathname.match(/^\/videos\/([^/]+)\/hls\/([a-f0-9]{2})\/([a-f0-9]{2})\/([a-f0-9]{2})\/([a-f0-9]+)(?:_\d+w)?\.m3u8$/i);
+      const match = parsed.pathname.match(/^\/videos\/([^/]+)\/hls\/([a-f0-9]{2})\/([a-f0-9]{2})\/([a-f0-9]{2})\/([a-f0-9]{16,})(?=$|[._/])/i);
       if (!match) return undefined;
       const [, lane, first, second, third, digest] = match;
-      if (!lane || !first || !second || !third || !digest) return undefined;
       parsed.pathname = `/videos/${lane}/720p/${first}/${second}/${third}/${digest}.mp4`;
       parsed.search = "";
       parsed.hash = "";
@@ -700,6 +724,244 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
   const readPinterestVideoUrl = (value: string | undefined): string | undefined => (
     isFirstPartyPinterestVideoUrl(value) ? value : derivePinterestMp4UrlFromHls(value)
   );
+  const readPinterestVideoDigest = (value: string | undefined): string | undefined => {
+    if (!value) return undefined;
+    try {
+      const parsed = new URL(value);
+      const match = parsed.pathname.match(/\/videos\/[^/]+\/(?:720p|hls|expMp4)\/[a-f0-9]{2}\/[a-f0-9]{2}\/[a-f0-9]{2}\/([a-f0-9]{16,})(?:_\d+w)?/i);
+      return match?.[1]?.toLowerCase();
+    } catch {
+      return undefined;
+    }
+  };
+  const posterReferencesVideoDigest = (poster: string | undefined, digest: string | undefined): boolean => {
+    if (!poster || !digest) return false;
+    try {
+      const parsed = new URL(poster);
+      const posterPath = parsed.pathname.toLowerCase().replace(/[^a-f0-9]/g, "");
+      return posterPath.includes(digest);
+    } catch {
+      return false;
+    }
+  };
+  const readVideoSignature = (video: HTMLVideoElement): string | undefined => (
+    video.closest("[data-video-signature]")?.getAttribute("data-video-signature")?.toLowerCase()
+  );
+  const videoSignatureMatchesDigest = (video: HTMLVideoElement, digest: string | undefined): boolean => (
+    Boolean(digest && readVideoSignature(video) === digest)
+  );
+  const readVideoObjectPosterUrl = (value: unknown): string | undefined => {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) {
+      return value.find((entry): entry is string => typeof entry === "string");
+    }
+    return undefined;
+  };
+  const readVideoObjectDimension = (value: unknown): number | undefined => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "string") return undefined;
+    const match = value.match(/\d+(?:\.\d+)?/u);
+    const parsed = match ? Number(match[0]) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+  const isStructuredVideoObject = (value: unknown): value is Record<string, unknown> => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const type = (value as Record<string, unknown>)["@type"];
+    return type === "VideoObject" || (Array.isArray(type) && type.includes("VideoObject"));
+  };
+  const collectStructuredVideoObjects = (
+    value: unknown,
+    videoObjects: Array<Record<string, unknown>>,
+    depth = 0
+  ): void => {
+    if (depth > 4) return;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        collectStructuredVideoObjects(entry, videoObjects, depth + 1);
+      }
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    if (isStructuredVideoObject(value)) {
+      videoObjects.push(value);
+      return;
+    }
+    const graph = (value as Record<string, unknown>)["@graph"];
+    if (graph) {
+      collectStructuredVideoObjects(graph, videoObjects, depth + 1);
+    }
+  };
+  const readStructuredVideoObjects = (): Array<Record<string, unknown>> => {
+    const videoObjects: Array<Record<string, unknown>> = [];
+    for (const script of Array.from(document.querySelectorAll("script[type='application/ld+json']"))) {
+      try {
+        const parsed = JSON.parse(script.textContent ?? "");
+        collectStructuredVideoObjects(parsed, videoObjects);
+      } catch {
+        // Ignore non-JSON or partially rendered structured data.
+      }
+    }
+    return videoObjects;
+  };
+  const findUnambiguousVideoElementForDigest = (digest: string | undefined): HTMLVideoElement | undefined => {
+    const matches = Array.from(document.querySelectorAll("video"))
+      .filter((video) => {
+        const poster = video.poster || video.getAttribute("poster") || undefined;
+        return isVisible(video, readRect(video))
+          && isInsideCanonicalMainPinMediaContainer(video)
+          && (posterReferencesVideoDigest(poster, digest) || videoSignatureMatchesDigest(video, digest));
+      });
+    return matches.length === 1 ? matches[0] : undefined;
+  };
+  const buildScriptVideoCandidate = (
+    mediaUrl: string,
+    matchedVideo: HTMLVideoElement,
+    poster: string | undefined,
+    candidateSelector: string,
+    positiveSignal: string,
+    baseScore: number,
+    dimensions?: { width?: number; height?: number }
+  ): PinterestPinMediaDomCandidate => {
+    const rect = readRect(matchedVideo);
+    const { ancestry, combined } = ancestryFor(matchedVideo);
+    return {
+      kind: "video",
+      mediaUrl,
+      poster,
+      candidateSelector,
+      candidateRole: matchedVideo.getAttribute("role") ?? matchedVideo.closest("[role]")?.getAttribute("role") ?? undefined,
+      width: dimensions?.width ?? matchedVideo.videoWidth ?? rect.width,
+      height: dimensions?.height ?? matchedVideo.videoHeight ?? rect.height,
+      rect,
+      visible: isVisible(matchedVideo, rect),
+      ancestry,
+      linkedPinId: readPinId(matchedVideo),
+      positiveSignals: [positiveSignal],
+      noiseSignals: readNoiseSignals(combined),
+      insideCanonicalMainPinMediaContainer: isInsideCanonicalMainPinMediaContainer(matchedVideo),
+      score: baseScore + rect.width * rect.height / 10000
+    };
+  };
+  const readStructuredVideoCandidates = (): PinterestPinMediaDomCandidate[] => (
+    readStructuredVideoObjects().flatMap((videoObject): PinterestPinMediaDomCandidate[] => {
+      const contentUrl = typeof videoObject.contentUrl === "string" ? videoObject.contentUrl : undefined;
+      const mediaUrl = readPinterestVideoUrl(contentUrl);
+      const digest = readPinterestVideoDigest(mediaUrl);
+      const metadataPoster = readVideoObjectPosterUrl(videoObject.thumbnailUrl);
+      const matchedVideo = findUnambiguousVideoElementForDigest(digest);
+      if (!mediaUrl || !digest || !matchedVideo) return [];
+      const poster = metadataPoster || matchedVideo.poster || matchedVideo.getAttribute("poster") || undefined;
+      return [buildScriptVideoCandidate(
+        mediaUrl,
+        matchedVideo,
+        poster,
+        "script[type='application/ld+json'][VideoObject]",
+        "video[structured-data]",
+        260,
+        {
+          width: readVideoObjectDimension(videoObject.width),
+          height: readVideoObjectDimension(videoObject.height)
+        }
+      )];
+    })
+  );
+  const embeddedVideoScriptKeyPattern = /videoUrls|videoDataV2|videoList720P|videoList|v720P/iu;
+  const embeddedVideoScriptKeySearchPattern = /videoUrls|videoDataV2|videoList720P|videoList|v720P/giu;
+  const embeddedVideoUrlPattern = /https:\/\/v\d*(?:-[a-z]+)?\.pinimg\.com\/videos\/[^"'<>\s\\]+?(?:\.mp4|\.m3u8)(?:\?[^"'<>\s\\]*)?/giu;
+  const embeddedVideoScriptMaxCount = 16;
+  const embeddedVideoScriptMaxChars = 180000;
+  const embeddedVideoScriptWindowChars = 20000;
+  const readBoundedEmbeddedVideoScriptText = (scriptText: string): string => {
+    if (scriptText.length <= embeddedVideoScriptMaxChars) return scriptText;
+    const chunks: string[] = [];
+    let totalChars = 0;
+    for (const match of scriptText.matchAll(embeddedVideoScriptKeySearchPattern)) {
+      const center = match.index ?? 0;
+      const start = Math.max(0, center - embeddedVideoScriptWindowChars);
+      const end = Math.min(scriptText.length, center + embeddedVideoScriptWindowChars);
+      const remainingChars = embeddedVideoScriptMaxChars - totalChars;
+      if (remainingChars <= 0) break;
+      const chunk = scriptText.slice(start, end).slice(0, remainingChars);
+      chunks.push(chunk);
+      totalChars += chunk.length;
+    }
+    return chunks.join("\n");
+  };
+  const normalizeEmbeddedVideoScriptText = (scriptText: string): string => (
+    scriptText
+      .replace(new RegExp("\\\\u003[aA]", "g"), ":")
+      .replace(new RegExp("\\\\u002[fF]", "g"), "/")
+      .replace(new RegExp("\\\\/", "g"), "/")
+  );
+  const readEmbeddedVideoUrls = (): string[] => {
+    const urls: string[] = [];
+    const scripts = Array.from(document.querySelectorAll("script:not([src])"));
+    let inspectedScriptCount = 0;
+    for (const script of scripts) {
+      const scriptText = script.textContent ?? "";
+      if (!embeddedVideoScriptKeyPattern.test(scriptText)) continue;
+      inspectedScriptCount += 1;
+      if (inspectedScriptCount > embeddedVideoScriptMaxCount) break;
+      const boundedText = normalizeEmbeddedVideoScriptText(readBoundedEmbeddedVideoScriptText(scriptText));
+      for (const match of boundedText.matchAll(embeddedVideoUrlPattern)) {
+        const mediaUrl = readPinterestVideoUrl(match[0]);
+        if (mediaUrl) urls.push(mediaUrl);
+      }
+    }
+    const seen = new Set<string>();
+    return urls.filter((mediaUrl) => {
+      if (seen.has(mediaUrl)) return false;
+      seen.add(mediaUrl);
+      return true;
+    });
+  };
+  const readEmbeddedVideoCandidates = (): PinterestPinMediaDomCandidate[] => (
+    readEmbeddedVideoUrls().flatMap((mediaUrl): PinterestPinMediaDomCandidate[] => {
+      const digest = readPinterestVideoDigest(mediaUrl);
+      const video = findUnambiguousVideoElementForDigest(digest);
+      if (!digest || !video) return [];
+      const poster = video.poster || video.getAttribute("poster") || undefined;
+      if (!posterReferencesVideoDigest(poster, digest) && !videoSignatureMatchesDigest(video, digest)) return [];
+      return [buildScriptVideoCandidate(
+        mediaUrl,
+        video,
+        poster,
+        "script[pinterest-video-json]",
+        "video[embedded-data]",
+        255
+      )];
+    })
+  );
+  const readResourceVideoUrls = (): string[] => {
+    const entries = window.performance?.getEntriesByType?.("resource") ?? [];
+    const urls = entries
+      .map((entry) => readPinterestVideoUrl("name" in entry ? String(entry.name) : undefined))
+      .filter((value): value is string => Boolean(value));
+    return Array.from(new Set(urls));
+  };
+  const isBlobBackedVisibleCanonicalVideo = (video: HTMLVideoElement): boolean => {
+    const mediaSourceUrl = video.currentSrc || video.src;
+    return mediaSourceUrl.startsWith(`blob:${window.location.origin}`)
+      && isVisible(video, readRect(video))
+      && isInsideCanonicalMainPinMediaContainer(video);
+  };
+  const hasUniqueBlobBackedVideoSignatureMatch = (digest: string | undefined): boolean => (
+    Boolean(digest) && Array.from(document.querySelectorAll("video"))
+      .filter((candidate) => isBlobBackedVisibleCanonicalVideo(candidate)
+        && videoSignatureMatchesDigest(candidate, digest)).length === 1
+  );
+  const readScopedResourceVideoUrl = (video: HTMLVideoElement): string | undefined => {
+    if (!isBlobBackedVisibleCanonicalVideo(video)) return undefined;
+    const urls = readResourceVideoUrls();
+    const posterMatchedUrls = urls.filter((value) => posterReferencesVideoDigest(video.poster, readPinterestVideoDigest(value)));
+    if (posterMatchedUrls.length === 1) return posterMatchedUrls[0];
+    const signatureMatchedUrls = urls.filter((value) => {
+      const digest = readPinterestVideoDigest(value);
+      return videoSignatureMatchesDigest(video, digest) && hasUniqueBlobBackedVideoSignatureMatch(digest);
+    });
+    if (signatureMatchedUrls.length === 1) return signatureMatchedUrls[0];
+    return undefined;
+  };
   const readVideoSourceUrl = (video: HTMLVideoElement): string | undefined => {
     const candidateUrls = [video.currentSrc, video.src];
     for (const source of Array.from(video.querySelectorAll("source"))) {
@@ -739,6 +1001,22 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
       };
       const videoCandidates: PinterestPinMediaDomCandidate[] = [];
       const videoSourceUrl = readVideoSourceUrl(video);
+      const videoSourceIsDirect = videoSourceUrl ? Boolean(readPinterestVideoUrl(videoSourceUrl)) : false;
+      const scopedResourceVideoUrl = !videoSourceIsDirect
+        && sharedVideoCandidate.visible
+        && sharedVideoCandidate.insideCanonicalMainPinMediaContainer
+        ? readScopedResourceVideoUrl(video)
+        : undefined;
+      if (scopedResourceVideoUrl) {
+        videoCandidates.push({
+          ...sharedVideoCandidate,
+          kind: "video",
+          mediaUrl: scopedResourceVideoUrl,
+          candidateSelector: "video[resource]",
+          positiveSignals: [...positiveSignals, "video[resource]"],
+          score: positiveSignals.length * 100 + 245 + rect.width * rect.height / 10000
+        });
+      }
       if (videoSourceUrl) {
         videoCandidates.push({
           ...sharedVideoCandidate,
@@ -789,7 +1067,14 @@ function readPinterestPinMediaCandidatesInPage(): PinterestPinMediaDomExtraction
       score: positiveSignals.length * 100 + imageRect.width * imageRect.height / 10000
     }];
   });
-  return { sourceUrl: document.URL, candidates };
+  return {
+    sourceUrl: document.URL,
+    candidates: [
+      ...readStructuredVideoCandidates(),
+      ...readEmbeddedVideoCandidates(),
+      ...candidates
+    ]
+  };
 }
 
 const DOM_GET_ATTR_DECLARATION = `

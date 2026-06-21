@@ -94,7 +94,10 @@ const makeConfig = (
     ...overrides
   },
   relayPort: 8787,
-  relayToken: false
+  relayToken: false,
+  inspiredesign: {
+    mediaAnalysis: {}
+  }
 });
 
 const makeFallbackPort = (): BrowserFallbackPort => ({
@@ -194,6 +197,65 @@ describe("provider runtime bundle", () => {
 
     expect(resolved).toBe(existingRuntime);
     expect(runtimeFactoryMocks.createConfiguredProviderRuntime).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds a reused runtime when media-analysis binary config changes", () => {
+    const originalConfig = makeConfig();
+    const existingRuntime = createProviderRuntimeBundle({ config: originalConfig }).providerRuntime;
+    const updatedConfig = {
+      ...makeConfig(),
+      inspiredesign: {
+        mediaAnalysis: {
+          ffmpegPath: "/opt/opendevbrowser/ffmpeg"
+        }
+      }
+    };
+    const rebuiltRuntime = makeProviderRuntime();
+
+    runtimeFactoryMocks.createConfiguredProviderRuntime.mockReset();
+    runtimeFactoryMocks.createConfiguredProviderRuntime.mockReturnValue(rebuiltRuntime);
+
+    const resolved = resolveBundledProviderRuntime({
+      config: updatedConfig,
+      existingRuntime
+    });
+
+    expect(resolved).toBe(rebuiltRuntime);
+    expect(runtimeFactoryMocks.createConfiguredProviderRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: updatedConfig,
+        challengeConfig: updatedConfig.providers?.challengeOrchestration
+      })
+    );
+  });
+
+  it("does not reuse a runtime stamped with init-only media-analysis binary paths", () => {
+    const config = makeConfig();
+    const existingRuntime = createProviderRuntimeBundle({
+      config,
+      init: {
+        inspiredesignMediaAnalysis: {
+          ffmpegPath: "/tmp/init-only-ffmpeg"
+        }
+      }
+    }).providerRuntime;
+    const rebuiltRuntime = makeProviderRuntime();
+
+    runtimeFactoryMocks.createConfiguredProviderRuntime.mockReset();
+    runtimeFactoryMocks.createConfiguredProviderRuntime.mockReturnValue(rebuiltRuntime);
+
+    const resolved = resolveBundledProviderRuntime({
+      config,
+      existingRuntime
+    });
+
+    expect(resolved).toBe(rebuiltRuntime);
+    expect(runtimeFactoryMocks.createConfiguredProviderRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config,
+        challengeConfig: config.providers?.challengeOrchestration
+      })
+    );
   });
 
   it("rebuilds a reused runtime when config-backed challenge policy changes without an explicit override", () => {

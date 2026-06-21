@@ -36,6 +36,15 @@ Verified source files:
 | `yjs` | `^13.6.29` | CRDT-backed canvas document state and convergence |
 | `zod` | `^3.25.76` | Runtime input/config validation |
 
+### Optional host tools
+
+| Tool | Purpose |
+|---|---|
+| FFmpeg (`ffmpeg`) | Recommended optional host tool for richer Inspiredesign `media-analysis.json` frame sampling and palette, tone, or motion facts from trusted saved media. |
+| FFprobe (`ffprobe`) | Recommended optional host tool for richer Inspiredesign `media-analysis.json` media metadata from trusted saved media. |
+
+FFmpeg and FFprobe are host executables, not npm dependencies. OpenDevBrowser does not bundle static FFmpeg binaries, and they are not downloaded by default. Media-analysis resolution is environment, then config, then `PATH`: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`. Missing or invalid binaries degrade `media-analysis.json` only, do not fail pin-media readiness, and `media-analysis.json` never satisfies product readiness.
+
 ### Dev dependencies
 
 | Package | Version | Purpose |

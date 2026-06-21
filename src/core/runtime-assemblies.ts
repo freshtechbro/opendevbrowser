@@ -47,7 +47,8 @@ export function createCoreRuntimeAssemblies(
     challengeMode: challengeConfig.mode,
     governedLanes: challengeConfig.governed,
     helperBridgeEnabled: challengeConfig.optionalComputerUseBridge.enabled,
-    snapshotMaxChars: args.config.snapshot.maxChars
+    snapshotMaxChars: args.config.snapshot.maxChars,
+    mediaAnalysisConfig: args.config.inspiredesign.mediaAnalysis
   });
 
   return {

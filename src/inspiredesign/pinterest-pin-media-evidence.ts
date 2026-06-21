@@ -153,6 +153,8 @@ const PIN_MEDIA_VIDEO_BASENAME = "video";
 export const MIN_PIN_MEDIA_EVIDENCE_BYTES = 1024;
 export const MIN_PIN_MEDIA_EVIDENCE_WIDTH = 320;
 export const MIN_PIN_MEDIA_EVIDENCE_HEIGHT = 320;
+export const MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH = 160;
+export const MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT = 160;
 export const PINTEREST_PIN_MEDIA_SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 
 const PIN_MEDIA_ARTIFACT_PATH_PATTERN =
@@ -440,8 +442,11 @@ const normalizedInspection = (inspection: PinterestPinMediaByteInspection): Pint
   const reasons = new Set(inspection.reasons);
   const requiresByteDimensions = !inspection.contentType || inspection.contentType.startsWith("image/");
   if (requiresByteDimensions && (!inspection.width || !inspection.height)) reasons.add("missing_dimensions");
-  if (inspection.width !== undefined && inspection.width < MIN_PIN_MEDIA_EVIDENCE_WIDTH) reasons.add("dimensions_below_minimum");
-  if (inspection.height !== undefined && inspection.height < MIN_PIN_MEDIA_EVIDENCE_HEIGHT) reasons.add("dimensions_below_minimum");
+  addDimensionMinimumRejectionReasons(
+    reasons,
+    { width: inspection.width, height: inspection.height },
+    minimumPinterestPinMediaEvidenceDimensionsForContentType(inspection.contentType)
+  );
   return { ...inspection, reasons: Array.from(reasons) };
 };
 
@@ -482,6 +487,40 @@ export const isPinterestPinMediaEvidenceContentType = (
 ): value is InspiredesignPinterestPinMediaContentType => (
   (INSPIREDESIGN_PIN_MEDIA_EVIDENCE_CONTENT_TYPES as readonly string[]).includes(value)
 );
+
+export const minimumPinterestPinMediaEvidenceDimensionsForKind = (
+  kind: unknown
+): InspiredesignPinterestPinMediaDimensions => ({
+  width: kind === "video" ? MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH : MIN_PIN_MEDIA_EVIDENCE_WIDTH,
+  height: kind === "video" ? MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT : MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+});
+
+const minimumPinterestPinMediaEvidenceDimensionsForContentType = (
+  contentType: InspiredesignPinterestPinMediaContentType | undefined
+): InspiredesignPinterestPinMediaDimensions => ({
+  width: contentType === "video/mp4" ? MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH : MIN_PIN_MEDIA_EVIDENCE_WIDTH,
+  height: contentType === "video/mp4" ? MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT : MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+});
+
+export const hasPinterestPinMediaEvidenceMinimumDimensions = (
+  kind: unknown,
+  width: unknown,
+  height: unknown
+): boolean => {
+  if (typeof width !== "number" || !Number.isFinite(width)) return false;
+  if (typeof height !== "number" || !Number.isFinite(height)) return false;
+  const minimum = minimumPinterestPinMediaEvidenceDimensionsForKind(kind);
+  return width >= minimum.width && height >= minimum.height;
+};
+
+const addDimensionMinimumRejectionReasons = (
+  reasons: Set<string>,
+  dimensions: Partial<InspiredesignPinterestPinMediaDimensions>,
+  minimum: InspiredesignPinterestPinMediaDimensions
+): void => {
+  if (dimensions.width !== undefined && dimensions.width < minimum.width) reasons.add("dimensions_below_minimum");
+  if (dimensions.height !== undefined && dimensions.height < minimum.height) reasons.add("dimensions_below_minimum");
+};
 
 export const extensionForPinterestPinMediaContentType = (
   contentType: InspiredesignPinterestPinMediaContentType
@@ -712,12 +751,7 @@ const isStrictCanonicalByteBackedPinMediaEvidence = (
     && typeof evidence.bytes === "number"
     && Number.isFinite(evidence.bytes)
     && evidence.bytes >= MIN_PIN_MEDIA_EVIDENCE_BYTES
-    && typeof evidence.width === "number"
-    && Number.isFinite(evidence.width)
-    && evidence.width >= MIN_PIN_MEDIA_EVIDENCE_WIDTH
-    && typeof evidence.height === "number"
-    && Number.isFinite(evidence.height)
-    && evidence.height >= MIN_PIN_MEDIA_EVIDENCE_HEIGHT
+    && hasPinterestPinMediaEvidenceMinimumDimensions(evidence.kind, evidence.width, evidence.height)
     && hasStrictPinMediaKindArtifactShape(evidence, referenceId, path)
     && typeof evidence.failure !== "string"
     && evidence.pinterestPageQuality === PIN_MEDIA_PAGE_QUALITY
@@ -836,12 +870,11 @@ const collectQualityRejectionReasons = (
   evidence: InspiredesignPersistedPinterestPinMediaEvidence,
   reasons: Set<string>
 ): void => {
-  if (evidence.width !== undefined && evidence.width < MIN_PIN_MEDIA_EVIDENCE_WIDTH) {
-    addUniqueReason(reasons, "dimensions_below_minimum");
-  }
-  if (evidence.height !== undefined && evidence.height < MIN_PIN_MEDIA_EVIDENCE_HEIGHT) {
-    addUniqueReason(reasons, "dimensions_below_minimum");
-  }
+  addDimensionMinimumRejectionReasons(
+    reasons,
+    { width: evidence.width, height: evidence.height },
+    minimumPinterestPinMediaEvidenceDimensionsForKind(evidence.kind)
+  );
   if (hasAuthorityBlockingWarning(evidence, false)) addUniqueReason(reasons, "blocking_warning");
 };
 

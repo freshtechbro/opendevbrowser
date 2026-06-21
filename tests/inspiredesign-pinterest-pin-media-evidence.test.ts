@@ -3,6 +3,8 @@ import {
   MIN_PIN_MEDIA_EVIDENCE_BYTES,
   MIN_PIN_MEDIA_EVIDENCE_HEIGHT,
   MIN_PIN_MEDIA_EVIDENCE_WIDTH,
+  MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT,
+  MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH,
   buildInspiredesignPinterestPinMediaIndexEntry,
   classifyInspiredesignPinterestPinMediaAuthority,
   buildPinterestPinMediaEvidenceArtifactRoot,
@@ -11,6 +13,7 @@ import {
   hashPinterestPinMediaEvidenceBuffer,
   hasPinterestPinMediaAuthorityBlockingWarning,
   hasPinterestPinMediaBlockingWarning,
+  hasPinterestPinMediaEvidenceMinimumDimensions,
   inspectPinterestPinMediaBuffer,
   isFirstPartyPinterestPinMediaUrl,
   persistInspiredesignPinterestPinMediaEvidence,
@@ -303,6 +306,10 @@ describe("Pinterest pin media evidence helpers", () => {
     const mismatchedContentType = persistValidEvidence({ contentType: "video/mp4" });
     expect(mismatchedContentType.authority).toBe("diagnostic");
     expect(mismatchedContentType.rejectionReasons).toContain("content_type_mismatch");
+    expect(hasPinterestPinMediaEvidenceMinimumDimensions("image", "640", 640)).toBe(false);
+    expect(hasPinterestPinMediaEvidenceMinimumDimensions("image", 640, "640")).toBe(false);
+    expect(hasPinterestPinMediaEvidenceMinimumDimensions("video", MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH, MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT)).toBe(true);
+    expect(hasPinterestPinMediaEvidenceMinimumDimensions("video", MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH - 1, MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT)).toBe(false);
   });
 
   it("sniffs supported image byte signatures and malformed dimension branches", () => {
@@ -705,6 +712,13 @@ describe("Pinterest pin media evidence helpers", () => {
     }, buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "image", "jpg"), lowHeightBytes);
     expect(lowWidth.rejectionReasons).toContain("dimensions_below_minimum");
     expect(lowHeight.rejectionReasons).toContain("dimensions_below_minimum");
+    const lowPoster = persistValidEvidence(
+      { kind: "video_poster", width: 240, height: 180 },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video_poster", "jpg"),
+      makeJpegBytes(240, 180)
+    );
+    expect(lowPoster.authority).toBe("diagnostic");
+    expect(lowPoster.rejectionReasons).toContain("dimensions_below_minimum");
     expect(hasPinterestPinMediaBlockingWarning(["decorative caption only"])).toBe(false);
     expect(hasPinterestPinMediaBlockingWarning(["promoted related pin ad"])).toBe(true);
   });
@@ -876,13 +890,39 @@ describe("Pinterest pin media evidence helpers", () => {
     expect(videoWithMainPath.rejectionReasons).toContain("missing_artifact_path");
 
     const video = persistValidEvidence(
-      { kind: "video", mediaUrl: videoMediaUrl, width: 720, height: 1280, contentType: "video/mp4" },
+      { kind: "video", mediaUrl: videoMediaUrl, width: 240, height: 180, contentType: "video/mp4" },
       buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "mp4"),
-      makeMp4Bytes()
+      makeMp4Bytes({ width: 240, height: 180 })
     );
     expect(video.authority).toBe("design_evidence");
     expect(video.path).toBe("pin-media-evidence/pin-1234567890/video.mp4");
     expect(video.contentType).toBe("video/mp4");
+    expect(video.rejectionReasons).not.toContain("dimensions_below_minimum");
+    expect(video.rejectionReasons).not.toContain("missing_trusted_byte_inspection");
+    expect(buildInspiredesignPinterestPinMediaIndexEntry(video)).toEqual(expect.objectContaining({
+      path: "pin-media-evidence/pin-1234567890/video.mp4",
+      kind: "video",
+      width: 240,
+      height: 180,
+      contentType: "video/mp4"
+    }));
+
+    const tinyVideo = persistValidEvidence(
+      {
+        kind: "video",
+        mediaUrl: videoMediaUrl,
+        width: MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH - 1,
+        height: MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT,
+        contentType: "video/mp4"
+      },
+      buildPinterestPinMediaEvidenceArtifactPath("pin 1234567890", "video", "mp4"),
+      makeMp4Bytes({
+        width: MIN_PIN_MEDIA_VIDEO_EVIDENCE_WIDTH - 1,
+        height: MIN_PIN_MEDIA_VIDEO_EVIDENCE_HEIGHT
+      })
+    );
+    expect(tinyVideo.authority).toBe("diagnostic");
+    expect(tinyVideo.rejectionReasons).toContain("dimensions_below_minimum");
 
     const videoWithoutByteDimensions = persistValidEvidence(
       { kind: "video", mediaUrl: videoMediaUrl, width: 720, height: 1280, contentType: "video/mp4" },

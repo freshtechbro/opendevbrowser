@@ -91,7 +91,8 @@ describe("createCoreRuntimeAssemblies", () => {
         requireAuditMetadata: true
       },
       helperBridgeEnabled: true,
-      snapshotMaxChars: config.snapshot.maxChars
+      snapshotMaxChars: config.snapshot.maxChars,
+      mediaAnalysisConfig: config.inspiredesign.mediaAnalysis
     });
     expect(assemblies).toEqual({
       providerRuntime,

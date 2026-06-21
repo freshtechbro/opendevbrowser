@@ -23,6 +23,10 @@ export type InspiredesignMediaAnalyzerOptions = {
   timeoutMs?: number;
   ffprobe?: InspiredesignFfprobeRunner;
   ffmpeg?: InspiredesignFfmpegFrameRunner;
+  ffprobeBinaryPath?: string;
+  ffmpegBinaryPath?: string;
+  ffprobeUnavailableLimitation?: string;
+  ffmpegUnavailableLimitation?: string;
 };
 
 const EXACT_TEXT_LIMITATION = "Readable exact text extraction was not performed, so exact copy strings are unavailable.";
@@ -64,18 +68,46 @@ const analyzeTrustedInput = async (
     return buildReference(input, mergeMetadata(input), [], [TIMEOUT_BUDGET_EXHAUSTED_LIMITATION]);
   }
   const probeTimeoutMs = processTimeoutMs(budget);
-  const probe = await (options.ffprobe ?? runInspiredesignFfprobe)(input.filePath, timeoutOptions(probeTimeoutMs));
+  const probe = await runProbe(input.filePath, options, timeoutOptions(probeTimeoutMs));
   const metadata = mergeMetadata(input, probe.value);
   if (isBudgetExhausted(budget)) {
     return buildReference(input, metadata, [], [...probe.limitations, TIMEOUT_BUDGET_EXHAUSTED_LIMITATION]);
   }
   const frameTimeoutMs = processTimeoutMs(budget);
-  const frameResult = await (options.ffmpeg ?? extractInspiredesignFfmpegFrames)(input, {
+  const frameResult = await runFrameExtraction(input, options, {
     metadata,
     ...timeoutOptions(frameTimeoutMs)
   });
   const limitations = buildBaseLimitations(input, probe, frameResult);
   return buildReference(input, metadata, frameResult.value?.frames ?? [], limitations);
+};
+
+const runProbe = (
+  filePath: string,
+  options: InspiredesignMediaAnalyzerOptions,
+  timeout: { timeoutMs?: number }
+): Promise<InspiredesignMediaAdapterResult<InspiredesignMediaMetadataFacts>> => {
+  if (options.ffprobeUnavailableLimitation) {
+    return Promise.resolve({ limitations: [options.ffprobeUnavailableLimitation] });
+  }
+  return (options.ffprobe ?? runInspiredesignFfprobe)(filePath, {
+    ...timeout,
+    ...(options.ffprobeBinaryPath ? { binaryPath: options.ffprobeBinaryPath } : {})
+  });
+};
+
+const runFrameExtraction = (
+  input: InspiredesignMediaAnalysisInput,
+  options: InspiredesignMediaAnalyzerOptions,
+  runOptions: Parameters<InspiredesignFfmpegFrameRunner>[1]
+): Promise<InspiredesignMediaAdapterResult<{ frames: InspiredesignRgbFrame[] }>> => {
+  if (options.ffmpegUnavailableLimitation) {
+    return Promise.resolve({ limitations: [options.ffmpegUnavailableLimitation] });
+  }
+  return (options.ffmpeg ?? extractInspiredesignFfmpegFrames)(input, {
+    ...runOptions,
+    ...(options.ffmpegBinaryPath ? { binaryPath: options.ffmpegBinaryPath } : {})
+  });
 };
 
 const buildReference = (
@@ -155,10 +187,7 @@ const buildBaseLimitations = (
 };
 
 const buildClaimLevels = (facts: InspiredesignMediaFacts, kind: InspiredesignMediaAnalysisInput["kind"]): InspiredesignMediaClaimLevel[] => {
-  const claimLevels: InspiredesignMediaClaimLevel[] = [];
-  if (facts.metadata || facts.dimensions) {
-    claimLevels.push("metadata_only");
-  }
+  const claimLevels: InspiredesignMediaClaimLevel[] = ["metadata_only"];
   if (facts.tone) {
     claimLevels.push("pixel_stats");
   }

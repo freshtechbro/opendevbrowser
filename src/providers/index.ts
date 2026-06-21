@@ -24,6 +24,7 @@ import {
 import { resolveProviderRuntimePolicy } from "./runtime-policy";
 import { createLogger } from "../core/logging";
 import type { ChallengeAutomationMode } from "../challenges";
+import type { InspiredesignMediaAnalysisBinaryPathsConfig } from "../inspiredesign/media-analysis";
 import {
   AntiBotPolicyEngine,
   type AntiBotPolicyConfig
@@ -1324,6 +1325,7 @@ export interface RuntimeInit {
   };
   challengeAutomationModeDefault?: ChallengeAutomationMode;
   browserFallbackPort?: BrowserFallbackPort;
+  inspiredesignMediaAnalysis?: InspiredesignMediaAnalysisBinaryPathsConfig;
 }
 
 export interface RuntimeDefaults {
@@ -1350,6 +1352,7 @@ export class ProviderRuntime {
     challengeAutomationMode: ChallengeAutomationMode;
     cookiePolicy: ProviderCookiePolicy;
   };
+  private readonly inspiredesignMediaAnalysisConfig: InspiredesignMediaAnalysisBinaryPathsConfig;
 
   constructor(init: RuntimeInit = {}) {
     this.registry = new ProviderRegistry();
@@ -1367,6 +1370,7 @@ export class ProviderRuntime {
       challengeAutomationMode: init.challengeAutomationModeDefault ?? "browser_with_helper",
       cookiePolicy: init.cookies?.policy ?? "auto"
     };
+    this.inspiredesignMediaAnalysisConfig = init.inspiredesignMediaAnalysis ?? {};
     this.adaptiveConfig = {
       enabled: init.adaptiveConcurrency?.enabled ?? false,
       maxGlobal: Math.max(this.budgets.concurrency.global, init.adaptiveConcurrency?.maxGlobal ?? this.budgets.concurrency.global),
@@ -2324,7 +2328,10 @@ export class ProviderRuntime {
           unwrapWorkflowResumeEnvelope(
             WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND[intent.kind],
             input
-          )
+          ),
+          {
+            mediaAnalysisConfig: this.inspiredesignMediaAnalysisConfig
+          }
         );
       case "workflow.product_video":
         return runProductVideoWorkflow(

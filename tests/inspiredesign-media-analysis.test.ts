@@ -1,11 +1,12 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildEmptyInspiredesignMediaDesignGuidance,
   buildInspiredesignMediaDesignGuidance,
   INSPIREDESIGN_MEDIA_ANALYSIS_DETERMINISTIC_GENERATED_AT,
+  INSPIREDESIGN_MEDIA_ANALYSIS_MAX_BINARY_PROBE_OUTPUT_BYTES,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_PROCESS_OUTPUT_BYTES,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_SAMPLED_FRAMES,
   INSPIREDESIGN_MEDIA_ANALYSIS_NON_GOALS,
@@ -16,7 +17,10 @@ import {
   calculateBoundedFrameSize,
   confidenceLabel,
   extractInspiredesignFfmpegFrames,
+  OPENDEVBROWSER_FFMPEG_PATH_ENV,
+  OPENDEVBROWSER_FFPROBE_PATH_ENV,
   persistInspiredesignMediaAnalysis,
+  resolveInspiredesignMediaAnalysisBinaries,
   runInspiredesignFfprobe,
   serializeInspiredesignMediaAnalysis,
   type InspiredesignFfmpegFrameRunner,
@@ -69,11 +73,18 @@ const makeEditorialFrame = (): InspiredesignRgbFrame => {
   return frame;
 };
 
-const makeFakeNodeBinary = async (body: string): Promise<{ dir: string; binaryPath: string }> => {
+const makeFakeNodeBinary = async (body: string, binaryName = "fake-binary.cjs"): Promise<{ dir: string; binaryPath: string }> => {
   const dir = await mkdtemp(join(tmpdir(), "odb-media-analysis-"));
-  const binaryPath = join(dir, "fake-binary.cjs");
+  const binaryPath = join(dir, binaryName);
   await writeFile(binaryPath, `#!/usr/bin/env node\n${body}\n`);
   await chmod(binaryPath, 0o755);
+  return { dir, binaryPath };
+};
+
+const makeNonExecutableFile = async (body: string): Promise<{ dir: string; binaryPath: string }> => {
+  const dir = await mkdtemp(join(tmpdir(), "odb-media-analysis-non-exec-"));
+  const binaryPath = join(dir, "fake-binary.cjs");
+  await writeFile(binaryPath, body);
   return { dir, binaryPath };
 };
 
@@ -102,6 +113,339 @@ const trustedImageInput: InspiredesignMediaAnalysisInput = {
 };
 
 describe("inspiredesign media-analysis runtime adapters", () => {
+  it("resolves FFmpeg and FFprobe binaries from config and env without host dependencies", async () => {
+    const configFfmpeg = await makeFakeNodeBinary("process.stdout.write('ffmpeg version config-1\\n');");
+    const configFfprobe = await makeFakeNodeBinary("process.stdout.write('ffprobe version config-1\\n');");
+    const envFfmpeg = await makeFakeNodeBinary("process.stdout.write('ffmpeg version env-1\\n');");
+    const envFfprobe = await makeFakeNodeBinary("process.stdout.write('ffprobe version env-1\\n');");
+    const env = {
+      ...process.env,
+      [OPENDEVBROWSER_FFMPEG_PATH_ENV]: envFfmpeg.binaryPath,
+      [OPENDEVBROWSER_FFPROBE_PATH_ENV]: envFfprobe.binaryPath
+    };
+
+    try {
+      const configResolved = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: configFfmpeg.binaryPath,
+          ffprobePath: configFfprobe.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const envResolved = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: configFfmpeg.binaryPath,
+          ffprobePath: configFfprobe.binaryPath
+        },
+        env,
+        timeoutMs: 5000
+      });
+
+      expect(configResolved.available).toBe(true);
+      expect(configResolved.capabilityTier).toBe("full");
+      expect(configResolved.ffmpeg).toEqual(expect.objectContaining({
+        available: true,
+        source: "config",
+        requestedPath: configFfmpeg.binaryPath,
+        resolvedPath: configFfmpeg.binaryPath,
+        version: "ffmpeg version config-1",
+        capabilityTier: "frame_decode"
+      }));
+      expect(configResolved.ffprobe).toEqual(expect.objectContaining({
+        available: true,
+        source: "config",
+        requestedPath: configFfprobe.binaryPath,
+        resolvedPath: configFfprobe.binaryPath,
+        version: "ffprobe version config-1",
+        capabilityTier: "metadata_probe"
+      }));
+      expect(envResolved.ffmpeg).toEqual(expect.objectContaining({
+        source: "env",
+        requestedPath: envFfmpeg.binaryPath,
+        version: "ffmpeg version env-1"
+      }));
+      expect(envResolved.ffprobe).toEqual(expect.objectContaining({
+        source: "env",
+        requestedPath: envFfprobe.binaryPath,
+        version: "ffprobe version env-1"
+      }));
+    } finally {
+      await Promise.all([
+        cleanupFakeBinary(configFfmpeg.dir),
+        cleanupFakeBinary(configFfprobe.dir),
+        cleanupFakeBinary(envFfmpeg.dir),
+        cleanupFakeBinary(envFfprobe.dir)
+      ]);
+    }
+  });
+
+  it("reports missing PATH and explicit override failures as non-fatal limitations", async () => {
+    const configFfmpeg = await makeFakeNodeBinary("process.stdout.write('ffmpeg version config-1\\n');");
+    const configFfprobe = await makeFakeNodeBinary("process.stdout.write('ffprobe version config-1\\n');");
+    const emptyPathDir = await mkdtemp(join(tmpdir(), "odb-media-analysis-empty-path-"));
+    const badEnvPath = join(emptyPathDir, "missing-ffmpeg");
+
+    try {
+      const missingPath = await resolveInspiredesignMediaAnalysisBinaries({
+        env: { PATH: emptyPathDir },
+        timeoutMs: 100
+      });
+      const explicitEnvFailure = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: configFfmpeg.binaryPath,
+          ffprobePath: configFfprobe.binaryPath
+        },
+        env: {
+          ...process.env,
+          [OPENDEVBROWSER_FFMPEG_PATH_ENV]: badEnvPath
+        },
+        timeoutMs: 5000
+      });
+      const blankEnvFailure = await resolveInspiredesignMediaAnalysisBinaries({
+        env: {
+          ...process.env,
+          [OPENDEVBROWSER_FFMPEG_PATH_ENV]: "   "
+        },
+        timeoutMs: 10
+      });
+      const blankConfigFailure = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: configFfmpeg.binaryPath,
+          ffprobePath: "   "
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+
+      expect(missingPath.available).toBe(false);
+      expect(missingPath.capabilityTier).toBe("unavailable");
+      expect(missingPath.ffmpeg).toEqual(expect.objectContaining({
+        available: false,
+        source: "path",
+        requestedPath: "ffmpeg",
+        limitation: "ffmpeg binary was not found."
+      }));
+      expect(missingPath.ffprobe).toEqual(expect.objectContaining({
+        available: false,
+        source: "path",
+        requestedPath: "ffprobe",
+        limitation: "ffprobe binary was not found."
+      }));
+      expect(explicitEnvFailure.ffmpeg).toEqual(expect.objectContaining({
+        available: false,
+        source: "env",
+        requestedPath: badEnvPath,
+        limitation: "ffmpeg binary was not found."
+      }));
+      expect(explicitEnvFailure.ffprobe).toEqual(expect.objectContaining({
+        available: true,
+        source: "config",
+        requestedPath: configFfprobe.binaryPath
+      }));
+      expect(blankEnvFailure.ffmpeg).toEqual(expect.objectContaining({
+        available: false,
+        source: "env",
+        requestedPath: "   ",
+        limitation: `${OPENDEVBROWSER_FFMPEG_PATH_ENV} is set but blank.`
+      }));
+      expect(blankConfigFailure.available).toBe(false);
+      expect(blankConfigFailure.capabilityTier).toBe("frame_decode_only");
+      expect(blankConfigFailure.ffprobe).toEqual(expect.objectContaining({
+        available: false,
+        source: "config",
+        requestedPath: "   ",
+        limitation: "ffprobe config path is set but blank."
+      }));
+    } finally {
+      await Promise.all([
+        cleanupFakeBinary(configFfmpeg.dir),
+        cleanupFakeBinary(configFfprobe.dir),
+        rm(emptyPathDir, { recursive: true, force: true })
+      ]);
+    }
+  });
+
+  it("reports version probe edge cases without using host binaries", async () => {
+    const failed = await makeFakeNodeBinary("process.stderr.write('bad binary'); process.exitCode = 7;");
+    const timedOut = await makeFakeNodeBinary("setTimeout(() => undefined, 1000);");
+    const empty = await makeFakeNodeBinary("process.exitCode = 0;");
+    const unrecognized = await makeFakeNodeBinary("process.stdout.write('tool build details\\n');");
+    const truncated = await makeFakeNodeBinary(`
+const first = 'ffprobe version ' + 'x'.repeat(${INSPIREDESIGN_MEDIA_ANALYSIS_MAX_BINARY_PROBE_OUTPUT_BYTES});
+process.stdout.write(first);
+setImmediate(() => process.stdout.write('tail'));
+`);
+
+    try {
+      const failedProbe = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: failed.binaryPath,
+          ffprobePath: empty.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const timedOutProbe = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: timedOut.binaryPath,
+          ffprobePath: timedOut.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 250
+      });
+      const unrecognizedProbe = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: unrecognized.binaryPath,
+          ffprobePath: truncated.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+
+      expect(failedProbe.ffmpeg).toEqual(expect.objectContaining({
+        available: false,
+        source: "config",
+        limitation: "ffmpeg version probe failed with exit code 7."
+      }));
+      expect(failedProbe.ffprobe).toEqual(expect.objectContaining({
+        available: false,
+        source: "config",
+        limitation: "ffprobe version output was empty."
+      }));
+      expect(timedOutProbe.ffmpeg).toEqual(expect.objectContaining({
+        available: false,
+        source: "config",
+        limitation: "ffmpeg version probe timed out after 250ms."
+      }));
+      expect(timedOutProbe.ffprobe).toEqual(expect.objectContaining({
+        available: false,
+        source: "config",
+        limitation: "ffprobe version probe timed out after 250ms."
+      }));
+      expect(unrecognizedProbe.ffmpeg).toEqual(expect.objectContaining({
+        available: false,
+        source: "config",
+        limitation: "ffmpeg version output was not recognized."
+      }));
+      expect(unrecognizedProbe.ffprobe).toEqual(expect.objectContaining({
+        available: true,
+        version: expect.stringMatching(/^ffprobe version x+/u)
+      }));
+      expect(unrecognizedProbe.ffprobe.version?.length).toBe(180);
+      expect(unrecognizedProbe.capabilityTier).toBe("metadata_only");
+    } finally {
+      await Promise.all([
+        cleanupFakeBinary(failed.dir),
+        cleanupFakeBinary(timedOut.dir),
+        cleanupFakeBinary(empty.dir),
+        cleanupFakeBinary(unrecognized.dir),
+        cleanupFakeBinary(truncated.dir)
+      ]);
+    }
+  });
+
+  it("classifies partial capabilities and version-probe edge failures", async () => {
+    const okFfmpeg = await makeFakeNodeBinary("process.stderr.write('ffmpeg version stderr-1\\n');");
+    const okFfprobe = await makeFakeNodeBinary("process.stderr.write('ffprobe version stderr-1\\n');");
+    const emptyOutput = await makeFakeNodeBinary("");
+    const unrecognizedOutput = await makeFakeNodeBinary("process.stdout.write('hello from a helper\\n');");
+    const failedExit = await makeFakeNodeBinary("process.exitCode = 7;");
+    const signalExit = await makeFakeNodeBinary("process.kill(process.pid, 'SIGTERM');");
+    const boundedOutput = await makeFakeNodeBinary(
+      `process.stdout.write(Buffer.alloc(${INSPIREDESIGN_MEDIA_ANALYSIS_MAX_BINARY_PROBE_OUTPUT_BYTES + 1}, 65)); process.stdout.write(Buffer.alloc(64, 66));`
+    );
+    const nonExecutable = await makeNonExecutableFile("#!/usr/bin/env node\nprocess.stdout.write('ffmpeg version never-runs\\n');");
+    const missingFfmpeg = join(nonExecutable.dir, "missing-ffmpeg");
+    const missingFfprobe = join(nonExecutable.dir, "missing-ffprobe");
+
+    try {
+      const fullFromStderr = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: okFfmpeg.binaryPath,
+          ffprobePath: okFfprobe.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const frameDecodeOnly = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: okFfmpeg.binaryPath,
+          ffprobePath: missingFfprobe
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const metadataOnly = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: missingFfmpeg,
+          ffprobePath: okFfprobe.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const exitFailures = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: failedExit.binaryPath,
+          ffprobePath: signalExit.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const parseFailures = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: emptyOutput.binaryPath,
+          ffprobePath: unrecognizedOutput.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const spawnFailure = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: nonExecutable.binaryPath,
+          ffprobePath: okFfprobe.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+      const outputLimited = await resolveInspiredesignMediaAnalysisBinaries({
+        config: {
+          ffmpegPath: boundedOutput.binaryPath,
+          ffprobePath: okFfprobe.binaryPath
+        },
+        env: { ...process.env },
+        timeoutMs: 5000
+      });
+
+      expect(fullFromStderr.available).toBe(true);
+      expect(fullFromStderr.ffmpeg.version).toBe("ffmpeg version stderr-1");
+      expect(fullFromStderr.ffprobe.version).toBe("ffprobe version stderr-1");
+      expect(frameDecodeOnly.available).toBe(false);
+      expect(frameDecodeOnly.capabilityTier).toBe("frame_decode_only");
+      expect(frameDecodeOnly.ffprobe.limitation).toBe("ffprobe binary was not found.");
+      expect(metadataOnly.available).toBe(false);
+      expect(metadataOnly.capabilityTier).toBe("metadata_only");
+      expect(metadataOnly.ffmpeg.limitation).toBe("ffmpeg binary was not found.");
+      expect(exitFailures.ffmpeg.limitation).toBe("ffmpeg version probe failed with exit code 7.");
+      expect(exitFailures.ffprobe.limitation).toBe("ffprobe version probe failed with exit code unknown.");
+      expect(parseFailures.ffmpeg.limitation).toBe("ffmpeg version output was empty.");
+      expect(parseFailures.ffprobe.limitation).toBe("ffprobe version output was not recognized.");
+      expect(spawnFailure.ffmpeg.limitation).toContain("ffmpeg version probe failed:");
+      expect(outputLimited.ffmpeg.limitation).toBe("ffmpeg version output was not recognized.");
+    } finally {
+      await Promise.all([
+        cleanupFakeBinary(okFfmpeg.dir),
+        cleanupFakeBinary(okFfprobe.dir),
+        cleanupFakeBinary(emptyOutput.dir),
+        cleanupFakeBinary(unrecognizedOutput.dir),
+        cleanupFakeBinary(failedExit.dir),
+        cleanupFakeBinary(signalExit.dir),
+        cleanupFakeBinary(boundedOutput.dir),
+        cleanupFakeBinary(nonExecutable.dir)
+      ]);
+    }
+  });
+
   it("parses FFprobe metadata, fallbacks, and process failures without inventing facts", async () => {
     const fullMetadata = {
       streams: [
@@ -314,6 +658,49 @@ describe("inspiredesign media-analysis runtime adapters", () => {
     }
   });
 
+  it("uses duration metadata to distribute animated media samples over time", async () => {
+    const argsPath = join(await mkdtemp(join(tmpdir(), "odb-media-analysis-args-")), "args.json");
+    const rawBytes = makeRawRgbBytes(Array.from({ length: 4 }, (_, frameIndex) => makeFrame(1, 1, frameIndex % 2 === 0 ? DARK_RGB : LIGHT_RGB, frameIndex)));
+    const frameBinary = await makeFakeNodeBinary(
+      `require('fs').writeFileSync(process.env.ODB_FFMPEG_ARGS_OUT, JSON.stringify(process.argv.slice(2))); process.stdout.write(Buffer.from(${JSON.stringify(rawBytes)}));`
+    );
+    const originalArgsOut = process.env.ODB_FFMPEG_ARGS_OUT;
+    process.env.ODB_FFMPEG_ARGS_OUT = argsPath;
+
+    try {
+      const result = await extractInspiredesignFfmpegFrames(
+        { ...trustedImageInput, kind: "video", contentType: "video/mp4", width: 1, height: 1 },
+        {
+          binaryPath: frameBinary.binaryPath,
+          maxWidth: 1,
+          maxHeight: 1,
+          maxFrames: 4,
+          metadata: {
+            durationSeconds: 16,
+            dimensions: { width: 1, height: 1, aspectRatio: 1 }
+          }
+        }
+      );
+      const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
+      const videoFilter = args[args.indexOf("-vf") + 1];
+
+      expect(result.value?.frames).toHaveLength(4);
+      expect(videoFilter).toBe("fps=0.25,scale=1:1:force_original_aspect_ratio=decrease,pad=1:1:(ow-iw)/2:(oh-ih)/2,format=rgb24");
+      expect(args).toContain("-frames:v");
+      expect(args[args.indexOf("-frames:v") + 1]).toBe("4");
+    } finally {
+      if (originalArgsOut === undefined) {
+        delete process.env.ODB_FFMPEG_ARGS_OUT;
+      } else {
+        process.env.ODB_FFMPEG_ARGS_OUT = originalArgsOut;
+      }
+      await Promise.all([
+        cleanupFakeBinary(frameBinary.dir),
+        rm(dirname(argsPath), { recursive: true, force: true })
+      ]);
+    }
+  });
+
   it("keeps adapter output collection bounded across partial and oversized chunks", async () => {
     const ffprobeBinary = await makeFakeNodeBinary(
       `process.stdout.write(Buffer.alloc(${INSPIREDESIGN_MEDIA_ANALYSIS_MAX_PROCESS_OUTPUT_BYTES - 2}, 65)); process.stdout.write(Buffer.alloc(8, 66));`
@@ -336,6 +723,52 @@ describe("inspiredesign media-analysis runtime adapters", () => {
         cleanupFakeBinary(ffprobeBinary.dir),
         cleanupFakeBinary(ffmpegBinary.dir)
       ]);
+    }
+  });
+
+  it("uses PATH FFmpeg and FFprobe defaults when adapter binary paths are omitted", async () => {
+    const binaryDir = await mkdtemp(join(tmpdir(), "odb-media-analysis-path-"));
+    const ffmpegPath = join(binaryDir, "ffmpeg");
+    const ffprobePath = join(binaryDir, "ffprobe");
+    const metadata = {
+      streams: [{
+        codec_type: "video",
+        width: 1,
+        height: 1,
+        avg_frame_rate: "24/1",
+        nb_frames: "12",
+        codec_name: "h264"
+      }],
+      format: { duration: "0.5", format_name: "mov,mp4" }
+    };
+    await writeFile(ffmpegPath, `#!/usr/bin/env node\nprocess.stdout.write(Buffer.from([${DARK_RGB}, ${DARK_RGB}, ${DARK_RGB}]));\n`);
+    await writeFile(ffprobePath, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(metadata))});\n`);
+    await Promise.all([chmod(ffmpegPath, 0o755), chmod(ffprobePath, 0o755)]);
+    const originalPath = process.env.PATH;
+    process.env.PATH = originalPath ? `${binaryDir}${delimiter}${originalPath}` : binaryDir;
+
+    try {
+      const ffprobeResult = await runInspiredesignFfprobe(trustedImageInput.filePath);
+      const ffmpegResult = await extractInspiredesignFfmpegFrames(
+        { ...trustedImageInput, width: 1, height: 1 },
+        { maxWidth: 1, maxHeight: 1, maxFrames: 1 }
+      );
+
+      expect(ffprobeResult.value).toEqual(expect.objectContaining({
+        dimensions: { width: 1, height: 1, aspectRatio: 1 },
+        fps: 24,
+        frameCount: 12,
+        videoCodec: "h264",
+        containerFormat: "mov,mp4"
+      }));
+      expect(ffmpegResult.value?.frames[0]?.data).toEqual(new Uint8Array([DARK_RGB, DARK_RGB, DARK_RGB]));
+    } finally {
+      if (originalPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = originalPath;
+      }
+      await rm(binaryDir, { recursive: true, force: true });
     }
   });
 });
@@ -774,6 +1207,49 @@ describe("inspiredesign media-analysis analyzer", () => {
     expect(serialized).not.toContain("\"data\":");
   });
 
+  it("passes configured binary paths through the default adapters", async () => {
+    const metadata = {
+      streams: [
+        {
+          codec_type: "video",
+          width: 1,
+          height: 1,
+          avg_frame_rate: "1/1",
+          codec_name: "mjpeg"
+        }
+      ],
+      format: { format_name: "mjpeg" }
+    };
+    const ffprobeBinary = await makeFakeNodeBinary(`process.stdout.write(${JSON.stringify(JSON.stringify(metadata))});`);
+    const ffmpegBinary = await makeFakeNodeBinary(
+      `process.stdout.write(Buffer.from(${JSON.stringify([...makeFrame(1, 1, LIGHT_RGB).data])}));`
+    );
+
+    try {
+      const analysis = await analyzeInspiredesignMediaArtifacts([
+        { ...trustedImageInput, width: 1, height: 1 }
+      ], {
+        generatedAt: "2026-06-06T00:00:00.000Z",
+        ffprobeBinaryPath: ffprobeBinary.binaryPath,
+        ffmpegBinaryPath: ffmpegBinary.binaryPath
+      });
+      const reference = analysis.references[0];
+
+      expect(reference?.facts.metadata.videoCodec).toBe("mjpeg");
+      expect(reference?.facts.dimensions).toEqual({ width: 1, height: 1, aspectRatio: 1 });
+      expect(reference?.facts.tone?.meanLuminance).toBe(LIGHT_RGB);
+      expect(reference?.claimLevels).toEqual(expect.arrayContaining([
+        "metadata_only",
+        "pixel_stats"
+      ]));
+    } finally {
+      await Promise.all([
+        cleanupFakeBinary(ffprobeBinary.dir),
+        cleanupFakeBinary(ffmpegBinary.dir)
+      ]);
+    }
+  });
+
   it("builds GIF and video motion facts from stubbed sampled frames", async () => {
     const ffprobe: InspiredesignFfprobeRunner = async () => ({
       value: {
@@ -869,6 +1345,30 @@ describe("inspiredesign media-analysis analyzer", () => {
     expect(reference?.facts.motion).toBeUndefined();
     expect(reference?.limitations).toEqual(expect.arrayContaining(["ffprobe binary was not found.", "ffmpeg binary was not found."]));
     expect(reference?.designGuidance.patternsToReject[0]).toContain("Do not invent media-derived");
+  });
+
+  it("short-circuits configured unavailable binary limitations before spawning adapters", async () => {
+    const ffprobe = vi.fn<InspiredesignFfprobeRunner>();
+    const ffmpeg = vi.fn<InspiredesignFfmpegFrameRunner>();
+
+    const analysis = await analyzeInspiredesignMediaArtifacts([trustedImageInput], {
+      generatedAt: "2026-06-06T00:00:00.000Z",
+      ffprobe,
+      ffmpeg,
+      ffprobeUnavailableLimitation: "ffprobe binary was not found.",
+      ffmpegUnavailableLimitation: "ffmpeg binary was not found."
+    });
+    const reference = analysis.references[0];
+
+    expect(ffprobe).not.toHaveBeenCalled();
+    expect(ffmpeg).not.toHaveBeenCalled();
+    expect(reference?.claimLevels).toEqual(["metadata_only"]);
+    expect(reference?.facts.dimensions).toEqual({ width: 800, height: 1080, aspectRatio: 0.7407 });
+    expect(reference?.facts.tone).toBeUndefined();
+    expect(reference?.limitations).toEqual(expect.arrayContaining([
+      "ffprobe binary was not found.",
+      "ffmpeg binary was not found."
+    ]));
   });
 
   it("does not invent dimensions or pixel claim levels when adapters and dimensions are empty", async () => {

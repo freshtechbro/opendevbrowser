@@ -78,6 +78,36 @@ describe("public surface manifest", () => {
     expect(inspiredesignCommand?.notes.join(" ")).toContain("Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested");
   });
 
+  it("documents inspiredesign media-analysis dependency guidance", () => {
+    const inspiredesignCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "inspiredesign");
+    const statusCapabilitiesCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "status-capabilities");
+    const inspiredesignTool = GENERATED_MANIFEST.tools.entries.find((entry) => entry.name === "opendevbrowser_inspiredesign_run");
+    const notes = inspiredesignCommand?.notes.join(" ") ?? "";
+    const statusNotes = statusCapabilitiesCommand?.notes.join(" ") ?? "";
+    const toolNotes = inspiredesignTool?.notes?.join(" ") ?? "";
+
+    for (const publicText of [notes, statusNotes, toolNotes]) {
+      expect(publicText).toContain("FFmpeg");
+      expect(publicText).toContain("FFprobe");
+    }
+
+    expect(notes).toContain("recommended optional host tools");
+    expect(notes).toContain("OPENDEVBROWSER_FFMPEG_PATH");
+    expect(notes).toContain("OPENDEVBROWSER_FFPROBE_PATH");
+    expect(notes).toContain("inspiredesign.mediaAnalysis.ffmpegPath");
+    expect(notes).toContain("inspiredesign.mediaAnalysis.ffprobePath");
+    expect(notes).toContain("then ffmpeg and ffprobe on PATH");
+    expect(notes).toContain("Missing binaries degrade media-analysis.json only");
+    expect(notes).toContain("do not fail pin-media readiness");
+    expect(notes).toContain("never make media-analysis.json satisfy product readiness");
+    expect(statusNotes).toContain("host.mediaAnalysis");
+    expect(statusNotes).toContain("optional media-analysis host capability");
+    expect(statusNotes).not.toContain("media-analysis prerequisites");
+    expect(toolNotes).toContain("host.mediaAnalysis");
+    expect(toolNotes).toContain("optional media-analysis host capability");
+    expect(toolNotes).not.toContain("media-analysis prerequisites");
+  });
+
   it("documents inspiredesign readiness blockers and Pinterest evidence prerequisites", () => {
     const inspiredesignCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "inspiredesign");
     const notes = inspiredesignCommand?.notes.join(" ") ?? "";
