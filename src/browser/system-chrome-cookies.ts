@@ -89,7 +89,7 @@ async function stageSystemChromeProfile(
     try {
       await copyEntry(join(source.userDataDir, entry), join(stagingRoot, entry));
     } catch (error) {
-      warnings.push(`Chrome bootstrap skipped ${entry}: ${getErrorMessage(error)}`);
+      warnings.push(`Chrome bootstrap skipped ${entry}: ${getErrorSummary(error)}`);
     }
   }
 
@@ -103,7 +103,7 @@ async function stageSystemChromeProfile(
         copiedCookieStore = true;
       }
     } catch (error) {
-      warnings.push(`Chrome bootstrap skipped ${source.profileDirectory}/${entry}: ${getErrorMessage(error)}`);
+      warnings.push(`Chrome bootstrap skipped profile ${entry}: ${getErrorSummary(error)}`);
     }
   }
 
@@ -242,7 +242,7 @@ async function loadSystemChromeCookiesFromSqlite(
   if (!cookieDbPath) {
     return {
       cookies: [],
-      warnings: [`System Chrome profile ${source.browserName}/${source.profileDirectory} did not expose a readable cookie database.`],
+      warnings: [`System Chrome ${source.browserName} profile did not expose a readable cookie database.`],
       attempted: true
     };
   }
@@ -274,14 +274,14 @@ async function loadSystemChromeCookiesFromSqlite(
     return {
       cookies,
       warnings: skipped > 0
-        ? [`System Chrome cookie bootstrap skipped ${skipped} unreadable cookies from ${source.profileDirectory}.`]
+        ? [`System Chrome cookie bootstrap skipped ${skipped} unreadable cookies.`]
         : [],
       attempted: true
     };
   } catch (error) {
     return {
       cookies: [],
-      warnings: [`System Chrome cookie bootstrap direct read failed: ${getErrorMessage(error)}`],
+      warnings: [`System Chrome cookie bootstrap direct read failed: ${getErrorSummary(error)}`],
       attempted: true
     };
   }
@@ -327,7 +327,7 @@ export async function loadSystemChromeCookies(
         warnings: [
           ...direct.warnings,
           ...staged.warnings,
-          `System Chrome profile ${source.browserName}/${source.profileDirectory} did not expose a readable cookie store.`
+          `System Chrome ${source.browserName} profile did not expose a readable cookie store.`
         ]
       };
     }
@@ -351,7 +351,7 @@ export async function loadSystemChromeCookies(
           expires: cookie.expires,
           httpOnly: cookie.httpOnly,
           secure: cookie.secure,
-            ...(cookie.sameSite ? { sameSite: cookie.sameSite } : {})
+          ...(cookie.sameSite ? { sameSite: cookie.sameSite } : {})
         })),
         source,
         warnings: staged.warnings
@@ -363,18 +363,18 @@ export async function loadSystemChromeCookies(
     return {
       cookies: [],
       source,
-      warnings: [...direct.warnings, `System Chrome cookie bootstrap failed: ${getErrorMessage(error)}`]
+      warnings: [...direct.warnings, `System Chrome cookie bootstrap failed: ${getErrorSummary(error)}`]
     };
   } finally {
     await rm(stagingRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorSummary(error: unknown): string {
   if (error instanceof Error) {
-    return error.message;
+    return error.name || "Error";
   }
-  return String(error);
+  return "Unknown error";
 }
 
 export const __test__ = {

@@ -1,4 +1,5 @@
 import { resolveChallengeAutomationPolicy, type ChallengeAutomationMode } from "../challenges";
+import { DEFAULT_GOOGLE_AUTH_INTENT, type GoogleAuthIntent } from "../core/auth-intent";
 import type {
   BrowserFallbackMode,
   ProviderCookiePolicy,
@@ -31,6 +32,16 @@ export const resolveWorkflowBrowserModeFallbackModes = (
 export const shouldForceWorkflowBrowserTransport = (
   browserMode?: WorkflowBrowserMode
 ): boolean => browserMode === "extension" || browserMode === "managed";
+
+const resolveAuthIntentFallbackModes = (
+  googleAuthIntent?: GoogleAuthIntent
+): BrowserFallbackMode[] | undefined => (
+  googleAuthIntent === "user_owned_google" ? ["extension"] : undefined
+);
+
+const shouldForceAuthIntentTransport = (
+  googleAuthIntent?: GoogleAuthIntent
+): boolean => googleAuthIntent === "user_owned_google";
 
 export const resolveProviderFallbackModes = (args: {
   source: ProviderSource;
@@ -78,23 +89,30 @@ export const resolveProviderRuntimePolicy = (args: {
 }): ResolvedProviderRuntimePolicy => {
   const runtimeInput = args.runtimePolicy;
   const browserMode = runtimeInput?.browserMode;
+  const googleAuthIntent = runtimeInput?.googleAuthIntent ?? DEFAULT_GOOGLE_AUTH_INTENT;
   const requestedUseCookies = typeof runtimeInput?.useCookies === "boolean"
     ? runtimeInput.useCookies
     : args.useCookies;
   const requestedCookiePolicyOverride = runtimeInput?.cookiePolicyOverride ?? args.cookiePolicyOverride;
   const requestedChallengeAutomationMode = runtimeInput?.challengeAutomationMode ?? args.challengeAutomationMode;
-  const preferredModes = args.preferredFallbackModes?.length
+  const authIntentModes = resolveAuthIntentFallbackModes(googleAuthIntent);
+  const preferredModes = authIntentModes ?? (args.preferredFallbackModes?.length
     ? args.preferredFallbackModes
-    : resolveWorkflowBrowserModeFallbackModes(browserMode);
+    : resolveWorkflowBrowserModeFallbackModes(browserMode));
 
   return {
+    auth: {
+      googleAuthIntent
+    },
     browser: {
       preferredModes: resolveProviderFallbackModes({
         source: args.source,
         recoveryHints: args.recoveryHints,
         preferredModes
       }),
-      forceTransport: args.forceBrowserTransport === true || shouldForceWorkflowBrowserTransport(browserMode)
+      forceTransport: args.forceBrowserTransport === true
+        || shouldForceAuthIntentTransport(googleAuthIntent)
+        || shouldForceWorkflowBrowserTransport(browserMode)
     },
     cookies: {
       ...(typeof requestedUseCookies === "boolean" ? { requested: requestedUseCookies } : {}),

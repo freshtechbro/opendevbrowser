@@ -1,7 +1,14 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
-import type { BlockerSignalV1, SessionChallengeSummary } from "../providers/types";
+import type { GoogleAuthIntent } from "../core/auth-intent";
+import type {
+  BlockerSignalV1,
+  ProviderCookiePolicy,
+  ProviderCookieSourceConfig,
+  ProviderReasonCode,
+  SessionChallengeSummary
+} from "../providers/types";
 import type {
   ChallengeAutomationMode,
   ChallengeInspectPlan,
@@ -190,6 +197,62 @@ export type BrowserUploadResult = {
   warnings?: string[];
 };
 
+export type BrowserAuthProfileSource =
+  | "managed_profile"
+  | "cdp_connected_profile"
+  | "live_extension_profile";
+
+export type BrowserCookieBootstrapProvenance = {
+  readonly attempted: boolean;
+  readonly disabled: boolean;
+  readonly importedCount: number;
+  readonly rejectedCount: number;
+  readonly skippedGoogleSensitiveCount?: number;
+  readonly googleSensitiveCookiePolicy?: "skip" | "include";
+  readonly sourceBrowserName?: string;
+};
+
+export type BrowserProviderCookieImportProvenance = {
+  readonly policy: ProviderCookiePolicy;
+  readonly source: ProviderCookieSourceConfig["type"];
+  readonly attempted: boolean;
+  readonly available: boolean;
+  readonly loadedCount: number;
+  readonly importedCount: number;
+  readonly rejectedCount: number;
+  readonly verifiedCount: number;
+  readonly strict: boolean;
+  readonly sessionEvidence: "not_checked" | "cookies_missing" | "cookies_observable";
+  readonly authStateVerified: boolean;
+  readonly reasonCode?: ProviderReasonCode;
+  readonly message?: string;
+};
+
+export type BrowserAuthProvenanceDiagnostics = {
+  readonly googleAuthIntent: GoogleAuthIntent;
+  readonly profileSource: BrowserAuthProfileSource;
+  readonly cookieBootstrap: BrowserCookieBootstrapProvenance;
+  readonly explicitCookieImportAttempted?: boolean;
+  readonly providerCookieImport?: BrowserProviderCookieImportProvenance;
+};
+
+export type BrowserSessionDiagnostics = {
+  readonly authProvenance: BrowserAuthProvenanceDiagnostics;
+};
+
+export type BrowserCookieImportResult = {
+  readonly requestId: string;
+  readonly imported: number;
+  readonly rejected: ReadonlyArray<{ readonly index: number; readonly reason: string }>;
+  readonly diagnostics?: BrowserSessionDiagnostics;
+};
+
+export type BrowserAuthSessionOptions = {
+  readonly googleAuthIntent?: GoogleAuthIntent;
+  readonly disableSystemCookieBootstrap?: boolean;
+  readonly allowGoogleCookieBootstrap?: boolean;
+};
+
 export type BrowserDialogAction = "status" | "accept" | "dismiss";
 
 export type BrowserDialogType = "alert" | "confirm" | "prompt" | "beforeunload";
@@ -294,7 +357,7 @@ export type BrowserManagerLike = Pick<BrowserManager,
 > & {
   connectRelay: (
     wsEndpoint: string,
-    options?: { startUrl?: string }
+    options?: { startUrl?: string } & BrowserAuthSessionOptions
   ) => ReturnType<BrowserManager["connectRelay"]>;
   registerCanvasTarget?: (
     sessionId: string,
@@ -335,6 +398,10 @@ export type BrowserManagerLike = Pick<BrowserManager,
     sessionId: string,
     mode?: ChallengeAutomationMode
   ) => void;
+  recordProviderCookieImportProvenance?: (
+    sessionId: string,
+    input: BrowserProviderCookieImportProvenance
+  ) => BrowserAuthProvenanceDiagnostics | undefined;
   inspectChallengePlan?: (input: {
     sessionId: string;
     targetId?: string | null;

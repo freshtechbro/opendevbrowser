@@ -536,6 +536,7 @@ Auth and policy:
 - `managed`: `launch --no-extension` (or explicit managed launch flags).
 - `extension-legacy`: `launch --extension-legacy` or `connect --extension-legacy` through `/cdp`.
 - `cdpConnect`: direct `connect --ws-endpoint ...` or `connect --host ... --cdp-port ...`.
+- User-owned Google OAuth: `launch --google-auth-intent user-owned --extension-only --wait-for-extension` or an `/ops` relay connect. This requires extension /ops and fails closed for managed, headless, legacy `/cdp`, and direct CDP.
 
 ### Key mode flags
 - `--no-extension`
@@ -543,6 +544,16 @@ Auth and policy:
 - `--extension-legacy`
 - `--wait-for-extension`
 - `--wait-timeout-ms`
+- `--google-auth-intent user-owned`
+- `--disable-system-cookie-bootstrap`
+- `--allow-google-cookie-bootstrap`
+
+### Google OAuth continuity
+- Managed and direct `cdpConnect` cookie bootstrap is best-effort and copies readable system Chrome-family cookies only. Copied cookies are not Google auth proof and can be disabled per run with `--disable-system-cookie-bootstrap`.
+- Google-sensitive cookies are skipped by default during managed and direct `cdpConnect` bootstrap. Use `--allow-google-cookie-bootstrap` only for diagnostic runs that explicitly accept that risk.
+- Launch/connect responses expose sanitized `diagnostics.authProvenance` for mode and cookie-bootstrap provenance. They must not expose private cookies, tokens, account identifiers, full profile paths, or account screenshots.
+- If Google sign-in or account chooser actions open an OAuth popup, run `targets-list --include-urls`, then `target-use --target-id <target-id>` for the chosen target.
+- For perceived logout or auth invalidation, prefer extension `/ops` with `--google-auth-intent user-owned`; do not use managed/CDP copied cookies as proof of Google login.
 
 ### Transport flags
 - Global transport flag: `--transport relay|native` (status and transport-aware flows).

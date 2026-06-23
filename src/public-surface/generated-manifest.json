@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-06-21T22:19:46.202Z",
+  "generatedAt": "2026-06-23T00:16:03.105Z",
   "cli": {
     "groups": [
       {
@@ -339,7 +339,7 @@
       {
         "name": "launch",
         "description": "Launch a managed browser session via daemon",
-        "usage": "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>]",
+        "usage": "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
         "flags": [
           "--headless",
           "--profile",
@@ -351,13 +351,20 @@
           "--extension-only",
           "--extension-legacy",
           "--wait-for-extension",
-          "--wait-timeout-ms"
+          "--wait-timeout-ms",
+          "--google-auth-intent",
+          "--disable-system-cookie-bootstrap",
+          "--allow-google-cookie-bootstrap"
         ],
         "examples": [
-          "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
+          "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json",
+          "npx opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension --output-format json"
         ],
         "notes": [
-          "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
+          "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step.",
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
         ],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
@@ -366,18 +373,26 @@
       {
         "name": "connect",
         "description": "Connect to an existing browser via daemon",
-        "usage": "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy]",
+        "usage": "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
         "flags": [
           "--ws-endpoint",
           "--host",
           "--cdp-port",
           "--start-url",
-          "--extension-legacy"
+          "--extension-legacy",
+          "--google-auth-intent",
+          "--disable-system-cookie-bootstrap",
+          "--allow-google-cookie-bootstrap"
         ],
         "examples": [
-          "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json"
+          "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json",
+          "npx opendevbrowser connect --google-auth-intent user-owned --ws-endpoint ws://127.0.0.1:8787/ops --output-format json"
         ],
-        "notes": [],
+        "notes": [
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
+        ],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -2026,6 +2041,18 @@
         "kind": "boolean"
       },
       {
+        "name": "--google-auth-intent",
+        "kind": "value"
+      },
+      {
+        "name": "--disable-system-cookie-bootstrap",
+        "kind": "boolean"
+      },
+      {
+        "name": "--allow-google-cookie-bootstrap",
+        "kind": "boolean"
+      },
+      {
         "name": "--skills-global",
         "kind": "boolean"
       },
@@ -2189,6 +2216,7 @@
     "equalsFlags": [
       "--output-format",
       "--transport",
+      "--google-auth-intent",
       "--session-id",
       "--url",
       "--screenshot-mode",
@@ -2274,13 +2302,23 @@
         "name": "opendevbrowser_launch",
         "description": "Launch a managed browser session.",
         "cliEquivalent": "launch",
-        "example": "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
+        "example": "{\"googleAuthIntent\":\"user_owned_google\",\"disableSystemCookieBootstrap\":true,\"allowGoogleCookieBootstrap\":false,\"extensionOnly\":true,\"waitForExtension\":true}",
+        "notes": [
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
+        ]
       },
       {
         "name": "opendevbrowser_connect",
         "description": "Connect to an existing browser session.",
         "cliEquivalent": "connect",
-        "example": "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json"
+        "example": "{\"wsEndpoint\":\"ws://127.0.0.1:8787/ops\",\"googleAuthIntent\":\"user_owned_google\",\"disableSystemCookieBootstrap\":true,\"allowGoogleCookieBootstrap\":false}",
+        "notes": [
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
+        ]
       },
       {
         "name": "opendevbrowser_disconnect",

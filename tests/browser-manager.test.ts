@@ -504,6 +504,7 @@ beforeEach(async () => {
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   rm.mockClear();
   captureDom.mockClear();
+  loadSystemChromeCookies.mockClear();
   loadSystemChromeCookies.mockResolvedValue({ cookies: [], source: null, warnings: [] });
 });
 
@@ -892,6 +893,95 @@ describe("BrowserManager", () => {
     expect(result.warnings).toContain("Imported cookies from system Chrome.");
   });
 
+  it("skips system Chrome cookies for managed launches when disabled and reports sanitized provenance", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({
+      profile: "default",
+      disableSystemCookieBootstrap: true
+    });
+
+    expect(loadSystemChromeCookies).not.toHaveBeenCalled();
+    expect(context.addCookies).not.toHaveBeenCalled();
+    expect(result.warnings).toContain("System Chrome cookie bootstrap disabled for this run.");
+    expect(result.diagnostics?.authProvenance).toEqual({
+      googleAuthIntent: "none",
+      profileSource: "managed_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: true,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    });
+    expect(JSON.stringify(result.diagnostics?.authProvenance)).not.toContain("Chrome/Default");
+  });
+
+  it("sanitizes provider cookie import provenance before storing it on managed sessions", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({
+      profile: "default",
+      disableSystemCookieBootstrap: true
+    });
+    const provenance = manager.recordProviderCookieImportProvenance(result.sessionId, {
+      policy: "required",
+      source: "file",
+      attempted: false,
+      available: false,
+      loadedCount: 0,
+      importedCount: 0,
+      rejectedCount: 0,
+      verifiedCount: 0,
+      strict: false,
+      sessionEvidence: "cookies_missing",
+      authStateVerified: false,
+      message: "Cookie file not found: /Users/alice/private/provider-cookies.json"
+    });
+    const provenanceJson = JSON.stringify(provenance);
+
+    expect(provenance.providerCookieImport).toMatchObject({
+      source: "file",
+      message: "cookie_source_unavailable"
+    });
+    expect(provenanceJson).not.toContain("/Users/");
+    expect(provenanceJson).not.toContain("alice");
+    expect(provenanceJson).not.toContain("provider-cookies.json");
+  });
+
+  it("rejects user-owned Google auth for managed launches", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launchCallsBefore = launchPersistentContext.mock.calls.length;
+    const cookieBootstrapCallsBefore = loadSystemChromeCookies.mock.calls.length;
+
+    await expect(manager.launch({
+      profile: "default",
+      googleAuthIntent: "user_owned_google"
+    })).rejects.toThrow("Google user-owned auth requires the extension /ops relay.");
+
+    expect(launchPersistentContext).toHaveBeenCalledTimes(launchCallsBefore);
+    expect(loadSystemChromeCookies).toHaveBeenCalledTimes(cookieBootstrapCallsBefore);
+  });
+
   it("skips invalid bootstrapped system Chrome cookies instead of failing the launch", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -948,6 +1038,180 @@ describe("BrowserManager", () => {
       sameSite: "Lax"
     }]);
     expect(result.warnings).toContain("System Chrome cookie bootstrap skipped 1 invalid cookies.");
+  });
+
+  it("keeps default managed cookie bootstrap enabled, skips Google-sensitive cookies, and sanitizes auth provenance", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    const googleCookie = {
+      name: "__Secure-3PSIDCC",
+      value: "private-google-cookie-value",
+      domain: ".accounts.google.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax" as const
+    };
+    const googleUrlCookie = {
+      name: "__Secure-3PSIDCC",
+      value: "private-google-url-cookie-value",
+      url: "https://mail.google.com/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax" as const
+    };
+    const nonSensitiveSameNameCookie = {
+      name: "__Secure-3PSIDCC",
+      value: "private-same-name-non-google-cookie-value",
+      domain: ".example.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax" as const
+    };
+    const nonGoogleCookie = {
+      name: "sessionid",
+      value: "private-non-google-cookie-value",
+      domain: ".example.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax" as const
+    };
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    loadSystemChromeCookies.mockResolvedValue({
+      cookies: [googleCookie, googleUrlCookie, nonSensitiveSameNameCookie, nonGoogleCookie],
+      source: {
+        browserName: "chrome",
+        userDataDir: "/Users/alice@example.com/Library/Application Support/Google/Chrome",
+        profileDirectory: "Profile 7 alice@example.com",
+        profilePath: "/Users/alice@example.com/Library/Application Support/Google/Chrome/Profile 7 alice@example.com"
+      },
+      warnings: []
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const result = await manager.launch({ profile: "default" });
+    const logCalls = [...logSpy.mock.calls];
+    logSpy.mockRestore();
+    const provenanceJson = JSON.stringify(result.diagnostics?.authProvenance);
+    const bootstrapAudit = logCalls
+      .map(([payload]) => typeof payload === "string" ? JSON.parse(payload) as unknown : null)
+      .find((payload) => isRecord(payload) && payload.event === "session.system_cookie_bootstrap");
+    const auditJson = JSON.stringify(bootstrapAudit);
+
+    expect(loadSystemChromeCookies).toHaveBeenCalledWith("/bin/chrome");
+    expect(context.addCookies).toHaveBeenCalledWith([nonSensitiveSameNameCookie, nonGoogleCookie]);
+    expect(result.diagnostics?.authProvenance).toMatchObject({
+      googleAuthIntent: "none",
+      profileSource: "managed_profile",
+      cookieBootstrap: {
+        attempted: true,
+        disabled: false,
+        importedCount: 2,
+        rejectedCount: 0,
+        skippedGoogleSensitiveCount: 2,
+        googleSensitiveCookiePolicy: "skip",
+        sourceBrowserName: "chrome"
+      }
+    });
+    expect(result.warnings).toContain("System Chrome cookie bootstrap skipped 2 Google-sensitive cookies.");
+    expect(provenanceJson).not.toContain("private-google-cookie-value");
+    expect(provenanceJson).not.toContain("private-google-url-cookie-value");
+    expect(provenanceJson).not.toContain("private-non-google-cookie-value");
+    expect(provenanceJson).not.toContain("private-same-name-non-google-cookie-value");
+    expect(provenanceJson).not.toContain("accounts.google.com");
+    expect(provenanceJson).not.toContain("mail.google.com");
+    expect(provenanceJson).not.toContain("/Users/");
+    expect(provenanceJson).not.toContain("Chrome/Profile");
+    expect(provenanceJson).not.toContain("alice@example.com");
+    expect(provenanceJson).not.toContain("Profile 7");
+    expect(provenanceJson).not.toContain("profileDirectory");
+    expect(provenanceJson).not.toContain("__Secure-3PSIDCC");
+    expect(provenanceJson).not.toContain("sessionid");
+    expect(bootstrapAudit).toMatchObject({
+      data: {
+        imported: 2,
+        skippedGoogleSensitive: 2,
+        source: {
+          browserName: "chrome"
+        }
+      }
+    });
+    expect(auditJson).not.toContain("private-google-cookie-value");
+    expect(auditJson).not.toContain("private-google-url-cookie-value");
+    expect(auditJson).not.toContain("private-non-google-cookie-value");
+    expect(auditJson).not.toContain("private-same-name-non-google-cookie-value");
+    expect(auditJson).not.toContain("mail.google.com");
+    expect(auditJson).not.toContain("/Users/");
+    expect(auditJson).not.toContain("Chrome/Profile");
+    expect(auditJson).not.toContain("alice@example.com");
+    expect(auditJson).not.toContain("Profile 7");
+    expect(auditJson).not.toContain("profileDirectory");
+    expect(auditJson).not.toContain("__Secure-3PSIDCC");
+    expect(auditJson).not.toContain("sessionid");
+    expect(auditJson).not.toContain("userDataDir");
+  });
+
+  it("allows Google-sensitive managed cookie bootstrap only with an explicit override", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+    const googleCookie = {
+      name: "__Secure-3PSIDCC",
+      value: "private-google-cookie-value",
+      domain: ".accounts.google.com",
+      path: "/",
+      expires: -1,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax" as const
+    };
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+    loadSystemChromeCookies.mockResolvedValue({
+      cookies: [googleCookie],
+      source: {
+        browserName: "chrome",
+        userDataDir: "/Users/alice@example.com/Library/Application Support/Google/Chrome",
+        profileDirectory: "Profile 7 alice@example.com",
+        profilePath: "/Users/alice@example.com/Library/Application Support/Google/Chrome/Profile 7 alice@example.com"
+      },
+      warnings: []
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({
+      profile: "default",
+      allowGoogleCookieBootstrap: true
+    });
+
+    expect(context.addCookies).toHaveBeenCalledWith([googleCookie]);
+    expect(result.diagnostics?.authProvenance.cookieBootstrap).toMatchObject({
+      attempted: true,
+      disabled: false,
+      importedCount: 1,
+      rejectedCount: 0,
+      skippedGoogleSensitiveCount: 0,
+      googleSensitiveCookiePolicy: "include",
+      sourceBrowserName: "chrome"
+    });
+    expect(result.warnings).not.toContain("System Chrome cookie bootstrap skipped 1 Google-sensitive cookies.");
   });
 
   it("updates tracker options when config changes", async () => {
@@ -1249,7 +1513,7 @@ describe("BrowserManager", () => {
     expect(result.mode).toBe("cdpConnect");
   });
 
-  it("imports system Chrome cookies into cdpConnect sessions", async () => {
+  it("imports non-Google system Chrome cookies into cdpConnect sessions and skips Google-sensitive cookies", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
     ];
@@ -1262,17 +1526,30 @@ describe("BrowserManager", () => {
 
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     connectOverCDP.mockResolvedValue(browser);
+    const nonGoogleCookie = {
+      name: "csrftoken",
+      value: "xyz789",
+      domain: ".instagram.com",
+      path: "/",
+      expires: -1,
+      httpOnly: false,
+      secure: true,
+      sameSite: "Lax" as const
+    };
     loadSystemChromeCookies.mockResolvedValue({
-      cookies: [{
-        name: "csrftoken",
-        value: "xyz789",
-        domain: ".instagram.com",
-        path: "/",
-        expires: -1,
-        httpOnly: false,
-        secure: true,
-        sameSite: "Lax"
-      }],
+      cookies: [
+        nonGoogleCookie,
+        {
+          name: "__Secure-3PSIDCC",
+          value: "private-google-cookie-value",
+          domain: ".accounts.google.com",
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax"
+        }
+      ],
       source: {
         browserName: "chrome",
         userDataDir: "/Users/test/Library/Application Support/Google/Chrome",
@@ -1288,17 +1565,151 @@ describe("BrowserManager", () => {
     const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
 
     expect(loadSystemChromeCookies).toHaveBeenCalledWith("/bin/chrome");
-    expect(context.addCookies).toHaveBeenCalledWith([{
-      name: "csrftoken",
-      value: "xyz789",
-      domain: ".instagram.com",
+    expect(context.addCookies).toHaveBeenCalledWith([nonGoogleCookie]);
+    expect(result.warnings).toContain("Imported cookies from system Chrome.");
+    expect(result.warnings).toContain("System Chrome cookie bootstrap skipped 1 Google-sensitive cookies.");
+    expect(result.diagnostics?.authProvenance.cookieBootstrap).toMatchObject({
+      importedCount: 1,
+      skippedGoogleSensitiveCount: 1,
+      googleSensitiveCookiePolicy: "skip"
+    });
+    expect(JSON.stringify(result.diagnostics?.authProvenance)).not.toContain("accounts.google.com");
+  });
+
+  it("allows Google-sensitive cdpConnect cookie bootstrap only with an explicit override", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    connectOverCDP.mockResolvedValue(browser);
+    const googleCookie = {
+      name: "__Secure-3PSIDCC",
+      value: "private-google-cookie-value",
+      domain: ".accounts.google.com",
       path: "/",
       expires: -1,
-      httpOnly: false,
+      httpOnly: true,
       secure: true,
-      sameSite: "Lax"
-    }]);
-    expect(result.warnings).toContain("Imported cookies from system Chrome.");
+      sameSite: "Lax" as const
+    };
+    loadSystemChromeCookies.mockResolvedValue({
+      cookies: [googleCookie],
+      source: {
+        browserName: "chrome",
+        userDataDir: "/Users/test/Library/Application Support/Google/Chrome",
+        profileDirectory: "Default",
+        profilePath: "/Users/test/Library/Application Support/Google/Chrome/Default"
+      },
+      warnings: []
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connect({
+      host: "127.0.0.1",
+      port: 9222,
+      allowGoogleCookieBootstrap: true
+    });
+
+    expect(loadSystemChromeCookies).toHaveBeenCalledWith("/bin/chrome");
+    expect(context.addCookies).toHaveBeenCalledWith([googleCookie]);
+    expect(result.warnings).not.toContain("System Chrome cookie bootstrap skipped 1 Google-sensitive cookies.");
+    expect(result.diagnostics?.authProvenance.cookieBootstrap).toMatchObject({
+      importedCount: 1,
+      skippedGoogleSensitiveCount: 0,
+      googleSensitiveCookiePolicy: "include"
+    });
+  });
+
+  it("keeps default cdpConnect cookie bootstrap enabled", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connect({ host: "127.0.0.1", port: 9222 });
+
+    expect(loadSystemChromeCookies).toHaveBeenCalledWith("/bin/chrome");
+    expect(result.diagnostics?.authProvenance.cookieBootstrap).toMatchObject({
+      attempted: true,
+      disabled: false
+    });
+  });
+
+  it("skips system Chrome cookies for cdpConnect when disabled and reports sanitized provenance", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser, context } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser" })
+    }) as never;
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connect({
+      host: "127.0.0.1",
+      port: 9222,
+      disableSystemCookieBootstrap: true
+    });
+
+    expect(loadSystemChromeCookies).not.toHaveBeenCalled();
+    expect(context.addCookies).not.toHaveBeenCalled();
+    expect(result.warnings).toContain("System Chrome cookie bootstrap disabled for this run.");
+    expect(result.diagnostics?.authProvenance).toEqual({
+      googleAuthIntent: "none",
+      profileSource: "cdp_connected_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: true,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    });
+  });
+
+  it("rejects user-owned Google auth for direct CDP connect", async () => {
+    globalThis.fetch = vi.fn() as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const connectCallsBefore = connectOverCDP.mock.calls.length;
+    const cookieBootstrapCallsBefore = loadSystemChromeCookies.mock.calls.length;
+
+    await expect(manager.connect({
+      host: "127.0.0.1",
+      port: 9222,
+      googleAuthIntent: "user_owned_google"
+    })).rejects.toThrow("Google user-owned auth requires the extension /ops relay.");
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(connectOverCDP).toHaveBeenCalledTimes(connectCallsBefore);
+    expect(loadSystemChromeCookies).toHaveBeenCalledTimes(cookieBootstrapCallsBefore);
   });
 
   it("opens startUrl after direct CDP connect", async () => {
@@ -1352,6 +1763,55 @@ describe("BrowserManager", () => {
     expect(result.mode).toBe("extension");
     expect(connectOverCDP).toHaveBeenCalledWith("ws://127.0.0.1:8787/cdp?token=secret-token");
     expect(result.wsEndpoint).toBe("ws://127.0.0.1:8787/cdp");
+  });
+
+  it("reports live extension profile provenance without bootstrap-disabled warning", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ relayPort: 8787, pairingRequired: false })
+      }) as never;
+
+    connectOverCDP.mockResolvedValue(browser);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/cdp");
+
+    expect(loadSystemChromeCookies).not.toHaveBeenCalled();
+    expect(result.warnings).not.toContain("System Chrome cookie bootstrap disabled for this run.");
+    expect(result.diagnostics?.authProvenance).toEqual({
+      googleAuthIntent: "none",
+      profileSource: "live_extension_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    });
+  });
+
+  it("rejects user-owned Google auth for legacy relay connect", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as never);
+    const connectCallsBefore = connectOverCDP.mock.calls.length;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp", {
+      googleAuthIntent: "user_owned_google"
+    })).rejects.toThrow("Google user-owned auth requires the extension /ops relay.");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(connectOverCDP).toHaveBeenCalledTimes(connectCallsBefore);
   });
 
   it("still attempts legacy /cdp connect when relay status only reports unrelated /ops clients", async () => {
@@ -11800,6 +12260,11 @@ describe("BrowserManager", () => {
 
     expect(partial.imported).toBe(1);
     expect(partial.rejected.length).toBe(1);
+    expect(partial.diagnostics?.authProvenance).toMatchObject({
+      explicitCookieImportAttempted: true
+    });
+    expect(JSON.stringify(partial.diagnostics?.authProvenance)).not.toContain("abc123");
+    expect(JSON.stringify(partial.diagnostics?.authProvenance)).not.toContain("session");
     expect(context.addCookies).toHaveBeenCalledWith([
       expect.objectContaining({ name: "session", value: "abc123" })
     ]);
@@ -11891,11 +12356,18 @@ describe("BrowserManager", () => {
       false,
       "req-cookie-noop"
     );
-    expect(imported).toEqual({
+    expect(imported).toMatchObject({
       requestId: "req-cookie-noop",
       imported: 0,
-      rejected: [{ index: 0, reason: "Cookie bad requires url or domain." }]
+      rejected: [{ index: 0, reason: "Cookie bad requires url or domain." }],
+      diagnostics: {
+        authProvenance: {
+          explicitCookieImportAttempted: true
+        }
+      }
     });
+    expect(JSON.stringify(imported.diagnostics?.authProvenance)).not.toContain("abc123");
+    expect(JSON.stringify(imported.diagnostics?.authProvenance)).not.toContain("session");
     expect(context.addCookies).not.toHaveBeenCalled();
 
     const listed = await manager.cookieList(launch.sessionId, undefined, "req-cookie-list-all");

@@ -132,7 +132,22 @@ export const HELP_FLAG_GROUPS: readonly FlagGroup[] = [
       { flag: "--extension-only", description: "Fail unless the extension relay websocket is connected and the daemon-extension handshake is complete." },
       { flag: "--extension-legacy", description: "Use the legacy /cdp relay mode instead of /ops." },
       { flag: "--wait-for-extension", description: "Wait for a clean daemon-extension handshake before returning." },
-      { flag: "--wait-timeout-ms", description: "Handshake wait timeout in milliseconds." }
+      { flag: "--wait-timeout-ms", description: "Handshake wait timeout in milliseconds." },
+      {
+        flag: "--google-auth-intent",
+        description: "Set to user-owned when a run must reuse user-owned Google OAuth state. Requires extension /ops, fails closed for managed, headless, legacy /cdp, and direct CDP, and reports sanitized diagnostics.authProvenance.",
+        example: "opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension"
+      },
+      {
+        flag: "--disable-system-cookie-bootstrap",
+        description: "Skip best-effort managed or direct cdpConnect readable system cookie bootstrap for this run; copied cookies are not Google auth proof.",
+        example: "opendevbrowser launch --no-extension --disable-system-cookie-bootstrap"
+      },
+      {
+        flag: "--allow-google-cookie-bootstrap",
+        description: "Diagnostic override to explicitly import Google-sensitive cookies in managed or direct cdpConnect; Google-sensitive cookies are skipped by default and copied cookies are not Google auth proof. Results still expose only sanitized diagnostics.authProvenance.",
+        example: "opendevbrowser launch --no-extension --allow-google-cookie-bootstrap"
+      }
     ]
   },
   {

@@ -132,4 +132,52 @@ describe("public surface manifest", () => {
     expect(helpText).toContain("Treat media-analysis.json as design facts only");
     expect(helpText).toContain("raw media-analysis fields must not enter canvas-plan.request.json");
   });
+
+  it("documents Google OAuth session continuity flags, tool args, and safe guidance", () => {
+    const launchCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "launch");
+    const connectCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "connect");
+    const launchTool = GENERATED_MANIFEST.tools.entries.find((entry) => entry.name === "opendevbrowser_launch");
+    const connectTool = GENERATED_MANIFEST.tools.entries.find((entry) => entry.name === "opendevbrowser_connect");
+    const publicText = [
+      launchCommand?.usage,
+      launchCommand?.flags.join(" "),
+      launchCommand?.examples.join(" "),
+      launchCommand?.notes.join(" "),
+      connectCommand?.usage,
+      connectCommand?.flags.join(" "),
+      connectCommand?.examples.join(" "),
+      connectCommand?.notes.join(" "),
+      launchTool?.example,
+      launchTool?.notes?.join(" "),
+      connectTool?.example,
+      connectTool?.notes?.join(" ")
+    ].join("\n");
+
+    expect(launchCommand?.flags).toEqual(expect.arrayContaining([
+      "--google-auth-intent",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ]));
+    expect(connectCommand?.flags).toEqual(expect.arrayContaining([
+      "--google-auth-intent",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ]));
+    expect(publicText).toContain("--google-auth-intent user-owned");
+    expect(publicText).toContain("--disable-system-cookie-bootstrap");
+    expect(publicText).toContain("--allow-google-cookie-bootstrap");
+    expect(publicText).toContain("googleAuthIntent");
+    expect(publicText).toContain("disableSystemCookieBootstrap");
+    expect(publicText).toContain("allowGoogleCookieBootstrap");
+    expect(publicText).toContain("extension /ops");
+    expect(publicText).toContain("copied cookies are not Google auth proof");
+    expect(publicText).toContain("Google-sensitive cookies are skipped by default");
+    expect(publicText).toContain("targets-list --include-urls");
+    expect(publicText).toContain("target-use --target-id <target-id>");
+    expect(publicText).toContain("diagnostics.authProvenance");
+
+    for (const forbidden of ["stealth", "bypass", "CAPTCHA bypass", "UA spoofing", "cookie theft"]) {
+      expect(publicText.toLowerCase()).not.toContain(forbidden.toLowerCase());
+    }
+  });
 });

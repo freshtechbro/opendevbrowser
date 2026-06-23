@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
+import type { BrowserCookieImportResult } from "../browser/manager-types";
 import { createRequestId } from "../core/logging";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
@@ -24,7 +25,7 @@ type CookieImportCapableManager = {
     cookies: CookieRecord[],
     strict?: boolean,
     requestId?: string
-  ) => Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }>;
+  ) => Promise<BrowserCookieImportResult>;
 };
 
 type CookieValidationResult = {

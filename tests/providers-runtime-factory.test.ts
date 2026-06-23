@@ -666,6 +666,241 @@ describe("provider runtime factory", () => {
     expect(waitForTimeout).toHaveBeenCalledTimes(1);
   });
 
+  it("passes user-owned Google auth intent during extension fallback attach", async () => {
+    const requestUrl = "https://www.google.com/search?q=alice@example.com&state=private-state";
+    const googleAuthProvenance = {
+      googleAuthIntent: "user_owned_google",
+      profileSource: "live_extension_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    } as const;
+    const manager = {
+      connectRelay: vi.fn(async () => ({
+        sessionId: "google-extension-fallback",
+        diagnostics: { authProvenance: googleAuthProvenance }
+      })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePageHtmlWithOptions: vi.fn(async () => ({
+        html: "<html><head><title>Google results</title></head><body><main><h1>Search results</h1><p>Recovered browser automation content with enough body text to be classified as a normal result page.</p><a href=\"https://example.com/result\">Result</a></main></body></html>"
+      })),
+      clonePage: vi.fn(async () => ({ component: "", css: "" })),
+      status: vi.fn(async () => ({ mode: "extension", url: requestUrl })),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "social/youtube",
+      source: "social",
+      operation: "fetch",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-user-owned-extension", ts: "2026-06-22T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { googleAuthIntent: "user_owned_google" }
+      })
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><head><title>Google results</title></head><body><main><h1>Search results</h1><p>Recovered browser automation content with enough body text to be classified as a normal result page.</p><a href=\"https://example.com/result\">Result</a></main></body></html>",
+        url: "https://www.google.com/"
+      },
+      details: {
+        authProvenance: googleAuthProvenance
+      }
+    });
+    const responseJson = JSON.stringify(response);
+    expect(responseJson).not.toContain("alice@example.com");
+    expect(responseJson).not.toContain("private-state");
+    expect(responseJson).not.toContain("?q=");
+    expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops", {
+      startUrl: requestUrl,
+      googleAuthIntent: "user_owned_google"
+    });
+  });
+
+  it("preserves user-owned Google auth intent during restricted extension reattach", async () => {
+    const requestUrl = "https://www.google.com/search?q=alice@example.com&state=private-state";
+    const initialAuthProvenance = {
+      googleAuthIntent: "user_owned_google",
+      profileSource: "live_extension_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    } as const;
+    const recoveredAuthProvenance = {
+      ...initialAuthProvenance,
+      explicitCookieImportAttempted: false
+    } as const;
+    const manager = {
+      connectRelay: vi
+        .fn()
+        .mockResolvedValueOnce({
+          sessionId: "google-restricted-1",
+          diagnostics: { authProvenance: initialAuthProvenance }
+        })
+        .mockResolvedValueOnce({
+          sessionId: "google-restricted-2",
+          diagnostics: { authProvenance: recoveredAuthProvenance }
+        }),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async () => {
+        throw new Error("Direct annotate is unavailable via extension ops sessions.");
+      }),
+      clonePageHtmlWithOptions: vi.fn(async () => ({
+        html: "<html><head><title>Google results</title></head><body><main><h1>Search results</h1><p>Recovered browser automation content with enough body text to be classified as a normal result page.</p><a href=\"https://example.com/result\">Result</a></main></body></html>"
+      })),
+      clonePage: vi.fn(async () => ({ component: "", css: "" })),
+      status: vi.fn(async (sessionId: string) => sessionId === "google-restricted-1"
+        ? { mode: "extension", url: "chrome://newtab/" }
+        : { mode: "extension", url: requestUrl }),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/google",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-user-owned-reattach", ts: "2026-06-22T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "shopping",
+        runtimePolicy: { googleAuthIntent: "user_owned_google" }
+      })
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      mode: "extension",
+      output: {
+        html: "<html><head><title>Google results</title></head><body><main><h1>Search results</h1><p>Recovered browser automation content with enough body text to be classified as a normal result page.</p><a href=\"https://example.com/result\">Result</a></main></body></html>",
+        url: "https://www.google.com/"
+      },
+      details: {
+        authProvenance: recoveredAuthProvenance
+      }
+    });
+    const responseJson = JSON.stringify(response);
+    expect(responseJson).not.toContain("alice@example.com");
+    expect(responseJson).not.toContain("private-state");
+    expect(responseJson).not.toContain("?q=");
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:8787/ops", {
+      startUrl: requestUrl,
+      googleAuthIntent: "user_owned_google"
+    });
+    expect(manager.connectRelay).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:8787/ops", {
+      startUrl: requestUrl,
+      googleAuthIntent: "user_owned_google"
+    });
+  });
+
+  it("sanitizes user-owned Google extension mismatch URL diagnostics", async () => {
+    const requestUrl = "https://www.google.com/search?q=alice@example.com&state=private-state";
+    const observedUrl = "https://example.com/home?email=alice@example.com";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "google-extension-mismatch" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      status: vi.fn(async () => ({ mode: "extension", url: observedUrl })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/google",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-user-owned-mismatch", ts: "2026-06-22T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { googleAuthIntent: "user_owned_google" }
+      })
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      disposition: "deferred",
+      mode: "extension",
+      details: {
+        requestedUrl: "https://www.google.com/",
+        observedUrl: "https://example.com/",
+        extensionTransportRequired: true
+      }
+    });
+    const responseJson = JSON.stringify(response);
+    expect(responseJson).not.toContain("alice@example.com");
+    expect(responseJson).not.toContain("private-state");
+    expect(responseJson).not.toContain("?q=");
+  });
+
+  it.each([
+    ["about page", "about:blank", "about:blank"],
+    ["extension page", "chrome-extension://abcdefghijklmnop/private.html?email=alice@example.com", "chrome-extension://abcdefghijklmnop/"],
+    ["data page", "data:text/html,alice@example.com", "data:redacted_url"],
+    ["malformed page", "not a url with alice@example.com", "redacted_url"]
+  ])("sanitizes user-owned Google extension mismatch diagnostics for %s", async (_label, observedUrl, sanitizedObservedUrl) => {
+    const requestUrl = "https://www.google.com/search?q=alice@example.com&state=private-state";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "google-extension-mismatch" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      status: vi.fn(async () => ({ mode: "extension", url: observedUrl })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/google",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-user-owned-mismatch-edge", ts: "2026-06-22T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { googleAuthIntent: "user_owned_google" }
+      })
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "env_limited",
+      disposition: "deferred",
+      mode: "extension",
+      details: {
+        requestedUrl: "https://www.google.com/",
+        observedUrl: sanitizedObservedUrl,
+        extensionTransportRequired: true
+      }
+    });
+    const responseJson = JSON.stringify(response);
+    expect(responseJson).not.toContain("alice@example.com");
+    expect(responseJson).not.toContain("private-state");
+    expect(responseJson).not.toContain("?email=");
+    expect(responseJson).not.toContain("?q=");
+  });
+
   it("uses startUrl during explicit shopping extension attach", async () => {
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "managed-should-not-launch" })),
@@ -5178,7 +5413,8 @@ describe("provider runtime factory", () => {
         cookieDiagnostics: {
           policy: "auto",
           attempted: false,
-          message: expect.stringContaining("Cookie file read failed")
+          sourceRef: "file",
+          message: "cookie_source_unavailable"
         }
       }
     });
@@ -5189,6 +5425,30 @@ describe("provider runtime factory", () => {
   it("supports env cookie source for required policy across missing, invalid, and valid payloads", async () => {
     const envKey = "ODB_PROVIDER_COOKIES_TEST";
     const original = process.env[envKey];
+    const canonicalAuthProvenance = {
+      googleAuthIntent: "none",
+      profileSource: "managed_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      },
+      providerCookieImport: {
+        policy: "required",
+        source: "env",
+        attempted: true,
+        available: true,
+        loadedCount: 1,
+        importedCount: 1,
+        rejectedCount: 0,
+        verifiedCount: 1,
+        strict: false,
+        sessionEvidence: "cookies_observable",
+        authStateVerified: false
+      }
+    } as const;
+    const recordProviderCookieImportProvenance = vi.fn(() => canonicalAuthProvenance);
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "cookie-env-flow" })),
       goto: vi.fn(async () => ({ ok: true })),
@@ -5198,7 +5458,8 @@ describe("provider runtime factory", () => {
       status: vi.fn(async () => ({ mode: "managed", url: "https://example.com/protected" })),
       disconnect: vi.fn(async () => undefined),
       cookieImport: vi.fn(async () => ({ requestId: "import", imported: 1, rejected: [] })),
-      cookieList: vi.fn(async () => ({ requestId: "list", cookies: [], count: 1 }))
+      cookieList: vi.fn(async () => ({ requestId: "list", cookies: [], count: 1 })),
+      recordProviderCookieImportProvenance
     } as unknown as BrowserManagerLike;
 
     const port = createBrowserFallbackPort(manager, {
@@ -5261,9 +5522,19 @@ describe("provider runtime factory", () => {
             loaded: 1,
             injected: 1,
             verifiedCount: 1
-          }
+          },
+          authProvenance: canonicalAuthProvenance
         }
       });
+      expect(recordProviderCookieImportProvenance).toHaveBeenLastCalledWith(
+        "cookie-env-flow",
+        expect.objectContaining({
+          source: "env",
+          loadedCount: 1,
+          importedCount: 1,
+          verifiedCount: 1
+        })
+      );
     } finally {
       if (typeof original === "undefined") {
         delete process.env[envKey];
@@ -5273,7 +5544,7 @@ describe("provider runtime factory", () => {
     }
   });
 
-  it("expands home-only cookie file source refs in diagnostics", async () => {
+  it("redacts home-only cookie file source refs in diagnostics", async () => {
     const manager = {
       launch: vi.fn(async () => ({ sessionId: "cookie-home-ref" })),
       goto: vi.fn(async () => ({ ok: true })),
@@ -5305,11 +5576,12 @@ describe("provider runtime factory", () => {
       ok: true,
       details: {
         cookieDiagnostics: {
-          sourceRef: os.homedir(),
+          sourceRef: "file",
           policy: "off"
         }
       }
     });
+    expect(JSON.stringify(response?.details?.cookieDiagnostics)).not.toContain(os.homedir());
   });
 
   it("surfaces non-Error env cookie parse failures deterministically", async () => {
@@ -5351,11 +5623,14 @@ describe("provider runtime factory", () => {
         ok: false,
         reasonCode: "auth_required",
         details: {
+          message: "cookie_source_unavailable",
           cookieDiagnostics: {
-            message: expect.stringContaining("json-parse-threw-string")
+            message: "cookie_source_unavailable"
           }
         }
       });
+      expect(JSON.stringify(response?.details)).not.toContain(envKey);
+      expect(JSON.stringify(response?.details?.cookieDiagnostics)).not.toContain("json-parse-threw-string");
     } finally {
       parseSpy.mockRestore();
       if (typeof original === "undefined") {
@@ -5408,10 +5683,15 @@ describe("provider runtime factory", () => {
         ok: true,
         details: {
           cookieDiagnostics: {
-            message: expect.stringContaining("file-json-string-error")
+            sourceRef: "file",
+            message: "cookie_source_unavailable"
           }
         }
       });
+      const diagnosticsJson = JSON.stringify(response?.details?.cookieDiagnostics);
+      expect(diagnosticsJson).not.toContain(filePath);
+      expect(diagnosticsJson).not.toContain(tmpDir);
+      expect(diagnosticsJson).not.toContain("file-json-string-error");
     } finally {
       parseSpy.mockRestore();
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -5454,12 +5734,27 @@ describe("provider runtime factory", () => {
         ok: false,
         reasonCode: "auth_required",
         details: {
+          message: "cookie_source_unavailable",
           cookieDiagnostics: {
             loaded: 0,
-            message: `Cookie file is empty: ${filePath}`
+            sourceRef: "file",
+            message: "cookie_source_unavailable"
+          },
+          authProvenance: {
+            providerCookieImport: {
+              source: "file",
+              reasonCode: "auth_required",
+              message: "auth_required"
+            }
           }
         }
       });
+      expect(JSON.stringify(response?.details)).not.toContain(filePath);
+      expect(JSON.stringify(response?.details)).not.toContain(tmpDir);
+      expect(JSON.stringify(response?.details?.cookieDiagnostics)).not.toContain(filePath);
+      expect(JSON.stringify(response?.details?.cookieDiagnostics)).not.toContain(tmpDir);
+      expect(JSON.stringify(response?.details?.authProvenance)).not.toContain(filePath);
+      expect(JSON.stringify(response?.details?.authProvenance)).not.toContain(tmpDir);
       expect(manager.cookieImport).not.toHaveBeenCalled();
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });

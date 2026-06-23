@@ -229,8 +229,18 @@ Mode/session reuse matrix before first navigation:
 | Mode | Session reuse behavior | `cookie-import` role |
 | --- | --- | --- |
 | `extension` | Reuses the attached live tab or profile state. No system bootstrap runs in this mode. | Explicit add/override only after session creation. |
-| `managed` | Attempts readable system Chrome-family cookie bootstrap before first navigation. | Explicit add/override only after session creation. |
-| `cdpConnect` | Attempts readable system Chrome-family cookie bootstrap before first navigation. | Explicit add/override only after session creation. |
+| `managed` | Makes a best-effort attempt to bootstrap readable system Chrome-family cookies before first navigation unless `--disable-system-cookie-bootstrap` is set. | Explicit add/override only after session creation. |
+| `cdpConnect` | Makes a best-effort attempt to bootstrap readable system Chrome-family cookies before first navigation unless `--disable-system-cookie-bootstrap` is set. | Explicit add/override only after session creation. |
+
+Managed and `cdpConnect` default behavior: best-effort readable system Chrome-family cookie bootstrap before first navigation, with Google-sensitive cookies skipped unless `--allow-google-cookie-bootstrap` is explicitly set for diagnostics. Add `--disable-system-cookie-bootstrap` when the first-run proof must avoid copied browser cookies.
+
+For user-owned Google OAuth continuity, start with extension `/ops`:
+
+```bash
+npx --no-install opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension --output-format json
+```
+
+`--google-auth-intent user-owned` fails closed for `--no-extension`, `--headless`, `--extension-legacy`, and direct CDP. Managed/CDP copied cookies are not Google auth proof. If a Google sign-in or account chooser opens a popup, run `targets-list --include-urls`, then `target-use --target-id <target-id>`. Inspect sanitized `diagnostics.authProvenance`; do not record private cookies, tokens, account identifiers, full profile paths, or account screenshots.
 
 ```bash
 npx --no-install opendevbrowser cookie-import --session-id "$SESSION_ID" --cookies-file ./cookies.json --strict --output-format json
@@ -244,13 +254,13 @@ This validates explicit cookie add/override behavior plus cookie enumeration. Au
 Managed:
 - `target-new` multiple social tabs
 - `target-use` + `goto` + `snapshot` per target
-- reuse baseline: attempts readable system Chrome-family cookie bootstrap before first navigation
+- reuse baseline: best-effort readable system Chrome-family cookie bootstrap before first navigation unless `--disable-system-cookie-bootstrap` is set
 
 CDPConnect:
 - start Chrome with `--remote-debugging-port`
 - `connect --cdp-port <port>`
 - repeat `target-new`/`target-use`/`goto`/`debug-trace-snapshot`
-- reuse baseline: attempts readable system Chrome-family cookie bootstrap before first navigation
+- reuse baseline: best-effort readable system Chrome-family cookie bootstrap before first navigation unless `--disable-system-cookie-bootstrap` is set
 
 Extension:
 - `launch --extension-only --wait-for-extension`

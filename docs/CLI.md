@@ -706,6 +706,9 @@ npx opendevbrowser launch --extension-only
 npx opendevbrowser launch --no-extension
 npx opendevbrowser launch --extension-legacy
 npx opendevbrowser launch --wait-for-extension --wait-timeout-ms 30000
+npx opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension
+npx opendevbrowser launch --no-extension --disable-system-cookie-bootstrap
+npx opendevbrowser launch --no-extension --allow-google-cookie-bootstrap
 ```
 
 Flags:
@@ -720,15 +723,24 @@ Flags:
 - `--extension-legacy`
 - `--wait-for-extension`
 - `--wait-timeout-ms`
+- `--google-auth-intent user-owned`
+- `--disable-system-cookie-bootstrap`
+- `--allow-google-cookie-bootstrap`
 
 Default behavior:
 - Extension relay (`extension` mode) is the default when available, using the `/ops` WebSocket.
 - If the extension is not connected, launch fails with guidance and exact commands for the explicit alternatives.
 - Headless is never the default.
 - Extension headless is unsupported. `launch --headless` must be paired with `--no-extension`; extension-intent headless requests fail with `unsupported_mode`.
+- `--google-auth-intent user-owned` is for runs that must reuse a user-owned Google OAuth session. It requires extension `/ops` against the live Chrome profile and fails closed for `--no-extension`, `--headless`, `--extension-legacy`, and direct CDP.
 - When hub mode is enabled, there is no local relay fallback. If the hub is unavailable, commands fail with guidance.
 - Extension relay requires Chrome 125+ (flat CDP sessions).
-- Managed and `cdpConnect` sessions automatically try to bootstrap readable cookies from the discovered system Chrome-family profile before first navigation. Extension mode reuses the already logged-in tab or profile instead of importing cookies.
+- Managed and `cdpConnect` sessions make a best-effort attempt to bootstrap readable cookies from the discovered system Chrome-family profile before first navigation unless `--disable-system-cookie-bootstrap` is set. Extension mode reuses the already logged-in tab or profile instead of importing cookies.
+- Google-sensitive cookies are skipped by default during managed and direct `cdpConnect` bootstrap; `--allow-google-cookie-bootstrap` is a diagnostic override for runs that explicitly accept that risk.
+- Managed/CDP cookie bootstrap is best-effort and copies readable cookies only. Copied cookies are not Google auth proof and are not a substitute for extension `/ops` when the task depends on user-owned Google OAuth continuity.
+- Launch and connect results expose sanitized `diagnostics.authProvenance`. Do not use or record private cookies, tokens, account identifiers, full profile paths, or account screenshots.
+- If a Google OAuth flow appears to cause perceived logout or auth invalidation, use the extension `/ops` path above and keep managed/CDP cookie bootstrap disabled while investigating.
+- After Google sign-in or account chooser actions, recover the OAuth popup by running `targets-list --include-urls`, then `target-use --target-id <target-id>` for the chosen target.
 - For isolated automation harnesses that rely on browser startup flags such as `--disable-extensions-except`, prefer Chromium or Chrome for Testing. Google Chrome stable may ignore those flags.
 
 Interactive vs non-interactive:
@@ -758,6 +770,9 @@ Interactive vs non-interactive:
 ```bash
 npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/...
 npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222
+npx opendevbrowser connect --google-auth-intent user-owned --ws-endpoint ws://127.0.0.1:8787/ops
+npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --disable-system-cookie-bootstrap
+npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --allow-google-cookie-bootstrap
 ```
 
 This command starts a `cdpConnect` session (attach to an existing Chrome with remote debugging enabled).
@@ -766,7 +781,9 @@ the CLI will normalize to `/ops` and route through the extension relay (`extensi
 Use `--extension-legacy` if you need the legacy `/cdp` relay path.
 When routing through the relay, the CLI automatically fetches relay config and the pairing token (if required) and authenticates
 the `/ops` or `/cdp` connection. Direct relay websocket connections without a token are rejected when pairing is enabled.
-Direct `cdpConnect` sessions use the same automatic Chrome-family cookie bootstrap path as managed launches.
+Direct `cdpConnect` sessions use the same best-effort Chrome-family cookie bootstrap path as managed launches.
+`--google-auth-intent user-owned` requires extension `/ops` and fails closed for direct CDP and `--extension-legacy`.
+Use `--disable-system-cookie-bootstrap` when a managed or direct `cdpConnect` run should not copy readable system Chrome-family cookies. Use `--allow-google-cookie-bootstrap` only when a diagnostic run explicitly accepts importing Google-sensitive cookies. Copied cookies are not Google auth proof.
 
 ### Relay binding queue
 
@@ -1614,6 +1631,9 @@ Notes:
 | `--extension-legacy` | `launch`, `connect` | Use legacy extension relay (`/cdp`) |
 | `--wait-for-extension` | `launch` | Wait for extension handshake |
 | `--wait-timeout-ms` | `launch` | Max wait for extension handshake |
+| `--google-auth-intent` | `launch`, `connect` | `user-owned` requires extension `/ops` for user-owned Google OAuth continuity and fails closed for managed, headless, legacy `/cdp`, and direct CDP |
+| `--disable-system-cookie-bootstrap` | `launch`, `connect` | Skip managed or direct `cdpConnect` readable system cookie bootstrap for this run |
+| `--allow-google-cookie-bootstrap` | `launch`, `connect` | Diagnostic override to explicitly include Google-sensitive cookies in managed or direct `cdpConnect` bootstrap |
 | `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
 | `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
 | `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |

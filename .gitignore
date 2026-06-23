@@ -69,6 +69,7 @@ sub_continuity.md
 .auto-claude/
 
 # Local planning artifacts
+.omo/
 .sisyphus/
 .factory/
 prd.json

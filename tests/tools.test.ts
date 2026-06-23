@@ -1399,6 +1399,68 @@ describe("tools", () => {
     expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay");
   });
 
+  it("forwards user-owned Google auth intent for ready ops relay launches", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: true }),
+      getOpsUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({
+      googleAuthIntent: "user-owned"
+    } as never));
+
+    expect(launchResult.mode).toBe("extension");
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://relay", {
+      googleAuthIntent: "user_owned_google"
+    });
+  });
+
+  it.each([
+    ["noExtension", { noExtension: true }],
+    ["headless", { headless: true }],
+    ["extensionLegacy", { extensionLegacy: true }]
+  ])("rejects user-owned Google auth relay launches with %s", async (_label, unsafeMode) => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: true }),
+      getOpsUrl: () => "ws://relay",
+      getCdpUrl: () => "ws://relay-legacy"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({
+      ...unsafeMode,
+      googleAuthIntent: "user-owned"
+    } as never));
+
+    expect(launchResult.ok).toBe(false);
+    expect(String(launchResult.error?.message)).toContain("Google user-owned auth requires the extension /ops relay");
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+    expect(deps.manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("requires completed handshake for user-owned Google auth relay launches", async () => {
+    const deps = createDeps();
+    const relay = {
+      status: () => ({ extensionConnected: true, extensionHandshakeComplete: false }),
+      getOpsUrl: () => "ws://relay"
+    };
+    const { createTools } = await import("../src/tools");
+    const tools = createTools({ ...deps, relay } as never);
+
+    const launchResult = parse(await tools.opendevbrowser_launch.execute({
+      googleAuthIntent: "user-owned"
+    } as never));
+
+    expect(launchResult.ok).toBe(false);
+    expect(String(launchResult.error?.message)).toContain("Google user-owned auth requires the extension /ops relay");
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+  });
+
   it("uses legacy relay when extensionLegacy is set", async () => {
     const deps = createDeps();
     const relay = {

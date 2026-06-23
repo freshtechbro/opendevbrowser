@@ -3,7 +3,9 @@ import { randomUUID } from "crypto";
 import { join } from "path";
 import { requireChallengeOrchestrationConfig, type OpenDevBrowserConfig } from "../config";
 import { createLogger, createRequestId } from "../core/logging";
+import { DEFAULT_GOOGLE_AUTH_INTENT } from "../core/auth-intent";
 import { resolveRelayEndpoint, sanitizeWsEndpoint } from "../relay/relay-endpoints";
+import { sanitizeProviderCookieImportProvenance } from "./auth-provenance";
 import type { ParallelismGovernorPolicyPayload } from "../relay/protocol";
 import {
   ChallengeOrchestrator,
@@ -21,9 +23,13 @@ import type {
   BrowserCanvasOverlayResult,
   BrowserCanvasOverlaySelectInput,
   BrowserCanvasOverlaySyncInput,
+  BrowserAuthSessionOptions,
+  BrowserAuthProvenanceDiagnostics,
+  BrowserCookieImportResult,
   BrowserManagerLike,
   BrowserPinterestPinMediaOptions,
   BrowserPinterestPinMediaResult,
+  BrowserProviderCookieImportProvenance,
   BrowserResponseMeta,
   BrowserScreencastResult,
   BrowserScreencastSession,
@@ -91,6 +97,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
   private opsEndpoint: string | null = null;
   private opsSessions = new Set<string>();
   private opsLeases = new Map<string, string>();
+  private authProvenanceBySession = new Map<string, BrowserAuthProvenanceDiagnostics>();
   private opsProtocolSessions = new Map<string, string>();
   private publicSessionIdsByProtocolId = new Map<string, string>();
   private opsSessionTabs = new Map<string, number>();
@@ -253,13 +260,20 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return this.base.connect(options);
   }
 
-  async connectRelay(wsEndpoint: string, options?: { startUrl?: string }): ReturnType<BrowserManagerLike["connectRelay"]> {
+  async connectRelay(
+    wsEndpoint: string,
+    options?: { startUrl?: string } & BrowserAuthSessionOptions
+  ): ReturnType<BrowserManagerLike["connectRelay"]> {
     const endpoint = new URL(wsEndpoint);
     if (endpoint.pathname.endsWith("/cdp")) {
-      return options?.startUrl
+      if (options?.googleAuthIntent === "user_owned_google") {
+        throw new Error("Google user-owned auth requires the extension /ops relay.");
+      }
+      return options && Object.keys(options).length > 0
         ? this.base.connectRelay(wsEndpoint, options)
         : this.base.connectRelay(wsEndpoint);
     }
+    const googleAuthIntent = options?.googleAuthIntent ?? DEFAULT_GOOGLE_AUTH_INTENT;
 
     const { connectEndpoint, reportedEndpoint } = await resolveRelayEndpoint({
       wsEndpoint,
@@ -289,14 +303,48 @@ export class OpsBrowserManager implements BrowserManagerLike {
     this.rememberReconnectTarget(sessionId, result.activeTargetId ?? null, true);
     this.rememberSessionUrl(sessionId, result.url);
     this.trackClosedSessionCleanup();
+    const authProvenance = this.createOpsAuthProvenance(googleAuthIntent);
+    this.authProvenanceBySession.set(sessionId, authProvenance);
     return {
       sessionId,
       mode: "extension",
       activeTargetId: result.activeTargetId ?? null,
       warnings: [],
       leaseId: result.leaseId ?? leaseId,
+      diagnostics: {
+        authProvenance
+      },
       wsEndpoint: sanitizeWsEndpoint(reportedEndpoint)
     };
+  }
+
+  private createOpsAuthProvenance(
+    googleAuthIntent = DEFAULT_GOOGLE_AUTH_INTENT
+  ): BrowserAuthProvenanceDiagnostics {
+    return {
+      googleAuthIntent,
+      profileSource: "live_extension_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    };
+  }
+
+  private getOpsAuthProvenance(sessionId: string): BrowserAuthProvenanceDiagnostics {
+    return this.authProvenanceBySession.get(sessionId) ?? this.createOpsAuthProvenance();
+  }
+
+  private markOpsExplicitCookieImportAttempted(sessionId: string): BrowserAuthProvenanceDiagnostics {
+    const current = this.getOpsAuthProvenance(sessionId);
+    const next = {
+      ...current,
+      explicitCookieImportAttempted: true
+    };
+    this.authProvenanceBySession.set(sessionId, next);
+    return next;
   }
 
   private buildParallelismPolicyPayload(): ParallelismGovernorPolicyPayload {
@@ -351,6 +399,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
     }
     this.opsSessions.delete(sessionId);
     this.opsLeases.delete(sessionId);
+    this.authProvenanceBySession.delete(sessionId);
     this.releaseProtocolSession(sessionId);
     this.releaseExternalBlockerSlot(sessionId);
     this.opsSessionTabs.delete(sessionId);
@@ -487,15 +536,37 @@ export class OpsBrowserManager implements BrowserManagerLike {
     cookies: CookieImportRecord[],
     strict = true,
     requestId = createRequestId()
-  ): Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }> {
+  ): Promise<BrowserCookieImportResult> {
     if (!this.opsSessions.has(sessionId)) {
       return this.base.cookieImport(sessionId, cookies, strict, requestId);
     }
-    return await this.requestOps(
+    const authProvenance = this.markOpsExplicitCookieImportAttempted(sessionId);
+    const result = await this.requestOps<BrowserCookieImportResult>(
       sessionId,
       "storage.setCookies",
       { cookies, strict, requestId }
     );
+    return {
+      ...result,
+      diagnostics: { authProvenance }
+    };
+  }
+
+  recordProviderCookieImportProvenance(
+    sessionId: string,
+    input: BrowserProviderCookieImportProvenance
+  ): BrowserAuthProvenanceDiagnostics | undefined {
+    if (!this.opsSessions.has(sessionId)) {
+      return this.base.recordProviderCookieImportProvenance?.(sessionId, input);
+    }
+    const current = this.getOpsAuthProvenance(sessionId);
+    const sanitized = sanitizeProviderCookieImportProvenance(input);
+    const next = {
+      ...current,
+      providerCookieImport: sanitized
+    };
+    this.authProvenanceBySession.set(sessionId, next);
+    return next;
   }
 
   async cookieList(
@@ -1430,6 +1501,7 @@ export class OpsBrowserManager implements BrowserManagerLike {
       });
       this.opsSessions.delete(sessionId);
       this.opsLeases.delete(sessionId);
+      this.authProvenanceBySession.delete(sessionId);
       this.releaseProtocolSession(sessionId);
       this.releaseExternalBlockerSlot(sessionId);
       this.opsSessionTabs.delete(sessionId);

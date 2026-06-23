@@ -1,5 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
+import { DEFAULT_GOOGLE_AUTH_INTENT, parseGoogleAuthIntent } from "../core/auth-intent";
 import { buildLoopbackSessionRelayEndpoint } from "../relay/relay-endpoints";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
@@ -32,7 +33,10 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
       extensionOnly: z.boolean().optional().describe("Require extension relay or fail"),
       extensionLegacy: z.boolean().optional().describe("Use legacy extension relay (/cdp) instead of ops"),
       waitForExtension: z.boolean().optional().describe("Wait for extension to connect before launching"),
-      waitTimeoutMs: z.number().int().optional().describe("Timeout for waiting on extension (ms)")
+      waitTimeoutMs: z.number().int().optional().describe("Timeout for waiting on extension (ms)"),
+      googleAuthIntent: z.string().optional().describe("Google auth continuity intent: none or user-owned"),
+      disableSystemCookieBootstrap: z.boolean().optional().describe("Disable system browser cookie bootstrap for managed/CDP sessions"),
+      allowGoogleCookieBootstrap: z.boolean().optional().describe("Explicitly allow Google-sensitive cookie bootstrap for managed/CDP sessions")
     },
     async execute(args) {
       let attemptedRebind = false;
@@ -48,10 +52,18 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           if (!relayUrl && isValidPort(relayPort)) {
             relayUrl = buildLoopbackSessionRelayEndpoint(relayPort, { extensionLegacy });
           }
+          const googleAuthIntent = parseGoogleAuthIntent(args.googleAuthIntent);
+          const userOwnedGoogle = googleAuthIntent === "user_owned_google";
           const waitTimeoutMs = clampWaitTimeout(args.waitTimeoutMs ?? 30000);
           const headlessExplicit = args.headless === true;
           const managedExplicit = Boolean(args.noExtension || headlessExplicit);
           const managedHeadless = headlessExplicit ? true : false;
+          if (userOwnedGoogle && (args.noExtension || headlessExplicit || extensionLegacy)) {
+            return failure(
+              "Google user-owned auth requires the extension /ops relay. Remove noExtension/headless/extensionLegacy and connect the extension, then retry.",
+              "unsupported_mode"
+            );
+          }
           if (headlessExplicit && !args.noExtension) {
             return failure(
               "Extension mode does not support headless launches. Use noExtension=true with headless=true for managed mode.",
@@ -69,19 +81,27 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
           }
 
           const observedPort = resolveObservedPort(relayStatus, config.relayPort);
-          const shouldFetchObserved = !managedExplicit && (!relayUrl || !(relayStatus?.extensionHandshakeComplete || relayStatus?.extensionConnected));
+          let shouldFetchObserved = false;
+          if (!managedExplicit) {
+            const relayHandshakeComplete = relayStatus?.extensionHandshakeComplete === true;
+            const relaySocketConnected = relayStatus?.extensionConnected === true;
+            shouldFetchObserved = !relayUrl
+              || (userOwnedGoogle && !relayHandshakeComplete)
+              || (!userOwnedGoogle && !relayHandshakeComplete && !relaySocketConnected);
+          }
           const observedStatus = shouldFetchObserved ? await fetchRelayObservedStatus(observedPort) : null;
           if (!relayUrl) {
             const fallbackPort = isValidPort(observedStatus?.port) ? observedStatus?.port : observedPort;
             relayUrl = fallbackPort ? buildLoopbackSessionRelayEndpoint(fallbackPort, { extensionLegacy }) : null;
           }
+          const handshakeReady = Boolean(
+            relayStatus?.extensionHandshakeComplete || observedStatus?.extensionHandshakeComplete
+          );
+          const socketReady = Boolean(
+            relayStatus?.extensionConnected || observedStatus?.extensionConnected
+          );
           const extensionReady = Boolean(
-            relayUrl && (
-              relayStatus?.extensionHandshakeComplete ||
-              relayStatus?.extensionConnected ||
-              observedStatus?.extensionHandshakeComplete ||
-              observedStatus?.extensionConnected
-            )
+            relayUrl && (userOwnedGoogle ? handshakeReady : handshakeReady || socketReady)
           );
           let usedRelay = false;
           let result:
@@ -100,7 +120,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
               attemptedRebind = true;
               continue;
             }
-            return failure(buildExtensionMissingMessage(diagnostics.message), "extension_not_connected");
+            return failure(buildExtensionMissingMessage(diagnostics.message, googleAuthIntent), "extension_not_connected");
           }
 
           if (!managedExplicit) {
@@ -115,11 +135,15 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
                 attemptedRebind = true;
                 continue;
               }
-              return failure(buildExtensionMissingMessage(diagnostics.message), "extension_not_connected");
+              return failure(buildExtensionMissingMessage(diagnostics.message, googleAuthIntent), "extension_not_connected");
             }
             try {
-              result = args.startUrl
-                ? await deps.manager.connectRelay(relayUrl, { startUrl: args.startUrl })
+              const relayOptions = {
+                ...(args.startUrl ? { startUrl: args.startUrl } : {}),
+                ...(googleAuthIntent === "user_owned_google" ? { googleAuthIntent } : {})
+              };
+              result = Object.keys(relayOptions).length > 0
+                ? await deps.manager.connectRelay(relayUrl, relayOptions)
                 : await deps.manager.connectRelay(relayUrl);
               usedRelay = true;
             } catch (error) {
@@ -142,7 +166,7 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
                 attemptedRebind = true;
                 continue;
               }
-              return failure(buildExtensionMissingMessage(diagnostics.message), "extension_connect_failed");
+              return failure(buildExtensionMissingMessage(diagnostics.message, googleAuthIntent), "extension_connect_failed");
             }
           }
 
@@ -155,7 +179,10 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
                 chromePath: args.chromePath,
                 flags: args.flags,
                 persistProfile: args.persistProfile,
-                noExtension: args.noExtension
+                noExtension: args.noExtension,
+                googleAuthIntent,
+                disableSystemCookieBootstrap: args.disableSystemCookieBootstrap,
+                allowGoogleCookieBootstrap: args.allowGoogleCookieBootstrap
               });
             } catch (error) {
               return failure(buildManagedFailureMessage(error), "launch_failed");
@@ -168,7 +195,8 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
             mode: result.mode,
             browserWsEndpoint: result.wsEndpoint,
             activeTargetId: result.activeTargetId,
-            warnings: warnings.length ? warnings : undefined
+            warnings: warnings.length ? warnings : undefined,
+            diagnostics: result.diagnostics
           });
         } catch (error) {
           return failure(serializeError(error).message, "launch_failed");
@@ -178,7 +206,14 @@ export function createLaunchTool(deps: ToolDeps): ToolDefinition {
   });
 }
 
-const buildExtensionMissingMessage = (reason: string): string => {
+const buildExtensionMissingMessage = (reason: string, googleAuthIntent = DEFAULT_GOOGLE_AUTH_INTENT): string => {
+  if (googleAuthIntent === "user_owned_google") {
+    return [
+      reason,
+      "Google user-owned auth requires the extension /ops relay.",
+      "Connect the extension: open the Chrome extension popup and click Connect, then retry."
+    ].join("\n");
+  }
   return [
     reason,
     "Connect the extension: open the Chrome extension popup and click Connect, then retry.",

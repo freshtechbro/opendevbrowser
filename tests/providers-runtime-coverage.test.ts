@@ -282,6 +282,35 @@ describe("provider runtime coverage seams", () => {
     });
   });
 
+  it("maps user-owned Google auth intent to forced extension transport without changing defaults", async () => {
+    vi.resetModules();
+    const {
+      parseGoogleAuthIntent,
+      serializeGoogleAuthIntent
+    } = await import("../src/core/auth-intent");
+    const { resolveProviderRuntimePolicy } = await import("../src/providers/runtime-policy");
+
+    expect(parseGoogleAuthIntent(undefined)).toBe("none");
+    expect(parseGoogleAuthIntent("user-owned")).toBe("user_owned_google");
+    expect(parseGoogleAuthIntent("user_owned_google")).toBe("user_owned_google");
+    expect(serializeGoogleAuthIntent("user_owned_google")).toBe("user-owned");
+    expect(serializeGoogleAuthIntent("none")).toBe("none");
+    expect(() => parseGoogleAuthIntent("daily-google")).toThrow("Unsupported Google auth intent");
+
+    expect(resolveProviderRuntimePolicy({ source: "web" }).browser).toEqual({
+      preferredModes: ["managed_headed"],
+      forceTransport: false
+    });
+
+    expect(resolveProviderRuntimePolicy({
+      source: "web",
+      runtimePolicy: { googleAuthIntent: "user_owned_google" }
+    }).browser).toEqual({
+      preferredModes: ["extension"],
+      forceTransport: true
+    });
+  });
+
   it("fails forced browser transport when no browser port is available", async () => {
     vi.resetModules();
     const fetchMock = vi.fn(async () => ({

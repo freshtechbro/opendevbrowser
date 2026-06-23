@@ -2,6 +2,7 @@ import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
 import { parseBooleanFlag, parseNumberFlag } from "../../utils/parse";
+import { parseGoogleAuthIntent, type GoogleAuthIntent } from "../../../core/auth-intent";
 
 type LaunchArgs = {
   profile?: string;
@@ -15,6 +16,9 @@ type LaunchArgs = {
   waitForExtension?: boolean;
   waitTimeoutMs?: number;
   extensionLegacy?: boolean;
+  googleAuthIntent?: GoogleAuthIntent;
+  disableSystemCookieBootstrap?: boolean;
+  allowGoogleCookieBootstrap?: boolean;
 };
 
 const MIN_LAUNCH_CALL_TIMEOUT_MS = 30_000;
@@ -90,6 +94,27 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
       parsed.extensionLegacy = true;
       continue;
     }
+    if (arg === "--google-auth-intent") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --google-auth-intent");
+      parsed.googleAuthIntent = parseCliGoogleAuthIntent(value);
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--google-auth-intent=")) {
+      const value = arg.split("=", 2)[1];
+      if (!value) throw createUsageError("Missing value for --google-auth-intent");
+      parsed.googleAuthIntent = parseCliGoogleAuthIntent(value);
+      continue;
+    }
+    if (arg === "--disable-system-cookie-bootstrap") {
+      parsed.disableSystemCookieBootstrap = true;
+      continue;
+    }
+    if (arg === "--allow-google-cookie-bootstrap") {
+      parsed.allowGoogleCookieBootstrap = true;
+      continue;
+    }
     if (arg === "--wait-for-extension") {
       parsed.waitForExtension = true;
       continue;
@@ -122,6 +147,15 @@ function parseLaunchArgs(rawArgs: string[]): LaunchArgs {
     }
   }
   return parsed;
+}
+
+function parseCliGoogleAuthIntent(value: string): GoogleAuthIntent {
+  try {
+    return parseGoogleAuthIntent(value);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw createUsageError(message);
+  }
 }
 
 function deriveLaunchCallTimeoutMs(launchArgs: LaunchArgs): number {
@@ -177,6 +211,10 @@ export async function runSessionLaunch(args: ParsedArgs) {
       } catch (retryError) {
         error = retryError;
       }
+    }
+
+    if (launchArgs.googleAuthIntent === "user_owned_google") {
+      throw error;
     }
 
     const proceedManaged = await promptYesNo("Proceed with a managed session (headed)?", false);

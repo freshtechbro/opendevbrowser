@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { OpenDevBrowserCore } from "../core";
+import type { BrowserCookieImportResult } from "../browser/manager-types";
+import { DEFAULT_GOOGLE_AUTH_INTENT, parseGoogleAuthIntent, type GoogleAuthIntent } from "../core/auth-intent";
 import { buildBrowserReviewResult } from "../browser/review-surface";
 import {
   buildCorrelatedAuditBundle,
@@ -36,6 +38,7 @@ import type { AnnotationDispatchSource, AnnotationPayload } from "../relay/proto
 import {
   buildLoopbackSessionRelayEndpoint,
   classifySessionRelayEndpoint,
+  isSessionOpsRelayEndpoint,
   resolveSessionRelayRoute
 } from "../relay/relay-endpoints";
 import {
@@ -729,7 +732,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           cookies: CookieImportRecord[],
           strict?: boolean,
           requestId?: string
-        ) => Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }>;
+        ) => Promise<BrowserCookieImportResult>;
       };
 
       const cookies = requireCookieArray(params.cookies, "cookies");
@@ -1010,6 +1013,13 @@ async function launchWithRelay(
   const extensionOnly = optionalBoolean(params.extensionOnly) ?? false;
   const waitForExtension = optionalBoolean(params.waitForExtension) ?? false;
   const headlessExplicit = optionalBoolean(params.headless) === true;
+  const googleAuthIntent = optionalGoogleAuthIntent(params.googleAuthIntent);
+  const userOwnedGoogle = googleAuthIntent === "user_owned_google";
+  if (userOwnedGoogle && (noExtension || headlessExplicit || extensionLegacy)) {
+    throw unsupportedModeError(
+      "Google user-owned auth requires the extension /ops relay. Remove --no-extension/--headless/--extension-legacy and connect the extension, then retry."
+    );
+  }
   if (headlessExplicit && !noExtension) {
     throw unsupportedModeError(
       "Extension mode does not support headless launches. Use --no-extension --headless for managed mode."
@@ -1071,17 +1081,21 @@ async function launchWithRelay(
       : "Extension not connected.";
 
   if (extensionOnly && !extensionReady) {
-    throw new Error(buildExtensionMissingMessage(missingReason));
+    throw new Error(buildExtensionMissingMessage(missingReason, googleAuthIntent));
   }
 
   if (!managedExplicit) {
     if (!extensionReady || !relayUrl) {
-      throw new Error(buildExtensionMissingMessage(missingReason));
+      throw new Error(buildExtensionMissingMessage(missingReason, googleAuthIntent));
     }
     try {
       const startUrl = optionalString(params.startUrl);
-      const result = startUrl
-        ? await core.manager.connectRelay(relayUrl, { startUrl })
+      const relayOptions = {
+        ...(startUrl ? { startUrl } : {}),
+        ...(googleAuthIntent === "user_owned_google" ? { googleAuthIntent } : {})
+      };
+      const result = Object.keys(relayOptions).length > 0
+        ? await core.manager.connectRelay(relayUrl, relayOptions)
         : await core.manager.connectRelay(relayUrl);
       const leaseId = extractLeaseId(result);
       if (result.mode === "extension" && !extensionLegacy && !leaseId) {
@@ -1098,7 +1112,7 @@ async function launchWithRelay(
       const reason = unauthorized
         ? `Extension relay connection failed: relay ${relayLabel} unauthorized (token mismatch).`
         : `Extension relay connection failed: ${message}`;
-      throw new Error(buildExtensionMissingMessage(reason));
+      throw new Error(buildExtensionMissingMessage(reason, googleAuthIntent));
     }
   }
 
@@ -1109,7 +1123,10 @@ async function launchWithRelay(
       startUrl: optionalString(params.startUrl),
       chromePath: optionalString(params.chromePath),
       flags: optionalStringArray(params.flags),
-      persistProfile: optionalBoolean(params.persistProfile)
+      persistProfile: optionalBoolean(params.persistProfile),
+      googleAuthIntent,
+      disableSystemCookieBootstrap: optionalBoolean(params.disableSystemCookieBootstrap),
+      allowGoogleCookieBootstrap: optionalBoolean(params.allowGoogleCookieBootstrap)
     });
     return { ...result, warnings: result.warnings ?? [] };
   } catch (error) {
@@ -1125,6 +1142,7 @@ async function connectWithRelayRouting(
 ) {
   const wsEndpoint = optionalString(params.wsEndpoint);
   const extensionLegacy = optionalBoolean(params.extensionLegacy) ?? false;
+  const googleAuthIntent = optionalGoogleAuthIntent(params.googleAuthIntent);
   const relayUrl = extensionLegacy ? core.relay.getCdpUrl() : core.relay.getOpsUrl?.() ?? null;
   const parsedRelayEndpoint = classifySessionRelayEndpoint(wsEndpoint);
   const resolvedRelayEndpoint = parsedRelayEndpoint
@@ -1139,6 +1157,17 @@ async function connectWithRelayRouting(
 
   const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
   const headlessExplicit = optionalBoolean(params.headless) === true;
+
+  const googleAuthUsesOpsRelay = typeof params.host === "undefined"
+    && typeof params.port === "undefined"
+    && !extensionLegacy
+    && (!wsEndpoint || isSessionOpsRelayEndpoint(wsEndpoint));
+
+  if (googleAuthIntent === "user_owned_google" && !googleAuthUsesOpsRelay) {
+    throw unsupportedModeError(
+      "Google user-owned auth requires the extension /ops relay. Use a local /ops wsEndpoint or omit wsEndpoint/host/port/extensionLegacy and connect the extension, then retry."
+    );
+  }
 
   if (headlessExplicit && !hasExplicitCdp) {
     throw unsupportedModeError(
@@ -1156,8 +1185,12 @@ async function connectWithRelayRouting(
       requireBinding(clientId, bindingId);
     }
     const startUrl = optionalString(params.startUrl);
-    const result = startUrl
-      ? await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "", { startUrl })
+    const relayOptions = {
+      ...(startUrl ? { startUrl } : {}),
+      ...(googleAuthIntent === "user_owned_google" ? { googleAuthIntent } : {})
+    };
+    const result = Object.keys(relayOptions).length > 0
+      ? await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "", relayOptions)
       : await core.manager.connectRelay(relayEndpoint ?? relayUrl ?? "");
     const leaseId = extractLeaseId(result);
     if (result.mode === "extension" && !extensionLegacy && !leaseId) {
@@ -1177,7 +1210,10 @@ async function connectWithRelayRouting(
     wsEndpoint,
     host: optionalString(params.host),
     port: optionalNumber(params.port, "port"),
-    startUrl: optionalString(params.startUrl)
+    startUrl: optionalString(params.startUrl),
+    googleAuthIntent,
+    disableSystemCookieBootstrap: optionalBoolean(params.disableSystemCookieBootstrap),
+    allowGoogleCookieBootstrap: optionalBoolean(params.allowGoogleCookieBootstrap)
   });
 }
 
@@ -1344,7 +1380,14 @@ function extractLeaseId(result: unknown): string | undefined {
   return typeof leaseId === "string" ? leaseId : undefined;
 }
 
-function buildExtensionMissingMessage(reason: string): string {
+function buildExtensionMissingMessage(reason: string, googleAuthIntent = DEFAULT_GOOGLE_AUTH_INTENT): string {
+  if (googleAuthIntent === "user_owned_google") {
+    return [
+      reason,
+      "Google user-owned auth requires the extension /ops relay.",
+      "Connect the extension: open the Chrome extension popup and click Connect. If ext=on but handshake=off, click Connect again to re-establish a clean daemon-extension handshake, then retry."
+    ].join("\n");
+  }
   return [
     reason,
     "Connect the extension: open the Chrome extension popup and click Connect. If ext=on but handshake=off, click Connect again to re-establish a clean daemon-extension handshake, then retry.",
@@ -1785,6 +1828,16 @@ function optionalNumber(value: unknown, label: string): number | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function optionalGoogleAuthIntent(value: unknown): GoogleAuthIntent {
+  if (typeof value === "undefined") {
+    return DEFAULT_GOOGLE_AUTH_INTENT;
+  }
+  if (typeof value !== "string") {
+    throw new Error("Invalid googleAuthIntent");
+  }
+  return parseGoogleAuthIntent(value);
 }
 
 function requireFiniteNumber(value: unknown, label: string): number {
