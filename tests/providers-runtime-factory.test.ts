@@ -3556,6 +3556,60 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).not.toHaveBeenCalled();
   });
 
+  it("keeps minimal user-owned Google suspended intent summaries input-free", async () => {
+    const requestUrl = "https://accounts.google.com/o/oauth2/v2/auth?login_hint=alice@example.com&state=private-state";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "google-minimal-challenge-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Sign in</h1><p>To continue, sign in with Google.</p></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        activeTargetId: "google-tab-minimal",
+        url: requestUrl,
+        meta: {
+          challenge: []
+        }
+      })),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "web/google-oauth",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-minimal-challenge", ts: "2026-06-26T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "web",
+        runtimePolicy: { googleAuthIntent: "user_owned_google" }
+      }),
+      suspendedIntent: {
+        kind: "provider.fetch",
+        input: {
+          url: requestUrl,
+          query: "alice@example.com private-state"
+        }
+      }
+    });
+
+    expect(response?.challenge?.suspendedIntent).toEqual({
+      kind: "provider.fetch"
+    });
+    expect(JSON.stringify(response)).not.toContain("alice@example.com");
+    expect(JSON.stringify(response)).not.toContain("private-state");
+    expect(JSON.stringify(response)).not.toContain("login_hint=");
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
   it("omits existing user-owned Google challenge suspended intent input", async () => {
     const requestUrl = "https://accounts.google.com/o/oauth2/v2/auth?login_hint=alice@example.com&state=private-state";
     const manager = {

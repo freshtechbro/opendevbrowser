@@ -82,12 +82,225 @@ export const readFallbackString = (
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 };
 
+const REDACTED_FALLBACK_URL = "redacted_url";
+const REDACTED_FALLBACK_SECRET = "[REDACTED]";
+const URL_TEXT_PATTERN = /\b(?:https?:\/\/|chrome-extension:\/\/|data:|about:)[^\s"'<>]+/gi;
+const EMAIL_TEXT_PATTERN = /[^\s"'<>@/?#]+@[^\s"'<>@/?#]+/g;
+const SENSITIVE_ASSIGNMENT_PATTERN = /(?<![?&])\b(login_hint|loginHint|email|access_token|accessToken|id_token|idToken|refresh_token|refreshToken|client_secret|clientSecret|authorization|token|code|state)(["']?\s*[:=]\s*["']?)(Bearer\s+)?[^\s"'<>},&]+/gi;
+const ALWAYS_SENSITIVE_URL_PARAM_NAMES = [
+  "login_hint",
+  "email",
+  "access_token",
+  "id_token",
+  "refresh_token",
+  "client_secret"
+] as const;
+const OAUTH_CONTEXT_URL_PARAM_NAMES = [
+  "code",
+  "state"
+] as const;
+const OAUTH_URL_CONTEXT_MARKERS = [
+  "accounts.google.com",
+  "oauth",
+  "openid",
+  "client_id=",
+  "redirect_uri=",
+  "response_type=",
+  "scope="
+] as const;
+const SENSITIVE_URL_PARAM_NAMES = [
+  ...ALWAYS_SENSITIVE_URL_PARAM_NAMES,
+  ...OAUTH_CONTEXT_URL_PARAM_NAMES
+] as const;
+const ALWAYS_SENSITIVE_URL_MARKERS = ALWAYS_SENSITIVE_URL_PARAM_NAMES.map((name) => `${name}=`);
+const OAUTH_CONTEXT_URL_MARKERS = OAUTH_CONTEXT_URL_PARAM_NAMES.map((name) => `${name}=`);
+const EMAIL_TEXT_DETECTION_PATTERN = /[^\s"'<>@/?#]+@[^\s"'<>@/?#]+/;
+const SENSITIVE_JSON_KEYS = new Set([
+  "accesstoken",
+  "authorization",
+  "clientsecret",
+  "code",
+  "email",
+  "idtoken",
+  "loginhint",
+  "refreshtoken",
+  "state",
+  "token"
+]);
+const GOOGLE_AUTH_HOSTS = new Set(["accounts.google.com", "oauth2.googleapis.com"]);
+
+const hasOAuthUrlContext = (lower: string): boolean => {
+  return OAUTH_URL_CONTEXT_MARKERS.some((marker) => lower.includes(marker));
+};
+
+const hasSensitiveUrlMarker = (value: string): boolean => {
+  const lower = value.toLowerCase();
+  return ALWAYS_SENSITIVE_URL_MARKERS.some((marker) => lower.includes(marker))
+    || (hasOAuthUrlContext(lower) && OAUTH_CONTEXT_URL_MARKERS.some((marker) => lower.includes(marker)));
+};
+
+const isGoogleAuthHost = (hostname: string): boolean => GOOGLE_AUTH_HOSTS.has(hostname.toLowerCase());
+
+type FallbackSanitizerContext = {
+  rawUrl: string;
+  publicUrl: string;
+  sensitiveValues: readonly string[];
+};
+
+const normalizedSensitiveKey = (key: string): string => key.replace(/[-_\s]/g, "").toLowerCase();
+
+const isSensitiveJsonKey = (key: string | undefined): boolean => (
+  typeof key === "string" && SENSITIVE_JSON_KEYS.has(normalizedSensitiveKey(key))
+);
+
+const sensitiveUrlParamNames = (rawUrl: string): readonly string[] => {
+  return hasOAuthUrlContext(rawUrl.toLowerCase())
+    ? SENSITIVE_URL_PARAM_NAMES
+    : ALWAYS_SENSITIVE_URL_PARAM_NAMES;
+};
+
+const sensitiveParamValuesFromUrl = (rawUrl: string): string[] => {
+  try {
+    const parsed = new URL(rawUrl);
+    const values: string[] = [];
+    for (const key of sensitiveUrlParamNames(rawUrl)) {
+      values.push(...parsed.searchParams.getAll(key).filter((entry) => entry.length > 0));
+    }
+    return values;
+  } catch {
+    return [];
+  }
+};
+
+const sensitiveParamValues = (rawText: string): string[] => {
+  const directValues = sensitiveParamValuesFromUrl(rawText.trim());
+  const urlValues = (rawText.match(URL_TEXT_PATTERN) ?? [])
+    .flatMap((candidate) => sensitiveParamValuesFromUrl(candidate));
+  return [...directValues, ...urlValues];
+};
+
+const collectJsonStrings = (value: JsonValue | undefined): string[] => {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectJsonStrings(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap((entry) => collectJsonStrings(entry));
+  }
+  return [];
+};
+
+const uniqueSensitiveValues = (values: readonly string[]): string[] => {
+  return [...new Set(values.filter((value) => value.length > 0))];
+};
+
+const buildFallbackSanitizerContext = (
+  rawUrl: string,
+  publicUrl: string,
+  candidates: readonly JsonValue[] = []
+): FallbackSanitizerContext => {
+  const rawStrings = [rawUrl, publicUrl, ...candidates.flatMap((candidate) => collectJsonStrings(candidate))];
+  return {
+    rawUrl,
+    publicUrl,
+    sensitiveValues: uniqueSensitiveValues(rawStrings.flatMap((value) => sensitiveParamValues(value)))
+  };
+};
+
+const publicSensitiveUrl = (value: string): string => {
+  const trimmed = value.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      !isGoogleAuthHost(parsed.hostname)
+      && !hasSensitiveUrlMarker(trimmed)
+      && !EMAIL_TEXT_DETECTION_PATTERN.test(trimmed)
+    ) {
+      return value;
+    }
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      const path = parsed.pathname.replace(EMAIL_TEXT_PATTERN, REDACTED_FALLBACK_SECRET);
+      return isGoogleAuthHost(parsed.hostname)
+        ? `${parsed.protocol}//${parsed.hostname}/`
+        : `${parsed.origin}${path}`;
+    }
+    if (parsed.protocol === "about:") {
+      return `about:${REDACTED_FALLBACK_URL}`;
+    }
+    return `${parsed.protocol}${REDACTED_FALLBACK_URL}`;
+  } catch {
+    if (hasSensitiveUrlMarker(trimmed)) {
+      return REDACTED_FALLBACK_URL;
+    }
+    return EMAIL_TEXT_DETECTION_PATTERN.test(trimmed)
+      ? value.replace(EMAIL_TEXT_PATTERN, REDACTED_FALLBACK_SECRET)
+      : value;
+  }
+};
+
+const sanitizeFallbackText = (value: string, context: FallbackSanitizerContext): string => {
+  const replacedRawUrl = context.rawUrl === context.publicUrl
+    ? value
+    : value.split(context.rawUrl).join(context.publicUrl);
+  const replacedSensitiveValues = context.sensitiveValues.reduce(
+    (text, sensitiveValue) => text.split(sensitiveValue).join(REDACTED_FALLBACK_SECRET),
+    replacedRawUrl
+  );
+  return replacedSensitiveValues
+    .replace(URL_TEXT_PATTERN, (candidate) => publicSensitiveUrl(candidate))
+    .replace(SENSITIVE_ASSIGNMENT_PATTERN, (_match, key: string, separator: string, bearer: string | undefined) => {
+      return `${key}${separator}${bearer ?? ""}${REDACTED_FALLBACK_SECRET}`;
+    })
+    .replace(EMAIL_TEXT_PATTERN, REDACTED_FALLBACK_SECRET);
+};
+
+const sanitizeFallbackJsonValue = (
+  value: JsonValue,
+  context: FallbackSanitizerContext,
+  key?: string,
+  sensitiveParent = false
+): JsonValue => {
+  const sensitiveValue = sensitiveParent || isSensitiveJsonKey(key);
+  if (typeof value === "string") {
+    return sensitiveValue ? REDACTED_FALLBACK_SECRET : sanitizeFallbackText(value, context);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeFallbackJsonValue(entry, context, key, sensitiveValue));
+  }
+  if (value && typeof value === "object") {
+    const record: Record<string, JsonValue> = {};
+    for (const [entryKey, entry] of Object.entries(value)) {
+      record[entryKey] = sanitizeFallbackJsonValue(entry, context, entryKey, sensitiveValue);
+    }
+    return record;
+  }
+  return sensitiveValue ? REDACTED_FALLBACK_SECRET : value;
+};
+
+const sanitizeFallbackRecord = (
+  value: Record<string, JsonValue>,
+  context: FallbackSanitizerContext
+): Record<string, JsonValue> => {
+  const sanitized = sanitizeFallbackJsonValue(value, context);
+  return sanitized && typeof sanitized === "object" && !Array.isArray(sanitized)
+    ? sanitized
+    : {};
+};
+
 export const fallbackDispositionMessage = (
   fallback: BrowserFallbackResponse,
-  url: string
+  url: string,
+  rawUrl = url
 ): string => {
+  const context = buildFallbackSanitizerContext(rawUrl, url, [
+    toJsonRecord(fallback.details ?? {}),
+    toJsonRecord(fallback.challenge),
+    toJsonRecord(fallback.output)
+  ]);
   if (typeof fallback.details?.message === "string" && fallback.details.message.trim().length > 0) {
-    return fallback.details.message;
+    return sanitizeFallbackText(fallback.details.message, context);
   }
   switch (fallback.disposition) {
     case "challenge_preserved":
@@ -99,20 +312,43 @@ export const fallbackDispositionMessage = (
   }
 };
 
+const fallbackPublicUrl = (args: {
+  url: string;
+}): string => {
+  return publicSensitiveUrl(args.url);
+};
+
 const fallbackErrorDetails = (args: {
   url: string;
+  rawUrl: string;
   fallback: BrowserFallbackResponse;
   extra?: Record<string, JsonValue>;
-}): Record<string, JsonValue> => ({
-  url: args.url,
-  disposition: args.fallback.disposition,
-  ...(args.fallback.mode ? { browserFallbackMode: args.fallback.mode } : {}),
-  ...(args.fallback.challenge ? { challenge: toJsonRecord(args.fallback.challenge) } : {}),
-  ...(args.fallback.preservedSessionId ? { preservedSessionId: args.fallback.preservedSessionId } : {}),
-  ...(args.fallback.preservedTargetId ? { preservedTargetId: args.fallback.preservedTargetId } : {}),
-  ...toJsonRecord(args.fallback.details ?? {}),
-  ...(args.extra ?? {})
-});
+}): Record<string, JsonValue> => {
+  const rawDetails = toJsonRecord(args.fallback.details ?? {});
+  const rawExtra = args.extra ?? {};
+  const rawChallenge = args.fallback.challenge ? toJsonRecord(args.fallback.challenge) : undefined;
+  const context = buildFallbackSanitizerContext(args.rawUrl, args.url, [
+    rawDetails,
+    rawExtra,
+    ...(rawChallenge ? [rawChallenge] : []),
+    toJsonRecord(args.fallback.output)
+  ]);
+  const details = sanitizeFallbackRecord(rawDetails, context);
+  const extra = sanitizeFallbackRecord(rawExtra, context);
+  const challenge = rawChallenge
+    ? sanitizeFallbackRecord(rawChallenge, context)
+    : undefined;
+  return {
+    ...details,
+    ...extra,
+    url: args.url,
+    disposition: args.fallback.disposition,
+    ...(args.fallback.mode ? { browserFallbackMode: args.fallback.mode } : {}),
+    ...(challenge ? { challenge } : {}),
+    ...(args.fallback.preservedSessionId ? { preservedSessionId: args.fallback.preservedSessionId } : {}),
+    ...(args.fallback.preservedTargetId ? { preservedTargetId: args.fallback.preservedTargetId } : {})
+  };
+};
 
 const addProviderIssueGuidance = (args: {
   provider: string;
@@ -141,10 +377,11 @@ export const toProviderFallbackError = (args: {
 }): ProviderRuntimeError => {
   const { fallback } = args;
   const reasonCode = fallback.reasonCode;
-  const details = fallbackErrorDetails({ url: args.url, fallback });
+  const publicUrl = fallbackPublicUrl({ url: args.url });
+  const details = fallbackErrorDetails({ url: publicUrl, rawUrl: args.url, fallback });
   return new ProviderRuntimeError(
     providerErrorCodeFromReasonCode(reasonCode),
-    fallbackDispositionMessage(fallback, args.url),
+    fallbackDispositionMessage(fallback, publicUrl, args.url),
     {
       provider: args.provider,
       source: args.source,
@@ -168,14 +405,16 @@ export const toCompletedFallbackOutputError = (args: {
 }): ProviderRuntimeError => {
   const { fallback } = args;
   const reasonCode = fallback.reasonCode;
+  const publicUrl = fallbackPublicUrl({ url: args.url });
   const details = fallbackErrorDetails({
-    url: args.url,
+    url: publicUrl,
+    rawUrl: args.url,
     fallback,
     extra: { fallbackOutputReason: args.outputReason }
   });
   return new ProviderRuntimeError(
     providerErrorCodeFromReasonCode(reasonCode),
-    `Browser fallback completed for ${args.url} without usable HTML content.`,
+    `Browser fallback completed for ${publicUrl} without usable HTML content.`,
     {
       provider: args.provider,
       source: args.source,
