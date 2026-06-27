@@ -1,4 +1,5 @@
 import type {
+  BrowserAuthSessionOptions,
   BrowserCloneHtmlResult,
   BrowserClonePageOptions,
   BrowserManagerLike,
@@ -64,7 +65,10 @@ export class RemoteManager implements BrowserManagerLike {
     return this.client.call<CallResult<"connect">>("session.connect", options as Record<string, unknown>);
   }
 
-  connectRelay(wsEndpoint: string, options?: { startUrl?: string }): ReturnType<BrowserManagerLike["connectRelay"]> {
+  connectRelay(
+    wsEndpoint: string,
+    options?: { startUrl?: string } & BrowserAuthSessionOptions
+  ): ReturnType<BrowserManagerLike["connectRelay"]> {
     const startUrl = typeof options?.startUrl === "string" && options.startUrl.trim().length > 0
       ? options.startUrl.trim()
       : undefined;
@@ -74,7 +78,9 @@ export class RemoteManager implements BrowserManagerLike {
       {
         wsEndpoint,
         ...(parsedRelayEndpoint?.inputPath === "/cdp" ? { extensionLegacy: true } : {}),
-        ...(startUrl ? { startUrl } : {})
+        ...(startUrl ? { startUrl } : {}),
+        ...(options?.googleAuthIntent ? { googleAuthIntent: options.googleAuthIntent } : {}),
+        ...(options?.disableSystemCookieBootstrap === true ? { disableSystemCookieBootstrap: true } : {})
       }
     );
   }

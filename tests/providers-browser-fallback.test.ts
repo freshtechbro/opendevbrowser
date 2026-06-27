@@ -147,6 +147,288 @@ describe("provider browser fallback helpers", () => {
     });
   });
 
+  it("uses public sanitized request URLs in provider fallback errors", () => {
+    const rawUrl = "https://accounts.google.com/o/oauth2/v2/auth?login_hint=alice@example.com&state=private-state";
+    const error = toProviderFallbackError({
+      provider: "web/google-oauth",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "auth_required",
+        disposition: "failed",
+        output: {
+          url: "https://accounts.google.com/"
+        },
+        details: {
+          url: rawUrl
+        }
+      }
+    });
+
+    expect(error.message).toBe("Browser fallback failed for https://accounts.google.com/");
+    expect(error.details).toMatchObject({
+      url: "https://accounts.google.com/",
+      disposition: "failed"
+    });
+    const serialized = JSON.stringify(error);
+    expect(serialized).not.toContain("alice@example.com");
+    expect(serialized).not.toContain("private-state");
+    expect(serialized).not.toContain("login_hint=");
+  });
+
+  it("redacts raw Google fallback detail messages without fallback output URLs", () => {
+    const rawUrl = "https://accounts.google.com/o/oauth2/v2/auth?login_hint=alice@example.com&state=private-state";
+    const error = toProviderFallbackError({
+      provider: "web/google-oauth",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "auth_required",
+        disposition: "challenge_preserved",
+        challenge: {
+          challengeId: "google-challenge",
+          blockerType: "auth_required",
+          ownerSurface: "provider_fallback",
+          resumeMode: "auto",
+          suspendedIntent: {
+            kind: "provider.fetch",
+            input: {
+              url: rawUrl,
+              query: "alice@example.com private-state",
+              accessToken: "secret-access-token"
+            }
+          },
+          status: "active",
+          updatedAt: "2026-06-26T00:00:00.000Z"
+        },
+        details: {
+          message: `Browser fallback stopped at ${rawUrl} for alice@example.com with state private-state`,
+          access_token: "secret-access-token",
+          idToken: "secret-id-token",
+          tokenMessage: "failed with access_token=free-secret access_token: colon-secret \"id_token\":\"json-secret\" refreshToken=camel-refresh clientSecret: \"camel-client\" Authorization: Bearer bearer-secret",
+          authorization: {
+            header: "Bearer nested-bearer-secret",
+            nested: {
+              label: "nested-label"
+            }
+          },
+          token: {
+            value: "parent-token-secret"
+          },
+          nested: {
+            requestedUrl: rawUrl,
+            state: "private-state",
+            contact: "alice@example.com"
+          }
+        }
+      }
+    });
+
+    expect(error.message).toBe("Browser fallback stopped at https://accounts.google.com/ for [REDACTED] with state [REDACTED]");
+    expect(error.details).toMatchObject({
+      url: "https://accounts.google.com/",
+      message: "Browser fallback stopped at https://accounts.google.com/ for [REDACTED] with state [REDACTED]",
+      access_token: "[REDACTED]",
+      idToken: "[REDACTED]",
+      tokenMessage: "failed with access_token=[REDACTED] access_token: [REDACTED] \"id_token\":\"[REDACTED]\" refreshToken=[REDACTED] clientSecret: \"[REDACTED]\" Authorization: Bearer [REDACTED]",
+      authorization: {
+        header: "[REDACTED]",
+        nested: {
+          label: "[REDACTED]"
+        }
+      },
+      token: {
+        value: "[REDACTED]"
+      },
+      nested: {
+        requestedUrl: "https://accounts.google.com/",
+        state: "[REDACTED]",
+        contact: "[REDACTED]"
+      },
+      challenge: {
+        suspendedIntent: {
+          input: {
+            url: "https://accounts.google.com/",
+            query: "[REDACTED] [REDACTED]",
+            accessToken: "[REDACTED]"
+          }
+        }
+      }
+    });
+    const serialized = JSON.stringify(error);
+    expect(serialized).not.toContain("alice@example.com");
+    expect(serialized).not.toContain("private-state");
+    expect(serialized).not.toContain("secret-access-token");
+    expect(serialized).not.toContain("secret-id-token");
+    expect(serialized).not.toContain("free-secret");
+    expect(serialized).not.toContain("free-refresh");
+    expect(serialized).not.toContain("colon-secret");
+    expect(serialized).not.toContain("json-secret");
+    expect(serialized).not.toContain("camel-refresh");
+    expect(serialized).not.toContain("camel-client");
+    expect(serialized).not.toContain("bearer-secret");
+    expect(serialized).not.toContain("parent-token-secret");
+    expect(serialized).not.toContain("login_hint=");
+  });
+
+  it("redacts email-bearing fallback URLs without OAuth parameter names", () => {
+    const rawUrl = "https://example.com/callback?email=alice@example.com";
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "auth_required",
+        disposition: "failed",
+        details: {
+          message: `Browser fallback failed for ${rawUrl}`
+        }
+      }
+    });
+
+    expect(error.message).toBe("Browser fallback failed for https://example.com/callback");
+    expect(error.details).toMatchObject({
+      url: "https://example.com/callback",
+      message: "Browser fallback failed for https://example.com/callback"
+    });
+    expect(JSON.stringify(error)).not.toContain("alice@example.com");
+    expect(JSON.stringify(error)).not.toContain("email=");
+  });
+
+  it("redacts malformed email-bearing fallback URL strings", () => {
+    const rawUrl = "not a url alice@example.com";
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "auth_required",
+        disposition: "failed"
+      }
+    });
+
+    expect(error.message).toBe("Browser fallback failed for not a url [REDACTED]");
+    expect(error.details).toMatchObject({
+      url: "not a url [REDACTED]"
+    });
+    expect(JSON.stringify(error)).not.toContain("alice@example.com");
+  });
+
+  it("redacts sensitive non-http fallback URL schemes", () => {
+    const rawUrl = "chrome-extension://abc/callback?access_token=scheme-secret";
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "auth_required",
+        disposition: "failed"
+      }
+    });
+
+    expect(error.message).toBe("Browser fallback failed for chrome-extension:redacted_url");
+    expect(error.details).toMatchObject({
+      url: "chrome-extension:redacted_url"
+    });
+    expect(JSON.stringify(error)).not.toContain("scheme-secret");
+  });
+
+  it("redacts sensitive about fallback URLs", () => {
+    const rawUrl = "about:blank?access_token=about-secret";
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "auth_required",
+        disposition: "failed"
+      }
+    });
+
+    expect(error.message).toBe("Browser fallback failed for about:redacted_url");
+    expect(error.details).toMatchObject({
+      url: "about:redacted_url"
+    });
+    expect(JSON.stringify(error)).not.toContain("about-secret");
+  });
+
+  it("preserves malformed non-sensitive fallback URL strings", () => {
+    const rawUrl = "not a url without secrets";
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "env_limited",
+        disposition: "failed"
+      }
+    });
+
+    expect(error.message).toBe(`Browser fallback failed for ${rawUrl}`);
+    expect(error.details).toMatchObject({
+      url: rawUrl
+    });
+  });
+
+  it("uses nested OAuth URLs as sensitive-value context for fallback details", () => {
+    const nestedUrl = "https://login.example.com/oauth/authorize?client_id=client-1&state=nested-state&code=nested-code";
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: "https://example.com/start",
+      fallback: {
+        ok: false,
+        reasonCode: "auth_required",
+        disposition: "failed",
+        details: {
+          message: `OAuth failed with state nested-state and code nested-code after ${nestedUrl}`,
+          nestedUrl
+        }
+      }
+    });
+
+    expect(error.message).toBe("OAuth failed with state [REDACTED] and code [REDACTED] after https://login.example.com/oauth/authorize");
+    expect(error.details).toMatchObject({
+      url: "https://example.com/start",
+      nestedUrl: "https://login.example.com/oauth/authorize",
+      message: "OAuth failed with state [REDACTED] and code [REDACTED] after https://login.example.com/oauth/authorize"
+    });
+    const serialized = JSON.stringify(error);
+    expect(serialized).not.toContain("nested-state");
+    expect(serialized).not.toContain("nested-code");
+    expect(serialized).not.toContain("client_id=");
+  });
+
+  it("preserves ordinary non-OAuth code and state query parameters", () => {
+    const rawUrl = "https://example.com/docs?code=typescript&state=CA";
+    const error = toProviderFallbackError({
+      provider: "web/default",
+      source: "web",
+      url: rawUrl,
+      fallback: {
+        ok: false,
+        reasonCode: "env_limited",
+        disposition: "failed",
+        details: {
+          message: `Browser fallback failed for ${rawUrl}`
+        }
+      }
+    });
+
+    expect(error.message).toBe(`Browser fallback failed for ${rawUrl}`);
+    expect(error.details).toMatchObject({
+      url: rawUrl,
+      message: `Browser fallback failed for ${rawUrl}`
+    });
+  });
+
   it("leaves guidance absent when a completed fallback failure has no actionable issue hint", () => {
     const error = toProviderFallbackError({
       provider: "web/default",
@@ -201,6 +483,48 @@ describe("provider browser fallback helpers", () => {
       },
       reasonCode: "env_limited"
     });
+  });
+
+  it("uses public sanitized request URLs in completed fallback output errors", () => {
+    const rawUrl = "https://accounts.google.com/o/oauth2/v2/auth?login_hint=alice@example.com&state=private-state";
+    const error = toCompletedFallbackOutputError({
+      provider: "web/google-oauth",
+      source: "web",
+      url: rawUrl,
+      outputReason: "missing_or_empty_html",
+      fallback: {
+        ok: true,
+        reasonCode: "auth_required",
+        disposition: "completed",
+        details: {
+          url: rawUrl,
+          message: `Browser fallback captured ${rawUrl} for alice@example.com and private-state`,
+          state: "private-state",
+          nested: {
+            requestedUrl: rawUrl,
+            refresh_token: "secret-refresh-token"
+          }
+        }
+      }
+    });
+
+    expect(error.message).toBe("Browser fallback completed for https://accounts.google.com/ without usable HTML content.");
+    expect(error.details).toMatchObject({
+      url: "https://accounts.google.com/",
+      disposition: "completed",
+      fallbackOutputReason: "missing_or_empty_html",
+      message: "Browser fallback captured https://accounts.google.com/ for [REDACTED] and [REDACTED]",
+      state: "[REDACTED]",
+      nested: {
+        requestedUrl: "https://accounts.google.com/",
+        refresh_token: "[REDACTED]"
+      }
+    });
+    const serialized = JSON.stringify(error);
+    expect(serialized).not.toContain("alice@example.com");
+    expect(serialized).not.toContain("private-state");
+    expect(serialized).not.toContain("secret-refresh-token");
+    expect(serialized).not.toContain("login_hint=");
   });
 
   it("keeps completed fallback output gaps retryable for rate-limited responses without optional metadata", () => {

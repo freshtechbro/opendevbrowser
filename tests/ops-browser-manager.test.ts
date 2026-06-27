@@ -473,6 +473,19 @@ describe("OpsBrowserManager", () => {
     );
   });
 
+  it("rejects user-owned Google auth when delegating cdp relay connections", async () => {
+    const base = {
+      connectRelay: vi.fn()
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp", {
+      googleAuthIntent: "user_owned_google"
+    })).rejects.toThrow("Google user-owned auth requires the extension /ops relay.");
+
+    expect(base.connectRelay).not.toHaveBeenCalled();
+  });
+
   it("returns non-adopted canvas targets for non-ops sessions", async () => {
     const manager = new OpsBrowserManager({} as never, makeConfig());
 
@@ -867,6 +880,37 @@ describe("OpsBrowserManager", () => {
       30000,
       expect.any(String)
     );
+  });
+
+  it("reports user-owned Google provenance for ops relay connect", async () => {
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-google", activeTargetId: "tab-google", leaseId: "lease-google" };
+      }
+      return { ok: true };
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ relayPort: 8787, pairingRequired: false, instanceId: "relay-1", epoch: 1 })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/ops", {
+      googleAuthIntent: "user_owned_google"
+    });
+
+    expect(result.diagnostics?.authProvenance).toEqual({
+      googleAuthIntent: "user_owned_google",
+      profileSource: "live_extension_profile",
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    });
   });
 
   it("routes pointer primitives through ops sessions", async () => {
@@ -2747,7 +2791,25 @@ describe("OpsBrowserManager", () => {
       true,
       "req-ops"
     );
-    expect(cookieResult).toEqual({ requestId: "req-ops", imported: 1, rejected: [] });
+    expect(cookieResult).toMatchObject({
+      requestId: "req-ops",
+      imported: 1,
+      rejected: [],
+      diagnostics: {
+        authProvenance: {
+          explicitCookieImportAttempted: true,
+          profileSource: "live_extension_profile",
+          cookieBootstrap: {
+            attempted: false,
+            disabled: false,
+            importedCount: 0,
+            rejectedCount: 0
+          }
+        }
+      }
+    });
+    expect(JSON.stringify(cookieResult.diagnostics?.authProvenance)).not.toContain("abc");
+    expect(JSON.stringify(cookieResult.diagnostics?.authProvenance)).not.toContain("session");
     const cookieListResult = await manager.cookieList("ops-2", ["https://example.com"], "req-ops-list");
     expect(cookieListResult).toEqual({
       requestId: "req-ops-list",

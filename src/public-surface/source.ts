@@ -21,6 +21,7 @@ export const VALID_FLAGS = [
   "--daemon",
   "--transport",
   "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms",
+  "--google-auth-intent", "--disable-system-cookie-bootstrap", "--allow-google-cookie-bootstrap",
   "--skills-global", "--skills-local", "--no-skills",
   "--screenshot-mode", "--debug", "--context",
   "--stored",
@@ -43,6 +44,7 @@ export interface PublicSurfaceFlag {
 export const VALID_EQUALS_FLAGS = [
   "--output-format",
   "--transport",
+  "--google-auth-intent",
   "--session-id",
   "--url",
   "--screenshot-mode",
@@ -213,14 +215,14 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
       {
         name: "launch",
         description: "Launch a managed browser session via daemon",
-        usage: "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>]",
-        flags: ["--headless", "--profile", "--persist-profile", "--chrome-path", "--start-url", "--flag", "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms"]
+        usage: "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
+        flags: ["--headless", "--profile", "--persist-profile", "--chrome-path", "--start-url", "--flag", "--no-extension", "--extension-only", "--extension-legacy", "--wait-for-extension", "--wait-timeout-ms", "--google-auth-intent", "--disable-system-cookie-bootstrap", "--allow-google-cookie-bootstrap"]
       },
       {
         name: "connect",
         description: "Connect to an existing browser via daemon",
-        usage: "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy]",
-        flags: ["--ws-endpoint", "--host", "--cdp-port", "--start-url", "--extension-legacy"]
+        usage: "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
+        flags: ["--ws-endpoint", "--host", "--cdp-port", "--start-url", "--extension-legacy", "--google-auth-intent", "--disable-system-cookie-bootstrap", "--allow-google-cookie-bootstrap"]
       },
       {
         name: "disconnect",
@@ -720,8 +722,14 @@ const CLI_COMMAND_EXAMPLES = {
   daemon: [cliExample("daemon", "status --output-format json")],
   native: [cliExample("native", "status --output-format json")],
   run: [cliExample("run", "--script ./workflow.json --headless --output-format json")],
-  launch: [cliExample("launch", "--no-extension --headless --start-url https://example.com --output-format json")],
-  connect: [cliExample("connect", "--host 127.0.0.1 --cdp-port 9222 --output-format json")],
+  launch: [
+    cliExample("launch", "--no-extension --headless --start-url https://example.com --output-format json"),
+    cliExample("launch", "--google-auth-intent user-owned --extension-only --wait-for-extension --output-format json")
+  ],
+  connect: [
+    cliExample("connect", "--host 127.0.0.1 --cdp-port 9222 --output-format json"),
+    cliExample("connect", "--google-auth-intent user-owned --ws-endpoint ws://127.0.0.1:8787/ops --output-format json")
+  ],
   disconnect: [cliExample("disconnect", "--session-id s1 --close-browser --output-format json")],
   status: [cliExample("status", "--daemon --output-format json")],
   "status-capabilities": [cliExample("status-capabilities", "--session-id s1 --target-id page-1 --challenge-automation-mode browser_with_helper --timeout-ms 30000 --output-format json")],
@@ -808,8 +816,11 @@ const CLI_COMMAND_EXAMPLES = {
 } as const satisfies Record<PublicSurfaceCliCommandName, readonly string[]>;
 
 const WORKFLOW_OUTPUT_PREFERENCE_NOTE = "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.";
-const MEDIA_ANALYSIS_DEPENDENCY_NOTE = "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.";
+const MEDIA_ANALYSIS_DEPENDENCY_NOTE = "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH, then common absolute install directories for implicit PATH-source ENOENT misses only. Invalid env or config paths stay diagnostic and do not fall back. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.";
 const MEDIA_ANALYSIS_STATUS_NOTE = "status-capabilities reports FFmpeg and FFprobe availability under host.mediaAnalysis so operators can verify optional media-analysis host capability before Inspiredesign runs.";
+const GOOGLE_AUTH_CONTINUITY_NOTE = "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.";
+const GOOGLE_COOKIE_BOOTSTRAP_NOTE = "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.";
+const GOOGLE_POPUP_RECOVERY_NOTE = "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>.";
 
 const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly string[]>> = {
   help: [
@@ -819,7 +830,15 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "One-shot run uses a temporary profile unless --persist-profile is explicitly enabled."
   ],
   launch: [
-    "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
+    "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step.",
+    GOOGLE_AUTH_CONTINUITY_NOTE,
+    GOOGLE_COOKIE_BOOTSTRAP_NOTE,
+    GOOGLE_POPUP_RECOVERY_NOTE
+  ],
+  connect: [
+    GOOGLE_AUTH_CONTINUITY_NOTE,
+    GOOGLE_COOKIE_BOOTSTRAP_NOTE,
+    GOOGLE_POPUP_RECOVERY_NOTE
   ],
   "status-capabilities": [
     MEDIA_ANALYSIS_STATUS_NOTE
@@ -989,12 +1008,24 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceDefinition[] = [
 ] as const;
 
 const TOOL_SURFACE_EXAMPLES: Partial<Record<string, string>> = {
+  opendevbrowser_launch: "{\"googleAuthIntent\":\"user_owned_google\",\"disableSystemCookieBootstrap\":true,\"allowGoogleCookieBootstrap\":false,\"extensionOnly\":true,\"waitForExtension\":true}",
+  opendevbrowser_connect: "{\"wsEndpoint\":\"ws://127.0.0.1:8787/ops\",\"googleAuthIntent\":\"user_owned_google\",\"disableSystemCookieBootstrap\":true,\"allowGoogleCookieBootstrap\":false}",
   opendevbrowser_prompting_guide: "{\"topic\":\"quick start\"}",
   opendevbrowser_skill_list: "{}",
   opendevbrowser_skill_load: "{\"name\":\"opendevbrowser-best-practices\",\"topic\":\"quick start\"}"
 };
 
 const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
+  opendevbrowser_launch: [
+    GOOGLE_AUTH_CONTINUITY_NOTE,
+    GOOGLE_COOKIE_BOOTSTRAP_NOTE,
+    GOOGLE_POPUP_RECOVERY_NOTE
+  ],
+  opendevbrowser_connect: [
+    GOOGLE_AUTH_CONTINUITY_NOTE,
+    GOOGLE_COOKIE_BOOTSTRAP_NOTE,
+    GOOGLE_POPUP_RECOVERY_NOTE
+  ],
   opendevbrowser_prompting_guide: [
     "Tool-only helper. Use it before low-level browser commands when an agent needs the canonical quick start."
   ],

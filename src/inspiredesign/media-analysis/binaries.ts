@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { resolve as resolvePath } from "path";
 import {
   INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS,
   INSPIREDESIGN_MEDIA_ANALYSIS_MAX_BINARY_PROBE_OUTPUT_BYTES,
@@ -19,6 +20,7 @@ export type InspiredesignMediaAnalysisBinaryResolverOptions = {
   config?: InspiredesignMediaAnalysisBinaryPathsConfig;
   env?: InspiredesignMediaAnalysisBinaryResolverEnv;
   timeoutMs?: number;
+  commonPathDirs?: readonly string[];
 };
 
 type BinaryRequest = {
@@ -31,7 +33,7 @@ type BinaryRequest = {
 
 type ProbeResult =
   | { version: string }
-  | { limitation: string };
+  | { limitation: string; enoent?: boolean };
 
 type ProcessResult = {
   stdout: string;
@@ -40,14 +42,32 @@ type ProcessResult = {
   timedOut: boolean;
 };
 
+type CommonPathFallbackContext = {
+  request: BinaryRequest;
+  selected: { source: InspiredesignMediaAnalysisBinarySource; requestedPath: string };
+  env: InspiredesignMediaAnalysisBinaryResolverEnv;
+  timeoutMs: number;
+  commonPathDirs: readonly string[];
+  originalProbe: ProbeResult;
+};
+
 const VERSION_LINE_LIMIT = 180;
 const PROBE_ARGS = ["-version"] as const;
+const MACOS_COMMON_PATH_DIRS = [
+  "/opt/homebrew/bin",
+  "/opt/local/bin",
+  "/usr/local/bin",
+  "/nix/var/nix/profiles/default/bin",
+  "/usr/bin"
+] as const;
+const LINUX_COMMON_PATH_DIRS = ["/usr/local/bin", "/usr/bin"] as const;
 
 export const resolveInspiredesignMediaAnalysisBinaries = async (
   options: InspiredesignMediaAnalysisBinaryResolverOptions = {}
 ): Promise<InspiredesignMediaAnalysisBinaryResolution> => {
   const env = options.env ?? process.env;
   const timeoutMs = options.timeoutMs ?? INSPIREDESIGN_MEDIA_ANALYSIS_BINARY_PROBE_TIMEOUT_MS;
+  const commonPathDirs = options.commonPathDirs ?? defaultCommonPathDirs(process.platform);
   const [ffmpeg, ffprobe] = await Promise.all([
     resolveBinaryStatus({
       tool: "ffmpeg",
@@ -55,14 +75,14 @@ export const resolveInspiredesignMediaAnalysisBinaries = async (
       configPath: options.config?.ffmpegPath,
       pathDefault: "ffmpeg",
       availableTier: "frame_decode"
-    }, env, timeoutMs),
+    }, env, timeoutMs, commonPathDirs),
     resolveBinaryStatus({
       tool: "ffprobe",
       envName: OPENDEVBROWSER_FFPROBE_PATH_ENV,
       configPath: options.config?.ffprobePath,
       pathDefault: "ffprobe",
       availableTier: "metadata_probe"
-    }, env, timeoutMs)
+    }, env, timeoutMs, commonPathDirs)
   ]);
   const limitations = [ffmpeg.limitation, ffprobe.limitation]
     .filter((limitation): limitation is string => typeof limitation === "string");
@@ -78,7 +98,8 @@ export const resolveInspiredesignMediaAnalysisBinaries = async (
 const resolveBinaryStatus = async (
   request: BinaryRequest,
   env: InspiredesignMediaAnalysisBinaryResolverEnv,
-  timeoutMs: number
+  timeoutMs: number,
+  commonPathDirs: readonly string[]
 ): Promise<InspiredesignMediaAnalysisBinaryStatus> => {
   const selected = selectRequestedBinary(request, env);
   if (selected.requestedPath.trim().length === 0) {
@@ -86,17 +107,17 @@ const resolveBinaryStatus = async (
   }
   const probe = await probeBinaryVersion(request.tool, selected.requestedPath, timeoutMs, env);
   if ("limitation" in probe) {
-    return unavailableStatus(request, selected, probe.limitation);
+    const fallback = await tryCommonPathFallback({
+      request,
+      selected,
+      env,
+      timeoutMs,
+      commonPathDirs,
+      originalProbe: probe
+    });
+    return fallback ?? unavailableStatus(request, selected, probe.limitation);
   }
-  return {
-    tool: request.tool,
-    available: true,
-    source: selected.source,
-    requestedPath: selected.requestedPath,
-    resolvedPath: selected.requestedPath,
-    version: probe.version,
-    capabilityTier: request.availableTier
-  };
+  return availableStatus(request, selected, selected.requestedPath, probe.version);
 };
 
 const selectRequestedBinary = (
@@ -113,6 +134,21 @@ const selectRequestedBinary = (
   return { source: "path", requestedPath: request.pathDefault };
 };
 
+const availableStatus = (
+  request: BinaryRequest,
+  selected: { source: InspiredesignMediaAnalysisBinarySource; requestedPath: string },
+  resolvedPath: string,
+  version: string
+): InspiredesignMediaAnalysisBinaryStatus => ({
+  tool: request.tool,
+  available: true,
+  source: selected.source,
+  requestedPath: selected.requestedPath,
+  resolvedPath,
+  version,
+  capabilityTier: request.availableTier
+});
+
 const unavailableStatus = (
   request: BinaryRequest,
   selected: { source: InspiredesignMediaAnalysisBinarySource; requestedPath: string },
@@ -125,6 +161,35 @@ const unavailableStatus = (
   limitation,
   capabilityTier: "unavailable"
 });
+
+const tryCommonPathFallback = async ({
+  request,
+  selected,
+  env,
+  timeoutMs,
+  commonPathDirs,
+  originalProbe
+}: CommonPathFallbackContext): Promise<InspiredesignMediaAnalysisBinaryStatus | undefined> => {
+  if (!("limitation" in originalProbe) || originalProbe.enoent !== true || selected.source !== "path") {
+    return undefined;
+  }
+  for (const commonPathDir of commonPathDirs) {
+    const trimmedDir = commonPathDir.trim();
+    if (trimmedDir.length === 0) continue;
+    const candidatePath = resolvePath(trimmedDir, request.tool);
+    const probe = await probeBinaryVersion(request.tool, candidatePath, timeoutMs, env);
+    if (!("limitation" in probe)) {
+      return availableStatus(request, selected, candidatePath, probe.version);
+    }
+  }
+  return undefined;
+};
+
+const defaultCommonPathDirs = (platform: NodeJS.Platform): readonly string[] => {
+  if (platform === "darwin") return MACOS_COMMON_PATH_DIRS;
+  if (platform === "linux") return LINUX_COMMON_PATH_DIRS;
+  return [];
+};
 
 const blankPathLimitation = (
   request: BinaryRequest,
@@ -165,7 +230,7 @@ const probeBinaryVersion = async (
     }
     return parseVersionOutput(tool, result.stdout, result.stderr);
   } catch (error) {
-    return { limitation: formatProbeError(tool, error) };
+    return formatProbeError(tool, error);
   }
 };
 
@@ -236,9 +301,12 @@ const parseVersionOutput = (
   return { version: versionLine.slice(0, VERSION_LINE_LIMIT) };
 };
 
-const formatProbeError = (tool: InspiredesignMediaAnalysisBinaryTool, error: unknown): string => {
+const formatProbeError = (tool: InspiredesignMediaAnalysisBinaryTool, error: unknown): ProbeResult => {
   if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-    return `${tool} binary was not found.`;
+    return { limitation: `${tool} binary was not found.`, enoent: true };
   }
-  return error instanceof Error ? `${tool} version probe failed: ${error.message}` : `${tool} version probe failed.`;
+  const limitation = error instanceof Error
+    ? `${tool} version probe failed: ${error.message}`
+    : `${tool} version probe failed.`;
+  return { limitation };
 };

@@ -308,6 +308,9 @@ sequenceDiagram
 - `cdpConnect`: attach to an existing Chrome via CDP (`/json/version`).
 - `connect` routing: local relay WS endpoints (for example `ws://127.0.0.1:<relayPort>` or `/ops`) are normalized to `/ops` and routed via the relay (`extension` mode). Legacy `/cdp` requires `--extension-legacy`.
 - Launch defaults to `extension` when available; managed/CDPConnect require explicit user choice.
+- `--google-auth-intent user-owned` is explicit user-owned Google OAuth intent. It requires extension `/ops` against the live Chrome profile and fails closed for `--no-extension`, `--headless`, `--extension-legacy`, and direct CDP.
+- Managed and `cdpConnect` make a best-effort attempt to copy readable system Chrome-family cookies unless `--disable-system-cookie-bootstrap` is set. Google-sensitive cookies are skipped by default unless `--allow-google-cookie-bootstrap` is explicitly set for diagnostics. Copied cookies are not Google auth proof.
+- Browser-owned auth diagnostics are returned under sanitized `diagnostics.authProvenance`; they must not include private cookies, tokens, account identifiers, full profile paths, or account screenshots.
 - Extension relay requires **Chrome 125+** and uses flat-session routing with DebuggerSession `sessionId`.
 - Hub mode supports multi-client access. `/ops` accepts multiple clients, while FIFO binding/lease coordination applies to legacy `/cdp` and protected extension-session command paths.
 
@@ -400,7 +403,8 @@ Only the workflow bundle lanes above promise `bundle-manifest.json` and particip
 - The canonical validator for the shipped canvas surface is `scripts/canvas-competitive-validation.mjs`; it groups send-to-agent, feedback/history, adapter conformance, framework/library fixtures, plugin packaging negatives, inventory/starters, token round-trip, surface parity, Figma fixture import, configured plugin fixture status, and optional live Figma smoke into one report plus per-group logs.
 - Legal/compliance gating for scrape-first adapters is enforced with per-provider review checklists (review date, allowed surfaces, prohibited flows, reviewer, expiry, signed-off status) and blocks expired/invalid enablement.
 - Session coherence includes cookie import validation and tiered fingerprint controls:
-  - Managed and `cdpConnect` sessions automatically attempt to import readable cookies from the discovered system Chrome-family profile before first navigation; extension sessions reuse the already logged-in browser tab instead.
+  - Managed and `cdpConnect` sessions make a best-effort attempt to import readable non-Google-sensitive cookies from the discovered system Chrome-family profile before first navigation unless per-run system cookie bootstrap is disabled; extension sessions reuse the already logged-in browser tab instead.
+  - For user-owned Google OAuth, extension `/ops` is the only supported continuity path. Managed/CDP copied cookies are not Google auth proof.
   - Provider cookie policy defaults are configurable via `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).
   - Workflow wrappers expose per-run overrides: `useCookies` and `cookiePolicyOverride`.
   - Effective policy is deterministic: override > `useCookies` > config default.

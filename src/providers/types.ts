@@ -3,6 +3,7 @@ import type {
   ChallengeAutomationModeSource,
   ChallengeAutomationStandDownReason
 } from "../challenges/types";
+import type { GoogleAuthIntent } from "../core/auth-intent";
 import type { WorkflowResumeEnvelope } from "./workflow-contracts";
 
 export type ProviderSource = "web" | "community" | "social" | "shopping";
@@ -509,9 +510,13 @@ export interface ProviderRuntimePolicyInput {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  googleAuthIntent?: GoogleAuthIntent;
 }
 
 export interface ResolvedProviderRuntimePolicy {
+  auth: {
+    googleAuthIntent: GoogleAuthIntent;
+  };
   browser: {
     preferredModes: BrowserFallbackMode[];
     forceTransport: boolean;

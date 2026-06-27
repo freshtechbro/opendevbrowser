@@ -536,6 +536,7 @@ Auth and policy:
 - `managed`: `launch --no-extension` (or explicit managed launch flags).
 - `extension-legacy`: `launch --extension-legacy` or `connect --extension-legacy` through `/cdp`.
 - `cdpConnect`: direct `connect --ws-endpoint ...` or `connect --host ... --cdp-port ...`.
+- User-owned Google OAuth: `launch --google-auth-intent user-owned --extension-only --wait-for-extension` or an `/ops` relay connect. This requires extension /ops and fails closed for managed, headless, legacy `/cdp`, and direct CDP.
 
 ### Key mode flags
 - `--no-extension`
@@ -543,6 +544,16 @@ Auth and policy:
 - `--extension-legacy`
 - `--wait-for-extension`
 - `--wait-timeout-ms`
+- `--google-auth-intent user-owned`
+- `--disable-system-cookie-bootstrap`
+- `--allow-google-cookie-bootstrap`
+
+### Google OAuth continuity
+- Managed and direct `cdpConnect` cookie bootstrap is best-effort and copies readable system Chrome-family cookies only. Copied cookies are not Google auth proof and can be disabled per run with `--disable-system-cookie-bootstrap`.
+- Google-sensitive cookies are skipped by default during managed and direct `cdpConnect` bootstrap. Use `--allow-google-cookie-bootstrap` only for diagnostic runs that explicitly accept that risk.
+- Launch/connect responses expose sanitized `diagnostics.authProvenance` for mode and cookie-bootstrap provenance. They must not expose private cookies, tokens, account identifiers, full profile paths, or account screenshots.
+- If Google sign-in or account chooser actions open an OAuth popup, run `targets-list --include-urls`, then `target-use --target-id <target-id>` for the chosen target.
+- For perceived logout or auth invalidation, prefer extension `/ops` with `--google-auth-intent user-owned`; do not use managed/CDP copied cookies as proof of Google login.
 
 ### Transport flags
 - Global transport flag: `--transport relay|native` (status and transport-aware flows).
@@ -560,7 +571,7 @@ Auth and policy:
 - Inspiredesign harvest artifacts: `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, `media-analysis.json`, `ranked-references.json`, and `meta-prompt.md` are emitted with screenshot PNGs under `visual-evidence/<referenceId>/viewport.png`, motion artifacts under `motion-evidence/<referenceId>/` when video evidence is captured, and Pinterest pin media under `pin-media-evidence/<referenceId>/main.*`, `pin-media-evidence/<referenceId>/video.mp4`, or `pin-media-evidence/<referenceId>/poster.*` when canonical pin media proof is captured. JSON remains bounded and artifact-relative with paths, hashes, byte counts, viewport or media facts when available, reference id and URL, warnings, limitations, and non-goals.
 - `media-analysis.json` is the deterministic design-fact surface for trusted saved pin media. It may include dimensions, tone, quantized palette, layout posture, OCR-free typography structure, text-region layout, and sampled motion facts, but it is not the readiness authority and cannot replace `pin-media-index.json`.
 - FFmpeg and FFprobe are recommended optional host tools for richer media-analysis metadata and sampled GIF or video facts. They are not bundled static binaries and are not downloaded by default.
-- Media-analysis binaries resolve from `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` on `PATH`. `status-capabilities` reports this host state under `host.mediaAnalysis`.
+- Media-analysis binaries resolve from `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` on `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses only. Invalid env or config paths stay diagnostic and do not fall back. `status-capabilities` reports this host state under `host.mediaAnalysis`.
 - Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They do not fail pin-media readiness, and `media-analysis.json` never satisfies product readiness.
 - `media-analysis.json` does not provide readable text extraction, exact copy, font-family proof, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, new dependencies, or raw `mediaAnalysis` in `canvas-plan.request.json`; Canvas receives only concise media-derived summaries through existing plan/vector fields after readiness is already ready.
 - `ranked-references.json.rejectedReferences` serializes captured-but-rejected diagnostics, including untrusted `interface_chrome_shell`, without promoting those captures into design-facing references.

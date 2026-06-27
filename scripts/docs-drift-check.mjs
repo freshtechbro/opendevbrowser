@@ -318,9 +318,11 @@ export function runDocsDriftChecks() {
   checks.push({
     id: "doc.onboarding.session_reuse_matrix_documented",
     ok: onboardingDoc.includes("Reuses the attached live tab or profile state.")
-      && onboardingDoc.includes("Attempts readable system Chrome-family cookie bootstrap before first navigation.")
-      && onboardingDoc.includes("explicit cookie add/override behavior"),
-    detail: "docs/FIRST_RUN_ONBOARDING.md must document extension reuse, managed/cdpConnect bootstrap, and cookie-import override behavior."
+      && onboardingDoc.includes("best-effort readable system Chrome-family cookie bootstrap before first navigation")
+      && onboardingDoc.includes("--disable-system-cookie-bootstrap")
+      && onboardingDoc.includes("Explicit add/override only after session creation.")
+      && onboardingDoc.includes("Managed/CDP copied cookies are not Google auth proof"),
+    detail: "docs/FIRST_RUN_ONBOARDING.md must document extension reuse, best-effort managed/cdpConnect bootstrap, disable-bootstrap control, and explicit cookie-import override behavior."
   });
 
   checks.push({
@@ -613,9 +615,13 @@ export function runDocsDriftChecks() {
     id: "doc.troubleshooting.session_reuse_and_policy_pointer_documented",
     ok: troubleshootingDoc.includes("canvas_history_requested")
       && troubleshootingDoc.includes("AgentInbox")
-      && troubleshootingDoc.includes("Chrome-family cookie bootstrap")
+      && troubleshootingDoc.includes("best-effort attempt to bootstrap readable Chrome-family cookies")
+      && troubleshootingDoc.includes("--disable-system-cookie-bootstrap")
+      && troubleshootingDoc.includes("extension `/ops` for user-owned Google OAuth continuity")
+      && troubleshootingDoc.includes("Copied cookies are not Google auth proof")
+      && troubleshootingDoc.includes("diagnostics.authProvenance")
       && troubleshootingDoc.includes("skills/opendevbrowser-best-practices/SKILL.md"),
-    detail: "docs/TROUBLESHOOTING.md must document history event wording, AgentInbox send fallback, cookie bootstrap, and the canonical direct-run policy pointer."
+    detail: "docs/TROUBLESHOOTING.md must document history event wording, AgentInbox send fallback, best-effort cookie bootstrap, Google OAuth extension /ops continuity, disable-bootstrap control, diagnostics, and the canonical direct-run policy pointer."
   });
 
   pushRequiredForbiddenTermsCheck(checks, {

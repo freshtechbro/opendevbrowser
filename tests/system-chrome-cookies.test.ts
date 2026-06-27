@@ -323,8 +323,9 @@ describe("loadSystemChromeCookies", () => {
       secure: false
     }]);
     expect(result.warnings).toEqual([
-      "System Chrome cookie bootstrap skipped 1 unreadable cookies from Default."
+      "System Chrome cookie bootstrap skipped 1 unreadable cookies."
     ]);
+    expect(JSON.stringify(result.warnings)).not.toContain("Default");
   });
 
   it("returns direct sqlite cookies without staging when the system profile can be decrypted", async () => {
@@ -379,6 +380,53 @@ describe("loadSystemChromeCookies", () => {
     expect(launchPersistentContext).not.toHaveBeenCalled();
   });
 
+  it("returns direct sqlite cookies from the public bootstrap path without staging", async () => {
+    const safeStoragePassword = "safe-storage-secret";
+    const hostKey = ".github.com";
+    const key = pbkdf2Sync(safeStoragePassword, "saltysalt", 1003, 16, "sha1");
+    const cipher = createCipheriv("aes-128-cbc", key, Buffer.alloc(16, 0x20));
+    const encryptedHex = Buffer.concat([
+      Buffer.from("v10"),
+      cipher.update(Buffer.concat([createHash("sha256").update(hostKey).digest(), Buffer.from("direct-public-value", "utf8")])),
+      cipher.final()
+    ]).toString("hex").toUpperCase();
+    const encodeHex = (value: string) => Buffer.from(value, "utf8").toString("hex").toUpperCase();
+
+    execFileSync.mockImplementation((command: string) => {
+      if (command === "security") return `${safeStoragePassword}\n`;
+      if (command === "sqlite3") {
+        return [
+          encodeHex(hostKey),
+          encodeHex("direct_public_cookie"),
+          "",
+          encryptedHex,
+          encodeHex("/"),
+          "13419386248156248",
+          "1",
+          "1",
+          "0"
+        ].join("\u001f");
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const { loadSystemChromeCookies } = await import("../src/browser/system-chrome-cookies");
+    const result = await loadSystemChromeCookies("/bin/chrome");
+
+    expect(result.cookies).toEqual([{
+      name: "direct_public_cookie",
+      value: "direct-public-value",
+      domain: ".github.com",
+      path: "/",
+      expires: expect.any(Number),
+      httpOnly: true,
+      secure: true,
+      sameSite: "None"
+    }]);
+    expect(result.warnings).toEqual([]);
+    expect(launchPersistentContext).not.toHaveBeenCalled();
+  });
+
   it("returns a direct-read warning when sqlite access fails", async () => {
     execFileSync.mockImplementation((command: string) => {
       if (command === "security") {
@@ -400,7 +448,9 @@ describe("loadSystemChromeCookies", () => {
 
     expect(result.cookies).toEqual([]);
     expect(result.attempted).toBe(true);
-    expect(result.warnings[0]).toContain("System Chrome cookie bootstrap direct read failed: sqlite unavailable");
+    expect(result.warnings).toContain("System Chrome cookie bootstrap direct read failed: Error");
+    expect(JSON.stringify(result.warnings)).not.toContain("sqlite unavailable");
+    expect(JSON.stringify(result.warnings)).not.toContain("Default");
   });
 
   it("stages cookies without a configured executable path and omits empty sameSite values", async () => {
@@ -475,10 +525,30 @@ describe("loadSystemChromeCookies", () => {
 
     expect(result.cookies).toEqual([]);
     expect(result.source?.profileDirectory).toBe("Default");
-    expect(result.warnings).toContain("System Chrome cookie bootstrap failed: launch failed");
+    expect(result.warnings).toContain("System Chrome cookie bootstrap failed: Error");
+    expect(JSON.stringify(result.warnings)).not.toContain("launch failed");
+    expect(JSON.stringify(result.warnings)).not.toContain("Default");
   });
 
-  it("stringifies non-Error staging failures in the final warning", async () => {
+  it("uses a generic error label when staged cookie bootstrap errors have no safe name", async () => {
+    execFileSync.mockImplementation((command: string) => {
+      if (command === "security") return "safe-storage-secret\n";
+      if (command === "sqlite3") return "";
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const unnamedError = new Error("launch failed with /Users/alice/Default");
+    unnamedError.name = "";
+    launchPersistentContext.mockRejectedValue(unnamedError);
+
+    const { loadSystemChromeCookies } = await import("../src/browser/system-chrome-cookies");
+    const result = await loadSystemChromeCookies("/bin/chrome");
+
+    expect(result.warnings).toContain("System Chrome cookie bootstrap failed: Error");
+    expect(JSON.stringify(result.warnings)).not.toContain("/Users/alice");
+    expect(JSON.stringify(result.warnings)).not.toContain("Default");
+  });
+
+  it("redacts non-Error staging failures in the final warning", async () => {
     execFileSync.mockImplementation((command: string) => {
       if (command === "security") return "safe-storage-secret\n";
       if (command === "sqlite3") return "";
@@ -489,6 +559,8 @@ describe("loadSystemChromeCookies", () => {
     const { loadSystemChromeCookies } = await import("../src/browser/system-chrome-cookies");
     const result = await loadSystemChromeCookies();
 
-    expect(result.warnings).toContain("System Chrome cookie bootstrap failed: launch failed as string");
+    expect(result.warnings).toContain("System Chrome cookie bootstrap failed: Unknown error");
+    expect(JSON.stringify(result.warnings)).not.toContain("launch failed as string");
+    expect(JSON.stringify(result.warnings)).not.toContain("Default");
   });
 });

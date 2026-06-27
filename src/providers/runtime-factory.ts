@@ -1,5 +1,11 @@
-import type { BrowserManagerLike, ChallengeRuntimeHandle } from "../browser/manager-types";
+import type {
+  BrowserAuthProvenanceDiagnostics,
+  BrowserManagerLike,
+  BrowserProviderCookieImportProvenance,
+  ChallengeRuntimeHandle
+} from "../browser/manager-types";
 import { isOpsRequestTimeoutError } from "../browser/ops-client";
+import { sanitizeProviderCookieImportProvenance } from "../browser/auth-provenance";
 import type {
   OpenDevBrowserConfig,
   ProvidersChallengeOrchestrationConfig
@@ -22,8 +28,10 @@ import type {
   ProviderCookieImportRecord,
   ProviderCookiePolicy,
   ProviderCookieSourceConfig,
-  SessionChallengeSummary
+  SessionChallengeSummary,
+  SuspendedIntentSummary
 } from "./types";
+import type { GoogleAuthIntent } from "../core/auth-intent";
 
 type RuntimeConfig = Pick<OpenDevBrowserConfig, "blockerDetectionThreshold" | "security" | "providers">
   & Partial<Pick<OpenDevBrowserConfig, "inspiredesign">>;
@@ -360,6 +368,155 @@ const baseCookieDiagnostics = (
   authStateVerified: false
 });
 
+const providerCookieImportProvenance = (
+  diagnostics: BrowserFallbackCookieDiagnostics
+): BrowserProviderCookieImportProvenance => sanitizeProviderCookieImportProvenance({
+  policy: diagnostics.policy,
+  source: diagnostics.source,
+  attempted: diagnostics.attempted,
+  available: diagnostics.available,
+  loadedCount: diagnostics.loaded,
+  importedCount: diagnostics.injected,
+  rejectedCount: diagnostics.rejected,
+  verifiedCount: diagnostics.verifiedCount,
+  strict: diagnostics.strict,
+  sessionEvidence: diagnostics.sessionEvidence,
+  authStateVerified: diagnostics.authStateVerified,
+  ...(diagnostics.reasonCode ? { reasonCode: diagnostics.reasonCode } : {}),
+  ...(diagnostics.message ? { message: diagnostics.message } : {})
+});
+
+const SAFE_COOKIE_DIAGNOSTIC_MESSAGES = new Set<string>([
+  "Inline cookie source is empty.",
+  "Provider cookie injection imported 0 entries.",
+  "Provider cookies were not observable after injection.",
+  "Provider cookies were not observable in the live extension session.",
+  "Required provider cookies are missing."
+]);
+
+const sourceCookieDiagnosticMessage = (
+  diagnostics: BrowserFallbackCookieDiagnostics
+): string => diagnostics.loaded === 0
+  ? "cookie_source_unavailable"
+  : "cookie_import_notice";
+
+const cookieDiagnosticsMessage = (
+  diagnostics: BrowserFallbackCookieDiagnostics
+): string | undefined => {
+  if (!diagnostics.message) {
+    return undefined;
+  }
+  if (SAFE_COOKIE_DIAGNOSTIC_MESSAGES.has(diagnostics.message)) {
+    return diagnostics.message;
+  }
+  if (diagnostics.source === "file") {
+    return sourceCookieDiagnosticMessage(diagnostics);
+  }
+  if (diagnostics.source === "env" && diagnostics.available === false) {
+    return sourceCookieDiagnosticMessage(diagnostics);
+  }
+  if (diagnostics.reasonCode) {
+    return diagnostics.reasonCode;
+  }
+  return providerCookieImportProvenance(diagnostics).message;
+};
+
+const rawCookieSourceMessage = (message: string): boolean => (
+  message.startsWith("Cookie file ") || message.startsWith("Cookie env ")
+);
+
+const fallbackDetailsMessage = (
+  message: string,
+  diagnostics?: BrowserFallbackCookieDiagnostics
+): string => {
+  if (diagnostics?.message === message && rawCookieSourceMessage(message)) {
+    return cookieDiagnosticsMessage(diagnostics) ?? "cookie_source_unavailable";
+  }
+  return message;
+};
+
+const cookieDiagnosticsDetails = (
+  diagnostics: BrowserFallbackCookieDiagnostics
+): Record<string, JsonValue> => {
+  const sanitizedMessage = cookieDiagnosticsMessage(diagnostics);
+  return toJsonRecord({
+    policy: diagnostics.policy,
+    source: diagnostics.source,
+    sourceRef: diagnostics.source,
+    attempted: diagnostics.attempted,
+    available: diagnostics.available,
+    loaded: diagnostics.loaded,
+    injected: diagnostics.injected,
+    rejected: diagnostics.rejected,
+    verifiedCount: diagnostics.verifiedCount,
+    strict: diagnostics.strict,
+    sessionEvidence: diagnostics.sessionEvidence,
+    authStateVerified: diagnostics.authStateVerified,
+    ...(diagnostics.reasonCode ? { reasonCode: diagnostics.reasonCode } : {}),
+    ...(sanitizedMessage ? { message: sanitizedMessage } : {})
+  });
+};
+
+const authProvenanceDetails = (
+  diagnostics: BrowserFallbackCookieDiagnostics,
+  authProvenance?: BrowserAuthProvenanceDiagnostics
+): Record<string, JsonValue> => authProvenance
+  ? toJsonRecord(authProvenance)
+  : toJsonRecord({
+    providerCookieImport: providerCookieImportProvenance(diagnostics)
+  });
+
+const resolveRequestGoogleAuthIntent = (
+  request: BrowserFallbackRequest
+): GoogleAuthIntent | undefined => (
+  request.runtimePolicy?.auth.googleAuthIntent
+);
+
+const REDACTED_FALLBACK_URL = "redacted_url";
+
+const fallbackPublicUrl = (
+  url: string,
+  googleAuthIntent?: GoogleAuthIntent
+): string => {
+  if (googleAuthIntent !== "user_owned_google") {
+    return url;
+  }
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return REDACTED_FALLBACK_URL;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return `${parsed.protocol}//${parsed.hostname}/`;
+    }
+    if (parsed.protocol === "about:") {
+      return parsed.href;
+    }
+    if (parsed.hostname) {
+      return `${parsed.protocol}//${parsed.hostname}/`;
+    }
+    return `${parsed.protocol}${REDACTED_FALLBACK_URL}`;
+  } catch {
+    return REDACTED_FALLBACK_URL;
+  }
+};
+
+const publicSuspendedIntentSummary = (
+  intent: SuspendedIntentSummary | undefined,
+  googleAuthIntent?: GoogleAuthIntent
+): SuspendedIntentSummary | undefined => {
+  if (!intent || googleAuthIntent !== "user_owned_google") {
+    return intent;
+  }
+  return {
+    kind: intent.kind,
+    ...(intent.provider ? { provider: intent.provider } : {}),
+    ...(intent.source ? { source: intent.source } : {}),
+    ...(intent.operation ? { operation: intent.operation } : {})
+  };
+};
+
 const fallbackFailure = (
   reasonCode: BrowserFallbackResponse["reasonCode"],
   message: string,
@@ -369,6 +526,7 @@ const fallbackFailure = (
   options: {
     mode?: BrowserFallbackMode;
     details?: Record<string, JsonValue>;
+    authProvenance?: BrowserAuthProvenanceDiagnostics;
   } = {}
 ): BrowserFallbackResponse => ({
   ok: false,
@@ -376,8 +534,9 @@ const fallbackFailure = (
   disposition: reasonCode === "env_limited" ? "deferred" : "failed",
   ...(options.mode ? { mode: options.mode } : {}),
   details: {
-    message,
-    ...(cookieDiagnostics ? { cookieDiagnostics: toJsonRecord(cookieDiagnostics) } : {}),
+    message: fallbackDetailsMessage(message, cookieDiagnostics),
+    ...(cookieDiagnostics ? { cookieDiagnostics: cookieDiagnosticsDetails(cookieDiagnostics) } : {}),
+    ...(cookieDiagnostics ? { authProvenance: authProvenanceDetails(cookieDiagnostics, options.authProvenance) } : {}),
     ...(challengeOrchestration ? { challengeOrchestration } : {}),
     ...(runtimePolicy ? { runtimePolicy } : {}),
     ...(options.details ? options.details : {})
@@ -545,6 +704,11 @@ const createChallengeSummaryForFallback = (args: {
 }): SessionChallengeSummary => {
   const now = args.now ?? new Date();
   const summary = args.existing;
+  const googleAuthIntent = resolveRequestGoogleAuthIntent(args.request);
+  const suspendedIntent = publicSuspendedIntentSummary(
+    args.request.suspendedIntent ?? summary?.suspendedIntent,
+    googleAuthIntent
+  );
   return {
     ...(summary ?? {
       challengeId: `fallback-${now.getTime()}`,
@@ -557,7 +721,7 @@ const createChallengeSummaryForFallback = (args: {
     ownerSurface: args.request.ownerSurface ?? "provider_fallback",
     ...(args.request.ownerLeaseId ? { ownerLeaseId: args.request.ownerLeaseId } : {}),
     resumeMode: args.request.resumeMode ?? "auto",
-    ...(args.request.suspendedIntent ? { suspendedIntent: args.request.suspendedIntent } : {}),
+    ...(suspendedIntent ? { suspendedIntent } : {}),
     preservedSessionId: args.sessionId,
     ...(args.targetId ? { preservedTargetId: args.targetId } : {}),
     status: summary?.status ?? "active",
@@ -1110,6 +1274,7 @@ export const createBrowserFallbackPort = (
       );
       const baseRuntimePolicy = resolveFallbackRuntimePolicy();
       const baseRuntimePolicyRecord = toJsonRecord(baseRuntimePolicy);
+      const requestGoogleAuthIntent = resolveRequestGoogleAuthIntent(request);
       const preferredModes = baseRuntimePolicy.browser.preferredModes.length
         ? baseRuntimePolicy.browser.preferredModes
         : ["managed_headed"];
@@ -1132,6 +1297,8 @@ export const createBrowserFallbackPort = (
         let runtimePolicyRecord = baseRuntimePolicyRecord;
         let policy = runtimePolicy.cookies.policy;
         const cookieDiagnostics = baseCookieDiagnostics(policy, defaults.source);
+        let authProvenance: BrowserAuthProvenanceDiagnostics | undefined;
+        const currentAuthProvenanceDetails = () => authProvenanceDetails(cookieDiagnostics, authProvenance);
         let retryModeAttempt = false;
         let cleanupFailureMustFail = false;
         let abortCleanup: Promise<void> | null = null;
@@ -1158,13 +1325,15 @@ export const createBrowserFallbackPort = (
                 : fallbackFailure("env_limited", "Extension fallback requires a relay endpoint.", cookieDiagnostics, undefined, runtimePolicyRecord);
               continue;
             }
-            const attachOptions = shouldAttachExtensionStartUrl(request)
-              ? { startUrl: requestUrl }
-              : undefined;
+            const attachOptions = {
+              ...(shouldAttachExtensionStartUrl(request) ? { startUrl: requestUrl } : {}),
+              ...(requestGoogleAuthIntent === "user_owned_google" ? { googleAuthIntent: requestGoogleAuthIntent } : {})
+            };
             const attached = await runSessionStartWithinFallbackDeadline("extension_connect", async () => manager.connectRelay(
               extensionWsEndpoint,
-              attachOptions
+              Object.keys(attachOptions).length > 0 ? attachOptions : undefined
             ));
+            authProvenance = attached.diagnostics?.authProvenance;
             sessionId = attached.sessionId;
             const attachedSessionId = sessionId;
             if (shouldVerifyExtensionRequestUrl(request)) {
@@ -1179,8 +1348,12 @@ export const createBrowserFallbackPort = (
                 });
                 const recovered = await runSessionStartWithinFallbackDeadline("extension_reattach", async () => manager.connectRelay(
                   extensionWsEndpoint,
-                  { startUrl: requestUrl }
+                  {
+                    startUrl: requestUrl,
+                    ...(requestGoogleAuthIntent === "user_owned_google" ? { googleAuthIntent: requestGoogleAuthIntent } : {})
+                  }
                 ));
+                authProvenance = recovered.diagnostics?.authProvenance;
                 sessionId = recovered.sessionId;
                 const recoveredSessionId = sessionId;
                 attachedUrl = (await runWithinFallbackDeadline("extension_reattach_status", async () => manager.status(recoveredSessionId))).url;
@@ -1189,7 +1362,7 @@ export const createBrowserFallbackPort = (
                 });
               }
             } else {
-              navigatedDuringAttach = Boolean(attachOptions?.startUrl);
+              navigatedDuringAttach = Boolean(attachOptions.startUrl);
             }
           } else {
             const launched = await runSessionStartWithinFallbackDeadline("launch", async () => manager.launch({
@@ -1235,6 +1408,10 @@ export const createBrowserFallbackPort = (
               cookieDiagnostics.sessionEvidence = verified.count > 0 ? "cookies_observable" : "cookies_missing";
             }
             ensureNotAborted("cookies_ready");
+            authProvenance = manager.recordProviderCookieImportProvenance?.(
+              cookieSessionId,
+              providerCookieImportProvenance(cookieDiagnostics)
+            );
 
             if (policy === "required") {
               const reasonMessage = cookieDiagnostics.message
@@ -1250,7 +1427,9 @@ export const createBrowserFallbackPort = (
               if (reasonMessage) {
                 cookieDiagnostics.reasonCode = "auth_required";
                 cookieDiagnostics.message = reasonMessage;
-                lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics, undefined, runtimePolicyRecord);
+                lastFailure = fallbackFailure("auth_required", reasonMessage, cookieDiagnostics, undefined, runtimePolicyRecord, {
+                  authProvenance
+                });
                 continue;
               }
             }
@@ -1301,8 +1480,8 @@ export const createBrowserFallbackPort = (
               allowEquivalentPath: request.source === "shopping"
             })) {
               const details = {
-                requestedUrl: requestUrl,
-                ...(observedUrl ? { observedUrl } : {})
+                requestedUrl: fallbackPublicUrl(requestUrl, requestGoogleAuthIntent),
+                ...(observedUrl ? { observedUrl: fallbackPublicUrl(observedUrl, requestGoogleAuthIntent) } : {})
               };
               lastFailure = requiresAuthenticatedExtensionSession(runtimePolicy)
                 ? extensionSessionRequiredFailure(
@@ -1358,6 +1537,7 @@ export const createBrowserFallbackPort = (
           const blocker = detectFallbackPageBlocker(request.source, html, resolvedUrl)
             ?? captured.blocker
             ?? readStatusChallengeBlocker(status);
+          const publicResolvedUrl = fallbackPublicUrl(resolvedUrl, requestGoogleAuthIntent);
           if (blocker) {
             const reasonCode = blocker.reasonCode ?? request.reasonCode;
             cookieDiagnostics.reasonCode = reasonCode;
@@ -1432,14 +1612,15 @@ export const createBrowserFallbackPort = (
                     mode: toFallbackMode(refreshedStatus.mode),
                     output: {
                       html: refreshedCapture.html,
-                      url: refreshedUrl
+                      url: fallbackPublicUrl(refreshedUrl, requestGoogleAuthIntent)
                     },
                     details: {
                       provider: request.provider,
                       operation: request.operation,
-                      message: `Browser fallback resumed after bounded challenge orchestration at ${refreshedUrl}.`,
+                      message: `Browser fallback resumed after bounded challenge orchestration at ${fallbackPublicUrl(refreshedUrl, requestGoogleAuthIntent)}.`,
                       captureDiagnostics: toJsonRecord(refreshedCapture.diagnostics),
-                      cookieDiagnostics: toJsonRecord(cookieDiagnostics),
+                      cookieDiagnostics: cookieDiagnosticsDetails(cookieDiagnostics),
+                      authProvenance: currentAuthProvenanceDetails(),
                       challengeOrchestration: challengeOrchestrationRecord,
                       runtimePolicy: runtimePolicyRecord
                     }
@@ -1454,7 +1635,7 @@ export const createBrowserFallbackPort = (
                 mode: toFallbackMode(status.mode),
                 output: {
                   html,
-                  url: resolvedUrl
+                  url: publicResolvedUrl
                 },
                 challenge: createChallengeSummaryForFallback({
                   existing: existingChallenge,
@@ -1469,9 +1650,10 @@ export const createBrowserFallbackPort = (
                 details: {
                   provider: request.provider,
                   operation: request.operation,
-                  message: `Browser fallback preserved ${blocker.type} session at ${resolvedUrl}.`,
+                  message: `Browser fallback preserved ${blocker.type} session at ${publicResolvedUrl}.`,
                   captureDiagnostics,
-                  cookieDiagnostics: toJsonRecord(cookieDiagnostics),
+                  cookieDiagnostics: cookieDiagnosticsDetails(cookieDiagnostics),
+                  authProvenance: currentAuthProvenanceDetails(),
                   ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {}),
                   runtimePolicy: runtimePolicyRecord
                 }
@@ -1479,7 +1661,7 @@ export const createBrowserFallbackPort = (
             }
             lastFailure = fallbackFailure(
               reasonCode,
-              `Browser fallback reached ${blocker.type} page at ${resolvedUrl}.`,
+              `Browser fallback reached ${blocker.type} page at ${publicResolvedUrl}.`,
               cookieDiagnostics,
               buildFallbackChallengeOrchestration({
                 manager,
@@ -1495,7 +1677,8 @@ export const createBrowserFallbackPort = (
                 mode: toFallbackMode(status.mode),
                 details: {
                   captureDiagnostics
-                }
+                },
+                authProvenance
               }
             );
             continue;
@@ -1514,7 +1697,7 @@ export const createBrowserFallbackPort = (
           if (html.trim().length === 0) {
             lastFailure = fallbackFailure(
               request.reasonCode,
-              `Browser fallback captured no HTML content at ${resolvedUrl}.`,
+              `Browser fallback captured no HTML content at ${publicResolvedUrl}.`,
               cookieDiagnostics,
               challengeOrchestrationRecord,
               runtimePolicyRecord,
@@ -1522,7 +1705,8 @@ export const createBrowserFallbackPort = (
                 mode: toFallbackMode(status.mode),
                 details: {
                   captureDiagnostics
-                }
+                },
+                authProvenance
               }
             );
             continue;
@@ -1534,13 +1718,14 @@ export const createBrowserFallbackPort = (
             mode: toFallbackMode(status.mode),
             output: {
               html,
-              url: resolvedUrl
+              url: publicResolvedUrl
             },
             details: {
               provider: request.provider,
               operation: request.operation,
               captureDiagnostics,
-              cookieDiagnostics: toJsonRecord(cookieDiagnostics),
+              cookieDiagnostics: cookieDiagnosticsDetails(cookieDiagnostics),
+              authProvenance: currentAuthProvenanceDetails(),
               ...(challengeOrchestrationRecord ? { challengeOrchestration: challengeOrchestrationRecord } : {}),
               runtimePolicy: runtimePolicyRecord
             }
@@ -1579,7 +1764,8 @@ export const createBrowserFallbackPort = (
                 runtimePolicyRecord,
                 {
                   mode: toFallbackMode(preferredMode),
-                  ...(timeoutDetails ? { details: timeoutDetails } : {})
+                  ...(timeoutDetails ? { details: timeoutDetails } : {}),
+                  authProvenance
                 }
               );
           }
@@ -1713,4 +1899,15 @@ export const createConfiguredProviderRuntime = (args: {
     ...(args.init ?? {})
   };
   return createDefaultRuntime(args.defaults ?? {}, runtimeInit);
+};
+
+export const __test__ = {
+  baseCookieDiagnostics,
+  cookieDiagnosticsDetails,
+  cookieDiagnosticsMessage,
+  createFallbackChallengeRuntimeHandle,
+  didShoppingAttachReachEquivalentPath,
+  fallbackDetailsMessage,
+  isRestrictedExtensionAttachUrl,
+  providerCookieImportProvenance
 };

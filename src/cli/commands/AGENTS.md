@@ -1,4 +1,4 @@
-# src/cli/commands/ — Agent Guidelines
+# src/cli/commands/ - Agent Guidelines
 
 CLI command handlers. Extends `src/cli/AGENTS.md`.
 
@@ -10,7 +10,7 @@ Owns the per-command handler layer for the current public CLI surface. These fil
 
 ```text
 src/cli/commands/
-├── session/      # launch, connect, disconnect, status, cookie-* wrappers
+├── session/      # launch, connect, disconnect, status, cookie-* and inspector wrappers
 ├── nav/          # goto, wait, snapshot, review
 ├── interact/     # click/hover/press/check/type/select/scroll/pointer*
 ├── targets/      # list/use/new/close
@@ -48,3 +48,7 @@ src/cli/commands/
 | Bypass daemon-aware helpers for runtime commands | Command behavior must match hub/local execution paths |
 | Scatter command registration outside `src/cli/index.ts` | Help parity and inventory drift become harder to verify |
 | Duplicate pointer/session parsing logic across files | Use shared helpers like `pointer-shared.ts` and existing arg parsing |
+
+## Layered AGENTS
+
+- `src/cli/commands/session/AGENTS.md` - Session, cookie, and inspector command handlers

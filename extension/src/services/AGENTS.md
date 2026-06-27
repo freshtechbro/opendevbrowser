@@ -1,4 +1,4 @@
-# extension/src/services/ — Agent Guidelines
+# extension/src/services/ - Agent Guidelines
 
 CDP routing and tab management for extension relay. Extends `extension/AGENTS.md`.
 
@@ -16,6 +16,7 @@ extension/src/services/
 ├── ConnectionManager.ts   # Relay lifecycle, primary tab tracking
 ├── RelayClient.ts         # WebSocket handshake, health, framing
 ├── NativePortManager.ts   # Native host bridge (optional)
+├── attach-errors.ts       # Debugger attach failure markers
 ├── cdp-router-commands.ts # Target command helpers
 └── url-restrictions.ts    # URL validation (chrome://, etc.)
 ```

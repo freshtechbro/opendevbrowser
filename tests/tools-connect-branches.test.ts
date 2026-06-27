@@ -20,14 +20,38 @@ const createDeps = (options: {
       mode: "extension",
       wsEndpoint: "ws://127.0.0.1:8787/ops",
       activeTargetId: "target-1",
-      warnings: []
+      warnings: [],
+      diagnostics: {
+        authProvenance: {
+          googleAuthIntent: "user_owned_google",
+          profileSource: "live_extension_profile",
+          cookieBootstrap: {
+            attempted: false,
+            disabled: false,
+            importedCount: 0,
+            rejectedCount: 0
+          }
+        }
+      }
     })),
     connect: vi.fn(async () => ({
       sessionId: "session-2",
       mode: "cdpConnect",
       wsEndpoint: "ws://127.0.0.1:9222/devtools/browser/mock",
       activeTargetId: "target-2",
-      warnings: []
+      warnings: [],
+      diagnostics: {
+        authProvenance: {
+          googleAuthIntent: "none",
+          profileSource: "cdp_connected_profile",
+          cookieBootstrap: {
+            attempted: false,
+            disabled: true,
+            importedCount: 0,
+            rejectedCount: 0
+          }
+        }
+      }
     }))
   };
 
@@ -132,6 +156,105 @@ describe("connect tool branches", () => {
     });
   });
 
+  it("forwards user-owned Google intent and diagnostics on ops relay connect", async () => {
+    const deps = createDeps({
+      opsUrl: "ws://127.0.0.1:8787/ops"
+    });
+    const tool = createConnectTool(deps as never);
+
+    const result = parse(await tool.execute({
+      googleAuthIntent: "user-owned",
+      startUrl: "https://accounts.google.com/signin"
+    } as never));
+
+    expect(result).toMatchObject({
+      ok: true,
+      diagnostics: {
+        authProvenance: {
+          googleAuthIntent: "user_owned_google",
+          profileSource: "live_extension_profile"
+        }
+      }
+    });
+    expect(deps.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops", {
+      startUrl: "https://accounts.google.com/signin",
+      googleAuthIntent: "user_owned_google"
+    });
+    expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
+  it("rejects user-owned Google intent for direct CDP connect", async () => {
+    const deps = createDeps();
+    const tool = createConnectTool(deps as never);
+
+    const result = parse(await tool.execute({
+      host: "127.0.0.1",
+      port: 9222,
+      googleAuthIntent: "user-owned"
+    } as never));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "unsupported_mode"
+      }
+    });
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+    expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
+  it("rejects user-owned Google intent for legacy /cdp relay connect", async () => {
+    const deps = createDeps();
+    const tool = createConnectTool(deps as never);
+
+    const result = parse(await tool.execute({
+      wsEndpoint: "ws://127.0.0.1:8787/cdp",
+      extensionLegacy: true,
+      googleAuthIntent: "user-owned"
+    } as never));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "unsupported_mode"
+      }
+    });
+    expect(deps.manager.connectRelay).not.toHaveBeenCalled();
+    expect(deps.manager.connect).not.toHaveBeenCalled();
+  });
+
+  it("passes direct CDP diagnostics through connect response", async () => {
+    const deps = createDeps();
+    const tool = createConnectTool(deps as never);
+
+    const result = parse(await tool.execute({
+      host: "127.0.0.1",
+      port: 9222,
+      disableSystemCookieBootstrap: true
+    } as never));
+
+    expect(result).toMatchObject({
+      ok: true,
+      diagnostics: {
+        authProvenance: {
+          googleAuthIntent: "none",
+          profileSource: "cdp_connected_profile",
+          cookieBootstrap: {
+            disabled: true
+          }
+        }
+      }
+    });
+    expect(deps.manager.connect).toHaveBeenCalledWith({
+      host: "127.0.0.1",
+      port: 9222,
+      startUrl: undefined,
+      wsEndpoint: undefined,
+      googleAuthIntent: "none",
+      disableSystemCookieBootstrap: true
+    });
+  });
+
   it("forwards startUrl to direct CDP connect requests", async () => {
     const deps = createDeps();
     const tool = createConnectTool(deps as never);
@@ -147,7 +270,9 @@ describe("connect tool branches", () => {
       host: "127.0.0.1",
       port: 9222,
       startUrl: "http://127.0.0.1:41731/",
-      wsEndpoint: undefined
+      wsEndpoint: undefined,
+      googleAuthIntent: "none",
+      disableSystemCookieBootstrap: undefined
     });
   });
 });

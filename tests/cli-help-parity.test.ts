@@ -243,6 +243,8 @@ describe("cli help parity", () => {
     expect(inspiredesignCommandText).toContain("inspiredesign.mediaAnalysis.ffmpegPath");
     expect(inspiredesignCommandText).toContain("inspiredesign.mediaAnalysis.ffprobePath");
     expect(inspiredesignCommandText).toContain("then ffmpeg and ffprobe on PATH");
+    expect(inspiredesignCommandText).toContain("common absolute install directories for implicit PATH-source ENOENT misses only");
+    expect(inspiredesignCommandText).toContain("Invalid env or config paths stay diagnostic and do not fall back");
     expect(inspiredesignCommandText).toContain("Missing binaries degrade media-analysis.json only");
     expect(inspiredesignCommandText).toContain("never make media-analysis.json satisfy product readiness");
     expect(statusCapabilitiesText).toContain("host.mediaAnalysis");
@@ -257,6 +259,16 @@ describe("cli help parity", () => {
     expect(COMMAND_HELP_DETAILS.uninstall.usage).toContain("--quiet");
     expect(COMMAND_HELP_DETAILS.run.examples[0]).toContain("run --script ./workflow.json");
     expect(COMMAND_HELP_DETAILS.run.flags).toEqual(expect.arrayContaining(["--headless", "--persist-profile"]));
+    expect(COMMAND_HELP_DETAILS.launch.flags).toEqual(expect.arrayContaining([
+      "--google-auth-intent",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ]));
+    expect(COMMAND_HELP_DETAILS.connect.flags).toEqual(expect.arrayContaining([
+      "--google-auth-intent",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ]));
     expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--browser-mode"]));
     expect(COMMAND_HELP_DETAILS.research.examples[0]).toContain("research run");
     expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
@@ -278,6 +290,37 @@ describe("cli help parity", () => {
     expect(COMMAND_HELP_DETAILS.inspiredesign.examples[1]).toContain("inspiredesign harvest");
     expect(HELP_COMMAND_GROUPS.flatMap((group) => [...group.commands])).toContain("inspiredesign");
     expect(HELP_TOOL_ENTRIES.map((entry) => entry.name)).toContain("opendevbrowser_inspiredesign_run");
+  });
+
+  it("documents Google OAuth continuity flags in CLI help", () => {
+    const launchHelpText = [
+      COMMAND_HELP_DETAILS.launch.usage,
+      ...COMMAND_HELP_DETAILS.launch.examples,
+      ...COMMAND_HELP_DETAILS.launch.notes
+    ].join("\n");
+    const connectHelpText = [
+      COMMAND_HELP_DETAILS.connect.usage,
+      ...COMMAND_HELP_DETAILS.connect.examples,
+      ...COMMAND_HELP_DETAILS.connect.notes
+    ].join("\n");
+    const sessionFlagText = HELP_FLAG_GROUPS
+      .flatMap((group) => group.flags)
+      .filter((entry) => entry.flag === "--google-auth-intent"
+        || entry.flag === "--disable-system-cookie-bootstrap"
+        || entry.flag === "--allow-google-cookie-bootstrap")
+      .map((entry) => `${entry.flag} ${entry.description} ${entry.example ?? ""}`)
+      .join("\n");
+
+    expect(launchHelpText).toContain("--google-auth-intent user-owned");
+    expect(launchHelpText).toContain("--disable-system-cookie-bootstrap");
+    expect(launchHelpText).toContain("--allow-google-cookie-bootstrap");
+    expect(connectHelpText).toContain("--google-auth-intent user-owned");
+    expect(connectHelpText).toContain("--disable-system-cookie-bootstrap");
+    expect(connectHelpText).toContain("--allow-google-cookie-bootstrap");
+    expect(sessionFlagText).toContain("extension /ops");
+    expect(sessionFlagText).toContain("copied cookies are not Google auth proof");
+    expect(sessionFlagText).toContain("explicitly import Google-sensitive cookies");
+    expect(sessionFlagText).toContain("diagnostics.authProvenance");
   });
 
   it("exposes lifecycle skill flags in generated update and uninstall help", () => {

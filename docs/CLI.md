@@ -222,7 +222,7 @@ npx opendevbrowser --no-skills
 
 On successful installs, the CLI/plugin installer reconciles daemon auto-start on supported platforms (macOS/Windows) so the relay is available on
 login. Existing installs are rechecked and repaired when the per-user auto-start entry is missing or stale on macOS and Windows,
-and when the macOS LaunchAgent is malformed or missing its stable non-root working directory. Raw npm global package postinstall also runs the same reconciliation best effort when npm lifecycle context clearly indicates a global install. Package postinstall targets `dist/cli/index.js`, not `scripts/postinstall-sync-skills.mjs`, and all package warnings are non-fatal.
+and when the macOS LaunchAgent is malformed, missing its stable non-root working directory, or missing required `EnvironmentVariables.PATH` entries for common binary directories. Raw npm global package postinstall also runs the same reconciliation best effort when npm lifecycle context clearly indicates a global install. Package postinstall targets `dist/cli/index.js`, not `scripts/postinstall-sync-skills.mjs`, and all package warnings are non-fatal.
 
 If the current CLI entrypoint lives under a transient temp-root path (for example a first-run `/tmp` or `/private/tmp` `npx` workspace), OpenDevBrowser refuses to persist that path as auto-start. Plugin install still succeeds, and package install still exits successfully, but auto-start repair warns or skips. Rerun `opendevbrowser daemon install` from a stable install location, or `npx --no-install opendevbrowser daemon install` from a persistent local package install. You can inspect with `opendevbrowser daemon status` and remove auto-start later with `opendevbrowser daemon uninstall`.
 
@@ -359,7 +359,7 @@ Recovery sequence:
 
 Install or remove OS-level auto-start for the daemon. This persists an absolute `node + cli + serve` entrypoint (no PATH
 reliance) only when the current CLI path is stable. On macOS it also persists a `WorkingDirectory` under
-`~/.cache/opendevbrowser` so launchd never starts the daemon from `/`. Temporary `npx` caches and temp onboarding workdirs are rejected instead of
+`~/.cache/opendevbrowser` so launchd never starts the daemon from `/`, plus an `EnvironmentVariables.PATH` containing common Homebrew, MacPorts, Nix, and system binary directories. Temporary `npx` caches and temp onboarding workdirs are rejected instead of
 being written to LaunchAgent or Task Scheduler state, and all commands return machine-readable output with `--output-format json`.
 
 ```bash
@@ -372,11 +372,11 @@ npx --no-install opendevbrowser daemon install
 ```
 
 Behavior:
-- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute `node + cli + serve` entrypoint plus `WorkingDirectory=~/.cache/opendevbrowser`.
+- macOS: LaunchAgent at `~/Library/LaunchAgents/com.opendevbrowser.daemon.plist` targeting an absolute `node + cli + serve` entrypoint plus `WorkingDirectory=~/.cache/opendevbrowser` and `EnvironmentVariables.PATH` with Homebrew, MacPorts, Nix, and system paths.
 - Windows: per-user Task Scheduler logon task targeting an absolute `node + cli + serve` entrypoint; status inspects the persisted scheduled-task action from Task Scheduler XML instead of task presence alone.
 - `daemon status --output-format json` keeps top-level `installed` and `running`, adds nested `autostart` on supported platforms, and includes `status` only when the daemon is running.
 - `autostart` is the canonical detail object and includes `health`, `needsRepair`, `reason`, `command`, `expectedCommand`, and macOS working-directory fields when applicable.
-- `autostart.reason` can be `transient_cli_path` when an existing LaunchAgent or Task Scheduler action points at a temp-root CLI path that should be repaired; macOS can also report `working_directory_mismatch` when an older LaunchAgent would start from `/` or another unsafe directory.
+- `autostart.reason` can be `transient_cli_path` when an existing LaunchAgent or Task Scheduler action points at a temp-root CLI path that should be repaired; macOS can also report `working_directory_mismatch` when an older LaunchAgent would start from `/` or another unsafe directory, or `missing_environment_path` when a LaunchAgent lacks the required `EnvironmentVariables.PATH` entries.
 - when the current invocation is transient, a stable persisted auto-start entry can still report `health="healthy"`; `expectedCommand` is omitted instead of advertising the transient current path as the repair target.
 - `daemon status` returns exit code `0` when the daemon is reachable even if auto-start is missing, stale, or malformed, and `10` when the daemon is not running.
 - Successful plugin installs surface auto-start reconciliation through `autostartAction`; `autostartError` is included only when repair fails.
@@ -597,7 +597,7 @@ Notes:
 - Successful runs emit `advanced-brief.md`, `design-agent-handoff.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, `media-analysis.json`, `ranked-references.json`, and `meta-prompt.md` alongside the existing design contract and implementation artifacts. `canvas-plan.request.json` is emitted only when `productSuccess=true` and `artifactAuthority=product_ready`. Harvest PNG files are written under `visual-evidence/<referenceId>/viewport.png`; motion replays, HTML previews, and preview PNGs are written under `motion-evidence/<referenceId>/` when video evidence is captured; persisted Pinterest pin media files are written under `pin-media-evidence/<referenceId>/main.*`, `pin-media-evidence/<referenceId>/video.mp4`, or `pin-media-evidence/<referenceId>/poster.*` when canonical pin media proof is captured.
 - `media-analysis.json` is a deterministic design-fact surface emitted from trusted saved pin media after finalization. It can describe dimensions, tone, quantized palette, layout posture, OCR-free typography structure, text-region layout, sampled GIF or video motion facts, limitations, and non-goals. It is not artifact authority, evidence authority, or pin-media readiness authority.
 - FFmpeg and FFprobe are recommended optional host tools for richer `media-analysis.json` metadata and sampled GIF or video frame facts. OpenDevBrowser does not bundle static FFmpeg binaries and they are not downloaded by default.
-- Media-analysis binary resolution is environment, then config, then `PATH`: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`.
+- Media-analysis binary resolution is environment, then config, then `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`, and then common absolute directories such as Homebrew, MacPorts, Nix, and system binary locations only when the bare `PATH` lookup is missing. Invalid env or config paths stay diagnostic and do not fall back.
 - Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They can reduce metadata, palette, tone, or sampled motion detail, but they do not fail pin-media readiness and `media-analysis.json` never satisfies product readiness.
 - `pin-media-index.json` remains the only pin-media readiness and provenance authority for persisted first-party pin media bytes. `media-analysis.json` can inform `ranked-references.json`, `design.md`, `generation-plan.json`, `design-contract.json`, `meta-prompt.md`, and `design-agent-handoff.json`, but it cannot make a reference `pin_media_ready`.
 - V1 media analysis does not perform readable text extraction, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, or new dependency-backed image decoding. Exact headlines, nav labels, CTA copy, and font families remain unavailable unless supplied by the brief, metadata, or a later explicitly approved readable-text layer.
@@ -706,6 +706,9 @@ npx opendevbrowser launch --extension-only
 npx opendevbrowser launch --no-extension
 npx opendevbrowser launch --extension-legacy
 npx opendevbrowser launch --wait-for-extension --wait-timeout-ms 30000
+npx opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension
+npx opendevbrowser launch --no-extension --disable-system-cookie-bootstrap
+npx opendevbrowser launch --no-extension --allow-google-cookie-bootstrap
 ```
 
 Flags:
@@ -720,15 +723,24 @@ Flags:
 - `--extension-legacy`
 - `--wait-for-extension`
 - `--wait-timeout-ms`
+- `--google-auth-intent user-owned`
+- `--disable-system-cookie-bootstrap`
+- `--allow-google-cookie-bootstrap`
 
 Default behavior:
 - Extension relay (`extension` mode) is the default when available, using the `/ops` WebSocket.
 - If the extension is not connected, launch fails with guidance and exact commands for the explicit alternatives.
 - Headless is never the default.
 - Extension headless is unsupported. `launch --headless` must be paired with `--no-extension`; extension-intent headless requests fail with `unsupported_mode`.
+- `--google-auth-intent user-owned` is for runs that must reuse a user-owned Google OAuth session. It requires extension `/ops` against the live Chrome profile and fails closed for `--no-extension`, `--headless`, `--extension-legacy`, and direct CDP.
 - When hub mode is enabled, there is no local relay fallback. If the hub is unavailable, commands fail with guidance.
 - Extension relay requires Chrome 125+ (flat CDP sessions).
-- Managed and `cdpConnect` sessions automatically try to bootstrap readable cookies from the discovered system Chrome-family profile before first navigation. Extension mode reuses the already logged-in tab or profile instead of importing cookies.
+- Managed and `cdpConnect` sessions make a best-effort attempt to bootstrap readable cookies from the discovered system Chrome-family profile before first navigation unless `--disable-system-cookie-bootstrap` is set. Extension mode reuses the already logged-in tab or profile instead of importing cookies.
+- Google-sensitive cookies are skipped by default during managed and direct `cdpConnect` bootstrap; `--allow-google-cookie-bootstrap` is a diagnostic override for runs that explicitly accept that risk.
+- Managed/CDP cookie bootstrap is best-effort and copies readable cookies only. Copied cookies are not Google auth proof and are not a substitute for extension `/ops` when the task depends on user-owned Google OAuth continuity.
+- Launch and connect results expose sanitized `diagnostics.authProvenance`. Do not use or record private cookies, tokens, account identifiers, full profile paths, or account screenshots.
+- If a Google OAuth flow appears to cause perceived logout or auth invalidation, use the extension `/ops` path above and keep managed/CDP cookie bootstrap disabled while investigating.
+- After Google sign-in or account chooser actions, recover the OAuth popup by running `targets-list --include-urls`, then `target-use --target-id <target-id>` for the chosen target.
 - For isolated automation harnesses that rely on browser startup flags such as `--disable-extensions-except`, prefer Chromium or Chrome for Testing. Google Chrome stable may ignore those flags.
 
 Interactive vs non-interactive:
@@ -758,6 +770,9 @@ Interactive vs non-interactive:
 ```bash
 npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/...
 npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222
+npx opendevbrowser connect --google-auth-intent user-owned --ws-endpoint ws://127.0.0.1:8787/ops
+npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --disable-system-cookie-bootstrap
+npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --allow-google-cookie-bootstrap
 ```
 
 This command starts a `cdpConnect` session (attach to an existing Chrome with remote debugging enabled).
@@ -766,7 +781,9 @@ the CLI will normalize to `/ops` and route through the extension relay (`extensi
 Use `--extension-legacy` if you need the legacy `/cdp` relay path.
 When routing through the relay, the CLI automatically fetches relay config and the pairing token (if required) and authenticates
 the `/ops` or `/cdp` connection. Direct relay websocket connections without a token are rejected when pairing is enabled.
-Direct `cdpConnect` sessions use the same automatic Chrome-family cookie bootstrap path as managed launches.
+Direct `cdpConnect` sessions use the same best-effort Chrome-family cookie bootstrap path as managed launches.
+`--google-auth-intent user-owned` requires extension `/ops` and fails closed for direct CDP and `--extension-legacy`.
+Use `--disable-system-cookie-bootstrap` when a managed or direct `cdpConnect` run should not copy readable system Chrome-family cookies. Use `--allow-google-cookie-bootstrap` only when a diagnostic run explicitly accepts importing Google-sensitive cookies. Copied cookies are not Google auth proof.
 
 ### Relay binding queue
 
@@ -1614,6 +1631,9 @@ Notes:
 | `--extension-legacy` | `launch`, `connect` | Use legacy extension relay (`/cdp`) |
 | `--wait-for-extension` | `launch` | Wait for extension handshake |
 | `--wait-timeout-ms` | `launch` | Max wait for extension handshake |
+| `--google-auth-intent` | `launch`, `connect` | `user-owned` requires extension `/ops` for user-owned Google OAuth continuity and fails closed for managed, headless, legacy `/cdp`, and direct CDP |
+| `--disable-system-cookie-bootstrap` | `launch`, `connect` | Skip managed or direct `cdpConnect` readable system cookie bootstrap for this run |
+| `--allow-google-cookie-bootstrap` | `launch`, `connect` | Diagnostic override to explicitly include Google-sensitive cookies in managed or direct `cdpConnect` bootstrap |
 | `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
 | `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
 | `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |

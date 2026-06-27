@@ -159,6 +159,14 @@ describe("reconcileInstallAutostart", () => {
       })
     },
     {
+      name: "missing environment PATH",
+      preStatus: makeStatus({
+        health: "needs_repair",
+        needsRepair: true,
+        reason: "missing_environment_path"
+      })
+    },
+    {
       name: "malformed",
       preStatus: makeStatus({
         health: "malformed",

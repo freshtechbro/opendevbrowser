@@ -10,6 +10,7 @@ import { resolveCachePaths } from "../cache/paths";
 import { findChromeExecutable } from "../cache/chrome-locator";
 import { downloadChromeForTesting } from "../cache/downloader";
 import { createLogger, createRequestId } from "../core/logging";
+import { DEFAULT_GOOGLE_AUTH_INTENT, type GoogleAuthIntent } from "../core/auth-intent";
 import { ConsoleTracker } from "../devtools/console-tracker";
 import { ExceptionTracker } from "../devtools/exception-tracker";
 import { NetworkTracker } from "../devtools/network-tracker";
@@ -45,6 +46,11 @@ import type {
 } from "../providers/types";
 import type {
   BrowserClonePageOptions,
+  BrowserAuthProvenanceDiagnostics,
+  BrowserAuthSessionOptions,
+  BrowserCookieImportResult,
+  BrowserProviderCookieImportProvenance,
+  BrowserSessionDiagnostics,
   BrowserDialogInput,
   BrowserDialogResult,
   BrowserDialogState,
@@ -99,6 +105,7 @@ import { loadChromium } from "./playwright-runtime";
 import { loadSystemChromeCookies } from "./system-chrome-cookies";
 import { GlobalChallengeCoordinator } from "./global-challenge-coordinator";
 import { BrowserScreencastRecorder } from "./screencast-recorder";
+import { sanitizeProviderCookieImportProvenance } from "./auth-provenance";
 
 export type LaunchOptions = {
   profile?: string;
@@ -109,13 +116,23 @@ export type LaunchOptions = {
   persistProfile?: boolean;
   // Used by hub/daemon callers to force managed launch when routing through relay.
   noExtension?: boolean;
-};
+} & BrowserAuthSessionOptions;
 
 export type ConnectOptions = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
   startUrl?: string;
+} & BrowserAuthSessionOptions;
+
+type BrowserSessionStartResult = {
+  sessionId: string;
+  mode: BrowserMode;
+  activeTargetId: string | null;
+  warnings: string[];
+  diagnostics?: BrowserSessionDiagnostics;
+  wsEndpoint?: string;
+  leaseId?: string;
 };
 
 export type ManagedSession = {
@@ -141,6 +158,7 @@ export type ManagedSession = {
     tier3: Tier3RuntimeState;
     lastAppliedNetworkSeq: number;
   };
+  authProvenance: BrowserAuthProvenanceDiagnostics;
 };
 
 type BackpressureErrorInfo = {
@@ -204,7 +222,58 @@ type CookieListRecord = {
   sameSite?: "Strict" | "Lax" | "None";
 };
 
+function getCookieHost(cookie: CookieImportRecord): string | null {
+  if (typeof cookie.domain === "string" && cookie.domain.trim().length > 0) {
+    return cookie.domain.trim().toLowerCase().replace(/^\./, "");
+  }
+  if (typeof cookie.url === "string" && cookie.url.trim().length > 0) {
+    try {
+      return new URL(cookie.url).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function isGoogleSensitiveCookie(cookie: CookieImportRecord): boolean {
+  if (!GOOGLE_SENSITIVE_COOKIE_NAMES.has(cookie.name)) {
+    return false;
+  }
+  const host = getCookieHost(cookie);
+  return typeof host === "string" && GOOGLE_SENSITIVE_COOKIE_DOMAINS.some((domain) => (
+    host === domain || host.endsWith(`.${domain}`)
+  ));
+}
+
 const LEGACY_EXTENSION_OPERATION_TIMEOUT_MS = 5000;
+const GOOGLE_SENSITIVE_COOKIE_POLICY_SKIP = "skip" as const;
+const GOOGLE_SENSITIVE_COOKIE_POLICY_INCLUDE = "include" as const;
+const GOOGLE_SENSITIVE_COOKIE_DOMAINS = [
+  "accounts.google.com",
+  "google.com",
+  "youtube.com"
+] as const;
+const GOOGLE_SENSITIVE_COOKIE_NAMES = new Set<string>([
+  "SID",
+  "HSID",
+  "SSID",
+  "APISID",
+  "SAPISID",
+  "LSID",
+  "OSID",
+  "SIDCC",
+  "__Secure-1PSID",
+  "__Secure-3PSID",
+  "__Secure-1PSIDCC",
+  "__Secure-3PSIDCC",
+  "__Secure-1PSIDTS",
+  "__Secure-3PSIDTS",
+  "__Secure-1PAPISID",
+  "__Secure-3PAPISID",
+  "__Host-1PLSID",
+  "__Host-3PLSID"
+]);
 const PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS = 5000;
 const PINTEREST_PIN_MEDIA_DOM_INSPECTION_MAX_TIMEOUT_MS = 10_000;
 const PINTEREST_PIN_MEDIA_CDP_SESSION_MAX_TIMEOUT_MS = 5_000;
@@ -1636,10 +1705,15 @@ export class BrowserManager {
     }
   }
 
-  async launch(options: LaunchOptions): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
+  async launch(options: LaunchOptions): Promise<BrowserSessionStartResult> {
+    this.assertGoogleAuthIntentAllowedForMode("managed", options.googleAuthIntent);
     const resolvedProfile = options.profile ?? this.config.profile;
     const resolvedHeadless = options.headless ?? this.config.headless;
     const persistProfile = options.persistProfile ?? this.config.persistProfile;
+    const authProvenance = this.createInitialAuthProvenance(
+      "managed_profile",
+      options.googleAuthIntent
+    );
 
     const cachePaths = await resolveCachePaths(this.worktree, resolvedProfile);
     const executable = await findChromeExecutable(options.chromePath ?? this.config.chromePath);
@@ -1713,10 +1787,15 @@ export class BrowserManager {
         consoleTracker,
         exceptionTracker,
         networkTracker,
-        fingerprint
+        fingerprint,
+        authProvenance
       };
 
-      warnings.push(...await this.bootstrapSystemChromeCookies(managed, executablePath));
+      warnings.push(...await this.bootstrapSystemChromeCookies(managed, {
+        executablePath,
+        disabled: options.disableSystemCookieBootstrap === true,
+        allowGoogleCookieBootstrap: options.allowGoogleCookieBootstrap === true
+      }));
 
       if (options.startUrl && initialActiveTargetId) {
         await this.goto(sessionId, options.startUrl, "load", 30000, { browser, context, targets });
@@ -1746,6 +1825,7 @@ export class BrowserManager {
         mode: "managed",
         activeTargetId: targets.getActiveTargetId(),
         warnings,
+        diagnostics: { authProvenance: managed.authProvenance },
         wsEndpoint: wsEndpoint || undefined
       };
     } catch (error) {
@@ -1785,9 +1865,14 @@ export class BrowserManager {
     }
   }
 
-  async connect(options: ConnectOptions): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
+  async connect(options: ConnectOptions): Promise<BrowserSessionStartResult> {
+    this.assertGoogleAuthIntentAllowedForMode("cdpConnect", options.googleAuthIntent);
     const wsEndpoint = await this.resolveWsEndpoint(options);
-    const result = await this.connectWithEndpoint(wsEndpoint, "cdpConnect");
+    const result = await this.connectWithEndpoint(wsEndpoint, "cdpConnect", undefined, undefined, {
+      googleAuthIntent: options.googleAuthIntent,
+      disableSystemCookieBootstrap: options.disableSystemCookieBootstrap,
+      allowGoogleCookieBootstrap: options.allowGoogleCookieBootstrap
+    });
     const startUrl = options.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
@@ -1798,11 +1883,14 @@ export class BrowserManager {
 
   async connectRelay(
     wsEndpoint: string,
-    options?: { startUrl?: string }
-  ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string; leaseId?: string }> {
+    options?: { startUrl?: string } & BrowserAuthSessionOptions
+  ): Promise<BrowserSessionStartResult> {
     ensureLocalEndpoint(wsEndpoint, this.config.security.allowNonLocalCdp);
+    if (options?.googleAuthIntent === "user_owned_google") {
+      throw new Error("Google user-owned auth requires the extension /ops relay.");
+    }
     const { connectEndpoint, reportedEndpoint, relayPort } = await this.resolveRelayEndpoints(wsEndpoint);
-    const result = await this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint, relayPort);
+    const result = await this.connectWithEndpoint(connectEndpoint, "extension", reportedEndpoint, relayPort, options);
     const startUrl = options?.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
@@ -3604,8 +3692,9 @@ export class BrowserManager {
     cookies: CookieImportRecord[],
     strict = true,
     requestId = createRequestId()
-  ): Promise<{ requestId: string; imported: number; rejected: Array<{ index: number; reason: string }> }> {
+  ): Promise<BrowserCookieImportResult> {
     const managed = this.getManaged(sessionId);
+    this.markExplicitCookieImportAttempted(managed);
     const normalized: CookieImportRecord[] = [];
     const rejected: Array<{ index: number; reason: string }> = [];
 
@@ -3638,7 +3727,8 @@ export class BrowserManager {
     return {
       requestId,
       imported: normalized.length,
-      rejected
+      rejected,
+      diagnostics: { authProvenance: managed.authProvenance }
     };
   }
 
@@ -3680,16 +3770,85 @@ export class BrowserManager {
     };
   }
 
+  private createInitialAuthProvenance(
+    profileSource: BrowserAuthProvenanceDiagnostics["profileSource"],
+    googleAuthIntent: GoogleAuthIntent = DEFAULT_GOOGLE_AUTH_INTENT
+  ): BrowserAuthProvenanceDiagnostics {
+    return {
+      googleAuthIntent,
+      profileSource,
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    };
+  }
+
+  private updateCookieBootstrapProvenance(
+    managed: ManagedSession,
+    input: BrowserAuthProvenanceDiagnostics["cookieBootstrap"]
+  ): void {
+    managed.authProvenance = {
+      ...managed.authProvenance,
+      cookieBootstrap: input
+    };
+  }
+
+  private markExplicitCookieImportAttempted(managed: ManagedSession): void {
+    managed.authProvenance = {
+      ...managed.authProvenance,
+      explicitCookieImportAttempted: true
+    };
+  }
+
+  recordProviderCookieImportProvenance(
+    sessionId: string,
+    input: BrowserProviderCookieImportProvenance
+  ): BrowserAuthProvenanceDiagnostics {
+    const managed = this.getManaged(sessionId);
+    const sanitized = sanitizeProviderCookieImportProvenance(input);
+    managed.authProvenance = {
+      ...managed.authProvenance,
+      providerCookieImport: sanitized
+    };
+    return managed.authProvenance;
+  }
+
+  private assertGoogleAuthIntentAllowedForMode(
+    mode: BrowserMode,
+    googleAuthIntent: GoogleAuthIntent | undefined
+  ): void {
+    if (googleAuthIntent === "user_owned_google" && mode !== "extension") {
+      throw new Error("Google user-owned auth requires the extension /ops relay.");
+    }
+  }
+
   private async bootstrapSystemChromeCookies(
     managed: ManagedSession,
-    executablePath?: string | null
+    options?: {
+      executablePath?: string | null;
+      disabled?: boolean;
+      allowGoogleCookieBootstrap?: boolean;
+    }
   ): Promise<string[]> {
     if (managed.mode === "extension") {
       return [];
     }
 
     const warnings: string[] = [];
-    let bootstrapExecutable = executablePath ?? null;
+    if (options?.disabled === true) {
+      this.updateCookieBootstrapProvenance(managed, {
+        attempted: false,
+        disabled: true,
+        importedCount: 0,
+        rejectedCount: 0
+      });
+      return ["System Chrome cookie bootstrap disabled for this run."];
+    }
+
+    let bootstrapExecutable = options?.executablePath ?? null;
     if (!bootstrapExecutable) {
       const resolved = await this.resolveSystemChromeBootstrapExecutable();
       bootstrapExecutable = resolved.executablePath;
@@ -3701,21 +3860,45 @@ export class BrowserManager {
 
     const acceptedCookies: CookieImportRecord[] = [];
     let rejectedCookies = 0;
+    let skippedGoogleSensitive = 0;
+    const googleSensitiveCookiePolicy = options?.allowGoogleCookieBootstrap === true
+      ? GOOGLE_SENSITIVE_COOKIE_POLICY_INCLUDE
+      : GOOGLE_SENSITIVE_COOKIE_POLICY_SKIP;
     for (const cookie of result.cookies) {
       const validation = this.validateCookieRecord(cookie);
-      if (validation.valid) {
-        acceptedCookies.push(validation.cookie);
-      } else {
+      if (!validation.valid) {
         rejectedCookies += 1;
+        continue;
       }
+      if (
+        googleSensitiveCookiePolicy === GOOGLE_SENSITIVE_COOKIE_POLICY_SKIP
+        && isGoogleSensitiveCookie(validation.cookie)
+      ) {
+        skippedGoogleSensitive += 1;
+        continue;
+      }
+      acceptedCookies.push(validation.cookie);
     }
     if (rejectedCookies > 0) {
       warnings.push(`System Chrome cookie bootstrap skipped ${rejectedCookies} invalid cookies.`);
+    }
+    if (skippedGoogleSensitive > 0) {
+      warnings.push(`System Chrome cookie bootstrap skipped ${skippedGoogleSensitive} Google-sensitive cookies.`);
     }
 
     if (acceptedCookies.length > 0) {
       await managed.context.addCookies(acceptedCookies);
     }
+
+    this.updateCookieBootstrapProvenance(managed, {
+      attempted: true,
+      disabled: false,
+      importedCount: acceptedCookies.length,
+      rejectedCount: rejectedCookies,
+      skippedGoogleSensitiveCount: skippedGoogleSensitive,
+      googleSensitiveCookiePolicy,
+      ...(result.source?.browserName ? { sourceBrowserName: result.source.browserName } : {})
+    });
 
     if (acceptedCookies.length > 0 || warnings.length > 0) {
       this.logger.audit("session.system_cookie_bootstrap", {
@@ -3723,12 +3906,11 @@ export class BrowserManager {
         data: {
           mode: managed.mode,
           imported: acceptedCookies.length,
+          skippedGoogleSensitive,
           warnings,
           source: result.source
             ? {
-              browserName: result.source.browserName,
-              userDataDir: result.source.userDataDir,
-              profileDirectory: result.source.profileDirectory
+              browserName: result.source.browserName
             }
             : null
         }
@@ -4696,7 +4878,8 @@ export class BrowserManager {
       consoleTracker: new ConsoleTracker(200, { showFullConsole: this.config.devtools.showFullConsole }),
       exceptionTracker: new ExceptionTracker(200),
       networkTracker: new NetworkTracker(300, { showFullUrls: this.config.devtools.showFullUrls }),
-      fingerprint
+      fingerprint,
+      authProvenance: this.createInitialAuthProvenance("managed_profile")
     };
   }
 
@@ -6110,8 +6293,10 @@ export class BrowserManager {
     connectWsEndpoint: string,
     mode: BrowserMode,
     reportedWsEndpoint?: string,
-    relayPort?: number
-  ): Promise<{ sessionId: string; mode: BrowserMode; activeTargetId: string | null; warnings: string[]; wsEndpoint?: string }> {
+    relayPort?: number,
+    authOptions?: BrowserAuthSessionOptions
+  ): Promise<BrowserSessionStartResult> {
+    this.assertGoogleAuthIntentAllowedForMode(mode, authOptions?.googleAuthIntent);
     let browser: Browser | null = null;
     const connectAttempts = mode === "extension" ? 3 : 1;
     const sanitizedEndpoint = this.sanitizeWsEndpointForOutput(connectWsEndpoint);
@@ -6206,6 +6391,10 @@ export class BrowserManager {
         this.config.flags
       );
       const warnings = formatTier1Warnings(fingerprint.tier1);
+      const authProvenance = this.createInitialAuthProvenance(
+        mode === "extension" ? "live_extension_profile" : "cdp_connected_profile",
+        authOptions?.googleAuthIntent
+      );
 
       const managed: ManagedSession = {
         sessionId,
@@ -6223,10 +6412,14 @@ export class BrowserManager {
         consoleTracker,
         exceptionTracker,
         networkTracker,
-        fingerprint
+        fingerprint,
+        authProvenance
       };
 
-      warnings.push(...await this.bootstrapSystemChromeCookies(managed));
+      warnings.push(...await this.bootstrapSystemChromeCookies(managed, {
+        disabled: authOptions?.disableSystemCookieBootstrap === true,
+        allowGoogleCookieBootstrap: authOptions?.allowGoogleCookieBootstrap === true
+      }));
 
       this.store.add({ id: sessionId, mode, browser, context });
       this.sessions.set(sessionId, managed);
@@ -6242,7 +6435,14 @@ export class BrowserManager {
       }
 
       const wsEndpoint = reportedWsEndpoint ?? connectWsEndpoint;
-      return { sessionId, mode, activeTargetId: targets.getActiveTargetId(), warnings, wsEndpoint };
+      return {
+        sessionId,
+        mode,
+        activeTargetId: targets.getActiveTargetId(),
+        warnings,
+        diagnostics: { authProvenance: managed.authProvenance },
+        wsEndpoint
+      };
     } catch (error) {
       try {
         await browser.close();

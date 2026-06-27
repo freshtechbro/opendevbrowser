@@ -30,7 +30,7 @@ src/cli/
 │   ├── rpc.ts              # Power-user internal daemon RPC (unsafe)
 │   ├── run.ts              # Script execution
 │   ├── serve.ts            # Relay server commands
-│   ├── session/            # Session management
+│   ├── session/            # Session, cookie, and inspector commands
 │   ├── shopping.ts         # Shopping workflow commands
 │   ├── status.ts           # Status commands
 │   ├── targets/            # Target management
@@ -68,9 +68,9 @@ src/cli/
 | `nav` | goto, wait, snapshot | Navigation + page readiness |
 | `interact` | click, type, press, hover, check, select, scroll, upload, etc. | Element interaction |
 | `dom` | dom-html, dom-text, dom-attr, dom-value, dom-visible, dom-enabled, dom-checked | DOM operations |
-| `session` | launch, connect, disconnect, status, cookie-import, cookie-list | Session management |
+| `session` | launch, connect, disconnect, status, cookie-import, cookie-list, session-inspector, session-inspector-audit, session-inspector-plan | Session management and inspector reporting |
 | `targets` | targets-list, target-use, target-new, target-close | Target (tab) management |
-| `devtools` | console-poll, network-poll, debug-trace-snapshot, session-inspector, perf, screenshot, screencast-start, screencast-stop, dialog | DevTools integration |
+| `devtools` | console-poll, network-poll, debug-trace-snapshot, perf, screenshot, screencast-start, screencast-stop, dialog | DevTools integration |
 | `desktop` | desktop-status, desktop-windows, desktop-active-window, desktop-capture-desktop, desktop-capture-window, desktop-accessibility-snapshot | Daemon-backed read-only desktop observation |
 | `automation` | macro-resolve | Provider macro planning utilities |
 | `canvas` | canvas | Design-canvas session/document/preview orchestration |
@@ -145,3 +145,9 @@ src/cli/
   - `node scripts/live-regression-direct.mjs --release-gate`
 - Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc for final sign-off. For package version `0.0.36`, use `docs/RELEASE_0.0.36_EVIDENCE.md`.
 - Keep command/flag/channel inventories synchronized with `docs/CLI.md` and `docs/SURFACE_REFERENCE.md`.
+
+## Layered AGENTS
+
+- `src/cli/commands/AGENTS.md` - CLI command handler subdomains and thin-command rules
+- `src/cli/commands/session/AGENTS.md` - Session, cookie, and inspector command handlers
+- `src/cli/installers/AGENTS.md` - Installer and package lifecycle helpers

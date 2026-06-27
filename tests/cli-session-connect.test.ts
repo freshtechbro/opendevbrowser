@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
-import { runSessionConnect } from "../src/cli/commands/session/connect";
+import { __test__, runSessionConnect } from "../src/cli/commands/session/connect";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -54,5 +54,77 @@ describe("connect CLI command", () => {
         mode: "extension"
       }
     });
+  });
+
+  it("parses Google auth intent, disabled bootstrap, and explicit Google cookie bootstrap override", () => {
+    expect(__test__.parseConnectArgs([
+      "--google-auth-intent",
+      "user-owned",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ])).toEqual({
+      googleAuthIntent: "user_owned_google",
+      disableSystemCookieBootstrap: true,
+      allowGoogleCookieBootstrap: true
+    });
+    expect(__test__.parseConnectArgs(["--google-auth-intent=user-owned"]).googleAuthIntent).toBe(
+      "user_owned_google"
+    );
+  });
+
+  it("rejects invalid Google auth intent", () => {
+    expect(() => __test__.parseConnectArgs(["--google-auth-intent", "personal"])).toThrow(
+      "Unsupported Google auth intent"
+    );
+  });
+
+  it("forwards normalized Google auth intent and bootstrap options to daemon connect", async () => {
+    callDaemon.mockResolvedValue({ sessionId: "session-google", mode: "extension" });
+
+    await runSessionConnect(makeArgs([
+      "--google-auth-intent",
+      "user-owned",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({
+        googleAuthIntent: "user_owned_google",
+        disableSystemCookieBootstrap: true,
+        allowGoogleCookieBootstrap: true
+      }),
+      { timeoutMs: 30000 }
+    );
+  });
+
+  it("rejects direct CDP connect for user-owned Google auth before daemon calls", async () => {
+    await expect(runSessionConnect(makeArgs([
+      "--google-auth-intent",
+      "user-owned",
+      "--cdp-port",
+      "9222"
+    ]))).rejects.toThrow("requires the extension /ops relay");
+
+    expect(callDaemon).not.toHaveBeenCalled();
+  });
+
+  it("preserves extension legacy forwarding without Google auth intent", async () => {
+    callDaemon.mockResolvedValue({ sessionId: "session-legacy", mode: "extension" });
+
+    await runSessionConnect(makeArgs([
+      "--ws-endpoint=ws://127.0.0.1:8787/cdp",
+      "--extension-legacy"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "session.connect",
+      {
+        wsEndpoint: "ws://127.0.0.1:8787/cdp",
+        extensionLegacy: true
+      },
+      { timeoutMs: 30000 }
+    );
   });
 });

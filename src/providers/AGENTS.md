@@ -1,4 +1,4 @@
-# src/providers/ — Agent Guidelines
+# src/providers/ - Agent Guidelines
 
 Provider system for web, social, shopping, community retrieval, artifact-bearing workflows, and deterministic workflow reports. Extends `src/AGENTS.md`.
 
@@ -16,7 +16,7 @@ src/providers/
 ├── browser-native-discovery.ts # Browser-discovered reference extraction
 ├── browser-output-artifacts.ts # Browser fallback output artifact helpers
 ├── workflow-output-root.ts  # Project/worktree-local workflow artifact root policy
-├── workflow-contracts.ts    # Workflow response and summary contracts
+├── workflow-contracts.ts    # Workflow kind, plan, checkpoint, trace, and resume contracts
 ├── workflow-handoff.ts      # Workflow follow-through guidance
 ├── enrichment.ts           # Enrichment scoring/metadata helpers
 ├── errors.ts               # Provider error types
@@ -112,6 +112,18 @@ When providers fail (e.g., YouTube transcript extraction), `createBrowserFallbac
 - Low-level bundle creation must receive an explicit output root; do not reintroduce temp-root fallback behavior.
 - Inspiredesign workflows may schedule trusted persisted Pinterest media for deterministic `media-analysis.json` and pass optional host FFmpeg/FFprobe binary options resolved env, then config, then `PATH` into that seam. FFmpeg/FFprobe are not bundled static binaries or default downloads. `status-capabilities.host.mediaAnalysis` is diagnostic/preflight visibility only; missing binaries degrade `media-analysis.json` only. Readiness must remain driven by `pin-media-index.json`, `motion-evidence.json`, ranked references, and product-readiness gates; `media-analysis.json` is design guidance, not authority.
 
+## Workflow Contracts
+
+- `workflow-contracts.ts` owns workflow kind, plan, checkpoint, resume-envelope, and trace types across `research`, `shopping`, `product_video`, and `inspiredesign`.
+- Keep resume envelopes typed through `isWorkflowResumeEnvelope()` and `buildWorkflowResumeEnvelope()`; do not pass anonymous records across workflow boundaries.
+- Workflow stages are `compile`, `execute`, `postprocess`, and `resume`; adding a stage requires docs, tests, and renderer/handoff updates.
+
+## Workflow Handoff
+
+- `workflow-handoff.ts` owns success handoff builders for research, shopping, product video, macro resolve, and Inspiredesign.
+- Handoffs must carry enough rerun/follow-through context for the user without overstating readiness.
+- Keep generated command examples aligned with `src/public-surface/source.ts`, `docs/CLI.md`, and `docs/SURFACE_REFERENCE.md`.
+
 ## Anti-Patterns
 
 | Never | Why |
@@ -125,3 +137,10 @@ When providers fail (e.g., YouTube transcript extraction), `createBrowserFallbac
 
 - `../browser/manager-types` - BrowserManagerLike for fallback
 - `../config` - Provider configuration
+
+## Layered AGENTS
+
+- `src/providers/social/AGENTS.md` - Social providers and transcript/search quality rules
+- `src/providers/research-report/AGENTS.md` - Deterministic research briefing compiler
+- `src/providers/shopping-report/AGENTS.md` - Deterministic shopping buying-brief compiler
+- `src/providers/product-video-presentation/AGENTS.md` - Product-video readiness compiler

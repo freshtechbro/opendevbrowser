@@ -6,6 +6,17 @@ import { fileURLToPath } from "url";
 
 const MAC_LABEL = "com.opendevbrowser.daemon";
 const WIN_TASK_NAME = "OpenDevBrowser Daemon";
+export const MAC_LAUNCH_AGENT_DEFAULT_PATH_ENTRIES = [
+  "/opt/homebrew/bin",
+  "/opt/local/bin",
+  "/usr/local/bin",
+  "/nix/var/nix/profiles/default/bin",
+  "/usr/bin",
+  "/bin",
+  "/usr/sbin",
+  "/sbin"
+] as const;
+export const MAC_LAUNCH_AGENT_DEFAULT_PATH = MAC_LAUNCH_AGENT_DEFAULT_PATH_ENTRIES.join(":");
 export const STABLE_DAEMON_INSTALL_GUIDANCE =
   "Run opendevbrowser daemon install from a stable install location (for example, a global npm install or a persistent local package install).";
 
@@ -28,6 +39,7 @@ export type AutostartReason =
   | "missing_cli_path"
   | "transient_cli_path"
   | "working_directory_mismatch"
+  | "missing_environment_path"
   | "entrypoint_mismatch"
   | "unsupported_platform";
 
@@ -68,7 +80,7 @@ type ResolvedAutostartDeps = Required<Omit<AutostartDeps, "transientEntrypointRo
   & Pick<AutostartDeps, "transientEntrypointRoots">;
 
 type MacLaunchAgentParseResult =
-  | { ok: true; command: string; programArguments: string[]; workingDirectory?: string }
+  | { ok: true; command: string; environmentPath?: string; programArguments: string[]; workingDirectory?: string }
   | { ok: false; reason: "missing_program_arguments" | "malformed_plist" };
 
 type WindowsTaskActionParseResult =
@@ -227,6 +239,11 @@ export const buildLaunchAgentPlist = (
     `  <string>${escapePlistString(stdoutPath)}</string>`,
     "  <key>StandardErrorPath</key>",
     `  <string>${escapePlistString(stderrPath)}</string>`,
+    "  <key>EnvironmentVariables</key>",
+    "  <dict>",
+    "    <key>PATH</key>",
+    `    <string>${escapePlistString(MAC_LAUNCH_AGENT_DEFAULT_PATH)}</string>`,
+    "  </dict>",
     "</dict>",
     "</plist>",
     ""
@@ -360,14 +377,37 @@ const classifyExpectedProgramArguments = (
   return undefined;
 };
 
+const parseMacLaunchAgentEnvironmentPath = (value: unknown): string | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const environment = value as { PATH?: unknown };
+  return typeof environment.PATH === "string" ? environment.PATH : undefined;
+};
+
+const launchAgentPathHasRequiredEntries = (value: string | undefined): boolean => {
+  if (!value) {
+    return false;
+  }
+
+  const entries = new Set(value.split(":").filter((entry) => entry.length > 0));
+  return MAC_LAUNCH_AGENT_DEFAULT_PATH_ENTRIES.every((entry) => entries.has(entry));
+};
+
 const readMacLaunchAgentProgramArguments = (
   plistPath: string,
   deps: ResolvedAutostartDeps
 ): MacLaunchAgentParseResult => {
   try {
     const text = deps.execFileSync("plutil", ["-convert", "json", "-o", "-", plistPath], { encoding: "utf-8" }) as string;
-    const parsed = JSON.parse(text) as { ProgramArguments?: unknown; WorkingDirectory?: unknown };
+    const parsed = JSON.parse(text) as {
+      EnvironmentVariables?: unknown;
+      ProgramArguments?: unknown;
+      WorkingDirectory?: unknown;
+    };
     const programArguments = parsed?.ProgramArguments;
+    const environmentPath = parseMacLaunchAgentEnvironmentPath(parsed?.EnvironmentVariables);
     const workingDirectory = typeof parsed?.WorkingDirectory === "string"
       ? parsed.WorkingDirectory
       : undefined;
@@ -383,6 +423,7 @@ const readMacLaunchAgentProgramArguments = (
       ok: true,
       command: formatCommand(commandArgs),
       programArguments: commandArgs,
+      ...(environmentPath ? { environmentPath } : {}),
       ...(workingDirectory ? { workingDirectory } : {})
     };
   } catch {
@@ -455,6 +496,18 @@ const classifyMacAutostartStatus = (
       workingDirectory: parsed.workingDirectory,
       expectedWorkingDirectory,
       reason: "working_directory_mismatch"
+    });
+  }
+
+  if (!launchAgentPathHasRequiredEntries(parsed.environmentPath)) {
+    return createMacAutostartStatus(entrypoint, location, {
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      command: parsed.command,
+      workingDirectory: parsed.workingDirectory,
+      expectedWorkingDirectory,
+      reason: "missing_environment_path"
     });
   }
 

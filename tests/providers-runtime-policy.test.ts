@@ -28,6 +28,7 @@ describe("provider runtime policy", () => {
       preferredModes: ["extension", "managed_headed"],
       forceTransport: false
     });
+    expect(autoPolicy.auth).toEqual({ googleAuthIntent: "none" });
   });
 
   it("resolves cookie intent from runtime policy input", () => {
@@ -52,6 +53,21 @@ describe("provider runtime policy", () => {
     expect(cookiesOff.cookies).toEqual({
       requested: false,
       policy: "off"
+    });
+  });
+
+  it("preserves user-owned Google auth intent in resolved policy", () => {
+    const policy = resolveProviderRuntimePolicy({
+      source: "web",
+      runtimePolicy: {
+        googleAuthIntent: "user_owned_google"
+      }
+    });
+
+    expect(policy.auth).toEqual({ googleAuthIntent: "user_owned_google" });
+    expect(policy.browser).toEqual({
+      preferredModes: ["extension"],
+      forceTransport: true
     });
   });
 

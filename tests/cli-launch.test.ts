@@ -45,6 +45,25 @@ describe("launch CLI command", () => {
     expect(() => __test__.parseLaunchArgs(["--persist-profile", "maybe"])).toThrow("Invalid --persist-profile");
   });
 
+  it("parses Google auth intent, disabled bootstrap, and explicit Google cookie bootstrap override", () => {
+    expect(__test__.parseLaunchArgs([
+      "--google-auth-intent",
+      "user-owned",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ])).toEqual({
+      flags: [],
+      googleAuthIntent: "user_owned_google",
+      disableSystemCookieBootstrap: true,
+      allowGoogleCookieBootstrap: true
+    });
+    expect(__test__.parseLaunchArgs(["--google-auth-intent=user-owned"]).googleAuthIntent).toBe("user_owned_google");
+  });
+
+  it("rejects invalid Google auth intent", () => {
+    expect(() => __test__.parseLaunchArgs(["--google-auth-intent", "personal"])).toThrow("Unsupported Google auth intent");
+  });
+
   it("derives launch call timeout from wait-timeout hint", () => {
     expect(__test__.deriveLaunchCallTimeoutMs({ flags: [] })).toBe(30000);
     expect(__test__.deriveLaunchCallTimeoutMs({ flags: [], waitTimeoutMs: 60000 })).toBe(65000);
@@ -108,6 +127,38 @@ describe("launch CLI command", () => {
       message: "Session launched: session-extension",
       data: { sessionId: "session-extension" }
     });
+  });
+
+  it("forwards normalized Google auth intent and bootstrap options to daemon launch", async () => {
+    callDaemon.mockResolvedValue({ sessionId: "session-google" });
+
+    await runSessionLaunch(makeArgs([
+      "--google-auth-intent=user-owned",
+      "--disable-system-cookie-bootstrap",
+      "--allow-google-cookie-bootstrap"
+    ]));
+
+    expect(callDaemon).toHaveBeenCalledWith(
+      "session.launch",
+      expect.objectContaining({
+        googleAuthIntent: "user_owned_google",
+        disableSystemCookieBootstrap: true,
+        allowGoogleCookieBootstrap: true
+      }),
+      { timeoutMs: 30000 }
+    );
+  });
+
+  it("does not offer managed or CDP fallback for user-owned Google auth intent", async () => {
+    const failure = new Error("Extension not connected.");
+    callDaemon.mockRejectedValue(failure);
+
+    await expect(runSessionLaunch({
+      ...makeArgs(["--google-auth-intent", "user-owned"]),
+      noInteractive: false
+    })).rejects.toThrow(failure);
+
+    expect(callDaemon).toHaveBeenCalledTimes(1);
   });
 
   it("forwards the larger timeout budget for managed headed launch", async () => {

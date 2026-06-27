@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Status: active  
-Last updated: 2026-05-19
+Last updated: 2026-06-22
 
 ## Hub daemon status
 
@@ -59,7 +59,9 @@ npx opendevbrowser status-capabilities --output-format json
 
 Inspect `host.mediaAnalysis` in the JSON output. FFmpeg and FFprobe are recommended optional host tools, not bundled static binaries, and they are not downloaded by default.
 
-Resolution order is environment, then config, then `PATH`: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`. Set env vars for one-off runs or CI, use config for durable operator paths, or install the tools so the same shell or daemon environment can resolve them from `PATH`.
+Resolution order is environment, then config, then `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`, and then common absolute directories such as Homebrew, MacPorts, Nix, and system binary locations only when the bare `PATH` lookup is missing. Invalid env or config paths stay diagnostic and do not fall back. Set env vars for one-off runs or CI, use config for durable operator paths, or install the tools so the same shell, daemon environment, or common absolute install directory can resolve them.
+
+For daemon-backed macOS runs, a current LaunchAgent includes `EnvironmentVariables.PATH` with common Homebrew, MacPorts, Nix, and system binary directories. If `host.mediaAnalysis` is unexpectedly missing tools, rerun `opendevbrowser daemon install` from a stable install so old LaunchAgents without the required PATH entries can be repaired.
 
 Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They do not fail pin-media readiness, do not replace `pin-media-index.json`, and `media-analysis.json` never satisfies product readiness.
 
@@ -205,21 +207,37 @@ If a headed or headless managed session, or a direct `cdpConnect` session, does 
    `npx opendevbrowser cookie-list --session-id <session-id> --output-format json`
 2. Remember the mode boundary:
    - `extension` mode reuses the cookies already present in the live tab or profile you attached to.
-   - `managed` and direct `cdpConnect` sessions attempt automatic Chrome-family cookie bootstrap from the discovered system profile before first navigation.
+   - `managed` and direct `cdpConnect` sessions make a best-effort attempt to bootstrap readable Chrome-family cookies from the discovered system profile before first navigation.
 3. If the target site has no cookie in the source Chrome-family profile, nothing will be imported. This commonly explains site-by-site mismatches more often than a runtime regression.
 4. Use `cookie-import` only when you intentionally need to add or override cookies after session creation; it is the explicit additive lane, not the automatic bootstrap path.
+
+## Google OAuth appears logged out or invalidated
+
+Symptoms:
+- A Google sign-in or account chooser flow appears to cause perceived logout or auth invalidation.
+- A managed or direct `cdpConnect` run sees copied cookies but still behaves as signed out.
+- An OAuth popup opens in a different target than the active page.
+
+Fixes:
+1. Use extension `/ops` for user-owned Google OAuth continuity:
+   `npx opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension --output-format json`
+2. Do not use `--no-extension`, `--headless`, `--extension-legacy`, or direct CDP with `--google-auth-intent user-owned`; those paths fail closed by design.
+3. For managed or direct `cdpConnect` investigations, add `--disable-system-cookie-bootstrap` so no readable system Chrome-family cookies are copied for that run.
+4. Treat copied cookies as continuity hints only. Copied cookies are not Google auth proof and do not include full profile/session state.
+5. Inspect sanitized `diagnostics.authProvenance` for mode and cookie-bootstrap status. Do not log private cookies, tokens, account identifiers, full profile paths, or account screenshots.
+6. After Google sign-in or account chooser actions, run `targets-list --include-urls`, identify the OAuth popup target, then run `target-use --target-id <target-id>`.
 
 ## Provider anti-bot and transcript failures
 
 When provider workflows degrade, check normalized reason codes first:
 
-- `rate_limited` — upstream pacing/cooldown pressure.
-- `challenge_detected` — anti-bot challenge surface detected.
-- `token_required` — provider API/session token is required.
-- `auth_required` — authenticated browser/session state is required (including strict cookie policy failures).
-- `ip_blocked` — upstream hard block.
-- `transcript_unavailable` or `caption_missing` — transcript extraction path failed.
-- `env_limited` — fallback capability is unavailable in the current environment.
+- `rate_limited`: upstream pacing/cooldown pressure.
+- `challenge_detected`: anti-bot challenge surface detected.
+- `token_required`: provider API/session token is required.
+- `auth_required`: authenticated browser/session state is required (including strict cookie policy failures).
+- `ip_blocked`: upstream hard block.
+- `transcript_unavailable` or `caption_missing`: transcript extraction path failed.
+- `env_limited`: fallback capability is unavailable in the current environment.
 
 ### Cookie policy quick triage
 
@@ -236,7 +254,7 @@ Provider workflows support cookie controls with defaults from `providers.cookieP
    - workflow metrics: `meta.metrics.cookie_diagnostics`/`meta.metrics.cookieDiagnostics`
    - failure details: `error.details.cookieDiagnostics`
 5. Common strict failure causes:
-   - cookie source missing (`Cookie file not found ...`, missing env var)
+   - cookie source unavailable or empty (`cookie_source_unavailable`, `cookie_source_empty`, or a missing env var)
    - cookies loaded but injection imported `0`
    - cookies injected but verification count is `0`
 

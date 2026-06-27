@@ -91,6 +91,28 @@ describe("RemoteManager.connectRelay", () => {
     });
   });
 
+  it("forwards Google auth intent for /ops relay endpoints", async () => {
+    const call = vi.fn().mockResolvedValue({
+      sessionId: "session-google",
+      mode: "extension",
+      activeTargetId: "target-google",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops"
+    });
+
+    const manager = new RemoteManager({ call } as never);
+    await manager.connectRelay("ws://127.0.0.1:8787/ops", {
+      googleAuthIntent: "user_owned_google",
+      disableSystemCookieBootstrap: true
+    });
+
+    expect(call).toHaveBeenCalledWith("session.connect", {
+      wsEndpoint: "ws://127.0.0.1:8787/ops",
+      googleAuthIntent: "user_owned_google",
+      disableSystemCookieBootstrap: true
+    });
+  });
+
   it("forwards manager-shaped blocker and challenge status envelopes unchanged", async () => {
     const statusEnvelope = {
       mode: "extension",

@@ -164,7 +164,8 @@ Rules:
 - treat `media-analysis.json` as a deterministic design-fact surface from trusted saved pin media, not as readiness authority; `pin-media-index.json` remains the only pin-media readiness and provenance authority
 - use `media-analysis.json` for palette, tone, layout, OCR-free typography structure, text-region layout, sampled motion facts, limitations, and non-goals; do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, new dependencies, or raw `mediaAnalysis` in `canvas-plan.request.json`
 - for richer `media-analysis.json`, prefer hosts with FFmpeg and FFprobe available; they are recommended optional host tools, are not bundled static binaries, and are not downloaded by default
-- before Pinterest video or GIF harvest work, run `npx opendevbrowser status-capabilities --output-format json` and inspect `host.mediaAnalysis`; media-analysis binaries resolve from `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` on `PATH`
+- before Pinterest video or GIF harvest work, run `npx opendevbrowser status-capabilities --output-format json` and inspect `host.mediaAnalysis`; media-analysis binaries resolve from `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` on `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses only; invalid env or config paths stay diagnostic and do not fall back
+- for daemon-backed macOS runs, a current LaunchAgent includes `EnvironmentVariables.PATH` with common Homebrew, MacPorts, Nix, and system binary directories; if `host.mediaAnalysis` is unexpectedly missing tools, rerun `opendevbrowser daemon install` from a stable install so old LaunchAgents without the required PATH entries can be repaired
 - missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only; they do not fail pin-media readiness, do not replace `pin-media-index.json`, and `media-analysis.json` never satisfies product readiness
 - inspect `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, and `doNotProceedIf` before continuing from any harvest
 - visual harvest must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; inspect diagnostics instead of forcing screenshots through blocked references
@@ -189,6 +190,12 @@ Install and update refresh managed copies of these canonical packs; uninstall re
 - Keep a single correlation context (`requestId`, `sessionId`) across a run.
 - Before daemon-backed workflows, run `opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`.
 - For extension readiness, require `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
+- For user-owned Google OAuth continuity, use `--google-auth-intent user-owned` with extension `/ops`: `opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension --output-format json`.
+- Treat `--google-auth-intent user-owned` as fail-closed for `--no-extension`, `--headless`, `--extension-legacy`, and direct CDP.
+- Managed and direct `cdpConnect` use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof; add `--disable-system-cookie-bootstrap` when investigating perceived logout or auth invalidation.
+- Google-sensitive cookies are skipped by default during managed and direct `cdpConnect` bootstrap; use `--allow-google-cookie-bootstrap` only for diagnostic runs that explicitly accept that risk.
+- Inspect sanitized `diagnostics.authProvenance` for mode and cookie-bootstrap provenance. Do not record private cookies, tokens, account identifiers, full profile paths, or account screenshots.
+- After Google sign-in or account chooser actions, recover the OAuth popup with `targets-list --include-urls`, then `target-use --target-id <target-id>`.
 - Treat `data.relay.opsConnected`, `data.relay.canvasConnected`, and `data.relay.cdpConnected` as diagnostic or lane-specific presence fields; `data.relay.cdpConnected` is active-legacy-session-only.
 - Treat missing or false `data.fingerprintCurrent` as not current; use the matching binary, restart from the current install, or isolate shared runs with `OPENCODE_CONFIG_DIR`, `OPENCODE_CACHE_DIR`, and unique daemon or relay ports.
 - Do not conflate `daemon_fingerprint_mismatch` with native messaging host drift.
@@ -205,6 +212,7 @@ Install and update refresh managed copies of these canonical packs; uninstall re
 - Use default extension `/ops` for relay-backed concurrency; use `/cdp` only for legacy compatibility paths.
 - For managed parallel runs with persisted profiles, use unique profile paths per session (or disable persistence) to avoid profile lock collisions.
 - Treat extension headless attempts (`--extension-only --headless`) as expected `unsupported_mode`; route headless workloads through managed/cdpConnect instead.
+- Do not route user-owned Google OAuth continuity through managed/cdpConnect. Use extension `/ops` or stop and ask for a non-Google test account/profile.
 - Before extension-mode runs, preflight `npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`; do not require `data.relay.opsConnected`, `data.relay.canvasConnected`, or `data.relay.cdpConnected` unless that lane is actively in use.
 
 Operational references:

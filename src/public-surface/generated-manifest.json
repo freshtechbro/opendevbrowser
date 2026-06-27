@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-06-21T22:19:46.202Z",
+  "generatedAt": "2026-06-27T00:37:30.995Z",
   "cli": {
     "groups": [
       {
@@ -339,7 +339,7 @@
       {
         "name": "launch",
         "description": "Launch a managed browser session via daemon",
-        "usage": "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>]",
+        "usage": "npx opendevbrowser launch [--headless] [--profile <name>] [--persist-profile <bool>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>] [--no-extension|--extension-only] [--extension-legacy] [--wait-for-extension] [--wait-timeout-ms <ms>] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
         "flags": [
           "--headless",
           "--profile",
@@ -351,13 +351,20 @@
           "--extension-only",
           "--extension-legacy",
           "--wait-for-extension",
-          "--wait-timeout-ms"
+          "--wait-timeout-ms",
+          "--google-auth-intent",
+          "--disable-system-cookie-bootstrap",
+          "--allow-google-cookie-bootstrap"
         ],
         "examples": [
-          "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
+          "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json",
+          "npx opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension --output-format json"
         ],
         "notes": [
-          "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step."
+          "Use --wait-for-extension when you need a clean daemon-extension handshake before the next step.",
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
         ],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
@@ -366,18 +373,26 @@
       {
         "name": "connect",
         "description": "Connect to an existing browser via daemon",
-        "usage": "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy]",
+        "usage": "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
         "flags": [
           "--ws-endpoint",
           "--host",
           "--cdp-port",
           "--start-url",
-          "--extension-legacy"
+          "--extension-legacy",
+          "--google-auth-intent",
+          "--disable-system-cookie-bootstrap",
+          "--allow-google-cookie-bootstrap"
         ],
         "examples": [
-          "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json"
+          "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json",
+          "npx opendevbrowser connect --google-auth-intent user-owned --ws-endpoint ws://127.0.0.1:8787/ops --output-format json"
         ],
-        "notes": [],
+        "notes": [
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
+        ],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -602,7 +617,7 @@
           "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
           "Inspect productSuccess, artifactAuthority, evidenceAuthority, harvestReadiness, and nextStepGuidance.readiness before continuing. Canvas continuation requires readiness=ready, non-empty ranked references, and Pinterest references with manifest-backed snapshot_ready screenshot evidence, motion_ready screencast evidence, or pin_media_ready first-party pin-media evidence.",
           "media-analysis.json is a design-fact artifact only: it enriches guidance after trusted saved media matches pin-media-index.json, never grants readiness authority, and raw media-analysis fields must not enter canvas-plan.request.json.",
-          "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.",
+          "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH, then common absolute install directories for implicit PATH-source ENOENT misses only. Invalid env or config paths stay diagnostic and do not fall back. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.",
           "status-capabilities reports FFmpeg and FFprobe availability under host.mediaAnalysis so operators can verify optional media-analysis host capability before Inspiredesign runs.",
           "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshot, screencast, or pin-media evidence, provider unavailability, or diagnostic-only captures.",
           "CLI completion text includes readiness=<value> when the workflow reports nextStepGuidance.readiness, so success output is not confused with design readiness.",
@@ -2026,6 +2041,18 @@
         "kind": "boolean"
       },
       {
+        "name": "--google-auth-intent",
+        "kind": "value"
+      },
+      {
+        "name": "--disable-system-cookie-bootstrap",
+        "kind": "boolean"
+      },
+      {
+        "name": "--allow-google-cookie-bootstrap",
+        "kind": "boolean"
+      },
+      {
         "name": "--skills-global",
         "kind": "boolean"
       },
@@ -2189,6 +2216,7 @@
     "equalsFlags": [
       "--output-format",
       "--transport",
+      "--google-auth-intent",
       "--session-id",
       "--url",
       "--screenshot-mode",
@@ -2274,13 +2302,23 @@
         "name": "opendevbrowser_launch",
         "description": "Launch a managed browser session.",
         "cliEquivalent": "launch",
-        "example": "npx opendevbrowser launch --no-extension --headless --start-url https://example.com --output-format json"
+        "example": "{\"googleAuthIntent\":\"user_owned_google\",\"disableSystemCookieBootstrap\":true,\"allowGoogleCookieBootstrap\":false,\"extensionOnly\":true,\"waitForExtension\":true}",
+        "notes": [
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
+        ]
       },
       {
         "name": "opendevbrowser_connect",
         "description": "Connect to an existing browser session.",
         "cliEquivalent": "connect",
-        "example": "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json"
+        "example": "{\"wsEndpoint\":\"ws://127.0.0.1:8787/ops\",\"googleAuthIntent\":\"user_owned_google\",\"disableSystemCookieBootstrap\":true,\"allowGoogleCookieBootstrap\":false}",
+        "notes": [
+          "Use --google-auth-intent user-owned only when the run must reuse a user-owned Google OAuth session. It requires extension /ops against the live Chrome profile and fails closed for --no-extension, --headless, --extension-legacy, and direct CDP.",
+          "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
+          "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
+        ]
       },
       {
         "name": "opendevbrowser_disconnect",
@@ -2603,7 +2641,7 @@
         "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-format json",
         "notes": [
           "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
-          "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.",
+          "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH, then common absolute install directories for implicit PATH-source ENOENT misses only. Invalid env or config paths stay diagnostic and do not fall back. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.",
           "status-capabilities reports FFmpeg and FFprobe availability under host.mediaAnalysis so operators can verify optional media-analysis host capability before Inspiredesign runs."
         ]
       },

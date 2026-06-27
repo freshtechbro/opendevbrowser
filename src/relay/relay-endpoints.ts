@@ -69,6 +69,15 @@ export function resolveSessionRelayRoute(
   };
 }
 
+export function isSessionOpsRelayEndpoint(wsEndpoint: string | undefined): boolean {
+  const parsed = classifySessionRelayEndpoint(wsEndpoint);
+  if (!parsed) {
+    return false;
+  }
+  const result = resolveSessionRelayRoute(parsed, { extensionLegacy: false });
+  return !("code" in result) && result.route === "ops";
+}
+
 export function buildLoopbackSessionRelayEndpoint(port: number, options?: { extensionLegacy?: boolean }): string {
   return `ws://127.0.0.1:${port}/${options?.extensionLegacy === true ? "cdp" : "ops"}`;
 }
