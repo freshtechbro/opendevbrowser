@@ -59,7 +59,9 @@ npx opendevbrowser status-capabilities --output-format json
 
 Inspect `host.mediaAnalysis` in the JSON output. FFmpeg and FFprobe are recommended optional host tools, not bundled static binaries, and they are not downloaded by default.
 
-Resolution order is environment, then config, then `PATH`: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`. Set env vars for one-off runs or CI, use config for durable operator paths, or install the tools so the same shell or daemon environment can resolve them from `PATH`.
+Resolution order is environment, then config, then `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses: `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` from `PATH`, and then common absolute directories such as Homebrew, MacPorts, Nix, and system binary locations only when the bare `PATH` lookup is missing. Invalid env or config paths stay diagnostic and do not fall back. Set env vars for one-off runs or CI, use config for durable operator paths, or install the tools so the same shell, daemon environment, or common absolute install directory can resolve them.
+
+For daemon-backed macOS runs, a current LaunchAgent includes `EnvironmentVariables.PATH` with common Homebrew, MacPorts, Nix, and system binary directories. If `host.mediaAnalysis` is unexpectedly missing tools, rerun `opendevbrowser daemon install` from a stable install so old LaunchAgents without the required PATH entries can be repaired.
 
 Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They do not fail pin-media readiness, do not replace `pin-media-index.json`, and `media-analysis.json` never satisfies product readiness.
 

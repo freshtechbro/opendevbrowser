@@ -69,6 +69,33 @@ const STATUS_CAPABILITY_SECTIONS: readonly GuidanceSection[] = [
   }
 ] as const;
 
+const LAUNCH_AGENT_PATH_SECTIONS: readonly GuidanceSection[] = [
+  {
+    label: "docs/CLI.md install auto-start guidance",
+    path: "docs/CLI.md",
+    startMarker: "On successful installs, the CLI/plugin installer reconciles daemon auto-start",
+    endMarker: "### Update"
+  },
+  {
+    label: "docs/CLI.md daemon auto-start guidance",
+    path: "docs/CLI.md",
+    startMarker: "### Daemon auto-start",
+    endMarker: "Exit codes align with the CLI:"
+  },
+  {
+    label: "docs/TROUBLESHOOTING.md LaunchAgent remediation",
+    path: "docs/TROUBLESHOOTING.md",
+    startMarker: "## Inspiredesign media analysis is degraded",
+    endMarker: "## Desktop observation returns `desktop_unsupported` on macOS"
+  },
+  {
+    label: "best-practices skill LaunchAgent remediation",
+    path: "skills/opendevbrowser-best-practices/SKILL.md",
+    startMarker: "4. Design-contract synthesis with repeated public references.",
+    endMarker: "## Agent Sync Targets"
+  }
+] as const;
+
 const AGENTS_SYNC_SECTIONS: readonly GuidanceSection[] = [
   {
     label: "root AGENTS media-analysis sync rule",
@@ -140,6 +167,10 @@ function expectDependencyContract(label: string, content: string): void {
   expect(content, `${label} should mention the FFprobe config key`).toContain("inspiredesign.mediaAnalysis.ffprobePath");
   expect(content, `${label} should mention PATH fallback`).toContain("PATH");
   const normalizedContent = content.replaceAll("`", "");
+  const normalizedLowerContent = normalizedContent.toLowerCase();
+  expect(normalizedContent, `${label} should mention common absolute install directories`).toContain("common absolute");
+  expect(normalizedContent, `${label} should restrict fallback to implicit PATH ENOENT misses`).toContain("implicit PATH-source ENOENT misses");
+  expect(normalizedLowerContent, `${label} should keep explicit env and config failures diagnostic`).toContain("invalid env or config paths stay diagnostic and do not fall back");
   const describesNoBundledBinaries = content.includes("not bundled") || content.includes("does not bundle");
   expect(describesNoBundledBinaries, `${label} should say binaries are not bundled`).toBe(true);
   expect(normalizedContent, `${label} should say binaries are not downloaded by default`).toContain("not downloaded by default");
@@ -178,6 +209,16 @@ describe("media-analysis dependency guidance", () => {
     }
   });
 
+  it("documents macOS LaunchAgent PATH repair guidance", () => {
+    for (const section of LAUNCH_AGENT_PATH_SECTIONS) {
+      const content = readSection(section);
+
+      expect(content, `${section.label} should mention LaunchAgent`).toContain("LaunchAgent");
+      expect(content, `${section.label} should mention EnvironmentVariables.PATH`).toContain("EnvironmentVariables.PATH");
+      expect(content, `${section.label} should mention common binary directories`).toContain("common");
+    }
+  });
+
   it("does not document bundled binaries or media-analysis readiness authority", () => {
     for (const section of DEPENDENCY_CONTRACT_SECTIONS) {
       const content = readSection(section);
@@ -195,6 +236,10 @@ describe("media-analysis dependency guidance", () => {
       expect(content, `${section.label} should mention FFprobe`).toContain("FFprobe");
       expect(content.toLowerCase(), `${section.label} should keep host-tool wording`).toContain("host");
       expect(content, `${section.label} should mention env/config/PATH resolution`).toContain("PATH");
+      expect(normalizedContent, `${section.label} should mention common absolute directory fallback`).toContain("common absolute");
+      expect(normalizedContent, `${section.label} should restrict fallback to implicit PATH ENOENT misses`).toContain("implicit PATH-source ENOENT misses");
+      expect(normalizedContent.toLowerCase(), `${section.label} should keep invalid env/config failures diagnostic`).toContain("invalid env");
+      expect(normalizedContent.toLowerCase(), `${section.label} should forbid env/config fallback`).toContain("do not fall back");
       expect(content, `${section.label} should mention status-capabilities`).toContain("status-capabilities");
       expect(content, `${section.label} should mention host.mediaAnalysis`).toContain("host.mediaAnalysis");
       expect(normalizedContent, `${section.label} should mention no bundled/default-downloaded binaries`).toMatch(/not bundled|no bundled/);

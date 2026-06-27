@@ -97,6 +97,8 @@ describe("public surface manifest", () => {
     expect(notes).toContain("inspiredesign.mediaAnalysis.ffmpegPath");
     expect(notes).toContain("inspiredesign.mediaAnalysis.ffprobePath");
     expect(notes).toContain("then ffmpeg and ffprobe on PATH");
+    expect(notes).toContain("common absolute install directories for implicit PATH-source ENOENT misses only");
+    expect(notes).toContain("Invalid env or config paths stay diagnostic and do not fall back");
     expect(notes).toContain("Missing binaries degrade media-analysis.json only");
     expect(notes).toContain("do not fail pin-media readiness");
     expect(notes).toContain("never make media-analysis.json satisfy product readiness");

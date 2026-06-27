@@ -243,6 +243,8 @@ describe("cli help parity", () => {
     expect(inspiredesignCommandText).toContain("inspiredesign.mediaAnalysis.ffmpegPath");
     expect(inspiredesignCommandText).toContain("inspiredesign.mediaAnalysis.ffprobePath");
     expect(inspiredesignCommandText).toContain("then ffmpeg and ffprobe on PATH");
+    expect(inspiredesignCommandText).toContain("common absolute install directories for implicit PATH-source ENOENT misses only");
+    expect(inspiredesignCommandText).toContain("Invalid env or config paths stay diagnostic and do not fall back");
     expect(inspiredesignCommandText).toContain("Missing binaries degrade media-analysis.json only");
     expect(inspiredesignCommandText).toContain("never make media-analysis.json satisfy product readiness");
     expect(statusCapabilitiesText).toContain("host.mediaAnalysis");
