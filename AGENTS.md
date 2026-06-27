@@ -278,30 +278,41 @@ export function createTools(deps: ToolDeps): Record<string, ToolDefinition> {
 ## Layered AGENTS.md
 
 Subdirectory guides override this root file:
-- `src/AGENTS.md` — module boundaries, manager patterns
-- `src/annotate/AGENTS.md` — annotation transport, inbox storage, and delivery rules
-- `src/challenges/AGENTS.md` — bounded challenge orchestration plane, evidence, and recovery lanes
-- `src/browser/AGENTS.md` — browser/session module specifics
-- `src/canvas/AGENTS.md` — canvas document store, repo persistence, code-sync specifics
-- `src/cli/AGENTS.md` — CLI command and daemon conventions
-- `src/cli/commands/AGENTS.md` — CLI command handler subdomains and thin-command rules
-- `src/core/AGENTS.md` — bootstrap, DI, and runtime assembly
-- `src/desktop/AGENTS.md` — read-only desktop observation runtime
-- `src/devtools/AGENTS.md` — console/network/exception trackers and redaction rules
-- `src/export/AGENTS.md` — DOM capture, sanitization, and React export constraints
-- `src/integrations/AGENTS.md` — external integration adapters such as Figma import
-- `src/macros/AGENTS.md` — macro parsing, resolution, and provider-action expansion rules
-- `src/providers/AGENTS.md` — provider system (web/social/shopping), tiers, safety
-- `src/relay/AGENTS.md` — relay protocol and security specifics
-- `src/snapshot/AGENTS.md` — snapshot/ref pipeline specifics
-- `src/tools/AGENTS.md` — tool development patterns
-- `extension/AGENTS.md` — Chrome extension specifics
-- `extension/src/canvas/AGENTS.md` — extension-hosted canvas runtime and design-tab state
-- `extension/src/ops/AGENTS.md` — ops runtime for extension relay
-- `extension/src/services/AGENTS.md` — CDP routing, flat-session handling
-- `docs/AGENTS.md` — documentation source-of-truth and sync rules
-- `scripts/AGENTS.md` — script safety and output conventions
-- `tests/AGENTS.md` — testing conventions
-- `skills/AGENTS.md` — skill pack format
+- `src/AGENTS.md` - module boundaries, manager patterns
+- `src/annotate/AGENTS.md` - annotation transport, inbox storage, and delivery rules
+- `src/challenges/AGENTS.md` - bounded challenge orchestration plane, evidence, and recovery lanes
+- `src/browser/AGENTS.md` - browser/session module specifics
+- `src/canvas/AGENTS.md` - canvas document store, repo persistence, code-sync specifics
+- `src/cli/AGENTS.md` - CLI command and daemon conventions
+- `src/cli/commands/AGENTS.md` - CLI command handler subdomains and thin-command rules
+- `src/cli/commands/session/AGENTS.md` - session, cookie, and inspector command handlers
+- `src/cli/installers/AGENTS.md` - installer and package lifecycle helpers
+- `src/core/AGENTS.md` - bootstrap, DI, and runtime assembly
+- `src/desktop/AGENTS.md` - read-only desktop observation runtime
+- `src/devtools/AGENTS.md` - console/network/exception trackers and redaction rules
+- `src/export/AGENTS.md` - DOM capture, sanitization, and React export constraints
+- `src/guidance/AGENTS.md` - workflow guidance routing, readiness, and renderers
+- `src/guidance/recipes/AGENTS.md` - site and workflow guidance recipe authoring
+- `src/inspiredesign/AGENTS.md` - Inspiredesign evidence, readiness, and handoff contracts
+- `src/inspiredesign/media-analysis/AGENTS.md` - optional FFmpeg/FFprobe media-analysis facts
+- `src/integrations/AGENTS.md` - external integration adapters such as Figma import
+- `src/macros/AGENTS.md` - macro parsing, resolution, and provider-action expansion rules
+- `src/providers/AGENTS.md` - provider system (web/social/shopping), tiers, safety
+- `src/providers/product-video-presentation/AGENTS.md` - product-video readiness compiler
+- `src/providers/research-report/AGENTS.md` - deterministic research briefing compiler
+- `src/providers/shopping-report/AGENTS.md` - deterministic shopping buying-brief compiler
+- `src/providers/social/AGENTS.md` - social providers and transcript/search quality rules
+- `src/relay/AGENTS.md` - relay protocol and security specifics
+- `src/skills/AGENTS.md` - runtime skill loading and topic filtering
+- `src/snapshot/AGENTS.md` - snapshot/ref pipeline specifics
+- `src/tools/AGENTS.md` - tool development patterns
+- `extension/AGENTS.md` - Chrome extension specifics
+- `extension/src/canvas/AGENTS.md` - extension-hosted canvas runtime and design-tab state
+- `extension/src/ops/AGENTS.md` - ops runtime for extension relay
+- `extension/src/services/AGENTS.md` - CDP routing, flat-session handling
+- `docs/AGENTS.md` - documentation source-of-truth and sync rules
+- `scripts/AGENTS.md` - script safety and output conventions
+- `tests/AGENTS.md` - testing conventions
+- `skills/AGENTS.md` - skill pack format
 
 The nearest AGENTS.md to your working directory takes precedence.

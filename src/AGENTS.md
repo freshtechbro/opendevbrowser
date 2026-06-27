@@ -1,4 +1,4 @@
-# src/ — Agent Guidelines
+# src/ - Agent Guidelines
 
 Extends root `AGENTS.md`. Nearest file takes precedence.
 
@@ -29,12 +29,12 @@ src/
 ├── relay/                # WebSocket relay server
 ├── devtools/             # Console/network with redaction
 ├── export/               # DOM capture, React emitter
-├── guidance/             # Site/workflow guidance recipes and renderers
-├── inspiredesign/        # Design-inspiration contracts, media analysis, readiness, handoff
+├── guidance/             # Site/workflow guidance recipes and renderers; see guidance/AGENTS.md
+├── inspiredesign/        # Design-inspiration contracts, media analysis, readiness, handoff; see inspiredesign/AGENTS.md
 ├── cli/                  # Commands, daemon, installers
 │   ├── daemon-status.ts  # Hub /status lookup + metadata recovery
 │   └── remote-relay.ts   # Relay status + instanceId cache
-├── skills/               # SkillLoader, discovery
+├── skills/               # Runtime SkillLoader, discovery, topic filtering; see skills/AGENTS.md
 ├── cache/                # Chrome path resolution
 └── utils/                # Shared utilities
     └── hub-enabled.ts    # Hub-only config gating
@@ -56,14 +56,14 @@ src/
 | `desktop/` | Read-only desktop observation: surface capture, window listing, accessibility snapshot. See `desktop/AGENTS.md` |
 | `devtools/` | Console/network trackers, redaction |
 | `export/` | DOM capture, React emitter, sanitization |
-| `guidance/` | Site and workflow guidance recipes, readiness routing, and renderer helpers |
-| `inspiredesign/` | Inspiredesign contracts, reference discovery, Pinterest/media evidence, deterministic media-analysis facts from trusted saved media, readiness, and design-agent handoff artifacts |
+| `guidance/` | Site and workflow guidance recipes, readiness routing, and renderer helpers. See `guidance/AGENTS.md` |
+| `inspiredesign/` | Inspiredesign contracts, reference discovery, Pinterest/media evidence, deterministic media-analysis facts from trusted saved media, readiness, and design-agent handoff artifacts. See `inspiredesign/AGENTS.md` |
 | `integrations/` | External integration adapters such as Figma import and normalization |
 | `macros/` | Macro registry, execution, and provider action expansion |
 | `providers/` | Tier routing, blocker policy, browser fallback, workflow orchestration. See `providers/AGENTS.md` |
 | `public-surface/` | Canonical public CLI/tool/help metadata source consumed by generated manifests and docs. Regenerate manifest outputs from source; do not hand-edit generated manifests |
 | `relay/` | Extension relay server, protocol types. See `relay/AGENTS.md` |
-| `skills/` | SkillLoader, topic filtering. See `../skills/AGENTS.md` |
+| `skills/` | Runtime SkillLoader, topic filtering, continuity nudge, and bundled-directory resolution. See `skills/AGENTS.md`; authored pack format lives in `../skills/AGENTS.md` |
 | `snapshot/` | AX-tree snapshots, ref management. See `snapshot/AGENTS.md` |
 | `tools/` | Tool definitions (thin wrappers). See `tools/AGENTS.md` |
 | `utils/` | Shared utilities |

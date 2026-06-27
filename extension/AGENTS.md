@@ -1,4 +1,4 @@
-# extension/ — Agent Guidelines
+# extension/ - Agent Guidelines
 
 Chrome extension for relay mode. Extends root `AGENTS.md`.
 
@@ -10,6 +10,7 @@ extension/
 │   ├── background.ts    # Connection orchestration, message routing, annotation bridge
 │   ├── annotate-content.ts # In-page annotation UI + capture
 │   ├── annotate-content.css # Annotation UI styles
+│   ├── annotation-payload.ts # Annotation payload filtering and canvas payload shaping
 │   ├── canvas/          # Canvas relay runtime, editor state model
 │   ├── canvas-page.ts   # Canvas page bridge/content script
 │   ├── logging.ts       # Extension logging helpers
@@ -24,6 +25,8 @@ extension/
 │       ├── TargetSessionMap.ts    # Root/child session mapping
 │       ├── TabManager.ts          # Tab discovery + active tracking
 │       ├── NativePortManager.ts   # Native host bridge (optional)
+│       ├── attach-errors.ts       # Debugger attach failure markers
+│       ├── url-restrictions.ts    # Restricted URL classification
 │       └── cdp-router-commands.ts # Target command helpers
 ├── manifest.json
 └── popup.html
@@ -98,6 +101,6 @@ Extension tests use Chrome mocks in `tests/`. Build before validating changes.
 
 ## Layered AGENTS
 
-- `extension/src/canvas/AGENTS.md` — extension-hosted design-tab runtime
-- `extension/src/ops/AGENTS.md` — ops runtime and ownership/backpressure
-- `extension/src/services/AGENTS.md` — relay/CDP routing and session mapping
+- `extension/src/canvas/AGENTS.md` - extension-hosted design-tab runtime
+- `extension/src/ops/AGENTS.md` - ops runtime and ownership/backpressure
+- `extension/src/services/AGENTS.md` - relay/CDP routing and session mapping

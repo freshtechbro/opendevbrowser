@@ -1,4 +1,4 @@
-# src/canvas/ — Agent Guidelines
+# src/canvas/ - Agent Guidelines
 
 Design-canvas document store, repo persistence, export, and framework-adapter-backed code-sync helpers. Extends `src/AGENTS.md`.
 
@@ -21,6 +21,10 @@ src/canvas/
 │   └── catalog.ts           # Built-in starter catalog resolved through starter commands
 ├── repo-store.ts            # Repo-native JSON + manifest persistence helpers
 ├── export.ts                # HTML/component export + parity artifacts
+├── guidance.ts              # Canvas guidance examples and validation helpers
+├── repair-examples.ts       # Repair guidance examples
+├── surface-palette.ts       # Canvas surface token palette
+├── token-references.ts      # Token reference path/value helpers
 └── code-sync/
     ├── apply-tsx.ts         # Canvas graph -> TSX writer
     ├── graph.ts             # Shared graph normalization helpers
