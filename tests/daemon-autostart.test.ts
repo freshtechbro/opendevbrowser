@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { pathToFileURL } from "url";
 import {
+  MAC_LAUNCH_AGENT_DEFAULT_PATH,
   buildLaunchAgentPlist,
   buildWindowsTaskArgs,
   getAutostartStatus,
@@ -38,6 +39,7 @@ const createNpxCacheCliFixture = () => {
 const createDarwinStatusFixture = (
   options: {
     currentCliTransient?: boolean;
+    environmentPath?: string | null;
     omitProgramArguments?: boolean;
     parseFailure?: boolean;
     plistExists?: boolean;
@@ -74,6 +76,9 @@ const createDarwinStatusFixture = (
         ProgramArguments: options.programArguments ?? [entrypoint.nodePath, ...entrypoint.args],
         ...(options.workingDirectory !== null
           ? { WorkingDirectory: options.workingDirectory ?? expectedWorkingDirectory }
+          : {}),
+        ...(options.environmentPath !== null
+          ? { EnvironmentVariables: { PATH: options.environmentPath ?? MAC_LAUNCH_AGENT_DEFAULT_PATH } }
           : {})
       };
     return JSON.stringify(payload);
@@ -252,6 +257,14 @@ describe("daemon autostart helpers", () => {
     expect(plist).toContain("/cli/index.js");
     expect(plist).toContain("serve");
     expect(plist).toContain("<key>WorkingDirectory</key>");
+    expect(plist).toContain("<key>EnvironmentVariables</key>");
+    expect(plist).toContain("<key>PATH</key>");
+    expect(plist).toContain(MAC_LAUNCH_AGENT_DEFAULT_PATH);
+    expect(plist).toContain("/opt/homebrew/bin");
+    expect(plist).toContain("/opt/local/bin");
+    expect(plist).toContain("/usr/local/bin");
+    expect(plist).toContain("/nix/var/nix/profiles/default/bin");
+    expect(plist).toContain("/usr/bin:/bin:/usr/sbin:/sbin");
   });
 
   it("escapes launch agent plist string values", () => {
@@ -384,6 +397,78 @@ describe("getAutostartStatus", () => {
     });
   });
 
+  it("repairs macOS plists missing EnvironmentVariables PATH", () => {
+    const { deps } = createDarwinStatusFixture({ environmentPath: null });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "missing_environment_path"
+    });
+  });
+
+  it("repairs macOS plists with EnvironmentVariables but no PATH", () => {
+    const { deps, entrypoint } = createDarwinStatusFixture();
+    const status = getAutostartStatus({
+      ...deps,
+      execFileSync: vi.fn(() => JSON.stringify({
+        ProgramArguments: [entrypoint.nodePath, ...entrypoint.args],
+        WorkingDirectory: join(deps.homedir(), ".cache", "opendevbrowser"),
+        EnvironmentVariables: { HOME: deps.homedir() }
+      }))
+    });
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "missing_environment_path"
+    });
+  });
+
+  it("repairs macOS plists with incomplete EnvironmentVariables PATH", () => {
+    const { deps } = createDarwinStatusFixture({ environmentPath: "/usr/bin:/bin" });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "missing_environment_path"
+    });
+  });
+
+  it("preserves macOS plists with custom PATH entries when required entries are present", () => {
+    const environmentPath = `/custom/bin:${MAC_LAUNCH_AGENT_DEFAULT_PATH}:/vendor/bin`;
+    const { deps, entrypoint } = createDarwinStatusFixture({ environmentPath });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "healthy",
+      needsRepair: false,
+      command: entrypoint.command
+    });
+  });
+
+  it("reports working directory repair before missing environment PATH repair", () => {
+    const { deps } = createDarwinStatusFixture({
+      environmentPath: null,
+      workingDirectory: "/"
+    });
+    const status = getAutostartStatus(deps);
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "working_directory_mismatch",
+      workingDirectory: "/"
+    });
+  });
+
   it("reports program argument repair before deleted working directory repair", () => {
     const { deps, entrypoint } = createDarwinStatusFixture({ workingDirectoryState: "missing" });
     const status = getAutostartStatus({
@@ -507,7 +592,8 @@ describe("getAutostartStatus", () => {
       ...current.deps,
       execFileSync: vi.fn(() => JSON.stringify({
         ProgramArguments: [stableEntrypoint.nodePath, stableEntrypoint.cliPath, "serve"],
-        WorkingDirectory: join(current.deps.homedir(), ".cache", "opendevbrowser")
+        WorkingDirectory: join(current.deps.homedir(), ".cache", "opendevbrowser"),
+        EnvironmentVariables: { PATH: MAC_LAUNCH_AGENT_DEFAULT_PATH }
       }))
     });
 
@@ -515,6 +601,31 @@ describe("getAutostartStatus", () => {
       installed: true,
       health: "healthy",
       needsRepair: false,
+      command: stableEntrypoint.command
+    });
+    expect(status.expectedCommand).toBeUndefined();
+  });
+
+  it("reports stale environment PATH before transient current invocation can mark status healthy", () => {
+    const current = createDarwinStatusFixture({ currentCliTransient: true });
+    const stablePersisted = createCliFixture();
+    const stableEntrypoint = resolveCliEntrypoint({
+      argv1: stablePersisted.cliPath,
+      transientEntrypointRoots: current.deps.transientEntrypointRoots
+    });
+    const status = getAutostartStatus({
+      ...current.deps,
+      execFileSync: vi.fn(() => JSON.stringify({
+        ProgramArguments: [stableEntrypoint.nodePath, stableEntrypoint.cliPath, "serve"],
+        WorkingDirectory: join(current.deps.homedir(), ".cache", "opendevbrowser")
+      }))
+    });
+
+    expect(status).toMatchObject({
+      installed: true,
+      health: "needs_repair",
+      needsRepair: true,
+      reason: "missing_environment_path",
       command: stableEntrypoint.command
     });
     expect(status.expectedCommand).toBeUndefined();
