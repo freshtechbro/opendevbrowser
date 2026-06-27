@@ -28,7 +28,8 @@ import type {
   ProviderCookieImportRecord,
   ProviderCookiePolicy,
   ProviderCookieSourceConfig,
-  SessionChallengeSummary
+  SessionChallengeSummary,
+  SuspendedIntentSummary
 } from "./types";
 import type { GoogleAuthIntent } from "../core/auth-intent";
 
@@ -501,6 +502,21 @@ const fallbackPublicUrl = (
   }
 };
 
+const publicSuspendedIntentSummary = (
+  intent: SuspendedIntentSummary | undefined,
+  googleAuthIntent?: GoogleAuthIntent
+): SuspendedIntentSummary | undefined => {
+  if (!intent || googleAuthIntent !== "user_owned_google") {
+    return intent;
+  }
+  return {
+    kind: intent.kind,
+    ...(intent.provider ? { provider: intent.provider } : {}),
+    ...(intent.source ? { source: intent.source } : {}),
+    ...(intent.operation ? { operation: intent.operation } : {})
+  };
+};
+
 const fallbackFailure = (
   reasonCode: BrowserFallbackResponse["reasonCode"],
   message: string,
@@ -688,6 +704,11 @@ const createChallengeSummaryForFallback = (args: {
 }): SessionChallengeSummary => {
   const now = args.now ?? new Date();
   const summary = args.existing;
+  const googleAuthIntent = resolveRequestGoogleAuthIntent(args.request);
+  const suspendedIntent = publicSuspendedIntentSummary(
+    args.request.suspendedIntent ?? summary?.suspendedIntent,
+    googleAuthIntent
+  );
   return {
     ...(summary ?? {
       challengeId: `fallback-${now.getTime()}`,
@@ -700,7 +721,7 @@ const createChallengeSummaryForFallback = (args: {
     ownerSurface: args.request.ownerSurface ?? "provider_fallback",
     ...(args.request.ownerLeaseId ? { ownerLeaseId: args.request.ownerLeaseId } : {}),
     resumeMode: args.request.resumeMode ?? "auto",
-    ...(args.request.suspendedIntent ? { suspendedIntent: args.request.suspendedIntent } : {}),
+    ...(suspendedIntent ? { suspendedIntent } : {}),
     preservedSessionId: args.sessionId,
     ...(args.targetId ? { preservedTargetId: args.targetId } : {}),
     status: summary?.status ?? "active",

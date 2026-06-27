@@ -3450,7 +3450,11 @@ describe("provider runtime factory", () => {
         kind: "provider.fetch",
         provider: "social/youtube",
         source: "social",
-        operation: "fetch"
+        operation: "fetch",
+        input: {
+          url: "https://example.com/watch",
+          query: "product launch video"
+        }
       }
     });
 
@@ -3467,12 +3471,158 @@ describe("provider runtime factory", () => {
         resumeMode: "manual",
         suspendedIntent: {
           kind: "provider.fetch",
-          provider: "social/youtube"
+          provider: "social/youtube",
+          input: {
+            url: "https://example.com/watch",
+            query: "product launch video"
+          }
         }
       }
     });
     expect(response?.challenge?.challengeId).toMatch(/^fallback-/);
     expect(response?.challenge?.timeline).toBeUndefined();
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("omits user-owned Google suspended intent input from preserved challenge summaries", async () => {
+    const requestUrl = "https://accounts.google.com/o/oauth2/v2/auth?login_hint=alice@example.com&state=private-state";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "google-preserved-challenge-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><h1>Sign in</h1><p>To continue, sign in with Google.</p></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        activeTargetId: "google-tab-1",
+        url: requestUrl,
+        meta: {
+          challenge: []
+        }
+      })),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "web/google-oauth",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-preserved-challenge", ts: "2026-06-26T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "web",
+        runtimePolicy: { googleAuthIntent: "user_owned_google" }
+      }),
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "web/google-oauth",
+        source: "web",
+        operation: "fetch",
+        input: {
+          url: requestUrl,
+          seedUrls: [requestUrl],
+          query: "alice@example.com private-state"
+        }
+      }
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      disposition: "challenge_preserved",
+      output: {
+        url: "https://accounts.google.com/"
+      },
+      challenge: {
+        suspendedIntent: {
+          kind: "provider.fetch",
+          provider: "web/google-oauth",
+          source: "web",
+          operation: "fetch"
+        }
+      }
+    });
+    expect(response?.challenge?.suspendedIntent).not.toHaveProperty("input");
+    const responseJson = JSON.stringify(response);
+    expect(responseJson).not.toContain("alice@example.com");
+    expect(responseJson).not.toContain("private-state");
+    expect(responseJson).not.toContain("login_hint=");
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("omits existing user-owned Google challenge suspended intent input", async () => {
+    const requestUrl = "https://accounts.google.com/o/oauth2/v2/auth?login_hint=alice@example.com&state=private-state";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "google-existing-challenge-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><head><title>Sign in</title></head><body>Please sign in with Google.</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({
+        mode: "extension",
+        activeTargetId: "google-tab-2",
+        url: requestUrl,
+        meta: {
+          challenge: {
+            challengeId: "existing-google-challenge",
+            blockerType: "auth_required" as const,
+            ownerSurface: "provider_fallback" as const,
+            resumeMode: "auto" as const,
+            suspendedIntent: {
+              kind: "provider.fetch" as const,
+              provider: "web/google-oauth",
+              source: "web" as const,
+              operation: "fetch" as const,
+              input: {
+                url: requestUrl,
+                query: "alice@example.com private-state"
+              }
+            },
+            status: "active" as const,
+            updatedAt: "2026-06-26T00:00:00.000Z"
+          }
+        }
+      })),
+      cookieList: vi.fn(async () => ({ requestId: "list", count: 1, cookies: [] })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "web/google-oauth",
+      source: "web",
+      operation: "fetch",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-existing-challenge", ts: "2026-06-26T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "web",
+        runtimePolicy: { googleAuthIntent: "user_owned_google" }
+      })
+    });
+
+    expect(response?.challenge).toMatchObject({
+      challengeId: "existing-google-challenge",
+      suspendedIntent: {
+        kind: "provider.fetch",
+        provider: "web/google-oauth",
+        source: "web",
+        operation: "fetch"
+      }
+    });
+    expect(response?.challenge?.suspendedIntent).not.toHaveProperty("input");
+    expect(JSON.stringify(response)).not.toContain("alice@example.com");
+    expect(JSON.stringify(response)).not.toContain("private-state");
     expect(manager.disconnect).not.toHaveBeenCalled();
   });
 
