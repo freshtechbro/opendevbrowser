@@ -15,6 +15,33 @@ const VERSION = typeof packageJson.version === "string" ? packageJson.version : 
 
 type CommandRunner = (args: ParsedArgs) => Promise<CommandResult> | CommandResult;
 
+const JSON_RESULT_METADATA_KEYS = [
+  "ready",
+  "readiness",
+  "guidanceReady",
+  "guidanceReadiness",
+  "harvestReadiness",
+  "productSuccess",
+  "artifactAuthority",
+  "evidenceAuthority",
+  "rankedReferenceCount",
+  "authoritativeReferenceCount",
+  "snapshotReadyReferenceCount",
+  "motionReadyReferenceCount",
+  "pinMediaReadyReferenceCount"
+] as const;
+
+function extractJsonResultMetadata(result: CommandResult): Record<string, unknown> {
+  const record = result as CommandResult & Record<string, unknown>;
+  const metadata: Record<string, unknown> = {};
+  for (const key of JSON_RESULT_METADATA_KEYS) {
+    if (record[key] !== undefined) {
+      metadata[key] = record[key];
+    }
+  }
+  return metadata;
+}
+
 async function runLazyCommand<ExportName extends string>(
   args: ParsedArgs,
   loader: () => Promise<Record<ExportName, CommandRunner>>,
@@ -170,6 +197,7 @@ async function main(): Promise<void> {
           ...(result.success || !result.message ? {} : { error: result.message }),
           ...(result.success || exitCode === null ? {} : { exitCode }),
           ...(result.reason ? { reason: result.reason } : {}),
+          ...extractJsonResultMetadata(result),
           ...payload
         }, outputOptions);
       }

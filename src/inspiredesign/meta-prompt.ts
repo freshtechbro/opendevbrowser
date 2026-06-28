@@ -13,6 +13,20 @@ const formatList = (items: readonly string[]): string => (
     : "- No evidence-backed item available."
 );
 
+const formatMediaAnalysisProvenance = (reference: RankedReference): string[] => {
+  const source = reference.mediaAnalysisSource;
+  if (!source) return [];
+  const mediaKind = source.contentType
+    ? `${source.kind} (${source.contentType})`
+    : source.kind;
+  return [
+    `- Media analysis source: ${mediaKind} at ${source.mediaPath}`,
+    `- Media analysis claims: ${source.claimLevels.join(", ")}`,
+    ...(reference.mediaArtifactPath ? [`- Saved media artifact: ${reference.mediaArtifactPath}`] : []),
+    ...(reference.motionPosture.length > 0 ? [`- Motion guidance: ${reference.motionPosture.join("; ")}`] : [])
+  ];
+};
+
 const formatRankedReferences = (
   references: readonly RankedReference[]
 ): string => {
@@ -28,7 +42,8 @@ const formatRankedReferences = (
     `- Borrow: ${reference.patternsToBorrow.join("; ")}`,
     `- Reject: ${reference.patternsToReject.join("; ")}`,
     `- Visual strengths: ${reference.visualStrengths.join("; ")}`,
-    `- Visual risks: ${reference.visualRisks.join("; ")}`
+    `- Visual risks: ${reference.visualRisks.join("; ")}`,
+    ...formatMediaAnalysisProvenance(reference)
   ].join("\n")).join("\n\n");
 };
 

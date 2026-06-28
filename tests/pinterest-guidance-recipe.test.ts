@@ -335,6 +335,42 @@ describe("Pinterest guidance recipe", () => {
     expect(result.diagnostics.reason).toBe("reference_urls_extracted");
   });
 
+  it("reports no extracted references when browser-native discovery has no extractor", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const recipeWithoutExtractor: SiteRecipe = {
+      ...recipe,
+      browserNativeDiscovery: {
+        buildSearchUrl: recipe.browserNativeDiscovery?.buildSearchUrl ?? ((query) => `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`)
+      }
+    };
+
+    const result = await runBrowserNativeDiscovery({
+      recipe: recipeWithoutExtractor,
+      query: "premium photography studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          content: '<a href="/pin/61572719900827789/">Studio pin</a>'
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("env_limited");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      attempted: true,
+      reason: "no_reference_urls_extracted",
+      fetchedRecordCount: 1
+    }));
+  });
+
   it("uses hard failure reason codes from provider error details", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
@@ -1075,6 +1111,47 @@ describe("Pinterest guidance recipe", () => {
     }));
   });
 
+  it("rejects search-shell extracted pins without exact rendered link evidence", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+    const recipeWithTextExtractor: SiteRecipe = {
+      ...recipe,
+      browserNativeDiscovery: {
+        buildSearchUrl: recipe.browserNativeDiscovery?.buildSearchUrl ?? (() => "https://www.pinterest.com/search/pins/?q=studio"),
+        extractReferenceUrls: () => ["https://www.pinterest.com/pin/61572719900827789/"]
+      }
+    };
+
+    const result = await runBrowserNativeDiscovery({
+      recipe: recipeWithTextExtractor,
+      query: "premium design agency studio landing page",
+      maxReferences: 2,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          url: "https://www.pinterest.com/search/pins/?q=studio",
+          title: "Pinterest search shell",
+          content: "Search results for studio Pin card /pin/61572719900827789/",
+          attributes: {
+            html: '<main data-grid="search-results"><a href="https://www.pinterest.com/studio/portrait-lighting/">Rendered board</a></main>'
+          }
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("env_limited");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      badStateId: "search-shell",
+      reason: "env_limited",
+      sourcePageQuality: "search_shell"
+    }));
+  });
+
   it("extracts canonical pins from signed-in search grids that include account chrome", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
@@ -1412,7 +1489,7 @@ describe("Pinterest guidance recipe", () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
     if (!recipe) return;
-    const failure = makeFailure();
+    const failure = makeFailure("env_limited", "Pinterest shell rendered with incomplete provider context.");
 
     const result = await runBrowserNativeDiscovery({
       recipe,
@@ -1422,7 +1499,14 @@ describe("Pinterest guidance recipe", () => {
       useCookies: true,
       cookiePolicy: "required",
       fetchSearchPage: async () => ({
-        records: [makeSearchRecord({ content: "<main>No usable pins</main>" })],
+        records: [makeSearchRecord({
+          title: "Pinterest search shell",
+          content: "Search results for studio When autocomplete results are available",
+          attributes: {
+            links: ["https://example.com/not-pinterest"],
+            html: '<main data-grid="search-results"><a href="https://example.com/not-pinterest">External reference</a></main>'
+          }
+        })],
         failures: [failure]
       })
     });
@@ -1431,12 +1515,14 @@ describe("Pinterest guidance recipe", () => {
     expect(result.failures).toEqual([failure]);
     expect(result.diagnostics).toEqual(expect.objectContaining({
       attempted: true,
-      reason: "no_reference_urls_extracted",
-      fetchedRecordCount: 1
+      reason: "env_limited",
+      fetchedRecordCount: 1,
+      sourcePageQuality: "search_shell",
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_media_signals"])
     }));
   });
 
-  it("keeps search-shell failures diagnostic even when visible canonical pins exist", async () => {
+  it("extracts visible canonical pins from search-shell pages with non-hard failures", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
     if (!recipe) return;
@@ -1462,12 +1548,12 @@ describe("Pinterest guidance recipe", () => {
       })
     });
 
-    expect(result.records).toEqual([]);
-    expect(result.failures).toEqual([failure]);
+    expect(result.records.map((record) => record.url)).toEqual(["https://www.pinterest.com/pin/61572719900827789/"]);
+    expect(result.failures).toEqual([]);
     expect(result.diagnostics).toEqual(expect.objectContaining({
       attempted: true,
-      reason: "env_limited",
-      fetchedRecordCount: 1,
+      reason: "reference_urls_extracted",
+      extractedUrlCount: 1,
       sourcePageQuality: "search_shell",
       diagnosticBlockers: expect.arrayContaining(["search_shell_without_media_signals"])
     }));
@@ -1476,6 +1562,8 @@ describe("Pinterest guidance recipe", () => {
   it.each<ProviderReasonCode>([
     "auth_required",
     "challenge_detected",
+    "cooldown_active",
+    "ip_blocked",
     "policy_blocked",
     "rate_limited",
     "token_required"
@@ -1526,6 +1614,8 @@ describe("Pinterest guidance recipe", () => {
     const cases = [
       "auth_required",
       "challenge_detected",
+      "cooldown_active",
+      "ip_blocked",
       "policy_blocked",
       "rate_limited",
       "token_required"

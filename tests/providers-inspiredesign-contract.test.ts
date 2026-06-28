@@ -1,8 +1,9 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
-import type {
-  InspiredesignBriefExpansion,
-  InspiredesignBriefFormat
+import {
+  expandInspiredesignBrief,
+  type InspiredesignBriefExpansion,
+  type InspiredesignBriefFormat
 } from "../src/inspiredesign/brief-expansion";
 import type { NextStepGuidance } from "../src/guidance/types";
 import type { JsonValue } from "../src/providers/types";
@@ -271,6 +272,15 @@ const FORBIDDEN_CANVAS_SOURCE_TEXT_PATTERNS = [
 ] as const;
 
 const FORBIDDEN_CANVAS_MEDIA_ANALYSIS_TEXT_PATTERNS = [
+  /claim\s*levels?/i,
+  /claimLevels/i,
+  /\bmetadata_only\b/i,
+  /\bpixel_stats\b/i,
+  /\bpalette_quantized\b/i,
+  /\blayout_heuristic\b/i,
+  /\btypography_structure\b/i,
+  /\btext_region_layout\b/i,
+  /\bmotion_sampled\b/i,
   /media-analysis/i,
   /media analysis/i,
   /quantized/i,
@@ -292,6 +302,34 @@ const expectNoCanvasSourceTextLeakage = (payload: string): void => {
 const expectNoCanvasMediaAnalysisTextLeakage = (payload: string): void => {
   for (const pattern of FORBIDDEN_CANVAS_MEDIA_ANALYSIS_TEXT_PATTERNS) {
     expect(payload).not.toMatch(pattern);
+  }
+};
+
+const contrastRatio = (foreground: string, background: string): number => {
+  const relativeLuminance = (hex: string): number => {
+    const normalized = hex.replace("#", "");
+    const channels = [0, 2, 4].map((start) => {
+      const channel = Number.parseInt(normalized.slice(start, start + 2), 16) / 255;
+      return channel <= 0.03928
+        ? channel / 12.92
+        : Math.pow((channel + 0.055) / 1.055, 2.4);
+    });
+    const [red = 0, green = 0, blue = 0] = channels;
+    return (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
+  };
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
+const expectDarkTokenContrast = (tokens: Record<string, string>): void => {
+  const backgrounds = [tokens.background, tokens.surface].filter((value): value is string => Boolean(value));
+  for (const tokenName of ["primary", "accent", "text", "mutedText", "success", "warning", "danger"]) {
+    const token = tokens[tokenName];
+    if (!token) throw new Error(`Missing dark token ${tokenName}`);
+    for (const background of backgrounds) {
+      expect(contrastRatio(token, background)).toBeGreaterThanOrEqual(4.5);
+    }
   }
 };
 
@@ -388,6 +426,26 @@ const makePinterestPinMediaGifBytes = (): Buffer => {
 	return Buffer.concat([header, Buffer.alloc(MIN_PIN_MEDIA_EVIDENCE_BYTES + 1 - header.length, 0)]);
 };
 
+const makePinterestPinMediaMp4Bytes = (): Buffer => {
+	const ftyp = Buffer.alloc(16);
+	ftyp.writeUInt32BE(16, 0);
+	ftyp.write("ftyp", 4, "ascii");
+	ftyp.write("isom", 8, "ascii");
+	const tkhd = Buffer.alloc(92);
+	tkhd.writeUInt32BE(92, 0);
+	tkhd.write("tkhd", 4, "ascii");
+	tkhd.writeUInt32BE(1280 * 65_536, 84);
+	tkhd.writeUInt32BE(720 * 65_536, 88);
+	const trak = Buffer.alloc(8);
+	trak.writeUInt32BE(trak.length + tkhd.length, 0);
+	trak.write("trak", 4, "ascii");
+	const moov = Buffer.alloc(8);
+	moov.writeUInt32BE(moov.length + trak.length + tkhd.length, 0);
+	moov.write("moov", 4, "ascii");
+	const header = Buffer.concat([ftyp, moov, trak, tkhd]);
+	return Buffer.concat([header, Buffer.alloc(MIN_PIN_MEDIA_EVIDENCE_BYTES + 1 - header.length, 0)]);
+};
+
 const makeInspiredesignMediaAnalysis = (
   overrides: Partial<InspiredesignMediaAnalysis["references"][number]> = {}
 ): InspiredesignMediaAnalysis => {
@@ -456,7 +514,8 @@ const makeInspiredesignMediaAnalysis = (
       tokenNotes: [
         "#080808 as background at 49 percent coverage",
         "#8E8E8E as muted foreground at 5 percent coverage",
-        "high contrast posture, mean luminance 23.41."
+        "high contrast posture, mean luminance 23.41.",
+        "claimLevels metadata_only internal claim marker."
       ],
       patternsToBorrow: [
         "left-weighted split hero with lower portfolio grid.",
@@ -935,7 +994,8 @@ describe("inspiredesign packet + renderer", () => {
           patternsToBorrow: [
             ...baseMediaReference.designGuidance.patternsToBorrow,
             `Reusable visual cue: ${sourceUrlLeakFixtures[0]}.`,
-            `Reusable visual cue: ${sourceUrlLeakFixtures[3]}.`
+            `Reusable visual cue: ${sourceUrlLeakFixtures[3]}.`,
+            "Reusable visual cue: Jason Bergh (jasonbergh.com) | by BL/S®."
           ]
         }
       }]
@@ -948,7 +1008,7 @@ describe("inspiredesign packet + renderer", () => {
         makeReference({
           id: "pin-ref",
           url: "https://www.pinterest.com/pin/1234567890/",
-          title: "Editorial photography studio pin",
+          title: "Your profile",
           excerpt: "Full-bleed portrait image with premium studio lighting and clear hero focus.",
           captureStatus: "captured",
           capture: { pinMedia: trustedPinMedia }
@@ -991,30 +1051,78 @@ describe("inspiredesign packet + renderer", () => {
     }));
     expect(packet.rankedReferences[0]?.visualStrengths.join(" ")).not.toContain("Manifest-ready Pinterest pin media artifact");
     expect(packet.generationPlan.designVectors.premiumPosture).toEqual(expect.arrayContaining([expect.stringContaining("#080808")]));
-    expect(packet.generationPlan.targetOutcome.summary).toContain("Media-derived facts");
+    expect(packet.generationPlan.targetOutcome.summary).not.toContain("Media-derived facts");
+    expect(packet.generationPlan.contentStrategy.source).toContain("Media-derived facts");
     expect(packet.generationPlan.contentStrategy.source).toContain(INSPIREDESIGN_MEDIA_ANALYSIS_ARTIFACT_FILE);
     expect(generatedArtifactText).toContain("left-weighted split hero");
     expect(generatedArtifactText).toContain("#080808");
     expect(generatedArtifactText).toContain("Exact readable text was not extracted");
-    expect(JSON.stringify(packet.designContract.colorSystem)).toContain("Media-derived token note");
+    expect(packet.generationPlan.visualDirection.themeStrategy).toBe("light-dark-parity");
+    expect(packet.generationPlan.validationTargets.requiredThemes).toEqual(["light", "dark"]);
+    expect(packet.designContract.colorSystem).toMatchObject({
+      tokens: {
+        light: expect.objectContaining({
+          primary: "#080808",
+          background: "#F5F7FB",
+          text: "#080808"
+        }),
+        dark: expect.objectContaining({
+          background: "#080808",
+          text: "#FFFFFF"
+        })
+      },
+      mediaDerivedTokenNotes: expect.arrayContaining([expect.stringContaining("#080808")])
+    });
+    expectDarkTokenContrast(packet.designContract.colorSystem.tokens.dark);
+    const implementationPlanJson: JsonValue = JSON.parse(JSON.stringify(packet.implementationPlan));
+    expect(implementationPlanJson).toMatchObject({
+      tokenStrategy: {
+        colors: {
+          light: expect.objectContaining({
+            primary: "#080808",
+            background: "#F5F7FB",
+            text: "#080808"
+          }),
+          dark: expect.objectContaining({
+            background: "#080808",
+            text: "#FFFFFF"
+          })
+        }
+      }
+    });
+    expectDarkTokenContrast(packet.implementationPlan.tokenStrategy.colors.dark);
+    expect(packet.designMarkdown).toContain("### Source 1: Pinterest pin 1234567890 media reference");
+    expect(packet.designMarkdown).not.toContain("### Source 1: Your profile");
     expect(packet.designMarkdown).toContain("media observations: media path pin-media-evidence/pin-ref/main.jpg");
-		expect(hasForbiddenCanvasPlanKey(packet.canvasPlanRequest as JsonValue)).toBe(false);
-		expect(canvasPayload).toContain("without citing measured source details");
-		expectNoCanvasMediaAnalysisTextLeakage(canvasPayload);
-	    expect(canvasPayload).not.toContain("pin-media-evidence/pin-ref/main.jpg");
-	    expect(canvasPayload).not.toContain("https://www.pinterest.com/pin/1234567890/");
-	    expect(canvasPayload).not.toContain("https://i.pinimg.com/originals/pin.jpg");
-	    for (const sourceUrlLeakFixture of sourceUrlLeakFixtures) {
-	      expect(canvasPayload).not.toContain(sourceUrlLeakFixture);
-	    }
-	    expectNoCanvasSourceTextLeakage(canvasPayload);
-	    expect(canvasPayload).toContain("Reusable visual cue: source reference");
-	    expect(canvasPayload).not.toContain("source reference source reference");
-	    if (!trustedPinMedia.sha256) throw new Error("Expected trusted pin media hash fixture.");
-	    expect(canvasPayload).not.toContain(trustedPinMedia.sha256);
-	    expect(generatedArtifactText).not.toContain("Browse my latest work");
-	    expect(generatedArtifactText).not.toContain("Home");
-	    expect(canvasPayload).not.toContain("Browse my latest work");
+    expect(generatedArtifactText).not.toContain("#0B6BFF");
+    expect(hasForbiddenCanvasPlanKey(packet.canvasPlanRequest as JsonValue)).toBe(false);
+    expect(canvasPayload).toContain("Reference-derived token note");
+    expect(canvasPayload).toContain("#080808 as background");
+    expect(canvasPayload).toContain("Palette led by #080808");
+    expect(canvasPayload).toContain("Layout reads as left-weighted split hero");
+    expect(canvasPayload).toContain("Typography structure detected 5 role candidate regions");
+    expect(canvasPayload).toContain("dark dominant coverage");
+    expect(canvasPayload).not.toContain("Reference-derived visual cue: use broad composition");
+    expect(canvasPayload).not.toContain("without citing measured source details");
+    expectNoCanvasMediaAnalysisTextLeakage(canvasPayload);
+    expect(canvasPayload).not.toContain("pin-media-evidence/pin-ref/main.jpg");
+    expect(canvasPayload).not.toContain("https://www.pinterest.com/pin/1234567890/");
+    expect(canvasPayload).not.toContain("https://i.pinimg.com/originals/pin.jpg");
+    for (const sourceUrlLeakFixture of sourceUrlLeakFixtures) {
+      expect(canvasPayload).not.toContain(sourceUrlLeakFixture);
+    }
+    expectNoCanvasSourceTextLeakage(canvasPayload);
+    expect(canvasPayload).toContain("Reusable visual cue: source reference");
+    expect(canvasPayload).toContain("Jason Bergh (source reference) | by BL/S®");
+    expect(canvasPayload).not.toContain("jasonbergh.com");
+    expect(canvasPayload).not.toContain("source referencem");
+    expect(canvasPayload).not.toContain("source reference source reference");
+    if (!trustedPinMedia.sha256) throw new Error("Expected trusted pin media hash fixture.");
+    expect(canvasPayload).not.toContain(trustedPinMedia.sha256);
+    expect(generatedArtifactText).not.toContain("Browse my latest work");
+    expect(generatedArtifactText).not.toContain("Home");
+    expect(generatedArtifactText).not.toContain("Your profile");
+    expect(canvasPayload).not.toContain("Browse my latest work");
     expect(canvasPayload).not.toContain("Home");
 
     const matchingPinMediaIndex = buildInspiredesignPinterestPinMediaIndexEntry(trustedPinMedia);
@@ -1141,6 +1249,514 @@ describe("inspiredesign packet + renderer", () => {
 		}
 	});
 
+	it("rejects Pinterest pin media when provenance or manifest media URLs cannot be matched", () => {
+		const trustedPinMedia = persistInspiredesignPinterestPinMediaEvidence({
+			status: "captured",
+			kind: "image",
+			capturedAt: "2026-05-23T00:00:00.000Z",
+			referenceId: "pin-ref",
+			url: "https://www.pinterest.com/pin/1234567890/",
+			sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+			pinterestPageQuality: "pin_media",
+			mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+			width: 1200,
+			height: 1600,
+			contentType: "image/jpeg",
+			warnings: [],
+			rejectionReasons: []
+		}, {
+			artifactPath: "pin-media-evidence/pin-ref/main.jpg",
+			buffer: makePinterestPinMediaJpegBytes()
+		});
+		const matchingPinMediaIndex = buildInspiredesignPinterestPinMediaIndexEntry(trustedPinMedia);
+		if (!matchingPinMediaIndex) throw new Error("Expected trusted pin media index fixture.");
+		const baseReference = makeReference({
+			id: "pin-ref",
+			url: "https://www.pinterest.com/pin/1234567890/",
+			title: "Photography studio pin",
+			excerpt: "Cinematic portfolio landing page with booking CTA.",
+			captureStatus: "captured",
+			capture: { pinMedia: trustedPinMedia }
+		});
+		const noSourcePinMedia: InspiredesignPersistedPinterestPinMediaEvidence = {
+			...trustedPinMedia,
+			sourceUrl: undefined,
+			firstPartyProvenance: {
+				...trustedPinMedia.firstPartyProvenance,
+				canonicalSourceUrl: undefined,
+				sourceUrlMatchesReference: false
+			}
+		};
+		const noSourceBoard = buildInspiredesignReferencePatternBoard(
+			"missing-pin-media-source",
+			makeBriefFormat(),
+			[{ ...baseReference, capture: { pinMedia: noSourcePinMedia } }],
+			"Create a premium photography studio landing page with cinematic portfolio cues.",
+			undefined,
+			[matchingPinMediaIndex]
+		);
+		expect(noSourceBoard.references).toEqual([]);
+		expect(noSourceBoard.rejectedReferences[0]?.capturedButRejectedReason).toContain(
+			"lacks snapshot-ready, pin-media-ready, or motion-ready evidence"
+		);
+
+		const invalidMediaUrlBoard = buildInspiredesignReferencePatternBoard(
+			"invalid-index-media-url",
+			makeBriefFormat(),
+			[baseReference],
+			"Create a premium photography studio landing page with cinematic portfolio cues.",
+			undefined,
+			[{ ...matchingPinMediaIndex, mediaUrl: "not a url" }]
+		);
+		expect(invalidMediaUrlBoard.references).toEqual([]);
+		expect(invalidMediaUrlBoard.rejectedReferences[0]?.capturedButRejectedReason).toContain(
+			"lacks snapshot-ready, pin-media-ready, or motion-ready evidence"
+		);
+	});
+
+
+	it("ranks manifest-backed Pinterest video poster media as pin-media-ready evidence", () => {
+		const posterPinMedia = persistInspiredesignPinterestPinMediaEvidence({
+			status: "captured",
+			kind: "video_poster",
+			capturedAt: "2026-05-23T00:00:00.000Z",
+			referenceId: "poster-pin",
+			url: "https://www.pinterest.com/pin/2234567890/",
+			sourceUrl: "https://www.pinterest.com/pin/2234567890/",
+			pinterestPageQuality: "pin_media",
+			mediaUrl: "https://i.pinimg.com/videos/thumbnails/originals/poster.jpg",
+			width: 1200,
+			height: 1600,
+			contentType: "image/jpeg",
+			warnings: [],
+			rejectionReasons: []
+		}, {
+			artifactPath: "pin-media-evidence/poster-pin/poster.jpg",
+			buffer: makePinterestPinMediaJpegBytes()
+		});
+		const posterIndex = buildInspiredesignPinterestPinMediaIndexEntry(posterPinMedia);
+		if (!posterIndex) throw new Error("Expected poster pin media index fixture.");
+		const board = buildInspiredesignReferencePatternBoard(
+			"poster-pin",
+			makeBriefFormat(),
+			[makeReference({
+				id: "poster-pin",
+				url: "https://www.pinterest.com/pin/2234567890/",
+				title: "Photography studio video poster pin",
+				excerpt: "Cinematic portfolio landing page with booking CTA and motion-led image sequencing.",
+				captureStatus: "captured",
+				capture: { pinMedia: posterPinMedia }
+			})],
+			"Create a premium photography studio landing page with cinematic portfolio cues.",
+			undefined,
+			[posterIndex]
+		);
+
+		expect(board.references[0]).toEqual(expect.objectContaining({
+			id: "poster-pin",
+			evidenceAuthority: "pin_media_ready",
+			mediaArtifactPath: "pin-media-evidence/poster-pin/poster.jpg",
+			capturedVia: expect.arrayContaining(["pin_media", "pin_media_ready"])
+		}));
+	});
+
+	it("ranks manifest-backed Pinterest video media as pin-media-ready evidence", () => {
+		const videoPinMedia = persistInspiredesignPinterestPinMediaEvidence({
+			status: "captured",
+			kind: "video",
+			capturedAt: "2026-05-23T00:00:00.000Z",
+			referenceId: "video-pin",
+			url: "https://www.pinterest.com/pin/3234567890/",
+			sourceUrl: "https://www.pinterest.com/pin/3234567890/",
+			pinterestPageQuality: "pin_media",
+			mediaUrl: "https://v.pinimg.com/videos/mc/720p/video-pin.mp4",
+			width: 1280,
+			height: 720,
+			contentType: "video/mp4",
+			warnings: [],
+			rejectionReasons: []
+		}, {
+			artifactPath: "pin-media-evidence/video-pin/video.mp4",
+			buffer: makePinterestPinMediaMp4Bytes()
+		});
+		const videoIndex = buildInspiredesignPinterestPinMediaIndexEntry(videoPinMedia);
+		if (!videoIndex) throw new Error("Expected video pin media index fixture.");
+		const board = buildInspiredesignReferencePatternBoard(
+			"video-pin",
+			makeBriefFormat(),
+			[makeReference({
+				id: "video-pin",
+				url: "https://www.pinterest.com/pin/3234567890/",
+				title: "Photography studio video pin",
+				excerpt: "Cinematic portfolio landing page with booking CTA and video motion cues.",
+				captureStatus: "captured",
+				capture: { pinMedia: videoPinMedia }
+			})],
+			"Create a premium photography studio landing page with cinematic portfolio video cues.",
+			undefined,
+			[videoIndex]
+		);
+
+		expect(board.references[0]).toEqual(expect.objectContaining({
+			id: "video-pin",
+			evidenceAuthority: "pin_media_ready",
+			mediaArtifactPath: "pin-media-evidence/video-pin/video.mp4",
+			capturedVia: expect.arrayContaining(["pin_media", "pin_media_ready"])
+		}));
+	});
+
+  it("repairs low-contrast dark tokens from measured media palettes", () => {
+    const mediaAnalysis = makeInspiredesignMediaAnalysis({
+      designGuidance: {
+        ...makeInspiredesignMediaAnalysis().references[0]?.designGuidance,
+        visualStrengths: [
+          "Quantized palette led by #202020, #606020, #FFFFFF.",
+          "Layout heuristic reads as centered editorial gallery."
+        ],
+        componentFamilies: ["hero", "booking CTA", "portfolio gallery"],
+        tokenNotes: [
+          "#202020 as background at 55 percent coverage",
+          "#E0E0E0 as foreground at 14 percent coverage",
+          "#606020 as accent at 18 percent coverage",
+          "#606020 as muted foreground at 12 percent coverage",
+          "#DADADA as muted text at 4 percent coverage"
+        ],
+        patternsToBorrow: ["centered editorial gallery with booking CTA"],
+        patternsToReject: ["low contrast controls"],
+        confidence: 0.84
+      }
+    });
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium digital photography studio landing page with cinematic gallery and booking funnel.",
+      briefExpansion: makeBriefExpansion(),
+      urls: ["https://www.pinterest.com/pin/1234567890/"],
+      references: [
+        makeReference({
+          id: "pin-ref",
+          url: "https://www.pinterest.com/pin/1234567890/",
+          title: "Photography studio pin",
+          excerpt: "Cinematic portfolio landing page with booking CTA.",
+          captureStatus: "captured",
+          capture: {
+            pinMedia: persistInspiredesignPinterestPinMediaEvidence({
+              status: "captured",
+              kind: "image",
+              capturedAt: "2026-05-23T00:00:00.000Z",
+              referenceId: "pin-ref",
+              url: "https://www.pinterest.com/pin/1234567890/",
+              sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+              pinterestPageQuality: "pin_media",
+              mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+              width: 1200,
+              height: 1600,
+              contentType: "image/jpeg",
+              warnings: [],
+              rejectionReasons: []
+            }, {
+              artifactPath: "pin-media-evidence/pin-ref/main.jpg",
+              buffer: makePinterestPinMediaJpegBytes()
+            })
+          }
+        })
+      ],
+      mediaAnalysis
+    });
+
+    expect(packet.designContract.colorSystem.tokens.dark.background).toBe("#202020");
+    expect(packet.designContract.colorSystem.tokens.light.background).toBe("#E0E0E0");
+    expect(packet.designContract.colorSystem.tokens.light.primary).toBe("#202020");
+    expect(packet.designContract.colorSystem.tokens.light.text).toBe("#202020");
+    expect(packet.designContract.colorSystem.tokens.dark.primary).not.toBe("#606020");
+    expect(packet.designContract.colorSystem.tokens.dark.accent).not.toBe("#606020");
+    expect(packet.designContract.colorSystem.tokens.dark.mutedText).not.toBe("#606020");
+    expectDarkTokenContrast(packet.designContract.colorSystem.tokens.dark);
+    expectDarkTokenContrast(packet.implementationPlan.tokenStrategy.colors.dark);
+
+	expect(packet.implementationPlan.componentBuildPlan).toEqual([
+		expect.objectContaining({
+		name: "Hero",
+		purpose: expect.stringContaining("primary booking, portfolio, or CTA path"),
+		implementationNote: expect.stringContaining("full-bleed hero")
+		}),
+		expect.objectContaining({
+		name: "Buttons",
+		purpose: expect.stringContaining("CTA and button states"),
+		implementationNote: expect.stringContaining("Media-derived component family")
+		}),
+		expect.objectContaining({
+		name: "Cards",
+		purpose: expect.stringContaining("concrete proof, gallery, service, portfolio, or story sections"),
+		implementationNote: expect.stringContaining("centered editorial gallery")
+		}),
+		expect.objectContaining({
+		name: "Feature sections",
+		purpose: expect.stringContaining("concrete proof, gallery, service, portfolio, or story sections"),
+		implementationNote: expect.stringContaining("centered editorial gallery")
+		}),
+		expect.objectContaining({
+		name: "Footer",
+		purpose: expect.stringContaining("booking recovery, portfolio navigation, contact, and proof links"),
+		implementationNote: expect.stringContaining("centered editorial gallery")
+		})
+	]);
+  });
+
+  it("keeps commerce component primitives while avoiding generic source titles", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a public commerce landing page for a premium camera gear marketplace with offers, trust proof, and comparison guidance.",
+      briefExpansion: makeBriefExpansion({
+        format: makeBriefFormat({
+          label: "Camera gear commerce landing",
+          archetype: "trust-driven commerce landing page",
+          componentGrammar: "hero, offer cards, buttons, trust badges, comparison table",
+          route: {
+            profile: "commerce-system",
+            themeStrategy: "single-theme",
+            navigationModel: "global-header",
+            layoutApproach: "commerce-grid"
+          }
+        })
+      }),
+      urls: ["https://example.com/camera-marketplace-reference"],
+      references: [
+        makeReference({
+          id: "generic-title-reference",
+          url: "https://example.com/camera-marketplace-reference",
+          title: "Home",
+          excerpt: "Camera gear commerce landing page with featured offers, seller trust proof, and comparison guidance.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Camera gear commerce landing page with featured offers, seller trust proof, and comparison guidance.",
+              refCount: 7,
+              warnings: []
+            },
+            clone: {
+              componentPreview: "<main><section>Featured camera offers, seller proof, and comparison table</section></main>",
+              cssPreview: ".offers { display: grid; }",
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+
+    const evidence = packet.evidence as InspiredesignEvidenceJson;
+    expect(evidence.designVectors?.sourcePriority).toBe("reference-evidence-first");
+    expect(packet.implementationPlan.referenceImplementationNotes.join(" ")).toContain("Camera gear commerce landing page");
+    expect(packet.implementationPlan.referenceImplementationNotes.join(" ")).not.toContain("Source 1 Home:");
+    expect(packet.implementationPlan.componentBuildPlan).toEqual([
+      expect.objectContaining({
+        name: "Hero",
+        purpose: "Establish the hero pattern as a reusable system primitive."
+      }),
+      expect.objectContaining({
+        name: "Offer cards",
+        purpose: "Establish the offer cards pattern as a reusable system primitive."
+      }),
+      expect.objectContaining({
+        name: "Buttons",
+        purpose: "Establish the buttons pattern as a reusable system primitive."
+      }),
+      expect.objectContaining({
+        name: "Trust badges",
+        purpose: "Establish the trust badges pattern as a reusable system primitive."
+      }),
+      expect.objectContaining({
+        name: "Comparison table",
+        purpose: "Establish the comparison table pattern as a reusable system primitive."
+      })
+    ]);
+  });
+
+	it("keeps documentation-profile public landing components tied to reference evidence", () => {
+	const brief = "Create a public photography studio landing page with booking story, portfolio proof, and service sections.";
+	const packet = buildInspiredesignPacket({
+		brief,
+		briefExpansion: makeBriefExpansion({
+		sourceBrief: brief,
+		format: makeBriefFormat({
+			route: {
+			profile: "documentation",
+			themeStrategy: "single-theme",
+			navigationModel: "sidebar",
+			layoutApproach: "knowledge-story-shell"
+			}
+		})
+		}),
+		urls: ["https://example.com/studio-reference"],
+		references: [
+		makeReference({
+			id: "studio-reference",
+			url: "https://example.com/studio-reference",
+			title: "Photography studio booking landing page",
+			excerpt: "Public landing page for a photography studio with portfolio gallery, booking CTA, service story, and client proof.",
+			captureStatus: "captured",
+			capture: {
+			snapshot: {
+				content: "Photography studio public landing page with portfolio gallery, booking CTA, service story, and client proof.",
+				refCount: 6,
+				warnings: []
+			}
+			}
+		})
+		]
+	});
+
+	expect(packet.followthrough.briefExpansion.format.id).toBe("reference-led-public-landing-page");
+	expect(packet.followthrough.briefExpansion.format.route.profile).toBe("product-story");
+	expect(packet.implementationPlan.componentBuildPlan).toEqual([
+		expect.objectContaining({
+		name: "Hero",
+		purpose: expect.stringContaining("Compose the hero around Create a public photography studio landing page")
+		}),
+		expect.objectContaining({
+		name: "Buttons",
+		purpose: expect.stringContaining("Define CTA and button states for Create a public photography studio landing page")
+		}),
+		expect.objectContaining({
+		name: "Cards",
+		purpose: expect.stringContaining("concrete proof, gallery, service, portfolio, or story sections")
+		}),
+		expect.objectContaining({
+		name: "Feature sections",
+		purpose: expect.stringContaining("concrete proof, gallery, service, portfolio, or story sections")
+		}),
+		expect.objectContaining({
+		name: "Footer",
+		purpose: expect.stringContaining("booking recovery, portfolio navigation, contact, and proof links")
+		})
+	]);
+	expect(JSON.stringify(packet.implementationPlan.componentBuildPlan)).not.toContain("system primitive");
+	});
+
+	it("sanitizes measured media coverage language before Canvas handoff", () => {
+	const trustedPinMedia = persistInspiredesignPinterestPinMediaEvidence({
+		status: "captured",
+		kind: "image",
+		capturedAt: "2026-05-23T00:00:00.000Z",
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+		pinterestPageQuality: "pin_media",
+		mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+		width: 1200,
+		height: 1600,
+		contentType: "image/jpeg",
+		warnings: [],
+		rejectionReasons: []
+	}, {
+		artifactPath: "pin-media-evidence/pin-ref/main.jpg",
+		buffer: makePinterestPinMediaJpegBytes()
+	});
+	const mediaAnalysis = makeInspiredesignMediaAnalysis({
+		designGuidance: {
+		...makeInspiredesignMediaAnalysis().references[0]?.designGuidance,
+		visualStrengths: [
+			"Quantized palette led by #080808, #F8F8F8.",
+			"55 percent dark coverage across the visual field.",
+			"25 percent bright coverage around the content rail.",
+			"8 percent bright coverage on accent controls."
+		],
+		componentFamilies: ["hero", "booking CTA", "portfolio gallery"],
+		tokenNotes: [
+			"#080808 as background at 55 percent coverage",
+			"#F8F8F8 as text at 22 percent coverage",
+			"#FFFFFF as surface at 18 percent coverage",
+			"#F97316 as accent at 4 percent coverage",
+			"#8E8E8E as muted text at 3 percent coverage"
+		],
+		patternsToBorrow: ["Layout heuristic reads as split hero."],
+		patternsToReject: ["Readable exact text extraction was not performed."],
+		confidence: 0.86
+		}
+	});
+
+	const packet = buildInspiredesignPacket({
+		brief: "Create a premium photography studio landing page with measured dark media cues.",
+		briefExpansion: makeBriefExpansion(),
+		urls: ["https://www.pinterest.com/pin/1234567890/"],
+		references: [makeReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		title: "Photography studio pin",
+		excerpt: "Cinematic portfolio landing page with booking CTA.",
+		captureStatus: "captured",
+		capture: { pinMedia: trustedPinMedia }
+		})],
+		mediaAnalysis
+	});
+	const canvasPayload = JSON.stringify(packet.canvasPlanRequest);
+
+	expect(canvasPayload).toContain("dark dominant coverage");
+	expect(canvasPayload).toContain("bright supporting coverage");
+	expect(canvasPayload).toContain("bright accent coverage");
+	expect(canvasPayload).toContain("Palette led by #080808");
+	expect(canvasPayload).not.toContain("55 percent dark coverage");
+	expect(packet.designContract.colorSystem.tokens.light).toEqual(expect.objectContaining({
+		background: "#F8F8F8",
+		surface: "#FFFFFF",
+		text: "#080808"
+	}));
+	expect(packet.designContract.colorSystem.tokens.dark).toEqual(expect.objectContaining({
+		background: "#080808",
+		primary: expect.any(String),
+		accent: expect.any(String),
+		text: expect.any(String),
+		mutedText: expect.any(String)
+	}));
+	expectDarkTokenContrast(packet.designContract.colorSystem.tokens.dark);
+	expectNoCanvasMediaAnalysisTextLeakage(canvasPayload);
+	});
+
+	it("ignores media analysis when source authority or media URL trust checks fail", () => {
+	const trustedPinMedia = persistInspiredesignPinterestPinMediaEvidence({
+		status: "captured",
+		kind: "image",
+		capturedAt: "2026-05-23T00:00:00.000Z",
+		referenceId: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+		pinterestPageQuality: "pin_media",
+		mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+		width: 1200,
+		height: 1600,
+		contentType: "image/jpeg",
+		warnings: [],
+		rejectionReasons: []
+	}, {
+		artifactPath: "pin-media-evidence/pin-ref/main.jpg",
+		buffer: makePinterestPinMediaJpegBytes()
+	});
+	const baseReference = makeReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		title: "Photography studio pin",
+		excerpt: "Cinematic portfolio landing page with booking CTA.",
+		captureStatus: "captured",
+		capture: { pinMedia: trustedPinMedia }
+	});
+	const untrustedMediaAnalyses: InspiredesignMediaAnalysis[] = [
+		makeInspiredesignMediaAnalysis({ mediaUrl: "not a url" }),
+		makeInspiredesignMediaAnalysis({ authority: "diagnostic" })
+	];
+
+	for (const mediaAnalysis of untrustedMediaAnalyses) {
+		const packet = buildInspiredesignPacket({
+		brief: "Create a premium photography studio landing page with untrusted media analysis.",
+		briefExpansion: makeBriefExpansion(),
+		urls: ["https://www.pinterest.com/pin/1234567890/"],
+		references: [baseReference],
+		mediaAnalysis
+		});
+		const evidenceText = JSON.stringify((packet.evidence as InspiredesignEvidenceJson).referencePatternBoard);
+
+		expect(evidenceText).not.toContain("mediaAnalysisBacked");
+		expect(packet.designMarkdown).not.toContain("media path pin-media-evidence/pin-ref/main.jpg");
+		expect(packet.generationPlan.contentStrategy.source).not.toContain("Media-derived facts");
+	}
+	});
+
 	it("keeps metadata-only media analysis out of measured reference guidance", () => {
 		const trustedPinMedia = persistInspiredesignPinterestPinMediaEvidence({
 			status: "captured",
@@ -1209,7 +1825,20 @@ describe("inspiredesign packet + renderer", () => {
 			warnings: [],
 			rejectionReasons: []
 		}, { artifactPath: "pin-media-evidence/pin-gif/main.gif", buffer: makePinterestPinMediaGifBytes() });
-		const mediaAnalysis = makeInspiredesignMediaAnalysisForPersistedPinMedia(gifPinMedia);
+		const mediaAnalysisBase = makeInspiredesignMediaAnalysisForPersistedPinMedia(gifPinMedia);
+		const [mediaReference] = mediaAnalysisBase.references;
+		if (!mediaReference) throw new Error("Expected media-analysis fixture reference.");
+		const mediaAnalysis: InspiredesignMediaAnalysis = {
+			...mediaAnalysisBase,
+			references: [{
+				...mediaReference,
+				claimLevels: [...mediaReference.claimLevels, "motion_sampled"],
+				designGuidance: {
+					...mediaReference.designGuidance,
+					motionPosture: "GIF loop cadence uses sampled frame deltas for motion direction."
+				}
+			}]
+		};
 		const packet = buildInspiredesignPacket({
 			brief: "Create a premium photography studio landing page with an animated GIF reference.",
 			briefExpansion: makeBriefExpansion(),
@@ -1245,6 +1874,9 @@ describe("inspiredesign packet + renderer", () => {
 		expect(packet.generationPlan.designVectors.motionPosture).toEqual(
 			expect.arrayContaining([expect.stringContaining("GIF loop cadence")])
 		);
+		expect(packet.metaPromptMarkdown).toContain("pin-media-evidence/pin-gif/main.gif");
+		expect(packet.metaPromptMarkdown).toContain("motion_sampled");
+		expect(packet.metaPromptMarkdown).toContain("GIF loop cadence uses sampled frame deltas");
 		expect(packetDesignText).toContain("sampled GIF loop pacing");
 	});
 
@@ -1353,6 +1985,206 @@ describe("inspiredesign packet + renderer", () => {
       evidenceAuthority: "pin_media_ready"
     }));
     expect(packet.designMarkdown).toContain("source URL fallback imagery posture from measured media facts");
+    expect(packet.designMarkdown).toContain(
+      "Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready"
+    );
+    expect(packet.designMarkdown).not.toContain("Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`");
+  });
+
+  it("covers direct reference-board authority branches for ranked, snapshot, and pin-media evidence", () => {
+    const nonPinterestReference = makeReference({
+      id: "ranked-reference",
+      url: "https://example.com/editorial-studio",
+      title: "Editorial Studio Landing Page",
+      excerpt: "Premium photography studio landing page with cinematic hero, portfolio proof, and booking CTA.",
+      captureStatus: "captured",
+      capture: {
+        snapshot: {
+          content: "Premium photography studio landing page with cinematic hero, portfolio proof, and booking CTA.",
+          refCount: 6,
+          warnings: []
+        },
+        clone: {
+          componentPreview: "<main><section>Cinematic hero and booking CTA</section></main>",
+          cssPreview: ".hero { display: grid; }",
+          warnings: []
+        }
+      }
+    });
+    const snapshotReadyPinterestReference = makeReference({
+      id: "snapshot-pin",
+      url: "https://www.pinterest.com/pin/11188699075430754/",
+      title: "Your profile Home Search image",
+      excerpt: "Premium studio photography reference with cinematic hero framing.",
+      captureStatus: "captured",
+      capture: {
+        title: "Your profile Home Search image",
+        visual: {
+          status: "captured",
+          sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
+          pinterestPageQuality: "pin_media",
+          path: "visual-evidence/snapshot-pin/viewport.png",
+          sha256: "d".repeat(64),
+          bytes: 4096,
+          warnings: []
+        }
+      }
+    });
+    const trustedPinMedia = persistInspiredesignPinterestPinMediaEvidence({
+      status: "captured",
+      kind: "image",
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      referenceId: "pin-ref",
+      url: "https://www.pinterest.com/pin/1234567890/",
+      sourceUrl: "https://www.pinterest.com/pin/1234567890/",
+      pinterestPageQuality: "pin_media",
+      mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+      width: 1200,
+      height: 1600,
+      contentType: "image/jpeg",
+      warnings: [],
+      rejectionReasons: []
+    }, {
+      artifactPath: "pin-media-evidence/pin-ref/main.jpg",
+      buffer: makePinterestPinMediaJpegBytes()
+    });
+    const matchingPinMediaIndex = buildInspiredesignPinterestPinMediaIndexEntry(trustedPinMedia);
+    if (!matchingPinMediaIndex) throw new Error("Expected trusted pin media index fixture.");
+    const mediaAnalysis = makeInspiredesignMediaAnalysisForPersistedPinMedia(trustedPinMedia);
+    const board = buildInspiredesignReferencePatternBoard(
+      "direct-authority-branches",
+      makeBriefFormat(),
+      [
+        nonPinterestReference,
+        snapshotReadyPinterestReference,
+        makeReference({
+          id: "pin-ref",
+          url: "https://www.pinterest.com/pin/1234567890/",
+          title: "Photography studio pin",
+          excerpt: "Cinematic portfolio landing page with booking CTA.",
+          captureStatus: "captured",
+          capture: { pinMedia: trustedPinMedia }
+        })
+      ],
+      "Create a premium photography studio landing page with cinematic portfolio cues.",
+      mediaAnalysis,
+      [matchingPinMediaIndex]
+    );
+
+    expect(hasInspiredesignUsableReferenceEvidence(nonPinterestReference)).toBe(true);
+    expect(board.references).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "ranked-reference",
+        evidenceAuthority: "ranked_reference",
+        capturedVia: expect.arrayContaining(["snapshot", "clone"]),
+        selectionReason: expect.stringContaining("strong text")
+      }),
+      expect.objectContaining({
+        id: "snapshot-pin",
+        evidenceAuthority: "snapshot_ready",
+        capturedVia: expect.arrayContaining(["snapshot_ready"]),
+		selectionReason: expect.stringContaining("snapshot-ready Pinterest screenshot evidence")
+      }),
+      expect.objectContaining({
+        id: "pin-ref",
+        evidenceAuthority: "pin_media_ready",
+        mediaAnalysisBacked: true,
+        mediaArtifactPath: "pin-media-evidence/pin-ref/main.jpg",
+        mediaAnalysisSource: expect.objectContaining({
+          mediaPath: "pin-media-evidence/pin-ref/main.jpg",
+          kind: "image",
+          contentType: "image/jpeg"
+        }),
+        layoutRecipe: expect.stringContaining("left-weighted split hero")
+      })
+    ]));
+    expect(board.rejectedReferences).toEqual([]);
+
+	const sparseMediaAnalysisBase = makeInspiredesignMediaAnalysisForPersistedPinMedia(trustedPinMedia);
+	const [sparseMediaReference] = sparseMediaAnalysisBase.references;
+	if (!sparseMediaReference) throw new Error("Expected media-analysis fixture reference.");
+	const sparseTrustedMediaReference = { ...sparseMediaReference };
+	delete sparseTrustedMediaReference.hash;
+	delete sparseTrustedMediaReference.contentType;
+	const sparseMediaAnalysis: InspiredesignMediaAnalysis = {
+		...sparseMediaAnalysisBase,
+		references: [sparseTrustedMediaReference]
+	};
+	const sparseBoard = buildInspiredesignReferencePatternBoard(
+		"direct-authority-sparse-media-analysis",
+		makeBriefFormat(),
+		[makeReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		title: "Photography studio pin",
+		excerpt: "Cinematic portfolio landing page with booking CTA.",
+		captureStatus: "captured",
+		capture: { pinMedia: trustedPinMedia }
+		})],
+		"Create a premium photography studio landing page with cinematic portfolio cues.",
+		sparseMediaAnalysis,
+		[matchingPinMediaIndex]
+	);
+
+	expect(sparseBoard.references[0]).toEqual(expect.objectContaining({
+		id: "pin-ref",
+		evidenceAuthority: "pin_media_ready",
+		mediaArtifactPath: "pin-media-evidence/pin-ref/main.jpg"
+	}));
+	expect(sparseBoard.references[0]).not.toHaveProperty("mediaAnalysisBacked");
+	expect(sparseBoard.references[0]).not.toHaveProperty("mediaAnalysisSource");
+
+	const sourceUrlFallbackProvenance = { ...trustedPinMedia.firstPartyProvenance };
+	delete sourceUrlFallbackProvenance.canonicalSourceUrl;
+	const sourceUrlFallbackPinMedia = {
+		...trustedPinMedia,
+		firstPartyProvenance: sourceUrlFallbackProvenance
+	} satisfies InspiredesignPersistedPinterestPinMediaEvidence;
+	const sourceUrlFallbackIndex = buildInspiredesignPinterestPinMediaIndexEntry(sourceUrlFallbackPinMedia);
+	if (!sourceUrlFallbackIndex) throw new Error("Expected source URL fallback pin media index fixture.");
+	const missingCanonicalSourceBoard = buildInspiredesignReferencePatternBoard(
+		"direct-authority-missing-canonical-source",
+		makeBriefFormat(),
+		[makeReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		title: "Photography studio pin",
+		excerpt: "Cinematic portfolio landing page with booking CTA.",
+		captureStatus: "captured",
+		capture: { pinMedia: sourceUrlFallbackPinMedia }
+		})],
+		"Create a premium photography studio landing page with cinematic portfolio cues.",
+		makeInspiredesignMediaAnalysisForPersistedPinMedia(sourceUrlFallbackPinMedia),
+		[sourceUrlFallbackIndex]
+	);
+	expect(missingCanonicalSourceBoard.references).toEqual([]);
+	expect(missingCanonicalSourceBoard.rejectedReferences[0]).toEqual(expect.objectContaining({
+		id: "pin-ref",
+		capturedButRejectedReason: expect.stringContaining("lacks snapshot-ready, pin-media-ready, or motion-ready evidence")
+	}));
+
+	const missingSourceUrlPinMedia = { ...trustedPinMedia };
+	delete missingSourceUrlPinMedia.sourceUrl;
+	const missingSourceUrlBoard = buildInspiredesignReferencePatternBoard(
+		"direct-authority-missing-source-url",
+		makeBriefFormat(),
+		[makeReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		title: "Photography studio pin",
+		excerpt: "Cinematic portfolio landing page with booking CTA.",
+		captureStatus: "captured",
+		capture: { pinMedia: missingSourceUrlPinMedia }
+		})],
+		"Create a premium photography studio landing page with cinematic portfolio cues.",
+		makeInspiredesignMediaAnalysisForPersistedPinMedia(trustedPinMedia),
+		[matchingPinMediaIndex]
+	);
+	expect(missingSourceUrlBoard.references).toEqual([]);
+	expect(missingSourceUrlBoard.rejectedReferences[0]).toEqual(expect.objectContaining({
+		id: "pin-ref",
+		capturedButRejectedReason: expect.stringContaining("lacks snapshot-ready, pin-media-ready, or motion-ready evidence")
+	}));
   });
 
   it("serializes Pinterest pin media evidence and keeps video posters out of motion evidence", () => {
@@ -2480,7 +3312,7 @@ describe("inspiredesign packet + renderer", () => {
 	]);
   });
 
-  it("keeps Pinterest chrome-only screenshot metadata out of design-facing artifacts", () => {
+	  it("keeps Pinterest chrome-only screenshot metadata out of design-facing artifacts", () => {
     const references = Array.from({ length: 5 }, (_, index) => {
       const pinId = `1118869907543075${index}`;
       const title = `Kinetic creative agency studio website concept ${index + 1}`;
@@ -2536,11 +3368,84 @@ describe("inspiredesign packet + renderer", () => {
     });
     expect(packet.advancedBriefMarkdown.indexOf("Reference evidence unavailable:")).toBe(0);
     expect(designFacingArtifacts).not.toContain("Kinetic creative agency studio website concept");
-    expect(designFacingArtifacts).not.toContain("1118869907543075");
-    expect(designFacingArtifacts).not.toContain("/tmp/chrome-pin");
-  });
+	    expect(designFacingArtifacts).not.toContain("1118869907543075");
+	    expect(designFacingArtifacts).not.toContain("/tmp/chrome-pin");
+	  });
 
-  it("keeps snapshot-ready Pinterest pins usable without interface-chrome diagnostics", () => {
+	  it("builds photography studio design contracts from reference cues instead of Pinterest chrome or operator defaults", () => {
+	    const packet = buildInspiredesignPacket({
+	      brief: "Create a digital photography studio landing page with cinematic gallery, portfolio proof, and booking CTA.",
+	      briefExpansion: makeBriefExpansion({
+	        sourceBrief: "Create a digital photography studio landing page with cinematic gallery, portfolio proof, and booking CTA."
+	      }),
+	      urls: [
+	        "https://www.pinterest.com/pin/27654985208435505/",
+	        "https://www.pinterest.com/search/pins?q=photography%20studio"
+	      ],
+	      references: [
+	        makeReference({
+	          id: "studio-pin",
+	          url: "https://www.pinterest.com/pin/27654985208435505/",
+	          fetchStatus: "captured",
+	          captureStatus: "captured",
+	          title: "Cinematic portrait studio landing page",
+	          excerpt: "Cinematic gallery grid, editorial portrait crops, portfolio proof, studio services, and booking CTA.",
+	          capture: {
+	            snapshot: {
+	              content: "Cinematic portrait gallery with editorial image crops, portfolio proof, service story, and booking CTA.",
+	              refCount: 8,
+	              warnings: []
+	            },
+	            visual: {
+	              status: "captured",
+	              sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+	              pinterestPageQuality: "pin_media",
+	              path: "visual-evidence/studio-pin/viewport.png",
+	              sha256: "f".repeat(64),
+	              bytes: 4096,
+	              warnings: []
+	            }
+	          }
+	        }),
+	        makeReference({
+	          id: "pinterest-shell",
+	          url: "https://www.pinterest.com/search/pins?q=photography%20studio",
+	          fetchStatus: "captured",
+	          captureStatus: "captured",
+	          excerpt: "Skip to content When autocomplete results are available use up and down arrows to review and enter to select. Touch device users, explore by touch or with swipe gestures. Pin card Pin card Your profile Home Updates Messages.",
+	          capture: {
+	            snapshot: {
+	              content: "Skip to content Your profile Accounts Home Updates Messages Pin card Pin card"
+	            }
+	          }
+	        })
+	      ]
+	    });
+	    const contractText = JSON.stringify(packet.designContract);
+	    const evidenceText = JSON.stringify(packet.evidence);
+	    const supportingMessages = packet.designContract.contentModel?.["supportingMessages"];
+
+	    expect(packet.designContract.intent?.["audience"]).toContain("prospective");
+	    expect(packet.designContract.intent?.["audience"]).toContain("photography studio");
+	    expect(packet.designContract.intent?.["audience"]).not.toContain("OpenDevBrowser");
+	    expect(packet.designContract.intent?.["audience"]).not.toContain("Operators");
+	    expect(supportingMessages).toEqual(expect.arrayContaining([
+	      expect.stringContaining("Cinematic portrait studio landing page")
+	    ]));
+	    for (const forbidden of [
+	      "Skip to content",
+	      "autocomplete",
+	      "Touch device",
+	      "Pin card",
+	      "Your profile",
+	      "OpenDevBrowser"
+	    ]) {
+	      expect(contractText).not.toContain(forbidden);
+	      expect(evidenceText).not.toContain(forbidden);
+	    }
+	  });
+
+	  it("keeps snapshot-ready Pinterest pins usable without interface-chrome diagnostics", () => {
     const reference = makeReference({
       id: "clean-pinterest-pin",
       url: "https://www.pinterest.com/pin/27654985208435505/",
@@ -2713,6 +3618,23 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.metaPromptMarkdown).toContain("reference(s) were rejected as diagnostic-only or unavailable");
     expect(packet.metaPromptMarkdown).not.toContain("https://www.pinterest.com/pin/31525266137895345/");
   });
+
+	it("uses brand audience fallback when landing-page formats omit business focus", () => {
+	const brief = "Create a conversion landing page website for a public brand launch.";
+	const packet = buildInspiredesignPacket({
+		brief,
+		briefExpansion: makeBriefExpansion({
+		sourceBrief: brief,
+		format: makeBriefFormat({ businessFocus: [] })
+		}),
+		urls: [],
+		references: []
+	});
+
+	expect(packet.designContract.intent?.["audience"]).toBe(
+		"prospective brand customers and conversion-focused visitors"
+	);
+	});
 
   it("classifies page, component, and asset prototype targets without changing the Canvas request shape", () => {
     const cases: Array<{
@@ -3153,6 +4075,10 @@ describe("inspiredesign packet + renderer", () => {
     expect(pageGuidance).toContain("content-rich");
     expect(pageGuidance).toContain("Capture desktop and mobile browser proof");
     expect(pageGuidance).toContain("reduced-motion");
+    expect(pageGuidance).toContain("Compose the hero around Create a premium public church landing page");
+    expect(pageGuidance).toContain("connect hover, focus, loading, and success feedback to the conversion path");
+    expect(pageGuidance).toContain("concrete proof, gallery, service, portfolio, or story sections");
+    expect(pageGuidance).not.toContain("Establish the hero pattern as a reusable system primitive");
     expect(packet.generationPlan.targetOutcome.summary).toContain("Reference cues:");
     expect(packet.generationPlan.componentStrategy.mode.indexOf("captured references")).toBeLessThan(
       packet.generationPlan.componentStrategy.mode.indexOf("microinteractions")
@@ -3478,6 +4404,101 @@ describe("inspiredesign packet + renderer", () => {
     );
   });
 
+  it("does not classify an editorial photography studio brief as a creative tool", () => {
+    const expansion = expandInspiredesignBrief(
+      "Premium digital photography studio landing page with cinematic gallery, booking funnel, and editorial portfolio system"
+    );
+
+    expect(["premium-editorial-landing-page", "cinematic-product-story"]).toContain(expansion.format.id);
+    expect(expansion.format.id).not.toBe("creative-tool-laboratory");
+    expect(expansion.advancedBrief).not.toContain("Creative tool laboratory");
+    expect(expansion.advancedBrief).not.toContain("stage shell");
+    expect(expansion.advancedBrief).not.toContain("inspector rails");
+  });
+
+  it("strips stale creative-tool defaults from reference-led public landing artifacts", () => {
+    const creativeToolFormat = makeBriefFormat({
+      id: "creative-tool-laboratory",
+      label: "Creative tool laboratory",
+      bestFor: ["design tools", "AI builders", "creative software"],
+      businessFocus: ["creative software", "builder platforms", "design tooling", "AI-assisted creation products"],
+      keywords: ["canvas", "lab", "studio", "editor", "prototype", "workspace"],
+      archetype: "specimen-grade creative workspace",
+      layoutArchetype: "bright laboratory shell with stage, inspector, and specimen panels",
+      typographySystem: "sharp grotesk UI type with monospaced support for tokens, coordinates, and diagnostics",
+      surfaceTreatment: "lab-white shell, modular trays, and layered canvas previews",
+      shapeLanguage: "modular docks, specimen cards, inspector rails, and crisp separators",
+      componentGrammar: "stage shell, inspector, prompt panels, specimen modules, stateful controls",
+      motionGrammar: "state continuity, transform-led panel transitions, and specimen emphasis motion",
+      paletteIntent: "bright lab whites with one vivid tool accent and disciplined neutral scaffolding",
+      focusAreas: ["shell grammar", "sidebar and inspector rules", "stage hierarchy"],
+      responsiveCollapseRules: ["Collapse the inspector after the stage and primary controls are stable on smaller breakpoints."],
+      guardrails: ["Make motion serve state continuity and tool confidence."],
+      antiPatterns: ["No floating-window chaos."],
+      deliverables: ["Return a reusable creative-tool contract."],
+      route: {
+        profile: "control-room",
+        themeStrategy: "single-theme",
+        navigationModel: "contextual",
+        layoutApproach: "creative-tool-laboratory"
+      }
+    });
+    const packet = buildInspiredesignPacket({
+      brief: "Premium digital photography studio landing page with cinematic gallery, booking funnel, and editorial portfolio system.",
+      briefExpansion: makeBriefExpansion({ format: creativeToolFormat }),
+      urls: ["https://studio.example.com/portfolio"],
+      references: [
+        makeReference({
+          id: "photo-studio",
+          url: "https://studio.example.com/portfolio",
+          title: "Photography studio portfolio landing page",
+          excerpt: "Cinematic gallery, booking CTA, portfolio proof, service story, and editorial image-led sections.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "Premium photography studio landing page with hero gallery, portfolio proof, booking CTA, services, and editorial story sections.",
+              refCount: 10,
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const output = JSON.stringify({
+      advancedBrief: packet.advancedBriefMarkdown,
+      designMarkdown: packet.designMarkdown,
+      generationPlan: packet.generationPlan,
+      designContract: packet.designContract,
+      implementationPlan: packet.implementationPlan,
+      handoff: packet.followthrough,
+      evidence: packet.evidence
+    });
+
+    expect(packet.followthrough.briefExpansion.format.id).toBe("reference-led-public-landing-page");
+    expect(packet.followthrough.briefExpansion.format.route).toMatchObject({
+      profile: "product-story",
+      themeStrategy: "light-dark-parity",
+      navigationModel: "global-header",
+      layoutApproach: "reference-led-landing-page"
+    });
+    expect(packet.designMarkdown).toContain("Prompt format: Reference-led public landing page");
+    for (const forbidden of [
+      "Creative tool laboratory",
+      "creative-tool",
+      "creative software",
+      "builder platforms",
+      "design tooling",
+      "AI-assisted creation products",
+      "specimen-grade creative workspace",
+      "stage shell",
+      "prompt panels",
+      "modular docks",
+      "inspector rails"
+    ]) {
+      expect(output).not.toContain(forbidden);
+    }
+  });
+
   it("turns stale research atlas routing into a text-light public consulting landing direction", () => {
     const documentationFormat = makeBriefFormat({
       id: "luminous-research-atlas",
@@ -3644,6 +4665,151 @@ describe("inspiredesign packet + renderer", () => {
     expect(packet.generationPlan.designVectors.surfaceIntent).toBe("operator dashboard");
     expect(packet.generationPlan.visualDirection.profile).toBe("ops-control");
     expect(packet.advancedBriefMarkdown).not.toContain("Selected prompt format: Reference-led public landing page");
+  });
+
+	it("matches format intent tokens when the source brief is empty", () => {
+	const matchedBoard = buildInspiredesignReferencePatternBoard(
+		"empty-brief-intent-match",
+		makeBriefFormat(),
+		[makeReference({
+		id: "format-match",
+		url: "https://example.com/launch",
+		title: "Premium SaaS marketing launch page",
+		excerpt: "Premium SaaS marketing launch page with hero, proof, and conversion CTA sections.",
+		captureStatus: "captured",
+		capture: {
+			snapshot: {
+			content: "Premium SaaS marketing launch page with hero, proof, and conversion CTA sections.",
+			refCount: 4,
+			warnings: []
+			}
+		}
+		})],
+		""
+	);
+	const unmatchedBoard = buildInspiredesignReferencePatternBoard(
+		"empty-brief-intent-mismatch",
+		makeBriefFormat(),
+		[makeReference({
+		id: "format-mismatch",
+		url: "https://example.com/ceramics",
+		title: "Ceramic workshop schedule",
+		excerpt: "Clay workshop calendar and kiln safety notes for local makers.",
+		captureStatus: "captured",
+		capture: {
+			snapshot: {
+			content: "Clay workshop calendar and kiln safety notes for local makers.",
+			refCount: 4,
+			warnings: []
+			}
+		}
+		})],
+		""
+	);
+
+	expect(matchedBoard.references[0]).toEqual(expect.objectContaining({
+		id: "format-match",
+		intentMatched: true
+	}));
+	expect(matchedBoard.references[0]?.selectionReason).not.toContain("Intent overlap with the brief is weak");
+	expect(unmatchedBoard.references[0]).toEqual(expect.objectContaining({
+		id: "format-mismatch",
+		intentMatched: false
+	}));
+	expect(unmatchedBoard.references[0]?.selectionReason).toContain("Intent overlap with the brief is weak");
+
+	const photoVariantBoard = buildInspiredesignReferencePatternBoard(
+		"photo-brief-intent-variants",
+		makeBriefFormat(),
+		[makeReference({
+		id: "photo-variant-match",
+		url: "https://example.com/photographer-portfolio",
+		title: "Photographer portfolio and booking guide",
+		excerpt: "Photographer portfolio public landing page with booking proof and studio services.",
+		captureStatus: "captured",
+		capture: {
+			snapshot: {
+			content: "Photographer portfolio public landing page with booking proof and studio services.",
+			refCount: 4,
+			warnings: []
+			}
+		}
+		})],
+		"Create a photo studio landing page"
+	);
+
+	expect(photoVariantBoard.references[0]).toEqual(expect.objectContaining({
+		id: "photo-variant-match",
+		intentMatched: true
+	}));
+	expect(photoVariantBoard.references[0]?.selectionReason).not.toContain("Intent overlap with the brief is weak");
+
+	const photoIntentVariants = [
+		["photos", "Photographic studio portfolio with proof-led booking path."],
+		["photography", "Photo studio portfolio with proof-led booking path."],
+		["photographer", "Photos and studio portfolio with proof-led booking path."],
+		["photographic", "Photography studio portfolio with proof-led booking path."]
+	] as const;
+	for (const [briefToken, evidenceText] of photoIntentVariants) {
+		const variantBoard = buildInspiredesignReferencePatternBoard(
+			`photo-intent-${briefToken}`,
+			makeBriefFormat(),
+			[makeReference({
+				id: `photo-intent-${briefToken}`,
+				url: `https://example.com/${briefToken}-studio`,
+				title: evidenceText,
+				excerpt: evidenceText,
+				captureStatus: "captured",
+				capture: {
+					snapshot: {
+						content: evidenceText,
+						refCount: 4,
+						warnings: []
+					}
+				}
+			})],
+			briefToken
+		);
+		expect(variantBoard.references[0]).toEqual(expect.objectContaining({
+			id: `photo-intent-${briefToken}`,
+			intentMatched: true
+		}));
+		expect(variantBoard.references[0]?.selectionReason).not.toContain("Intent overlap with the brief is weak");
+	}
+	});
+
+  it("strips raw URLs and bare hosts from reference pattern evidence cues", () => {
+    const packet = buildInspiredesignPacket({
+      brief: "Create a premium public photography studio landing page inspired by an editorial studio reference.",
+      briefExpansion: makeBriefExpansion({
+        sourceBrief: "Create a premium public photography studio landing page inspired by an editorial studio reference."
+      }),
+      urls: ["https://example.com/reference"],
+      references: [
+        makeReference({
+          id: "studio-ref",
+          url: "https://example.com/reference",
+          title: "Jason Bergh Photography | jasonbergh.com",
+          excerpt: "Editorial studio portfolio https://jasonbergh.com/work uses full-bleed black and white portrait crops for premium booking intent at mean luminance 23.41.",
+          captureStatus: "captured",
+          capture: {
+            snapshot: {
+              content: "[r1] link \"Book the studio\" Visit jasonbergh.com for editorial portrait sessions and booking proof.",
+              refCount: 1,
+              warnings: []
+            }
+          }
+        })
+      ]
+    });
+    const evidenceText = JSON.stringify((packet.evidence as InspiredesignEvidenceJson).referencePatternBoard);
+
+    expect(evidenceText).toContain("Jason Bergh Photography");
+    expect(evidenceText).toContain("editorial portrait sessions");
+    expect(evidenceText).toContain("mean luminance 23.41");
+    expect(evidenceText).not.toContain("https://jasonbergh.com/work");
+    expect(evidenceText).not.toContain("jasonbergh.com");
+    expect(evidenceText).not.toContain("[r1]");
   });
 
   it("synthesizes noisy captured church evidence into semantic pattern board cues", () => {
@@ -4129,10 +5295,15 @@ describe("inspiredesign packet + renderer", () => {
       }]
     };
 
-	const rendererMediaAnalysis = makeInspiredesignMediaAnalysis();
-    const modes = ["compact", "json", "md", "context", "path"] as const;
-    for (const mode of modes) {
-      const rendered = renderInspiredesign({
+		const rendererMediaAnalysis = makeInspiredesignMediaAnalysis();
+	    const modes = ["compact", "json", "md", "context", "path"] as const;
+	    const readyDesignMarkdown = packet.designMarkdown.replace(
+	      "Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready",
+	      "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`"
+	    );
+	    expect(packet.designMarkdown).not.toContain("Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`");
+	    for (const mode of modes) {
+	      const rendered = renderInspiredesign({
         mode,
         brief,
         advancedBriefMarkdown: packet.advancedBriefMarkdown,
@@ -4172,8 +5343,11 @@ describe("inspiredesign packet + renderer", () => {
         }
       });
 
-      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designMarkdown)).toBe(true);
-      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.advancedBrief)).toBe(true);
+	      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designMarkdown)).toBe(true);
+	      expect(rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designMarkdown)?.content).toBe(
+	        readyDesignMarkdown
+	      );
+	      expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.advancedBrief)).toBe(true);
       expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance)).toBe(true);
       expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(true);
       expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff)).toBe(true);
@@ -4262,11 +5436,11 @@ describe("inspiredesign packet + renderer", () => {
 					rendererMediaAnalysis
 				);
 	      } else if (mode === "md") {
-        expect(rendered.response).toMatchObject({
-          mode,
-          markdown: packet.designMarkdown,
-          implementationPlanMarkdown: packet.implementationPlanMarkdown,
-          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+	        expect(rendered.response).toMatchObject({
+	          mode,
+	          markdown: readyDesignMarkdown,
+	          implementationPlanMarkdown: packet.implementationPlanMarkdown,
+	          prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
           captureAttemptSummary: "worked=snapshot (captured 1); did_not_work=clone (failed 1), dom (skipped 1)",
           followthroughSummary: packet.followthrough.summary,
           suggestedNextAction: packet.followthrough.nextStep
@@ -4299,7 +5473,7 @@ describe("inspiredesign packet + renderer", () => {
               artifactAuthority: "product_ready",
               productSuccess: true
             }),
-            designMarkdown: packet.designMarkdown,
+	            designMarkdown: readyDesignMarkdown,
             implementationPlanMarkdown: packet.implementationPlanMarkdown,
             prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
             evidence: expect.objectContaining({
@@ -5007,7 +6181,7 @@ describe("inspiredesign packet + renderer", () => {
 	expect(renderedWithMotionAndPinMediaAuthority.response).toMatchObject({
 		artifactAuthority: "product_ready",
 		productSuccess: true,
-		evidenceAuthority: "motion_ready"
+		evidenceAuthority: "pin_media_ready"
 	});
 
 	const mixedReferencePatternBoard: InspiredesignReferencePatternBoard = {
@@ -5437,7 +6611,76 @@ describe("inspiredesign packet + renderer", () => {
 	    expect(screenshotIndexFile?.content).toEqual({
 	      screenshots: packet.screenshotIndex
 	    });
+
+	const snapshotOnlyFallback = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls: [url],
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		visualEvidence: packet.visualEvidence,
+		screenshotIndex: packet.screenshotIndex,
+		authorityScreenshotIndex: packet.screenshotIndex,
+		rankedReferences: packet.rankedReferences,
+		referencePatternBoard: packet.referencePatternBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: { requestId: "pinterest-snapshot-fallback" }
 	  });
+	expect(snapshotOnlyFallback.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+	expect(snapshotOnlyFallback.response).not.toHaveProperty("canvasPlanRequest");
+	expect(snapshotOnlyFallback.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+
+	const motionOnlyBoard: InspiredesignReferencePatternBoard = {
+		...packet.referencePatternBoard,
+		references: packet.referencePatternBoard.references.map((reference) => ({
+		...reference,
+		capturedVia: ["fetch", "motion_ready"],
+		evidenceAuthority: "motion_ready" as const
+		}))
+	};
+	const motionOnlyFallback = renderInspiredesign({
+		mode: "json",
+		brief,
+		advancedBriefMarkdown: packet.advancedBriefMarkdown,
+		urls: [url],
+		designContract: packet.designContract,
+		canvasPlanRequest: packet.canvasPlanRequest,
+		designAgentHandoff: packet.followthrough,
+		generationPlan: packet.generationPlan,
+		implementationPlan: packet.implementationPlan,
+		designMarkdown: packet.designMarkdown,
+		implementationPlanMarkdown: packet.implementationPlanMarkdown,
+		prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
+		evidence: packet.evidence,
+		visualEvidence: packet.visualEvidence,
+		motionEvidence: [makeInspiredesignMotionEvidence({ referenceId: "pinterest-visual", url })],
+		rankedReferences: motionOnlyBoard.references,
+		referencePatternBoard: motionOnlyBoard,
+		metaPromptMarkdown: packet.metaPromptMarkdown,
+		nextStepGuidance: readyNextStepGuidance,
+		meta: { requestId: "pinterest-motion-fallback" }
+	});
+	expect(motionOnlyFallback.response).toMatchObject({
+		artifactAuthority: "diagnostic_only",
+		productSuccess: false,
+		evidenceAuthority: "diagnostic_only"
+	});
+	expect(motionOnlyFallback.response).not.toHaveProperty("canvasPlanRequest");
+	expect(motionOnlyFallback.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
+	});
 
   it("keeps context meta aligned with renderer authority when Canvas gating fails closed", () => {
     const brief = "Design a premium product narrative landing page";
@@ -5520,19 +6763,22 @@ describe("inspiredesign packet + renderer", () => {
     });
     const response = rendered.response as { context?: { meta?: Record<string, unknown> }; meta?: Record<string, unknown> };
 
-    expect(response).toMatchObject({
-      productSuccess: false,
-      artifactAuthority: "diagnostic_only",
-      meta: expect.objectContaining({
-        productSuccess: false,
-        artifactAuthority: "diagnostic_only",
-        evidenceAuthority: "diagnostic_only"
+		expect(response).toMatchObject({
+			ready: false,
+			productSuccess: false,
+			artifactAuthority: "diagnostic_only",
+			meta: expect.objectContaining({
+				ready: false,
+				productSuccess: false,
+				artifactAuthority: "diagnostic_only",
+				evidenceAuthority: "diagnostic_only"
       }),
-      context: expect.objectContaining({
-        meta: expect.objectContaining({
-          productSuccess: false,
-          artifactAuthority: "diagnostic_only",
-          evidenceAuthority: "diagnostic_only"
+			context: expect.objectContaining({
+				meta: expect.objectContaining({
+					ready: false,
+					productSuccess: false,
+					artifactAuthority: "diagnostic_only",
+					evidenceAuthority: "diagnostic_only"
         })
       })
     });
@@ -6782,10 +8028,10 @@ describe("inspiredesign packet + renderer", () => {
 		"Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence."
     );
     expect(responseWithoutGuidance.followthroughSummary).toBe(
-      "Canvas continuation unavailable until nextStepGuidance.readiness is ready."
+      "Canvas continuation unavailable until product-ready authority fields and manifest-backed evidence agree."
     );
     expect(responseWithoutGuidance.suggestedNextAction).toBe(
-      "Canvas continuation unavailable until nextStepGuidance.readiness is ready."
+      "Canvas continuation unavailable until product-ready authority fields and manifest-backed evidence agree."
     );
     expect(responseWithoutGuidance).not.toHaveProperty("canvasPlanRequest");
     expect(renderedWithoutGuidance.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
@@ -6803,8 +8049,8 @@ describe("inspiredesign packet + renderer", () => {
       urls: ["https://example.com/blocked"],
       references: []
     });
-    const nextStepGuidance = {
-      id: `inspiredesign.harvest.${reasonCode}`,
+	    const nextStepGuidance = {
+	      id: `inspiredesign.harvest.${reasonCode}`,
       recipeType: "evidence_recovery",
       workflow: "inspiredesign",
       severity: readiness === "blocked" ? "blocked" : "warning",
@@ -6825,10 +8071,14 @@ describe("inspiredesign packet + renderer", () => {
       artifactInputs: [],
       validationChecks: [],
       fallbackPolicy: { allowed: false, requiresUserConfirmation: true, reason: "Do not continue yet." },
-      doNotProceedIf: ["reference_count is 0"]
-    } satisfies NextStepGuidance;
+	      doNotProceedIf: ["reference_count is 0"]
+	    } satisfies NextStepGuidance;
+	    const staleReadyDesignMarkdown = packet.designMarkdown.replace(
+	      "Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready",
+	      "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`"
+	    );
 
-    const rendered = renderInspiredesign({
+	    const rendered = renderInspiredesign({
       mode: "json",
       brief: "Create a photography studio landing page",
       advancedBriefMarkdown: packet.advancedBriefMarkdown,
@@ -6838,7 +8088,7 @@ describe("inspiredesign packet + renderer", () => {
       designAgentHandoff: packet.followthrough,
       generationPlan: packet.generationPlan,
       implementationPlan: packet.implementationPlan,
-      designMarkdown: packet.designMarkdown,
+	      designMarkdown: staleReadyDesignMarkdown,
       implementationPlanMarkdown: packet.implementationPlanMarkdown,
       prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
       evidence: packet.evidence,
@@ -6852,10 +8102,16 @@ describe("inspiredesign packet + renderer", () => {
       implementationContext: { referenceSynthesis: { requiredArtifacts: string[] } };
     };
     expect(responseHandoff.commandExamples.continueInCanvas).toBe("Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence.");
-    expect(responseHandoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain(
-      INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest
-    );
-    expect(response).not.toHaveProperty("canvasPlanRequest");
+	    expect(responseHandoff.implementationContext.referenceSynthesis.requiredArtifacts).not.toContain(
+	      INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest
+	    );
+	    expect(JSON.stringify({ response: rendered.response, files: rendered.files })).not.toContain(
+	      "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`"
+	    );
+	    expect(rendered.files.find((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.designMarkdown)?.content).toContain(
+	      "Canvas plan request omitted until harvest readiness is ready with authoritative visual, motion, or pin-media evidence."
+	    );
+	    expect(response).not.toHaveProperty("canvasPlanRequest");
     expect(rendered.files.some((file) => file.path === INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest)).toBe(false);
   });
 

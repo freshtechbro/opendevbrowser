@@ -92,7 +92,7 @@ describe("CLI help surface", () => {
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },
       { label: "motion:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadMotionDesign },
       { label: "brief:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.reviewAdvancedBrief },
-      { label: "gate:", value: "Require nextStepGuidance.readiness=ready, non-empty ranked references, no matching doNotProceedIf blockers, and Pinterest snapshot_ready, motion_ready, or pin_media_ready manifest-backed evidence before Canvas continuation." },
+      { label: "gate:", value: "Require top-level ready=true, productSuccess=true, artifactAuthority=product_ready, non-empty ranked references, no matching doNotProceedIf blockers, and manifest-backed authority evidence before Canvas continuation. Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready plus manifest-backed pin-media-index.json; snapshot_ready and motion_ready are not substitutes." },
       { label: "media:", value: "Treat media-analysis.json as design facts only; it never grants readiness authority and raw media-analysis fields must not enter canvas-plan.request.json." },
       { label: "prep:", value: INSPIREDESIGN_HANDOFF_GUIDANCE.prepareCanvasPlanRequest },
       { label: "run:", value: INSPIREDESIGN_HANDOFF_COMMANDS.continueInCanvas }

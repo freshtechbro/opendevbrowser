@@ -117,6 +117,7 @@ export type InspiredesignReferencePatternBoard = {
       hash?: string;
       kind: string;
       contentType?: string;
+      claimLevels: InspiredesignMediaAnalysisReference["claimLevels"];
     };
     mediaArtifactPath?: string;
   }>;
@@ -255,8 +256,15 @@ const isCodeOrCssPreview = (value: string): boolean => {
     || (lower.includes("{") && /[a-z-]+:\s*[^;]+;/.test(lower));
 };
 
+const RAW_URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
+const BARE_SOURCE_HOST_PATTERN =
+  /(?<![@\w.-])(?:www\.)?(?:[a-z0-9-]+\.)+(?:design|studio|com|app|art|dev|net|org|ai|io|it|uk|co)(?:\/[^\s"'<>)}\]]*)?(?=$|[\s"'<>)}\],.;:!?])/gi;
+
 const cleanEvidenceText = (value: string): string => {
-  return trimText(stripActionRefs(value).replace(/[{};]/g, " "));
+  return trimText(stripActionRefs(value)
+    .replace(RAW_URL_PATTERN, " ")
+    .replace(BARE_SOURCE_HOST_PATTERN, " ")
+    .replace(/[{};]/g, " "));
 };
 
 const DIAGNOSTIC_TEXT_MARKERS = [
@@ -817,10 +825,7 @@ const getTrustedMediaAnalysisForReference = (
   if (!mediaReferences || mediaReferences.length === 0) return undefined;
   const diagnosticReasons = referenceDiagnosticReasons(reference);
   if (!hasPinMediaReadyPinterestEvidence(reference, diagnosticReasons, pinMediaIndex)) return undefined;
-  const pinMedia = reference.capture?.pinMedia;
-  if (pinMedia?.status !== "captured") return undefined;
-  const persistedPinMedia = readPersistedPinterestPinMediaEvidence(pinMedia);
-  if (persistedPinMedia.authority !== "design_evidence") return undefined;
+  const persistedPinMedia = readPersistedPinterestPinMediaEvidence(reference.capture!.pinMedia!);
 	return mediaReferences.find((mediaReference) => pinMediaMatchesMediaAnalysisReference(persistedPinMedia, mediaReference));
 };
 
@@ -1401,7 +1406,8 @@ const mediaAnalysisSourceForReference = (
   ...(mediaReference.mediaUrl ? { mediaUrl: mediaReference.mediaUrl } : {}),
   ...(mediaReference.hash ? { hash: mediaReference.hash } : {}),
   kind: mediaReference.kind,
-  ...(mediaReference.contentType ? { contentType: mediaReference.contentType } : {})
+  ...(mediaReference.contentType ? { contentType: mediaReference.contentType } : {}),
+  claimLevels: [...mediaReference.claimLevels]
 });
 
 const persistedPinMediaPathForReference = (reference: ReferenceInput): string | undefined => {

@@ -59,6 +59,8 @@ const SEARCH_RESULT_CONTEXT_MARKERS = [
 const HARD_FAILURE_REASON_CODES = new Set<ProviderReasonCode>([
   "auth_required",
   "challenge_detected",
+  "cooldown_active",
+  "ip_blocked",
   "policy_blocked",
   "rate_limited",
   "token_required"
@@ -520,17 +522,6 @@ export const runBrowserNativeDiscovery = async (
       pinterestSourceClassification.diagnosticBlockers
     );
   }
-  if (pinterestSourceClassification?.sourcePageQuality === "search_shell" && fetched.failures.length > 0) {
-    return buildFailurePassthroughResult(
-      input,
-      source,
-      searchUrl,
-      fetched.records.length,
-      fetched.failures,
-      pinterestSourceClassification.sourcePageQuality,
-      pinterestSourceClassification.diagnosticBlockers
-    );
-  }
   const acceptedUrls = extractRecipeReferenceUrls(
     input,
     fetched.records,
@@ -538,6 +529,17 @@ export const runBrowserNativeDiscovery = async (
     (url, record) => acceptsRecipeReferenceUrl(input.recipe, url, record)
   );
   if (acceptedUrls.length === 0) {
+    if (pinterestSourceClassification?.sourcePageQuality === "search_shell" && fetched.failures.length > 0) {
+      return buildFailurePassthroughResult(
+        input,
+        source,
+        searchUrl,
+        fetched.records.length,
+        fetched.failures,
+        pinterestSourceClassification.sourcePageQuality,
+        pinterestSourceClassification.diagnosticBlockers
+      );
+    }
     if (pinterestSourceClassification?.sourcePageQuality === "search_shell") {
       const shellState = findBadState(input.recipe, fetched.records, "all")
         ?? matchedPinterestClassificationBadState(input.recipe, pinterestSourceClassification);

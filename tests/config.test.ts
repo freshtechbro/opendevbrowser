@@ -5,6 +5,7 @@ import {
   requireChallengeOrchestrationConfig,
   resolveConfig
 } from "../src/config";
+import { getConfigTemplate } from "../src/cli/templates/config";
 import { resolveFigmaAccessToken } from "../src/integrations/figma/auth";
 import * as fs from "fs";
 import * as path from "path";
@@ -88,6 +89,7 @@ describe("loadGlobalConfig", () => {
     expect(config.persistProfile).toBe(true);
     expect(config.checkForUpdates).toBe(false);
     expect(config.relayPort).toBe(8787);
+    expect(config.discoveryPort).toBe(8787);
     expect(typeof config.relayToken).toBe("string");
     expect(config.relayToken).toMatch(/^[a-f0-9]{64}$/);
     expect(config.daemonPort).toBe(8788);
@@ -102,6 +104,12 @@ describe("loadGlobalConfig", () => {
       expect.stringMatching(/"relayToken": "[a-f0-9]{64}".*"daemonToken": "[a-f0-9]{64}"/s),
       { encoding: "utf-8", mode: 0o600 }
     );
+  });
+
+  it("includes discoveryPort in generated config templates", () => {
+    const template = getConfigTemplate();
+    expect(template).toContain("\"relayPort\": 8787");
+    expect(template).toContain("\"discoveryPort\": 8787");
   });
 
   it("reads config from global config file", () => {
@@ -427,6 +435,7 @@ describe("resolveConfig", () => {
     const config = resolveConfig({ profile: "custom" });
     expect(config.profile).toBe("custom");
     expect(config.relayPort).toBe(8787);
+    expect(config.discoveryPort).toBe(8787);
     expect(config.daemonPort).toBe(8788);
     expect(config.providers?.challengeOrchestration.mode).toBe("browser_with_helper");
     expect(config.providers?.challengeOrchestration.optionalComputerUseBridge.enabled).toBe(true);
@@ -504,6 +513,17 @@ describe("resolveConfig", () => {
 
   it("rejects invalid overrides", () => {
     expect(() => resolveConfig({ relayPort: -1 })).toThrow("Invalid opendevbrowser config override");
+    expect(() => resolveConfig({ discoveryPort: 65536 })).toThrow("Invalid opendevbrowser config override");
+  });
+
+  it("parses an isolated discovery port override separately from relay port", () => {
+    const config = resolveConfig({
+      relayPort: 49152,
+      discoveryPort: 49153
+    });
+
+    expect(config.relayPort).toBe(49152);
+    expect(config.discoveryPort).toBe(49153);
   });
 
   it("parses inspiredesign media-analysis binary path overrides without executable checks", () => {

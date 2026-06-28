@@ -810,12 +810,14 @@ describe("workflow CLI commands", () => {
       ]));
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain(`readiness=${item.readiness}`);
       expect(result).toEqual(expect.objectContaining({
         productSuccess: false,
         artifactAuthority: "diagnostic_only",
         evidenceAuthority: "diagnostic_only"
       }));
+      expect(result.message).toContain(`guidanceReadiness=${item.readiness}`);
+      expect(result.message).toContain("productSuccess=false artifactAuthority=diagnostic_only evidenceAuthority=diagnostic_only");
+      expect(result.message).not.toContain(` readiness=${item.readiness}`);
     }
   });
 
@@ -857,14 +859,19 @@ describe("workflow CLI commands", () => {
 
     expect(result).toEqual(expect.objectContaining({
       success: true,
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only",
       rankedReferenceCount: 1,
       authoritativeReferenceCount: 0
     }));
+    expect(result.message).toContain("guidanceReadiness=ready");
+    expect(result.message).toContain("productSuccess=false artifactAuthority=diagnostic_only evidenceAuthority=diagnostic_only");
+    expect(result.message).not.toContain(" readiness=ready");
   });
 
   it("reads top-level next-step readiness and exposes explicit product authority", async () => {
@@ -876,14 +883,13 @@ describe("workflow CLI commands", () => {
       evidenceAuthority: "snapshot_ready",
       rankedReferences: [{
         id: "reference-1",
-        url: "https://www.pinterest.com/pin/11188699075430754/",
+        url: "https://studio.example/reference/editorial-lighting",
         evidenceAuthority: "snapshot_ready"
       }],
       screenshotIndex: [{
         referenceId: "reference-1",
-        url: "https://www.pinterest.com/pin/11188699075430754/",
-        sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
-        pinterestPageQuality: "pin_media",
+        url: "https://studio.example/reference/editorial-lighting",
+        sourceUrl: "https://studio.example/reference/editorial-lighting",
         path: "visual-evidence/reference-1/viewport.png",
         sha256: "a".repeat(64),
         bytes: 4096,
@@ -930,14 +936,19 @@ describe("workflow CLI commands", () => {
 
     expect(result).toEqual(expect.objectContaining({
       success: true,
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only",
       rankedReferenceCount: 0,
       authoritativeReferenceCount: 0
     }));
+    expect(result.message).toContain("guidanceReadiness=ready");
+    expect(result.message).toContain("productSuccess=false artifactAuthority=diagnostic_only evidenceAuthority=diagnostic_only");
+    expect(result.message).not.toContain(" readiness=ready");
   });
 
   it("rejects invalid inspiredesign harvest bounds and visual modes", async () => {
@@ -1019,6 +1030,8 @@ describe("workflow CLI commands", () => {
       success: true,
       ready: false,
       readiness: "unknown",
+      guidanceReady: false,
+      guidanceReadiness: "unknown",
       harvestReadiness: "unknown",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
@@ -1028,7 +1041,7 @@ describe("workflow CLI commands", () => {
       snapshotReadyReferenceCount: 0,
       motionReadyReferenceCount: 0,
       pinMediaReadyReferenceCount: 0,
-      message: `Inspiredesign workflow completed. ${buildInspiredesignFollowthroughSummary()} Next step: ${buildInspiredesignNextStep()}`,
+      message: `Inspiredesign workflow completed. ${buildInspiredesignFollowthroughSummary()} Next step: ${buildInspiredesignNextStep()} guidanceReadiness=unknown productSuccess=false artifactAuthority=diagnostic_only evidenceAuthority=diagnostic_only`,
       data: {
         followthroughSummary: buildInspiredesignFollowthroughSummary(),
         suggestedNextAction: buildInspiredesignNextStep()
@@ -1062,6 +1075,8 @@ describe("workflow CLI commands", () => {
       success: true,
       ready: false,
       readiness: "unknown",
+      guidanceReady: false,
+      guidanceReadiness: "unknown",
       harvestReadiness: "unknown",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
@@ -1071,7 +1086,7 @@ describe("workflow CLI commands", () => {
       snapshotReadyReferenceCount: 0,
       motionReadyReferenceCount: 0,
       pinMediaReadyReferenceCount: 0,
-      message: "Inspiredesign workflow completed with provider follow-up required: Deep capture failed for 1 reference. Next step: Retry deep capture for https://example.com/reference after restoring the required browser session state.",
+      message: "Inspiredesign workflow completed with provider follow-up required: Deep capture failed for 1 reference. Next step: Retry deep capture for https://example.com/reference after restoring the required browser session state. guidanceReadiness=unknown productSuccess=false artifactAuthority=diagnostic_only evidenceAuthority=diagnostic_only",
       data: {
         followthroughSummary: buildInspiredesignFollowthroughSummary(),
         suggestedNextAction: buildInspiredesignNextStep(),

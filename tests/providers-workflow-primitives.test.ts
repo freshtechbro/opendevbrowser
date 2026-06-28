@@ -493,14 +493,22 @@ describe("workflow primitives", () => {
   });
 
   it("renders shopping buying brief artifacts while preserving response modes", () => {
+    const completeBuyerEvidence = {
+      seller: "Authorized seller",
+      return_policy: "30 days",
+      warranty: "1 year",
+      condition: "new",
+      shipping_service: "standard"
+    };
     const offers = [
-      makeShoppingOffer({ id: "logitech", amount: 79.99 }),
+      makeShoppingOffer({ id: "logitech", amount: 79.99, attributes: completeBuyerEvidence }),
       makeShoppingOffer({
         id: "anker",
         provider: "shopping/bestbuy",
         title: "Anker Vertical Ergonomic Mouse",
         url: "https://bestbuy.example/anker",
-        amount: 69.99
+        amount: 69.99,
+        attributes: completeBuyerEvidence
       })
     ];
     const meta = {
@@ -517,7 +525,8 @@ describe("workflow primitives", () => {
         mode,
         query: "ergonomic mouse",
         offers,
-        meta
+        meta,
+        freshnessReferenceIso: SHOPPING_PRICE_TIME
       });
       const fileNames = rendered.files.map((file) => file.path);
       expect(fileNames).toEqual([
@@ -549,6 +558,7 @@ describe("workflow primitives", () => {
       expect(Object.keys(context).sort()).toEqual(["highlights", "meta", "offers", "query"]);
       expect(context.highlights[0]).toContain("Buying readiness:");
       expect(context.highlights[1]).toContain("Recommendation:");
+      expect(context.highlights).toContain("Key constraint: No major report constraint surfaced.");
       expect(context.offers).toBe(offers);
 
       if (mode === "compact") {
@@ -651,6 +661,37 @@ describe("workflow primitives", () => {
 
     expect(summary).toContain("Key constraint: workflow alerts: 1");
     expect(summary).not.toContain("Key constraint: buyer limitation");
+  });
+
+  it("downgrades otherwise recommended shopping evidence when workflow alerts constrain the report", () => {
+    const rendered = renderShopping({
+      mode: "context",
+      query: "ergonomic mouse",
+      offers: [
+        makeShoppingOffer({ id: "alert-clean-a", amount: 79.99 }),
+        makeShoppingOffer({ id: "alert-clean-b", title: "Anker Vertical Ergonomic Mouse", amount: 89.99, url: "https://example.com/alert-clean-b" }),
+        makeShoppingOffer({ id: "nan-shipping", title: "Microsoft Sculpt Ergonomic Mouse", amount: 99.99, shipping: Number.NaN, url: "https://example.com/nan-shipping" })
+      ],
+      meta: {
+        alerts: [{ reasonCode: "provider_quality_warning" }],
+        selection: {
+          providers: ["shopping/amazon"],
+          requested_region: "US",
+          region_authoritative: true
+        }
+      },
+      freshnessReferenceIso: SHOPPING_PRICE_TIME
+    });
+    const context = rendered.response.context as { highlights: string[] };
+    const summary = context.highlights.join("\n");
+    const csv = String(rendered.files.find((file) => file.path === "comparison.csv")?.content ?? "");
+
+    expect(summary).toContain("Buying readiness: partial");
+    expect(summary).toContain("Top candidate evidence:");
+    expect(summary).toContain(", candidate)");
+    expect(summary).not.toContain(", recommended)");
+    expect(csv).toContain('"Microsoft Sculpt Ergonomic Mouse",99.99,,');
+    expect(csv).toContain('"invalid_price"');
   });
 
   it("constrains direct shopping renderer freshness when no reference timestamp is provided", () => {

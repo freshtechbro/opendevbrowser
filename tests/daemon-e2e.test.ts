@@ -30,6 +30,7 @@ const makeConfig = (overrides: Partial<OpenDevBrowserConfig> = {}): OpenDevBrows
   skills: { nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   continuity: { enabled: true, filePath: "/tmp/continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 0,
+  discoveryPort: 0,
   relayToken: false,
   daemonPort: 0,
   daemonToken: "daemon-token",

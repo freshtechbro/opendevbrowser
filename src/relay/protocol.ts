@@ -54,6 +54,8 @@ export type RelayHttpStatus = {
   instanceId: string;
   running: boolean;
   port?: number;
+  discoveryPort?: number | null;
+  discoveryError?: string;
   extensionConnected: boolean;
   extensionHandshakeComplete: boolean;
   cdpConnected: boolean;
@@ -392,6 +394,7 @@ export type RelayHealthReason =
   | "handshake_incomplete"
   | "pairing_required"
   | "pairing_invalid"
+  | "discovery_unavailable"
   | "cdp_disconnected"
   | "annotation_disconnected"
   | "ops_disconnected"

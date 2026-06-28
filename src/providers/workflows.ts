@@ -4462,7 +4462,13 @@ const buildInspiredesignGuidanceSource = (
   discovery: InspiredesignDiscoveryDiagnostics,
   meta: Record<string, unknown>,
   referencePatternBoard: InspiredesignReferencePatternBoard,
-  requestedUrls: readonly string[]
+  requestedUrls: readonly string[],
+  authorityCounts?: {
+    authoritativeReferenceCount: number;
+    snapshotReadyReferenceCount: number;
+    motionReadyReferenceCount: number;
+    pinMediaReadyReferenceCount: number;
+  }
 ): InspiredesignGuidanceSource => {
   const quality = summarizeInspiredesignReferenceQuality(referencePatternBoard);
   const primaryConstraint = readMetaPrimaryConstraint(meta);
@@ -4490,6 +4496,7 @@ const buildInspiredesignGuidanceSource = (
     quality: {
       rankedReferenceCount: quality.rankedReferenceCount,
       rankedReferenceUrls: referencePatternBoard.references.map((reference) => reference.url),
+      ...authorityCounts,
       rejectedReferenceCount: quality.rejectedReferenceCount,
       missingScreenshotCount: quality.missingScreenshotCount,
 		allAttemptFailedCaptureCount: quality.allAttemptFailedCaptureCount,
@@ -6445,15 +6452,6 @@ export const runInspiredesignWorkflow = async (
     packet.followthrough,
     discovery
   );
-  const nextStepGuidance = routeNextStepGuidance(createInspiredesignGuidanceContext(
-    buildInspiredesignGuidanceSource(
-      workflowInput,
-      discovery,
-      meta,
-		packet.referencePatternBoard,
-      requestedReferenceUrls
-    )
-  ));
   const persistedEvidenceArtifactPaths = new Set([
     ...visualCollation.files,
     ...motionCollation.files,
@@ -6499,6 +6497,21 @@ export const runInspiredesignWorkflow = async (
     motions: rankedReferenceAuthorityArtifacts.motions,
     pinMedia: rankedReferenceAuthorityArtifacts.pinMedia
   });
+  const nextStepGuidance = routeNextStepGuidance(createInspiredesignGuidanceContext(
+    buildInspiredesignGuidanceSource(
+      workflowInput,
+      discovery,
+      meta,
+		packet.referencePatternBoard,
+      requestedReferenceUrls,
+      {
+        authoritativeReferenceCount: rankedAuthoritativeReferenceCount,
+        snapshotReadyReferenceCount: rankedSnapshotReadyReferenceCount,
+        motionReadyReferenceCount: rankedMotionReadyReferenceCount,
+        pinMediaReadyReferenceCount: rankedPinMediaReadyReferenceCount
+      }
+    )
+  ));
   const productReadiness = buildInspiredesignProductReadinessFields(
     nextStepGuidance.readiness,
     packet.rankedReferences.length,
@@ -6586,12 +6599,13 @@ export const runInspiredesignWorkflow = async (
 	  const renderedProductSuccess = (rendered.response as { productSuccess?: unknown }).productSuccess === true;
 	  const finalProductReadiness = renderedProductSuccess && productReadiness.productSuccess
 	    ? productReadiness
-    : {
-      ...productReadiness,
-      productSuccess: false,
-      artifactAuthority: "diagnostic_only" as const,
+	    : {
+	      ...productReadiness,
+	      ready: false,
+	      productSuccess: false,
+	      artifactAuthority: "diagnostic_only" as const,
 	      evidenceAuthority: "diagnostic_only" as const
-	    };
+		    };
 	  const renderedFilesForBundle = finalProductReadiness.productSuccess
 	    ? rendered.files
 	    : rendered.files.filter((file) => !INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS.has(file.path));

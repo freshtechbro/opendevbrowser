@@ -1035,13 +1035,17 @@ describe("inspiredesign workflow", () => {
 
     expect(callOrder).toEqual(["visual"]);
     expect(output).toEqual(expect.objectContaining({
-      ready: true,
+		ready: false,
       readiness: "ready",
-      productSuccess: true,
-      artifactAuthority: "product_ready",
-      rankedReferenceCount: 1
+		guidanceReady: true,
+		productSuccess: false,
+		artifactAuthority: "diagnostic_only",
+		evidenceAuthority: "diagnostic_only",
+		rankedReferenceCount: 1,
+		snapshotReadyReferenceCount: 1,
+		pinMediaReadyReferenceCount: 0
     }));
-    expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(true);
+	expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(false);
     expect(meta.selection).toEqual(expect.objectContaining({
       capture_mode: "off",
       primary_capture_strategy: "visual_first"
@@ -3067,13 +3071,17 @@ describe("inspiredesign workflow", () => {
     };
 
     expect(output).toEqual(expect.objectContaining({
-      ready: true,
+		ready: false,
       readiness: "ready",
-      productSuccess: true,
-      artifactAuthority: "product_ready",
-      rankedReferenceCount: 1
+		guidanceReady: true,
+		productSuccess: false,
+		artifactAuthority: "diagnostic_only",
+		evidenceAuthority: "diagnostic_only",
+		rankedReferenceCount: 1,
+		motionReadyReferenceCount: 1,
+		pinMediaReadyReferenceCount: 0
     }));
-    expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(true);
+	expect(existsSync(join(artifactPath, "canvas-plan.request.json"))).toBe(false);
     expect(meta.selection).toEqual(expect.objectContaining({
       primary_capture_strategy: "motion_first"
     }));
@@ -5356,12 +5364,13 @@ describe("inspiredesign workflow", () => {
       skipped: true
     }));
     expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
-      readiness: "ready",
-      reasonCode: "design_ready"
+      readiness: "needs_recovery",
+      reasonCode: "artifact_authority_missing"
     }));
+    expect(meta.nextStepGuidance?.commands.map((entry) => entry.id)).not.toContain("canvas-session-open");
     expect(output).toEqual(expect.objectContaining({
-      ready: true,
-      readiness: "ready",
+      ready: false,
+      readiness: "needs_recovery",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       rankedReferenceCount: 1
@@ -5622,9 +5631,10 @@ describe("inspiredesign workflow", () => {
       skipped: true
     }));
     expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
-      readiness: "ready",
-      reasonCode: "design_ready"
+      readiness: "needs_recovery",
+      reasonCode: "artifact_authority_missing"
     }));
+    expect(meta.nextStepGuidance?.commands.map((entry) => entry.id)).not.toContain("canvas-session-open");
   });
 
   it("keeps a Pinterest reference when standard search fills the mixed provider limit", async () => {

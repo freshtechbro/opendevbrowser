@@ -678,6 +678,21 @@ export const genericGuidanceRecipes: GuidanceRecipe[] = [
     )
   },
   {
+    id: "inspiredesign.artifact_authority_missing",
+    recipeType: "evidence_recovery",
+    workflow: "inspiredesign",
+    priority: 58,
+    reasonCode: "artifact_authority_missing",
+    matches: (context) => context.workflow === "inspiredesign" && context.reasonCode === "artifact_authority_missing",
+    build: (context, readiness) => buildEvidenceRecoveryGuidance(
+      context,
+      readiness,
+      "artifact_authority_missing",
+      "Persist authoritative evidence",
+      "Ranked references exist, but not every ranked reference has manifest-backed screenshot, motion, or pin-media evidence. Retry capture or replace references before Canvas."
+    )
+  },
+  {
     id: "inspiredesign.zero_ranked_references",
     recipeType: "evidence_recovery",
     workflow: "inspiredesign",

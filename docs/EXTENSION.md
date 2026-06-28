@@ -71,11 +71,12 @@ The toolbar action uses the OpenDevBrowser icon set from `extension/icons/` (syn
 
 When auto-pair is enabled:
 
-1. The extension calls the local discovery endpoint (`/config`) to learn the relay port and pairing requirement.
+1. The extension calls the local discovery endpoint (`/config`, `http://127.0.0.1:8787/config` by default) to learn the relay port and pairing requirement.
 2. If pairing is required, it fetches the token from `/pair`.
 3. The extension connects to the relay with the pairing token.
 
 `/config` and `/pair` reject explicit non-extension origins. Chrome extension requests may omit the `Origin` header, so the relay also accepts missing-Origin requests. CLI/tools may call `/config` and `/pair` to auto-fetch relay settings and tokens.
+Keep `discoveryPort` at `8787` for normal extension discovery; set it to the same isolated value as `relayPort` when running a separate daemon with isolated config/cache roots.
 
 Relay ops endpoint: `ws://127.0.0.1:<relayPort>/ops`. The CLI/tool `connect` command accepts base relay WS URLs
 (for example `ws://127.0.0.1:<relayPort>`) and normalizes them to `/ops`.

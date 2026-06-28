@@ -74,6 +74,7 @@ const makeConfig = (nativeExtensionId?: string): OpenDevBrowserConfig => ({
   skills: { nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   continuity: { enabled: true, filePath: "opendevbrowser_continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 8787,
+  discoveryPort: 8787,
   relayToken: "relay-token",
   nativeExtensionId,
   daemonPort: 8788,

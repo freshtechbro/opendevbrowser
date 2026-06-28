@@ -43,6 +43,7 @@ artifacts/
 !.opendevbrowser/canvas/
 .opendevbrowser/canvas/*
 !.opendevbrowser/canvas/adapters.json
+opendevbrowser/*.json
 opendevbrowser-extension.zip.sha256
 
 # Playwright

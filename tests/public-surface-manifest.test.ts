@@ -116,8 +116,10 @@ describe("public surface manifest", () => {
     const inspiredesignTool = GENERATED_MANIFEST.tools.entries.find((entry) => entry.name === "opendevbrowser_inspiredesign_run");
     const helpText = getHelpText();
 
-    expect(notes).toContain("Canvas continuation requires readiness=ready, non-empty ranked references");
-    expect(notes).toContain("snapshot_ready screenshot evidence, motion_ready screencast evidence, or pin_media_ready first-party pin-media evidence");
+    expect(notes).toContain("Canvas continuation requires top-level ready=true, productSuccess=true, artifactAuthority=product_ready, non-empty ranked references");
+    expect(notes).toContain("Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready and manifest-backed pin-media-index.json");
+    expect(notes).toContain("Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready and manifest-backed pin-media-index.json");
+    expect(notes).toContain("snapshot_ready and motion_ready are not substitutes for pin-media readiness");
     expect(notes).toContain("media-analysis.json is a design-fact artifact only");
     expect(notes).toContain("never grants readiness authority");
     expect(notes).toContain("raw media-analysis fields must not enter canvas-plan.request.json");
@@ -126,11 +128,11 @@ describe("public surface manifest", () => {
     expect(notes).toContain("empty ranked references");
     expect(notes).toContain("missing required screenshot, screencast, or pin-media evidence");
     expect(notes).toContain("diagnostic-only captures");
-    expect(inspiredesignTool?.description).toContain("screenshot evidence");
-    expect(inspiredesignTool?.description).toContain("screencast evidence");
-    expect(inspiredesignTool?.description).toContain("manifest-backed pin-media evidence for canonical Pinterest pins");
-    expect(helpText).toContain("Require nextStepGuidance.readiness=ready, non-empty ranked references");
-    expect(helpText).toContain("Pinterest snapshot_ready, motion_ready, or pin_media_ready manifest-backed evidence before Canvas continuation");
+    expect(inspiredesignTool?.description).toContain("screenshot and screencast evidence for non-Pinterest capture lanes");
+    expect(inspiredesignTool?.description).toContain("required manifest-backed pin-media authority for canonical Pinterest pins");
+    expect(helpText).toContain("Require top-level ready=true, productSuccess=true, artifactAuthority=product_ready, non-empty ranked references");
+    expect(helpText).toContain("Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready plus manifest-backed pin-media-index.json");
+    expect(helpText).toContain("snapshot_ready and motion_ready are not substitutes");
     expect(helpText).toContain("Treat media-analysis.json as design facts only");
     expect(helpText).toContain("raw media-analysis fields must not enter canvas-plan.request.json");
   });

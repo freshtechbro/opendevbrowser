@@ -589,7 +589,7 @@ If the relay is unavailable, the background worker retries `/config` + `/pair` w
 
 ### Connection Flow (Extension Relay)
 
-1. Extension checks the discovery endpoint at `http://127.0.0.1:8787/config`.
+1. Extension checks the discovery endpoint at `http://127.0.0.1:8787/config` by default.
 2. It learns the relay port and whether pairing is required.
 3. If pairing is required and Auto-pair is on, it fetches the token from `http://127.0.0.1:<relayPort>/pair`.
 4. It connects to `ws://127.0.0.1:<relayPort>/extension` using the extension origin.
@@ -601,11 +601,12 @@ If the relay is unavailable, the background worker retries `/config` + `/pair` w
 - Ensure the active tab is a normal `http(s)` page (not `chrome://` or extension pages).
 - Confirm `relayPort` and `relayToken` in `~/.config/opencode/opendevbrowser.jsonc` match the popup (Auto-pair should fetch the token).
 - If `relayPort` is `0`, the relay is off.
+- For isolated daemon runs with a custom relay port, set `discoveryPort` to the same isolated value; keep `discoveryPort` at `8787` for normal extension discovery.
 - `relayToken: false` disables relay/hub behavior entirely.
 - `relayToken: ""` (empty string) keeps relay enabled but disables pairing requirements.
 - Install auto-start with `opendevbrowser daemon install` from a stable install location so the relay is available on login.
 - Clear extension local data and retry if the token/port seem stuck.
-- If another process owns the port, change `relayPort` or stop it; `opencode` listening is expected.
+- If another process owns the relay or discovery port, change the relevant config port or stop it; `opencode` listening is expected.
 
 ### Manual Setup
 
@@ -707,6 +708,7 @@ Optional config file: `~/.config/opencode/opendevbrowser.jsonc`
 
   // Extension relay
   "relayPort": 8787,
+  "discoveryPort": 8787,
   "relayToken": "auto-generated-on-first-run",
 
   // Hub daemon (relay ownership + FIFO queue)

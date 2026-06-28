@@ -27,6 +27,8 @@ const PINTEREST_AUTHORITY_HOST = "www.pinterest.com";
 export type InspiredesignProductReadinessFields = {
   ready: boolean;
   readiness: string;
+  guidanceReady: boolean;
+  guidanceReadiness: string;
   harvestReadiness: string;
   productSuccess: boolean;
   artifactAuthority: InspiredesignArtifactAuthority;
@@ -103,9 +105,9 @@ export type InspiredesignArtifactBackedEvidenceAuthorityCounts = Pick<
 >;
 
 export const INSPIREDESIGN_FINAL_EVIDENCE_AUTHORITY_PRECEDENCE = [
-  "motion_ready",
-  "pin_media_ready",
-  "snapshot_ready"
+	"pin_media_ready",
+	"motion_ready",
+	"snapshot_ready"
 ] as const satisfies readonly InspiredesignArtifactBackedEvidenceAuthority[];
 
 const INACTIVE_CANVAS_DO_NOT_PROCEED_CONDITIONS = new Set([
@@ -591,11 +593,14 @@ const buildExplicitDiagnosticProductReadinessFields = (
   data: Record<string, unknown>
 ): InspiredesignProductReadinessFields => {
   const readiness = readReadiness(data) ?? "unknown";
+  const guidanceReady = typeof data.ready === "boolean" ? data.ready : readiness === "ready";
   const rankedReferenceCount = readExplicitRankedReferenceCount(data);
   const meta = readRecord(data.meta);
   return {
-    ready: typeof data.ready === "boolean" ? data.ready : readiness === "ready",
+    ready: false,
     readiness,
+    guidanceReady,
+    guidanceReadiness: readiness,
     harvestReadiness: typeof data.harvestReadiness === "string" && data.harvestReadiness.length > 0
       ? data.harvestReadiness
       : readiness,
@@ -719,14 +724,14 @@ export const readExplicitInspiredesignProductReadinessFields = (
   if (explicitCounts) {
     const explicitReady = typeof data.ready === "boolean" ? data.ready : undefined;
     const readiness = readReadiness(data) ?? (explicitReady === true ? "ready" : "unknown");
-    const ready = readiness === "ready" && explicitReady !== false;
+    const guidanceReady = readiness === "ready" && explicitReady !== false;
     const derivedFields = deriveInspiredesignProductReadinessFields(data);
     const explicitCountsCoherent = hasCoherentReadinessCounts(explicitCounts);
     const explicitCountsMatchArtifacts = READINESS_COUNT_KEYS.every((key) => explicitCounts[key] === derivedFields[key]);
     const productSuccess = data.productSuccess
       && artifactAuthority === "product_ready"
       && evidenceAuthority !== "diagnostic_only"
-      && ready
+      && guidanceReady
       && explicitCounts.rankedReferenceCount > 0
       && explicitCountsCoherent
       && explicitCountsMatchArtifacts
@@ -735,8 +740,10 @@ export const readExplicitInspiredesignProductReadinessFields = (
       && derivedFields.evidenceAuthority === evidenceAuthority
       && !malformedExplicitCount;
     return {
-      ready,
+      ready: productSuccess,
       readiness,
+      guidanceReady,
+      guidanceReadiness: readiness,
       harvestReadiness: typeof data.harvestReadiness === "string" && data.harvestReadiness.length > 0
         ? data.harvestReadiness
         : readiness,
@@ -763,7 +770,7 @@ export const resolveInspiredesignUserFacingProductReadinessFields = (
   const explicitFields = readExplicitInspiredesignProductReadinessFields(data);
   const fields = explicitFields ?? deriveInspiredesignProductReadinessFields(data);
   const readiness = readNextStepGuidanceReadiness(data) ?? fields.readiness;
-  const ready = readiness === "ready";
+  const guidanceReady = readiness === "ready";
   const harvestReadiness = typeof data.harvestReadiness === "string" && data.harvestReadiness.length > 0
     ? data.harvestReadiness
     : readiness;
@@ -772,13 +779,15 @@ export const resolveInspiredesignUserFacingProductReadinessFields = (
     : undefined;
   const productSuccess = fields.productSuccess === true
     && fields.artifactAuthority === "product_ready"
-    && ready
+    && guidanceReady
     && Boolean(productEvidenceAuthority);
 
   return {
     ...fields,
-    ready,
+    ready: productSuccess,
     readiness,
+    guidanceReady,
+    guidanceReadiness: readiness,
     harvestReadiness,
     productSuccess,
     artifactAuthority: productSuccess ? "product_ready" : "diagnostic_only",
@@ -887,9 +896,7 @@ export const countInspiredesignAuthoritativePinterestReferences = (args: {
   pinMedia?: readonly InspiredesignPinMediaAuthorityInput[];
 }): number => args.rankedReferences.filter((reference) => (
   isPinterestRankedReference(reference)
-  && isInspiredesignAuthoritativeRankedReference(reference, {
-    screenshots: args.screenshots,
-    motions: args.motions,
+  && hasInspiredesignArtifactBackedEvidenceAuthority(reference, "pin_media_ready", {
     pinMedia: args.pinMedia
   })
 )).length;
@@ -1053,7 +1060,9 @@ const readPinterestRankedReferenceCount = (record: Record<string, unknown>): num
 
 const readPinterestEvidenceRequired = (record: Record<string, unknown>): boolean => {
   const direct = record.pinterestEvidenceRequired;
-  if (typeof direct === "boolean") return direct;
+  if (direct === true) return true;
+  const pinterestReferenceCount = readPinterestRankedReferenceCount(record) ?? 0;
+  if (pinterestReferenceCount > 0) return true;
   const meta = readRecord(record.meta);
   return meta?.pinterestEvidenceRequired === true;
 };
@@ -1098,13 +1107,13 @@ export const resolveInspiredesignFinalEvidenceAuthority = (args: {
   snapshotReadyReferenceCount: number;
   motionReadyReferenceCount: number;
   pinMediaReadyReferenceCount: number;
-}): InspiredesignEvidenceAuthority => {
-  if (!args.productSuccess) return "diagnostic_only";
-  if (args.motionReadyReferenceCount > 0) return "motion_ready";
-  if (args.pinMediaReadyReferenceCount > 0) return "pin_media_ready";
-  if (args.snapshotReadyReferenceCount > 0) return "snapshot_ready";
-  return "ranked_reference";
-};
+	}): InspiredesignEvidenceAuthority => {
+		if (!args.productSuccess) return "diagnostic_only";
+		if (args.pinMediaReadyReferenceCount > 0) return "pin_media_ready";
+		if (args.motionReadyReferenceCount > 0) return "motion_ready";
+		if (args.snapshotReadyReferenceCount > 0) return "snapshot_ready";
+		return "ranked_reference";
+	};
 
 export const buildInspiredesignProductReadinessFields = (
   readinessValue: string | undefined,
@@ -1120,7 +1129,7 @@ export const buildInspiredesignProductReadinessFields = (
   authoritativePinterestReferenceCount: number | undefined = undefined
 ): InspiredesignProductReadinessFields => {
   const readiness = readinessValue && readinessValue.length > 0 ? readinessValue : "unknown";
-  const ready = readiness === "ready";
+  const guidanceReady = readiness === "ready";
   const effectiveAuthoritativeReferenceCount = authoritativeReferenceCount ?? Math.min(
     rankedReferenceCount,
     snapshotReadyReferenceCount + motionReadyReferenceCount + pinMediaReadyReferenceCount
@@ -1137,20 +1146,22 @@ export const buildInspiredesignProductReadinessFields = (
   const counts = clampReadinessCounts(rawCounts);
   const nonPinterestCount = coerceReadinessCount(nonPinterestRankedReferenceCount);
   const pinterestCount = coerceReadinessCount(pinterestRankedReferenceCount);
+  const effectivePinterestEvidenceRequired = pinterestEvidenceRequired || pinterestCount > 0;
   const pinterestAuthorityCount = coerceReadinessCount(authoritativePinterestReferenceCount ?? 0);
   const allRankedReferencesHaveAuthority = counts.authoritativeReferenceCount >= counts.rankedReferenceCount;
   const artifactReadyReferenceCount = counts.snapshotReadyReferenceCount
     + counts.motionReadyReferenceCount
     + counts.pinMediaReadyReferenceCount;
   const hasProductReadyEvidenceAuthority = artifactReadyReferenceCount > 0;
-  const pinterestAuthorityCountIsCoherent = !pinterestEvidenceRequired
+  const pinterestAuthorityCountIsCoherent = !effectivePinterestEvidenceRequired
     || (readFiniteCount(authoritativePinterestReferenceCount) !== undefined
       && pinterestAuthorityCount <= pinterestCount
+      && pinterestAuthorityCount === counts.pinMediaReadyReferenceCount
       && pinterestAuthorityCount <= counts.authoritativeReferenceCount);
-  const hasRequiredPinterestAuthority = !pinterestEvidenceRequired
-    || (pinterestCount > 0 && pinterestAuthorityCount === pinterestCount);
+  const hasRequiredPinterestAuthority = !effectivePinterestEvidenceRequired
+    || (pinterestCount > 0 && counts.pinMediaReadyReferenceCount === pinterestCount);
   const rankedReferenceKindsFitTotal = nonPinterestCount + pinterestCount <= counts.rankedReferenceCount;
-  const productSuccess = ready
+  const productSuccess = guidanceReady
     && counts.rankedReferenceCount > 0
     && !activeDoNotProceedBlocker
     && countsAreCoherent
@@ -1166,8 +1177,10 @@ export const buildInspiredesignProductReadinessFields = (
     pinMediaReadyReferenceCount: counts.pinMediaReadyReferenceCount
   });
   return {
-    ready,
+    ready: productSuccess,
     readiness,
+    guidanceReady,
+    guidanceReadiness: readiness,
     harvestReadiness: readiness,
     productSuccess,
     artifactAuthority: productSuccess ? "product_ready" : "diagnostic_only",

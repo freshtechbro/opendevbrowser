@@ -12,6 +12,7 @@ const baseConfig: OpenDevBrowserConfig = {
   skills: { nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   continuity: { enabled: true, filePath: "continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 8787,
+  discoveryPort: 8787,
   relayToken: "token",
   daemonPort: 8788,
   daemonToken: "daemon-token",

@@ -399,8 +399,10 @@ describe("tools", () => {
       query: "editorial studio landing page"
     })).toMatchObject({
       ok: true,
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only"
@@ -434,14 +436,13 @@ describe("tools", () => {
       evidenceAuthority: "snapshot_ready",
       rankedReferences: [{
         id: "reference-1",
-        url: "https://www.pinterest.com/pin/11188699075430754/",
+        url: "https://studio.example/reference/editorial-lighting",
         evidenceAuthority: "snapshot_ready"
       }],
       screenshotIndex: [{
         referenceId: "reference-1",
-        url: "https://www.pinterest.com/pin/11188699075430754/",
-        sourceUrl: "https://www.pinterest.com/pin/11188699075430754/",
-        pinterestPageQuality: "pin_media",
+        url: "https://studio.example/reference/editorial-lighting",
+        sourceUrl: "https://studio.example/reference/editorial-lighting",
         path: "visual-evidence/reference-1/viewport.png",
         sha256: "a".repeat(64),
         bytes: 4096,
@@ -474,8 +475,10 @@ describe("tools", () => {
       query: "editorial studio landing page"
     })).toMatchObject({
       ok: true,
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only"

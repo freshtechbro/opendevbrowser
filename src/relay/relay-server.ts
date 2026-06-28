@@ -57,6 +57,8 @@ export type RelayStatus = {
   running: boolean;
   url?: string;
   port?: number;
+  discoveryPort?: number | null;
+  discoveryError?: string;
   extensionConnected: boolean;
   extensionHandshakeComplete: boolean;
   cdpConnected: boolean;
@@ -103,7 +105,9 @@ export class RelayServer {
   private pairingToken: string | null = null;
   private lastHandshakeError: RelayHandshakeError | null = null;
   private configuredDiscoveryPort: number;
+  private readonly discoveryPortConfigured: boolean;
   private discoveryPort: number | null = null;
+  private discoveryError: string | null = null;
   private handshakeAttempts = new Map<string, { count: number; resetAt: number }>();
   private httpAttempts = new Map<string, { count: number; resetAt: number }>();
   private cdpAllowlist: Set<string> | null = null;
@@ -124,6 +128,7 @@ export class RelayServer {
   private static readonly ANNOTATION_REQUEST_TIMEOUT_MS = 120_000;
 
   constructor(options: RelayServerOptions = {}) {
+    this.discoveryPortConfigured = options.discoveryPort !== undefined;
     this.configuredDiscoveryPort = options.discoveryPort ?? DEFAULT_DISCOVERY_PORT;
   }
 
@@ -501,6 +506,7 @@ export class RelayServer {
       await this.startDiscoveryServer();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.discoveryError = message;
       console.warn(`[opendevbrowser] Discovery server failed to start: ${message}`);
       this.stopDiscoveryServer();
     }
@@ -515,6 +521,7 @@ export class RelayServer {
     this.extensionInfo = null;
     this.extensionHandshakeComplete = false;
     this.stopDiscoveryServer();
+    this.discoveryError = null;
     this.failPendingAnnotations("relay_unavailable", "Relay stopped.");
 
     if (this.extensionSocket) {
@@ -566,6 +573,8 @@ export class RelayServer {
       running: this.running,
       url: this.baseUrl || undefined,
       port: this.port ?? undefined,
+      discoveryPort: this.getDiscoveryPort(),
+      discoveryError: this.discoveryError ?? undefined,
       extensionConnected: connections.extensionConnected,
       extensionHandshakeComplete: connections.extensionHandshakeComplete,
       cdpConnected: connections.cdpConnected,
@@ -826,6 +835,8 @@ export class RelayServer {
       instanceId: status.instanceId,
       running: status.running,
       port: status.port ?? undefined,
+      discoveryPort: status.discoveryPort ?? null,
+      discoveryError: status.discoveryError,
       extensionConnected: status.extensionConnected,
       extensionHandshakeComplete: status.extensionHandshakeComplete,
       cdpConnected: status.cdpConnected,
@@ -845,6 +856,7 @@ export class RelayServer {
     }
 
     if (this.configuredDiscoveryPort > 0 && this.configuredDiscoveryPort === this.port) {
+      this.discoveryError = null;
       return;
     }
 
@@ -889,6 +901,7 @@ export class RelayServer {
     }
 
     this.discoveryPort = address.port;
+    this.discoveryError = null;
   }
 
   private stopDiscoveryServer(): void {
@@ -1529,6 +1542,23 @@ export class RelayServer {
         detail: "Relay not running",
         extensionConnected: false,
         extensionHandshakeComplete: false,
+        cdpConnected,
+        annotationConnected,
+        opsConnected,
+        opsOwnedTargetCount,
+        canvasConnected,
+        pairingRequired: Boolean(this.pairingToken),
+        lastHandshakeError: this.lastHandshakeError ?? undefined
+      };
+    }
+
+    if (this.discoveryPortConfigured && this.discoveryError) {
+      return {
+        ok: false,
+        reason: "discovery_unavailable",
+        detail: this.discoveryError,
+        extensionConnected,
+        extensionHandshakeComplete,
         cdpConnected,
         annotationConnected,
         opsConnected,

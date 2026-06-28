@@ -8,6 +8,7 @@ import type {
   CanvasDesignGovernance,
   CanvasGenerationPlan,
   CanvasNavigationModel,
+  CanvasThemeStrategy,
   CanvasVisualDirectionProfile
 } from "../canvas/types";
 import {
@@ -114,6 +115,25 @@ type CanvasPlanRequestTemplate = {
   };
 };
 
+type InspiredesignSemanticColorTokens = {
+  primary: string;
+  accent: string;
+  accentSurface: string;
+  background: string;
+  surface: string;
+  border: string;
+  text: string;
+  mutedText: string;
+  success: string;
+  warning: string;
+  danger: string;
+};
+
+export type InspiredesignColorModeTokens = {
+  light: InspiredesignSemanticColorTokens;
+  dark: InspiredesignSemanticColorTokens;
+};
+
 type ProfileConfig = {
   direction: string;
   visualPersonality: string;
@@ -124,7 +144,7 @@ type ProfileConfig = {
   layoutApproach: string;
   pagePatterns: string[];
   componentSequence: string[];
-  colors: Record<string, string>;
+  colors: InspiredesignSemanticColorTokens;
 };
 
 export type InspiredesignCaptureEvidence = {
@@ -325,7 +345,7 @@ export type InspiredesignReferenceEvidence = {
 };
 
 export type InspiredesignTokenStrategy = {
-  colors: Record<string, string>;
+  colors: InspiredesignColorModeTokens;
   typography: Record<string, string>;
   spacing: Record<string, string>;
   radius: Record<string, string>;
@@ -427,6 +447,8 @@ export type InspiredesignImplementationContext = {
   navigationModel: JsonRecord;
   asyncModel: JsonRecord;
   performanceModel: JsonRecord;
+  tokenStrategy: InspiredesignTokenStrategy;
+  implementationPlan: InspiredesignImplementationPlan;
   referenceSynthesis: JsonRecord;
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
@@ -781,7 +803,10 @@ const buildReferenceSynthesis = (
     .map((reference, index) => {
       const signals = getInspiredesignReferenceSignals(reference);
       if (signals.length === 0) return "";
-      return `Source ${index + 1} ${reference.title ?? reference.url}: ${signals.join(" | ")}`;
+      const title = reference.title?.trim();
+      const signalLabel = signals.find((signal) => !isGenericSourceTitle(signal));
+      const label = title && !isGenericSourceTitle(title) ? title : signalLabel ?? reference.url;
+      return `Source ${index + 1} ${label}: ${signals.join(" | ")}`;
     })
     .filter((line) => line.length > 0);
   return {
@@ -908,17 +933,33 @@ const referenceFingerprint = (value: string): string => {
 };
 
 const summarizeBrief = (brief: string): string => {
-  const normalized = trimText(brief);
-  const sentence = normalized.split(/[.!?]/).map((part) => part.trim()).find(Boolean);
-  return clipText(sentence ?? normalized, 140);
+	const normalized = trimText(brief);
+	const sentence = normalized.split(/[.!?]/).map((part) => part.trim()).find(Boolean);
+	return clipText(sentence ?? normalized, 140);
+};
+
+const resolveIntentAudience = (brief: string, format: InspiredesignBriefFormat): string => {
+	const normalizedBrief = brief.toLowerCase();
+	if (/\b(?:photography|photographer|portrait|photo studio|studio photography|digital photography|cinematic gallery)\b/.test(normalizedBrief)) {
+		return "prospective photography studio clients and booking leads";
+	}
+	if (/\b(?:landing page|website|site|portfolio|booking|public)\b/.test(normalizedBrief)) {
+		const focus = format.businessFocus[0] ?? "brand";
+		return `prospective ${focus} customers and conversion-focused visitors`;
+	}
+	if (/\b(?:docs|documentation|developer|api)\b/.test(normalizedBrief)) {
+		return "developers, evaluators, and implementation stakeholders";
+	}
+	return "prospective customers and decision makers";
 };
 
 const buildSupportingMessages = (references: InspiredesignReferenceEvidence[]): string[] => {
-  const messages = references
-    .map((reference) => reference.title ?? reference.excerpt ?? "")
-    .map((value) => clipText(trimText(value), 72))
-    .filter((value) => value.length > 0);
-  return messages.slice(0, 3);
+	const messages = references
+		.map((reference) => getInspiredesignReferenceSignals(reference)[0])
+		.filter((value): value is string => typeof value === "string")
+		.map((value) => clipText(trimText(value), 72))
+		.filter((value) => value.length > 0);
+	return messages.slice(0, 3);
 };
 
 const summarizeDesignVectors = (designVectors: InspiredesignDesignVectors): string => [
@@ -968,7 +1009,7 @@ const CANVAS_PINTEREST_HOST_PATTERN =
   /\b(?:[a-z0-9-]+\.)*pinterest\.com\/[^\s"'<>)}\]]*|\bpin\.it\/[^\s"'<>)}\]]*|\b(?:i|v\d*(?:-[a-z]+)?)\.pinimg\.com\/[^\s"'<>)}\]]*/gi;
 const CANVAS_SOURCE_URL_PATTERN = /\b(?:https?:)?\/\/[^\s"'<>)}\]]*/gi;
 const CANVAS_BARE_SOURCE_HOST_PATTERN =
-  /\b(?:www\.)?(?:[a-z0-9-]+\.)+(?:ai|app|art|co|com|design|dev|io|it|net|org|studio|uk)(?:\/[^\s"'<>)}\]]*)?/gi;
+  /(?<![@\w.-])(?:www\.)?(?:[a-z0-9-]+\.)+(?:design|studio|com|app|art|dev|net|org|ai|io|it|uk|co)(?:\/[^\s"'<>)}\]]*)?(?=$|[\s"'<>)}\],.;:!?])/gi;
 const CANVAS_SHA256_PATTERN = /\b[a-f0-9]{64}\b/gi;
 const MEASURED_MEDIA_ANALYSIS_CLAIM_LEVELS: ReadonlySet<InspiredesignMediaAnalysisReference["claimLevels"][number]> = new Set([
   "pixel_stats",
@@ -979,9 +1020,16 @@ const MEASURED_MEDIA_ANALYSIS_CLAIM_LEVELS: ReadonlySet<InspiredesignMediaAnalys
   "motion_sampled"
 ]);
 
-const CANVAS_MEDIA_ANALYSIS_TEXT_REPLACEMENT =
-  "Use reference-derived visual direction as broad composition, color, typography, imagery, and motion cues without citing measured source details.";
 const CANVAS_MEDIA_ANALYSIS_TEXT_PATTERNS = [
+  /claim\s*levels?/i,
+  /claimLevels/i,
+  /\bmetadata_only\b/i,
+  /\bpixel_stats\b/i,
+  /\bpalette_quantized\b/i,
+  /\blayout_heuristic\b/i,
+  /\btypography_structure\b/i,
+  /\btext_region_layout\b/i,
+  /\bmotion_sampled\b/i,
   /media-derived/i,
   /media analysis/i,
   /quantized/i,
@@ -996,6 +1044,7 @@ const CANVAS_MEDIA_ANALYSIS_TEXT_PATTERNS = [
   /\bfacts?\b/i,
   /\blimitations?\b/i
 ] as const;
+const CANVAS_TOKEN_NOTE_PATTERN = /(#[0-9a-f]{6})\s+as\s+([a-z][a-z ]*?)(?=\s+at\b|[.;,]|$)/i;
 
 const isMediaDerivedSummary = (value: string): boolean => (
   MEDIA_DERIVED_SUMMARY_MARKERS.some((marker) => value.includes(marker))
@@ -1003,6 +1052,64 @@ const isMediaDerivedSummary = (value: string): boolean => (
 
 const hasCanvasMediaAnalysisText = (value: string): boolean => (
   CANVAS_MEDIA_ANALYSIS_TEXT_PATTERNS.some((pattern) => pattern.test(value))
+);
+
+const summarizeCanvasTokenNote = (value: string): string | null => {
+  const match = value.match(CANVAS_TOKEN_NOTE_PATTERN);
+  const hex = match?.[1];
+  const role = match?.[2]?.trim().replace(/\s+/g, " ");
+  if (!hex || !role) return null;
+  return `Reference-derived token note: ${hex.toUpperCase()} as ${role}.`;
+};
+
+const describeCanvasCoverage = (value: string): string => {
+  const coverage = Number.parseFloat(value);
+  if (!Number.isFinite(coverage)) return "measured coverage";
+  if (coverage >= 50) return "dominant coverage";
+  if (coverage >= 20) return "supporting coverage";
+  return "accent coverage";
+};
+
+const scrubCanvasMediaDerivedSummary = (value: string): string => (
+  value
+    .replace(/Media-derived facts from [^:]+:/gi, "Reference evidence cues:")
+    .replace(/media-analysis\.json/gi, "reference evidence")
+    .replace(/media-analysis/gi, "reference evidence")
+    .replace(/media analysis/gi, "reference evidence")
+    .replace(/media-derived/gi, "reference-derived")
+    .replace(/\bQuantized palette led by\b/gi, "Palette led by")
+    .replace(/\bLayout heuristic reads as\b/gi, "Layout reads as")
+    .replace(/\bOCR-free typography structure detected\b/gi, "Typography structure detected")
+    .replace(/\bOCR-free typography hierarchy\b/gi, "Typography hierarchy")
+    .replace(/\bOCR-free text-region geometry\b/gi, "text-region geometry")
+    .replace(/\bReadable exact text extraction was not performed, so exact copy strings are unavailable\./gi, "Avoid inferring exact copy strings from image evidence.")
+    .replace(/\bExact readable text extraction was not performed\./gi, "Exact copy strings were not inferred.")
+    .replace(/\bExact readable text was not extracted\./gi, "Exact copy strings were not inferred.")
+    .replace(/\bexact readable text\b/gi, "exact text")
+    .replace(/\breadable exact text\b/gi, "exact text")
+    .replace(/\bStatic source only,\s*/gi, "Static source, ")
+    .replace(/\bsampled from\s+\d+\s+frames?\s+at\s+([a-z-]+)\s+cadence\b/gi, "$1 cadence derived from saved video evidence")
+    .replace(/\bSampled motion cadence is\s+([a-z-]+)\s+with average frame delta\s+[0-9.]+\.?/gi, "Motion cadence reads as $1.")
+    .replace(/\b(\d+(?:\.\d+)?)\s+percent\s+dark\s+coverage\b/gi, (_match, coverage: string) => `dark ${describeCanvasCoverage(coverage)}`)
+    .replace(/\b(\d+(?:\.\d+)?)\s+percent\s+bright\s+coverage\b/gi, (_match, coverage: string) => `bright ${describeCanvasCoverage(coverage)}`)
+    .replace(/\b\d+(?:\.\d+)?\s+percent\s+low-activity canvas\b/gi, "low-activity canvas")
+    .replace(/\s+at\s+\d+(?:\.\d+)?\s+percent\s+coverage\b/gi, "")
+    .replace(/\bclaimLevels?\b/gi, "evidence basis")
+    .replace(/\bmetadata_only\b/gi, "reference metadata")
+    .replace(/\bpixel_stats\b/gi, "measured tone")
+    .replace(/\bpalette_quantized\b/gi, "measured palette")
+    .replace(/\blayout_heuristic\b/gi, "layout composition")
+    .replace(/\btypography_structure\b/gi, "typography hierarchy")
+    .replace(/\btext_region_layout\b/gi, "text-region layout")
+    .replace(/\bmotion_sampled\b/gi, "motion cadence")
+    .replace(/\bquantized\b/gi, "measured")
+    .replace(/\bocr-free\b/gi, "measured")
+    .replace(/\bsampled\b/gi, "derived")
+    .replace(/\bmean luminance\s+[0-9.]+\b/gi, "measured luminance")
+    .replace(/\bfacts?\b/gi, "cues")
+    .replace(/\blimitations?\b/gi, "constraints")
+    .replace(/\s{2,}/g, " ")
+    .trim()
 );
 
 const scrubCanvasSummaryString = (value: string): string => {
@@ -1015,25 +1122,20 @@ const scrubCanvasSummaryString = (value: string): string => {
     .replace(CANVAS_SHA256_PATTERN, "media hash")
     .replace(/media-analysis\.json summaries when present/gi, "reference summaries when present")
     .replace(/media-analysis/gi, "reference guidance");
-  return hasCanvasMediaAnalysisText(scrubbed)
-    ? CANVAS_MEDIA_ANALYSIS_TEXT_REPLACEMENT
-    : scrubbed;
+  const tokenNote = summarizeCanvasTokenNote(scrubbed);
+  if (tokenNote) return tokenNote;
+  if (!hasCanvasMediaAnalysisText(scrubbed)) return scrubbed;
+  return scrubCanvasMediaDerivedSummary(scrubbed);
 };
 
-const scrubCanvasGenerationPlanValue = (value: JsonValue): JsonValue | undefined => {
+const scrubCanvasGenerationPlanValue = (value: JsonValue): JsonValue => {
   if (typeof value === "string") return scrubCanvasSummaryString(value);
   if (typeof value !== "object" || value === null) return value;
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => {
-      const scrubbed = scrubCanvasGenerationPlanValue(entry);
-      return scrubbed === undefined ? [] : [scrubbed];
-    });
-  }
+  if (Array.isArray(value)) return value.map((entry) => scrubCanvasGenerationPlanValue(entry));
   const record: JsonRecord = {};
   for (const [key, nested] of Object.entries(value)) {
     if (CANVAS_FORBIDDEN_GENERATION_PLAN_KEYS.has(key)) continue;
-    const scrubbed = scrubCanvasGenerationPlanValue(nested);
-    if (scrubbed !== undefined) record[key] = scrubbed;
+    record[key] = scrubCanvasGenerationPlanValue(nested);
   }
   return record;
 };
@@ -1055,6 +1157,250 @@ const summarizeMediaDerivedDesignVectors = (designVectors: InspiredesignDesignVe
   if (summaries.length === 0) return "";
   return `Media-derived facts from ${INSPIREDESIGN_MEDIA_ANALYSIS_ARTIFACT_FILE}: ${summaries.join(" ")}`;
 };
+
+type InspiredesignMeasuredColorRoles = {
+  background?: string;
+  surface?: string;
+  text?: string;
+  mutedText?: string;
+  accent?: string;
+};
+
+const TOKEN_NOTE_COLOR_ROLE_PATTERN = /(#[0-9a-f]{6})\s+as\s+([a-z][a-z ]*?)(?=\s+at\b|[.;,]|$)/i;
+
+const normalizeMeasuredColorRole = (role: string): keyof InspiredesignMeasuredColorRoles | null => {
+  const normalized = role.trim().toLowerCase().replace(/\s+/g, " ");
+  if (normalized === "background") return "background";
+  if (normalized === "surface") return "surface";
+  if (normalized === "accent") return "accent";
+  if (normalized === "foreground" || normalized === "text") return "text";
+  if (normalized === "muted foreground" || normalized === "muted text") return "mutedText";
+  return null;
+};
+
+const normalizeHexColor = (value: string): string => value.toUpperCase();
+
+const extractMeasuredColorRoles = (
+  designVectors: InspiredesignDesignVectors
+): InspiredesignMeasuredColorRoles => {
+  const roles: InspiredesignMeasuredColorRoles = {};
+  for (const note of designVectors.materialEffects) {
+    const match = note.match(TOKEN_NOTE_COLOR_ROLE_PATTERN);
+    const hex = match?.[1];
+    const rawRole = match?.[2];
+    if (!hex || !rawRole) continue;
+    const role = normalizeMeasuredColorRole(rawRole);
+    if (role && !roles[role]) roles[role] = normalizeHexColor(hex);
+  }
+  return roles;
+};
+
+const hasMeasuredColorRoles = (roles: InspiredesignMeasuredColorRoles): boolean => (
+  Boolean(roles.background || roles.surface || roles.text || roles.mutedText || roles.accent)
+);
+
+const hasMeasuredColorTokenEvidence = (designVectors: InspiredesignDesignVectors): boolean => (
+  hasMeasuredColorRoles(extractMeasuredColorRoles(designVectors))
+);
+
+const HEX_COLOR_LENGTH = 7;
+const HEX_RADIX = 16;
+const COLOR_CHANNEL_MAX = 255;
+const WCAG_LOW_CHANNEL_THRESHOLD = 0.03928;
+const WCAG_LOW_CHANNEL_DIVISOR = 12.92;
+const WCAG_CHANNEL_OFFSET = 0.055;
+const WCAG_CHANNEL_SCALE = 1.055;
+const WCAG_CHANNEL_GAMMA = 2.4;
+const WCAG_RED_WEIGHT = 0.2126;
+const WCAG_GREEN_WEIGHT = 0.7152;
+const WCAG_BLUE_WEIGHT = 0.0722;
+const WCAG_LUMINANCE_OFFSET = 0.05;
+const WCAG_BODY_TEXT_CONTRAST_RATIO = 4.5;
+const HEX_CHANNEL_STARTS = [1, 3, 5] as const;
+const DARK_MODE_ACCESSIBLE_FALLBACKS = {
+  primary: "#93C5FD",
+  accent: "#FDBA74",
+  text: "#FFFFFF",
+  mutedText: "#D1D5DB",
+  success: "#86EFAC",
+  warning: "#FBBF24",
+  danger: "#FCA5A5"
+} as const;
+
+const isHexColor = (value: string | undefined): value is string => (
+  typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
+);
+
+const hexChannelToLinear = (hex: string, start: number): number => {
+  const channel = Number.parseInt(hex.slice(start, start + 2), HEX_RADIX) / COLOR_CHANNEL_MAX;
+  if (channel <= WCAG_LOW_CHANNEL_THRESHOLD) return channel / WCAG_LOW_CHANNEL_DIVISOR;
+  return Math.pow((channel + WCAG_CHANNEL_OFFSET) / WCAG_CHANNEL_SCALE, WCAG_CHANNEL_GAMMA);
+};
+
+const relativeLuminance = (hex: string): number => {
+  if (!isHexColor(hex) || hex.length !== HEX_COLOR_LENGTH) return 0;
+  const red = hexChannelToLinear(hex, 1);
+  const green = hexChannelToLinear(hex, 3);
+  const blue = hexChannelToLinear(hex, 5);
+  return (red * WCAG_RED_WEIGHT) + (green * WCAG_GREEN_WEIGHT) + (blue * WCAG_BLUE_WEIGHT);
+};
+
+const contrastRatio = (foreground: string, background: string): number => {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + WCAG_LUMINANCE_OFFSET) / (darker + WCAG_LUMINANCE_OFFSET);
+};
+
+const hasBodyTextContrast = (foreground: string | undefined, backgrounds: string[]): foreground is string => (
+  isHexColor(foreground)
+  && backgrounds.every((background) => (
+    isHexColor(background) && contrastRatio(foreground, background) >= WCAG_BODY_TEXT_CONTRAST_RATIO
+  ))
+);
+
+const chooseContrastSafeColor = (
+  candidates: Array<string | undefined>,
+  backgrounds: string[],
+  fallback: string
+): string => (
+  candidates.find((candidate) => hasBodyTextContrast(candidate, backgrounds)) ?? fallback
+);
+
+const hasMeasuredColorEvidence = (measured: InspiredesignMeasuredColorRoles): boolean => (
+  Boolean(measured.background || measured.surface || measured.text || measured.mutedText || measured.accent)
+);
+
+const chooseMeasuredLightBackground = (
+  measured: InspiredesignMeasuredColorRoles,
+  profileColors: ProfileConfig["colors"]
+): string => (
+  [measured.text, measured.surface, profileColors.background]
+    .find((candidate) => isHexColor(candidate) && relativeLuminance(candidate) >= 0.5) ?? profileColors.background
+);
+
+const chooseMeasuredLightSurface = (
+  measured: InspiredesignMeasuredColorRoles,
+  profileColors: ProfileConfig["colors"],
+  lightBackground: string
+): string => (
+  [measured.surface, profileColors.surface, measured.text]
+    .find((candidate) => isHexColor(candidate) && hasBodyTextContrast(lightBackground, [candidate])) ?? profileColors.surface
+);
+
+const buildColorModeTokens = (
+  profile: CanvasVisualDirectionProfile,
+  designVectors: InspiredesignDesignVectors
+): InspiredesignColorModeTokens => {
+  const profileColors = PROFILE_CONFIG[profile].colors;
+  const measured = extractMeasuredColorRoles(designVectors);
+  const useMeasuredColors = hasMeasuredColorEvidence(measured);
+  const lightBackground = useMeasuredColors
+    ? chooseMeasuredLightBackground(measured, profileColors)
+    : profileColors.background;
+  const lightSurface = useMeasuredColors
+    ? chooseMeasuredLightSurface(measured, profileColors, lightBackground)
+    : profileColors.surface;
+  const lightContrastBackgrounds = [lightBackground, lightSurface];
+  const darkBackground = measured.background ?? profileColors.primary;
+  const sharedAccent = measured.accent ?? profileColors.accent;
+  const sharedMutedText = measured.mutedText ?? profileColors.mutedText;
+  const darkSurfaceCandidate = measured.surface ?? measured.background ?? profileColors.text;
+  const darkTextCandidate = chooseContrastSafeColor(
+    [measured.text, profileColors.surface, DARK_MODE_ACCESSIBLE_FALLBACKS.text],
+    [darkBackground],
+    DARK_MODE_ACCESSIBLE_FALLBACKS.text
+  );
+  const darkMutedTextCandidate = chooseContrastSafeColor(
+    [measured.mutedText, profileColors.mutedText, DARK_MODE_ACCESSIBLE_FALLBACKS.mutedText],
+    [darkBackground],
+    DARK_MODE_ACCESSIBLE_FALLBACKS.mutedText
+  );
+  const darkSurface = hasBodyTextContrast(darkTextCandidate, [darkSurfaceCandidate])
+    && hasBodyTextContrast(darkMutedTextCandidate, [darkSurfaceCandidate])
+    ? darkSurfaceCandidate
+    : profileColors.text;
+  const darkContrastBackgrounds = [darkBackground, darkSurface];
+  return {
+    light: {
+      ...profileColors,
+      primary: useMeasuredColors
+        ? chooseContrastSafeColor(
+          [measured.background, measured.accent, profileColors.primary],
+          lightContrastBackgrounds,
+          profileColors.primary
+        )
+        : profileColors.primary,
+      accent: useMeasuredColors
+        ? chooseContrastSafeColor(
+          [measured.mutedText, measured.accent, profileColors.accent],
+          lightContrastBackgrounds,
+          profileColors.accent
+        )
+        : sharedAccent,
+      accentSurface: useMeasuredColors ? (measured.surface ?? measured.text ?? profileColors.accentSurface) : profileColors.accentSurface,
+      background: lightBackground,
+      surface: lightSurface,
+      border: measured.mutedText ?? profileColors.border,
+      text: useMeasuredColors
+        ? chooseContrastSafeColor([measured.background, profileColors.text], lightContrastBackgrounds, profileColors.text)
+        : profileColors.text,
+      mutedText: useMeasuredColors
+        ? chooseContrastSafeColor([measured.mutedText, measured.background, profileColors.mutedText], lightContrastBackgrounds, profileColors.mutedText)
+        : sharedMutedText
+    },
+    dark: {
+      ...profileColors,
+      primary: chooseContrastSafeColor(
+        [measured.accent, profileColors.primary, profileColors.accent, DARK_MODE_ACCESSIBLE_FALLBACKS.primary],
+        darkContrastBackgrounds,
+        DARK_MODE_ACCESSIBLE_FALLBACKS.primary
+      ),
+      accent: chooseContrastSafeColor(
+        [measured.accent, profileColors.accent, DARK_MODE_ACCESSIBLE_FALLBACKS.accent],
+        darkContrastBackgrounds,
+        DARK_MODE_ACCESSIBLE_FALLBACKS.accent
+      ),
+      accentSurface: measured.surface ?? profileColors.accentSurface,
+      background: darkBackground,
+      surface: darkSurface,
+      border: measured.mutedText ?? profileColors.border,
+      text: chooseContrastSafeColor(
+        [measured.text, profileColors.surface, DARK_MODE_ACCESSIBLE_FALLBACKS.text],
+        darkContrastBackgrounds,
+        DARK_MODE_ACCESSIBLE_FALLBACKS.text
+      ),
+      mutedText: chooseContrastSafeColor(
+        [measured.mutedText, profileColors.mutedText, DARK_MODE_ACCESSIBLE_FALLBACKS.mutedText],
+        darkContrastBackgrounds,
+        DARK_MODE_ACCESSIBLE_FALLBACKS.mutedText
+      ),
+      success: chooseContrastSafeColor(
+        [profileColors.success, DARK_MODE_ACCESSIBLE_FALLBACKS.success],
+        darkContrastBackgrounds,
+        DARK_MODE_ACCESSIBLE_FALLBACKS.success
+      ),
+      warning: chooseContrastSafeColor(
+        [profileColors.warning, DARK_MODE_ACCESSIBLE_FALLBACKS.warning],
+        darkContrastBackgrounds,
+        DARK_MODE_ACCESSIBLE_FALLBACKS.warning
+      ),
+      danger: chooseContrastSafeColor(
+        [profileColors.danger, DARK_MODE_ACCESSIBLE_FALLBACKS.danger],
+        darkContrastBackgrounds,
+        DARK_MODE_ACCESSIBLE_FALLBACKS.danger
+      )
+    }
+  };
+};
+
+const resolveThemeStrategy = (
+  routeThemeStrategy: CanvasThemeStrategy,
+  designVectors: InspiredesignDesignVectors
+): CanvasThemeStrategy => (
+  routeThemeStrategy === "single-theme" && hasMeasuredColorTokenEvidence(designVectors)
+    ? "light-dark-parity"
+    : routeThemeStrategy
+);
 
 const mediaAnalysisLookupKey = (referenceId: string, mediaPath: string): string => `${referenceId}\u0000${mediaPath}`;
 
@@ -1200,6 +1546,35 @@ const isReferenceFirstPublicLanding = (designVectors: InspiredesignDesignVectors
     && designVectors.surfaceIntent.toLowerCase().includes("public landing page");
 };
 
+const REFERENCE_LED_PUBLIC_LANDING_STALE_MARKERS = [
+  "admin shell",
+  "builder platforms",
+  "creative software",
+  "creative-tool",
+  "dashboard",
+  "design tooling",
+  "inspector",
+  "lab-white",
+  "modular docks",
+  "prompt input",
+  "prompt panels",
+  "sidebar",
+  "specimen",
+  "stage shell",
+  "workspace"
+] as const;
+
+const mergeReferenceLedFormatEntries = (
+  sourceEntries: readonly string[],
+  defaultEntries: readonly string[]
+): string[] => {
+  const filtered = sourceEntries.filter((entry) => {
+    const lower = entry.toLowerCase();
+    return !REFERENCE_LED_PUBLIC_LANDING_STALE_MARKERS.some((marker) => lower.includes(marker));
+  });
+  return [...new Set([...filtered, ...defaultEntries].map(trimText).filter(Boolean))];
+};
+
 const buildEvidenceDerivedFormat = (
   format: InspiredesignBriefFormat,
   designVectors: InspiredesignDesignVectors
@@ -1208,13 +1583,71 @@ const buildEvidenceDerivedFormat = (
   if (!isReferenceFirstPublicLanding(designVectors)) return clone;
   return {
     ...clone,
+    id: "reference-led-public-landing-page",
     label: "Reference-led public landing page",
+    bestFor: [
+      "brand and product landing pages",
+      "portfolio and service studio surfaces",
+      "reference-led campaign pages"
+    ],
+    businessFocus: [
+      "public landing-page storytelling",
+      "portfolio and service conversion",
+      "brand trust and proof surfaces"
+    ],
+    keywords: [
+      "landing page",
+      "homepage",
+      "portfolio",
+      "gallery",
+      "services",
+      "booking",
+      "case studies",
+      "hero",
+      "cta",
+      "brand story"
+    ],
     archetype: "reference-led public landing page",
     layoutArchetype: "full-bleed hero with narrative section cadence",
+    typographySystem: "evidence-led display hierarchy with restrained body copy and readable implementation tokens",
+    surfaceTreatment: "reference-derived media planes, disciplined contrast, and conversion-focused section rhythm",
+    shapeLanguage: "hero-led sections, proof bands, media frames, and CTA surfaces shaped by captured references",
     componentGrammar: "hero composition, proof bands, narrative pathways, service or story sections, conversion CTA, and footer",
+    motionGrammar: "reference-led hero reveal, scroll reveal, CTA feedback, and reduced-motion-safe continuity",
+    paletteIntent: "derive light and dark semantic tokens from captured reference palettes with accessible contrast",
+    visualDensity: "reference-calibrated",
+    designVariance: "reference-led variation",
+    focusAreas: [
+      "hero composition",
+      "media and portfolio treatment",
+      "proof and trust sequence",
+      "conversion CTA hierarchy",
+      "section cadence",
+      "responsive image behavior",
+      "motion restraint"
+    ],
+    responsiveCollapseRules: mergeReferenceLedFormatEntries(clone.responsiveCollapseRules, [
+      "Collapse full-bleed media and narrative copy into one dominant mobile story before shrinking image legibility.",
+      "Keep portfolio, booking, and primary CTA paths visible on narrow screens without introducing app-shell chrome."
+    ]),
+    guardrails: mergeReferenceLedFormatEntries(clone.guardrails, [
+      "Treat the selected format as route scaffolding only; captured references and the source brief provide creative direction.",
+      "Keep public-page hierarchy, media treatment, and conversion flow ahead of tool-shell or dashboard conventions."
+    ]),
+    antiPatterns: mergeReferenceLedFormatEntries(clone.antiPatterns, [
+      "No dashboard chrome.",
+      "No inspector panels.",
+      "No generic tool-lab copy.",
+      "No feature-card hero."
+    ]),
+    deliverables: mergeReferenceLedFormatEntries(clone.deliverables, [
+      "Return a reusable public landing-page contract grounded in captured reference evidence and the source brief.",
+      "Define hero doctrine, portfolio or proof sequencing, CTA hierarchy, token strategy, and reduced-motion behavior."
+    ]),
     route: {
       ...clone.route,
       profile: "product-story",
+      themeStrategy: "light-dark-parity",
       navigationModel: "global-header",
       layoutApproach: "reference-led-landing-page"
     }
@@ -1574,13 +2007,12 @@ const buildGenerationPlan = ({
     [
       summarizeBrief(brief),
       `Reference cues: ${synthesis.summary}`,
-      mediaSummary,
       vectorSummary
     ].filter((summary) => summary.length > 0).join(" "),
     GENERATION_PLAN_REFERENCE_CLIP_LENGTH
   );
   plan.visualDirection.profile = profile;
-  plan.visualDirection.themeStrategy = format.route.themeStrategy;
+  plan.visualDirection.themeStrategy = resolveThemeStrategy(format.route.themeStrategy, designVectors);
   plan.layoutStrategy.approach = format.route.layoutApproach;
   plan.layoutStrategy.navigationModel = format.route.navigationModel;
   plan.contentStrategy.source = clipText(
@@ -1596,7 +2028,6 @@ const buildGenerationPlan = ({
   plan.componentStrategy.mode = clipText(
     [
       `reuse-first, adapted from captured references: ${synthesis.summary}.`,
-      mediaSummary,
       "Include hero entrance reveal, section scroll reveal, CTA/focus feedback, microinteractions, hover effects, evidence-gated cursor effects, material depth, parallax constraints, glass/translucency policy, and prefers-reduced-motion behavior.",
       "Capture desktop and mobile browser proof for responsive layout, reduced-motion behavior, focus states, and primary CTA visibility."
     ].filter((summary) => summary.length > 0).join(" "),
@@ -1623,11 +2054,12 @@ const buildIntentBlock = (
   format: InspiredesignBriefFormat
 ): JsonRecord => {
   const intent = cloneTemplate(BASE_CONTRACT_TEMPLATE.intent);
-  return {
-    ...intent,
-    task: summarizeBrief(brief),
-    brief,
-    briefHash: referenceFingerprint(brief),
+	return {
+		...intent,
+		audience: resolveIntentAudience(brief, format),
+		task: summarizeBrief(brief),
+		brief,
+		briefHash: referenceFingerprint(brief),
     selectedFormat: format.label,
     businessFocus: [...format.businessFocus],
     keywords: [...format.keywords],
@@ -1718,7 +2150,7 @@ const buildColorSystemBlock = (
   format: InspiredesignBriefFormat,
   designVectors: InspiredesignDesignVectors
 ): JsonRecord => {
-  const colors = PROFILE_CONFIG[profile].colors;
+  const colors = buildColorModeTokens(profile, designVectors);
   return {
     paletteName: `${format.id}-default`,
     paletteIntent: format.paletteIntent,
@@ -1931,6 +2363,7 @@ type BuildFollowthroughInput = {
   briefExpansion: InspiredesignBriefExpansion;
   synthesis: InspiredesignReferenceSynthesis;
   includePrototypeGuidance: boolean;
+  implementationPlan: InspiredesignImplementationPlan;
   referencePatternBoard: InspiredesignReferencePatternBoard;
   designVectors: InspiredesignDesignVectors;
   targetAnalysis: InspiredesignTargetAnalysis;
@@ -1941,6 +2374,7 @@ const buildFollowthrough = ({
   briefExpansion,
   synthesis,
   includePrototypeGuidance,
+  implementationPlan,
   referencePatternBoard,
   designVectors,
   targetAnalysis
@@ -1958,6 +2392,8 @@ const buildFollowthrough = ({
     navigationModel: buildNavigationModelBlock(generationPlan.layoutStrategy.navigationModel),
     asyncModel: buildAsyncModelBlock(),
     performanceModel: buildPerformanceModelBlock(),
+    tokenStrategy: implementationPlan.tokenStrategy,
+    implementationPlan,
     referenceSynthesis: {
       requiredArtifacts: buildRequiredReferenceArtifacts(includePrototypeGuidance),
       cues: synthesis.lines
@@ -1997,8 +2433,11 @@ const buildDesignContract = ({
   runtimeBudgets: buildRuntimeBudgetsBlock(plan)
 });
 
-const buildTokenStrategy = (profile: CanvasVisualDirectionProfile): InspiredesignTokenStrategy => ({
-  colors: PROFILE_CONFIG[profile].colors,
+const buildTokenStrategy = (
+  profile: CanvasVisualDirectionProfile,
+  designVectors: InspiredesignDesignVectors
+): InspiredesignTokenStrategy => ({
+  colors: buildColorModeTokens(profile, designVectors),
   typography: {
     display: "font-display text-[56px] leading-[1.0]",
     h1: "font-display text-[40px] leading-[1.05]",
@@ -2046,16 +2485,67 @@ const buildTokenStrategy = (profile: CanvasVisualDirectionProfile): Inspiredesig
   }
 });
 
-const buildComponentBuildPlan = (profile: CanvasVisualDirectionProfile) => {
+const componentPurposeFromEvidence = (
+  name: string,
+  brief: string,
+  synthesis: InspiredesignReferenceSynthesis,
+  designVectors: InspiredesignDesignVectors
+): string => {
+  const componentName = name.toLowerCase();
+  const briefSummary = summarizeBrief(brief);
+  const evidenceCue = synthesis.summary;
+  const sectionCue = designVectors.sectionArchitecture[0] ?? designVectors.surfaceIntent;
+  if (componentName.includes("hero")) {
+    return `Compose the hero around ${briefSummary}; use ${evidenceCue} and keep the primary booking, portfolio, or CTA path visible.`;
+  }
+  if (componentName.includes("button") || componentName.includes("cta")) {
+    return `Define CTA and button states for ${briefSummary}; connect hover, focus, loading, and success feedback to the conversion path.`;
+  }
+  if (componentName.includes("card") || componentName.includes("feature") || componentName.includes("section")) {
+    return `Turn ${sectionCue} into concrete proof, gallery, service, portfolio, or story sections backed by reference cues.`;
+  }
+  if (componentName.includes("footer")) {
+    return `Close ${briefSummary} with location, booking recovery, portfolio navigation, contact, and proof links instead of a generic footer.`;
+  }
+  return `Adapt ${name.toLowerCase()} to ${briefSummary} using ${evidenceCue}.`;
+};
+
+const componentImplementationNoteFromEvidence = (
+  name: string,
+  designVectors: InspiredesignDesignVectors
+): string => {
+  const componentName = name.toLowerCase();
+  if (componentName.includes("hero")) return designVectors.compositionModel[0] ?? designVectors.directionLabel;
+  if (componentName.includes("button") || componentName.includes("cta")) {
+    return designVectors.interactionMoments[0] ?? "Keep CTA state changes visible across pointer, keyboard, and loading states.";
+  }
+  if (componentName.includes("card") || componentName.includes("feature") || componentName.includes("section")) {
+    return designVectors.imageryPosture[0] ?? designVectors.patternsToBorrow[0] ?? "Use reference-backed imagery and hierarchy.";
+  }
+  return designVectors.patternsToBorrow[0] ?? "Use reference-backed structure and semantic tokens.";
+};
+
+const buildComponentBuildPlan = (
+  profile: CanvasVisualDirectionProfile,
+  brief: string,
+  synthesis: InspiredesignReferenceSynthesis,
+  designVectors: InspiredesignDesignVectors
+) => {
+  const referenceFirstPublicLanding = isReferenceFirstPublicLanding(designVectors);
   return PROFILE_CONFIG[profile].componentSequence.map((name) => ({
     name,
-    purpose: `Establish the ${name.toLowerCase()} pattern as a reusable system primitive.`,
+    purpose: referenceFirstPublicLanding
+      ? componentPurposeFromEvidence(name, brief, synthesis, designVectors)
+      : `Establish the ${name.toLowerCase()} pattern as a reusable system primitive.`,
     states: ["default", "hover", "focus", "disabled"],
-    implementationNote: "Use semantic tokens first and keep copy/state logic outside the visual component."
+    implementationNote: referenceFirstPublicLanding
+      ? componentImplementationNoteFromEvidence(name, designVectors)
+      : "Use semantic tokens first and keep copy/state logic outside the visual component."
   }));
 };
 
 type BuildImplementationPlanInput = {
+  brief: string;
   profile: CanvasVisualDirectionProfile;
   format: InspiredesignBriefFormat;
   references: InspiredesignReferenceEvidence[];
@@ -2065,6 +2555,7 @@ type BuildImplementationPlanInput = {
 };
 
 const buildImplementationPlan = ({
+  brief,
   profile,
   format,
   references,
@@ -2073,11 +2564,11 @@ const buildImplementationPlan = ({
   designVectors
 }: BuildImplementationPlanInput): InspiredesignImplementationPlan => ({
   architectureRecommendation: `Implement the surface as a ${format.archetype} using token-first components and shared semantic CSS variables, then compose page sections from those primitives before adding any page-specific polish.`,
-  tokenStrategy: buildTokenStrategy(profile),
+  tokenStrategy: buildTokenStrategy(profile, designVectors),
   referenceImplementationNotes: synthesis.lines.length > 0
     ? synthesis.lines
     : ["No live reference cues were captured; keep implementation anchored to the source brief and selected prompt format."],
-  componentBuildPlan: buildComponentBuildPlan(profile),
+  componentBuildPlan: buildComponentBuildPlan(profile, brief, synthesis, designVectors),
   pageAssemblyPlan: [
     `Start with the ${format.layoutArchetype} and the primary navigation pattern.`,
     ...designVectors.sectionArchitecture,
@@ -2139,6 +2630,14 @@ const renderAntiPatternRule = (rule: string): string => {
 const formatRecordList = (record: Record<string, string | number>): string => {
   return Object.entries(record).map(([key, value]) => `- \`${key}\`: ${value}`).join("\n");
 };
+
+const formatColorModeRecordList = (colors: InspiredesignColorModeTokens): string => [
+  "### Light Theme",
+  formatRecordList(colors.light),
+  "",
+  "### Dark Theme",
+  formatRecordList(colors.dark)
+].join("\n");
 
 const referenceContribution = (reference: InspiredesignReferenceEvidence): string => {
   if (reference.captureStatus === "captured") return "Live hierarchy and component evidence captured from the page.";
@@ -2229,6 +2728,34 @@ const referenceComponentPatterns = (
   return "Component families were inferred from available reference text.";
 };
 
+const PINTEREST_PIN_ID_PATTERN = /\/pin\/(\d+)\/?/i;
+const GENERIC_SOURCE_TITLE_PATTERNS = [
+  /^your profile$/i,
+  /^home$/i,
+  /skip to content/i,
+  /settings & support/i,
+  /^updates$/i,
+  /^messages$/i,
+  /\[r\d+\]\s+(?:link|button|combobox|textbox|option)\s+/i
+] as const;
+
+const isGenericSourceTitle = (value: string): boolean => (
+  GENERIC_SOURCE_TITLE_PATTERNS.some((pattern) => pattern.test(value))
+);
+
+const renderReferenceTitle = (
+  reference: InspiredesignReferenceEvidence,
+  index: number,
+  mediaReference: InspiredesignMediaAnalysisReference | undefined
+): string => {
+  const title = reference.title?.trim();
+  if (title && !isGenericSourceTitle(title)) return title;
+  const pinId = reference.url.match(PINTEREST_PIN_ID_PATTERN)?.[1];
+  if (pinId) return `Pinterest pin ${pinId} media reference`;
+  if (mediaReference) return `Saved ${mediaReference.kind} reference ${index + 1}`;
+  return reference.url;
+};
+
 const referenceLayoutObservation = (
   reference: InspiredesignReferenceEvidence,
   excerpt: string
@@ -2244,7 +2771,7 @@ const renderReferenceMarkdown = (
   mediaReference?: InspiredesignMediaAnalysisReference
 ): string => {
   const excerpt = reference.excerpt ? clipText(reference.excerpt, 220) : "No fetched excerpt captured.";
-  const title = reference.title ?? reference.url;
+  const title = renderReferenceTitle(reference, index, mediaReference);
   return [
     `### Source ${index + 1}: ${title}`,
     `- what it contributes: ${referenceContribution(reference)}`,
@@ -2312,7 +2839,7 @@ const renderGovernanceMarkdown = (
     ]),
     "",
     "## 4.4 Color System",
-    formatRecordList(implementationPlan.tokenStrategy.colors),
+    formatColorModeRecordList(implementationPlan.tokenStrategy.colors),
     "",
     "## 4.5 Typography System",
     [
@@ -2399,7 +2926,7 @@ const renderImplementationMarkdown = (implementationPlan: InspiredesignImplement
     implementationPlan.architectureRecommendation,
     "",
     "## 5.2 Design Token Strategy",
-    formatRecordList(implementationPlan.tokenStrategy.colors),
+    formatColorModeRecordList(implementationPlan.tokenStrategy.colors),
     "",
     formatRecordList(implementationPlan.tokenStrategy.typography),
     "",
@@ -2660,17 +3187,30 @@ const toCaptureEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonV
   };
 };
 
-const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonValue => ({
-  id: reference.id,
-  url: reference.url,
-  ...(reference.title ? { title: reference.title } : {}),
-  ...(reference.excerpt ? { excerpt: reference.excerpt } : {}),
-  fetchStatus: reference.fetchStatus,
-  captureStatus: reference.captureStatus,
-  ...(reference.fetchFailure ? { fetchFailure: reference.fetchFailure } : {}),
-  ...(reference.captureFailure ? { captureFailure: reference.captureFailure } : {}),
-  capture: toCaptureEvidenceJson(reference)
-});
+const cleanReferenceExcerptForEvidence = (reference: InspiredesignReferenceEvidence): string | undefined => {
+  if (!reference.excerpt) return undefined;
+  const [excerptSignal] = getInspiredesignReferenceSignals({
+    ...reference,
+    title: undefined,
+    capture: null
+  });
+  return excerptSignal;
+};
+
+const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): JsonValue => {
+  const excerpt = cleanReferenceExcerptForEvidence(reference);
+  return {
+    id: reference.id,
+    url: reference.url,
+    ...(reference.title ? { title: reference.title } : {}),
+    ...(excerpt ? { excerpt } : {}),
+    fetchStatus: reference.fetchStatus,
+    captureStatus: reference.captureStatus,
+    ...(reference.fetchFailure ? { fetchFailure: reference.fetchFailure } : {}),
+    ...(reference.captureFailure ? { captureFailure: reference.captureFailure } : {}),
+    capture: toCaptureEvidenceJson(reference)
+  };
+};
 
 export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): InspiredesignPacket => {
   const brief = trimText(input.brief);
@@ -2749,22 +3289,24 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     plan: generationPlan,
     format: effectiveFormat
   });
-  const followthrough = buildFollowthrough({
-    generationPlan,
-    briefExpansion: effectiveBriefExpansion,
-    synthesis,
-    includePrototypeGuidance,
-    referencePatternBoard: designReferencePatternBoard,
-    designVectors,
-    targetAnalysis
-  });
   const implementationPlan = buildImplementationPlan({
+    brief,
     profile,
     format: effectiveFormat,
     references: usableReferences,
     attemptedReferenceCount: references.length,
     synthesis,
     designVectors
+  });
+  const followthrough = buildFollowthrough({
+    generationPlan,
+    briefExpansion: effectiveBriefExpansion,
+    synthesis,
+    includePrototypeGuidance,
+    implementationPlan,
+    referencePatternBoard: designReferencePatternBoard,
+    designVectors,
+    targetAnalysis
   });
   const governanceMarkdown = renderGovernanceMarkdown(designContract, implementationPlan, effectiveFormat);
   const implementationPlanMarkdown = renderImplementationMarkdown(implementationPlan);
@@ -2778,7 +3320,7 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
       `Analyzed brief plus ${references.length || 0} inspiration reference(s).`,
       `Chosen design direction: ${designVectors.surfaceIntent}.`,
       `Route profile: ${PROFILE_CONFIG[profile].direction}.`,
-      `Prompt format: ${selectedFormat.label} (${input.briefExpansion.templateVersion}).`,
+      `Prompt format: ${effectiveFormat.label} (${input.briefExpansion.templateVersion}).`,
       "Final outcome: a reusable design contract, engineering plan, and optional prototype guidance.",
       `Scope mode: ${references.length > 1 ? "full-site synthesis" : "single-surface synthesis"}.`
     ]),
@@ -2839,11 +3381,11 @@ export const buildInspiredesignPacket = (input: BuildInspiredesignPacketInput): 
     "",
     "# 7. Deliverables Summary",
     "",
-    renderDeliverablesSummary(
-      Boolean(input.includePrototypeGuidance),
-      !referenceEvidenceRequired || designReferencePatternBoard.references.length > 0
-    )
-  ].join("\n");
+	    renderDeliverablesSummary(
+	      Boolean(input.includePrototypeGuidance),
+	      false
+	    )
+	  ].join("\n");
 
   const visualEvidence = buildVisualEvidencePayload(references);
   const screenshotIndex = buildScreenshotIndex(references);

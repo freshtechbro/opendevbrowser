@@ -9,6 +9,7 @@ const hasProviderBlocker = (context: GuidanceContext): boolean => {
 };
 
 const hasDiagnosticOnlyEvidence = (context: GuidanceContext): boolean => {
+  if (context.reasonCode === "diagnostic_only") return true;
   const reasons = context.evidence?.diagnosticOnlyReasons ?? [];
   if (reasons.length === 0) return false;
   return (context.evidence?.rankedReferenceCount ?? 0) === 0;
@@ -37,6 +38,25 @@ const hasRequiredCaptureFailure = (context: GuidanceContext): boolean => {
     || (context.evidence.allAttemptMotionFailureCount ?? 0) > 0;
 };
 
+const positiveCount = (value: number | undefined): number => {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+};
+
+const artifactReadyReferenceCount = (evidence: NonNullable<GuidanceContext["evidence"]>): number => (
+  positiveCount(evidence.snapshotReadyReferenceCount)
+  + positiveCount(evidence.motionReadyReferenceCount)
+  + positiveCount(evidence.pinMediaReadyReferenceCount)
+);
+
+const hasMissingArtifactBackedAuthority = (context: GuidanceContext): boolean => {
+  const evidence = context.evidence;
+  if (!evidence || evidence.referenceEvidenceRequired === false) return false;
+  const rankedReferenceCount = evidence.rankedReferenceCount!;
+  if (typeof evidence.authoritativeReferenceCount !== "number") return true;
+  return evidence.authoritativeReferenceCount < rankedReferenceCount
+    || artifactReadyReferenceCount(evidence) < rankedReferenceCount;
+};
+
 const hasWeakTopReference = (context: GuidanceContext): boolean => {
   const rankedCount = context.evidence?.rankedReferenceCount ?? 0;
   if (rankedCount === 0) return false;
@@ -55,11 +75,13 @@ export const classifyGuidanceReadiness = (context: GuidanceContext): GuidanceRea
   if (context.reasonCode === "daemon_fingerprint_mismatch") return "blocked";
   if (hasProviderBlocker(context)) return "blocked";
   if (hasDiagnosticOnlyEvidence(context)) return "diagnostic_only";
+  if (context.reasonCode === "artifact_authority_missing") return "needs_recovery";
   if (hasNoReferences(context)) return "needs_recovery";
   if (hasNoRankedReferences(context)) return "needs_recovery";
   if (hasRequiredCaptureFailure(context)) return "needs_recovery";
   if (hasOffBriefTopReference(context)) return "needs_recovery";
   if (hasWeakTopReference(context)) return "needs_recovery";
+  if (hasMissingArtifactBackedAuthority(context)) return "needs_recovery";
   return "ready";
 };
 

@@ -288,6 +288,7 @@ export type OpenDevBrowserConfig = {
   skills: SkillsConfig;
   continuity: ContinuityConfig;
   relayPort: number;
+  discoveryPort: number;
   relayToken: string | false;
   nativeExtensionId?: string;
   daemonPort: number;
@@ -300,12 +301,15 @@ export type OpenDevBrowserConfig = {
 };
 
 const DEFAULT_RELAY_PORT = 8787;
+const DEFAULT_DISCOVERY_PORT = DEFAULT_RELAY_PORT;
 const DEFAULT_DAEMON_PORT = 8788;
 
 function buildDefaultConfigJsonc(relayToken: string, daemonToken: string): string {
   return `{
   // Set relayToken to false to disable extension pairing.
   "relayPort": ${DEFAULT_RELAY_PORT},
+  // Keep discoveryPort on 8787 for extension discovery. Set it to relayPort for isolated daemon runs.
+  "discoveryPort": ${DEFAULT_DISCOVERY_PORT},
   "relayToken": "${relayToken}",
   // Optional: extension ID for native host auto-install.
   // "nativeExtensionId": "abcdefghijklmnopabcdefghijklmnop",
@@ -661,6 +665,7 @@ const configSchema = z.object({
   skills: skillsSchema.default({}),
   continuity: continuitySchema.default({}),
   relayPort: z.number().int().min(0).max(65535).default(DEFAULT_RELAY_PORT),
+  discoveryPort: z.number().int().min(0).max(65535).default(DEFAULT_DISCOVERY_PORT),
   relayToken: z.union([z.string(), z.literal(false)]).optional(),
   nativeExtensionId: z.string().optional(),
   daemonPort: z.number().int().min(0).max(65535).default(DEFAULT_DAEMON_PORT),

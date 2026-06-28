@@ -162,6 +162,51 @@ describe("cli lifecycle command wiring", () => {
     expect(flushOutputAndExit).toHaveBeenCalledWith(EXIT_DISCONNECTED);
   });
 
+  it("keeps product readiness metadata in JSON output", async () => {
+    runStatus.mockReturnValue({
+      success: true,
+      message: "Ready",
+      ready: true,
+      readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
+      harvestReadiness: "ready",
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      rankedReferenceCount: 4,
+      authoritativeReferenceCount: 4,
+      snapshotReadyReferenceCount: 0,
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 4,
+      data: { artifact_path: "/tmp/inspiredesign/run" }
+    });
+
+    await runCliWithMocks(makeArgs("status", ["--daemon"]));
+
+    expect(writeOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        message: "Ready",
+        ready: true,
+        readiness: "ready",
+        guidanceReady: true,
+        guidanceReadiness: "ready",
+        harvestReadiness: "ready",
+        productSuccess: true,
+        artifactAuthority: "product_ready",
+        evidenceAuthority: "pin_media_ready",
+        rankedReferenceCount: 4,
+        authoritativeReferenceCount: 4,
+        snapshotReadyReferenceCount: 0,
+        motionReadyReferenceCount: 0,
+        pinMediaReadyReferenceCount: 4,
+        data: { artifact_path: "/tmp/inspiredesign/run" }
+      }),
+      expect.objectContaining({ format: "json", quiet: false })
+    );
+  });
+
   it("keeps update refresh scoped to marker-managed targets when config is absent", async () => {
     const targets: SkillTarget[] = [{ agents: ["codex"], dir: "/tmp/update-skill-target" }];
     runUpdate.mockReturnValue({ success: true, message: "updated", cleared: true });

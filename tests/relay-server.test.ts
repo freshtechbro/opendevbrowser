@@ -3817,6 +3817,7 @@ describe("RelayServer", () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(typeof data.instanceId).toBe("string");
+      expect("discoveryPort" in data).toBe(true);
       expect(data.extensionConnected).toBe(false);
       expect(data.extensionHandshakeComplete).toBe(false);
       expect(data.pairingRequired).toBe(true);
@@ -3962,6 +3963,29 @@ describe("RelayServer", () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(typeof data.instanceId).toBe("string");
+      expect(data.discoveryPort).toBe(discoveryPort);
+    });
+
+    it("reports explicit discovery bind failures in relay status", async () => {
+      const blockedPort = await getAvailablePort();
+      const blocker = http.createServer();
+      await new Promise<void>((resolve) => blocker.listen(blockedPort, "127.0.0.1", () => resolve()));
+      try {
+        server = new RelayServer({ discoveryPort: blockedPort });
+        const started = await server.start(0);
+
+        const response = await fetch(`http://127.0.0.1:${started.port}/status`);
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.discoveryPort).toBeNull();
+        expect(data.discoveryError).toContain("EADDRINUSE");
+        expect(data.health).toMatchObject({
+          ok: false,
+          reason: "discovery_unavailable"
+        });
+      } finally {
+        await new Promise<void>((resolve) => blocker.close(() => resolve()));
+      }
     });
 
     it("rejects status requests from non-extension origins", async () => {
