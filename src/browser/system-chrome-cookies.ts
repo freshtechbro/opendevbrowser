@@ -297,7 +297,8 @@ async function firstExistingPath(paths: readonly string[]): Promise<string | nul
 }
 
 export async function loadSystemChromeCookies(
-  executablePath?: string | null
+  executablePath?: string | null,
+  platform = process.platform
 ): Promise<SystemChromeCookieBootstrapResult> {
   const source = discoverSystemChromeProfileSource();
   if (!source) {
@@ -308,7 +309,7 @@ export async function loadSystemChromeCookies(
     };
   }
 
-  const direct = await loadSystemChromeCookiesFromSqlite(source);
+  const direct = await loadSystemChromeCookiesFromSqlite(source, platform);
   if (direct.cookies.length > 0) {
     return {
       cookies: direct.cookies,

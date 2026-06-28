@@ -411,7 +411,7 @@ describe("loadSystemChromeCookies", () => {
     });
 
     const { loadSystemChromeCookies } = await import("../src/browser/system-chrome-cookies");
-    const result = await loadSystemChromeCookies("/bin/chrome");
+    const result = await loadSystemChromeCookies("/bin/chrome", "darwin");
 
     expect(result.cookies).toEqual([{
       name: "direct_public_cookie",
