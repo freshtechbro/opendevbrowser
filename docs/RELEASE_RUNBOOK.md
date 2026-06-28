@@ -1,12 +1,12 @@
 # Public Release Runbook
 
-Last updated: 2026-06-12
+Last updated: 2026-06-28
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
 
 ## Current source-backed release reference
 
-As of the 2026-06-19 release prep, the checked-in release version is `0.0.36` across `package.json`, root `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json`. The current version-scoped release ledger is `docs/RELEASE_0.0.36_EVIDENCE.md`; `docs/RELEASE_0.0.35_EVIDENCE.md` and older ledgers are historical.
+As of the 2026-06-28 release prep, the checked-in release version is `0.0.37` across `package.json`, root `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json`. The current version-scoped release ledger is `docs/RELEASE_0.0.37_EVIDENCE.md`; `docs/RELEASE_0.0.36_EVIDENCE.md` and older ledgers are historical.
 
 Use `npm run version:check` as the authoritative local parity check for those five version fields before tagging or publishing.
 
@@ -95,6 +95,51 @@ It does not cover website hosting deploys. Website deploy cutover is handled in 
 - [ ] GitHub release artifact packaging computes `opendevbrowser-extension.zip.sha256` before publish.
 
 ## Release execution
+
+### Local npm-token release path
+
+Use this lane when publishing npm from a locally authenticated workstation instead of the GitHub Actions `NPM_TOKEN` secret.
+
+1. Merge the release prep branch to `main`, then update the local checkout:
+
+```bash
+git checkout main
+git pull --ff-only
+```
+
+2. Verify the target package is still absent from npm:
+
+```bash
+npm view opendevbrowser@X.Y.Z version
+```
+
+The command should fail before first publish. If it already returns `X.Y.Z`, stop and verify whether this is a recovery publish or a duplicate release.
+
+3. Publish npm locally without printing credentials:
+
+```bash
+npm publish --access public
+```
+
+4. Run the registry consumer smoke against the published package:
+
+```bash
+node scripts/registry-consumer-smoke.mjs --version X.Y.Z --output artifacts/release/vX.Y.Z/registry-consumer-smoke.json
+```
+
+5. Create the GitHub release with extension artifacts by dispatching `.github/workflows/release-public.yml` instead of pushing a release tag directly:
+
+```bash
+gh workflow run release-public.yml \
+  -f release_ref=main \
+  -f release_tag=vX.Y.Z \
+  -F publish_npm=false \
+  -F publish_github_release=true \
+  -F draft_release=false \
+  -F run_release_live_gates=false
+```
+
+This avoids the tag-push default path, which sets `publish_npm=true` and would attempt a duplicate npm publish.
 
 ### Standard tag-driven release (recommended)
 
@@ -197,7 +242,7 @@ npm deprecate opendevbrowser@X.Y.Z "deprecated: use <fixed-version>"
 
 ## Evidence to retain
 
-- Active version-scoped release evidence ledger path, currently `docs/RELEASE_0.0.36_EVIDENCE.md` for package version `0.0.36`
+- Active version-scoped release evidence ledger path, currently `docs/RELEASE_0.0.37_EVIDENCE.md` for package version `0.0.37`
 - Release workflow run URL
 - npm published version output (or explicit publish deferral for manual dry runs)
 - `artifacts/release/vX.Y.Z/registry-consumer-smoke.json`
