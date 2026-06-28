@@ -96,6 +96,17 @@ describe("inspiredesign brief expansion", () => {
     expect(result.format.route.navigationModel).toBe("sidebar");
   });
 
+  it("keeps affirmative not-just dashboard phrases available for scoring", async () => {
+    const { expandInspiredesignBrief } = await loadBriefExpansion();
+    const result = expandInspiredesignBrief(
+      "Design a SaaS analytics product that is not just a dashboard, but a full operator workspace for internal teams."
+    );
+
+    expect(result.format.id).toBe("b2b-dashboard-app-shell");
+    expect(result.format.route.profile).toBe("ops-control");
+    expect(result.format.route.navigationModel).toBe("sidebar");
+  });
+
   it("keeps the source brief grounded inside the expanded brief and exposes richer contract sections", async () => {
     const { expandInspiredesignBrief } = await loadBriefExpansion();
     const result = expandInspiredesignBrief("Refresh the existing product without losing its identity.");

@@ -83,7 +83,7 @@ Use this skill for frontend work that must be visually strong, contract-first, a
 ## Core Rules
 
 - Start with a design contract, not ad-hoc implementation.
-- Build a reference pattern board before locking a new direction when external inspiration matters, and inspect `nextStepGuidance.readiness` before treating a harvest as design-ready.
+- Build a reference pattern board before locking a new direction when external inspiration matters; treat `nextStepGuidance.readiness` as recovery or continuation guidance only, and treat a harvest as design-ready only when top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, non-diagnostic `evidenceAuthority`, and manifest-backed reference evidence agree. For canonical Pinterest pin-media harvests, require `evidenceAuthority=pin_media_ready` and manifest-backed `pin-media-index.json`; `snapshot_ready` and `motion_ready` are not substitutes for pin-media readiness.
 - Choose a component family from `artifacts/component-pattern-index.md` before inventing a new screen structure.
 - Start from the closest shipped OpenDevBrowser example in `artifacts/opendevbrowser-ui-example-map.md` when the repo already has a related surface.
 - Route repo-first redesigns through `artifacts/existing-surface-adaptation.md` before changing shells or component anatomy.
@@ -174,7 +174,7 @@ Use when a redesign needs external references or when the brief explicitly asks 
 - Capture `3` to `5` live references with OpenDevBrowser.
 - For Pinterest, use the browser-native `social/pinterest` recipe with extension mode and cookies instead of treating Pinterest as a default full provider.
 - Before extension-mode Pinterest harvests, preflight `npx opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
-- Inspect `nextStepGuidance.readiness`, `doNotProceedIf`, and recovery commands before using the bundle.
+- Inspect top-level `ready`, `productSuccess`, `artifactAuthority`, `evidenceAuthority`, and manifest-backed ranked reference evidence before using the bundle; use `nextStepGuidance.readiness`, `nextStepGuidance.doNotProceedIf`, and recovery commands only as follow-through or recovery guidance. For canonical Pinterest pin-media harvests, continue only with top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, and manifest-backed `pin-media-index.json`.
 - Record ready evidence in `assets/templates/reference-pattern-board.v1.json`.
 - Turn the synthesis into contract deltas before implementation.
 

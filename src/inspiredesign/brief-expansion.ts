@@ -93,21 +93,27 @@ export const normalizeInspiredesignBriefText = (value: string): string => value.
 
 const formatBulletList = (items: readonly string[]): string => items.map((item) => `- ${item}`).join("\n");
 
-const countMatches = (brief: string, keywords: readonly string[]): number => {
-  const haystack = brief.toLowerCase();
-  return keywords.reduce(
-    (total, keyword) => total + (haystack.includes(keyword.toLowerCase()) ? 1 : 0),
-    0
-  );
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const NEGATED_SIGNAL_CLAUSE_PATTERN = /\b(?:not|no|without|avoid|exclude|excluding)\s+(?!(?:only|just|merely)\b)[^,.;]+/g;
+
+const keywordMatchesBrief = (brief: string, keyword: string): boolean => {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) return false;
+  const pattern = escapeRegExp(normalizedKeyword).replace(/\s+/g, "\\s+");
+  return new RegExp(`(^|[^a-z0-9])${pattern}([^a-z0-9]|$)`).test(brief.toLowerCase());
 };
 
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const countMatches = (brief: string, keywords: readonly string[]): number => keywords.reduce(
+  (total, keyword) => total + (keywordMatchesBrief(brief, keyword) ? 1 : 0),
+  0
+);
 
 const removeNegativeSignal = (brief: string, keyword: string): string => {
   const escaped = escapeRegExp(keyword.toLowerCase());
   const modifiers = "(?:[a-z0-9-]+\\s+){0,3}";
   return brief
-    .replace(new RegExp(`\\b(?:not|no|without|avoid|exclude|excluding)\\s+(?:an?\\s+|the\\s+)?${modifiers}${escaped}\\b(?:\\s+[a-z0-9-]+){0,2}`, "g"), " ")
+    .replace(new RegExp(`\\b(?:not|no|without|avoid|exclude|excluding)\\s+(?!(?:only|just|merely)\\b)(?:an?\\s+|the\\s+)?${modifiers}${escaped}\\b(?:\\s+[a-z0-9-]+){0,2}`, "g"), " ")
     .replace(new RegExp(`\\b${escaped}\\s+(?:is\\s+)?(?:not|excluded|forbidden)\\b`, "g"), " ");
 };
 
@@ -117,7 +123,8 @@ const positiveSignalText = (brief: string, formats: readonly InspiredesignBriefF
     ...(format.matchSignals.required ?? []),
     ...(format.matchSignals.excluded ?? [])
   ]);
-  return [...new Set(keywords)].reduce(removeNegativeSignal, brief.toLowerCase());
+  const briefWithoutNegatedClauses = brief.toLowerCase().replace(NEGATED_SIGNAL_CLAUSE_PATTERN, " ");
+  return [...new Set(keywords)].reduce(removeNegativeSignal, briefWithoutNegatedClauses);
 };
 
 const cloneStringList = (items: readonly string[]): string[] => [...items];

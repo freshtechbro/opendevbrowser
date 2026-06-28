@@ -84,7 +84,7 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     challengeConfig,
     challengeOrchestrator
   });
-  const relay = new RelayServer();
+  const relay = new RelayServer({ discoveryPort: config.discoveryPort });
   relay.setToken(config.relayToken);
   relay.setStoreAgentPayloadHandler(async (command) => {
     if (!command.payload) {

@@ -51,6 +51,7 @@ type RenderedInspiredesignFollowthrough = Omit<InspiredesignFollowthrough, "arti
 };
 type InspiredesignGuideEntry = InspiredesignContractSectionGuide[string];
 type InspiredesignAuthorityFields = {
+	ready: boolean;
   artifactAuthority: "product_ready" | "diagnostic_only";
   evidenceAuthority: "snapshot_ready" | "motion_ready" | "pin_media_ready" | "ranked_reference" | "diagnostic_only";
   productSuccess: boolean;
@@ -239,6 +240,8 @@ const researchTitle = (record: ResearchRecord): string => record.title ?? record
 
 const CANVAS_CONTINUATION_BLOCKED_COMMAND = "Unavailable until harvest readiness is ready with authoritative visual, motion, or pin-media evidence.";
 const CANVAS_PLAN_OMITTED_GUIDANCE = "Canvas plan request omitted until harvest readiness is ready with authoritative visual, motion, or pin-media evidence.";
+const CANVAS_PLAN_PACKET_DIAGNOSTIC_DELIVERABLE = "Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready";
+const CANVAS_PLAN_READY_DELIVERABLE = "Ready-to-fill `canvasPlanRequest` JSON for `canvas.plan.set`";
 const DIAGNOSTIC_ARTIFACT_WARNING = "> **Diagnostic-only artifact.** This harvest is not product-ready. Treat this file as troubleshooting context, not authoritative design input.";
 const INSPIREDESIGN_RENDERER_READINESS_COUNT_KEYS = [
 	"rankedReferenceCount",
@@ -359,6 +362,23 @@ const evidenceAuthorityForProductReadyArtifacts = (args: {
 	});
 };
 
+const referenceClaimsPinMediaAuthority = (
+	reference: InspiredesignReferencePatternBoard["references"][number]
+): boolean => (
+	reference.evidenceAuthority === "pin_media_ready"
+	|| (Array.isArray(reference.capturedVia) && reference.capturedVia.includes("pin_media_ready"))
+);
+
+const hasPinterestPinMediaReadyAuthority = (
+	reference: InspiredesignReferencePatternBoard["references"][number],
+	pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): boolean => (
+	referenceClaimsPinMediaAuthority(reference)
+	&& isInspiredesignAuthoritativeRankedReference({ ...reference, evidenceAuthority: "pin_media_ready" }, {
+	pinMedia: pinMediaIndex
+	})
+);
+
 const canContinueInspiredesignInCanvas = (
   guidance: NextStepGuidance | undefined,
   referencePatternBoard: InspiredesignReferencePatternBoard | undefined,
@@ -381,13 +401,16 @@ const canContinueInspiredesignInCanvas = (
     isInspiredesignPinterestPinReferenceUrl(reference.url)
   ));
   if (pinterestEvidenceRequired && !hasPinterestReference) return false;
-  return references.every((reference) => (
-    isInspiredesignAuthoritativeRankedReference(reference, {
+	return references.every((reference) => {
+	if (isInspiredesignPinterestPinReferenceUrl(reference.url)) {
+		return hasPinterestPinMediaReadyAuthority(reference, pinMediaIndex);
+	}
+	return isInspiredesignAuthoritativeRankedReference(reference, {
       screenshots: screenshotIndex,
       motions: motionEvidence,
       pinMedia: pinMediaIndex
-	})
-  ));
+	});
+	});
 };
 
 const missingRequiredVisualReferenceCount = (args: {
@@ -493,19 +516,32 @@ const markInspiredesignJsonArtifactAuthority = <T extends Record<string, unknown
 });
 
 const buildDiagnosticInspiredesignAuthorityFields = (): InspiredesignAuthorityFields => ({
+	ready: false,
 	artifactAuthority: "diagnostic_only",
 	evidenceAuthority: "diagnostic_only",
 	productSuccess: false,
 	diagnosticWarning: DIAGNOSTIC_ARTIFACT_WARNING
 });
 
+const replaceCanvasPlanDeliverableInDesignMarkdown = (markdown: string, replacement: string): string => (
+  markdown
+    .replaceAll(
+      `\n- ${CANVAS_PLAN_PACKET_DIAGNOSTIC_DELIVERABLE}`,
+      `\n- ${replacement}`
+    )
+    .replaceAll(
+      `\n- ${CANVAS_PLAN_READY_DELIVERABLE}`,
+      `\n- ${replacement}`
+    )
+);
+
 const blockPrototypeGuidanceInDesignMarkdown = (
   markdown: string,
   prototypeGuidanceMarkdown: string | null
 ): string => {
-  const withoutCanvasDeliverable = markdown.replace(
-    /\n- Diagnostic `canvasPlanRequest` preview; do not submit to Canvas until next-step guidance is ready/g,
-    `\n- ${CANVAS_PLAN_OMITTED_GUIDANCE}`
+  const withoutCanvasDeliverable = replaceCanvasPlanDeliverableInDesignMarkdown(
+    markdown,
+    CANVAS_PLAN_OMITTED_GUIDANCE
   );
   const withoutPrototypeDeliverable = withoutCanvasDeliverable.replace(
     /\n- Prototype guidance Markdown for the first HTML pass/g,
@@ -518,17 +554,21 @@ const blockPrototypeGuidanceInDesignMarkdown = (
   );
 };
 
+const promoteCanvasContinuationInDesignMarkdown = (markdown: string): string => (
+  replaceCanvasPlanDeliverableInDesignMarkdown(markdown, CANVAS_PLAN_READY_DELIVERABLE)
+);
+
 const buildMissingInspiredesignGuidanceHandoff = (): {
   followthroughSummary: string;
   suggestedNextAction: string;
   suggestedSteps: Array<{ reason: string; command?: string }>;
 } => {
-  const summary = "Canvas continuation unavailable until nextStepGuidance.readiness is ready.";
+  const summary = "Canvas continuation unavailable until product-ready authority fields and manifest-backed evidence agree.";
   return {
     followthroughSummary: summary,
     suggestedNextAction: summary,
     suggestedSteps: [{
-      reason: "Inspect the workflow output for nextStepGuidance before using Canvas artifacts."
+      reason: "Inspect top-level ready, productSuccess, artifactAuthority, evidenceAuthority, and manifest-backed evidence before using Canvas artifacts."
     }]
   };
 };
@@ -1107,14 +1147,15 @@ export const renderInspiredesign = (args: {
     pinMediaIndex: authorityPinMediaIndex
   });
 	const baseAuthorityFields: InspiredesignAuthorityFields = {
-	artifactAuthority: baseArtifactAuthority,
-	evidenceAuthority: baseEvidenceAuthority,
-	productSuccess: baseProductSuccess,
+		ready: baseProductSuccess,
+		artifactAuthority: baseArtifactAuthority,
+		evidenceAuthority: baseEvidenceAuthority,
+		productSuccess: baseProductSuccess,
 	...(!baseProductSuccess ? { diagnosticWarning: DIAGNOSTIC_ARTIFACT_WARNING } : {})
   };
 	const authorityFields: InspiredesignAuthorityFields = baseAuthorityFields;
 	const canContinueInCanvas = authorityFields.productSuccess;
-	const { artifactAuthority, evidenceAuthority, productSuccess } = authorityFields;
+	const { artifactAuthority, evidenceAuthority, productSuccess, ready } = authorityFields;
   const mediaAnalysisArtifact = mediaAnalysis
     ? mediaAnalysis
     : undefined;
@@ -1133,7 +1174,7 @@ export const renderInspiredesign = (args: {
   );
   const prototypeGuidanceMarkdown = canContinueInCanvas ? args.prototypeGuidanceMarkdown : null;
   const designMarkdown = canContinueInCanvas
-    ? args.designMarkdown
+    ? promoteCanvasContinuationInDesignMarkdown(args.designMarkdown)
     : markDiagnosticMarkdown(blockPrototypeGuidanceInDesignMarkdown(args.designMarkdown, args.prototypeGuidanceMarkdown));
   const advancedBriefMarkdown = canContinueInCanvas ? args.advancedBriefMarkdown : markDiagnosticMarkdown(args.advancedBriefMarkdown);
   const implementationPlanMarkdown = canContinueInCanvas
@@ -1179,11 +1220,12 @@ export const renderInspiredesign = (args: {
   const renderedDesignAgentHandoff = canContinueInCanvas
     ? renderedDesignAgentHandoffBase
     : blockInspiredesignNotReadyArtifacts(renderedDesignAgentHandoffBase);
-  const contextPayload = {
-    brief: args.brief,
-    artifactAuthority,
-    evidenceAuthority,
-    productSuccess,
+	const contextPayload = {
+		brief: args.brief,
+		ready,
+		artifactAuthority,
+		evidenceAuthority,
+		productSuccess,
     advancedBriefMarkdown,
     urls: args.urls,
     designContract: markInspiredesignJsonArtifactAuthority(args.designContract, authorityFields),
@@ -1250,11 +1292,12 @@ export const renderInspiredesign = (args: {
   if (args.mode === "compact") {
     return {
       response: {
-        mode: args.mode,
-        summary,
-        ...handoff,
-        artifactAuthority,
-        productSuccess,
+				mode: args.mode,
+				summary,
+				...handoff,
+				ready,
+				artifactAuthority,
+				productSuccess,
         evidenceAuthority,
         ...captureAttemptFields,
         meta: metaWithAuthority
@@ -1275,9 +1318,10 @@ export const renderInspiredesign = (args: {
         designContract: markInspiredesignJsonArtifactAuthority(args.designContract, authorityFields),
         generationPlan: markInspiredesignJsonArtifactAuthority(args.generationPlan, authorityFields),
         implementationPlan: markInspiredesignJsonArtifactAuthority(args.implementationPlan, authorityFields),
-        prototypeGuidanceMarkdown,
-        artifactAuthority,
-        productSuccess,
+				prototypeGuidanceMarkdown,
+				ready,
+				artifactAuthority,
+				productSuccess,
         evidenceAuthority,
         evidence: evidenceArtifact,
         visualEvidence,
@@ -1301,9 +1345,10 @@ export const renderInspiredesign = (args: {
         mode: args.mode,
         markdown: designMarkdown,
         implementationPlanMarkdown,
-        prototypeGuidanceMarkdown,
-        artifactAuthority,
-        productSuccess,
+				prototypeGuidanceMarkdown,
+				ready,
+				artifactAuthority,
+				productSuccess,
         evidenceAuthority,
         ...handoff,
         ...captureAttemptFields,
@@ -1315,9 +1360,10 @@ export const renderInspiredesign = (args: {
   if (args.mode === "context") {
     return {
       response: {
-        mode: args.mode,
-        artifactAuthority,
-        productSuccess,
+				mode: args.mode,
+				ready,
+				artifactAuthority,
+				productSuccess,
         evidenceAuthority,
         context: contextPayload,
         ...handoff,
@@ -1330,9 +1376,10 @@ export const renderInspiredesign = (args: {
 
   return {
     response: {
-      mode: "path",
-      ...handoff,
-      artifactAuthority,
+			mode: "path",
+			...handoff,
+			ready,
+			artifactAuthority,
       productSuccess,
       evidenceAuthority,
       ...captureAttemptFields,

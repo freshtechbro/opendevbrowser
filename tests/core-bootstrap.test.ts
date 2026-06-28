@@ -12,6 +12,7 @@ const managerInstances: Array<{
 }> = [];
 const runnerInstances: Array<{ manager: unknown }> = [];
 const skillsInstances: Array<{ root: string; paths: string[] }> = [];
+const relayOptions: Array<{ discoveryPort?: number }> = [];
 
 let lastRelay: {
   status: ReturnType<typeof vi.fn>;
@@ -76,7 +77,8 @@ vi.mock("../src/relay/relay-server", () => ({
     setStoreAgentPayloadHandler = vi.fn((handler: (command: AnnotationCommand) => Promise<AnnotationResponse>) => {
       lastStoreAgentPayloadHandler = handler;
     });
-    constructor() {
+    constructor(options: { discoveryPort?: number } = {}) {
+      relayOptions.push(options);
       registerLastRelay(this);
     }
   }
@@ -99,6 +101,7 @@ const makeConfig = (overrides: Partial<OpenDevBrowserConfig> = {}): OpenDevBrows
   skills: { nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   continuity: { enabled: true, filePath: "/tmp/continuity.md", nudge: { enabled: true, keywords: [], maxAgeMs: 60000 } },
   relayPort: 8787,
+  discoveryPort: 8787,
   relayToken: "token",
   daemonPort: 8788,
   daemonToken: "daemon-token",
@@ -116,6 +119,7 @@ describe("createOpenDevBrowserCore", () => {
     managerInstances.length = 0;
     runnerInstances.length = 0;
     skillsInstances.length = 0;
+    relayOptions.length = 0;
     lastRelay = null;
     lastStoreAgentPayloadHandler = null;
     console.warn = vi.fn();
@@ -148,6 +152,16 @@ describe("createOpenDevBrowserCore", () => {
     expect(core.automationCoordinator).toBeTruthy();
     expect(typeof core.observeDesktopAndVerify).toBe("function");
     expect(typeof core.getExtensionPath).toBe("function");
+  });
+
+  it("passes the configured discovery port to the relay", async () => {
+    const { createOpenDevBrowserCore } = await import("../src/core/bootstrap");
+    createOpenDevBrowserCore({
+      directory: "/tmp/root",
+      config: makeConfig({ relayPort: 49152, discoveryPort: 49153 })
+    });
+
+    expect(relayOptions).toEqual([{ discoveryPort: 49153 }]);
   });
 
   it("prefers a bounded worktree when cwd lookup throws", async () => {

@@ -4,6 +4,10 @@ import type { GuidanceContext } from "./types";
 export type InspiredesignGuidanceQualitySource = {
   rankedReferenceCount: number;
   rankedReferenceUrls?: string[];
+  authoritativeReferenceCount?: number;
+  snapshotReadyReferenceCount?: number;
+  motionReadyReferenceCount?: number;
+  pinMediaReadyReferenceCount?: number;
   rejectedReferenceCount: number;
   topReferenceScore?: number;
   topReferenceConfidence?: number;
@@ -54,6 +58,8 @@ export type InspiredesignGuidanceSource = {
 const HARD_PROVIDER_FAILURE_REASON_CODES = new Set([
   "auth_required",
   "challenge_detected",
+  "cooldown_active",
+  "ip_blocked",
   "policy_blocked",
   "rate_limited",
   "token_required"
@@ -78,20 +84,25 @@ const hasAcceptedUserSuppliedSiteRecipeReferenceUrl = (source: InspiredesignGuid
     .map(normalizeComparableUrl)
     .filter((url): url is string => typeof url === "string"));
   if (rankedReferenceUrls.size === 0) return false;
-  const requestedSiteRecipeIds = new Set(source.requestedProviders
-    .map((providerId) => resolveSiteRecipeForProvider(providerId)?.id)
-    .filter((recipeId): recipeId is string => typeof recipeId === "string"));
   return (source.urls ?? []).some((url) => {
     const recipeId = resolveSiteRecipeForUrl(url)?.id;
     if (!recipeId) return false;
-    if (requestedSiteRecipeIds.size > 0 && !requestedSiteRecipeIds.has(recipeId)) return false;
     const normalizedUrl = normalizeComparableUrl(url);
     return normalizedUrl !== null && rankedReferenceUrls.has(normalizedUrl);
   });
 };
 
+const positiveCount = (value: number | undefined): number => {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+};
+
+const artifactReadyReferenceCount = (source: InspiredesignGuidanceSource): number => (
+  positiveCount(source.quality.snapshotReadyReferenceCount)
+  + positiveCount(source.quality.motionReadyReferenceCount)
+  + positiveCount(source.quality.pinMediaReadyReferenceCount)
+);
+
 const hasHardProviderFailureSignal = (source: InspiredesignGuidanceSource): boolean => {
-  if (hasAcceptedUserSuppliedSiteRecipeReferenceUrl(source)) return false;
   const discoveryHasHardFailure = (source.discovery.hardFailureReasonCodes ?? [])
     .some((reasonCode) => HARD_PROVIDER_FAILURE_REASON_CODES.has(reasonCode));
   const primaryConstraintHasHardFailure = source.primaryConstraint?.reasonCode
@@ -102,6 +113,7 @@ const hasHardProviderFailureSignal = (source: InspiredesignGuidanceSource): bool
 
 const hasProviderUnavailableSignal = (source: InspiredesignGuidanceSource): boolean => {
   if (hasHardProviderFailureSignal(source)) return true;
+  if (hasAcceptedUserSuppliedSiteRecipeReferenceUrl(source)) return false;
   if (source.metrics.referenceCount > 0 && source.quality.rankedReferenceCount > 0) return false;
   if (source.discovery.requested && source.discovery.acceptedUrls.length === 0 && source.discovery.failures > 0) return true;
   if (source.discovery.failure && source.discovery.acceptedUrls.length === 0) return true;
@@ -127,6 +139,13 @@ const hasAllAttemptRequiredEvidenceFailure = (source: InspiredesignGuidanceSourc
     || (source.quality.allAttemptMotionFailureCount ?? 0) > 0;
 };
 
+const hasMissingArtifactBackedAuthority = (source: InspiredesignGuidanceSource): boolean => {
+  if (source.metrics.referenceEvidenceRequired === false) return false;
+  if (typeof source.quality.authoritativeReferenceCount !== "number") return true;
+  return source.quality.authoritativeReferenceCount < source.quality.rankedReferenceCount
+    || artifactReadyReferenceCount(source) < source.quality.rankedReferenceCount;
+};
+
 const reasonCodeForInspiredesign = (source: InspiredesignGuidanceSource): string => {
   if (hasProviderUnavailableSignal(source)) return "provider_unavailable";
   if (source.quality.diagnosticOnlyReasons.length > 0 && source.quality.rankedReferenceCount === 0) return "diagnostic_only";
@@ -137,6 +156,7 @@ const reasonCodeForInspiredesign = (source: InspiredesignGuidanceSource): string
   }
   if (source.quality.topReferenceIntentMatched === false) return "off_brief_reference";
   if (hasWeakTopReference(source)) return "weak_reference";
+  if (hasMissingArtifactBackedAuthority(source)) return "artifact_authority_missing";
   return "design_ready";
 };
 
@@ -180,6 +200,18 @@ export const createInspiredesignGuidanceContext = (
       failedCaptureCount: source.metrics.failedCaptureCount,
       visualEvidenceRequired: source.metrics.visualEvidenceRequired,
       rankedReferenceCount: source.quality.rankedReferenceCount,
+      ...(typeof source.quality.authoritativeReferenceCount === "number"
+        ? { authoritativeReferenceCount: source.quality.authoritativeReferenceCount }
+        : {}),
+      ...(typeof source.quality.snapshotReadyReferenceCount === "number"
+        ? { snapshotReadyReferenceCount: source.quality.snapshotReadyReferenceCount }
+        : {}),
+      ...(typeof source.quality.motionReadyReferenceCount === "number"
+        ? { motionReadyReferenceCount: source.quality.motionReadyReferenceCount }
+        : {}),
+      ...(typeof source.quality.pinMediaReadyReferenceCount === "number"
+        ? { pinMediaReadyReferenceCount: source.quality.pinMediaReadyReferenceCount }
+        : {}),
       rejectedReferenceCount: source.quality.rejectedReferenceCount,
       missingScreenshotCount: source.quality.missingScreenshotCount,
       allAttemptFailedCaptureCount: source.quality.allAttemptFailedCaptureCount,

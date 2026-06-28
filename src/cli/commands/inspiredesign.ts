@@ -66,10 +66,34 @@ const readInspiredesignReadiness = (data: unknown): string | undefined => {
   return typeof readiness === "string" && readiness.length > 0 ? readiness : undefined;
 };
 
+const readInspiredesignAuthorityRecord = (data: unknown): Record<string, unknown> | undefined => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
+  const record = data as Record<string, unknown>;
+  if ("productSuccess" in record || "artifactAuthority" in record || "evidenceAuthority" in record) return record;
+  const meta = record.meta;
+  return meta && typeof meta === "object" && !Array.isArray(meta)
+    ? meta as Record<string, unknown>
+    : undefined;
+};
+
+const buildInspiredesignReadinessSuffix = (data: unknown): string | undefined => {
+  const readiness = readInspiredesignReadiness(data);
+  if (!readiness) return undefined;
+  const authority = readInspiredesignAuthorityRecord(data);
+  if (!authority || authority.productSuccess !== false) return `readiness=${readiness}`;
+  const artifactAuthority = typeof authority.artifactAuthority === "string"
+    ? authority.artifactAuthority
+    : "unknown";
+  const evidenceAuthority = typeof authority.evidenceAuthority === "string"
+    ? authority.evidenceAuthority
+    : "unknown";
+  return `guidanceReadiness=${readiness} productSuccess=false artifactAuthority=${artifactAuthority} evidenceAuthority=${evidenceAuthority}`;
+};
+
 const buildInspiredesignCompletionMessage = (data: unknown): string => {
   const baseMessage = buildWorkflowCompletionMessage("Inspiredesign workflow", data);
-  const readiness = readInspiredesignReadiness(data);
-  return readiness ? `${baseMessage} readiness=${readiness}` : baseMessage;
+  const readinessSuffix = buildInspiredesignReadinessSuffix(data);
+  return readinessSuffix ? `${baseMessage} ${readinessSuffix}` : baseMessage;
 };
 
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
@@ -360,17 +384,19 @@ export async function runInspiredesignCommand(args: ParsedArgs) {
     cookiePolicyOverride: parsed.cookiePolicyOverride
   });
 
-  const readiness = readInspiredesignReadiness(data);
   const responseRecord = data && typeof data === "object" && !Array.isArray(data)
     ? data as Record<string, unknown>
     : undefined;
   const productReadiness = responseRecord
     ? resolveInspiredesignUserFacingProductReadinessFields(responseRecord)
     : undefined;
+  const messageData = responseRecord && productReadiness
+    ? { ...responseRecord, ...productReadiness }
+    : data;
   return {
     success: true,
     ...(productReadiness ? productReadiness : {}),
-    message: buildInspiredesignCompletionMessage(data),
+    message: buildInspiredesignCompletionMessage(messageData),
     data
   };
 }

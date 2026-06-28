@@ -106,6 +106,10 @@ const skillDocMarkers = [
   "plan_accepted",
   "recommendedNextCommands",
   "nextStepGuidance.readiness",
+  "productSuccess=true",
+  "artifactAuthority=product_ready",
+  "evidenceAuthority=pin_media_ready",
+  "pin-media-index.json",
   "social/pinterest",
   "canvas.plan.set",
   "canvas.starter.list",
@@ -126,6 +130,14 @@ const skillDocMarkers = [
   "ISSUE-12",
   "v0.dev/docs/prompting/text",
   "docs.lovable.dev/prompting/prompting-best-practices"
+];
+
+const researchHarvestMarkers = [
+  "canonical Pinterest pin-media harvests",
+  "evidenceAuthority=pin_media_ready",
+  "ranked-references.json` is non-empty",
+  "pin-media-index.json` is manifest-backed",
+  "persisted first-party pin-media file"
 ];
 
 const designWorkflowMarkers = [
@@ -492,6 +504,13 @@ const designWorkflowDoc = fs.readFileSync(fullPath("artifacts/design-workflows.m
 for (const marker of designWorkflowMarkers) {
   if (!designWorkflowDoc.includes(marker)) {
     failures.push(`design-workflows missing marker: ${marker}`);
+  }
+}
+
+const researchHarvestDoc = fs.readFileSync(fullPath("artifacts/research-harvest-workflow.md"), "utf8");
+for (const marker of researchHarvestMarkers) {
+  if (!researchHarvestDoc.includes(marker)) {
+    failures.push(`research-harvest-workflow missing marker: ${marker}`);
   }
 }
 

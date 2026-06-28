@@ -75,12 +75,14 @@ Harvest defaults:
 
 ## Required Artifact Review
 
-After every harvest, inspect `nextStepGuidance` before `/canvas` or code changes:
+After every harvest, inspect top-level product authority fields before `/canvas` or code changes:
 
-- `readiness="ready"`: continue only after artifact review.
-- `readiness="needs_recovery"`, `"blocked"`, or `"diagnostic_only"`: follow the primary recovery action first.
-- `doNotProceedIf`: treat each matching condition as a hard stop for Canvas continuation.
-- `paramsExamples` and `validationChecks`: use these as the next command and proof checklist.
+- Continue only when `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, non-diagnostic `evidenceAuthority`, and manifest-backed reference evidence agree.
+- For canonical Pinterest pin-media harvests, continue only when `evidenceAuthority=pin_media_ready`, `ranked-references.json` is non-empty, and `pin-media-index.json` is manifest-backed with at least one persisted first-party pin-media file.
+- Treat `nextStepGuidance.readiness` as recovery or continuation context only, not as the design-ready gate.
+- For `nextStepGuidance.readiness="needs_recovery"`, `"blocked"`, or `"diagnostic_only"`, follow the primary recovery action first.
+- Treat each matching `nextStepGuidance.doNotProceedIf` condition as a hard stop for Canvas continuation.
+- Use `paramsExamples` and `validationChecks` as the next command and proof checklist.
 
 Then inspect these files before `/canvas` or code changes:
 
@@ -91,7 +93,7 @@ Then inspect these files before `/canvas` or code changes:
 5. `pin-media-evidence.json` and `pin-media-index.json` for persisted first-party Pinterest pin media proof. Remote media URLs alone are not proof.
 6. PNG files under `visual-evidence/<referenceId>/viewport.png` and pin-media files under `pin-media-evidence/<referenceId>/` for actual visual review.
 7. `meta-prompt.md` for borrow guidance, reject guidance, motion posture, accessibility constraints, no-copy warning, and validation gates.
-8. `canvas-plan.request.json` and `design-agent-handoff.json` only after the visual synthesis is accepted and `nextStepGuidance.readiness` is `ready`.
+8. `canvas-plan.request.json` and `design-agent-handoff.json` only after the visual synthesis is accepted and the output reports top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, and non-diagnostic `evidenceAuthority`. For canonical Pinterest pin-media harvests, this means `evidenceAuthority=pin_media_ready`, non-empty `ranked-references.json`, and manifest-backed `pin-media-index.json`.
 
 JSON files are metadata-only. They must not contain base64 screenshots, absolute temp paths, full DOM, full snapshot text, or remote media as product-ready proof.
 

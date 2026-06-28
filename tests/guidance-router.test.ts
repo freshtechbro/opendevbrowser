@@ -40,7 +40,14 @@ describe("GuidanceRouter", () => {
     const guidance = routeNextStepGuidance({
       workflow: "inspiredesign",
       reasonCode: "design_ready",
-      evidence: { referenceCount: 2, rankedReferenceCount: 2, topReferenceScore: 80, topReferenceConfidence: 0.8 }
+      evidence: {
+        referenceCount: 2,
+        rankedReferenceCount: 2,
+        authoritativeReferenceCount: 2,
+        snapshotReadyReferenceCount: 2,
+        topReferenceScore: 80,
+        topReferenceConfidence: 0.8
+      }
     });
 
     expect(guidance.readiness).toBe("ready");
@@ -60,6 +67,25 @@ describe("GuidanceRouter", () => {
 
     expect(guidance.readiness).toBe("needs_recovery");
     expect(guidance.reasonCode).toBe("weak_reference");
+    expect(guidance.commands.map((entry) => entry.id)).not.toContain("canvas-session-open");
+    expect(guidance.commands.map((entry) => entry.id)).not.toContain("canvas-plan-set");
+  });
+
+  it("does not emit Canvas handoff commands when artifact authority is missing", () => {
+    const guidance = routeNextStepGuidance({
+      workflow: "inspiredesign",
+      reasonCode: "artifact_authority_missing",
+      evidence: {
+        referenceCount: 1,
+        rankedReferenceCount: 1,
+        authoritativeReferenceCount: 0,
+        topReferenceScore: 80,
+        topReferenceConfidence: 0.8
+      }
+    });
+
+    expect(guidance.readiness).toBe("needs_recovery");
+    expect(guidance.reasonCode).toBe("artifact_authority_missing");
     expect(guidance.commands.map((entry) => entry.id)).not.toContain("canvas-session-open");
     expect(guidance.commands.map((entry) => entry.id)).not.toContain("canvas-plan-set");
   });

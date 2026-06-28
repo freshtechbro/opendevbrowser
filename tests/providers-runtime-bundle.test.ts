@@ -94,6 +94,7 @@ const makeConfig = (
     ...overrides
   },
   relayPort: 8787,
+  discoveryPort: 8787,
   relayToken: false,
   inspiredesign: {
     mediaAnalysis: {}

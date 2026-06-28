@@ -71,7 +71,8 @@ cat skills/opendevbrowser-design-agent/artifacts/existing-surface-adaptation.md
 $CLI_PREFIX status --daemon --output-format json
 # Continue only when data.fingerprintCurrent === true, data.relay.extensionConnected === true, and data.relay.extensionHandshakeComplete === true.
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
-# Inspect nextStepGuidance.readiness and doNotProceedIf first. Use recovery-first guidance unless readiness is ready.
+# Inspect top-level ready, productSuccess, artifactAuthority, evidenceAuthority, ranked references, and nextStepGuidance.doNotProceedIf first.
+# Continue canonical Pinterest harvests only when ready=true, productSuccess=true, artifactAuthority=product_ready, evidenceAuthority=pin_media_ready, ranked references are non-empty, and pin-media-index.json is manifest-backed.
 $CLI_PREFIX launch --no-extension --start-url https://example.com
 $CLI_PREFIX goto --session-id <session-id> --url <reference-url>
 $CLI_PREFIX snapshot --session-id <session-id>

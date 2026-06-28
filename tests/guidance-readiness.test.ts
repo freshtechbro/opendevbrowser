@@ -10,7 +10,14 @@ const context = (overrides: Partial<GuidanceContext>): GuidanceContext => ({
 describe("classifyGuidanceReadiness", () => {
   it("classifies ready evidence", () => {
     expect(classifyGuidanceReadiness(context({
-      evidence: { referenceCount: 2, rankedReferenceCount: 2, topReferenceScore: 82, topReferenceConfidence: 0.82 }
+      evidence: {
+        referenceCount: 2,
+        rankedReferenceCount: 2,
+        authoritativeReferenceCount: 2,
+        snapshotReadyReferenceCount: 2,
+        topReferenceScore: 82,
+        topReferenceConfidence: 0.82
+      }
     }))).toBe("ready");
   });
 
@@ -35,6 +42,10 @@ describe("classifyGuidanceReadiness", () => {
   });
 
   it("classifies diagnostic-only evidence", () => {
+    expect(classifyGuidanceReadiness(context({
+      reasonCode: "diagnostic_only",
+      evidence: { referenceCount: 1, rankedReferenceCount: 1, diagnosticOnlyReasons: [] }
+    }))).toBe("diagnostic_only");
     expect(classifyGuidanceReadiness(context({
       evidence: { referenceCount: 1, rankedReferenceCount: 0, diagnosticOnlyReasons: ["cookie_or_consent_modal"] }
     }))).toBe("diagnostic_only");
@@ -66,6 +77,56 @@ describe("classifyGuidanceReadiness", () => {
     }))).toBe("needs_recovery");
   });
 
+  it("classifies ranked references without artifact-backed authority as recovery", () => {
+    expect(classifyGuidanceReadiness(context({
+      reasonCode: "artifact_authority_missing",
+      evidence: {
+        referenceCount: 1,
+        rankedReferenceCount: 1,
+        authoritativeReferenceCount: 0,
+        topReferenceScore: 82,
+        topReferenceConfidence: 0.82
+      }
+    }))).toBe("needs_recovery");
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 2,
+        rankedReferenceCount: 2,
+        authoritativeReferenceCount: 1,
+        snapshotReadyReferenceCount: 1,
+        topReferenceScore: 82,
+        topReferenceConfidence: 0.82
+      }
+    }))).toBe("needs_recovery");
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 1,
+        rankedReferenceCount: 1,
+        authoritativeReferenceCount: 1,
+        topReferenceScore: 82,
+        topReferenceConfidence: 0.82
+      }
+    }))).toBe("needs_recovery");
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 1,
+        rankedReferenceCount: 1,
+        topReferenceScore: 82,
+        topReferenceConfidence: 0.82
+      }
+    }))).toBe("needs_recovery");
+    expect(classifyGuidanceReadiness(context({
+      evidence: {
+        referenceCount: 2,
+        referenceEvidenceRequired: false,
+        rankedReferenceCount: 2,
+        authoritativeReferenceCount: 0,
+        topReferenceScore: 82,
+        topReferenceConfidence: 0.82
+      }
+    }))).toBe("ready");
+  });
+
   it("classifies no-ranked, missing-screenshot, auth-required, and boundary evidence branches", () => {
     expect(classifyGuidanceReadiness(context({
       reasonCode: "auth_required",
@@ -91,6 +152,8 @@ describe("classifyGuidanceReadiness", () => {
       evidence: {
         referenceCount: 1,
         rankedReferenceCount: 1,
+        authoritativeReferenceCount: 1,
+        snapshotReadyReferenceCount: 1,
         topReferenceScore: 50,
         topReferenceConfidence: 0.5,
         visualEvidenceRequired: false,
@@ -101,6 +164,8 @@ describe("classifyGuidanceReadiness", () => {
       evidence: {
         referenceCount: 2,
         rankedReferenceCount: 1,
+        authoritativeReferenceCount: 1,
+        snapshotReadyReferenceCount: 1,
         topReferenceScore: 80,
         topReferenceConfidence: 0.8,
         visualEvidenceRequired: true,
@@ -125,6 +190,8 @@ describe("classifyGuidanceReadiness", () => {
       evidence: {
         referenceCount: 1,
         rankedReferenceCount: 1,
+        authoritativeReferenceCount: 1,
+        snapshotReadyReferenceCount: 1,
         diagnosticOnlyReasons: ["cookie_or_consent_modal"],
         topReferenceScore: 80,
         topReferenceConfidence: 0.8
@@ -169,6 +236,8 @@ describe("classifyGuidanceReadiness", () => {
       evidence: {
         referenceCount: 1,
         rankedReferenceCount: 1,
+        authoritativeReferenceCount: 1,
+        snapshotReadyReferenceCount: 1,
         visualEvidenceRequired: true,
         topReferenceScore: 80,
         topReferenceConfidence: 0.8

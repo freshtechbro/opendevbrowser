@@ -746,6 +746,13 @@ describe("workflow skill packs", () => {
       },
       {
         skillName: "opendevbrowser-design-agent",
+        relativePath: "artifacts/research-harvest-workflow.md",
+        mutate: (content) => content.split("evidenceAuthority=pin_media_ready").join("non-diagnostic evidenceAuthority"),
+        expectedError: "research-harvest-workflow missing marker: evidenceAuthority=pin_media_ready",
+        dependencies: ["opendevbrowser-best-practices"]
+      },
+      {
+        skillName: "opendevbrowser-design-agent",
         relativePath: "SKILL.md",
         mutate: (content) => content.replace(
           ".tmp/canvas-plan.request.json",

@@ -232,7 +232,7 @@ describe("workflow tools", () => {
     expectArtifactPath(response.artifact_path as string, join(workspaceRoot, ".opendevbrowser"), "inspiredesign");
   });
 
-  it("produces product-ready Pinterest harvest from snapshot-ready public tool evidence", async () => {
+  it("keeps canonical Pinterest harvest diagnostic when public tool evidence is snapshot-only", async () => {
     const deps = makeDeps();
     deps.providerRuntime.fetch.mockResolvedValueOnce({
       ok: true,
@@ -284,9 +284,9 @@ describe("workflow tools", () => {
     } as never));
 
     expect(response.ok).toBe(true);
-    expect(response.productSuccess).toBe(true);
-    expect(response.artifactAuthority).toBe("product_ready");
-    expect(response.evidenceAuthority).toBe("snapshot_ready");
+    expect(response.productSuccess).toBe(false);
+    expect(response.artifactAuthority).toBe("diagnostic_only");
+    expect(response.evidenceAuthority).toBe("diagnostic_only");
   });
 
   it("uses workspace .opendevbrowser for omitted direct product-video output roots", async () => {

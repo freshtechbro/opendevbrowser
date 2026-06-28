@@ -1227,4 +1227,21 @@ describe("shopping-report", () => {
     expect(briefing.marketBaseline.medianTotal).toBe(200);
   });
 
+  it("uses total price as the deterministic tie-breaker for equal quality assessments", () => {
+    const briefing = buildShoppingBriefing(briefingInput({
+      offers: [
+        offer({ id: "lower-total", productId: "lower-total", amount: 100, dealScore: 0.8, url: "https://example.com/lower-total" }),
+        offer({ id: "higher-total", productId: "higher-total", title: "Anker Vertical Ergonomic Mouse", amount: 200, dealScore: 0.81, url: "https://example.com/higher-total" }),
+        offer({ id: "cad-total", productId: "cad-total", title: "Microsoft Sculpt Ergonomic Mouse", amount: 50, currency: "CAD", url: "https://example.ca/cad-total" })
+      ]
+    }));
+
+    expect(briefing.assessments.slice(0, 2).map((assessment) => assessment.evidence.offerId)).toEqual([
+      "lower-total",
+      "higher-total"
+    ]);
+    expect(briefing.marketBaseline.status).toBe("computed");
+    expect(briefing.warnings).toContain("currency coverage incomplete: 1 eligible different-currency offer(s) excluded from USD baseline");
+  });
+
 });

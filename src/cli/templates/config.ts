@@ -68,6 +68,7 @@ function buildConfigTemplate(relayToken: string, daemonToken: string): string {
   },
 
   "relayPort": 8787,
+  "discoveryPort": 8787,
   "relayToken": "${relayToken}",
   "daemonPort": 8788,
   "daemonToken": "${daemonToken}",

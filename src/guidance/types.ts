@@ -73,6 +73,10 @@ export type GuidanceEvidenceContext = {
   referenceCount?: number;
   referenceEvidenceRequired?: boolean;
   rankedReferenceCount?: number;
+  authoritativeReferenceCount?: number;
+  snapshotReadyReferenceCount?: number;
+  motionReadyReferenceCount?: number;
+  pinMediaReadyReferenceCount?: number;
   rejectedReferenceCount?: number;
   topReferenceScore?: number;
   topReferenceConfidence?: number;

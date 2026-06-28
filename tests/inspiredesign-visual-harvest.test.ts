@@ -960,6 +960,61 @@ describe("inspiredesign reference discovery helpers", () => {
         pinMediaIndex: undefined
       },
       {
+		label: "index reference id mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ referenceId: "other-pin-ref" })]
+		},
+		{
+		label: "index path mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ path: "pin-media-evidence/pin-ref/other.jpg" })]
+		},
+		{
+		label: "index hash mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ sha256: "b".repeat(64) })]
+		},
+		{
+		label: "index kind mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ kind: "video_poster" })]
+		},
+		{
+		label: "index content type mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ contentType: "image/webp" })]
+		},
+		{
+		label: "index bytes mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ bytes: validPinMedia.bytes + 1 })]
+		},
+		{
+		label: "index width mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ width: 1199 })]
+		},
+		{
+		label: "index height mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ height: 1599 })]
+		},
+		{
+		label: "index source mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ sourceUrl: "https://www.pinterest.com/pin/9999999999/" })]
+		},
+		{
+		label: "index media URL mismatch",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ mediaUrl: "https://i.pinimg.com/originals/other.jpg" })]
+		},
+		{
+		label: "index invalid media URL",
+		pinMedia: validPinMedia,
+		pinMediaIndex: [withIndex({ mediaUrl: "not a url" })]
+		},
+		{
         label: "remote media URL",
         pinMedia: withPinMedia({ mediaUrl: "https://example.com/not-first-party.jpg" }),
         pinMediaIndex: [withIndex({ mediaUrl: "https://example.com/not-first-party.jpg" })]

@@ -61,8 +61,8 @@ const makePinterestPinMediaIndexEntry = (overrides: Record<string, unknown> = {}
 describe("inspiredesign product readiness helpers", () => {
   it("reads explicit daemon product authority without deriving conflicting readiness", () => {
     expect(INSPIREDESIGN_FINAL_EVIDENCE_AUTHORITY_PRECEDENCE).toEqual([
-      "motion_ready",
       "pin_media_ready",
+      "motion_ready",
       "snapshot_ready"
     ]);
     expect(resolveInspiredesignFinalEvidenceAuthority({
@@ -82,7 +82,77 @@ describe("inspiredesign product readiness helpers", () => {
 
     expect(readExplicitInspiredesignProductReadinessFields({
       ready: true,
+		harvestReadiness: "ready",
+		nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
+		productSuccess: true,
+		artifactAuthority: "product_ready",
+		evidenceAuthority: "snapshot_ready",
+		rankedReferenceCount: 1,
+		authoritativeReferenceCount: 1,
+		snapshotReadyReferenceCount: 1,
+		motionReadyReferenceCount: 0,
+		pinMediaReadyReferenceCount: 0,
+			rankedReferences: [{
+			id: "snapshot-ref",
+			url: "https://example.com/snapshot-reference",
+			evidenceAuthority: "snapshot_ready"
+			}],
+			screenshotIndex: [{
+			referenceId: "snapshot-ref",
+			url: "https://example.com/snapshot-reference",
+			sourceUrl: "https://example.com/snapshot-reference",
+			path: "visual-evidence/snapshot-ref/viewport.png",
+		sha256: "a".repeat(64),
+		bytes: 2048,
+		warnings: []
+		}]
+	})).toEqual(expect.objectContaining({
+		ready: true,
       readiness: "ready",
+		guidanceReady: true,
+		productSuccess: true,
+		artifactAuthority: "product_ready",
+		evidenceAuthority: "snapshot_ready"
+	}));
+
+	expect(readExplicitInspiredesignProductReadinessFields({
+		ready: false,
+		harvestReadiness: "ready",
+		nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
+		productSuccess: true,
+		artifactAuthority: "product_ready",
+		evidenceAuthority: "snapshot_ready",
+		rankedReferenceCount: 1,
+		authoritativeReferenceCount: 1,
+		snapshotReadyReferenceCount: 1,
+		motionReadyReferenceCount: 0,
+		pinMediaReadyReferenceCount: 0,
+      rankedReferences: [{
+        id: "snapshot-ref",
+        url: "https://example.com/snapshot-reference",
+        evidenceAuthority: "snapshot_ready"
+      }],
+      screenshotIndex: [{
+        referenceId: "snapshot-ref",
+        url: "https://example.com/snapshot-reference",
+        sourceUrl: "https://example.com/snapshot-reference",
+        path: "visual-evidence/snapshot-ref/viewport.png",
+			sha256: "a".repeat(64),
+			bytes: 2048,
+			warnings: []
+		}]
+	})).toEqual(expect.objectContaining({
+		ready: false,
+		readiness: "ready",
+		guidanceReady: false,
+		productSuccess: false,
+		artifactAuthority: "diagnostic_only",
+		evidenceAuthority: "diagnostic_only"
+	}));
+
+	expect(readExplicitInspiredesignProductReadinessFields({
+		ready: true,
+		readiness: "ready",
       harvestReadiness: "ready",
       nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
       productSuccess: true,
@@ -108,19 +178,19 @@ describe("inspiredesign product readiness helpers", () => {
         bytes: 2048,
         warnings: []
       }]
-    })).toEqual({
-      ready: true,
-      readiness: "ready",
-      harvestReadiness: "ready",
-      productSuccess: true,
-      artifactAuthority: "product_ready",
-      evidenceAuthority: "snapshot_ready",
-      rankedReferenceCount: 1,
-      authoritativeReferenceCount: 1,
-      snapshotReadyReferenceCount: 1,
-		motionReadyReferenceCount: 0,
-		pinMediaReadyReferenceCount: 0
-    });
+	    })).toEqual(expect.objectContaining({
+	      ready: false,
+	      readiness: "ready",
+	      guidanceReady: true,
+	      productSuccess: false,
+	      artifactAuthority: "diagnostic_only",
+	      evidenceAuthority: "diagnostic_only",
+	      rankedReferenceCount: 1,
+	      authoritativeReferenceCount: 1,
+	      snapshotReadyReferenceCount: 1,
+			motionReadyReferenceCount: 0,
+			pinMediaReadyReferenceCount: 0
+	    }));
 
     expect(readExplicitInspiredesignProductReadinessFields({
       productSuccess: true,
@@ -142,7 +212,40 @@ describe("inspiredesign product readiness helpers", () => {
 
     expect(readExplicitInspiredesignProductReadinessFields({
       ready: true,
+		productSuccess: true,
+		artifactAuthority: "product_ready",
+		evidenceAuthority: "snapshot_ready",
+		rankedReferenceCount: 1,
+		authoritativeReferenceCount: 1,
+		snapshotReadyReferenceCount: 1,
+		motionReadyReferenceCount: 0,
+		pinMediaReadyReferenceCount: 0,
+		rankedReferences: [{
+		id: "site-ref",
+		url: "https://example.com/landing-reference",
+		evidenceAuthority: "snapshot_ready"
+		}],
+		screenshotIndex: [{
+		referenceId: "site-ref",
+		url: "https://example.com/landing-reference",
+		sourceUrl: "https://example.com/landing-reference",
+		path: "visual-evidence/site-ref/viewport.png",
+		sha256: "b".repeat(64),
+		bytes: 2048,
+		warnings: []
+		}]
+	})).toEqual(expect.objectContaining({
+		ready: false,
       readiness: "ready",
+		guidanceReady: true,
+		productSuccess: false,
+		artifactAuthority: "diagnostic_only",
+		evidenceAuthority: "diagnostic_only"
+	}));
+
+	expect(readExplicitInspiredesignProductReadinessFields({
+		ready: true,
+		readiness: "ready",
       harvestReadiness: "ready",
       nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
       productSuccess: false,
@@ -169,8 +272,10 @@ describe("inspiredesign product readiness helpers", () => {
         warnings: []
       }]
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only",
@@ -207,8 +312,10 @@ describe("inspiredesign product readiness helpers", () => {
         warnings: []
       }]
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only",
@@ -234,8 +341,10 @@ describe("inspiredesign product readiness helpers", () => {
         warnings: []
       }]
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only",
@@ -289,6 +398,8 @@ describe("inspiredesign product readiness helpers", () => {
 	})).toEqual({
 		ready: false,
 		readiness: "unknown",
+		guidanceReady: false,
+		guidanceReadiness: "unknown",
 		harvestReadiness: "unknown",
 		productSuccess: false,
 		artifactAuthority: "diagnostic_only",
@@ -308,8 +419,10 @@ describe("inspiredesign product readiness helpers", () => {
 		artifactAuthority: "diagnostic_only",
 		evidenceAuthority: "diagnostic_only"
 	})).toEqual(expect.objectContaining({
-		ready: true,
+		ready: false,
 		readiness: "ready",
+		guidanceReady: true,
+		guidanceReadiness: "ready",
 		harvestReadiness: "ready-for-reporting",
 		productSuccess: false,
 		rankedReferenceCount: 0
@@ -351,8 +464,10 @@ describe("inspiredesign product readiness helpers", () => {
       snapshotReadyReferenceCount: 1,
       motionReadyReferenceCount: 0
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       harvestReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
@@ -378,6 +493,8 @@ describe("inspiredesign product readiness helpers", () => {
     })).toEqual({
       ready: false,
       readiness: "diagnostic_only",
+      guidanceReady: false,
+      guidanceReadiness: "diagnostic_only",
       harvestReadiness: "diagnostic_only",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
@@ -402,7 +519,9 @@ describe("inspiredesign product readiness helpers", () => {
       snapshotReadyReferenceCount: 0,
       motionReadyReferenceCount: 0
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
       evidenceAuthority: "diagnostic_only"
@@ -422,8 +541,10 @@ describe("inspiredesign product readiness helpers", () => {
 		pinMediaReadyReferenceCount: 0
       }
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       harvestReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
@@ -448,8 +569,10 @@ describe("inspiredesign product readiness helpers", () => {
 		pinMediaReadyReferenceCount: 0
       }
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       harvestReadiness: "ready",
       productSuccess: false,
       artifactAuthority: "diagnostic_only",
@@ -469,8 +592,10 @@ describe("inspiredesign product readiness helpers", () => {
         rankedReferenceCount: 2
       }
     })).toEqual(expect.objectContaining({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       harvestReadiness: "ready",
       rankedReferenceCount: 2,
       productSuccess: false,
@@ -641,12 +766,11 @@ describe("inspiredesign product readiness helpers", () => {
 	});
 
 	it("requires artifact-backed integer counts before preserving explicit product readiness", () => {
-	const explicitScreenshot = {
-		referenceId: "explicit-pin",
-		url: "https://www.pinterest.com/pin/123/",
-		sourceUrl: "https://www.pinterest.com/pin/123/",
-		pinterestPageQuality: "pin_media",
-		path: "visual-evidence/explicit-pin/viewport.png",
+		const explicitScreenshot = {
+		referenceId: "explicit-ref",
+		url: "https://example.com/explicit-reference",
+		sourceUrl: "https://example.com/explicit-reference",
+		path: "visual-evidence/explicit-ref/viewport.png",
 		sha256: "a".repeat(64),
 		bytes: 2048,
 		warnings: []
@@ -664,11 +788,11 @@ describe("inspiredesign product readiness helpers", () => {
 		snapshotReadyReferenceCount: 1,
 		motionReadyReferenceCount: 0,
 		pinMediaReadyReferenceCount: 0,
-		rankedReferences: [{
-		id: "explicit-pin",
-		url: "https://www.pinterest.com/pin/123/",
-		evidenceAuthority: "snapshot_ready"
-		}],
+			rankedReferences: [{
+			id: "explicit-ref",
+			url: "https://example.com/explicit-reference",
+			evidenceAuthority: "snapshot_ready"
+			}],
 		screenshotIndex: [explicitScreenshot]
 	};
 
@@ -754,20 +878,44 @@ describe("inspiredesign product readiness helpers", () => {
       }]
     })).toBe(true);
 
+	expect(isInspiredesignAuthoritativeRankedReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		evidenceAuthority: "pin_media_ready"
+	}, {
+		pinMedia: [makePinterestPinMediaIndexEntry()]
+	})).toBe(true);
+
+	expect(isInspiredesignAuthoritativeRankedReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		evidenceAuthority: "pin_media_ready"
+	}, {
+		pinMedia: [{ ...makePinterestPinMediaIndexEntry(), bytes: 1 }]
+	})).toBe(false);
+
+	expect(isInspiredesignAuthoritativeRankedReference({
+		id: "pin-ref",
+		url: "https://www.pinterest.com/pin/1234567890/",
+		evidenceAuthority: "ranked_reference"
+	}, {
+		pinMedia: [makePinterestPinMediaIndexEntry()]
+	})).toBe(false);
+
     expect(deriveInspiredesignProductReadinessFields({
       nextStepGuidance: { readiness: "ready", doNotProceedIf: ["rankedReferences is empty"] },
       rankedReferences: [
-        {
-          id: "pin-123",
-          url: "https://www.pinterest.com/pin/123/",
-          evidenceAuthority: "snapshot_ready",
-          capturedVia: ["fetch", "snapshot_ready"]
-        },
-        {
-          id: "pin-456",
-          url: "https://www.pinterest.com/pin/456/",
-          evidenceAuthority: "motion_ready",
-          capturedVia: ["fetch"]
+	        {
+	          id: "snapshot-ref",
+	          url: "https://example.com/snapshot-reference",
+	          evidenceAuthority: "snapshot_ready",
+	          capturedVia: ["fetch", "snapshot_ready"]
+	        },
+	        {
+	          id: "motion-ref",
+	          url: "https://example.com/motion-reference",
+	          evidenceAuthority: "motion_ready",
+	          capturedVia: ["fetch"]
         },
         {
           url: "https://example.com/reference",
@@ -775,11 +923,10 @@ describe("inspiredesign product readiness helpers", () => {
         }
       ],
       screenshotIndex: [{
-        referenceId: "pin-123",
-        url: "https://www.pinterest.com/pin/123/",
-        sourceUrl: "https://www.pinterest.com/pin/123/",
-		pinterestPageQuality: "pin_media",
-        path: "visual-evidence/pin-123/viewport.png",
+	        referenceId: "snapshot-ref",
+	        url: "https://example.com/snapshot-reference",
+	        sourceUrl: "https://example.com/snapshot-reference",
+	        path: "visual-evidence/snapshot-ref/viewport.png",
         sha256: "a".repeat(64),
         bytes: 2048,
         warnings: []
@@ -792,19 +939,16 @@ describe("inspiredesign product readiness helpers", () => {
         warnings: []
       }],
       motionEvidence: [{
-        referenceId: "pin-456",
-        url: "https://www.pinterest.com/pin/456/",
-        motion: {
+	        referenceId: "motion-ref",
+	        url: "https://example.com/motion-reference",
+	        motion: {
             status: "captured",
             authority: "design_evidence",
 	          diagnostic: false,
 	          diagnosticReasons: [],
-	          sourceUrl: "https://www.pinterest.com/pin/456/",
-	          startedSourceUrl: "https://www.pinterest.com/pin/456/",
-	          endedSourceUrl: "https://www.pinterest.com/pin/456/",
-	pinterestPageQuality: "pin_media",
-	startedPinterestPageQuality: "pin_media",
-	endedPinterestPageQuality: "pin_media",
+		          sourceUrl: "https://example.com/motion-reference",
+		          startedSourceUrl: "https://example.com/motion-reference",
+		          endedSourceUrl: "https://example.com/motion-reference",
 	          frameCount: 3,
           replay: { path: "motion-evidence/pin-456/replay.json", sha256: "c".repeat(64), bytes: 64 },
           preview: { path: "motion-evidence/pin-456/preview.png", sha256: "d".repeat(64), bytes: 2048 }
@@ -917,15 +1061,15 @@ describe("inspiredesign product readiness helpers", () => {
       rankedReferences: [genericMotionReference],
       motionEvidence: genericMotionEvidence,
       qualitySummary: { missingScreenshotCount: 0 }
-    })).toEqual(expect.objectContaining({
-      productSuccess: true,
-      artifactAuthority: "product_ready",
-      evidenceAuthority: "motion_ready",
-      authoritativeReferenceCount: 1,
-      snapshotReadyReferenceCount: 0,
-      motionReadyReferenceCount: 1,
-      pinMediaReadyReferenceCount: 0
-    }));
+	    })).toEqual(expect.objectContaining({
+	      productSuccess: true,
+	      artifactAuthority: "product_ready",
+	      evidenceAuthority: "motion_ready",
+	      authoritativeReferenceCount: 1,
+	      snapshotReadyReferenceCount: 0,
+	      motionReadyReferenceCount: 1,
+	      pinMediaReadyReferenceCount: 0
+	    }));
 
     expect(deriveInspiredesignProductReadinessFields({
       nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
@@ -941,15 +1085,15 @@ describe("inspiredesign product readiness helpers", () => {
       }],
       motionEvidence: genericMotionEvidence,
       qualitySummary: { missingScreenshotCount: 0 }
-    })).toEqual(expect.objectContaining({
-      productSuccess: true,
-      artifactAuthority: "product_ready",
-      evidenceAuthority: "motion_ready",
-      authoritativeReferenceCount: 1,
-      snapshotReadyReferenceCount: 0,
-      motionReadyReferenceCount: 1,
-      pinMediaReadyReferenceCount: 0
-    }));
+	    })).toEqual(expect.objectContaining({
+	      productSuccess: true,
+	      artifactAuthority: "product_ready",
+	      evidenceAuthority: "motion_ready",
+	      authoritativeReferenceCount: 1,
+	      snapshotReadyReferenceCount: 0,
+	      motionReadyReferenceCount: 1,
+	      pinMediaReadyReferenceCount: 0
+	    }));
 
     const mixedPinterestReference = {
       id: "pin-ref",
@@ -982,15 +1126,15 @@ describe("inspiredesign product readiness helpers", () => {
       }],
       pinMediaIndex: [makePinterestPinMediaIndexEntry()],
       qualitySummary: { missingScreenshotCount: 0 }
-    })).toEqual(expect.objectContaining({
-      productSuccess: true,
-      artifactAuthority: "product_ready",
-      evidenceAuthority: "motion_ready",
-      authoritativeReferenceCount: 1,
-      snapshotReadyReferenceCount: 0,
-      motionReadyReferenceCount: 1,
-      pinMediaReadyReferenceCount: 0
-    }));
+	    })).toEqual(expect.objectContaining({
+	      productSuccess: true,
+	      artifactAuthority: "product_ready",
+	      evidenceAuthority: "pin_media_ready",
+	      authoritativeReferenceCount: 1,
+	      snapshotReadyReferenceCount: 0,
+	      motionReadyReferenceCount: 0,
+	      pinMediaReadyReferenceCount: 1
+	    }));
   });
 
 	it("derives pin-media authority only from manifest-backed pin media index entries", () => {
@@ -1470,6 +1614,8 @@ describe("inspiredesign product readiness helpers", () => {
     })).toEqual({
 			ready: false,
 			readiness: "unknown",
+			guidanceReady: false,
+			guidanceReadiness: "unknown",
 			harvestReadiness: "unknown",
 			productSuccess: false,
 			artifactAuthority: "diagnostic_only",
@@ -1513,12 +1659,14 @@ describe("inspiredesign product readiness helpers", () => {
         pinterestEvidenceRequired: true
       }
     })).toEqual({
-      ready: true,
+      ready: false,
       readiness: "ready",
+      guidanceReady: true,
+      guidanceReadiness: "ready",
       harvestReadiness: "ready",
-      productSuccess: true,
-      artifactAuthority: "product_ready",
-      evidenceAuthority: "snapshot_ready",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only",
       rankedReferenceCount: 1,
       authoritativeReferenceCount: 1,
       snapshotReadyReferenceCount: 1,
@@ -1537,8 +1685,10 @@ describe("inspiredesign product readiness helpers", () => {
 			motionReadyReferenceCount: 0,
 			pinMediaReadyReferenceCount: 0
 		})).toEqual(expect.objectContaining({
-			ready: true,
+			ready: false,
 			readiness: "unknown",
+			guidanceReady: true,
+			guidanceReadiness: "unknown",
 			harvestReadiness: "unknown",
 			productSuccess: false,
 			artifactAuthority: "diagnostic_only",
@@ -1972,7 +2122,7 @@ describe("inspiredesign product readiness helpers", () => {
       productSuccess: false,
       evidenceAuthority: "diagnostic_only"
     }));
-    expect(buildInspiredesignProductReadinessFields("ready", 1, 0, 1, false, 0, 1, 1)).toEqual(expect.objectContaining({
+    expect(buildInspiredesignProductReadinessFields("ready", 1, 1, 0, false, 0, 1, 1)).toEqual(expect.objectContaining({
       productSuccess: true,
       evidenceAuthority: "motion_ready"
     }));
@@ -2326,16 +2476,15 @@ describe("inspiredesign product readiness helpers", () => {
       meta: {
         nextStepGuidance: { readiness: "ready" },
         rankedReferences: [{
-          id: "meta-pin",
-          url: "https://www.pinterest.com/pin/333/",
-          evidenceAuthority: "snapshot_ready"
-        }],
-        screenshotIndex: [{
-          referenceId: "meta-pin",
-          url: "https://www.pinterest.com/pin/333/",
-          sourceUrl: "https://www.pinterest.com/pin/333/",
-			pinterestPageQuality: "pin_media",
-          path: "visual-evidence/meta-pin/viewport.png",
+	          id: "meta-ref",
+	          url: "https://example.com/meta-reference",
+	          evidenceAuthority: "snapshot_ready"
+	        }],
+	        screenshotIndex: [{
+	          referenceId: "meta-ref",
+	          url: "https://example.com/meta-reference",
+	          sourceUrl: "https://example.com/meta-reference",
+	          path: "visual-evidence/meta-ref/viewport.png",
           sha256: "d".repeat(64),
           bytes: 4096,
           warnings: []
@@ -2351,24 +2500,21 @@ describe("inspiredesign product readiness helpers", () => {
       meta: {
         nextStepGuidance: { readiness: "ready" },
         rankedReferences: [{
-          id: "meta-motion-pin",
-          url: "https://www.pinterest.com/pin/444/",
-          evidenceAuthority: "motion_ready"
-        }],
-        motionEvidence: [{
-          referenceId: "meta-motion-pin",
-          url: "https://www.pinterest.com/pin/444/",
-          motion: {
+	          id: "meta-motion-ref",
+	          url: "https://example.com/meta-motion-reference",
+	          evidenceAuthority: "motion_ready"
+	        }],
+	        motionEvidence: [{
+	          referenceId: "meta-motion-ref",
+	          url: "https://example.com/meta-motion-reference",
+	          motion: {
             status: "captured",
             authority: "design_evidence",
 	            diagnostic: false,
 	            diagnosticReasons: [],
-	            sourceUrl: "https://www.pinterest.com/pin/444/",
-	            startedSourceUrl: "https://www.pinterest.com/pin/444/",
-	            endedSourceUrl: "https://www.pinterest.com/pin/444/",
-	pinterestPageQuality: "pin_media",
-	startedPinterestPageQuality: "pin_media",
-	endedPinterestPageQuality: "pin_media",
+		            sourceUrl: "https://example.com/meta-motion-reference",
+		            startedSourceUrl: "https://example.com/meta-motion-reference",
+		            endedSourceUrl: "https://example.com/meta-motion-reference",
 	            frameCount: 2,
             replay: { path: "motion-evidence/meta-motion-pin/replay.json", sha256: "e".repeat(64), bytes: 64 },
             preview: { path: "motion-evidence/meta-motion-pin/preview.png", sha256: "f".repeat(64), bytes: 2048 }
@@ -2412,7 +2558,7 @@ describe("inspiredesign product readiness helpers", () => {
     }
   });
 
-  it("derives artifact authority from ranked-reference envelope variants", () => {
+  it("rejects snapshot-only Pinterest envelope variants when pin-media proof is required", () => {
     const rankedReferences = [{
       id: "board-pin",
       url: "https://www.pinterest.com/pin/9876543210/",
@@ -2430,9 +2576,9 @@ describe("inspiredesign product readiness helpers", () => {
     }];
     const baseRecord = {
       nextStepGuidance: { readiness: "ready" },
-      rankedReferenceCount: 1,
-      screenshotIndex
-    };
+	      rankedReferenceCount: 1,
+	      screenshotIndex
+	    };
     const cases = [
       { ...baseRecord, evidence: { rankedReferences } },
       { ...baseRecord, referencePatternBoard: { references: rankedReferences } },
@@ -2440,22 +2586,56 @@ describe("inspiredesign product readiness helpers", () => {
       { ...baseRecord, meta: { referencePatternBoard: { references: rankedReferences } } }
     ];
 
-    for (const record of cases) {
+	    for (const record of cases) {
       expect(deriveInspiredesignProductReadinessFields(record)).toEqual(expect.objectContaining({
-        productSuccess: true,
-        artifactAuthority: "product_ready",
-        evidenceAuthority: "snapshot_ready",
+        productSuccess: false,
+        artifactAuthority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only",
         rankedReferenceCount: 1,
         snapshotReadyReferenceCount: 1,
+        pinMediaReadyReferenceCount: 0,
         authoritativeReferenceCount: 1
       }));
-    }
-  });
+	    }
+	    expect(deriveInspiredesignProductReadinessFields({
+	      nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
+	      rankedReferences: [{
+	        id: "motion-pin",
+	        url: "https://www.pinterest.com/pin/1212121212/",
+	        evidenceAuthority: "motion_ready"
+	      }],
+	      motionEvidence: [{
+	        referenceId: "motion-pin",
+	        url: "https://www.pinterest.com/pin/1212121212/",
+	        motion: {
+	          status: "captured",
+	          authority: "design_evidence",
+	          diagnostic: false,
+	          diagnosticReasons: [],
+	          sourceUrl: "https://www.pinterest.com/pin/1212121212/",
+	          startedSourceUrl: "https://www.pinterest.com/pin/1212121212/",
+	          endedSourceUrl: "https://www.pinterest.com/pin/1212121212/",
+	          pinterestPageQuality: "pin_media",
+	          startedPinterestPageQuality: "pin_media",
+	          endedPinterestPageQuality: "pin_media",
+	          frameCount: 2,
+	          replay: { path: "motion-evidence/motion-pin/replay.json", sha256: "c".repeat(64), bytes: 64 },
+	          preview: { path: "motion-evidence/motion-pin/preview.png", sha256: "d".repeat(64), bytes: 2048 }
+	        }
+	      }]
+	    })).toEqual(expect.objectContaining({
+	      productSuccess: false,
+	      artifactAuthority: "diagnostic_only",
+	      evidenceAuthority: "diagnostic_only",
+	      motionReadyReferenceCount: 1,
+	      pinMediaReadyReferenceCount: 0
+	    }));
+	  });
 
   it("derives authority from nested evidence screenshot and motion indexes", () => {
     const snapshotReference = {
-      id: "nested-snapshot-pin",
-      url: "https://www.pinterest.com/pin/555/",
+	      id: "nested-snapshot-ref",
+	      url: "https://example.com/nested-snapshot-reference",
       evidenceAuthority: "snapshot_ready"
     };
     expect(deriveInspiredesignProductReadinessFields({
@@ -2467,11 +2647,10 @@ describe("inspiredesign product readiness helpers", () => {
       rankedReferences: [snapshotReference],
       evidence: {
         screenshotIndex: [{
-          referenceId: "nested-snapshot-pin",
-          url: "https://www.pinterest.com/pin/555/",
-          sourceUrl: "https://www.pinterest.com/pin/555/",
-          pinterestPageQuality: "pin_media",
-          path: "visual-evidence/nested-snapshot-pin/viewport.png",
+	          referenceId: "nested-snapshot-ref",
+	          url: "https://example.com/nested-snapshot-reference",
+	          sourceUrl: "https://example.com/nested-snapshot-reference",
+	          path: "visual-evidence/nested-snapshot-ref/viewport.png",
           sha256: "c".repeat(64),
           bytes: 4096,
           warnings: []
@@ -2486,8 +2665,8 @@ describe("inspiredesign product readiness helpers", () => {
     }));
 
     const motionReference = {
-      id: "nested-motion-pin",
-      url: "https://www.pinterest.com/pin/666/",
+	      id: "nested-motion-ref",
+	      url: "https://example.com/nested-motion-reference",
       evidenceAuthority: "motion_ready"
     };
     expect(deriveInspiredesignProductReadinessFields({
@@ -2495,19 +2674,16 @@ describe("inspiredesign product readiness helpers", () => {
       rankedReferences: [motionReference],
       evidence: {
         motionEvidence: [{
-          referenceId: "nested-motion-pin",
-          url: "https://www.pinterest.com/pin/666/",
+	          referenceId: "nested-motion-ref",
+	          url: "https://example.com/nested-motion-reference",
           motion: {
             status: "captured",
             authority: "design_evidence",
             diagnostic: false,
             diagnosticReasons: [],
-            sourceUrl: "https://www.pinterest.com/pin/666/",
-            startedSourceUrl: "https://www.pinterest.com/pin/666/",
-            endedSourceUrl: "https://www.pinterest.com/pin/666/",
-            pinterestPageQuality: "pin_media",
-            startedPinterestPageQuality: "pin_media",
-            endedPinterestPageQuality: "pin_media",
+	            sourceUrl: "https://example.com/nested-motion-reference",
+	            startedSourceUrl: "https://example.com/nested-motion-reference",
+	            endedSourceUrl: "https://example.com/nested-motion-reference",
             frameCount: 2,
             replay: { path: "motion-evidence/nested-motion-pin/replay.json", sha256: "d".repeat(64), bytes: 64 },
             preview: { path: "motion-evidence/nested-motion-pin/preview.png", sha256: "e".repeat(64), bytes: 2048 }
@@ -2600,6 +2776,95 @@ describe("inspiredesign meta prompt branch coverage", () => {
       referencePatternBoard: board,
       designVectors
     })).toContain("1 ranked reference(s) were not ready for creative synthesis");
+  });
+
+  it("renders minimal media-analysis provenance without optional artifact or motion lines", () => {
+    const reference: InspiredesignReferencePatternBoard["references"][number] = {
+      id: "pin-media",
+      rank: 1,
+      score: 82,
+      confidence: 0.82,
+      name: "Photography studio pin",
+      url: "https://www.pinterest.com/pin/1234567890/",
+      surfaceType: "pin",
+      capturedVia: ["pin_media_ready"],
+      evidenceAuthority: "pin_media_ready",
+      intentMatched: true,
+      selectionReason: "Manifest-backed pin media matched the brief.",
+      visualStrengths: ["cinematic gallery hierarchy"],
+      visualRisks: ["avoid source chrome"],
+      layoutRecipe: "Split hero with portfolio proof.",
+      contentHierarchy: ["hero", "booking CTA"],
+      componentFamilies: ["hero", "gallery"],
+      motionPosture: [],
+      tokenNotes: ["dark editorial palette"],
+      patternsToBorrow: ["portfolio-forward composition"],
+      patternsToReject: ["Pinterest chrome"],
+      whyItWorks: "The pin media provides usable studio-specific visual evidence.",
+      mediaAnalysisSource: {
+        referenceId: "pin-media",
+        mediaPath: "pin-media-evidence/pin-media/main.jpg",
+        kind: "image",
+        claimLevels: ["metadata_only"]
+      }
+    };
+    const board: InspiredesignReferencePatternBoard = {
+      briefId: "brief",
+      targetSurface: "landing_page",
+      qualitySummary: {
+        rankedReferenceCount: 1,
+        rejectedReferenceCount: 0,
+        failedCaptureCount: 0,
+        missingScreenshotCount: 0,
+        attemptedReferenceCount: 1,
+        allAttemptFailedCaptureCount: 0,
+        allAttemptMissingScreenshotCount: 0,
+        allAttemptVisualFailureCount: 0,
+        allAttemptMotionFailureCount: 0,
+        diagnosticOnlyReasons: []
+      },
+      references: [reference],
+      rejectedReferences: [],
+      synthesis: {
+        dominantDirection: "Photography studio direction",
+        sharedStrengths: ["cinematic gallery hierarchy"],
+        sharedFailuresToAvoid: ["Pinterest chrome"],
+        contractDeltas: ["Use the media analysis as evidence, not authority."]
+      }
+    };
+    const designVectors: InspiredesignDesignVectors = {
+      sourcePriority: "reference-evidence-first",
+      directionLabel: "Cinematic studio",
+      surfaceIntent: "landing page",
+      compositionModel: ["split hero"],
+      premiumPosture: ["editorial"],
+      motionPosture: ["subtle reveal"],
+      sectionArchitecture: ["hero", "gallery"],
+      typographyPosture: ["display serif"],
+      imageryPosture: ["portfolio-led"],
+      interactionDensity: "moderate",
+      interactionMoments: ["booking CTA feedback"],
+      materialEffects: ["dark editorial contrast"],
+      advancedMotionAdvisory: ["keep motion reduced-motion safe"],
+      referenceInfluence: ["pin-media-backed"],
+      patternsToBorrow: ["portfolio-forward composition"],
+      patternsToReject: ["source chrome"],
+      guardrails: ["do not copy pin assets"],
+      antiPatterns: ["generic SaaS cards"]
+    };
+
+    const prompt = buildInspiredesignMetaPrompt({
+      brief: "Digital photography studio landing page",
+      briefExpansion: expandInspiredesignBrief("Digital photography studio landing page"),
+      referencePatternBoard: board,
+      designVectors
+    });
+
+    expect(prompt).toContain("Media analysis source: image at pin-media-evidence/pin-media/main.jpg");
+    expect(prompt).toContain("Media analysis claims: metadata_only");
+    expect(prompt).not.toContain("Saved media artifact:");
+    expect(prompt).not.toContain("Motion guidance:");
+    expect(prompt).toContain("No references were rejected from the creative synthesis");
   });
 });
 

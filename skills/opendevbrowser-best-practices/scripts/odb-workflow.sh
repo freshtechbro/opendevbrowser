@@ -45,7 +45,7 @@ print_pinterest_multi_pin_harvest_guidance() {
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 # 5. Each omitted run returns its own artifact_path under .opendevbrowser/inspiredesign/<runId>; inspect that path instead of creating a custom workflow root.
 # 6. Extension-mode canonical harvest opens the exact canonical pin in the extension before byte-backed pin-media extraction.
-# 7. Trust only outputs with nextStepGuidance.readiness=ready, non-empty ranked-references.json, and pin-media-index.json, screenshot-index.json, or motion-evidence.json authority.
+# 7. Trust only outputs with top-level ready=true, productSuccess=true, artifactAuthority=product_ready, evidenceAuthority=pin_media_ready, non-empty ranked-references.json, and manifest-backed pin-media-index.json. snapshot_ready or motion_ready are not substitutes for pin-media readiness.
 # 8. Use media-analysis.json for deterministic design facts from trusted saved pin media only. It is not readiness authority, and pin-media-index.json remains the only pin-media readiness authority.
 # 9. Do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, new dependencies, or raw mediaAnalysis in canvas-plan.request.json.
 EOF
@@ -117,7 +117,7 @@ EOF
     print_extension_readiness
     cat <<EOF
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
-# Inspect nextStepGuidance.readiness and doNotProceedIf before Canvas continuation. For non-ready evidence, follow recovery-first guidance.
+# Inspect top-level ready, productSuccess, artifactAuthority, evidenceAuthority, nextStepGuidance.readiness, and doNotProceedIf before Canvas continuation. For non-product-ready evidence, follow recovery-first guidance.
 # Review visual-evidence.json, screenshot-index.json, motion-evidence.json, pin-media-evidence.json, pin-media-index.json, media-analysis.json, ranked-references.json, and meta-prompt.md before design or Canvas work.
 EOF
     print_pinterest_multi_pin_harvest_guidance
@@ -259,7 +259,7 @@ $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "h
 EOF
     print_extension_readiness
     cat <<EOF
-# Browser-native Pinterest recipe. Continue only when nextStepGuidance.readiness is ready.
+# Browser-native Pinterest recipe. Continue only when top-level ready=true, productSuccess=true, artifactAuthority=product_ready, evidenceAuthority=pin_media_ready, ranked references are non-empty, and pin-media-index.json is manifest-backed.
 $CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 EOF
     print_pinterest_multi_pin_harvest_guidance
