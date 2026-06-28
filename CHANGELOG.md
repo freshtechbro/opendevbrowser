@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.37] - 2026-06-28
+
+### Changed
+- Aligned release-facing package, lockfile, extension manifest, extension package metadata, and evidence docs for `0.0.37`.
+- Updated Inspiredesign public guidance so product-ready output requires `productSuccess=true`, `artifactAuthority=product_ready`, and manifest-backed evidence authority.
+
+### Fixed
+- Hardened canonical Pinterest Inspiredesign readiness so `/pin/...` references require manifest-backed `pin_media_ready` evidence for product-ready output.
+- Improved Inspiredesign design artifacts and handoffs with run-specific media evidence, advisory-only media-analysis provenance, and separate light/dark token strategies.
+- Kept Pinterest `search_shell` classification diagnostic when rendered canonical pin links can still produce first-party pin-media authority.
+
 ## [0.0.36] - 2026-06-19
 
 ### Changed
@@ -279,7 +290,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.36...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.37...HEAD
+[0.0.37]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.36...v0.0.37
 [0.0.36]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.35...v0.0.36
 [0.0.35]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.34...v0.0.35
 [0.0.34]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.33...v0.0.34
