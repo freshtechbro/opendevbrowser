@@ -1,6 +1,6 @@
 # v0.0.37 Release Evidence
 
-Status: local release gates passed, PR pending
+Status: npm and GitHub release complete; Chrome Web Store lane blocked on credentials/session
 Target release date: 2026-06-28
 Target tag: `v0.0.37`
 
@@ -10,8 +10,9 @@ Tracks the `0.0.37` release cycle for the Inspiredesign product-authority and ou
 
 Current status note:
 - Source version metadata is aligned from `0.0.36` to `0.0.37`.
-- `opendevbrowser@0.0.37` must be verified absent from npm before local publish.
-- `opendevbrowser@0.0.36` and GitHub release `v0.0.36` already exist, so this release uses the next patch version.
+- `opendevbrowser@0.0.37` is published on npm and tagged as `latest`.
+- GitHub release `v0.0.37` is published with extension zip and checksum assets.
+- Chrome Web Store upload/publish is blocked because required CWS credentials are missing in GitHub secrets and local environment, and manual dashboard access could not be verified from this session.
 
 ## Reference State
 
@@ -47,6 +48,10 @@ Current status note:
 - Final release-prep review agent: `AE93B3B7-4735-45A3-ACB1-ACB55B5A0223`.
   - Initial finding: duplicate optional strict-live decision wording.
   - Rereview result: no blocker after removing the stale pending decision.
+- CI release-gate fix review agent: `986A8586-E54D-47BD-A443-C914FC6F0FB2`.
+  - Result: pass. The platform injection seam keeps runtime callers on `process.platform` while making the public direct SQLite test hermetic on Linux CI.
+- Release-lane audit agent: `09FDB4E7-846F-4E20-8A52-91D28D054A90`.
+  - Result: npm `0.0.37` was already published, GitHub release was blocked by the failed cookie bootstrap test until PR #97, and Chrome Web Store remained blocked by missing CWS credentials.
 
 ## Mandatory Local Release Gates
 
@@ -124,31 +129,61 @@ Decision: deferred for local release prep. The strict live lane remains optional
 
 ## External Release Evidence
 
-- Release PR: pending.
-- Merge commit: pending.
-- npm package: pending.
-- npm `latest` dist-tag: pending.
-- npm tarball: pending.
-- npm shasum: pending.
-- GitHub release: pending.
-- GitHub release workflow: pending.
-- Release workflow result: pending.
-- Release tag `v0.0.37`: pending.
-- Release asset verification: pending.
+- Release prep PR: `https://github.com/freshtechbro/opendevbrowser/pull/96`.
+- CI release-gate fix PR: `https://github.com/freshtechbro/opendevbrowser/pull/97`.
+- Release tag commit: `v0.0.37` points at `71c82af6d7a1a7cd5e5cbd7d1b6d75690db9a372`.
+- npm package: `opendevbrowser@0.0.37`.
+- npm `latest` dist-tag: `0.0.37`.
+- npm shasum: `1d839ffb4eb6cc87e4e7f0fdb0a90ca4e871291d`.
+- npm integrity: `sha512-PICscAMYawEaCMD/5LYjs9jv2jN3K5/Eu/qqGOgzFqAFwDbgbiiMmxT2xFXOk+vwAlWY5uHS4qn6BFN2XuqpYA==`.
+- Initial GitHub release workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/28309950207`.
+  - Result: failed in `Run release quality gates`.
+  - Root cause: `tests/system-chrome-cookies.test.ts` expected the Darwin direct SQLite branch while running on Linux CI.
+  - Fix: PR #97 added an injected platform test seam and forced `"darwin"` in the public-path regression.
+- Successful GitHub release workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/28310391628`.
+  - Result: success in 5m55s.
+  - Head branch: `main`.
+  - Head SHA: `71c82af6d7a1a7cd5e5cbd7d1b6d75690db9a372`.
+  - `publish_npm=false`, so npm publish and in-workflow registry smoke were skipped intentionally.
+- GitHub release: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.37`.
+  - Name: `v0.0.37`.
+  - Draft: false.
+  - Prerelease: false.
+  - Published: `2026-06-28T03:50:10Z`.
+  - Target commitish: `main`.
+- GitHub release assets:
+  - `opendevbrowser-extension.zip`, size 176,329 bytes, digest `sha256:bab2dbe190bda7fcd8163e7b360e719ea1c7d456cfc746b1e1e24132a245cce9`.
+  - `opendevbrowser-extension.zip.sha256`, digest `sha256:99944089a92aa0686664a624988129bcd09d6377a4e76f168a7d78c4f68bff9e`.
+- Release asset verification: downloaded both assets to `/tmp/opendevbrowser-v0.0.37-release.IfBVV0`; `shasum -a 256 -c opendevbrowser-extension.zip.sha256` returned `opendevbrowser-extension.zip: OK`.
 
 ## Post-Release Verification
 
-- [ ] `npm view opendevbrowser version dist-tags --json` returns `0.0.37` and `latest: 0.0.37`.
-- [ ] `node scripts/registry-consumer-smoke.mjs --version 0.0.37 --output artifacts/release/v0.0.37/registry-consumer-smoke.json` passes.
-- [ ] GitHub release `v0.0.37` exists and includes `opendevbrowser-extension.zip` plus `opendevbrowser-extension.zip.sha256`.
+- [x] `npm view opendevbrowser version dist-tags --json` returned `0.0.37` and `latest: 0.0.37`.
+- [x] `node scripts/registry-consumer-smoke.mjs --version 0.0.37 --output artifacts/release/v0.0.37/registry-consumer-smoke.json` passed.
+  - `success: true`
+  - `installAttempts: 1`
+  - `helpAliasMatches: true`
+  - `findItFastPresent: true`
+  - `extensionDirExists: true`
+  - `skillsDirExists: true`
+  - `versionMatches: true`
+- [x] GitHub release `v0.0.37` exists and includes `opendevbrowser-extension.zip` plus `opendevbrowser-extension.zip.sha256`.
+- [x] GitHub release extension checksum verified locally with `shasum -a 256 -c`.
 
 ## Chrome Web Store Release Lane
 
-- Status: pending manual release lane.
+- Status: blocked pending Chrome Web Store credentials or dashboard access.
 - Evidence to retain:
   - Chrome Store publish workflow URL or local upload/publish JSON output summary.
   - Store listing URL and visible version.
   - Listing-copy or generated-asset review note for browser replay, desktop observation, and browser-scoped computer-use boundary wording.
+- Current blocker evidence:
+  - Required GitHub secrets from `.github/workflows/chrome-store-publish.yml`: `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`, and `CWS_EXTENSION_ID`.
+  - `gh secret list --repo freshtechbro/opendevbrowser` returned only `NPM_TOKEN` and `PRIVATE_REPO_DISPATCH_TOKEN`.
+  - Local environment check returned all required CWS variables as missing.
+  - Browser dashboard inspection was attempted from the in-app Browser plugin, but dashboard navigation timed out before exposing page state.
+  - Computer Use inspection was attempted for Google Chrome, but no Chrome window was available through the accessibility surface even after opening the developer console URL.
+  - Manual upload can proceed once a CWS-authenticated dashboard or the four CWS workflow secrets are available; the verified release zip is attached to GitHub release `v0.0.37`.
 
 ## Out Of Scope
 
