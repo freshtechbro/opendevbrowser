@@ -5,6 +5,9 @@ import {
   type InspiredesignMediaLayoutFacts,
   type InspiredesignMediaLayoutZone,
   type InspiredesignMediaMotionFacts,
+  type InspiredesignMediaMotionRegionDelta,
+  type InspiredesignMediaMotionSceneSummary,
+  type InspiredesignMediaMotionSignature,
   type InspiredesignMediaPaletteSwatch,
   type InspiredesignMediaToneFacts,
   type InspiredesignRgbFrame
@@ -27,6 +30,17 @@ const RGB_MAX_CHANNEL_VALUE = 255;
 const ROUND_DECIMAL_FACTOR = 10_000;
 const LAYOUT_GRID_COLUMNS = 3;
 const LAYOUT_GRID_ROWS = 3;
+const MOTION_GRID_COLUMNS = 3;
+const MOTION_GRID_ROWS = 3;
+const MOTION_SIGNATURE_MIN_FRAMES = 2;
+const SUBTLE_LOOP_PEAK_DELTA = 0.08;
+const EXPOSURE_SHIFT_TONE_DELTA = 0.12;
+const CUT_SCENE_DELTA = 0.42;
+const DYNAMIC_MOTION_DELTA = 0.18;
+const MOTION_REGION_LIMIT = 3;
+const MOTION_CONFIDENCE_BASE = 0.38;
+const MOTION_CONFIDENCE_FRAME_FACTOR = 0.07;
+const MOTION_CONFIDENCE_SCENE_FACTOR = 0.12;
 const FOCAL_COVERAGE_THRESHOLD = 0.18;
 const WHITESPACE_LUMINANCE_DISTANCE = 18;
 const SPLIT_BALANCE_DELTA = 0.12;
@@ -53,7 +67,8 @@ export const analyzeInspiredesignRgbFrame = (frame: InspiredesignRgbFrame): Insp
 
 export const buildInspiredesignMotionFacts = (
   frames: readonly InspiredesignRgbFrame[],
-  fps?: number
+  fps?: number,
+  sceneSummary?: InspiredesignMediaMotionSceneSummary
 ): InspiredesignMediaMotionFacts => {
   const frameToneSummaries = frames.map((frame) => summarizeFrameTone(frame));
   const frameDeltas = collectFrameDeltas(frames);
@@ -65,8 +80,119 @@ export const buildInspiredesignMotionFacts = (
     averageFrameDelta,
     cadence: chooseCadence(averageFrameDelta, fps),
     posture: chooseMotionPosture(averageFrameDelta, frames.length),
-    frameToneSummaries
+    frameToneSummaries,
+    motionSignature: buildMotionSignature(frames, frameDeltas, frameToneSummaries, sceneSummary)
   };
+};
+
+const buildMotionSignature = (
+  frames: readonly InspiredesignRgbFrame[],
+  frameDeltas: readonly number[],
+  frameToneSummaries: readonly InspiredesignMediaFrameToneSummary[],
+  sceneSummary?: InspiredesignMediaMotionSceneSummary
+): InspiredesignMediaMotionSignature | undefined => {
+  if (frames.length < MOTION_SIGNATURE_MIN_FRAMES || frameDeltas.length === 0) {
+    return undefined;
+  }
+  const averageFrameDelta = round(average(frameDeltas));
+  const peakFrameDelta = Math.max(...frameDeltas);
+  const toneShift = calculateToneShift(frameToneSummaries);
+  const deltaVariance = round(standardDeviation(frameDeltas, averageFrameDelta) ** 2);
+  return {
+    version: 1,
+    sampleBasis: "decoded_rgb_frames",
+    motionFamily: chooseMotionFamily(peakFrameDelta, averageFrameDelta, toneShift, sceneSummary),
+    peakFrameDelta,
+    averageFrameDelta,
+    deltaVariance,
+    toneShift,
+    dominantChangedRegions: collectDominantChangedRegions(frames),
+    confidence: calculateMotionSignatureConfidence(frames.length, deltaVariance, sceneSummary),
+    ...(sceneSummary ? { sceneSummary } : {})
+  };
+};
+
+const calculateToneShift = (summaries: readonly InspiredesignMediaFrameToneSummary[]): number => {
+  const first = summaries[0];
+  const last = summaries[summaries.length - 1];
+  if (!first || !last) return 0;
+  return round(Math.abs(first.meanLuminance - last.meanLuminance) / RGB_MAX_CHANNEL_VALUE);
+};
+
+const chooseMotionFamily = (
+  peakFrameDelta: number,
+  averageFrameDelta: number,
+  toneShift: number,
+  sceneSummary?: InspiredesignMediaMotionSceneSummary
+): InspiredesignMediaMotionSignature["motionFamily"] => {
+  if ((sceneSummary?.eventCount ?? 0) > 0 || peakFrameDelta >= CUT_SCENE_DELTA) return "cut_or_scene_change";
+  if (toneShift >= EXPOSURE_SHIFT_TONE_DELTA && averageFrameDelta < DYNAMIC_MOTION_DELTA) return "fade_or_exposure_shift";
+  if (averageFrameDelta >= DYNAMIC_MOTION_DELTA) return "dynamic_motion";
+  if (peakFrameDelta <= SUBTLE_LOOP_PEAK_DELTA) return averageFrameDelta === 0 ? "static_hold" : "subtle_loop";
+  return "subtle_loop";
+};
+
+const collectDominantChangedRegions = (frames: readonly InspiredesignRgbFrame[]): InspiredesignMediaMotionRegionDelta[] => {
+  const cells = Array.from({ length: MOTION_GRID_COLUMNS * MOTION_GRID_ROWS }, (_, index) => ({
+    row: Math.floor(index / MOTION_GRID_COLUMNS),
+    column: index % MOTION_GRID_COLUMNS,
+    deltas: [] as number[]
+  }));
+  for (let index = 1; index < frames.length; index += 1) {
+    const previousFrame = frames[index - 1];
+    const currentFrame = frames[index];
+    if (!previousFrame || !currentFrame) continue;
+    for (const cell of cells) {
+      cell.deltas.push(calculateRegionDelta(previousFrame, currentFrame, cell.row, cell.column));
+    }
+  }
+  return cells
+    .map((cell): InspiredesignMediaMotionRegionDelta => ({
+      row: cell.row,
+      column: cell.column,
+      bboxNorm: normalizeMotionCell(cell.column, cell.row),
+      averageDelta: round(average(cell.deltas)),
+      peakDelta: round(cell.deltas.length ? Math.max(...cell.deltas) : 0)
+    }))
+    .filter((cell) => cell.peakDelta > 0)
+    .sort((left, right) => right.averageDelta - left.averageDelta || right.peakDelta - left.peakDelta || left.row - right.row || left.column - right.column)
+    .slice(0, MOTION_REGION_LIMIT);
+};
+
+const calculateRegionDelta = (left: InspiredesignRgbFrame, right: InspiredesignRgbFrame, row: number, column: number): number => {
+  const startX = Math.floor((column / MOTION_GRID_COLUMNS) * left.width);
+  const endX = Math.floor(((column + 1) / MOTION_GRID_COLUMNS) * left.width);
+  const startY = Math.floor((row / MOTION_GRID_ROWS) * left.height);
+  const endY = Math.floor(((row + 1) / MOTION_GRID_ROWS) * left.height);
+  let totalDelta = 0;
+  let channels = 0;
+  for (let y = startY; y < endY; y += 1) {
+    for (let x = startX; x < endX; x += 1) {
+      const offset = (y * left.width + x) * RGB_CHANNEL_COUNT;
+      totalDelta += Math.abs((left.data[offset] ?? 0) - (right.data[offset] ?? 0));
+      totalDelta += Math.abs((left.data[offset + 1] ?? 0) - (right.data[offset + 1] ?? 0));
+      totalDelta += Math.abs((left.data[offset + 2] ?? 0) - (right.data[offset + 2] ?? 0));
+      channels += RGB_CHANNEL_COUNT;
+    }
+  }
+  return channels > 0 ? totalDelta / (channels * RGB_MAX_CHANNEL_VALUE) : 0;
+};
+
+const normalizeMotionCell = (column: number, row: number): [number, number, number, number] => [
+  round(column / MOTION_GRID_COLUMNS),
+  round(row / MOTION_GRID_ROWS),
+  round(1 / MOTION_GRID_COLUMNS),
+  round(1 / MOTION_GRID_ROWS)
+];
+
+const calculateMotionSignatureConfidence = (
+  frameCount: number,
+  deltaVariance: number,
+  sceneSummary?: InspiredesignMediaMotionSceneSummary
+): number => {
+  const sceneBoost = sceneSummary && sceneSummary.limitations.length === 0 ? MOTION_CONFIDENCE_SCENE_FACTOR : 0;
+  const variancePenalty = Math.min(0.18, deltaVariance);
+  return round(Math.min(0.96, MOTION_CONFIDENCE_BASE + frameCount * MOTION_CONFIDENCE_FRAME_FACTOR + sceneBoost - variancePenalty));
 };
 
 const analyzeTone = (frame: InspiredesignRgbFrame, luminanceValues: readonly number[]): InspiredesignMediaToneFacts => {

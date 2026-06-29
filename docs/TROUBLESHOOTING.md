@@ -65,6 +65,8 @@ For daemon-backed macOS runs, a current LaunchAgent includes `EnvironmentVariabl
 
 Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They do not fail pin-media readiness, do not replace `pin-media-index.json`, and `media-analysis.json` never satisfies product readiness.
 
+If `motion-evidence.json` is empty while `media-analysis.json` contains `motion_sampled` or `motionSignature`, no authoritative browser replay screencast was captured, but trusted saved GIF/video media was sampled. Use `media-analysis.json` for saved-media design cues only. Rerun with browser replay capture only when browser interaction timing is required.
+
 ## Desktop observation returns `desktop_unsupported` on macOS
 
 If `desktop-status` or another `desktop-*` command reports `reason=desktop_unsupported` on macOS:

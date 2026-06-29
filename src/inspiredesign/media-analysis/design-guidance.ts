@@ -74,7 +74,12 @@ const buildVisualStrengths = (facts: InspiredesignMediaFacts): string[] => {
     strengths.push(`OCR-free typography structure detected ${facts.typographyStructure.regions.length} role candidate regions.`);
   }
   if (facts.motion && facts.motion.sampledFrameCount > 1) {
-    strengths.push(`Sampled motion cadence is ${facts.motion.cadence} with average frame delta ${facts.motion.averageFrameDelta}.`);
+    strengths.push(`Sampled saved-media motion cadence is ${facts.motion.cadence} with average frame delta ${facts.motion.averageFrameDelta}.`);
+    const signature = facts.motion.motionSignature;
+    if (signature && signature.confidence >= MEDIUM_CONFIDENCE_THRESHOLD && signature.dominantChangedRegions.length > 0) {
+      const regions = signature.dominantChangedRegions.map((region) => `row ${region.row + 1}, column ${region.column + 1}`).join("; ");
+      strengths.push(`Saved-media motion signature is ${signature.motionFamily}; dominant sampled change regions: ${regions}.`);
+    }
   }
   return strengths;
 };
@@ -137,7 +142,7 @@ const buildBorrowPatterns = (facts: InspiredesignMediaFacts, layoutRecipe: strin
     patterns.push("OCR-free typography hierarchy using measured role candidates");
   }
   if (facts.motion?.posture === "dynamic_motion") {
-    patterns.push("dynamic sampled motion rhythm with reduced-motion adaptation");
+    patterns.push("dynamic sampled saved-media motion rhythm with reduced-motion adaptation");
   }
   return patterns;
 };
@@ -162,7 +167,17 @@ const describeLayoutRecipe = (facts: InspiredesignMediaFacts): string => {
 
 const describeMotionPosture = (facts: InspiredesignMediaFacts, kind: InspiredesignMediaKind): string => {
   if (facts.motion && facts.motion.sampledFrameCount > 1) {
-    return `${facts.motion.posture} sampled from ${facts.motion.sampledFrameCount} frames at ${facts.motion.cadence} cadence.`;
+    const signature = facts.motion.motionSignature;
+    if (signature) {
+      const sceneCue = signature.sceneSummary && signature.sceneSummary.eventCount > 0
+        ? ` FFmpeg scene-score detected ${signature.sceneSummary.eventCount} sampled cut-like event(s), strongest score ${signature.sceneSummary.strongestScore}.`
+        : "";
+      const reducedMotion = signature.motionFamily === "dynamic_motion" || signature.motionFamily === "cut_or_scene_change" || signature.motionFamily === "fade_or_exposure_shift"
+        ? " Provide reduced-motion alternatives that preserve hierarchy without sampled video pacing."
+        : "";
+      return `${facts.motion.posture} saved-media motion sampled from ${facts.motion.sampledFrameCount} frames at ${facts.motion.cadence} cadence; signature family ${signature.motionFamily}.${sceneCue}${reducedMotion}`;
+    }
+    return `${facts.motion.posture} saved-media motion sampled from ${facts.motion.sampledFrameCount} frames at ${facts.motion.cadence} cadence.`;
   }
   if (kind === "image" || kind === "video_poster") {
     return "Static source only, use still-image adaptation such as reveal, fade, or hover exposure shift.";

@@ -17,6 +17,7 @@ import {
   calculateBoundedFrameSize,
   confidenceLabel,
   extractInspiredesignFfmpegFrames,
+  runInspiredesignFfmpegSceneDetection,
   OPENDEVBROWSER_FFMPEG_PATH_ENV,
   OPENDEVBROWSER_FFPROBE_PATH_ENV,
   persistInspiredesignMediaAnalysis,
@@ -24,6 +25,7 @@ import {
   runInspiredesignFfprobe,
   serializeInspiredesignMediaAnalysis,
   type InspiredesignFfmpegFrameRunner,
+  type InspiredesignFfmpegSceneRunner,
   type InspiredesignFfprobeRunner,
   type InspiredesignMediaFacts,
   type InspiredesignMediaAnalysisInput,
@@ -427,6 +429,32 @@ describe("inspiredesign media-analysis runtime adapters", () => {
         rm(emptyPathDir, { recursive: true, force: true }),
         rm(emptyCommonDir, { recursive: true, force: true })
       ]);
+    }
+  });
+
+  it("uses platform default common path directories for implicit PATH misses", async () => {
+    const originalPlatform = process.platform;
+    const setPlatform = (platform: NodeJS.Platform): void => {
+      Object.defineProperty(process, "platform", { configurable: true, value: platform });
+    };
+
+    try {
+      setPlatform("linux");
+      const linuxResolved = await resolveInspiredesignMediaAnalysisBinaries({
+        env: { PATH: "" },
+        timeoutMs: 1
+      });
+
+      setPlatform("win32");
+      const win32Resolved = await resolveInspiredesignMediaAnalysisBinaries({
+        env: { PATH: "" },
+        timeoutMs: 1
+      });
+
+      expect(linuxResolved.ffmpeg.source).toBeDefined();
+      expect(win32Resolved.ffmpeg.source).toBe("path");
+    } finally {
+      setPlatform(originalPlatform);
     }
   });
 
@@ -1134,6 +1162,206 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     expect(buildInspiredesignMotionFacts([darkFrame, slightFrame], 60).cadence).toBe("fast");
   });
 
+
+  it("builds deterministic motion signatures and region ordering from sampled frames", () => {
+    const base = makeFrame(9, 9, DARK_RGB, 0);
+    const topLeft = makeFrame(9, 9, DARK_RGB, 1);
+    const bottomRight = makeFrame(9, 9, DARK_RGB, 2);
+    drawRect(topLeft, { x: 0, y: 0, width: 3, height: 3, value: LIGHT_RGB });
+    drawRect(bottomRight, { x: 6, y: 6, width: 3, height: 3, value: LIGHT_RGB });
+
+    const motion = buildInspiredesignMotionFacts([base, topLeft, bottomRight], 24);
+    const repeat = buildInspiredesignMotionFacts([base, topLeft, bottomRight], 24);
+
+    expect(JSON.stringify(motion)).toBe(JSON.stringify(repeat));
+    expect(motion.motionSignature).toEqual(expect.objectContaining({
+      version: 1,
+      sampleBasis: "decoded_rgb_frames",
+      motionFamily: "subtle_loop",
+      dominantChangedRegions: expect.arrayContaining([
+        expect.objectContaining({ row: 0, column: 0 }),
+        expect.objectContaining({ row: 2, column: 2 })
+      ])
+    }));
+    expect(motion.motionSignature?.dominantChangedRegions[0]?.averageDelta)
+      .toBeGreaterThanOrEqual(motion.motionSignature?.dominantChangedRegions[1]?.averageDelta ?? 0);
+  });
+
+  it("classifies motion signature families from sampled frame facts", () => {
+    const dark = makeFrame(1, 1, DARK_RGB, 0);
+    const darkAgain = makeFrame(1, 1, DARK_RGB, 1);
+    const slight = makeFrame(1, 1, 18, 1);
+    const fade = makeFrame(1, 1, 50, 1);
+    const dynamic = makeFrame(1, 1, 80, 1);
+    const cut = makeFrame(1, 1, LIGHT_RGB, 1);
+
+    expect(buildInspiredesignMotionFacts([dark, darkAgain]).motionSignature?.motionFamily).toBe("static_hold");
+    expect(buildInspiredesignMotionFacts([dark, slight]).motionSignature?.motionFamily).toBe("subtle_loop");
+    expect(buildInspiredesignMotionFacts([dark, fade]).motionSignature?.motionFamily).toBe("fade_or_exposure_shift");
+    expect(buildInspiredesignMotionFacts([dark, dynamic]).motionSignature?.motionFamily).toBe("dynamic_motion");
+    expect(buildInspiredesignMotionFacts([dark, cut]).motionSignature?.motionFamily).toBe("cut_or_scene_change");
+    expect(buildInspiredesignMotionFacts([dark]).motionSignature).toBeUndefined();
+  });
+
+  it("attaches optional FFmpeg scene summaries to motion signatures", async () => {
+    const ffprobe: InspiredesignFfprobeRunner = async () => ({
+      value: { durationSeconds: 2, fps: 24, hasAudio: false, containerFormat: "mp4" },
+      limitations: []
+    });
+    const ffmpeg: InspiredesignFfmpegFrameRunner = async () => ({
+      value: { frames: [makeFrame(2, 2, DARK_RGB, 0), makeFrame(2, 2, LIGHT_RGB, 1)], outputWidth: 2, outputHeight: 2 },
+      limitations: []
+    });
+    const ffmpegScene: InspiredesignFfmpegSceneRunner = async () => ({
+      value: {
+        detector: "ffmpeg_scdet",
+        eventCount: 1,
+        strongestScore: 0.64,
+        timestampsSeconds: [0.5],
+        limitations: []
+      },
+      limitations: []
+    });
+
+    const analysis = await analyzeInspiredesignMediaArtifacts([{
+      ...trustedImageInput,
+      kind: "video",
+      contentType: "video/mp4",
+      mediaPath: "pin-media-evidence/pin-a/video.mp4"
+    }], { generatedAt: "2026-06-06T00:00:00.000Z", ffprobe, ffmpeg, ffmpegScene });
+
+    expect(analysis.references[0]?.claimLevels).toContain("motion_sampled");
+    expect(analysis.references[0]?.facts.motion?.motionSignature).toEqual(expect.objectContaining({
+      motionFamily: "cut_or_scene_change",
+      sceneSummary: expect.objectContaining({
+        detector: "ffmpeg_scdet",
+        eventCount: 1,
+        strongestScore: 0.64,
+        timestampsSeconds: [0.5]
+      })
+    }));
+  });
+
+  it("degrades scene-score failures to limitations without inventing scene facts", async () => {
+    const ffprobe: InspiredesignFfprobeRunner = async () => ({ value: { hasAudio: false }, limitations: [] });
+    const ffmpeg: InspiredesignFfmpegFrameRunner = async () => ({
+      value: { frames: [makeFrame(2, 2, DARK_RGB, 0), makeFrame(2, 2, LIGHT_RGB, 1)], outputWidth: 2, outputHeight: 2 },
+      limitations: []
+    });
+    const ffmpegScene: InspiredesignFfmpegSceneRunner = async () => ({ limitations: ["ffmpeg scene detection failed with exit code 7."] });
+
+    const analysis = await analyzeInspiredesignMediaArtifacts([{
+      ...trustedImageInput,
+      kind: "gif",
+      contentType: "image/gif",
+      mediaPath: "pin-media-evidence/pin-a/main.gif"
+    }], { generatedAt: "2026-06-06T00:00:00.000Z", ffprobe, ffmpeg, ffmpegScene });
+
+    expect(analysis.references[0]?.claimLevels).toContain("motion_sampled");
+    expect(analysis.references[0]?.facts.motion?.motionSignature?.sceneSummary).toBeUndefined();
+    expect(analysis.references[0]?.limitations).toContain("ffmpeg scene detection failed with exit code 7.");
+  });
+
+  it("parses bounded FFmpeg scene-score stderr metadata", async () => {
+    const binary = await makeFakeNodeBinary(
+      `process.stderr.write(${JSON.stringify("[scdet @ 0x1] lavfi.scd.score: 0.25, lavfi.scd.time: 1.5\n[scdet @ 0x2] lavfi.scd.score: 0.5, lavfi.scd.time: 2.25\n")});`
+    );
+
+    try {
+      const result = await runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: binary.binaryPath,
+        timeoutMs: 5000,
+        metadata: { durationSeconds: 12 }
+      });
+
+      expect(result.value).toEqual({
+        detector: "ffmpeg_scdet",
+        eventCount: 2,
+        strongestScore: 0.5,
+        timestampsSeconds: [1.5, 2.25],
+        limitations: []
+      });
+    } finally {
+      await cleanupFakeBinary(binary.dir);
+    }
+  });
+
+  it("covers FFmpeg scene detection timeout, nonzero, empty, and truncated event branches", async () => {
+    const timeoutBinary = await makeFakeNodeBinary("setTimeout(() => {}, 1000);");
+    const defaultTimeoutBinary = await makeFakeNodeBinary("setTimeout(() => {}, 6000);");
+    const nonzeroBinary = await makeFakeNodeBinary("process.exit(9);");
+    const noSceneBinary = await makeFakeNodeBinary(`process.stderr.write(${JSON.stringify("no scene metadata here\n")}); process.exit(0);`);
+    const truncatedBinary = await makeFakeNodeBinary(
+      `process.stderr.write(${JSON.stringify("[scdet @ 0x1] lavfi.scd.score: 0.2, lavfi.scd.time: 0.5\n[scdet @ 0x2] lavfi.scd.score: 0.3, lavfi.scd.time: 1.0\n[scdet @ 0x3] lavfi.scd.score: 0.4, lavfi.scd.time: 1.5\n[scdet @ 0x4] lavfi.scd.score: 0.5, lavfi.scd.time: 2.0\n[scdet @ 0x5] lavfi.scd.score: 0.6, lavfi.scd.time: 2.5\n[scdet @ 0x6] lavfi.scd.score: 0.7, lavfi.scd.time: 3.0\n")});`
+    );
+
+    try {
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: timeoutBinary.binaryPath,
+        timeoutMs: 10
+      })).resolves.toEqual({ limitations: ["ffmpeg scene detection timed out after 10ms."] });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: defaultTimeoutBinary.binaryPath
+      })).resolves.toEqual({ limitations: ["ffmpeg scene detection timed out after 5000ms."] });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: nonzeroBinary.binaryPath,
+        timeoutMs: 5000
+      })).resolves.toEqual({ limitations: ["ffmpeg scene detection failed with exit code 9."] });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: noSceneBinary.binaryPath,
+        timeoutMs: 5000
+      })).resolves.toEqual({
+        value: {
+          detector: "ffmpeg_scdet",
+          eventCount: 0,
+          strongestScore: 0,
+          timestampsSeconds: [],
+          limitations: []
+        },
+        limitations: []
+      });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: truncatedBinary.binaryPath,
+        timeoutMs: 5000
+      })).resolves.toEqual({
+        value: {
+          detector: "ffmpeg_scdet",
+          eventCount: 5,
+          strongestScore: 0.7,
+          timestampsSeconds: [0.5, 1, 1.5, 2, 2.5],
+          limitations: ["Scene detection returned more than 5 events; output was truncated."]
+        },
+        limitations: []
+      });
+    } finally {
+      await Promise.all([
+        cleanupFakeBinary(timeoutBinary.dir),
+        cleanupFakeBinary(defaultTimeoutBinary.dir),
+        cleanupFakeBinary(nonzeroBinary.dir),
+        cleanupFakeBinary(noSceneBinary.dir),
+        cleanupFakeBinary(truncatedBinary.dir)
+      ]);
+    }
+  });
+
+  it("covers FFmpeg adapter process error branches", async () => {
+    const throwingBinaryPath = join(tmpdir(), `missing-ffmpeg-${Date.now()}`);
+
+    await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+      binaryPath: throwingBinaryPath,
+      timeoutMs: 5000
+    })).resolves.toEqual({ limitations: ["ffmpeg scene detection binary was not found."] });
+
+    await expect(extractInspiredesignFfmpegFrames(trustedImageInput, {
+      binaryPath: throwingBinaryPath,
+      timeoutMs: 5000
+    })).resolves.toEqual({ limitations: ["ffmpeg binary was not found."] });
+  });
+
   it("maps OCR-free typography geometry across empty, aligned, and repeated regions", () => {
     const empty = analyzeInspiredesignTypographyStructure(makeFrame(0, 0, DARK_RGB));
     const frame = makeFrame(100, 100, DARK_RGB);
@@ -1320,6 +1548,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
 
     expect(darkGuidance.componentFamilies).toEqual(expect.arrayContaining(["hero", "CTA cluster", "portfolio grid or card set", "motion loop"]));
     expect(darkGuidance.patternsToBorrow).toContain("dark-dominant cinematic canvas with sparse bright controls");
+    expect(darkGuidance.patternsToBorrow).toContain("dynamic sampled saved-media motion rhythm with reduced-motion adaptation");
     expect(brightGuidance.imageryPosture).toContain("bright-dominant");
     expect(brightGuidance.motionPosture).toContain("Static source only");
     expect(missingGuidance.visualRisks).toContain("frames missing");
@@ -1330,7 +1559,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     expect(confidenceLabel(0.1)).toBe("low");
   });
 
-  it("builds balanced media guidance without adding unavailable-risk branches when facts are present", () => {
+  it("builds balanced media guidance while preserving OCR-free text limits", () => {
     const facts: InspiredesignMediaFacts = {
       tone: {
         meanLuminance: 132,
@@ -1350,7 +1579,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
         zones: []
       },
       typographyStructure: {
-        readableTextAvailable: true,
+        readableTextAvailable: false,
         posture: "sparse, muted-contrast, center-weighted, OCR-free typography structure",
         regions: [],
         textRegionLayout: {
@@ -1370,6 +1599,82 @@ describe("inspiredesign media-analysis pure analyzers", () => {
         frameToneSummaries: []
       }
     };
+    const cutGuidance = buildInspiredesignMediaDesignGuidance({
+      facts: {
+        ...facts,
+        motion: {
+          ...facts.motion,
+          posture: "dynamic_motion",
+          motionSignature: {
+            version: 1,
+            sampleBasis: "decoded_rgb_frames",
+            motionFamily: "cut_or_scene_change",
+            peakFrameDelta: 0.5,
+            averageFrameDelta: 0.3,
+            deltaVariance: 0.08,
+            toneShift: 0.2,
+            dominantChangedRegions: [],
+            confidence: 0.74,
+            sceneSummary: {
+              detector: "ffmpeg_scdet",
+              eventCount: 2,
+              strongestScore: 0.45,
+              timestampsSeconds: [0.5, 1.25],
+              limitations: []
+            }
+          }
+        }
+      },
+      kind: "video",
+      limitations: [],
+      confidence: 0.7
+    });
+    const fadeGuidance = buildInspiredesignMediaDesignGuidance({
+      facts: {
+        ...facts,
+        motion: {
+          ...facts.motion,
+          posture: "subtle_motion",
+          motionSignature: {
+            version: 1,
+            sampleBasis: "decoded_rgb_frames",
+            motionFamily: "fade_or_exposure_shift",
+            peakFrameDelta: 0.16,
+            averageFrameDelta: 0.12,
+            deltaVariance: 0.01,
+            toneShift: 0.22,
+            dominantChangedRegions: [],
+            confidence: 0.68
+          }
+        }
+      },
+      kind: "gif",
+      limitations: [],
+      confidence: 0.7
+    });
+    const staticGuidance = buildInspiredesignMediaDesignGuidance({
+      facts: {
+        ...facts,
+        motion: {
+          ...facts.motion,
+          posture: "static_source_adaptation",
+          motionSignature: {
+            version: 1,
+            sampleBasis: "decoded_rgb_frames",
+            motionFamily: "static_hold",
+            peakFrameDelta: 0,
+            averageFrameDelta: 0,
+            deltaVariance: 0,
+            toneShift: 0,
+            dominantChangedRegions: [],
+            confidence: 0.6
+          }
+        }
+      },
+      kind: "gif",
+      limitations: [],
+      confidence: 0.7
+    });
 
     const guidance = buildInspiredesignMediaDesignGuidance({
       facts,
@@ -1378,12 +1683,19 @@ describe("inspiredesign media-analysis pure analyzers", () => {
       confidence: 0.7
     });
 
-    expect(guidance.visualRisks).not.toContain("Readable exact text extraction was not performed, so exact copy strings are unavailable.");
+    expect(guidance.visualRisks).toContain("Readable exact text extraction was not performed, so exact copy strings are unavailable.");
     expect(guidance.visualRisks).not.toContain("Palette claims are unavailable without decoded RGB frames.");
     expect(guidance.visualRisks).not.toContain("Real motion claims are unavailable without sampled frame deltas.");
     expect(guidance.imageryPosture).toContain("balanced luminance");
-    expect(guidance.motionPosture).toContain("stable_loop sampled from 2 frames");
-    expect(guidance.patternsToReject).not.toContain("claiming exact headlines, nav labels, CTA copy, or font families from v1 media analysis");
+    expect(guidance.motionPosture).toContain("stable_loop saved-media motion sampled from 2 frames");
+    expect(cutGuidance.motionPosture).toContain("signature family cut_or_scene_change");
+    expect(cutGuidance.motionPosture).toContain("FFmpeg scene-score detected 2 sampled cut-like event(s), strongest score 0.45");
+    expect(cutGuidance.motionPosture).toContain("Provide reduced-motion alternatives that preserve hierarchy without sampled video pacing.");
+    expect(fadeGuidance.motionPosture).toContain("signature family fade_or_exposure_shift");
+    expect(fadeGuidance.motionPosture).toContain("Provide reduced-motion alternatives that preserve hierarchy without sampled video pacing.");
+    expect(staticGuidance.motionPosture).toContain("signature family static_hold");
+    expect(staticGuidance.motionPosture).not.toContain("Provide reduced-motion alternatives");
+    expect(guidance.patternsToReject).toContain("claiming exact headlines, nav labels, CTA copy, or font families from v1 media analysis");
   });
 });
 
@@ -1450,13 +1762,17 @@ describe("inspiredesign media-analysis analyzer", () => {
       format: { format_name: "mjpeg" }
     };
     const ffprobeBinary = await makeFakeNodeBinary(`process.stdout.write(${JSON.stringify(JSON.stringify(metadata))});`);
-    const ffmpegBinary = await makeFakeNodeBinary(
-      `process.stdout.write(Buffer.from(${JSON.stringify([...makeFrame(1, 1, LIGHT_RGB).data])}));`
-    );
+    const ffmpegBinary = await makeFakeNodeBinary(`
+      if (process.argv.join(" ").includes("scdet")) {
+        process.stderr.write(${JSON.stringify("[scdet @ 0x1] lavfi.scd.score: 0.45, lavfi.scd.time: 0.25\n")});
+      } else {
+        process.stdout.write(Buffer.from(${JSON.stringify([...makeFrame(1, 1, LIGHT_RGB).data, ...makeFrame(1, 1, DARK_RGB).data])}));
+      }
+    `);
 
     try {
       const analysis = await analyzeInspiredesignMediaArtifacts([
-        { ...trustedImageInput, width: 1, height: 1 }
+        { ...trustedImageInput, kind: "video", contentType: "video/mp4", width: 1, height: 1 }
       ], {
         generatedAt: "2026-06-06T00:00:00.000Z",
         ffprobeBinaryPath: ffprobeBinary.binaryPath,
@@ -1469,8 +1785,15 @@ describe("inspiredesign media-analysis analyzer", () => {
       expect(reference?.facts.tone?.meanLuminance).toBe(LIGHT_RGB);
       expect(reference?.claimLevels).toEqual(expect.arrayContaining([
         "metadata_only",
-        "pixel_stats"
+        "pixel_stats",
+        "motion_sampled"
       ]));
+      expect(reference?.facts.motion?.motionSignature?.sceneSummary).toEqual(expect.objectContaining({
+        detector: "ffmpeg_scdet",
+        eventCount: 1,
+        strongestScore: 0.45,
+        timestampsSeconds: [0.25]
+      }));
     } finally {
       await Promise.all([
         cleanupFakeBinary(ffprobeBinary.dir),
@@ -1580,7 +1903,13 @@ describe("inspiredesign media-analysis analyzer", () => {
     const ffprobe = vi.fn<InspiredesignFfprobeRunner>();
     const ffmpeg = vi.fn<InspiredesignFfmpegFrameRunner>();
 
-    const analysis = await analyzeInspiredesignMediaArtifacts([trustedImageInput], {
+    const analysis = await analyzeInspiredesignMediaArtifacts([{
+      ...trustedImageInput,
+      kind: "video",
+      contentType: "video/mp4",
+      width: 800,
+      height: 1080
+    }], {
       generatedAt: "2026-06-06T00:00:00.000Z",
       ffprobe,
       ffmpeg,
@@ -1592,7 +1921,7 @@ describe("inspiredesign media-analysis analyzer", () => {
     expect(ffprobe).not.toHaveBeenCalled();
     expect(ffmpeg).not.toHaveBeenCalled();
     expect(reference?.claimLevels).toEqual(["metadata_only"]);
-    expect(reference?.facts.dimensions).toEqual({ width: 800, height: 1080, aspectRatio: 0.7407 });
+    expect(reference?.facts.dimensions).toBeUndefined();
     expect(reference?.facts.tone).toBeUndefined();
     expect(reference?.limitations).toEqual(expect.arrayContaining([
       "ffprobe binary was not found.",

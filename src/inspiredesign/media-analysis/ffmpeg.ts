@@ -9,6 +9,7 @@ import {
   type InspiredesignMediaAdapterResult,
   type InspiredesignMediaAnalysisInput,
   type InspiredesignMediaMetadataFacts,
+  type InspiredesignMediaMotionSceneSummary,
   type InspiredesignRgbFrame
 } from "./types";
 
@@ -32,8 +33,14 @@ export type InspiredesignFfmpegFrameRunner = (
   options?: InspiredesignFfmpegRunOptions
 ) => Promise<InspiredesignMediaAdapterResult<InspiredesignFfmpegFrameExtraction>>;
 
+export type InspiredesignFfmpegSceneRunner = (
+  filePath: string,
+  options?: Pick<InspiredesignFfmpegRunOptions, "binaryPath" | "timeoutMs" | "metadata">
+) => Promise<InspiredesignMediaAdapterResult<InspiredesignMediaMotionSceneSummary>>;
+
 type ProcessResult = {
   stdout: Buffer;
+  stderr: Buffer;
   exitCode: number | null;
   timedOut: boolean;
 };
@@ -41,6 +48,8 @@ type ProcessResult = {
 const DEFAULT_FFMPEG_BINARY = "ffmpeg";
 const RGB_CHANNEL_COUNT = 3;
 const IMAGE_FRAME_COUNT = 1;
+const MAX_SCENE_EVENTS = 5;
+const SCENE_SCORE_THRESHOLD = 0.12;
 const SCALE_FILTER_TEMPLATE = "scale=%WIDTH%:%HEIGHT%:force_original_aspect_ratio=decrease,pad=%WIDTH%:%HEIGHT%:(ow-iw)/2:(oh-ih)/2,format=rgb24";
 
 export const extractInspiredesignFfmpegFrames: InspiredesignFfmpegFrameRunner = async (input, options = {}) => {
@@ -60,6 +69,55 @@ export const extractInspiredesignFfmpegFrames: InspiredesignFfmpegFrameRunner = 
   } catch (error) {
     return { limitations: [formatProcessError("ffmpeg", error)] };
   }
+};
+
+
+export const runInspiredesignFfmpegSceneDetection: InspiredesignFfmpegSceneRunner = async (filePath, options = {}) => {
+  const args = buildSceneDetectionArgs(filePath, options.metadata);
+  try {
+    const result = await runProcess(options.binaryPath ?? DEFAULT_FFMPEG_BINARY, args, options.timeoutMs);
+    if (result.timedOut) {
+      return { limitations: [`ffmpeg scene detection timed out after ${options.timeoutMs ?? INSPIREDESIGN_MEDIA_ANALYSIS_PROCESS_TIMEOUT_MS}ms.`] };
+    }
+    if (result.exitCode !== 0) {
+      return { limitations: [`ffmpeg scene detection failed with exit code ${result.exitCode ?? "unknown"}.`] };
+    }
+    return { value: parseSceneDetection(`${String(result.stdout)}\n${String(result.stderr)}`), limitations: [] };
+  } catch (error) {
+    return { limitations: [formatProcessError("ffmpeg scene detection", error)] };
+  }
+};
+
+const buildSceneDetectionArgs = (filePath: string, metadata?: InspiredesignMediaMetadataFacts): string[] => [
+  "-hide_banner",
+  "-nostdin",
+  "-i",
+  filePath,
+  ...(typeof metadata?.durationSeconds === "number" && Number.isFinite(metadata.durationSeconds)
+    ? ["-t", String(Math.max(0.1, Math.min(metadata.durationSeconds, INSPIREDESIGN_MEDIA_ANALYSIS_MIN_TEMPORAL_SAMPLE_DURATION_SECONDS * INSPIREDESIGN_MEDIA_ANALYSIS_MAX_SAMPLED_FRAMES)))]
+    : []),
+  "-vf",
+  `scdet=${SCENE_SCORE_THRESHOLD}`,
+  "-an",
+  "-f",
+  "null",
+  "-"
+];
+
+const parseSceneDetection = (output: string): InspiredesignMediaMotionSceneSummary => {
+  const events = [...output.matchAll(/lavfi\.scd\.(?:score|time)\s*[:=]\s*([0-9.]+)/gu)]
+    .map((match, index) => ({ index, value: Number(match[1]) }))
+    .filter((event) => Number.isFinite(event.value));
+  const scores = events.filter((event) => event.index % 2 === 0).map((event) => event.value);
+  const times = events.filter((event) => event.index % 2 === 1).map((event) => round(event.value));
+  const strongestScore = scores.length ? Math.max(...scores) : 0;
+  return {
+    detector: "ffmpeg_scdet",
+    eventCount: Math.min(scores.length, MAX_SCENE_EVENTS),
+    strongestScore: round(strongestScore),
+    timestampsSeconds: times.slice(0, MAX_SCENE_EVENTS),
+    limitations: scores.length > MAX_SCENE_EVENTS ? [`Scene detection returned more than ${MAX_SCENE_EVENTS} events; output was truncated.`] : []
+  };
 };
 
 export const calculateBoundedFrameSize = (
@@ -143,9 +201,11 @@ const formatFps = (value: number): string => {
 
 const runProcess = (binaryPath: string, args: string[], timeoutMs = INSPIREDESIGN_MEDIA_ANALYSIS_PROCESS_TIMEOUT_MS): Promise<ProcessResult> =>
   new Promise((resolve, reject) => {
-    const child = spawn(binaryPath, args, { stdio: ["ignore", "pipe", "ignore"] });
+    const child = spawn(binaryPath, args, { stdio: ["ignore", "pipe", "pipe"] });
     const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
     let stdoutBytes = 0;
+    let stderrBytes = 0;
     let timedOut = false;
     let settled = false;
     const timer = setTimeout(() => {
@@ -162,12 +222,15 @@ const runProcess = (binaryPath: string, args: string[], timeoutMs = INSPIREDESIG
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes = collectBoundedChunk(stdoutChunks, chunk, stdoutBytes);
     });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrBytes = collectBoundedChunk(stderrChunks, chunk, stderrBytes);
+    });
     child.on("error", (error) => {
       settle(() => reject(error));
     });
     child.on("close", (exitCode) => {
       settle(() => {
-        resolve({ stdout: Buffer.concat(stdoutChunks), exitCode, timedOut });
+        resolve({ stdout: Buffer.concat(stdoutChunks), stderr: Buffer.concat(stderrChunks), exitCode, timedOut });
       });
     });
   });
@@ -200,6 +263,8 @@ const parseRawFrames = (
   });
   return { value: { frames, outputWidth: width, outputHeight: height }, limitations: [] };
 };
+
+const round = (value: number): number => Math.round(value * 10_000) / 10_000;
 
 const formatProcessError = (toolName: string, error: unknown): string => {
   if (error instanceof Error && "code" in error && error.code === "ENOENT") {
