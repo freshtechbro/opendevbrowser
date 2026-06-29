@@ -432,6 +432,32 @@ describe("inspiredesign media-analysis runtime adapters", () => {
     }
   });
 
+  it("uses platform default common path directories for implicit PATH misses", async () => {
+    const originalPlatform = process.platform;
+    const setPlatform = (platform: NodeJS.Platform): void => {
+      Object.defineProperty(process, "platform", { configurable: true, value: platform });
+    };
+
+    try {
+      setPlatform("linux");
+      const linuxResolved = await resolveInspiredesignMediaAnalysisBinaries({
+        env: { PATH: "" },
+        timeoutMs: 1
+      });
+
+      setPlatform("win32");
+      const win32Resolved = await resolveInspiredesignMediaAnalysisBinaries({
+        env: { PATH: "" },
+        timeoutMs: 1
+      });
+
+      expect(linuxResolved.ffmpeg.source).toBeDefined();
+      expect(win32Resolved.ffmpeg.source).toBe("path");
+    } finally {
+      setPlatform(originalPlatform);
+    }
+  });
+
   it("classifies partial capabilities from common directory fallback", async () => {
     const emptyPathDir = await mkdtemp(join(tmpdir(), "odb-media-analysis-empty-path-"));
     const onlyFfmpeg = await makeFakeCommonBinaryDir({
@@ -1260,6 +1286,82 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     }
   });
 
+  it("covers FFmpeg scene detection timeout, nonzero, empty, and truncated event branches", async () => {
+    const timeoutBinary = await makeFakeNodeBinary("setTimeout(() => {}, 1000);");
+    const defaultTimeoutBinary = await makeFakeNodeBinary("setTimeout(() => {}, 6000);");
+    const nonzeroBinary = await makeFakeNodeBinary("process.exit(9);");
+    const noSceneBinary = await makeFakeNodeBinary(`process.stderr.write(${JSON.stringify("no scene metadata here\n")}); process.exit(0);`);
+    const truncatedBinary = await makeFakeNodeBinary(
+      `process.stderr.write(${JSON.stringify("lavfi.scd.score=0.2\nlavfi.scd.time=0.5\nlavfi.scd.score=0.3\nlavfi.scd.time=1.0\nlavfi.scd.score=0.4\nlavfi.scd.time=1.5\nlavfi.scd.score=0.5\nlavfi.scd.time=2.0\nlavfi.scd.score=0.6\nlavfi.scd.time=2.5\nlavfi.scd.score=0.7\nlavfi.scd.time=3.0\n")});`
+    );
+
+    try {
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: timeoutBinary.binaryPath,
+        timeoutMs: 10
+      })).resolves.toEqual({ limitations: ["ffmpeg scene detection timed out after 10ms."] });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: defaultTimeoutBinary.binaryPath
+      })).resolves.toEqual({ limitations: ["ffmpeg scene detection timed out after 5000ms."] });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: nonzeroBinary.binaryPath,
+        timeoutMs: 5000
+      })).resolves.toEqual({ limitations: ["ffmpeg scene detection failed with exit code 9."] });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: noSceneBinary.binaryPath,
+        timeoutMs: 5000
+      })).resolves.toEqual({
+        value: {
+          detector: "ffmpeg_scdet",
+          eventCount: 0,
+          strongestScore: 0,
+          timestampsSeconds: [],
+          limitations: []
+        },
+        limitations: []
+      });
+
+      await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: truncatedBinary.binaryPath,
+        timeoutMs: 5000
+      })).resolves.toEqual({
+        value: {
+          detector: "ffmpeg_scdet",
+          eventCount: 5,
+          strongestScore: 0.7,
+          timestampsSeconds: [0.5, 1, 1.5, 2, 2.5],
+          limitations: ["Scene detection returned more than 5 events; output was truncated."]
+        },
+        limitations: []
+      });
+    } finally {
+      await Promise.all([
+        cleanupFakeBinary(timeoutBinary.dir),
+        cleanupFakeBinary(defaultTimeoutBinary.dir),
+        cleanupFakeBinary(nonzeroBinary.dir),
+        cleanupFakeBinary(noSceneBinary.dir),
+        cleanupFakeBinary(truncatedBinary.dir)
+      ]);
+    }
+  });
+
+  it("covers FFmpeg adapter process error branches", async () => {
+    const throwingBinaryPath = join(tmpdir(), `missing-ffmpeg-${Date.now()}`);
+
+    await expect(runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+      binaryPath: throwingBinaryPath,
+      timeoutMs: 5000
+    })).resolves.toEqual({ limitations: ["ffmpeg scene detection binary was not found."] });
+
+    await expect(extractInspiredesignFfmpegFrames(trustedImageInput, {
+      binaryPath: throwingBinaryPath,
+      timeoutMs: 5000
+    })).resolves.toEqual({ limitations: ["ffmpeg binary was not found."] });
+  });
+
   it("maps OCR-free typography geometry across empty, aligned, and repeated regions", () => {
     const empty = analyzeInspiredesignTypographyStructure(makeFrame(0, 0, DARK_RGB));
     const frame = makeFrame(100, 100, DARK_RGB);
@@ -1446,6 +1548,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
 
     expect(darkGuidance.componentFamilies).toEqual(expect.arrayContaining(["hero", "CTA cluster", "portfolio grid or card set", "motion loop"]));
     expect(darkGuidance.patternsToBorrow).toContain("dark-dominant cinematic canvas with sparse bright controls");
+    expect(darkGuidance.patternsToBorrow).toContain("dynamic sampled saved-media motion rhythm with reduced-motion adaptation");
     expect(brightGuidance.imageryPosture).toContain("bright-dominant");
     expect(brightGuidance.motionPosture).toContain("Static source only");
     expect(missingGuidance.visualRisks).toContain("frames missing");
@@ -1496,6 +1599,82 @@ describe("inspiredesign media-analysis pure analyzers", () => {
         frameToneSummaries: []
       }
     };
+    const cutGuidance = buildInspiredesignMediaDesignGuidance({
+      facts: {
+        ...facts,
+        motion: {
+          ...facts.motion,
+          posture: "dynamic_motion",
+          motionSignature: {
+            version: 1,
+            sampleBasis: "decoded_rgb_frames",
+            motionFamily: "cut_or_scene_change",
+            peakFrameDelta: 0.5,
+            averageFrameDelta: 0.3,
+            deltaVariance: 0.08,
+            toneShift: 0.2,
+            dominantChangedRegions: [],
+            confidence: 0.74,
+            sceneSummary: {
+              detector: "ffmpeg_scdet",
+              eventCount: 2,
+              strongestScore: 0.45,
+              timestampsSeconds: [0.5, 1.25],
+              limitations: []
+            }
+          }
+        }
+      },
+      kind: "video",
+      limitations: [],
+      confidence: 0.7
+    });
+    const fadeGuidance = buildInspiredesignMediaDesignGuidance({
+      facts: {
+        ...facts,
+        motion: {
+          ...facts.motion,
+          posture: "subtle_motion",
+          motionSignature: {
+            version: 1,
+            sampleBasis: "decoded_rgb_frames",
+            motionFamily: "fade_or_exposure_shift",
+            peakFrameDelta: 0.16,
+            averageFrameDelta: 0.12,
+            deltaVariance: 0.01,
+            toneShift: 0.22,
+            dominantChangedRegions: [],
+            confidence: 0.68
+          }
+        }
+      },
+      kind: "gif",
+      limitations: [],
+      confidence: 0.7
+    });
+    const staticGuidance = buildInspiredesignMediaDesignGuidance({
+      facts: {
+        ...facts,
+        motion: {
+          ...facts.motion,
+          posture: "still",
+          motionSignature: {
+            version: 1,
+            sampleBasis: "decoded_rgb_frames",
+            motionFamily: "static_hold",
+            peakFrameDelta: 0,
+            averageFrameDelta: 0,
+            deltaVariance: 0,
+            toneShift: 0,
+            dominantChangedRegions: [],
+            confidence: 0.6
+          }
+        }
+      },
+      kind: "gif",
+      limitations: [],
+      confidence: 0.7
+    });
 
     const guidance = buildInspiredesignMediaDesignGuidance({
       facts,
@@ -1509,6 +1688,13 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     expect(guidance.visualRisks).not.toContain("Real motion claims are unavailable without sampled frame deltas.");
     expect(guidance.imageryPosture).toContain("balanced luminance");
     expect(guidance.motionPosture).toContain("stable_loop saved-media motion sampled from 2 frames");
+    expect(cutGuidance.motionPosture).toContain("signature family cut_or_scene_change");
+    expect(cutGuidance.motionPosture).toContain("FFmpeg scene-score detected 2 sampled cut-like event(s), strongest score 0.45");
+    expect(cutGuidance.motionPosture).toContain("Provide reduced-motion alternatives that preserve hierarchy without sampled video pacing.");
+    expect(fadeGuidance.motionPosture).toContain("signature family fade_or_exposure_shift");
+    expect(fadeGuidance.motionPosture).toContain("Provide reduced-motion alternatives that preserve hierarchy without sampled video pacing.");
+    expect(staticGuidance.motionPosture).toContain("signature family static_hold");
+    expect(staticGuidance.motionPosture).not.toContain("Provide reduced-motion alternatives");
     expect(guidance.patternsToReject).not.toContain("claiming exact headlines, nav labels, CTA copy, or font families from v1 media analysis");
   });
 });
@@ -1576,13 +1762,17 @@ describe("inspiredesign media-analysis analyzer", () => {
       format: { format_name: "mjpeg" }
     };
     const ffprobeBinary = await makeFakeNodeBinary(`process.stdout.write(${JSON.stringify(JSON.stringify(metadata))});`);
-    const ffmpegBinary = await makeFakeNodeBinary(
-      `process.stdout.write(Buffer.from(${JSON.stringify([...makeFrame(1, 1, LIGHT_RGB).data])}));`
-    );
+    const ffmpegBinary = await makeFakeNodeBinary(`
+      if (process.argv.join(" ").includes("scdet")) {
+        process.stderr.write(${JSON.stringify("lavfi.scd.score=0.45\nlavfi.scd.time=0.25\n")});
+      } else {
+        process.stdout.write(Buffer.from(${JSON.stringify([...makeFrame(1, 1, LIGHT_RGB).data, ...makeFrame(1, 1, DARK_RGB).data])}));
+      }
+    `);
 
     try {
       const analysis = await analyzeInspiredesignMediaArtifacts([
-        { ...trustedImageInput, width: 1, height: 1 }
+        { ...trustedImageInput, kind: "video", contentType: "video/mp4", width: 1, height: 1 }
       ], {
         generatedAt: "2026-06-06T00:00:00.000Z",
         ffprobeBinaryPath: ffprobeBinary.binaryPath,
@@ -1595,8 +1785,15 @@ describe("inspiredesign media-analysis analyzer", () => {
       expect(reference?.facts.tone?.meanLuminance).toBe(LIGHT_RGB);
       expect(reference?.claimLevels).toEqual(expect.arrayContaining([
         "metadata_only",
-        "pixel_stats"
+        "pixel_stats",
+        "motion_sampled"
       ]));
+      expect(reference?.facts.motion?.motionSignature?.sceneSummary).toEqual(expect.objectContaining({
+        detector: "ffmpeg_scdet",
+        eventCount: 1,
+        strongestScore: 0.45,
+        timestampsSeconds: [0.25]
+      }));
     } finally {
       await Promise.all([
         cleanupFakeBinary(ffprobeBinary.dir),
@@ -1706,7 +1903,13 @@ describe("inspiredesign media-analysis analyzer", () => {
     const ffprobe = vi.fn<InspiredesignFfprobeRunner>();
     const ffmpeg = vi.fn<InspiredesignFfmpegFrameRunner>();
 
-    const analysis = await analyzeInspiredesignMediaArtifacts([trustedImageInput], {
+    const analysis = await analyzeInspiredesignMediaArtifacts([{
+      ...trustedImageInput,
+      kind: "video",
+      contentType: "video/mp4",
+      width: 800,
+      height: 1080
+    }], {
       generatedAt: "2026-06-06T00:00:00.000Z",
       ffprobe,
       ffmpeg,
@@ -1718,7 +1921,7 @@ describe("inspiredesign media-analysis analyzer", () => {
     expect(ffprobe).not.toHaveBeenCalled();
     expect(ffmpeg).not.toHaveBeenCalled();
     expect(reference?.claimLevels).toEqual(["metadata_only"]);
-    expect(reference?.facts.dimensions).toEqual({ width: 800, height: 1080, aspectRatio: 0.7407 });
+    expect(reference?.facts.dimensions).toBeUndefined();
     expect(reference?.facts.tone).toBeUndefined();
     expect(reference?.limitations).toEqual(expect.arrayContaining([
       "ffprobe binary was not found.",

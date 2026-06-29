@@ -1310,6 +1310,10 @@ describe("inspiredesign workflow", () => {
 
 	const artifactPath = String(output.artifact_path);
 	const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis), "utf8")) as Record<string, unknown>;
+	const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+		mediaAnalysis?: { savedMediaMotionNotice?: unknown };
+	};
+	expect(evidence.mediaAnalysis?.savedMediaMotionNotice).toBeUndefined();
 	expect(resolveMediaAnalysisBinaries).toHaveBeenCalledOnce();
 	expect(analyzeMediaArtifacts).toHaveBeenCalledOnce();
 	expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
@@ -3089,6 +3093,7 @@ describe("inspiredesign workflow", () => {
     const artifactPath = String(output.artifact_path);
     const motionEvidenceJson = readFileSync(join(artifactPath, "motion-evidence.json"), "utf8");
     const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence & {
+      mediaAnalysis?: { savedMediaMotionNotice?: unknown };
       motionEvidence?: unknown;
     };
     const motionEvidence = JSON.parse(motionEvidenceJson) as {
@@ -3140,6 +3145,7 @@ describe("inspiredesign workflow", () => {
       })
     }));
     expect(evidence.motionEvidence).toEqual(motionEvidence.motionEvidence);
+    expect(evidence.mediaAnalysis?.savedMediaMotionNotice).toBeUndefined();
     expect(evidence.referencePatternBoard?.references[0]?.capturedVia).toEqual(expect.arrayContaining([
       "motion",
       "motion_ready"
