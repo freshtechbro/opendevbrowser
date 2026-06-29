@@ -1559,7 +1559,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     expect(confidenceLabel(0.1)).toBe("low");
   });
 
-  it("builds balanced media guidance without adding unavailable-risk branches when facts are present", () => {
+  it("builds balanced media guidance while preserving OCR-free text limits", () => {
     const facts: InspiredesignMediaFacts = {
       tone: {
         meanLuminance: 132,
@@ -1579,7 +1579,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
         zones: []
       },
       typographyStructure: {
-        readableTextAvailable: true,
+        readableTextAvailable: false,
         posture: "sparse, muted-contrast, center-weighted, OCR-free typography structure",
         regions: [],
         textRegionLayout: {
@@ -1657,7 +1657,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
         ...facts,
         motion: {
           ...facts.motion,
-          posture: "still",
+          posture: "static_source_adaptation",
           motionSignature: {
             version: 1,
             sampleBasis: "decoded_rgb_frames",
@@ -1683,7 +1683,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
       confidence: 0.7
     });
 
-    expect(guidance.visualRisks).not.toContain("Readable exact text extraction was not performed, so exact copy strings are unavailable.");
+    expect(guidance.visualRisks).toContain("Readable exact text extraction was not performed, so exact copy strings are unavailable.");
     expect(guidance.visualRisks).not.toContain("Palette claims are unavailable without decoded RGB frames.");
     expect(guidance.visualRisks).not.toContain("Real motion claims are unavailable without sampled frame deltas.");
     expect(guidance.imageryPosture).toContain("balanced luminance");
@@ -1695,7 +1695,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     expect(fadeGuidance.motionPosture).toContain("Provide reduced-motion alternatives that preserve hierarchy without sampled video pacing.");
     expect(staticGuidance.motionPosture).toContain("signature family static_hold");
     expect(staticGuidance.motionPosture).not.toContain("Provide reduced-motion alternatives");
-    expect(guidance.patternsToReject).not.toContain("claiming exact headlines, nav labels, CTA copy, or font families from v1 media analysis");
+    expect(guidance.patternsToReject).toContain("claiming exact headlines, nav labels, CTA copy, or font families from v1 media analysis");
   });
 });
 
