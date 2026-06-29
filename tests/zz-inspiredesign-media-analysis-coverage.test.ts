@@ -473,7 +473,7 @@ describe("inspiredesign media-analysis full-suite coverage regression", () => {
     expect(dynamicMotion.cadence).toBe("fast");
     expect(guidance.patternsToBorrow).toEqual(expect.arrayContaining([
       "OCR-free typography hierarchy using measured role candidates",
-      "dynamic sampled motion rhythm with reduced-motion adaptation"
+      "dynamic sampled saved-media motion rhythm with reduced-motion adaptation"
     ]));
     expect(emptyGuidance.visualRisks).toContain("no decoded frames");
     expect(confidenceLabel(0.8)).toBe("high");
