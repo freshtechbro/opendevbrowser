@@ -148,9 +148,9 @@ export const INSPIREDESIGN_ARTIFACT_GUIDE: InspiredesignArtifactGuide = {
   },
   [INSPIREDESIGN_HANDOFF_FILES.motionEvidence]: {
     purpose: "Canonical motion evidence index for screencast replay results.",
-    expectedContents: ["reference ids", "replay paths", "preview paths", "frame counts", "warnings", "diagnostic authority"],
+    expectedContents: ["reference ids", "replay paths", "preview paths", "frame counts", "warnings", "diagnostic authority", "empty files mean no browser replay evidence"],
     howToUse: ["Open replay and preview files by path", "treat diagnostic entries as non-authoritative design evidence"],
-    mustNot: ["Do not treat controls-only or zero-frame captures as design proof"]
+    mustNot: ["Do not treat controls-only or zero-frame captures as design proof", "Do not treat an empty motion-evidence.json file as proof that saved GIF or video media was unanalyzed"]
   },
   [INSPIREDESIGN_HANDOFF_FILES.pinMediaEvidence]: {
     purpose: "Metadata-only Pinterest pin-media evidence index for persisted first-party pin image, video, GIF, or video-poster captures.",
@@ -166,9 +166,9 @@ export const INSPIREDESIGN_ARTIFACT_GUIDE: InspiredesignArtifactGuide = {
   },
   [INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis]: {
     purpose: "Auditable design-fact surface extracted from trusted saved pin media after finalization.",
-    expectedContents: ["reference ids", "saved media paths", "claim levels", "palette, tone, layout, typography, and motion facts", "limitations and non-goals"],
+    expectedContents: ["reference ids", "saved media paths", "claim levels", "palette, tone, layout, typography, saved-media motion facts, motionSignature", "limitations and non-goals"],
     howToUse: ["Inspect before making media-derived design claims", "cite both this file and the saved media path for media-derived claims", "use pin-media-index.json, not this file, as the readiness gate"],
-    mustNot: ["Do not treat media-analysis.json as artifact authority or evidence authority", "Do not claim exact readable text, font families, or motion states beyond recorded claim levels"]
+    mustNot: ["Do not treat media-analysis.json as artifact authority or evidence authority", "Do not treat motionSignature as browser replay, hover timing, interaction choreography, or readiness authority", "Do not claim exact readable text, font families, or motion states beyond recorded claim levels"]
   },
   [INSPIREDESIGN_HANDOFF_FILES.rankedReferences]: {
     purpose: "Deterministic ranked reference pattern board for design transfer.",
