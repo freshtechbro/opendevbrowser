@@ -1734,7 +1734,18 @@ describe("inspiredesign workflow", () => {
 				averageFrameDelta: 0.21,
 				cadence: "moderate",
 				posture: "subtle_motion",
-				frameToneSummaries: []
+				frameToneSummaries: [],
+				motionSignature: {
+					version: 1,
+					sampleBasis: "decoded_rgb_frames",
+					motionFamily: "dynamic_motion",
+					peakFrameDelta: 0.21,
+					averageFrameDelta: 0.21,
+					deltaVariance: 0,
+					toneShift: 0.18,
+					dominantChangedRegions: [],
+					confidence: 0.66
+				}
 				}
 			},
 			designGuidance: {
@@ -1765,6 +1776,12 @@ describe("inspiredesign workflow", () => {
 	const pinMediaIndex = JSON.parse(readFileSync(join(artifactPath, "pin-media-index.json"), "utf8")) as {
 		pinMediaIndex: Array<{ path: string; kind: string; contentType: string; mediaUrl: string; warnings: string[] }>;
 	};
+	const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+		mediaAnalysis?: { savedMediaMotionNotice?: { kind: string; sampledMotionCount: number; mediaPaths: string[]; message: string } };
+	};
+	const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, "media-analysis.json"), "utf8")) as {
+		references: Array<{ facts: { motion?: { motionSignature?: { motionFamily: string } } } }>;
+	};
 
 	expect(output).toEqual(expect.objectContaining({
 		productSuccess: true,
@@ -1786,6 +1803,14 @@ describe("inspiredesign workflow", () => {
 		warnings: ["interface_chrome_shell"]
 	}));
 	expect(readFileSync(join(artifactPath, "pin-media-evidence/b7a5656033e1/video.mp4"))).toEqual(validPinMediaVideoBytes());
+	expect(mediaAnalysis.references[0]?.facts.motion?.motionSignature?.motionFamily).toBe("dynamic_motion");
+	expect(evidence.mediaAnalysis?.savedMediaMotionNotice).toEqual({
+		kind: "saved_media_motion_without_browser_replay",
+		sampledMotionCount: 1,
+		mediaPaths: ["pin-media-evidence/b7a5656033e1/video.mp4"],
+		message: "Saved GIF or video media was sampled in media-analysis.json, but no authoritative browser replay screencast was captured in motion-evidence.json."
+	});
+	expect(JSON.stringify(evidence.mediaAnalysis?.savedMediaMotionNotice)).not.toContain("product_ready");
 	});
 
 	it("keeps trusted Pinterest pin media authoritative when page chrome reports login state", async () => {

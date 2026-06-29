@@ -29,6 +29,7 @@ import {
   type InspiredesignCaptureEvidence,
   type InspiredesignFollowthrough,
   normalizeInspiredesignCaptureEvidence,
+	type InspiredesignMotionEvidenceJson,
   type InspiredesignReferenceEvidence
 } from "../inspiredesign/contract";
 import { INSPIREDESIGN_HANDOFF_FILES } from "../inspiredesign/handoff";
@@ -3928,6 +3929,35 @@ const mediaAnalysisFailureMessage = (error: unknown): string => (
 	error instanceof Error ? error.message : "Media analysis failed."
 );
 
+type SavedMediaMotionNotice = {
+  kind: "saved_media_motion_without_browser_replay";
+  sampledMotionCount: number;
+  mediaPaths: string[];
+  message: string;
+};
+
+const buildSavedMediaMotionNotice = (args: {
+  mediaAnalysis: InspiredesignMediaAnalysis;
+  motionEvidence: readonly InspiredesignMotionEvidenceJson[];
+}): SavedMediaMotionNotice | undefined => {
+  const sampledReferences = args.mediaAnalysis.references.filter((reference) => (
+    reference.claimLevels.includes("motion_sampled")
+  ));
+  if (sampledReferences.length === 0) return undefined;
+  const browserReplayCount = args.motionEvidence.filter((entry) => (
+    entry.motion.kind === "screencast" && entry.motion.authority === "design_evidence"
+  )).length;
+  if (browserReplayCount > 0) return undefined;
+  const mediaPaths = sampledReferences.map((reference) => reference.mediaPath).sort();
+  return {
+    kind: "saved_media_motion_without_browser_replay",
+    sampledMotionCount: sampledReferences.length,
+    mediaPaths,
+    message: "Saved GIF or video media was sampled in media-analysis.json, but no authoritative browser replay screencast was captured in motion-evidence.json."
+  };
+};
+
+
 type InspiredesignMotionRuntimeFileCollection = {
   files: ArtifactFile[];
   valid: boolean;
@@ -6470,6 +6500,18 @@ export const runInspiredesignWorkflow = async (
   const manifestBackedPinMediaIndex = packet.pinMediaIndex.filter((pinMedia) => (
     persistedEvidenceArtifactPaths.has(pinMedia.path)
   ));
+  const savedMediaMotionNotice = buildSavedMediaMotionNotice({
+    mediaAnalysis: packet.mediaAnalysis,
+    motionEvidence: manifestBackedMotionEvidence
+  });
+  if (savedMediaMotionNotice) {
+    packet.evidence.mediaAnalysis = {
+      ...(typeof packet.evidence.mediaAnalysis === "object" && packet.evidence.mediaAnalysis !== null && !Array.isArray(packet.evidence.mediaAnalysis)
+        ? packet.evidence.mediaAnalysis
+        : {}),
+      savedMediaMotionNotice
+    };
+  }
   const rankedPinterestReferenceCount = packet.rankedReferences.filter((reference) => (
     isInspiredesignPinterestPinReferenceUrl(reference.url)
   )).length;

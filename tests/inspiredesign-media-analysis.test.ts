@@ -17,6 +17,7 @@ import {
   calculateBoundedFrameSize,
   confidenceLabel,
   extractInspiredesignFfmpegFrames,
+  runInspiredesignFfmpegSceneDetection,
   OPENDEVBROWSER_FFMPEG_PATH_ENV,
   OPENDEVBROWSER_FFPROBE_PATH_ENV,
   persistInspiredesignMediaAnalysis,
@@ -24,6 +25,7 @@ import {
   runInspiredesignFfprobe,
   serializeInspiredesignMediaAnalysis,
   type InspiredesignFfmpegFrameRunner,
+  type InspiredesignFfmpegSceneRunner,
   type InspiredesignFfprobeRunner,
   type InspiredesignMediaFacts,
   type InspiredesignMediaAnalysisInput,
@@ -1134,6 +1136,130 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     expect(buildInspiredesignMotionFacts([darkFrame, slightFrame], 60).cadence).toBe("fast");
   });
 
+
+  it("builds deterministic motion signatures and region ordering from sampled frames", () => {
+    const base = makeFrame(9, 9, DARK_RGB, 0);
+    const topLeft = makeFrame(9, 9, DARK_RGB, 1);
+    const bottomRight = makeFrame(9, 9, DARK_RGB, 2);
+    drawRect(topLeft, { x: 0, y: 0, width: 3, height: 3, value: LIGHT_RGB });
+    drawRect(bottomRight, { x: 6, y: 6, width: 3, height: 3, value: LIGHT_RGB });
+
+    const motion = buildInspiredesignMotionFacts([base, topLeft, bottomRight], 24);
+    const repeat = buildInspiredesignMotionFacts([base, topLeft, bottomRight], 24);
+
+    expect(JSON.stringify(motion)).toBe(JSON.stringify(repeat));
+    expect(motion.motionSignature).toEqual(expect.objectContaining({
+      version: 1,
+      sampleBasis: "decoded_rgb_frames",
+      motionFamily: "subtle_loop",
+      dominantChangedRegions: expect.arrayContaining([
+        expect.objectContaining({ row: 0, column: 0 }),
+        expect.objectContaining({ row: 2, column: 2 })
+      ])
+    }));
+    expect(motion.motionSignature?.dominantChangedRegions[0]?.averageDelta)
+      .toBeGreaterThanOrEqual(motion.motionSignature?.dominantChangedRegions[1]?.averageDelta ?? 0);
+  });
+
+  it("classifies motion signature families from sampled frame facts", () => {
+    const dark = makeFrame(1, 1, DARK_RGB, 0);
+    const darkAgain = makeFrame(1, 1, DARK_RGB, 1);
+    const slight = makeFrame(1, 1, 18, 1);
+    const fade = makeFrame(1, 1, 50, 1);
+    const dynamic = makeFrame(1, 1, 80, 1);
+    const cut = makeFrame(1, 1, LIGHT_RGB, 1);
+
+    expect(buildInspiredesignMotionFacts([dark, darkAgain]).motionSignature?.motionFamily).toBe("static_hold");
+    expect(buildInspiredesignMotionFacts([dark, slight]).motionSignature?.motionFamily).toBe("subtle_loop");
+    expect(buildInspiredesignMotionFacts([dark, fade]).motionSignature?.motionFamily).toBe("fade_or_exposure_shift");
+    expect(buildInspiredesignMotionFacts([dark, dynamic]).motionSignature?.motionFamily).toBe("dynamic_motion");
+    expect(buildInspiredesignMotionFacts([dark, cut]).motionSignature?.motionFamily).toBe("cut_or_scene_change");
+    expect(buildInspiredesignMotionFacts([dark]).motionSignature).toBeUndefined();
+  });
+
+  it("attaches optional FFmpeg scene summaries to motion signatures", async () => {
+    const ffprobe: InspiredesignFfprobeRunner = async () => ({
+      value: { durationSeconds: 2, fps: 24, hasAudio: false, containerFormat: "mp4" },
+      limitations: []
+    });
+    const ffmpeg: InspiredesignFfmpegFrameRunner = async () => ({
+      value: { frames: [makeFrame(2, 2, DARK_RGB, 0), makeFrame(2, 2, LIGHT_RGB, 1)], outputWidth: 2, outputHeight: 2 },
+      limitations: []
+    });
+    const ffmpegScene: InspiredesignFfmpegSceneRunner = async () => ({
+      value: {
+        detector: "ffmpeg_scdet",
+        eventCount: 1,
+        strongestScore: 0.64,
+        timestampsSeconds: [0.5],
+        limitations: []
+      },
+      limitations: []
+    });
+
+    const analysis = await analyzeInspiredesignMediaArtifacts([{
+      ...trustedImageInput,
+      kind: "video",
+      contentType: "video/mp4",
+      mediaPath: "pin-media-evidence/pin-a/video.mp4"
+    }], { generatedAt: "2026-06-06T00:00:00.000Z", ffprobe, ffmpeg, ffmpegScene });
+
+    expect(analysis.references[0]?.claimLevels).toContain("motion_sampled");
+    expect(analysis.references[0]?.facts.motion?.motionSignature).toEqual(expect.objectContaining({
+      motionFamily: "cut_or_scene_change",
+      sceneSummary: expect.objectContaining({
+        detector: "ffmpeg_scdet",
+        eventCount: 1,
+        strongestScore: 0.64,
+        timestampsSeconds: [0.5]
+      })
+    }));
+  });
+
+  it("degrades scene-score failures to limitations without inventing scene facts", async () => {
+    const ffprobe: InspiredesignFfprobeRunner = async () => ({ value: { hasAudio: false }, limitations: [] });
+    const ffmpeg: InspiredesignFfmpegFrameRunner = async () => ({
+      value: { frames: [makeFrame(2, 2, DARK_RGB, 0), makeFrame(2, 2, LIGHT_RGB, 1)], outputWidth: 2, outputHeight: 2 },
+      limitations: []
+    });
+    const ffmpegScene: InspiredesignFfmpegSceneRunner = async () => ({ limitations: ["ffmpeg scene detection failed with exit code 7."] });
+
+    const analysis = await analyzeInspiredesignMediaArtifacts([{
+      ...trustedImageInput,
+      kind: "gif",
+      contentType: "image/gif",
+      mediaPath: "pin-media-evidence/pin-a/main.gif"
+    }], { generatedAt: "2026-06-06T00:00:00.000Z", ffprobe, ffmpeg, ffmpegScene });
+
+    expect(analysis.references[0]?.claimLevels).toContain("motion_sampled");
+    expect(analysis.references[0]?.facts.motion?.motionSignature?.sceneSummary).toBeUndefined();
+    expect(analysis.references[0]?.limitations).toContain("ffmpeg scene detection failed with exit code 7.");
+  });
+
+  it("parses bounded FFmpeg scene-score stderr metadata", async () => {
+    const binary = await makeFakeNodeBinary(
+      `process.stderr.write(${JSON.stringify("lavfi.scd.score=0.25\nlavfi.scd.time=1.5\nlavfi.scd.score=0.5\nlavfi.scd.time=2.25\n")});`
+    );
+
+    try {
+      const result = await runInspiredesignFfmpegSceneDetection(trustedImageInput.filePath, {
+        binaryPath: binary.binaryPath,
+        timeoutMs: 5000,
+        metadata: { durationSeconds: 12 }
+      });
+
+      expect(result.value).toEqual({
+        detector: "ffmpeg_scdet",
+        eventCount: 2,
+        strongestScore: 0.5,
+        timestampsSeconds: [1.5, 2.25],
+        limitations: []
+      });
+    } finally {
+      await cleanupFakeBinary(binary.dir);
+    }
+  });
+
   it("maps OCR-free typography geometry across empty, aligned, and repeated regions", () => {
     const empty = analyzeInspiredesignTypographyStructure(makeFrame(0, 0, DARK_RGB));
     const frame = makeFrame(100, 100, DARK_RGB);
@@ -1382,7 +1508,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     expect(guidance.visualRisks).not.toContain("Palette claims are unavailable without decoded RGB frames.");
     expect(guidance.visualRisks).not.toContain("Real motion claims are unavailable without sampled frame deltas.");
     expect(guidance.imageryPosture).toContain("balanced luminance");
-    expect(guidance.motionPosture).toContain("stable_loop sampled from 2 frames");
+    expect(guidance.motionPosture).toContain("stable_loop saved-media motion sampled from 2 frames");
     expect(guidance.patternsToReject).not.toContain("claiming exact headlines, nav labels, CTA copy, or font families from v1 media analysis");
   });
 });

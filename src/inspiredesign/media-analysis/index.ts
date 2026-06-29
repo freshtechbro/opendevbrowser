@@ -18,8 +18,10 @@ export {
 export {
   calculateBoundedFrameSize,
   extractInspiredesignFfmpegFrames,
+  runInspiredesignFfmpegSceneDetection,
   type InspiredesignFfmpegFrameExtraction,
   type InspiredesignFfmpegFrameRunner,
+  type InspiredesignFfmpegSceneRunner,
   type InspiredesignFfmpegRunOptions
 } from "./ffmpeg";
 export {
@@ -62,6 +64,10 @@ export type {
   InspiredesignMediaLayoutZone,
   InspiredesignMediaMetadataFacts,
   InspiredesignMediaMotionFacts,
+  InspiredesignMediaMotionFamily,
+  InspiredesignMediaMotionRegionDelta,
+  InspiredesignMediaMotionSceneSummary,
+  InspiredesignMediaMotionSignature,
   InspiredesignMediaPaletteSwatch,
   InspiredesignMediaTextRegion,
   InspiredesignMediaTextRegionRole,

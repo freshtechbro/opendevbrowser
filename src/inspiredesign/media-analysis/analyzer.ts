@@ -1,4 +1,9 @@
-import { extractInspiredesignFfmpegFrames, type InspiredesignFfmpegFrameRunner } from "./ffmpeg";
+import {
+  extractInspiredesignFfmpegFrames,
+  runInspiredesignFfmpegSceneDetection,
+  type InspiredesignFfmpegFrameRunner,
+  type InspiredesignFfmpegSceneRunner
+} from "./ffmpeg";
 import { runInspiredesignFfprobe, type InspiredesignFfprobeRunner } from "./ffprobe";
 import { buildEmptyInspiredesignMediaDesignGuidance, buildInspiredesignMediaDesignGuidance } from "./design-guidance";
 import { analyzeInspiredesignRgbFrame, buildInspiredesignMotionFacts } from "./pixel";
@@ -15,6 +20,7 @@ import {
   type InspiredesignMediaDimensions,
   type InspiredesignMediaFacts,
   type InspiredesignMediaMetadataFacts,
+  type InspiredesignMediaMotionSceneSummary,
   type InspiredesignRgbFrame
 } from "./types";
 
@@ -23,6 +29,7 @@ export type InspiredesignMediaAnalyzerOptions = {
   timeoutMs?: number;
   ffprobe?: InspiredesignFfprobeRunner;
   ffmpeg?: InspiredesignFfmpegFrameRunner;
+  ffmpegScene?: InspiredesignFfmpegSceneRunner;
   ffprobeBinaryPath?: string;
   ffmpegBinaryPath?: string;
   ffprobeUnavailableLimitation?: string;
@@ -78,8 +85,9 @@ const analyzeTrustedInput = async (
     metadata,
     ...timeoutOptions(frameTimeoutMs)
   });
-  const limitations = buildBaseLimitations(input, probe, frameResult);
-  return buildReference(input, metadata, frameResult.value?.frames ?? [], limitations);
+  const sceneResult = await runSceneDetection(input, options, metadata, timeoutOptions(processTimeoutMs(budget)));
+  const limitations = buildBaseLimitations(input, probe, frameResult, sceneResult);
+  return buildReference(input, metadata, frameResult.value?.frames ?? [], limitations, sceneResult.value);
 };
 
 const runProbe = (
@@ -114,10 +122,11 @@ const buildReference = (
   input: InspiredesignMediaAnalysisInput,
   metadata: InspiredesignMediaMetadataFacts,
   frames: readonly InspiredesignRgbFrame[],
-  limitations: readonly string[]
+  limitations: readonly string[],
+  sceneSummary?: InspiredesignMediaMotionSceneSummary
 ): InspiredesignMediaAnalysisReference => {
   const uniqueLimitations = [...new Set(limitations)];
-  const facts = buildFacts(input, metadata, frames);
+  const facts = buildFacts(input, metadata, frames, sceneSummary);
   const claimLevels = buildClaimLevels(facts, input.kind);
   const confidence = calculateConfidence(claimLevels, uniqueLimitations);
   const designGuidance = claimLevels.length > 1
@@ -145,7 +154,8 @@ const buildReference = (
 const buildFacts = (
   input: InspiredesignMediaAnalysisInput,
   metadata: InspiredesignMediaMetadataFacts,
-  frames: readonly InspiredesignRgbFrame[]
+  frames: readonly InspiredesignRgbFrame[],
+  sceneSummary?: InspiredesignMediaMotionSceneSummary
 ): InspiredesignMediaFacts => {
   const dimensions = metadata.dimensions ?? inputDimensions(input);
   if (frames.length === 0) {
@@ -159,27 +169,48 @@ const buildFacts = (
     palette: primaryAnalysis.palette,
     layout: primaryAnalysis.layout,
     typographyStructure: analyzeInspiredesignTypographyStructure(frames[0] as InspiredesignRgbFrame),
-    motion: buildMotionFacts(input, metadata, frames)
+    motion: buildMotionFacts(input, metadata, frames, sceneSummary)
   };
 };
 
 const buildMotionFacts = (
   input: Pick<InspiredesignMediaAnalysisInput, "kind">,
   metadata: InspiredesignMediaMetadataFacts,
-  frames: readonly InspiredesignRgbFrame[]
+  frames: readonly InspiredesignRgbFrame[],
+  sceneSummary?: InspiredesignMediaMotionSceneSummary
 ) => {
   if (input.kind === "image" || input.kind === "video_poster") {
     return undefined;
   }
-  return buildInspiredesignMotionFacts(frames, metadata.fps);
+  return buildInspiredesignMotionFacts(frames, metadata.fps, sceneSummary);
+};
+
+const runSceneDetection = (
+  input: InspiredesignMediaAnalysisInput,
+  options: InspiredesignMediaAnalyzerOptions,
+  metadata: InspiredesignMediaMetadataFacts,
+  timeout: { timeoutMs?: number }
+): Promise<InspiredesignMediaAdapterResult<InspiredesignMediaMotionSceneSummary>> => {
+  if (input.kind !== "gif" && input.kind !== "video") {
+    return Promise.resolve({ limitations: [] });
+  }
+  if (options.ffmpegUnavailableLimitation) {
+    return Promise.resolve({ limitations: [options.ffmpegUnavailableLimitation] });
+  }
+  return (options.ffmpegScene ?? runInspiredesignFfmpegSceneDetection)(input.filePath, {
+    ...timeout,
+    metadata,
+    ...(options.ffmpegBinaryPath ? { binaryPath: options.ffmpegBinaryPath } : {})
+  });
 };
 
 const buildBaseLimitations = (
   input: Pick<InspiredesignMediaAnalysisInput, "kind">,
   probe: InspiredesignMediaAdapterResult<InspiredesignMediaMetadataFacts>,
-  frameResult: InspiredesignMediaAdapterResult<{ frames: InspiredesignRgbFrame[] }>
+  frameResult: InspiredesignMediaAdapterResult<{ frames: InspiredesignRgbFrame[] }>,
+  sceneResult: InspiredesignMediaAdapterResult<InspiredesignMediaMotionSceneSummary>
 ): string[] => {
-  const limitations = [...probe.limitations, ...frameResult.limitations, EXACT_TEXT_LIMITATION, FONT_LIMITATION];
+  const limitations = [...probe.limitations, ...frameResult.limitations, ...sceneResult.limitations, EXACT_TEXT_LIMITATION, FONT_LIMITATION];
   if (input.kind === "image" || input.kind === "video_poster") {
     limitations.push(STATIC_IMAGE_LIMITATION);
   }

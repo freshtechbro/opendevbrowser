@@ -172,6 +172,42 @@ export type InspiredesignMediaFrameToneSummary = {
   brightCoverage: number;
 };
 
+export type InspiredesignMediaMotionRegionDelta = {
+  row: number;
+  column: number;
+  bboxNorm: [number, number, number, number];
+  averageDelta: number;
+  peakDelta: number;
+};
+
+export type InspiredesignMediaMotionFamily =
+  | "static_hold"
+  | "subtle_loop"
+  | "fade_or_exposure_shift"
+  | "cut_or_scene_change"
+  | "dynamic_motion";
+
+export type InspiredesignMediaMotionSceneSummary = {
+  detector: "ffmpeg_scdet";
+  eventCount: number;
+  strongestScore: number;
+  timestampsSeconds: number[];
+  limitations: string[];
+};
+
+export type InspiredesignMediaMotionSignature = {
+  version: 1;
+  sampleBasis: "decoded_rgb_frames";
+  motionFamily: InspiredesignMediaMotionFamily;
+  peakFrameDelta: number;
+  averageFrameDelta: number;
+  deltaVariance: number;
+  toneShift: number;
+  dominantChangedRegions: InspiredesignMediaMotionRegionDelta[];
+  confidence: number;
+  sceneSummary?: InspiredesignMediaMotionSceneSummary;
+};
+
 export type InspiredesignMediaMotionFacts = {
   sampledFrameCount: number;
   sampledFrameIndexes: number[];
@@ -180,6 +216,7 @@ export type InspiredesignMediaMotionFacts = {
   cadence: "static" | "slow" | "moderate" | "fast";
   posture: "static_source_adaptation" | "stable_loop" | "subtle_motion" | "dynamic_motion";
   frameToneSummaries: InspiredesignMediaFrameToneSummary[];
+  motionSignature?: InspiredesignMediaMotionSignature;
 };
 
 export type InspiredesignMediaFacts = {
