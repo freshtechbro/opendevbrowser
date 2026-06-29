@@ -105,7 +105,7 @@ const buildSceneDetectionArgs = (filePath: string, metadata?: InspiredesignMedia
 ];
 
 const parseSceneDetection = (output: string): InspiredesignMediaMotionSceneSummary => {
-  const events = [...output.matchAll(/lavfi\.scd\.(?:score|time)=([0-9.]+)/gu)]
+  const events = [...output.matchAll(/lavfi\.scd\.(?:score|time)\s*[:=]\s*([0-9.]+)/gu)]
     .map((match, index) => ({ index, value: Number(match[1]) }))
     .filter((event) => Number.isFinite(event.value));
   const scores = events.filter((event) => event.index % 2 === 0).map((event) => event.value);

@@ -1264,7 +1264,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
 
   it("parses bounded FFmpeg scene-score stderr metadata", async () => {
     const binary = await makeFakeNodeBinary(
-      `process.stderr.write(${JSON.stringify("lavfi.scd.score=0.25\nlavfi.scd.time=1.5\nlavfi.scd.score=0.5\nlavfi.scd.time=2.25\n")});`
+      `process.stderr.write(${JSON.stringify("[scdet @ 0x1] lavfi.scd.score: 0.25, lavfi.scd.time: 1.5\n[scdet @ 0x2] lavfi.scd.score: 0.5, lavfi.scd.time: 2.25\n")});`
     );
 
     try {
@@ -1292,7 +1292,7 @@ describe("inspiredesign media-analysis pure analyzers", () => {
     const nonzeroBinary = await makeFakeNodeBinary("process.exit(9);");
     const noSceneBinary = await makeFakeNodeBinary(`process.stderr.write(${JSON.stringify("no scene metadata here\n")}); process.exit(0);`);
     const truncatedBinary = await makeFakeNodeBinary(
-      `process.stderr.write(${JSON.stringify("lavfi.scd.score=0.2\nlavfi.scd.time=0.5\nlavfi.scd.score=0.3\nlavfi.scd.time=1.0\nlavfi.scd.score=0.4\nlavfi.scd.time=1.5\nlavfi.scd.score=0.5\nlavfi.scd.time=2.0\nlavfi.scd.score=0.6\nlavfi.scd.time=2.5\nlavfi.scd.score=0.7\nlavfi.scd.time=3.0\n")});`
+      `process.stderr.write(${JSON.stringify("[scdet @ 0x1] lavfi.scd.score: 0.2, lavfi.scd.time: 0.5\n[scdet @ 0x2] lavfi.scd.score: 0.3, lavfi.scd.time: 1.0\n[scdet @ 0x3] lavfi.scd.score: 0.4, lavfi.scd.time: 1.5\n[scdet @ 0x4] lavfi.scd.score: 0.5, lavfi.scd.time: 2.0\n[scdet @ 0x5] lavfi.scd.score: 0.6, lavfi.scd.time: 2.5\n[scdet @ 0x6] lavfi.scd.score: 0.7, lavfi.scd.time: 3.0\n")});`
     );
 
     try {
@@ -1764,7 +1764,7 @@ describe("inspiredesign media-analysis analyzer", () => {
     const ffprobeBinary = await makeFakeNodeBinary(`process.stdout.write(${JSON.stringify(JSON.stringify(metadata))});`);
     const ffmpegBinary = await makeFakeNodeBinary(`
       if (process.argv.join(" ").includes("scdet")) {
-        process.stderr.write(${JSON.stringify("lavfi.scd.score=0.45\nlavfi.scd.time=0.25\n")});
+        process.stderr.write(${JSON.stringify("[scdet @ 0x1] lavfi.scd.score: 0.45, lavfi.scd.time: 0.25\n")});
       } else {
         process.stdout.write(Buffer.from(${JSON.stringify([...makeFrame(1, 1, LIGHT_RGB).data, ...makeFrame(1, 1, DARK_RGB).data])}));
       }
