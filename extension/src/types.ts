@@ -7,6 +7,7 @@ export type PopupAnnotationStartMessage = {
 };
 export type PopupAnnotationLastMetaMessage = { type: "annotation:lastMeta" };
 export type PopupAnnotationGetPayloadMessage = { type: "annotation:getPayload"; includeScreenshots?: boolean };
+export type PopupAnnotationSanitizePayloadMessage = { type: "annotation:sanitizePayload"; payload: AnnotationPayload };
 export type PopupAnnotationSendPayloadMessage = {
   type: "annotation:sendPayload";
   payload: AnnotationPayload;
@@ -22,6 +23,7 @@ export type PopupMessage =
   | PopupAnnotationStartMessage
   | PopupAnnotationLastMetaMessage
   | PopupAnnotationGetPayloadMessage
+  | PopupAnnotationSanitizePayloadMessage
   | PopupAnnotationSendPayloadMessage
   | PopupAnnotationProbeMessage;
 

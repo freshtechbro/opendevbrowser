@@ -2092,6 +2092,37 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
     return true;
   }
 
+  if (message.type === "annotation:sanitizePayload") {
+    if (!isAnnotationPayload(message.payload)) {
+      sendResponse({
+        type: "annotation:sanitizePayloadResult",
+        ok: false,
+        payload: null,
+        error: { code: "invalid_request", message: "Invalid annotation payload." }
+      });
+      return true;
+    }
+    try {
+      const sanitizedPayload = sanitizeAnnotationPayloadForAgent(message.payload);
+      sendResponse({
+        type: "annotation:sanitizePayloadResult",
+        ok: true,
+        payload: sanitizedPayload
+      });
+    } catch (error) {
+      sendResponse({
+        type: "annotation:sanitizePayloadResult",
+        ok: false,
+        payload: null,
+        error: {
+          code: "payload_too_large",
+          message: error instanceof Error ? error.message : "Annotation payload sanitization failed."
+        }
+      });
+    }
+    return true;
+  }
+
   if (message.type === "annotation:sendPayload") {
     (async () => {
       if (!isAnnotationPayload(message.payload)) {

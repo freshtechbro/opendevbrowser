@@ -86,4 +86,137 @@ describe("annotate content bootstrap", () => {
     expect(toggled).toMatchObject({ ok: true, bootId: (ping as { bootId: string }).bootId, active: true });
     expect(document.getElementById("odb-annotate-root")).not.toBeNull();
   });
+
+  it("copies via the shared background sanitizer instead of the local compact builder", async () => {
+    const runtimeListeners = new Set<RuntimeMessageListener>();
+    const clipboardWrite = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardWrite }
+    });
+    window.history.replaceState(null, "", "/account?token=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+    document.title = "Secret sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    document.body.innerHTML = `<button id="target" data-token="sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890">Token sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890</button>`;
+    globalThis.chrome = {
+      runtime: {
+        lastError: null,
+        onMessage: {
+          addListener: vi.fn((listener: RuntimeMessageListener) => {
+            runtimeListeners.add(listener);
+          }),
+          removeListener: vi.fn((listener: RuntimeMessageListener) => {
+            runtimeListeners.delete(listener);
+          })
+        },
+        sendMessage: vi.fn((message: unknown, callback?: (response: unknown) => void) => {
+          if ((message as { type?: string }).type === "annotation:sanitizePayload") {
+            callback?.({
+              type: "annotation:sanitizePayloadResult",
+              ok: true,
+              payload: {
+                schemaVersion: 2,
+                url: "[redacted]",
+                timestamp: "2026-03-12T00:00:00.000Z",
+                screenshotMode: "none",
+                annotations: [],
+                compact: {
+                  schemaVersion: 2,
+                  url: "[redacted]",
+                  timestamp: "2026-03-12T00:00:00.000Z",
+                  screenshotMode: "none",
+                  byteBudget: 24 * 1024,
+                  redaction: {
+                    removedFields: ["url"],
+                    truncatedFields: ["title.redacted"],
+                    screenshotBytesRemoved: false,
+                    originalByteLength: 4096,
+                    compactByteLength: 512
+                  },
+                  items: []
+                }
+              }
+            });
+            return;
+          }
+          for (const listener of runtimeListeners) {
+            listener(message, {}, (response) => callback?.(response));
+          }
+        })
+      }
+    } as unknown as typeof chrome;
+
+    await import("../extension/src/annotate-content");
+    (window as Window & { __odbAnnotate?: { start: (requestId: string | null) => void } }).__odbAnnotate?.start(null);
+    document.getElementById("target")?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    document.querySelector<HTMLButtonElement>("button[data-action='copy']")?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    expect(globalThis.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "annotation:sanitizePayload" }),
+      expect.any(Function)
+    );
+    const copied = String(clipboardWrite.mock.calls[0]?.[0] ?? "");
+    expect(copied).toContain("[redacted]");
+    expect(copied).not.toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+  });
+
+  it("sends raw in-page captures to background so shared send sanitization enforces the budget", async () => {
+    const runtimeListeners = new Set<RuntimeMessageListener>();
+    const sentMessages: unknown[] = [];
+    window.history.replaceState(null, "", "/send?token=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+    document.title = "Send Secret";
+    document.body.innerHTML = `<button id="target" data-token="sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890">Send sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890</button>`;
+    globalThis.chrome = {
+      runtime: {
+        lastError: null,
+        onMessage: {
+          addListener: vi.fn((listener: RuntimeMessageListener) => {
+            runtimeListeners.add(listener);
+          }),
+          removeListener: vi.fn((listener: RuntimeMessageListener) => {
+            runtimeListeners.delete(listener);
+          })
+        },
+        sendMessage: vi.fn((message: unknown, callback?: (response: unknown) => void) => {
+          sentMessages.push(message);
+          if ((message as { type?: string }).type === "annotation:sendPayload") {
+            callback?.({
+              type: "annotation:sendPayloadResult",
+              ok: true,
+              meta: null,
+              receipt: {
+                receiptId: "receipt-1",
+                deliveryState: "stored_only",
+                storedFallback: true,
+                createdAt: "2026-03-12T00:00:00.000Z",
+                itemCount: 1,
+                byteLength: 512,
+                source: "annotate_all",
+                label: "Annotation payload"
+              }
+            });
+            return;
+          }
+          for (const listener of runtimeListeners) {
+            listener(message, {}, (response) => callback?.(response));
+          }
+        })
+      }
+    } as unknown as typeof chrome;
+
+    await import("../extension/src/annotate-content");
+    (window as Window & { __odbAnnotate?: { start: (requestId: string | null) => void } }).__odbAnnotate?.start(null);
+    document.getElementById("target")?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    document.querySelector<HTMLButtonElement>("button[data-action='send']")?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    const sendMessage = sentMessages.find((message) => (message as { type?: string }).type === "annotation:sendPayload") as {
+      payload?: { url?: string; compact?: { byteBudget?: number; redaction?: { compactByteLength?: number } } };
+    } | undefined;
+    expect(sendMessage?.payload?.url).toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+    expect(sendMessage?.payload?.compact?.byteBudget).toBe(24 * 1024);
+  });
+
 });

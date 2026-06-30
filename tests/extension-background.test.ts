@@ -1904,6 +1904,49 @@ describe("extension background annotation routing", () => {
     );
   });
 
+  it("sanitizes in-page copy payloads with shared redaction and compact byte budget", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const secret = "sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    const payload = {
+      url: `https://example.com/account?token=${secret}`,
+      title: `Title ${secret}`,
+      timestamp: "2026-03-12T00:00:00.000Z",
+      context: `Context ${secret} ${"long ".repeat(8_000)}`,
+      screenshotMode: "none" as const,
+      annotations: Array.from({ length: 80 }, (_, index) => ({
+        id: `item-${index}`,
+        selector: `[data-token="${secret}-${index}"]`,
+        tag: "button",
+        text: `Visible ${secret} ${"copy ".repeat(200)}`,
+        rect: { x: index, y: index, width: 100, height: 40 },
+        attributes: { "data-token": `${secret}-${index}` },
+        a11y: { role: "button", label: `Label ${secret}` },
+        styles: {},
+        note: `Note ${secret} ${"note ".repeat(200)}`
+      }))
+    };
+
+    const response = await new Promise<{ ok?: boolean; payload?: { compact?: { byteBudget?: number; redaction?: { compactByteLength?: number } } } | null }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage(
+        { type: "annotation:sanitizePayload", payload },
+        (message) => resolve(message as { ok?: boolean; payload?: { compact?: { byteBudget?: number; redaction?: { compactByteLength?: number } } } | null })
+      );
+    });
+
+    const serialized = JSON.stringify(response.payload);
+    expect(response.ok).toBe(true);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).toContain("[redacted]");
+    expect(response.payload?.compact?.byteBudget).toBe(24 * 1024);
+    expect(response.payload?.compact?.redaction?.compactByteLength).toBeLessThanOrEqual(24 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(response.payload?.compact), "utf8")).toBeLessThanOrEqual(24 * 1024);
+  });
+
   it("stores annotation meta and returns sanitized payload for popup copy", async () => {
     const mock = createChromeMock({ autoConnect: false });
     globalThis.chrome = mock.chrome;

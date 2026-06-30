@@ -166,6 +166,13 @@ type PopupAnnotationSendPayloadResponse = {
   error?: { code: AnnotationErrorCode; message: string };
 };
 
+type PopupAnnotationSanitizePayloadResponse = {
+  type: "annotation:sanitizePayloadResult";
+  ok: boolean;
+  payload: AnnotationPayload | null;
+  error?: { code: AnnotationErrorCode; message: string };
+};
+
 type AnnotationSession = {
   requestId: string | null;
   options: AnnotationOptions;
@@ -1632,9 +1639,33 @@ const formatAnnotationDispatchReceipt = (receipt: PopupAnnotationSendPayloadResp
   return "Stored only; fetch with annotate --stored";
 };
 
+const requestSharedSanitizedPayload = async (payload: AnnotationPayload): Promise<AnnotationPayload> => {
+  return await new Promise<AnnotationPayload>((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        type: "annotation:sanitizePayload",
+        payload
+      },
+      (response) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message));
+          return;
+        }
+        const typed = response as PopupAnnotationSanitizePayloadResponse | undefined;
+        if (!typed || typed.ok !== true || !typed.payload) {
+          reject(new Error(typed?.error?.message ?? "Sanitize failed"));
+          return;
+        }
+        resolve(typed.payload);
+      }
+    );
+  });
+};
+
 const copyPayload = async (annotationIds?: string[], button?: HTMLButtonElement) => {
   const payload = await buildPayload(annotationIds);
-  const text = JSON.stringify(sanitizeAnnotationPayloadForAgent(payload));
+  const text = JSON.stringify(await requestSharedSanitizedPayload(payload));
   await writeClipboard(text);
   if (button) {
     setButtonFeedback(button, "Copied");
@@ -1650,12 +1681,11 @@ const sendPayload = async (
   button?: HTMLButtonElement
 ) => {
   const payload = await buildPayload(annotationIds);
-  const agentPayload = sanitizeAnnotationPayloadForAgent(payload);
   const response = await new Promise<PopupAnnotationSendPayloadResponse>((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
         type: "annotation:sendPayload",
-        payload: agentPayload,
+        payload,
         source,
         label
       },

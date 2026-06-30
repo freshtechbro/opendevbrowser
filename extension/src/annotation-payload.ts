@@ -285,14 +285,19 @@ const enforceCompactByteBudget = (compact: AnnotationCompactPayload): Annotation
   }
   updateCompactByteLengths(compact);
   if (compact.redaction.compactByteLength > COMPACT_BYTE_BUDGET) {
+    const originalByteLength = compact.redaction.originalByteLength;
+    const screenshotBytesRemoved = compact.redaction.screenshotBytesRemoved;
     compact.items = [];
     compact.context = undefined;
     compact.title = undefined;
     compact.url = REDACTED_VALUE;
-    pushUnique(compact.redaction.removedFields, "annotations");
-    pushUnique(compact.redaction.removedFields, "context");
-    pushUnique(compact.redaction.removedFields, "title");
-    pushUnique(compact.redaction.removedFields, "url");
+    compact.redaction = {
+      removedFields: ["annotations", "context", "title", "url", "redaction.overflow_details"],
+      truncatedFields: [],
+      screenshotBytesRemoved,
+      originalByteLength,
+      compactByteLength: 0
+    };
   }
   return updateCompactByteLengths(compact);
 };
