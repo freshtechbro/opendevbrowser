@@ -745,14 +745,46 @@ export function inspectInspiredesignStrictBundle(artifactPath, workflowJson = {}
     pinMediaInspections: inspectedPinMedia,
     motionInspections: inspectedMotion,
     screenshotInspections: inspectedScreenshots,
+    inspectedArtifactFiles: [
+      ...REQUIRED_ARTIFACT_FILES,
+      ...inspectionAuthorityArtifactFiles({
+        pinMediaInspections: inspectedPinMedia,
+        motionInspections: inspectedMotion,
+        screenshotInspections: inspectedScreenshots
+      })
+    ],
     mediaAnalysisAdvisoryOnly: true
   };
 }
 
-function copyInspectedArtifacts(artifactPath, proofDir) {
+function inspectionAuthorityArtifactFiles(inspection) {
+  const files = [];
+  for (const entry of inspection.pinMediaInspections ?? []) {
+    files.push(entry.path);
+  }
+  for (const entry of inspection.motionInspections ?? []) {
+    files.push(entry.replay.path, entry.preview.path);
+  }
+  for (const entry of inspection.screenshotInspections ?? []) {
+    files.push(entry.path);
+  }
+  return [...new Set(files)];
+}
+
+function copyArtifactFile(artifactPath, proofDir, relativePath) {
+  const sourcePath = resolveArtifactFilePath(artifactPath, relativePath);
+  const targetPath = path.join(proofDir, relativePath);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function copyInspectedArtifacts(artifactPath, proofDir, inspection) {
   fs.mkdirSync(proofDir, { recursive: true });
   for (const file of REQUIRED_ARTIFACT_FILES) {
-    fs.copyFileSync(path.join(artifactPath, file), path.join(proofDir, file));
+    copyArtifactFile(artifactPath, proofDir, file);
+  }
+  for (const file of inspectionAuthorityArtifactFiles(inspection)) {
+    copyArtifactFile(artifactPath, proofDir, file);
   }
 }
 
@@ -772,7 +804,7 @@ async function runExistingArtifactInspection(options) {
   const artifactPath = path.resolve(options.artifactPath);
   const workflowJson = loadWorkflowJson(options);
   const inspection = inspectInspiredesignStrictBundle(artifactPath, workflowJson);
-  copyInspectedArtifacts(artifactPath, proofDir);
+  copyInspectedArtifacts(artifactPath, proofDir, inspection);
   writeInspectionReport(proofDir, { runId, proofDir, mode: "artifact_inspection", inspection });
   return { proofDir, inspection };
 }
@@ -811,7 +843,7 @@ async function runLiveStrictProof(options) {
     });
     const artifactPath = workflow.json?.data?.artifact_path ?? workflow.json?.artifact_path;
     const inspection = inspectInspiredesignStrictBundle(String(artifactPath ?? ""), workflow.json);
-    copyInspectedArtifacts(inspection.artifactPath, proofDir);
+    copyInspectedArtifacts(inspection.artifactPath, proofDir, inspection);
     writeInspectionReport(proofDir, {
       runId,
       proofDir,
@@ -845,7 +877,9 @@ export const __test__ = {
   rankedReferenceList,
   pinMediaIndexList,
   motionEvidenceList,
-  screenshotIndexList
+  screenshotIndexList,
+  inspectionAuthorityArtifactFiles,
+  copyInspectedArtifacts
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

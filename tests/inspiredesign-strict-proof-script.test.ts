@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -242,6 +242,80 @@ describe("inspiredesign strict proof script", () => {
       expect(inspection.artifactSummaries.map((summary) => summary.path)).toEqual(__test__.REQUIRED_ARTIFACT_FILES);
     } finally {
       rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("copies inspected byte-backed authority artifacts into the proof directory", () => {
+    const pinBundle = makeBundle();
+    const motionBundle = makeBundle({
+      workflow: { evidenceAuthority: "motion_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" }
+    });
+    const snapshotBundle = makeBundle({
+      workflow: { evidenceAuthority: "snapshot_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" },
+      screenshotEntry: {
+        referenceId: "screenshot-ref",
+        url: "https://example.com/reference",
+        sourceUrl: "https://example.com/reference"
+      }
+    });
+    writeMotionEvidence(motionBundle.artifactPath, {}, { referenceId: "motion-ref", url: "https://example.com/reference" });
+
+    try {
+      const pinInspection = inspectInspiredesignStrictBundle(pinBundle.artifactPath, pinBundle.workflow);
+      const motionInspection = inspectInspiredesignStrictBundle(motionBundle.artifactPath, motionBundle.workflow);
+      const snapshotInspection = inspectInspiredesignStrictBundle(snapshotBundle.artifactPath, snapshotBundle.workflow);
+      const pinProofDir = join(pinBundle.root, "proof", "inspected-artifacts");
+      const motionProofDir = join(motionBundle.root, "proof", "inspected-artifacts");
+      const snapshotProofDir = join(snapshotBundle.root, "proof", "inspected-artifacts");
+
+      __test__.copyInspectedArtifacts(pinBundle.artifactPath, pinProofDir, pinInspection);
+      __test__.copyInspectedArtifacts(motionBundle.artifactPath, motionProofDir, motionInspection);
+      __test__.copyInspectedArtifacts(snapshotBundle.artifactPath, snapshotProofDir, snapshotInspection);
+
+      const inspectedCopies = [
+        {
+          inspection: pinInspection,
+          proofDir: pinProofDir,
+          relativePath: "pin-media-evidence/pin-ref/main.jpg",
+          bytes: pinBytes
+        },
+        {
+          inspection: motionInspection,
+          proofDir: motionProofDir,
+          relativePath: "motion-evidence/pin-ref/replay.json",
+          bytes: motionReplayBytes
+        },
+        {
+          inspection: motionInspection,
+          proofDir: motionProofDir,
+          relativePath: "motion-evidence/pin-ref/preview.png",
+          bytes: motionPreviewBytes
+        },
+        {
+          inspection: snapshotInspection,
+          proofDir: snapshotProofDir,
+          relativePath: "visual-evidence/pin-ref/viewport.png",
+          bytes: screenshotBytes
+        }
+      ];
+
+      for (const copiedFile of inspectedCopies) {
+        const copiedPath = join(copiedFile.proofDir, ...copiedFile.relativePath.split("/"));
+        expect(copiedFile.inspection.inspectedArtifactFiles).toContain(copiedFile.relativePath);
+        expect(existsSync(copiedPath)).toBe(true);
+        expect(readFileSync(copiedPath)).toEqual(copiedFile.bytes);
+      }
+      expect(existsSync(join(pinProofDir, "evidence.json"))).toBe(true);
+      expect(existsSync(join(motionProofDir, "evidence.json"))).toBe(true);
+      expect(existsSync(join(snapshotProofDir, "evidence.json"))).toBe(true);
+    } finally {
+      rmSync(pinBundle.root, { recursive: true, force: true });
+      rmSync(motionBundle.root, { recursive: true, force: true });
+      rmSync(snapshotBundle.root, { recursive: true, force: true });
     }
   });
 
