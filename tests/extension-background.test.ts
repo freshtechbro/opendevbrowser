@@ -2108,17 +2108,20 @@ describe("extension background annotation routing", () => {
         payload: {
           url: "https://example.com",
           timestamp: "2026-03-15T00:00:00.000Z",
+          context: "Context includes token sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
           screenshotMode: "visible",
           screenshots: [{ id: "shot-1", base64: "CCCC", mime: "image/png" }],
           annotations: [{
             id: "item-agent",
-            selector: "#hero",
+            selector: "[data-token=\"sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\"]",
             tag: "section",
+            text: "Hero token sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
             rect: { x: 0, y: 0, width: 320, height: 180 },
             attributes: {},
-            a11y: {},
+            a11y: { label: "Hero token sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890" },
             styles: {},
-            screenshotId: "shot-1"
+            screenshotId: "shot-1",
+            note: "Note includes sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
           }]
         }
       }
@@ -2152,6 +2155,23 @@ describe("extension background annotation routing", () => {
     const responseJson = JSON.stringify(lastConnectionManager?.sendAnnotationResponse.mock.calls[0]?.[0]);
     expect(responseJson).not.toContain("CCCC");
     expect(responseJson).not.toContain("screenshotId");
+
+    lastConnectionManager?.sendAnnotationResponse.mockClear();
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "fetch-stored-agent-payload-with-screenshots",
+        command: "fetch_stored",
+        options: { includeScreenshots: true }
+      }
+    });
+    await flushMicrotasks();
+
+    const memoryResponseJson = JSON.stringify(lastConnectionManager?.sendAnnotationResponse.mock.calls[0]?.[0]);
+    expect(memoryResponseJson).not.toContain("CCCC");
+    expect(memoryResponseJson).not.toContain("screenshotId");
+    expect(memoryResponseJson).not.toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
   });
 
   it("returns delivered receipts when shared enqueue succeeds", async () => {

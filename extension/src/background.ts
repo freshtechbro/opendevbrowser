@@ -1285,7 +1285,7 @@ const storeAgentAnnotationPayload = async (
     label: label?.trim().length ? label.trim() : formatDispatchSourceLabel(source),
     receipt
   });
-  lastAgentAnnotationFull = { meta, payload };
+  lastAgentAnnotationFull = { meta, payload: sanitizedPayload };
   await persistAgentAnnotation({ ...meta, hasFullPayloadInMemory: false }, sanitizedPayload);
   return meta;
 };
