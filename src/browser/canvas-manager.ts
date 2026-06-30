@@ -957,8 +957,7 @@ export class CanvasManager implements CanvasManagerLike {
   ): Promise<void> {
     const documentId = optionalString(params.documentId);
     const repoPath = optionalString(params.repoPath);
-    if (!repoPath) {
-      candidate.documentId = documentId ?? candidate.documentId;
+    if (!repoPath && !documentId) {
       return;
     }
     const session = this.sessions.get(child.canvasSessionId);
@@ -969,7 +968,27 @@ export class CanvasManager implements CanvasManagerLike {
       });
     }
     const repoRoot = this.readSessionRepoRoot(session, params);
+    if (!repoPath) {
+      const document = await loadCanvasDocumentById(repoRoot, documentId as string);
+      if (!document) {
+        candidate.documentId = documentId as string;
+        candidate.repoPath = null;
+        candidate.codeSyncBindingIds = [];
+        candidate.codeSyncSourceRepoPaths = [];
+        return;
+      }
+      this.applyWorkspaceDocumentLoadCandidate(candidate, normalizeCanvasDocument(document), null);
+      return;
+    }
     const document = normalizeCanvasDocument(await loadCanvasDocument(repoRoot, repoPath));
+    this.applyWorkspaceDocumentLoadCandidate(candidate, document, repoPath);
+  }
+
+  private applyWorkspaceDocumentLoadCandidate(
+    candidate: CanvasWorkspaceChildRef,
+    document: CanvasDocument,
+    repoPath: string | null
+  ): void {
     candidate.documentId = document.documentId;
     candidate.repoPath = repoPath;
     candidate.codeSyncBindingIds = getCanvasDocumentCodeSyncBindingIds(document);

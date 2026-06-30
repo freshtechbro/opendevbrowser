@@ -443,6 +443,105 @@ describe("CanvasManager workspace orchestration", () => {
     });
   });
 
+  it("rejects documentId loads whose persisted internal documentId collides and preserves routed child", async () => {
+    const manager = createManager(worktree);
+    const childA = await openChild(manager, "doc_document_id_collision_a");
+    const childB = await openChild(manager, "doc_document_id_collision_b");
+    const opened = await manager.execute("canvas.workspace.open", {
+      workspaceId: "workspace_document_id_load_guard",
+      children: [
+        { childId: "child-a", canvasSessionId: childA.canvasSessionId },
+        { childId: "child-b", canvasSessionId: childB.canvasSessionId }
+      ]
+    }) as WorkspaceResult;
+    const originalChildBRepoRoot = getSession(manager, childB.canvasSessionId).repoRoot;
+    await writeCanvasDocumentFixture(
+      worktree,
+      ".opendevbrowser/canvas/requested-collision.canvas.json",
+      structuredClone(getSession(manager, childA.canvasSessionId).store.getDocument())
+    );
+
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child-b",
+      command: "canvas.document.load",
+      params: { documentId: "requested-collision" }
+    })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_document" });
+    const childBSession = getSession(manager, childB.canvasSessionId);
+    expect(childBSession.store.getDocument().documentId).toBe("doc_document_id_collision_b");
+    expect(childBSession.documentRepoPath).toBeNull();
+    expect(childBSession.repoRoot).toBe(originalChildBRepoRoot);
+    await expect(manager.execute("canvas.session.status", {
+      canvasSessionId: childB.canvasSessionId
+    })).resolves.toMatchObject({ documentId: "doc_document_id_collision_b" });
+    const status = await manager.execute("canvas.workspace.status", { workspaceId: opened.workspaceId }) as WorkspaceResult;
+    expect(status.manifest.childRefs.find((child) => child.childId === "child-b")).toMatchObject({
+      documentId: "doc_document_id_collision_b",
+      repoPath: null
+    });
+  });
+
+  it("rejects documentId loads whose persisted code-sync source repoPath collides", async () => {
+    const manager = createManager(worktree);
+    const childA = await openChild(manager, "doc_document_id_source_a");
+    const childB = await openChild(manager, "doc_document_id_source_b");
+    await planChild(manager, childA);
+    await planChild(manager, childB);
+    await writeFile(join(worktree, "shared.tsx"), "export function Shared() { return <section>Shared</section>; }\n");
+    const opened = await manager.execute("canvas.workspace.open", {
+      workspaceId: "workspace_document_id_source_guard",
+      children: [
+        { childId: "child-a", canvasSessionId: childA.canvasSessionId },
+        { childId: "child-b", canvasSessionId: childB.canvasSessionId }
+      ]
+    }) as WorkspaceResult;
+    await manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child-a",
+      command: "canvas.code.bind",
+      params: {
+        nodeId: getRootNodeId(manager, childA.canvasSessionId),
+        bindingId: "binding_document_id_shared_a",
+        repoPath: "shared.tsx",
+        exportName: "SharedA"
+      }
+    });
+    const persistedDocument = structuredClone(getSession(manager, childB.canvasSessionId).store.getDocument());
+    const persistedBinding = structuredClone(getSession(manager, childA.canvasSessionId).store.getDocument().bindings[0]);
+    if (!persistedBinding) {
+      throw new Error("Expected child A code-sync binding");
+    }
+    persistedDocument.documentId = "doc_document_id_source_target";
+    persistedBinding.id = "binding_document_id_shared_b";
+    persistedBinding.nodeId = persistedDocument.pages[0]?.rootNodeId ?? persistedBinding.nodeId;
+    persistedBinding.codeSync = {
+      ...persistedBinding.codeSync,
+      repoPath: "./shared.tsx"
+    };
+    persistedDocument.bindings = [persistedBinding];
+    await writeCanvasDocumentFixture(
+      worktree,
+      ".opendevbrowser/canvas/doc_document_id_source_target.canvas.json",
+      persistedDocument
+    );
+
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child-b",
+      command: "canvas.document.load",
+      params: { documentId: "doc_document_id_source_target" }
+    })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_code_sync_repo_path" });
+    const childBSession = getSession(manager, childB.canvasSessionId);
+    expect(childBSession.store.getDocument().documentId).toBe("doc_document_id_source_b");
+    expect(childBSession.store.getDocument().bindings).toHaveLength(0);
+    const status = await manager.execute("canvas.workspace.status", { workspaceId: opened.workspaceId }) as WorkspaceResult;
+    expect(status.manifest.childRefs.find((child) => child.childId === "child-b")).toMatchObject({
+      documentId: "doc_document_id_source_b",
+      codeSyncBindingIds: [],
+      codeSyncSourceRepoPaths: []
+    });
+  });
+
   it("rejects duplicate code-sync source repo paths across routed workspace children", async () => {
     const manager = createManager(worktree);
     const childA = await openChild(manager, "doc_source_collision_a");
