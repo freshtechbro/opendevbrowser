@@ -1,4 +1,5 @@
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-04T00:00:00.000Z" as const;
 
 export const VALID_FLAGS = [
   "--global", "--local", "--update", "--uninstall",
@@ -1170,7 +1171,7 @@ export function buildPublicSurfaceManifestSource(): PublicSurfaceManifestSource 
   };
 }
 
-export function buildPublicSurfaceManifest(generatedAt = new Date().toISOString()): PublicSurfaceManifest {
+export function buildPublicSurfaceManifest(generatedAt = PUBLIC_SURFACE_MANIFEST_GENERATED_AT): PublicSurfaceManifest {
   const source = buildPublicSurfaceManifestSource();
   return {
     schemaVersion: PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION,

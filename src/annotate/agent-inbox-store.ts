@@ -354,7 +354,12 @@ function redactSensitiveString(value: string | undefined, redaction: CompactReda
   return next;
 }
 
-function redactA11y(a11y: AnnotationPayload["annotations"][number]["a11y"], redaction: CompactRedaction, prefix: string): AnnotationPayload["annotations"][number]["a11y"] {
+function redactA11y(
+  a11y: AnnotationPayload["annotations"][number]["a11y"] | undefined,
+  redaction: CompactRedaction,
+  prefix: string
+): AnnotationPayload["annotations"][number]["a11y"] {
+  if (!a11y) return {};
   return {
     role: redactSensitiveString(a11y.role, redaction, `${prefix}.role`),
     label: redactSensitiveString(a11y.label, redaction, `${prefix}.label`),

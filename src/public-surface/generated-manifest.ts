@@ -13,11 +13,11 @@ import type {
 } from "./source";
 
 export const PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION = "2026-04-04" as const;
-export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-06-30T07:04:16.063Z" as const;
+export const PUBLIC_SURFACE_MANIFEST_GENERATED_AT = "2026-04-04T00:00:00.000Z" as const;
 
 export const PUBLIC_SURFACE_MANIFEST = {
   "schemaVersion": "2026-04-04",
-  "generatedAt": "2026-06-30T07:04:16.063Z",
+  "generatedAt": "2026-04-04T00:00:00.000Z",
   "cli": {
     "groups": [
       {

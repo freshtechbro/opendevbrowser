@@ -1150,7 +1150,7 @@ describe("inspiredesign workflow", () => {
 		pinMediaIndex: Array<{ path: string; kind: string; contentType: string }>;
 	};
 	const mediaAnalysis = JSON.parse(readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.mediaAnalysis), "utf8")) as {
-		references: Array<{ referenceId: string; mediaPath: string; authority: string; claimLevels: string[] }>;
+		references: Array<{ referenceId: string; mediaPath: string; claimLevels: string[] }>;
 	};
 	const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence & {
 		pinMediaEvidence?: unknown;
@@ -1184,9 +1184,9 @@ describe("inspiredesign workflow", () => {
 	expect(mediaAnalysis.references[0]).toEqual(expect.objectContaining({
 		referenceId: "b7a5656033e1",
 		mediaPath: "pin-media-evidence/b7a5656033e1/main.jpg",
-		authority: "design_evidence",
 		claimLevels: expect.arrayContaining(["metadata_only"])
 	}));
+	expect(mediaAnalysis.references[0]).not.toHaveProperty("authority");
 	expect(mediaAnalysis).not.toHaveProperty("artifactAuthority");
 	expect(mediaAnalysis).not.toHaveProperty("evidenceAuthority");
 	expect(mediaAnalysis).not.toHaveProperty("productSuccess");
