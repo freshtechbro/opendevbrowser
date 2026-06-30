@@ -1201,6 +1201,15 @@ const pinMediaVisualStrengths = (
   return ["Manifest-ready Pinterest pin media artifact is available for still-image direction."];
 };
 
+const stillImagePinMediaMotionPosture = (reference: ReferenceInput): string[] => {
+  const pinMedia = reference.capture?.pinMedia;
+  if (pinMedia?.status !== "captured") return [];
+  const persistedPinMedia = readPersistedPinterestPinMediaEvidence(pinMedia);
+  return persistedPinMedia.kind === "image"
+    ? ["Still-image pin media is available; use brief-derived motion patterns without claiming observed browser choreography."]
+    : [];
+};
+
 const referenceWhyItWorks = (
   reference: ReferenceInput,
   mediaReference: InspiredesignMediaAnalysisReference | undefined
@@ -1472,6 +1481,7 @@ const deriveReferenceEntry = (
     contentHierarchy: mergeMediaGuidance(mediaGuidance?.contentHierarchy, patterns.slice(0, 4)),
     componentFamilies: mergeMediaGuidance(mediaGuidance?.componentFamilies, fallbackComponentFamilies),
     motionPosture: mergeMediaGuidance(mediaGuidance ? [mediaGuidance.motionPosture] : [], [
+      ...stillImagePinMediaMotionPosture(reference),
       format.motionGrammar,
       "Plan hero reveal, scroll reveal, CTA feedback, and reduced-motion behavior."
     ]),

@@ -30,6 +30,7 @@ import {
   type InspiredesignFollowthrough,
   normalizeInspiredesignCaptureEvidence,
 	type InspiredesignMotionEvidenceJson,
+  type InspiredesignScreenshotIndexEntry,
   type InspiredesignReferenceEvidence
 } from "../inspiredesign/contract";
 import { INSPIREDESIGN_HANDOFF_FILES } from "../inspiredesign/handoff";
@@ -181,6 +182,7 @@ import {
   persistInspiredesignPinterestPinMediaEvidence,
   sanitizeInspiredesignPinterestPinMediaReferenceId,
   verifyPinterestPinMediaPersistedBytes,
+  type InspiredesignPinterestPinMediaIndexEntry,
   type InspiredesignPersistedPinterestPinMediaEvidence,
   type InspiredesignPinterestPinMediaRuntimeMetadata
 } from "../inspiredesign/pinterest-pin-media-evidence";
@@ -2890,6 +2892,31 @@ const shouldCapturePinterestPinMedia = (
 	&& PINTEREST_PIN_MEDIA_CAPTURE_PAGE_QUALITIES.has(classification.sourcePageQuality)
 );
 
+const PINTEREST_VISUAL_AFTER_PIN_MEDIA_BLOCKED_QUALITIES = new Set<PinterestMediaClassification["sourcePageQuality"]>([
+  "chrome_only",
+  "login_challenge",
+  "search_shell"
+]);
+
+const hasCapturedPinterestPinMediaMetadata = (
+  pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | undefined
+): boolean => (
+  pinMedia?.status === "captured"
+  && pinMedia.pinterestPageQuality === "pin_media"
+);
+
+const shouldCapturePinterestVisualAfterPinMedia = (args: {
+  visualEvidence: InspiredesignVisualEvidenceMode;
+  visualFirst: boolean;
+  classification: PinterestMediaClassification;
+  pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | undefined;
+}): boolean => (
+  args.visualEvidence === "required"
+  && !args.visualFirst
+  && hasCapturedPinterestPinMediaMetadata(args.pinMedia)
+  && !PINTEREST_VISUAL_AFTER_PIN_MEDIA_BLOCKED_QUALITIES.has(args.classification.sourcePageQuality)
+);
+
 const PINTEREST_MEDIA_KINDS = new Set<PinterestMediaClassification["kind"]>([
   "image_pin",
   "video_pin",
@@ -4124,6 +4151,139 @@ const buildSavedMediaMotionNotice = (args: {
     sampledMotionCount: sampledReferences.length,
     mediaPaths,
     message: "Saved GIF or video media was sampled in media-analysis.json, but no authoritative browser replay screencast was captured in motion-evidence.json."
+  };
+};
+
+type VisualEvidenceAfterPinMediaStatus = "captured" | "failed" | "skipped";
+
+type VisualEvidenceAfterPinMediaReference = {
+  referenceId: string;
+  url: string;
+  status: VisualEvidenceAfterPinMediaStatus;
+  reason: "screenshot_captured_after_pin_media" | "screenshot_failed_after_pin_media" | "screenshot_not_attempted_after_pin_media";
+  pinMediaPath: string;
+  screenshotPath?: string;
+  failure?: string;
+  warnings: string[];
+};
+
+type VisualEvidenceAfterPinMediaNotice = {
+  status: VisualEvidenceAfterPinMediaStatus;
+  authority: "pin_media_ready";
+  message: string;
+  references: VisualEvidenceAfterPinMediaReference[];
+};
+
+type StillImageMotionCaptureNotice = {
+  status: "not_applicable";
+  reason: "still_image_pin_media";
+  authority: "motion_evidence_browser_replay_only";
+  message: string;
+  references: Array<{
+    referenceId: string;
+    url: string;
+    status: "not_applicable";
+    reason: "still_image_pin_media";
+    pinMediaPath: string;
+  }>;
+};
+
+const pinMediaIndexByReferenceId = (
+  pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): Map<string, InspiredesignPinterestPinMediaIndexEntry> => new Map(
+  pinMediaIndex.map((entry) => [entry.referenceId, entry])
+);
+
+const screenshotIndexByReferenceId = (
+  screenshotIndex: readonly InspiredesignScreenshotIndexEntry[]
+): Map<string, InspiredesignScreenshotIndexEntry> => new Map(
+  screenshotIndex.map((entry) => [entry.referenceId, entry])
+);
+
+const motionReferenceIds = (
+  motionEvidence: readonly InspiredesignMotionEvidenceJson[]
+): Set<string> => new Set(motionEvidence.map((entry) => entry.referenceId));
+
+const visualAfterPinMediaReference = (
+  reference: InspiredesignReferenceEvidence,
+  pinMedia: InspiredesignPinterestPinMediaIndexEntry,
+  screenshot: InspiredesignScreenshotIndexEntry | undefined
+): VisualEvidenceAfterPinMediaReference => {
+  const visual = normalizeInspiredesignCaptureEvidence(reference.capture)?.visual;
+  if (screenshot) {
+    return {
+      referenceId: reference.id,
+      url: reference.url,
+      status: "captured",
+      reason: "screenshot_captured_after_pin_media",
+      pinMediaPath: pinMedia.path,
+      screenshotPath: screenshot.path,
+      warnings: screenshot.warnings
+    };
+  }
+  const failed = visual?.status === "failed";
+  return {
+    referenceId: reference.id,
+    url: reference.url,
+    status: failed ? "failed" : "skipped",
+    reason: failed ? "screenshot_failed_after_pin_media" : "screenshot_not_attempted_after_pin_media",
+    pinMediaPath: pinMedia.path,
+    ...(visual?.failure ? { failure: visual.failure } : {}),
+    warnings: visual?.warnings ?? []
+  };
+};
+
+const aggregateVisualAfterPinMediaStatus = (
+  references: readonly VisualEvidenceAfterPinMediaReference[]
+): VisualEvidenceAfterPinMediaStatus => {
+  if (references.some((reference) => reference.status === "failed")) return "failed";
+  if (references.every((reference) => reference.status === "captured")) return "captured";
+  return "skipped";
+};
+
+const buildVisualEvidenceAfterPinMediaNotice = (args: {
+  references: readonly InspiredesignReferenceEvidence[];
+  pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[];
+  screenshotIndex: readonly InspiredesignScreenshotIndexEntry[];
+}): VisualEvidenceAfterPinMediaNotice | undefined => {
+  const pinMediaByReference = pinMediaIndexByReferenceId(args.pinMediaIndex);
+  const screenshotByReference = screenshotIndexByReferenceId(args.screenshotIndex);
+  const references = args.references.flatMap((reference) => {
+    const pinMedia = pinMediaByReference.get(reference.id);
+    return pinMedia ? [visualAfterPinMediaReference(reference, pinMedia, screenshotByReference.get(reference.id))] : [];
+  });
+  if (references.length === 0) return undefined;
+  return {
+    status: aggregateVisualAfterPinMediaStatus(references),
+    authority: "pin_media_ready",
+    message: "Pinterest pin-media bytes remain the readiness authority; screenshot evidence is an additional non-blocking visual lane.",
+    references
+  };
+};
+
+const buildStillImageMotionCaptureNotice = (args: {
+  pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[];
+  motionEvidence: readonly InspiredesignMotionEvidenceJson[];
+}): StillImageMotionCaptureNotice | undefined => {
+  const motionIds = motionReferenceIds(args.motionEvidence);
+  const references = args.pinMediaIndex.flatMap((pinMedia) => (
+    pinMedia.kind === "image" && !motionIds.has(pinMedia.referenceId)
+      ? [{
+        referenceId: pinMedia.referenceId,
+        url: pinMedia.sourceUrl,
+        status: "not_applicable" as const,
+        reason: "still_image_pin_media" as const,
+        pinMediaPath: pinMedia.path
+      }]
+      : []
+  ));
+  if (references.length === 0) return undefined;
+  return {
+    status: "not_applicable",
+    reason: "still_image_pin_media",
+    authority: "motion_evidence_browser_replay_only",
+    message: "Still Pinterest image pin media does not imply browser motion; motion-evidence.json remains the only browser replay authority.",
+    references
   };
 };
 
@@ -6652,7 +6812,13 @@ export const runInspiredesignWorkflow = async (
         referenceRemainingTimeoutMs()
       )
       : undefined;
-    const visual = visualFirst
+    const shouldCaptureVisual = visualFirst || shouldCapturePinterestVisualAfterPinMedia({
+      visualEvidence: workflowInput.visualEvidence,
+      visualFirst,
+      classification,
+      pinMedia
+    });
+    const visual = shouldCaptureVisual
       ? trustRuntimeVisualEvidence(
         await captureWorkflowVisualEvidence(
           url,
@@ -6785,6 +6951,21 @@ export const runInspiredesignWorkflow = async (
     mediaAnalysis: packet.mediaAnalysis,
     motionEvidence: manifestBackedMotionEvidence
   });
+  const visualEvidenceAfterPinMediaNotice = buildVisualEvidenceAfterPinMediaNotice({
+    references: finalReferences,
+    pinMediaIndex: manifestBackedPinMediaIndex,
+    screenshotIndex: manifestBackedScreenshotIndex
+  });
+  if (visualEvidenceAfterPinMediaNotice) {
+    packet.evidence.visualEvidenceAfterPinMedia = visualEvidenceAfterPinMediaNotice as unknown as JsonValue;
+  }
+  const stillImageMotionCaptureNotice = buildStillImageMotionCaptureNotice({
+    pinMediaIndex: manifestBackedPinMediaIndex,
+    motionEvidence: manifestBackedMotionEvidence
+  });
+  if (stillImageMotionCaptureNotice) {
+    packet.evidence.motionCapture = stillImageMotionCaptureNotice as unknown as JsonValue;
+  }
   if (savedMediaMotionNotice) {
     packet.evidence.mediaAnalysis = {
       ...(typeof packet.evidence.mediaAnalysis === "object" && packet.evidence.mediaAnalysis !== null && !Array.isArray(packet.evidence.mediaAnalysis)
