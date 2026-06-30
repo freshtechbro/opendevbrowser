@@ -1409,7 +1409,7 @@ const buildMediaAnalysisReferenceLookup = (
 ): Map<string, InspiredesignMediaAnalysisReference[]> => {
   const lookup = new Map<string, InspiredesignMediaAnalysisReference[]>();
   for (const reference of mediaAnalysis.references) {
-    if (reference.authority === "design_evidence" && reference.referenceId.trim().length > 0 && reference.mediaPath.trim().length > 0) {
+    if (reference.authority !== "diagnostic" && reference.referenceId.trim().length > 0 && reference.mediaPath.trim().length > 0) {
       const key = mediaAnalysisLookupKey(reference.referenceId, reference.mediaPath);
       lookup.set(key, [...(lookup.get(key) ?? []), reference]);
     }
@@ -1480,7 +1480,7 @@ const pinMediaMatchesMediaAnalysisReference = (
   pinMedia: InspiredesignPersistedPinterestPinMediaEvidence,
   mediaReference: InspiredesignMediaAnalysisReference
 ): boolean => (
-  mediaReference.authority === "design_evidence"
+  mediaReference.authority !== "diagnostic"
   && mediaReference.referenceId === pinMedia.referenceId
   && mediaReference.mediaPath === pinMedia.path
   && mediaReference.hash === pinMedia.sha256
@@ -3051,7 +3051,7 @@ const buildMediaAnalysisEvidenceCitation = (
   const analyzedReferences: JsonValue[] = mediaAnalysis.references.map((reference) => ({
     referenceId: reference.referenceId,
     mediaPath: reference.mediaPath,
-    authority: reference.authority,
+	...(reference.authority ? { authority: reference.authority } : {}),
     claimLevels: [...reference.claimLevels],
     confidence: reference.confidence,
     limitationsCount: reference.limitations.length

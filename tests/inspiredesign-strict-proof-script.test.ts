@@ -519,6 +519,26 @@ describe("inspiredesign strict proof script", () => {
     }
   });
 
+  it("accepts localized Pinterest source URLs backed by canonical first-party provenance", () => {
+    const bundle = makeBundle({
+      pinMediaEntry: {
+        sourceUrl: "https://uk.pinterest.com/pin/123/",
+        firstPartyProvenance: {
+          canonicalReferenceUrl: "https://www.pinterest.com/pin/123/",
+          canonicalSourceUrl: "https://www.pinterest.com/pin/123/",
+          referenceUrlCanonical: true,
+          sourceUrlMatchesReference: true,
+          mediaUrlFirstParty: true
+        }
+      }
+    });
+    try {
+      expect(inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow).status).toBe("pass");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects canonical Pinterest pin-media authority with same id but off-platform proof", () => {
     const bundle = makeBundle({
       pinMediaEntry: {

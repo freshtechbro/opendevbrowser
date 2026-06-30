@@ -339,9 +339,12 @@ function isFirstPartyPinterestMediaUrl(value) {
 function assertCanonicalPinterestPinMediaEntry(entry, index) {
   if (!isRecord(entry)) throw new Error(`canonical_pinterest_pin_media_entry_invalid:${index}`);
   const provenance = isRecord(entry.firstPartyProvenance) ? entry.firstPartyProvenance : null;
+  const canonicalSourceUrl = provenance?.canonicalSourceUrl;
+  const sourceUrlProvesCanonicalPinterestPin = isCanonicalPinterestPinUrl(entry.sourceUrl)
+    || isCanonicalPinterestPinUrl(canonicalSourceUrl);
   if (
     !isCanonicalPinterestPinUrl(entry.url)
-    || !isCanonicalPinterestPinUrl(entry.sourceUrl)
+    || !sourceUrlProvesCanonicalPinterestPin
     || !isFirstPartyPinterestMediaUrl(entry.mediaUrl)
     || provenance?.referenceUrlCanonical !== true
     || provenance?.sourceUrlMatchesReference !== true

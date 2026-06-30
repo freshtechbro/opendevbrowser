@@ -142,7 +142,6 @@ const buildReference = (
     bytes: input.bytes,
     hash: input.hash,
     dimensions: facts.dimensions,
-    authority: input.authority,
     claimLevels,
     facts,
     designGuidance,

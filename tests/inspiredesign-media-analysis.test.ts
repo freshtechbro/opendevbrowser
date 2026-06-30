@@ -1742,6 +1742,8 @@ describe("inspiredesign media-analysis analyzer", () => {
     ]));
     expect(reference?.claimLevels).not.toContain("motion_sampled");
     expect(reference?.facts.typographyStructure?.readableTextAvailable).toBe(false);
+    expect(reference).not.toHaveProperty("authority");
+    expect(serialized).not.toContain("\"authority\"");
     expect(reference?.designGuidance.patternsToReject.join(" ")).toContain("claiming exact headlines");
     expect(serialized).not.toContain("Home");
     expect(serialized).not.toContain("Browse my latest work");
