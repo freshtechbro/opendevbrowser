@@ -434,7 +434,9 @@ describe("Pinterest guidance recipe", () => {
     expect(result.diagnostics).toEqual(expect.objectContaining({
       badStateId: "login",
       reason: "auth_required",
-      sourcePageQuality: "login_challenge"
+      sourcePageQuality: "login_challenge",
+      acceptedUrlCount: 0,
+      recoveryAction: expect.stringContaining("logged-in Pinterest session")
     }));
   });
 
@@ -637,7 +639,13 @@ describe("Pinterest guidance recipe", () => {
     expect(result.diagnostics).toEqual(expect.objectContaining({
       reason: "reference_urls_extracted",
       sourcePageQuality: "search_shell",
-      extractedUrlCount: 2
+      extractedUrlCount: 2,
+      acceptedUrlCount: 2,
+      rejectedUrlCount: 0,
+      acceptedUrls: [
+        "https://uk.pinterest.com/pin/11188699075430754/",
+        "https://www.pinterest.com/pin/27654985208435505/"
+      ]
     }));
   });
 
@@ -1148,7 +1156,9 @@ describe("Pinterest guidance recipe", () => {
     expect(result.diagnostics).toEqual(expect.objectContaining({
       badStateId: "search-shell",
       reason: "env_limited",
-      sourcePageQuality: "search_shell"
+      sourcePageQuality: "search_shell",
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_rendered_pin_links"]),
+      recoveryAction: expect.stringContaining("rendered canonical pin")
     }));
   });
 
@@ -1279,7 +1289,12 @@ describe("Pinterest guidance recipe", () => {
       badStateId: "search-shell",
       reason: "env_limited",
       sourcePageQuality: "search_shell",
-      diagnosticBlockers: expect.arrayContaining(["search_shell_without_media_signals"])
+      diagnosticBlockers: expect.arrayContaining([
+        "search_shell_without_media_signals",
+        "search_shell_without_rendered_pin_links"
+      ]),
+      acceptedUrlCount: 0,
+      recoveryAction: expect.stringContaining("rendered canonical pin")
     }));
   });
 
@@ -2030,7 +2045,8 @@ describe("Pinterest guidance recipe", () => {
       reason: "env_limited",
       badStateId: "search-shell",
       sourcePageQuality: "search_shell",
-      recoveryAction: "Open a concrete pin, board, or idea page before capture."
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_rendered_pin_links"]),
+      recoveryAction: expect.stringContaining("rendered canonical pin")
     }));
   });
 

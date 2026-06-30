@@ -55,6 +55,8 @@ const SEARCH_RESULT_CONTEXT_MARKERS = [
   "aria-label=\"search results",
   "aria-label='search results"
 ];
+const SEARCH_SHELL_WITHOUT_RENDERED_PIN_LINKS = "search_shell_without_rendered_pin_links";
+const PINTEREST_SEARCH_SHELL_RECOVERY_ACTION = "Refine or reload the Pinterest search until rendered canonical pin links are visible, then rerun harvest or provide explicit canonical /pin/<id>/ URLs.";
 
 const HARD_FAILURE_REASON_CODES = new Set<ProviderReasonCode>([
   "auth_required",
@@ -148,7 +150,11 @@ const pinterestClassificationRecoveryAction = (classification: PinterestMediaCla
   if (classification.sourcePageQuality === "login_challenge") {
     return "Use extension mode with a user-authorized logged-in Pinterest session.";
   }
-  return "Open a concrete pin, board, or idea page before capture.";
+  if (classification.sourcePageQuality === "search_shell") return PINTEREST_SEARCH_SHELL_RECOVERY_ACTION;
+  if (classification.sourcePageQuality === "chrome_only") {
+    return "Close Pinterest account, settings, or chrome-only surfaces, then rerun search or provide an explicit canonical /pin/<id>/ URL.";
+  }
+  return "Open a concrete canonical Pinterest pin before capture.";
 };
 
 const matchedPinterestClassificationBadState = (
@@ -157,12 +163,14 @@ const matchedPinterestClassificationBadState = (
 ): MatchedBadState => {
   const stateId = pinterestClassificationBadStateId(classification);
   const recipeState = recipe.badStates.find((state) => state.id === stateId);
-  const state = recipeState ?? {
-    id: stateId,
-    markers: [],
-    reasonCode: classification.sourcePageQuality === "login_challenge" ? "auth_required" : "env_limited",
-    recoveryAction: pinterestClassificationRecoveryAction(classification)
-  };
+  const state = recipeState
+    ? { ...recipeState, recoveryAction: pinterestClassificationRecoveryAction(classification) }
+    : {
+      id: stateId,
+      markers: [],
+      reasonCode: classification.sourcePageQuality === "login_challenge" ? "auth_required" : "env_limited",
+      recoveryAction: pinterestClassificationRecoveryAction(classification)
+    };
   return {
     state,
     reasonCode: normalizeBadStateReasonCode(state)
@@ -202,6 +210,41 @@ const reasonCodeForFirstFailure = (failures: readonly ProviderFailureEntry[]): P
   return failure ? reasonCodeForFailure(failure) : undefined;
 };
 
+const diagnosticBlockersForBadState = (
+  sourcePageQuality: PinterestSourcePageQuality | undefined,
+  diagnosticBlockers: readonly string[]
+): string[] => {
+  const blockers = new Set(diagnosticBlockers);
+  if (sourcePageQuality === "search_shell") blockers.add(SEARCH_SHELL_WITHOUT_RENDERED_PIN_LINKS);
+  return [...blockers];
+};
+
+const buildAcceptedReferenceDiagnostics = (
+  input: BrowserNativeDiscoveryInput,
+  source: ProviderSource,
+  urls: readonly string[],
+  sourcePageQuality?: PinterestSourcePageQuality
+): JsonValue => urls.map((url, index) => ({
+  url,
+  provider: input.recipe.id,
+  source,
+  rank: index + 1,
+  siteRecipeId: input.recipe.id,
+  discoveryMode: "browser_native_extracted_reference",
+  ...(sourcePageQuality ? { sourcePageQuality } : {})
+}));
+
+const recoveryActionForBadState = (
+  badState: MatchedBadState,
+  sourcePageQuality?: PinterestSourcePageQuality
+): string => {
+  if (sourcePageQuality === "search_shell") return PINTEREST_SEARCH_SHELL_RECOVERY_ACTION;
+  if (sourcePageQuality === "chrome_only") {
+    return "Close Pinterest account, settings, or chrome-only surfaces, then rerun search or provide an explicit canonical /pin/<id>/ URL.";
+  }
+  return badState.state.recoveryAction;
+};
+
 const buildBadStateResult = (
   input: BrowserNativeDiscoveryInput,
   source: ProviderSource,
@@ -210,14 +253,17 @@ const buildBadStateResult = (
   badState: MatchedBadState,
   sourcePageQuality?: PinterestSourcePageQuality,
   diagnosticBlockers: readonly string[] = []
-): BrowserNativeDiscoveryResult => ({
+): BrowserNativeDiscoveryResult => {
+  const blockers = diagnosticBlockersForBadState(sourcePageQuality, diagnosticBlockers);
+  const recoveryAction = recoveryActionForBadState(badState, sourcePageQuality);
+  return ({
   records: [],
   failures: [{
     provider: input.recipe.id,
     source,
     error: createProviderError(
       providerErrorCodeFromReasonCode(badState.reasonCode),
-      badState.state.recoveryAction,
+      recoveryAction,
       {
         retryable: true,
         reasonCode: badState.reasonCode,
@@ -229,7 +275,7 @@ const buildBadStateResult = (
           searchUrl,
           badStateId: badState.state.id,
           ...(sourcePageQuality ? { sourcePageQuality } : {}),
-          ...(diagnosticBlockers.length > 0 ? { diagnosticBlockers: [...diagnosticBlockers] } : {})
+          ...(blockers.length > 0 ? { diagnosticBlockers: blockers } : {})
         }
       }
     )
@@ -241,11 +287,16 @@ const buildBadStateResult = (
     searchUrl,
     fetchedRecordCount,
     badStateId: badState.state.id,
-    recoveryAction: badState.state.recoveryAction,
+    recoveryAction,
+    acceptedUrls: [],
+    acceptedUrlCount: 0,
+    rejectedUrlCount: 0,
+    failureCount: 1,
     ...(sourcePageQuality ? { sourcePageQuality } : {}),
-    ...(diagnosticBlockers.length > 0 ? { diagnosticBlockers: [...diagnosticBlockers] } : {})
+    ...(blockers.length > 0 ? { diagnosticBlockers: blockers } : {})
   }
 });
+};
 
 const buildHardFailureResult = (
   input: BrowserNativeDiscoveryInput,
@@ -262,7 +313,11 @@ const buildHardFailureResult = (
     reason: reasonCodeForFailure(failure) ?? "challenge_detected",
     searchUrl,
     fetchedRecordCount,
-    recoveryAction: failure.error.message
+    recoveryAction: failure.error.message,
+    acceptedUrls: [],
+    acceptedUrlCount: 0,
+    rejectedUrlCount: 0,
+    failureCount: 1
   }
 });
 
@@ -283,6 +338,10 @@ const buildFailurePassthroughResult = (
     reason: reasonCodeForFirstFailure(failures) ?? "env_limited",
     searchUrl,
     fetchedRecordCount,
+    acceptedUrls: [],
+    acceptedUrlCount: 0,
+    rejectedUrlCount: 0,
+    failureCount: failures.length,
     ...(sourcePageQuality ? { sourcePageQuality } : {}),
     ...(diagnosticBlockers.length > 0 ? { diagnosticBlockers: [...diagnosticBlockers] } : {})
   }
@@ -585,7 +644,11 @@ export const runBrowserNativeDiscovery = async (
         attempted: true,
         reason: "no_reference_urls_extracted",
         searchUrl,
-        fetchedRecordCount: fetched.records.length
+        fetchedRecordCount: fetched.records.length,
+        acceptedUrls: [],
+        acceptedUrlCount: 0,
+        rejectedUrlCount: 0,
+        failureCount: fetched.failures.length > 0 ? fetched.failures.length : 1
       }
     };
   }
@@ -610,6 +673,16 @@ export const runBrowserNativeDiscovery = async (
       navigationSteps: input.recipe.navigationSteps.map((step) => step.instruction),
       badStates: input.recipe.badStates.map((state) => state.id),
       extractedUrlCount: acceptedUrls.length,
+      acceptedUrls,
+      acceptedUrlCount: acceptedUrls.length,
+      rejectedUrlCount: 0,
+      failureCount: 0,
+      acceptedReferences: buildAcceptedReferenceDiagnostics(
+        input,
+        source,
+        acceptedUrls,
+        pinterestSourceClassification?.sourcePageQuality
+      ),
       ...(pinterestSourceClassification ? {
         sourcePageQuality: pinterestSourceClassification.sourcePageQuality,
         diagnosticBlockers: pinterestSourceClassification.diagnosticBlockers as unknown as JsonValue,

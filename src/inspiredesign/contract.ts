@@ -341,6 +341,7 @@ export type InspiredesignReferenceEvidence = {
   captureStatus: CaptureStatus;
   fetchFailure?: string;
   captureFailure?: string;
+  discovery?: JsonRecord;
   capture?: InspiredesignCaptureEvidence | null;
 };
 
@@ -3208,6 +3209,7 @@ const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): Jso
     captureStatus: reference.captureStatus,
     ...(reference.fetchFailure ? { fetchFailure: reference.fetchFailure } : {}),
     ...(reference.captureFailure ? { captureFailure: reference.captureFailure } : {}),
+    ...(reference.discovery ? { discovery: reference.discovery } : {}),
     capture: toCaptureEvidenceJson(reference)
   };
 };

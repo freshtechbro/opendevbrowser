@@ -4673,6 +4673,99 @@ describe("inspiredesign workflow", () => {
     }));
   });
 
+  it("persists Pinterest discovery diagnostics for diagnostic-only broad queries", async () => {
+    const outputDir = makeOutputDir();
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        return makeAggregate({
+          records: [
+            normalizeRecord("social/pinterest", "social", {
+              url: input.url,
+              title: "Pinterest search shell",
+              content: "When autocomplete results are available use up and down arrows. Pin card shell only.",
+              attributes: {
+                links: ["https://example.com/not-pinterest"],
+                html: '<main data-grid="search-results"><a href="https://example.com/not-pinterest">External reference</a></main>'
+              }
+            })
+          ]
+        });
+      }
+      return makeAggregate();
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["social/pinterest"],
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      visualEvidence: "required",
+      outputDir,
+      mode: "path"
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const diagnostics = JSON.parse(readFileSync(join(artifactPath, "discovery-diagnostics.json"), "utf8")) as {
+      requested: boolean;
+      query: string;
+      siteRecipeId: string;
+      searchUrl: string;
+      fetchedRecordCount: number;
+      acceptedUrls: string[];
+      acceptedUrlCount: number;
+      rejectedUrlCount: number;
+      failureCount: number;
+      reason: string;
+      sourcePageQuality: string;
+      badStateId: string;
+      diagnosticBlockers: string[];
+      recoveryAction: string;
+    };
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+      discovery?: { acceptedUrlCount: number; reason: string; sourcePageQuality: string };
+    };
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(output).toEqual(expect.objectContaining({
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only",
+      evidenceAuthority: "diagnostic_only"
+    }));
+    expect(diagnostics).toEqual(expect.objectContaining({
+      requested: true,
+      query: "premium photography studio landing page",
+      siteRecipeId: "social/pinterest",
+      searchUrl: "https://www.pinterest.com/search/pins/?q=premium+photography+studio+landing+page",
+      fetchedRecordCount: 1,
+      acceptedUrls: [],
+      acceptedUrlCount: 0,
+      rejectedUrlCount: 0,
+      failureCount: 1,
+      reason: "env_limited",
+      sourcePageQuality: "search_shell",
+      badStateId: "search-shell",
+      diagnosticBlockers: expect.arrayContaining([
+        "search_shell_without_media_signals",
+        "search_shell_without_rendered_pin_links"
+      ]),
+      recoveryAction: expect.stringContaining("rendered canonical pin")
+    }));
+    expect(JSON.stringify(diagnostics)).not.toMatch(/<main|cookie|token|secret/i);
+    expect(evidence.discovery).toEqual(expect.objectContaining({
+      acceptedUrlCount: 0,
+      reason: "env_limited",
+      sourcePageQuality: "search_shell"
+    }));
+    expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining(["discovery-diagnostics.json"]));
+    expect(meta.nextStepGuidance).toEqual(expect.objectContaining({
+      readiness: expect.not.stringMatching(/^ready$/)
+    }));
+  });
+
   it("promotes query-discovered canonical Pinterest pins into pin-media product readiness", async () => {
     const outputDir = makeOutputDir();
     const canonicalPinUrl = "https://www.pinterest.com/pin/61572719900827789/";
@@ -4722,12 +4815,20 @@ describe("inspiredesign workflow", () => {
     const meta = output.meta as InspiredesignWorkflowMeta;
     const artifactPath = String(output.artifact_path);
     const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+      discovery?: { acceptedUrlCount: number; acceptedUrls: string[]; sourcePageQuality: string };
       references: Array<{
         url: string;
         captureStatus: string;
+        discovery?: { discoveryMode: string; sourcePageQuality: string; siteRecipeId: string };
         capture?: { pinMedia?: { authority?: string; path?: string } };
       }>;
       pinMediaIndex?: Array<{ path: string }>;
+    };
+    const discoveryDiagnostics = JSON.parse(readFileSync(join(artifactPath, "discovery-diagnostics.json"), "utf8")) as {
+      acceptedUrlCount: number;
+      acceptedUrls: string[];
+      acceptedReferences: Array<{ url: string; discoveryMode: string; sourcePageQuality: string; siteRecipeId: string }>;
+      sourcePageQuality: string;
     };
     const pinMediaIndex = JSON.parse(readFileSync(join(artifactPath, "pin-media-index.json"), "utf8")) as {
       pinMediaIndex: Array<{
@@ -4736,6 +4837,7 @@ describe("inspiredesign workflow", () => {
         bytes: number;
         contentType: string;
         mediaUrl: string;
+        pinterestPageQuality: string;
         firstPartyProvenance: {
           referenceUrlCanonical: boolean;
           sourceUrlMatchesReference: boolean;
@@ -4769,8 +4871,25 @@ describe("inspiredesign workflow", () => {
       acceptedUrls: [canonicalPinUrl],
       browserNativeDiagnostics: expect.objectContaining({
         extractedUrlCount: 1,
+        acceptedUrlCount: 1,
         sourcePageQuality: "search_shell"
       })
+    }));
+    expect(discoveryDiagnostics).toEqual(expect.objectContaining({
+      acceptedUrlCount: 1,
+      acceptedUrls: [canonicalPinUrl],
+      sourcePageQuality: "search_shell",
+      acceptedReferences: [expect.objectContaining({
+        url: canonicalPinUrl,
+        discoveryMode: "browser_native_extracted_reference",
+        sourcePageQuality: "search_shell",
+        siteRecipeId: "social/pinterest"
+      })]
+    }));
+    expect(evidence.discovery).toEqual(expect.objectContaining({
+      acceptedUrlCount: 1,
+      acceptedUrls: [canonicalPinUrl],
+      sourcePageQuality: "search_shell"
     }));
     expect(meta.selection.urls).toEqual([canonicalPinUrl]);
     expect(output).toEqual(expect.objectContaining({
@@ -4790,7 +4909,8 @@ describe("inspiredesign workflow", () => {
       authority: "design_evidence",
       bytes: validPinMediaBytes().length,
       contentType: "image/jpeg",
-      mediaUrl
+      mediaUrl,
+      pinterestPageQuality: "pin_media"
     }));
     expect(pinMediaEntry.firstPartyProvenance).toEqual(expect.objectContaining({
       referenceUrlCanonical: true,
@@ -4802,6 +4922,11 @@ describe("inspiredesign workflow", () => {
     expect(evidence.references[0]).toEqual(expect.objectContaining({
       url: canonicalPinUrl,
       captureStatus: "captured",
+      discovery: expect.objectContaining({
+        discoveryMode: "browser_native_extracted_reference",
+        sourcePageQuality: "search_shell",
+        siteRecipeId: "social/pinterest"
+      }),
       capture: expect.objectContaining({
         pinMedia: expect.objectContaining({
           authority: "design_evidence",
@@ -4817,6 +4942,7 @@ describe("inspiredesign workflow", () => {
     expect(meta.artifact_manifest.files).toEqual(expect.arrayContaining([
       "canvas-plan.request.json",
       "pin-media-evidence.json",
+      "discovery-diagnostics.json",
       "pin-media-index.json",
       "ranked-references.json",
       pinMediaEntry.path
@@ -5317,6 +5443,7 @@ describe("inspiredesign workflow", () => {
   });
 
   it("keeps standard provider search when Pinterest is part of a mixed provider harvest", async () => {
+	const outputDir = makeOutputDir();
     const search = vi.fn(async () => makeAggregate({
       records: [
         normalizeRecord("web/default", "web", {
@@ -5356,12 +5483,22 @@ describe("inspiredesign workflow", () => {
       query: "premium photography studio landing page",
       providers: ["web/default", "social/pinterest"],
       visualEvidence: "off",
-      mode: "json"
+      outputDir,
+      mode: "path"
     }, {
       captureReference
     });
 
     const meta = output.meta as InspiredesignWorkflowMeta;
+    const artifactPath = String(output.artifact_path);
+    const discoveryDiagnostics = JSON.parse(readFileSync(join(artifactPath, "discovery-diagnostics.json"), "utf8")) as {
+      acceptedUrlCount: number;
+      acceptedUrls: string[];
+      failureCount: number;
+    };
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+      discovery?: { acceptedUrlCount: number; acceptedUrls: string[]; failureCount: number };
+    };
     expect(search).toHaveBeenCalledWith(
       { query: "premium photography studio landing page", limit: 5 },
       expect.objectContaining({ providerIds: ["web/default"] })
@@ -5389,6 +5526,16 @@ describe("inspiredesign workflow", () => {
     expect(meta.discovery).toEqual(expect.objectContaining({
       siteRecipeId: "social/pinterest",
       acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/", "https://example.com/studio-reference"]
+    }));
+    expect(discoveryDiagnostics).toEqual(expect.objectContaining({
+      acceptedUrlCount: 2,
+      acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/", "https://example.com/studio-reference"],
+      failureCount: 0
+    }));
+    expect(evidence.discovery).toEqual(expect.objectContaining({
+      acceptedUrlCount: 2,
+      acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/", "https://example.com/studio-reference"],
+      failureCount: 0
     }));
     expect(meta.discovery?.browserNativeDiagnostics).toEqual(expect.objectContaining({
       standardAcceptedCount: 1,

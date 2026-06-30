@@ -2178,17 +2178,54 @@ const buildInspiredesignReferenceFetchOptions = (
     : buildInspiredesignFetchOptions(workflowInput, envelope, timeoutMs)
 );
 
+type InspiredesignAcceptedDiscoveryProvenance = {
+  url: string;
+  provider: string;
+  source: ProviderSource;
+  rank: number;
+  siteRecipeId: string;
+  discoveryMode: "browser_native_extracted_reference";
+  sourcePageQuality?: PinterestMediaClassification["sourcePageQuality"];
+};
+
 type InspiredesignDiscoveryDiagnostics = {
   requested: boolean;
   searchAvailable: boolean;
   query?: string;
   providers: string[];
   acceptedUrls: string[];
+  acceptedReferences?: InspiredesignAcceptedDiscoveryProvenance[];
   rejected: InspiredesignDiscoveryResult["rejected"];
   failures: ProviderFailureEntry[];
   failure?: string;
   siteRecipeId?: string;
   browserNativeDiagnostics?: Record<string, JsonValue>;
+};
+
+const isProviderSourceValue = (value: JsonValue | undefined): value is ProviderSource => (
+  value === "web" || value === "community" || value === "social" || value === "shopping"
+);
+
+const readAcceptedDiscoveryProvenance = (
+  value: JsonValue | undefined
+): InspiredesignAcceptedDiscoveryProvenance[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isJsonRecord(entry)) return [];
+    if (entry.discoveryMode !== "browser_native_extracted_reference") return [];
+    if (typeof entry.url !== "string" || typeof entry.provider !== "string") return [];
+    if (!isProviderSourceValue(entry.source) || typeof entry.siteRecipeId !== "string") return [];
+    const rank = typeof entry.rank === "number" && Number.isInteger(entry.rank) && entry.rank > 0 ? entry.rank : 1;
+    return [{
+      url: entry.url,
+      provider: entry.provider,
+      source: entry.source,
+      rank,
+      siteRecipeId: entry.siteRecipeId,
+      discoveryMode: "browser_native_extracted_reference" as const,
+      ...(isPinterestSourcePageQualityValue(entry.sourcePageQuality) ? { sourcePageQuality: entry.sourcePageQuality } : {})
+    }];
+  });
 };
 
 const emptyInspiredesignDiscoveryDiagnostics = (
@@ -2399,11 +2436,13 @@ const discoverInspiredesignReferences = async (
         );
         const siteResult = await runSiteRecipeDiscovery();
         const siteDiscovery = normalizeInspiredesignDiscoveryRecords(siteResult.records);
+        const siteAcceptedReferences = readAcceptedDiscoveryProvenance(siteResult.diagnostics.acceptedReferences);
         const combinedDiscovery = capMixedInspiredesignDiscovery(
           siteDiscovery,
           discovery,
           workflowInput.referenceLimit ?? workflowInput.maxReferences
         );
+        const combinedAcceptedUrls = new Set(combinedDiscovery.accepted.map((candidate) => candidate.url));
         const failures = [...searchFailures, ...siteResult.failures];
         return {
           requested: true,
@@ -2411,6 +2450,7 @@ const discoverInspiredesignReferences = async (
           query,
           providers: workflowInput.providers,
           acceptedUrls: combinedDiscovery.accepted.map((candidate) => candidate.url),
+          acceptedReferences: siteAcceptedReferences.filter((entry) => combinedAcceptedUrls.has(entry.url)),
           rejected: combinedDiscovery.rejected,
           failures,
           ...(failures[0]?.error.message ? { failure: failures[0].error.message } : {}),
@@ -2432,6 +2472,7 @@ const discoverInspiredesignReferences = async (
           query,
           providers: workflowInput.providers,
           acceptedUrls: discovery.accepted.map((candidate) => candidate.url),
+          acceptedReferences: readAcceptedDiscoveryProvenance(siteResult.diagnostics.acceptedReferences),
           rejected: discovery.rejected,
           failures: siteResult.failures,
           failure: error instanceof Error ? error.message : "Reference discovery failed.",
@@ -2448,6 +2489,7 @@ const discoverInspiredesignReferences = async (
       query,
       providers: workflowInput.providers,
       acceptedUrls: discovery.accepted.map((candidate) => candidate.url),
+      acceptedReferences: readAcceptedDiscoveryProvenance(siteResult.diagnostics.acceptedReferences),
       rejected: discovery.rejected,
       failures: siteResult.failures,
       ...(siteResult.failures[0]?.error.message ? { failure: siteResult.failures[0].error.message } : {}),
@@ -4813,6 +4855,110 @@ const summarizeInspiredesignDiscoveryConstraint = (
   };
 };
 
+const discoveryString = (value: JsonValue | undefined): string | undefined => (
+  typeof value === "string" && value.trim().length > 0 ? value : undefined
+);
+
+const discoveryNumber = (value: JsonValue | undefined): number | undefined => (
+  typeof value === "number" && Number.isFinite(value) ? value : undefined
+);
+
+const discoveryStringArray = (value: JsonValue | undefined): string[] => (
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
+);
+
+const sanitizeDiscoveryFailures = (failures: readonly ProviderFailureEntry[]): JsonValue => failures.map((failure) => {
+  const message = captureSnippet(failure.error.message, 220);
+  return {
+    provider: failure.provider,
+    source: failure.source,
+    reasonCode: detectFailureReasonCode(failure) ?? "env_limited",
+    retryable: failure.error.retryable === true,
+    ...(message ? { message } : {})
+  };
+});
+
+const sanitizeDiscoveryRejected = (
+  rejected: InspiredesignDiscoveryDiagnostics["rejected"]
+): JsonValue => rejected.map((candidate) => ({
+  reason: candidate.reason,
+  provider: candidate.provider,
+  source: candidate.source,
+  rank: candidate.rank,
+  ...(candidate.rawUrl ? { url: candidate.rawUrl } : {})
+}));
+
+const buildPersistedInspiredesignDiscoveryDiagnostics = (
+  discovery: InspiredesignDiscoveryDiagnostics
+): Record<string, JsonValue> => {
+  const browserNative = discovery.browserNativeDiagnostics ?? {};
+  return {
+    requested: discovery.requested,
+    searchAvailable: discovery.searchAvailable,
+    providers: discovery.providers,
+    acceptedUrls: discovery.acceptedUrls,
+	acceptedUrlCount: discovery.acceptedUrls.length,
+	rejectedUrlCount: discovery.rejected.length,
+	failureCount: discovery.failures.length,
+    failures: sanitizeDiscoveryFailures(discovery.failures),
+    rejected: sanitizeDiscoveryRejected(discovery.rejected),
+    ...(discovery.query ? { query: discovery.query } : {}),
+    ...(discovery.siteRecipeId ? { siteRecipeId: discovery.siteRecipeId } : {}),
+    ...(discovery.acceptedReferences ? { acceptedReferences: discovery.acceptedReferences as unknown as JsonValue } : {}),
+    ...(discovery.failure ? { failure: captureSnippet(discovery.failure, 220) } : {}),
+    ...(discoveryString(browserNative.searchUrl) ? { searchUrl: discoveryString(browserNative.searchUrl) } : {}),
+    ...(discoveryNumber(browserNative.fetchedRecordCount) !== undefined ? { fetchedRecordCount: discoveryNumber(browserNative.fetchedRecordCount) } : {}),
+    ...(discoveryString(browserNative.reason) ? { reason: discoveryString(browserNative.reason) } : {}),
+    ...(discoveryString(browserNative.sourcePageQuality) ? { sourcePageQuality: discoveryString(browserNative.sourcePageQuality) } : {}),
+    ...(discoveryString(browserNative.badStateId) ? { badStateId: discoveryString(browserNative.badStateId) } : {}),
+    ...(discoveryString(browserNative.recoveryAction) ? { recoveryAction: discoveryString(browserNative.recoveryAction) } : {}),
+    ...(discoveryStringArray(browserNative.diagnosticBlockers).length > 0
+      ? { diagnosticBlockers: discoveryStringArray(browserNative.diagnosticBlockers) }
+      : {})
+  };
+};
+
+const buildInspiredesignDiscoveryEvidenceSummary = (
+  diagnostics: Record<string, JsonValue>
+): Record<string, JsonValue> => {
+	const requested = typeof diagnostics.requested === "boolean" ? diagnostics.requested : false;
+	const acceptedUrls = Array.isArray(diagnostics.acceptedUrls) ? diagnostics.acceptedUrls : [];
+	const acceptedUrlCount = discoveryNumber(diagnostics.acceptedUrlCount);
+	const rejectedUrlCount = discoveryNumber(diagnostics.rejectedUrlCount);
+	const failureCount = discoveryNumber(diagnostics.failureCount);
+	const reason = discoveryString(diagnostics.reason);
+	const sourcePageQuality = discoveryString(diagnostics.sourcePageQuality);
+	const badStateId = discoveryString(diagnostics.badStateId);
+	return {
+	requested,
+	acceptedUrls,
+	...(acceptedUrlCount !== undefined ? { acceptedUrlCount } : {}),
+	...(rejectedUrlCount !== undefined ? { rejectedUrlCount } : {}),
+	...(failureCount !== undefined ? { failureCount } : {}),
+	...(reason ? { reason } : {}),
+	...(sourcePageQuality ? { sourcePageQuality } : {}),
+	...(badStateId ? { badStateId } : {})
+	};
+};
+
+const buildDiscoveryProvenanceByUrl = (
+  discovery: InspiredesignDiscoveryDiagnostics
+): Map<string, InspiredesignAcceptedDiscoveryProvenance> => new Map(
+  (discovery.acceptedReferences ?? []).map((entry) => [entry.url, entry])
+);
+
+const attachInspiredesignDiscoveryProvenance = (
+  references: InspiredesignReferenceEvidence[],
+  provenanceByUrl: ReadonlyMap<string, InspiredesignAcceptedDiscoveryProvenance>
+): InspiredesignReferenceEvidence[] => references.map((reference) => {
+  const provenance = provenanceByUrl.get(reference.url);
+  if (!provenance) return reference;
+  return {
+    ...reference,
+    discovery: provenance as unknown as Record<string, JsonValue>
+  };
+});
+
 const buildInspiredesignGuidanceFollowthroughSummary = (
   _followthrough: InspiredesignFollowthrough,
   meta: Record<string, unknown>,
@@ -4827,6 +4973,7 @@ const buildInspiredesignGuidanceFollowthroughSummary = (
   return renderWorkflowCompatibility(nextStepGuidance, fallbackSummary).followthroughSummary;
 };
 
+const DISCOVERY_DIAGNOSTICS_ARTIFACT_PATH = "discovery-diagnostics.json";
 const PRODUCT_READINESS_BLOCKED_SUMMARY = "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.";
 const INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS = new Set<string>([
   INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
@@ -6560,12 +6707,16 @@ export const runInspiredesignWorkflow = async (
   const motionCollation = await finalizeInspiredesignMotionArtifacts(references, motionEvidenceTempDir);
 	const pinMediaCollation = await finalizeInspiredesignPinMediaArtifacts(motionCollation.references, pinMediaEvidenceTempDir);
 	const visualCollation = await finalizeInspiredesignVisualArtifacts(pinMediaCollation.references, workflowInput.visualEvidence);
+  const finalReferences = attachInspiredesignDiscoveryProvenance(
+    visualCollation.references,
+    buildDiscoveryProvenanceByUrl(discovery)
+  );
 	const mediaAnalysisTempDirs: string[] = [];
 	let mediaAnalysis = buildDiagnosticInspiredesignMediaAnalysis();
 	let mediaAnalysisFailure: string | undefined;
 	try {
 		const mediaAnalysisInputs = await buildTrustedInspiredesignMediaAnalysisInputs({
-			references: visualCollation.references,
+			references: finalReferences,
 			pinMediaFiles: pinMediaCollation.files,
 			pinMediaTempRoot: pinMediaEvidenceTempDir,
 			stagedTempDirs: mediaAnalysisTempDirs,
@@ -6597,7 +6748,7 @@ export const runInspiredesignWorkflow = async (
     brief: workflowInput.brief,
     briefExpansion: workflowInput.briefExpansion,
     urls: workflowInput.urls,
-    references: visualCollation.references,
+    references: finalReferences,
     mediaAnalysis,
     includePrototypeGuidance: workflowInput.includePrototypeGuidance,
     referenceEvidenceRequired: isInspiredesignReferenceEvidenceRequired(workflowInput)
@@ -6605,11 +6756,13 @@ export const runInspiredesignWorkflow = async (
   const meta = buildInspiredesignMeta(
     runtime,
     workflowInput,
-    visualCollation.references,
+    finalReferences,
     failures,
     packet.followthrough,
     discovery
   );
+  const discoveryDiagnosticsArtifact = buildPersistedInspiredesignDiscoveryDiagnostics(discovery);
+  packet.evidence.discovery = buildInspiredesignDiscoveryEvidenceSummary(discoveryDiagnosticsArtifact);
   const persistedEvidenceArtifactPaths = new Set([
     ...visualCollation.files,
     ...motionCollation.files,
@@ -6785,6 +6938,7 @@ export const runInspiredesignWorkflow = async (
 	    ttlHours: workflowInput.ttlHours,
 	    files: [
         ...renderedFilesForBundle,
+        { path: DISCOVERY_DIAGNOSTICS_ARTIFACT_PATH, content: discoveryDiagnosticsArtifact },
         ...visualCollation.files,
         ...motionCollation.files,
         ...pinMediaCollation.files
