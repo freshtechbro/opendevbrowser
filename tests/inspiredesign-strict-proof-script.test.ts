@@ -564,6 +564,33 @@ describe("inspiredesign strict proof script", () => {
     }
   });
 
+  it("rejects evidence-only canonical Pinterest refs backed by non-Pinterest ranked media", () => {
+    const bundle = makeBundle({
+      evidence: { references: [{ url: "https://www.pinterest.com/pin/123/" }] },
+      rankedReference: {
+        id: "ranked-ref",
+        url: "https://example.com/reference"
+      },
+      pinMediaEntry: {
+        referenceId: "ranked-ref",
+        url: "https://example.com/reference",
+        sourceUrl: "https://example.com/reference",
+        mediaUrl: "https://example.com/media.jpg",
+        firstPartyProvenance: {
+          referenceUrlCanonical: false,
+          sourceUrlMatchesReference: false,
+          mediaUrlFirstParty: false
+        }
+      }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("canonical_pinterest_pin_media_not_bound_to_pinterest_reference");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
   it("accepts authority artifacts bound to non-top ranked references by normalized URL", () => {
     const bundle = makeBundle({
       rankedReference: {
@@ -598,6 +625,76 @@ describe("inspiredesign strict proof script", () => {
     try {
       expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
         .toThrow("motion_authority_not_bound_to_ranked_reference:0");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects declared artifact byte counts that differ from file sizes", () => {
+    const pinBundle = makeBundle({
+      pinMediaEntry: { bytes: pinBytes.length + 1 }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(pinBundle.artifactPath, pinBundle.workflow))
+        .toThrow("pin_media_file_size_mismatch:pin-media-evidence/pin-ref/main.jpg");
+    } finally {
+      rmSync(pinBundle.root, { recursive: true, force: true });
+    }
+
+    const motionBundle = makeBundle({
+      workflow: { evidenceAuthority: "motion_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" }
+    });
+    writeMotionEvidence(
+      motionBundle.artifactPath,
+      { replay: { path: "motion-evidence/pin-ref/replay.json", sha256: motionReplaySha, bytes: motionReplayBytes.length + 1 } },
+      { referenceId: "motion-ref", url: "https://example.com/reference" }
+    );
+    try {
+      expect(() => inspectInspiredesignStrictBundle(motionBundle.artifactPath, motionBundle.workflow))
+        .toThrow("motion_replay_file_size_mismatch:motion-evidence/pin-ref/replay.json");
+    } finally {
+      rmSync(motionBundle.root, { recursive: true, force: true });
+    }
+
+    const screenshotBundle = makeBundle({
+      workflow: { evidenceAuthority: "snapshot_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" },
+      screenshotEntry: {
+        referenceId: "screenshot-ref",
+        url: "https://example.com/reference",
+        sourceUrl: "https://example.com/reference",
+        bytes: screenshotBytes.length + 1
+      }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(screenshotBundle.artifactPath, screenshotBundle.workflow))
+        .toThrow("screenshot_file_size_mismatch:visual-evidence/pin-ref/viewport.png");
+    } finally {
+      rmSync(screenshotBundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects diagnostic screenshot entries for snapshot authority", () => {
+    const bundle = makeBundle({
+      workflow: { evidenceAuthority: "snapshot_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" },
+      screenshotEntry: {
+        referenceId: "screenshot-ref",
+        url: "https://example.com/reference",
+        sourceUrl: "https://example.com/reference",
+        diagnostic: true,
+        diagnosticReasons: ["chrome_only"],
+        authority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only"
+      }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("screenshot_index_entry_diagnostic:0");
     } finally {
       rmSync(bundle.root, { recursive: true, force: true });
     }

@@ -487,12 +487,15 @@ function assertAuthorityEntryBound(entry, index, rankedReferences, evidenceAutho
   }
 }
 
-function validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath, rankedReferences) {
+function validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath, rankedReferences, evidenceReferences) {
   if (workflowPayload.evidenceAuthority !== "pin_media_ready") return [];
   if (pinMediaIndex.length === 0) {
     throw new Error("pin_media_authority_missing_index");
   }
-  const canonicalPinterestReferences = canonicalPinterestPinReferences(rankedReferences);
+  const canonicalPinterestReferences = canonicalPinterestPinReferences([
+    ...rankedReferences,
+    ...evidenceReferences
+  ]);
   const inspectedEntries = pinMediaIndex.map((entry, index) => {
     assertAuthorityEntryBound(
       entry,
@@ -503,17 +506,13 @@ function validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath,
     );
     return inspectPinMediaEntry(entry, index, artifactPath);
   });
-  if (canonicalPinterestReferences.length > 0) {
-    const hasCanonicalPinterestAuthority = pinMediaIndex.some((entry, index) => {
-      const matchesCanonicalReference = canonicalPinterestReferences.some((reference) => referenceMatchesAuthorityEntry(reference, entry));
-      if (!matchesCanonicalReference) return false;
-      assertCanonicalPinterestPinMediaEntry(entry, index);
-      return true;
-    });
-    if (!hasCanonicalPinterestAuthority) {
+  canonicalPinterestReferences.forEach((reference) => {
+    const matchingEntryIndex = pinMediaIndex.findIndex((entry) => referenceMatchesAuthorityEntry(reference, entry));
+    if (matchingEntryIndex === -1) {
       throw new Error("canonical_pinterest_pin_media_not_bound_to_pinterest_reference");
     }
-  }
+    assertCanonicalPinterestPinMediaEntry(pinMediaIndex[matchingEntryIndex], matchingEntryIndex);
+  });
   return inspectedEntries;
 }
 
@@ -524,7 +523,10 @@ function inspectPinMediaEntry(entry, index, artifactPath) {
   if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(entry.sha256)) throw new Error(`pin_media_index_entry_missing_hash:${index}`);
   if (!Number.isInteger(entry.bytes) || entry.bytes < MIN_PIN_MEDIA_BYTES) throw new Error(`pin_media_index_entry_weak_bytes:${index}`);
   const filePath = resolveArtifactFilePath(artifactPath, entry.path);
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`pin_media_file_missing:${entry.path}`);
+  if (!fs.existsSync(filePath)) throw new Error(`pin_media_file_missing:${entry.path}`);
+  const fileStat = fs.statSync(filePath);
+  if (!fileStat.isFile()) throw new Error(`pin_media_file_missing:${entry.path}`);
+  if (fileStat.size !== entry.bytes) throw new Error(`pin_media_file_size_mismatch:${entry.path}`);
   const actualSha = sha256File(filePath);
   if (actualSha !== entry.sha256) throw new Error(`pin_media_file_hash_mismatch:${entry.path}`);
   return {
@@ -578,7 +580,10 @@ function inspectMotionFile(file, index, kind, artifactPath) {
   if (typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(file.sha256)) throw new Error(`motion_${kind}_file_missing_hash:${index}`);
   if (!Number.isInteger(file.bytes) || file.bytes <= 0) throw new Error(`motion_${kind}_file_weak_bytes:${index}`);
   const filePath = resolveArtifactFilePath(artifactPath, file.path);
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`motion_${kind}_file_missing:${file.path}`);
+  if (!fs.existsSync(filePath)) throw new Error(`motion_${kind}_file_missing:${file.path}`);
+  const fileStat = fs.statSync(filePath);
+  if (!fileStat.isFile()) throw new Error(`motion_${kind}_file_missing:${file.path}`);
+  if (fileStat.size !== file.bytes) throw new Error(`motion_${kind}_file_size_mismatch:${file.path}`);
   const actualSha = sha256File(filePath);
   if (actualSha !== file.sha256) throw new Error(`motion_${kind}_file_hash_mismatch:${file.path}`);
   return { path: file.path, bytes: file.bytes, sha256: file.sha256 };
@@ -603,11 +608,27 @@ function validateSnapshotAuthority(workflowPayload, screenshots, artifactPath, r
 
 function inspectScreenshotEntry(entry, index, artifactPath) {
   if (!isRecord(entry)) throw new Error(`screenshot_index_entry_invalid:${index}`);
+  if (entry.status !== undefined && entry.status !== "captured") throw new Error(`screenshot_index_entry_not_captured:${index}`);
+  if (entry.diagnostic === true) throw new Error(`screenshot_index_entry_diagnostic:${index}`);
+  if (Array.isArray(entry.diagnosticReasons) && entry.diagnosticReasons.length > 0) throw new Error(`screenshot_index_entry_diagnostic_reasons:${index}`);
+  if (
+    entry.authority === DIAGNOSTIC_AUTHORITY
+    || entry.artifactAuthority === DIAGNOSTIC_AUTHORITY
+    || entry.evidenceAuthority === DIAGNOSTIC_AUTHORITY
+  ) {
+    throw new Error(`screenshot_index_entry_not_design_evidence:${index}`);
+  }
+  if (typeof entry.authority === "string" && entry.authority !== "design_evidence") {
+    throw new Error(`screenshot_index_entry_not_design_evidence:${index}`);
+  }
   if (typeof entry.path !== "string" || entry.path.trim() === "") throw new Error(`screenshot_index_entry_missing_path:${index}`);
   if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(entry.sha256)) throw new Error(`screenshot_index_entry_missing_hash:${index}`);
   if (!Number.isInteger(entry.bytes) || entry.bytes < MIN_PIN_MEDIA_BYTES) throw new Error(`screenshot_index_entry_weak_bytes:${index}`);
   const filePath = resolveArtifactFilePath(artifactPath, entry.path);
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`screenshot_file_missing:${entry.path}`);
+  if (!fs.existsSync(filePath)) throw new Error(`screenshot_file_missing:${entry.path}`);
+  const fileStat = fs.statSync(filePath);
+  if (!fileStat.isFile()) throw new Error(`screenshot_file_missing:${entry.path}`);
+  if (fileStat.size !== entry.bytes) throw new Error(`screenshot_file_size_mismatch:${entry.path}`);
   const actualSha = sha256File(filePath);
   if (actualSha !== entry.sha256) throw new Error(`screenshot_file_hash_mismatch:${entry.path}`);
   return {
@@ -685,7 +706,13 @@ export function inspectInspiredesignStrictBundle(artifactPath, workflowJson = {}
   const evidenceReferences = validateEvidenceJson(evidenceJson, workflowPayload.evidenceAuthority);
   validateReadiness(workflowPayload, rankedReferences, evidenceReferences);
   const topReference = validateTopReference(rankedReferences);
-  const inspectedPinMedia = validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath, rankedReferences);
+  const inspectedPinMedia = validatePinMediaAuthority(
+    workflowPayload,
+    pinMediaIndex,
+    artifactPath,
+    rankedReferences,
+    evidenceReferences
+  );
   const inspectedMotion = validateMotionAuthority(workflowPayload, motionEvidence, artifactPath, rankedReferences);
   const inspectedScreenshots = validateSnapshotAuthority(workflowPayload, screenshots, artifactPath, rankedReferences);
 
