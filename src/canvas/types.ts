@@ -265,6 +265,59 @@ export const CANVAS_PUBLIC_WARNING_CLASSES = CANVAS_VALIDATION_TARGET_BLOCK_ON_C
 
 export type CanvasPreviewState = "focused" | "pinned" | "background" | "degraded";
 
+export type CanvasWorkspacePreviewBudgetState =
+  | "focused_live"
+  | "pinned_live"
+  | "background_live"
+  | "thumbnail"
+  | "paused"
+  | "degraded";
+
+export type CanvasWorkspaceCoordinatorState = "open" | "closed";
+
+export type CanvasWorkspaceChildRef = {
+  childId: string;
+  canvasSessionId: string;
+  documentId: string;
+  leaseId: string;
+  repoPath: string | null;
+  codeSyncBindingIds: string[];
+  role: string;
+  previewMode: string | null;
+  previewBudgetState: CanvasWorkspacePreviewBudgetState;
+  addedAt: string;
+  lastRoutedAt: string | null;
+};
+
+export type CanvasWorkspaceManifest = {
+  workspaceId: string;
+  createdAt: string;
+  updatedAt: string;
+  coordinator: {
+    state: CanvasWorkspaceCoordinatorState;
+    focusedChildId: string | null;
+    childCount: number;
+    activePreviewCount: number;
+    queuedPreviewWork: number;
+  };
+  childRefs: CanvasWorkspaceChildRef[];
+  telemetry: {
+    operationLatencyMs: Record<string, number>;
+    previewFanout: {
+      activeLivePreviews: number;
+      queuedPreviewWork: number;
+      maxLivePreviews: number;
+    };
+    memorySamples: Array<{
+      phase: string;
+      sampledAt: string;
+      heapUsedBytes: number;
+      rssBytes: number;
+    }>;
+    retainedManifestBytes: number;
+  };
+};
+
 export type CanvasDegradeReason = "overflow" | "memory_pressure" | "queue_pressure" | "frozen" | "discarded";
 
 export type CanvasProjectionFallbackReason =

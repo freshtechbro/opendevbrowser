@@ -6,6 +6,12 @@ const EXPECTED_PUBLIC_CANVAS_COMMANDS = [
   "canvas.session.attach",
   "canvas.session.status",
   "canvas.session.close",
+  "canvas.workspace.open",
+  "canvas.workspace.status",
+  "canvas.workspace.child.add",
+  "canvas.workspace.child.execute",
+  "canvas.workspace.child.close",
+  "canvas.workspace.close",
   "canvas.capabilities.get",
   "canvas.plan.set",
   "canvas.plan.get",
@@ -42,7 +48,7 @@ const EXPECTED_PUBLIC_CANVAS_COMMANDS = [
 describe("public canvas command inventory", () => {
   it("locks the shipped public canvas command surface", () => {
     expect(PUBLIC_CANVAS_COMMANDS).toEqual(EXPECTED_PUBLIC_CANVAS_COMMANDS);
-    expect(new Set(PUBLIC_CANVAS_COMMANDS).size).toBe(35);
+    expect(new Set(PUBLIC_CANVAS_COMMANDS).size).toBe(41);
   });
 
   it("excludes internal extension-only helper commands", () => {
