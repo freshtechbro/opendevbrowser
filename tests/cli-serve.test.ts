@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   discoverExtensionId: vi.fn(),
   getNativeStatusSnapshot: vi.fn(),
   installNativeHost: vi.fn(),
+  normalizeExtensionId: vi.fn(),
   spawnSync: vi.fn()
 }));
 
@@ -41,7 +42,8 @@ vi.mock("../src/cli/utils/http", () => ({
 vi.mock("../src/cli/commands/native", () => ({
   discoverExtensionId: mocks.discoverExtensionId,
   getNativeStatusSnapshot: mocks.getNativeStatusSnapshot,
-  installNativeHost: mocks.installNativeHost
+  installNativeHost: mocks.installNativeHost,
+  normalizeExtensionId: mocks.normalizeExtensionId
 }));
 
 vi.mock("node:child_process", () => ({
@@ -123,6 +125,11 @@ describe("serve command", () => {
     });
     mocks.discoverExtensionId.mockReturnValue({ extensionId: null });
     mocks.installNativeHost.mockReturnValue({ success: false, message: "unused" });
+    mocks.normalizeExtensionId.mockImplementation((value: string | undefined) => {
+      if (!value) return null;
+      const trimmed = value.trim();
+      return /^[a-p]{32}$/.test(trimmed) ? trimmed : null;
+    });
     mocks.spawnSync.mockReturnValue({ status: 1, stdout: "" });
     mocks.startDaemon.mockResolvedValue({
       state: { port: 8788, pid: 1234, relayPort: 8787 },
@@ -620,6 +627,95 @@ describe("serve command", () => {
       expectedExtensionSource: "config",
       mismatch: false
     });
+    expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
+  });
+
+  it("reinstalls mismatched native host using configured id before discovered status", async () => {
+    const config = makeConfig("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.getNativeStatusSnapshot
+      .mockReturnValueOnce({
+        installed: true,
+        manifestPath: "/tmp/manifest.json",
+        wrapperPath: "/tmp/wrapper.sh",
+        hostScriptPath: "/tmp/host.cjs",
+        extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        registryPath: null,
+        discoveredExtensionId: "cccccccccccccccccccccccccccccccc",
+        discoveredMatchedBy: "path",
+        expectedExtensionId: "cccccccccccccccccccccccccccccccc",
+        expectedExtensionSource: "path",
+        mismatch: true
+      })
+      .mockReturnValueOnce({
+        installed: true,
+        manifestPath: "/tmp/manifest.json",
+        wrapperPath: "/tmp/wrapper.sh",
+        hostScriptPath: "/tmp/host.cjs",
+        extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        registryPath: null,
+        discoveredExtensionId: "cccccccccccccccccccccccccccccccc",
+        discoveredMatchedBy: "path",
+        expectedExtensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        expectedExtensionSource: "config",
+        mismatch: false
+      });
+    mocks.discoverExtensionId.mockReturnValue({ extensionId: "cccccccccccccccccccccccccccccccc", matchedBy: "path" });
+    mocks.installNativeHost.mockReturnValue({
+      success: true,
+      message: "Native host installed for extension bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+    });
+
+    const result = await runServe(makeArgs([]));
+
+    expect(mocks.installNativeHost).toHaveBeenCalledWith("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Native host reinstalled for extension bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    expect(result.message).not.toContain("auto-detected");
+    expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
+  });
+
+  it("ignores invalid configured nativeExtensionId when discovered id is valid", async () => {
+    const config = makeConfig("not-valid");
+    mocks.loadGlobalConfig.mockReturnValue(config);
+    mocks.getNativeStatusSnapshot
+      .mockReturnValueOnce({
+        installed: false,
+        manifestPath: null,
+        wrapperPath: null,
+        hostScriptPath: "/tmp/host.cjs",
+        extensionId: null,
+        registryPath: null,
+        discoveredExtensionId: "cccccccccccccccccccccccccccccccc",
+        discoveredMatchedBy: "path",
+        expectedExtensionId: "cccccccccccccccccccccccccccccccc",
+        expectedExtensionSource: "path",
+        mismatch: false
+      })
+      .mockReturnValueOnce({
+        installed: true,
+        manifestPath: "/tmp/manifest.json",
+        wrapperPath: "/tmp/wrapper.sh",
+        hostScriptPath: "/tmp/host.cjs",
+        extensionId: "cccccccccccccccccccccccccccccccc",
+        registryPath: null,
+        discoveredExtensionId: "cccccccccccccccccccccccccccccccc",
+        discoveredMatchedBy: "path",
+        expectedExtensionId: "cccccccccccccccccccccccccccccccc",
+        expectedExtensionSource: "path",
+        mismatch: false
+      });
+    mocks.discoverExtensionId.mockReturnValue({ extensionId: "cccccccccccccccccccccccccccccccc", matchedBy: "path" });
+    mocks.installNativeHost.mockReturnValue({
+      success: true,
+      message: "Native host installed for extension cccccccccccccccccccccccccccccccc."
+    });
+
+    const result = await runServe(makeArgs([]));
+
+    expect(mocks.installNativeHost).toHaveBeenCalledWith("cccccccccccccccccccccccccccccccc");
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("(auto-detected by path)");
     expect(mocks.startDaemon).toHaveBeenCalledWith({ port: undefined, token: undefined, config });
   });
 

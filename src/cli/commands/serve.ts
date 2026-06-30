@@ -14,7 +14,7 @@ import {
   buildDaemonFingerprintMismatchMessage,
   DAEMON_FINGERPRINT_MISMATCH_REASON
 } from "../daemon-mismatch";
-import { discoverExtensionId, getNativeStatusSnapshot, installNativeHost } from "./native";
+import { discoverExtensionId, getNativeStatusSnapshot, installNativeHost, normalizeExtensionId } from "./native";
 import type { DaemonStatusPayload } from "../daemon-status";
 import { fetchDaemonStatus } from "../daemon-status";
 
@@ -483,8 +483,9 @@ export async function runServe(args: ParsedArgs) {
   let nativeMessage: string | null = null;
   if (!nativeStatus.installed || nativeStatus.mismatch) {
     const discovered = discoverExtensionId();
-    const extensionId = nativeStatus.expectedExtensionId ?? config.nativeExtensionId ?? discovered.extensionId ?? null;
-    const usedDiscovery = nativeStatus.expectedExtensionSource !== "config" && Boolean(extensionId);
+    const configuredExtensionId = normalizeExtensionId(config.nativeExtensionId);
+    const extensionId = configuredExtensionId ?? nativeStatus.expectedExtensionId ?? discovered.extensionId ?? null;
+    const usedDiscovery = !configuredExtensionId && nativeStatus.expectedExtensionSource !== "config" && Boolean(extensionId);
     const previousExtensionId = nativeStatus.extensionId;
     if (extensionId) {
       const installResult = installNativeHost(extensionId);

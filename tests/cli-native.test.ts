@@ -98,6 +98,70 @@ describe("native CLI command", () => {
     expect(__test__.findExtensionIdInCommands(preferences)).toBe(extensionId);
   });
 
+  it("prefers configured native extension id over discovered profile id", () => {
+    const oldConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    const oldHome = process.env.HOME;
+    const oldLocalAppData = process.env.LOCALAPPDATA;
+    const oldUserProfile = process.env.USERPROFILE;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "odb-native-expected-"));
+    const configDir = path.join(root, "config");
+    const home = path.join(root, "home");
+    const configuredId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const discoveredId = "cccccccccccccccccccccccccccccccc";
+    try {
+      process.env.OPENCODE_CONFIG_DIR = configDir;
+      process.env.HOME = home;
+      const localAppData = path.join(home, "AppData", "Local");
+      process.env.LOCALAPPDATA = localAppData;
+      process.env.USERPROFILE = home;
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(configDir, "opendevbrowser.jsonc"),
+        JSON.stringify({ nativeExtensionId: configuredId }),
+        "utf8"
+      );
+
+      let chromeRoot = path.join(home, ".config", "google-chrome");
+      if (process.platform === "darwin") {
+        chromeRoot = path.join(home, "Library", "Application Support", "Google", "Chrome");
+      } else if (process.platform === "win32") {
+        chromeRoot = path.join(localAppData, "Google", "Chrome", "User Data");
+      }
+      const profileDir = path.join(chromeRoot, "Default");
+      fs.mkdirSync(profileDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(profileDir, "Preferences"),
+        JSON.stringify({
+          extensions: {
+            settings: {
+              [discoveredId]: {
+                path: path.join(process.cwd(), "extension"),
+                manifest: { name: "OpenDevBrowser Relay" }
+              }
+            }
+          }
+        }),
+        "utf8"
+      );
+
+      expect(__test__.resolveExpectedExtension()).toMatchObject({
+        discoveredExtensionId: discoveredId,
+        discoveredMatchedBy: "path",
+        expectedExtensionId: configuredId,
+        expectedExtensionSource: "config"
+      });
+    } finally {
+      if (oldConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+      else process.env.OPENCODE_CONFIG_DIR = oldConfigDir;
+      if (oldHome === undefined) delete process.env.HOME;
+      else process.env.HOME = oldHome;
+      if (oldLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = oldLocalAppData;
+      if (oldUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = oldUserProfile;
+    }
+  });
+
   it("keeps native scripts in npm package files list", () => {
     const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
       files?: string[];
