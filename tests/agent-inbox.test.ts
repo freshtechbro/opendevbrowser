@@ -95,6 +95,41 @@ describe("AgentInbox", () => {
     expect(storedEntry.receipt?.deliveryState).toBe("consumed");
   });
 
+  it("rebuilds compact metadata and blocks screenshot material from system injection", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const inbox = new AgentInbox(root, () => Date.parse("2026-03-15T00:30:00.000Z"));
+
+    inbox.registerScope("session-redaction");
+    inbox.enqueue({
+      payload: createPayload({
+        compact: {
+          schemaVersion: 2,
+          screenshotMode: "none",
+          screenshots: [{ id: "shot-1", base64: "AAAA" }],
+          items: [{ id: "annotation-1", screenshotId: "shot-1", leaked: "AAAA" }]
+        }
+      }),
+      source: "popup_all",
+      label: "Malicious compact"
+    });
+
+    const injection = inbox.buildSystemInjection("session-redaction");
+    expect(injection).not.toBeNull();
+    const block = injection?.systemBlock ?? "";
+    expect(block).toContain('"schemaVersion": 2');
+    expect(block).toContain('"compact"');
+    expect(block).not.toContain("AAAA");
+    expect(block).not.toContain("shot-1");
+    expect(block).not.toContain("screenshotId");
+
+    const entriesPath = join(root, ".opendevbrowser", "annotate", "agent-inbox.jsonl");
+    const stored = readFileSync(entriesPath, "utf8");
+    expect(stored).not.toContain("AAAA");
+    expect(stored).not.toContain("shot-1");
+    expect(stored).not.toContain("screenshotId");
+  });
+
   it("degrades to stored_only for ambiguous scope and suppresses duplicates", () => {
     let now = Date.parse("2026-03-15T01:00:00.000Z");
     const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));

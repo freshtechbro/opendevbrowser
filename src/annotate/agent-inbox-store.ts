@@ -17,6 +17,7 @@ const AGENT_INBOX_UNREAD_LIMIT = 50;
 const AGENT_INBOX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const AGENT_INBOX_DUPLICATE_WINDOW_MS = 60 * 1000;
 const AGENT_SCOPE_TTL_MS = 10 * 60 * 1000;
+const AGENT_COMPACT_BYTE_BUDGET = 24 * 1024;
 
 export type AgentInboxAssetRef = {
   id: string;
@@ -148,7 +149,7 @@ export class AgentInboxStore {
       createdAt,
       deliveryState,
       payloadSansScreenshots: sanitizedPayload,
-      assetRefs: buildAssetRefs(input.payload),
+      assetRefs: [],
       payloadHash,
       itemCount: sanitizedPayload.annotations.length,
       byteLength: receipt.byteLength,
@@ -270,28 +271,153 @@ export class AgentInboxStore {
 }
 
 function stripPayloadScreenshots(payload: AnnotationPayload): AnnotationPayload {
-  return {
-    ...payload,
+  const annotations = payload.annotations.map((annotation) => {
+    const { screenshotId: _screenshotId, debug: _debug, styles: _styles, attributes: _attributes, ...rest } = annotation;
+    return {
+      ...rest,
+      attributes: {},
+      styles: {}
+    };
+  });
+  const sanitized: AnnotationPayload = {
+    schemaVersion: 2,
+    url: payload.url,
+    title: payload.title,
+    timestamp: payload.timestamp,
+    context: payload.context,
     screenshotMode: "none",
-    screenshots: undefined,
-    annotations: payload.annotations.map((annotation) => {
-      const { screenshotId: _screenshotId, ...rest } = annotation;
-      return rest;
-    })
+    annotations
+  };
+  return {
+    ...sanitized,
+    compact: buildCanonicalCompactPayload(sanitized, payload)
   };
 }
 
-function buildAssetRefs(payload: AnnotationPayload): AgentInboxAssetRef[] {
-  return (payload.screenshots ?? []).map((screenshot) => ({
-    id: screenshot.id,
-    kind: "screenshot",
-    label: screenshot.label,
-    metadata: {
-      mime: screenshot.mime,
-      width: screenshot.width ?? null,
-      height: screenshot.height ?? null
-    }
-  }));
+function buildCanonicalCompactPayload(
+  sanitized: AnnotationPayload,
+  original: AnnotationPayload
+): NonNullable<AnnotationPayload["compact"]> {
+  const items: NonNullable<AnnotationPayload["compact"]>["items"] = sanitized.annotations.map((annotation, index) => {
+    const originalAnnotation = original.annotations[index];
+    const originalByteLength = byteLength(originalAnnotation ?? annotation);
+    return {
+      id: annotation.id,
+      label: annotation.note ?? annotation.text ?? annotation.selector,
+      text: annotation.text,
+      note: annotation.note,
+      target: {
+        tag: annotation.tag,
+        selector: annotation.selector,
+        rect: annotation.rect,
+        text: annotation.text,
+        a11y: annotation.a11y
+      },
+      identity: annotation.identity ?? buildFallbackIdentity(annotation),
+      selectorBundle: annotation.selectorBundle ?? buildFallbackSelectorBundle(annotation),
+      redaction: {
+        removedFields: buildAnnotationRemovedFields(originalAnnotation),
+        truncatedFields: [],
+        screenshotBytesRemoved: Boolean(originalAnnotation?.screenshotId),
+        originalByteLength,
+        compactByteLength: byteLength(annotation)
+      }
+    };
+  });
+  return {
+    schemaVersion: 2,
+    url: sanitized.url,
+    title: sanitized.title,
+    timestamp: sanitized.timestamp,
+    context: sanitized.context,
+    screenshotMode: "none",
+    byteBudget: AGENT_COMPACT_BYTE_BUDGET,
+    redaction: {
+      removedFields: buildPayloadRemovedFields(original, items),
+      truncatedFields: [],
+      screenshotBytesRemoved: Boolean(original.screenshots?.length) || items.some((item) => item.redaction.screenshotBytesRemoved),
+      originalByteLength: byteLength(original),
+      compactByteLength: byteLength({ ...sanitized, compact: undefined })
+    },
+    items
+  };
+}
+
+function buildFallbackIdentity(annotation: AnnotationPayload["annotations"][number]): NonNullable<AnnotationPayload["compact"]>["items"][number]["identity"] {
+  return {
+    source: "selector",
+    priority: 50,
+    stableId: annotation.selector,
+    label: annotation.text ?? annotation.note ?? annotation.selector
+  };
+}
+
+function buildFallbackSelectorBundle(annotation: AnnotationPayload["annotations"][number]): NonNullable<AnnotationPayload["compact"]>["items"][number]["selectorBundle"] {
+  return {
+    primary: annotation.selector,
+    transport: "unknown",
+    candidates: [
+      buildUnavailableSelector("backendNodeId", 10, "requires_cdp_capture"),
+      buildUnavailableSelector("frameId", 20, "requires_cdp_capture"),
+      buildUnavailableSelector("testId", 30, "missing_test_id"),
+      buildUnavailableSelector("aria", 40, "missing_aria_role_or_name"),
+      {
+        family: "css",
+        rank: 50,
+        confidence: "medium",
+        scope: "document",
+        transport: "unknown",
+        availability: "available",
+        value: annotation.selector
+      },
+      buildUnavailableSelector("shadowChain", 60, "not_in_shadow_tree"),
+      buildUnavailableSelector("xpath", 70, "insufficient_xpath_facts"),
+      buildUnavailableSelector("text", 80, annotation.text ? "text_is_weak_fallback" : "missing_text")
+    ],
+    recoveryHints: ["Use the CSS selector as fallback when richer selector metadata is unavailable."]
+  };
+}
+
+function buildUnavailableSelector(
+  family: NonNullable<AnnotationPayload["compact"]>["items"][number]["selectorBundle"]["candidates"][number]["family"],
+  rank: number,
+  unavailableReason: string
+): NonNullable<AnnotationPayload["compact"]>["items"][number]["selectorBundle"]["candidates"][number] {
+  return {
+    family,
+    rank,
+    confidence: "low",
+    scope: family === "text" ? "text" : family === "shadowChain" ? "shadow" : "document",
+    transport: "unknown",
+    availability: "unavailable",
+    unavailableReason
+  };
+}
+
+function buildAnnotationRemovedFields(annotation: AnnotationPayload["annotations"][number] | undefined): string[] {
+  if (!annotation) {
+    return [];
+  }
+  return [
+    ...(annotation.screenshotId ? ["screenshot_reference"] : []),
+    ...(annotation.debug ? ["debug"] : []),
+    ...(Object.keys(annotation.styles ?? {}).length > 0 ? ["styles"] : []),
+    ...(Object.keys(annotation.attributes ?? {}).length > 0 ? ["attributes"] : [])
+  ];
+}
+
+function buildPayloadRemovedFields(
+  original: AnnotationPayload,
+  items: NonNullable<AnnotationPayload["compact"]>["items"]
+): string[] {
+  return [
+    ...(original.screenshots?.length ? ["screenshots"] : []),
+    ...items.flatMap((item) => item.redaction.removedFields.map((field) => `annotations.${field}`))
+  ];
+}
+
+function byteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf-8");
 }
 
 function findDuplicateEntry(

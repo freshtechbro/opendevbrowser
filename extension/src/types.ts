@@ -503,6 +503,107 @@ export type AnnotationRect = {
   height: number;
 };
 
+export type AnnotationSchemaVersion = 2;
+
+export type AnnotationSelectorFamily =
+  | "backendNodeId"
+  | "frameId"
+  | "testId"
+  | "aria"
+  | "css"
+  | "shadowChain"
+  | "xpath"
+  | "text";
+
+export type AnnotationSelectorAvailability = "available" | "unavailable";
+export type AnnotationSelectorConfidence = "high" | "medium" | "low";
+export type AnnotationSelectorScope = "same-session" | "frame" | "document" | "shadow" | "text";
+export type AnnotationTransportProvenance = "cdp" | "extension" | "canvas" | "unknown";
+
+export type AnnotationSelectorCandidate = {
+  family: AnnotationSelectorFamily;
+  rank: number;
+  confidence: AnnotationSelectorConfidence;
+  scope: AnnotationSelectorScope;
+  transport: AnnotationTransportProvenance;
+  availability: AnnotationSelectorAvailability;
+  value?: string;
+  unavailableReason?: string;
+  recoveryHint?: string;
+};
+
+export type AnnotationSelectorBundle = {
+  primary: string;
+  transport: AnnotationTransportProvenance;
+  candidates: AnnotationSelectorCandidate[];
+  recoveryHints: string[];
+};
+
+export type AnnotationTargetIdentitySource =
+  | "explicitData"
+  | "canvasBinding"
+  | "customElement"
+  | "accessibility"
+  | "selector";
+
+export type AnnotationTargetIdentity = {
+  source: AnnotationTargetIdentitySource;
+  priority: number;
+  stableId: string;
+  label?: string;
+  canvas?: {
+    documentId?: string;
+    pageId?: string;
+    nodeId?: string;
+    regionId?: string;
+    bindingId?: string;
+    componentName?: string;
+    sourceKind?: string;
+    framework?: string;
+    adapter?: string;
+    plugin?: string;
+  };
+  customElement?: {
+    tag: string;
+  };
+};
+
+export type AnnotationCompactRedaction = {
+  removedFields: string[];
+  truncatedFields: string[];
+  screenshotBytesRemoved: boolean;
+  originalByteLength: number;
+  compactByteLength: number;
+};
+
+export type AnnotationCompactItem = {
+  id: string;
+  label: string;
+  note?: string;
+  target: {
+    tag: string;
+    selector: string;
+    rect: AnnotationRect;
+    text?: string;
+    a11y?: AnnotationA11y;
+  };
+  identity: AnnotationTargetIdentity;
+  selectorBundle: AnnotationSelectorBundle;
+  redaction: AnnotationCompactRedaction;
+};
+
+export type AnnotationCompactPayload = {
+  schemaVersion: AnnotationSchemaVersion;
+  url: string;
+  title?: string;
+  timestamp: string;
+  context?: string;
+  screenshotMode: "none";
+  byteBudget: number;
+  redaction: AnnotationCompactRedaction;
+  items: AnnotationCompactItem[];
+};
+
 export type AnnotationStyle = {
   color?: string;
   backgroundColor?: string;
@@ -547,6 +648,8 @@ export type AnnotationItem = {
   note?: string;
   screenshotId?: string;
   debug?: AnnotationDebug;
+  identity?: AnnotationTargetIdentity;
+  selectorBundle?: AnnotationSelectorBundle;
 };
 
 export type AnnotationScreenshot = {
@@ -559,6 +662,7 @@ export type AnnotationScreenshot = {
 };
 
 export type AnnotationPayload = {
+  schemaVersion?: AnnotationSchemaVersion;
   url: string;
   title?: string;
   timestamp: string;
@@ -566,6 +670,7 @@ export type AnnotationPayload = {
   screenshotMode: AnnotationScreenshotMode;
   screenshots?: AnnotationScreenshot[];
   annotations: AnnotationItem[];
+  compact?: AnnotationCompactPayload;
 };
 
 export type AnnotationResponse = {

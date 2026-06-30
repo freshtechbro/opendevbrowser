@@ -1,10 +1,75 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCanvasAnnotationPayload,
-  filterAnnotationPayload
+  buildCompactAnnotationPayload,
+  computeAnnotationPlacement,
+  filterAnnotationPayload,
+  sanitizeAnnotationPayloadForAgent
 } from "../extension/src/annotation-payload";
 
 describe("extension annotation payload helpers", () => {
+  it("builds compact schema v2 payloads without screenshot bytes or debug internals", () => {
+    const payload = {
+      url: "https://example.com",
+      title: "Example",
+      timestamp: "2026-03-12T00:00:00.000Z",
+      context: "Review hero",
+      screenshotMode: "visible" as const,
+      screenshots: [
+        { id: "shot-1", label: "first", base64: "AAAA", mime: "image/png" as const }
+      ],
+      annotations: [
+        {
+          id: "item-1",
+          selector: "#hero",
+          tag: "section",
+          idAttr: "hero",
+          text: "Hero CTA",
+          rect: { x: 8, y: 16, width: 320, height: 180 },
+          attributes: { "data-testid": "hero-section", role: "region", "aria-label": "Hero" },
+          a11y: { role: "region", label: "Hero" },
+          styles: { color: "rgb(0, 0, 0)" },
+          screenshotId: "shot-1",
+          debug: { computedStyles: { color: "black" } }
+        }
+      ]
+    };
+
+    const sanitized = sanitizeAnnotationPayloadForAgent(payload);
+    const compact = buildCompactAnnotationPayload(payload);
+    const serialized = JSON.stringify(sanitized);
+
+    expect(sanitized.schemaVersion).toBe(2);
+    expect(sanitized.screenshotMode).toBe("none");
+    expect(sanitized.screenshots).toBeUndefined();
+    expect(sanitized.annotations[0]).not.toHaveProperty("screenshotId");
+    expect(sanitized.annotations[0]).not.toHaveProperty("debug");
+    expect(sanitized.compact).toEqual(compact);
+    expect(serialized).not.toContain("AAAA");
+    expect(compact.schemaVersion).toBe(2);
+    expect(compact.items[0]?.selectorBundle.candidates.map((entry) => entry.family)).toEqual([
+      "backendNodeId",
+      "frameId",
+      "testId",
+      "aria",
+      "css",
+      "shadowChain",
+      "xpath",
+      "text"
+    ]);
+    expect(compact.items[0]?.selectorBundle.candidates[0]).toMatchObject({
+      family: "backendNodeId",
+      availability: "unavailable",
+      unavailableReason: "requires_cdp_capture"
+    });
+    expect(compact.items[0]?.selectorBundle.candidates[2]).toMatchObject({
+      family: "testId",
+      availability: "available",
+      value: "[data-testid=\"hero-section\"]"
+    });
+    expect(compact.items[0]?.redaction.removedFields).toContain("debug");
+  });
+
   it("filters payloads down to the requested annotation ids", () => {
     const payload = {
       url: "https://example.com",
@@ -76,7 +141,19 @@ describe("extension annotation payload helpers", () => {
           }],
           metadata: {}
         }],
-        bindings: [],
+        bindings: [{
+          id: "binding_cta",
+          nodeId: "node_button",
+          kind: "component",
+          selector: "[data-component=\"HeroCta\"]",
+          componentName: "HeroCta",
+          metadata: {
+            sourceKind: "react",
+            framework: "react",
+            adapter: "builtin:react-tsx-v2",
+            plugin: "builtin"
+          }
+        }],
         assets: [],
         componentInventory: []
       },
@@ -98,7 +175,7 @@ describe("extension annotation payload helpers", () => {
             attributes: { "data-variant": "primary" }
           },
           style: { color: "#ffffff", backgroundColor: "#111827" },
-          bindingRefs: {},
+          bindingRefs: { primary: "binding_cta" },
           metadata: {}
         }],
         metadata: {}
@@ -114,12 +191,28 @@ describe("extension annotation payload helpers", () => {
         id: "node_button",
         tag: "button",
         note: "Primary CTA alignment",
-        selector: "[data-node-id=\"node_button\"]",
+        selector: "[data-component=\"HeroCta\"]",
         attributes: expect.objectContaining({
           "data-canvas-kind": "component-instance",
+          "data-canvas-binding-id": "binding_cta",
           "data-node-id": "node_button",
           "data-tag-name": "button",
           "data-variant": "primary"
+        }),
+        identity: expect.objectContaining({
+          source: "canvasBinding",
+          canvas: expect.objectContaining({
+            bindingId: "binding_cta",
+            componentName: "HeroCta",
+            framework: "react",
+            adapter: "builtin:react-tsx-v2"
+          })
+        }),
+        selectorBundle: expect.objectContaining({
+          candidates: expect.arrayContaining([
+            expect.objectContaining({ family: "css", value: "[data-component=\"HeroCta\"]" }),
+            expect.objectContaining({ family: "backendNodeId", availability: "unavailable" })
+          ])
         })
       })
     ]);
@@ -174,5 +267,37 @@ describe("extension annotation payload helpers", () => {
         })
       })
     ]);
+  });
+
+  it("places annotation cards anchor-first while avoiding panels and existing cards", () => {
+    const placement = computeAnnotationPlacement({
+      anchorRect: { x: 120, y: 80, width: 100, height: 40 },
+      floatingSize: { width: 240, height: 120 },
+      viewport: { width: 900, height: 700 },
+      panels: [{ x: 320, y: 40, width: 260, height: 240 }],
+      existing: [{ x: 232, y: 80, width: 240, height: 120 }],
+      desiredSide: "right"
+    });
+
+    expect(placement.side).not.toBe("right");
+    expect(placement.x).toBeGreaterThanOrEqual(8);
+    expect(placement.y).toBeGreaterThanOrEqual(8);
+    expect(placement.overlapsPanel).toBe(false);
+    expect(placement.overlapsExisting).toBe(false);
+    expect(placement.connector).toMatchObject({ visible: true });
+  });
+
+  it("uses mobile side-panel placement when the viewport is narrow", () => {
+    const placement = computeAnnotationPlacement({
+      anchorRect: { x: 40, y: 220, width: 80, height: 40 },
+      floatingSize: { width: 320, height: 160 },
+      viewport: { width: 390, height: 720 },
+      desiredSide: "right"
+    });
+
+    expect(placement.strategy).toBe("mobile-side-panel");
+    expect(placement.side).toBe("bottom");
+    expect(placement.x).toBe(8);
+    expect(placement.width).toBe(374);
   });
 });

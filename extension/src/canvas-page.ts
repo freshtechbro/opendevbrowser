@@ -18,8 +18,10 @@ import {
 } from "./canvas/model.js";
 import {
   buildCanvasAnnotationPayload,
+  computeAnnotationPlacement,
   describeAnnotationItem,
   formatAnnotationDispatchReceipt,
+  sanitizeAnnotationPayloadForAgent,
   type CanvasAnnotationDraft
 } from "./annotation-payload.js";
 import {
@@ -29,6 +31,7 @@ import {
   isDefaultEditorViewport
 } from "./canvas/viewport-fit.js";
 import type {
+  AnnotationRect,
   AnnotationDispatchSource,
   PopupAnnotationSendPayloadResponse
 } from "./types.js";
@@ -1985,6 +1988,13 @@ function renderAnnotationPanel(): void {
         : draft.nodeId;
     const row = document.createElement("div");
     row.className = "canvas-annotation-item";
+    if (annotation && currentState) {
+      const placement = computeCanvasAnnotationPlacement(annotation.rect);
+      row.dataset.placementStrategy = placement.strategy;
+      row.dataset.placementSide = placement.side;
+      row.style.setProperty("--canvas-annotation-anchor-x", `${Math.round(placement.x)}px`);
+      row.style.setProperty("--canvas-annotation-anchor-y", `${Math.round(placement.y)}px`);
+    }
 
     const head = document.createElement("div");
     head.className = "canvas-annotation-head";
@@ -2067,6 +2077,29 @@ function buildCanvasAnnotationPayloadForDrafts(drafts: CanvasAnnotationDraft[]):
   });
 }
 
+function computeCanvasAnnotationPlacement(rect: AnnotationRect): ReturnType<typeof computeAnnotationPlacement> {
+  const viewport = currentState?.viewport ?? DEFAULT_EDITOR_VIEWPORT;
+  const stageRect = stageElement.getBoundingClientRect();
+  const anchorRect = {
+    x: stageRect.left + viewport.x + rect.x * viewport.zoom,
+    y: stageRect.top + viewport.y + rect.y * viewport.zoom,
+    width: rect.width * viewport.zoom,
+    height: rect.height * viewport.zoom
+  };
+  return computeAnnotationPlacement({
+    anchorRect,
+    floatingSize: { width: 280, height: 132 },
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    panels: [annotationListElement.getBoundingClientRect()].map((entry) => ({
+      x: entry.left,
+      y: entry.top,
+      width: entry.width,
+      height: entry.height
+    })),
+    desiredSide: "right"
+  });
+}
+
 function addSelectedAnnotationDraft(): void {
   const node = getSelectedNode();
   if (!node || annotationDrafts.some((entry) => entry.kind !== "region" && entry.nodeId === node.id)) {
@@ -2109,7 +2142,7 @@ async function copyCanvasAnnotation(drafts: CanvasAnnotationDraft[] | undefined,
     setCanvasButtonFeedback(button, "No items");
     return;
   }
-  await writeTextToClipboard(JSON.stringify(payload, null, 2));
+  await writeTextToClipboard(JSON.stringify(sanitizeAnnotationPayloadForAgent(payload), null, 2));
   setCanvasButtonFeedback(button, "Copied");
 }
 
@@ -2128,7 +2161,7 @@ async function sendCanvasAnnotation(
     chrome.runtime.sendMessage(
       {
         type: "annotation:sendPayload",
-        payload,
+        payload: sanitizeAnnotationPayloadForAgent(payload),
         source,
         label
       },

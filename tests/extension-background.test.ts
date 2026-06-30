@@ -2050,6 +2050,17 @@ describe("extension background annotation routing", () => {
       storedFallback: true
     });
     expect(lastConnectionManager?.sendAnnotationCommand).toHaveBeenCalledTimes(1);
+    const queuedCommand = lastConnectionManager?.sendAnnotationCommand.mock.calls[0]?.[0] as {
+      payload?: unknown;
+    } | undefined;
+    const queuedPayloadJson = JSON.stringify(queuedCommand?.payload);
+    expect(queuedCommand?.payload).toMatchObject({
+      schemaVersion: 2,
+      screenshotMode: "none",
+      compact: expect.objectContaining({ schemaVersion: 2 })
+    });
+    expect(queuedPayloadJson).not.toContain("CCCC");
+    expect(queuedPayloadJson).not.toContain("screenshotId");
 
     lastConnectionManager?.emitAnnotationCommand({
       type: "annotationCommand",
@@ -2076,6 +2087,71 @@ describe("extension background annotation routing", () => {
         })
       })
     );
+  });
+
+  it("stores relay agent payloads without starting the annotation UI", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    mock.chrome.tabs.sendMessage.mockClear();
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "store-agent-payload",
+        command: "store_agent_payload",
+        source: "popup_all",
+        label: "Relay payload",
+        payload: {
+          url: "https://example.com",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          screenshotMode: "visible",
+          screenshots: [{ id: "shot-1", base64: "CCCC", mime: "image/png" }],
+          annotations: [{
+            id: "item-agent",
+            selector: "#hero",
+            tag: "section",
+            rect: { x: 0, y: 0, width: 320, height: 180 },
+            attributes: {},
+            a11y: {},
+            styles: {},
+            screenshotId: "shot-1"
+          }]
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    expect(mock.chrome.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(lastConnectionManager?.sendAnnotationResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "annotationResponse",
+        payload: expect.objectContaining({
+          requestId: "store-agent-payload",
+          status: "ok",
+          receipt: expect.objectContaining({ reason: "stored_in_extension" })
+        })
+      })
+    );
+
+    lastConnectionManager?.sendAnnotationResponse.mockClear();
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "fetch-stored-agent-payload",
+        command: "fetch_stored",
+        options: { includeScreenshots: false }
+      }
+    });
+    await flushMicrotasks();
+
+    const responseJson = JSON.stringify(lastConnectionManager?.sendAnnotationResponse.mock.calls[0]?.[0]);
+    expect(responseJson).not.toContain("CCCC");
+    expect(responseJson).not.toContain("screenshotId");
   });
 
   it("returns delivered receipts when shared enqueue succeeds", async () => {

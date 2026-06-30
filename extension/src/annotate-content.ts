@@ -46,6 +46,31 @@ type AnnotationErrorCode =
   | "unknown";
 type AnnotationDispatchSource = "annotate_item" | "annotate_all" | "popup_item" | "popup_all" | "canvas_item" | "canvas_all";
 type AnnotationRect = { x: number; y: number; width: number; height: number };
+type AnnotationSelectorFamily = "backendNodeId" | "frameId" | "testId" | "aria" | "css" | "shadowChain" | "xpath" | "text";
+type AnnotationSelectorCandidate = {
+  family: AnnotationSelectorFamily;
+  rank: number;
+  confidence: "high" | "medium" | "low";
+  scope: "same-session" | "frame" | "document" | "shadow" | "text";
+  transport: "extension";
+  availability: "available" | "unavailable";
+  value?: string;
+  unavailableReason?: string;
+  recoveryHint?: string;
+};
+type AnnotationSelectorBundle = {
+  primary: string;
+  transport: "extension";
+  candidates: AnnotationSelectorCandidate[];
+  recoveryHints: string[];
+};
+type AnnotationTargetIdentity = {
+  source: "explicitData" | "customElement" | "accessibility" | "selector";
+  priority: number;
+  stableId: string;
+  label?: string;
+  customElement?: { tag: string };
+};
 type AnnotationStyle = {
   color?: string;
   backgroundColor?: string;
@@ -57,6 +82,7 @@ type AnnotationStyle = {
   position?: string;
 };
 type AnnotationPayload = {
+  schemaVersion?: 2;
   url: string;
   title?: string;
   timestamp: string;
@@ -77,7 +103,46 @@ type AnnotationPayload = {
     note?: string;
     screenshotId?: string;
     debug?: Record<string, unknown>;
+    identity?: AnnotationTargetIdentity;
+    selectorBundle?: AnnotationSelectorBundle;
   }>;
+  compact?: AnnotationCompactPayload;
+};
+
+type AnnotationCompactPayload = {
+  schemaVersion: 2;
+  url: string;
+  title?: string;
+  timestamp: string;
+  context?: string;
+  screenshotMode: "none";
+  byteBudget: number;
+  redaction: AnnotationCompactRedaction;
+  items: AnnotationCompactItem[];
+};
+
+type AnnotationCompactItem = {
+  id: string;
+  label: string;
+  note?: string;
+  target: {
+    tag: string;
+    selector: string;
+    rect: AnnotationRect;
+    text?: string;
+    a11y?: Record<string, unknown>;
+  };
+  identity: AnnotationTargetIdentity;
+  selectorBundle: AnnotationSelectorBundle;
+  redaction: AnnotationCompactRedaction;
+};
+
+type AnnotationCompactRedaction = {
+  removedFields: string[];
+  truncatedFields: string[];
+  screenshotBytesRemoved: boolean;
+  originalByteLength: number;
+  compactByteLength: number;
 };
 
 type AnnotationSendReceipt = {
@@ -144,6 +209,18 @@ type AnnotationWindow = Window & {
 
 const ROOT_ID = "odb-annotate-root";
 const ATTR_UI = "data-odb-annotate";
+const ANNOTATION_SCHEMA_VERSION = 2;
+const COMPACT_BYTE_BUDGET = 24 * 1024;
+const COMPACT_TEXT_LIMIT = 240;
+const COMPACT_NOTE_LIMIT = 600;
+const NOTE_PLACEMENT_MARGIN = 8;
+const NOTE_PLACEMENT_GAP = 12;
+const MOBILE_NOTE_PLACEMENT_MAX_WIDTH = 480;
+  const COLLISION_PENALTY = 10_000;
+  const CLAMP_PENALTY = 500;
+  const SIDE_ORDER_PENALTY = 1_000;
+  const NOTE_PLACEMENT_GRID_STEP = 72;
+  const EXISTING_SIDE_BLOCK_RATIO = 0.25;
 const DEFAULT_OPTIONS: AnnotationOptions = {
   screenshotMode: "visible",
   includeScreenshots: false,
@@ -514,13 +591,32 @@ const updateHighlight = (element: Element, x: number, y: number) => {
 const addSelection = (element: Element) => {
   const id = generateId();
   const noteEl = createNote(element, id);
+  const noteSize = {
+    width: Math.max(noteEl.offsetWidth, 300),
+    height: Math.max(noteEl.offsetHeight, 120)
+  };
+  const panels = state.panel ? [rectFromDomRect(state.panel.getBoundingClientRect())] : [];
+  const existing = Array.from(state.selections.values()).map((selection) => ({
+    x: selection.position.x,
+    y: selection.position.y,
+    width: Math.max(selection.noteEl.offsetWidth, 300),
+    height: Math.max(selection.noteEl.offsetHeight, 120)
+  }));
+  const placement = computeAnnotationPlacement({
+    anchorRect: rectFromDomRect(element.getBoundingClientRect()),
+    floatingSize: noteSize,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    panels,
+    existing,
+    desiredSide: "right"
+  });
   const selection: SelectedItem = {
     id,
     element,
     note: "",
     noteEl,
     noteInput: noteEl.querySelector("textarea") as HTMLTextAreaElement,
-    position: { x: window.innerWidth - 340, y: 140 + state.selections.size * 120 }
+    position: { x: placement.x, y: placement.y }
   };
   state.selections.set(id, selection);
   positionNote(selection);
@@ -657,6 +753,167 @@ const clampToViewport = (position: { x: number; y: number }, element: HTMLElemen
   };
 };
 
+const rectFromDomRect = (rect: DOMRect): AnnotationRect => ({
+  x: rect.left,
+  y: rect.top,
+  width: rect.width,
+  height: rect.height
+});
+
+type AnnotationPlacementSide = "right" | "left" | "top" | "bottom";
+type AnnotationPlacementInput = {
+  anchorRect: AnnotationRect;
+  floatingSize: { width: number; height: number };
+  viewport: { width: number; height: number };
+  panels?: AnnotationRect[];
+  existing?: AnnotationRect[];
+  desiredSide?: AnnotationPlacementSide;
+};
+
+type NotePlacementCandidate = {
+  side: AnnotationPlacementSide;
+  rect: AnnotationRect;
+  clamped: boolean;
+  overlapsPanel: boolean;
+  overlapsExisting: boolean;
+  score: number;
+};
+
+const noteCandidateSides = (desired: AnnotationPlacementSide): AnnotationPlacementSide[] => {
+  const ordered: AnnotationPlacementSide[] = [desired, "right", "left", "bottom", "top"];
+  return ordered.filter((side, index) => ordered.indexOf(side) === index);
+};
+
+const noteRectForSide = (
+  anchor: AnnotationRect,
+  size: { width: number; height: number },
+  side: AnnotationPlacementSide
+): AnnotationRect => {
+  if (side === "right") {
+    return { x: anchor.x + anchor.width + NOTE_PLACEMENT_GAP, y: anchor.y + anchor.height / 2 - size.height / 2, width: size.width, height: size.height };
+  }
+  if (side === "left") {
+    return { x: anchor.x - size.width - NOTE_PLACEMENT_GAP, y: anchor.y + anchor.height / 2 - size.height / 2, width: size.width, height: size.height };
+  }
+  if (side === "top") {
+    return { x: anchor.x + anchor.width / 2 - size.width / 2, y: anchor.y - size.height - NOTE_PLACEMENT_GAP, width: size.width, height: size.height };
+  }
+  return { x: anchor.x + anchor.width / 2 - size.width / 2, y: anchor.y + anchor.height + NOTE_PLACEMENT_GAP, width: size.width, height: size.height };
+};
+
+const clampNoteRect = (rect: AnnotationRect, viewport: { width: number; height: number }): { rect: AnnotationRect; clamped: boolean } => {
+  const maxX = Math.max(NOTE_PLACEMENT_MARGIN, viewport.width - rect.width - NOTE_PLACEMENT_MARGIN);
+  const maxY = Math.max(NOTE_PLACEMENT_MARGIN, viewport.height - rect.height - NOTE_PLACEMENT_MARGIN);
+  const x = clamp(rect.x, NOTE_PLACEMENT_MARGIN, maxX);
+  const y = clamp(rect.y, NOTE_PLACEMENT_MARGIN, maxY);
+  return { rect: { ...rect, x, y }, clamped: x !== rect.x || y !== rect.y };
+};
+
+const rectsOverlap = (left: AnnotationRect, right: AnnotationRect): boolean => {
+  return left.x < right.x + right.width
+    && left.x + left.width > right.x
+    && left.y < right.y + right.height
+    && left.y + left.height > right.y;
+};
+
+const rectIntersectionArea = (left: AnnotationRect, right: AnnotationRect): number => {
+  const width = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
+  const height = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
+  return width * height;
+};
+
+const hasDominantExistingOverlap = (rect: AnnotationRect, existing: AnnotationRect[] | undefined): boolean => {
+  const area = rect.width * rect.height;
+  return area > 0 && (existing ?? []).some((entry) => rectIntersectionArea(rect, entry) / area >= EXISTING_SIDE_BLOCK_RATIO);
+};
+
+const rectCenter = (rect: AnnotationRect): { x: number; y: number } => ({
+  x: rect.x + rect.width / 2,
+  y: rect.y + rect.height / 2
+});
+
+const rectDistance = (left: AnnotationRect, right: AnnotationRect): number => {
+  const a = rectCenter(left);
+  const b = rectCenter(right);
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+};
+
+const inferNotePlacementSide = (anchor: AnnotationRect, rect: AnnotationRect): AnnotationPlacementSide => {
+  const anchorCenter = rectCenter(anchor);
+  const noteCenter = rectCenter(rect);
+  const deltaX = noteCenter.x - anchorCenter.x;
+  const deltaY = noteCenter.y - anchorCenter.y;
+  if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    return deltaX >= 0 ? "right" : "left";
+  }
+  return deltaY >= 0 ? "bottom" : "top";
+};
+
+const buildNotePlacementDecision = (
+  input: AnnotationPlacementInput,
+  rect: AnnotationRect,
+  side: AnnotationPlacementSide,
+  index: number
+): NotePlacementCandidate => {
+  const clamped = clampNoteRect(rect, input.viewport);
+  const overlapsPanel = (input.panels ?? []).some((panel) => rectsOverlap(clamped.rect, panel));
+  const overlapsExisting = (input.existing ?? []).some((entry) => rectsOverlap(clamped.rect, entry));
+  const score = rectDistance(input.anchorRect, clamped.rect)
+    + (overlapsPanel ? COLLISION_PENALTY : 0)
+    + (overlapsExisting ? COLLISION_PENALTY : 0)
+    + (clamped.clamped ? CLAMP_PENALTY : 0)
+    + index * SIDE_ORDER_PENALTY;
+  return { side, rect: clamped.rect, clamped: clamped.clamped, overlapsPanel, overlapsExisting, score };
+};
+
+const buildGridNotePlacement = (
+  input: AnnotationPlacementInput,
+  desired: AnnotationPlacementSide,
+  existingBlockedSides: Set<AnnotationPlacementSide>
+): NotePlacementCandidate | null => {
+  const { width, height } = input.floatingSize;
+  const maxX = Math.max(NOTE_PLACEMENT_MARGIN, input.viewport.width - width - NOTE_PLACEMENT_MARGIN);
+  const maxY = Math.max(NOTE_PLACEMENT_MARGIN, input.viewport.height - height - NOTE_PLACEMENT_MARGIN);
+  const sides = noteCandidateSides(desired);
+  const candidates: NotePlacementCandidate[] = [];
+  for (let y = NOTE_PLACEMENT_MARGIN; y <= maxY; y += NOTE_PLACEMENT_GRID_STEP) {
+    for (let x = NOTE_PLACEMENT_MARGIN; x <= maxX; x += NOTE_PLACEMENT_GRID_STEP) {
+      const rect = { x, y, width, height };
+      const side = inferNotePlacementSide(input.anchorRect, rect);
+      const sideIndex = side === desired ? sides.length : Math.max(sides.indexOf(side), 0);
+      const decision = buildNotePlacementDecision(input, rect, side, sideIndex);
+      const sidePenalty = existingBlockedSides.has(side) ? COLLISION_PENALTY : 0;
+      if (!decision.overlapsPanel && !decision.overlapsExisting) {
+        candidates.push({ ...decision, clamped: true, score: decision.score + sidePenalty });
+      }
+    }
+  }
+  return candidates.sort((left, right) => left.score - right.score)[0] ?? null;
+};
+
+const computeAnnotationPlacement = (input: AnnotationPlacementInput): { x: number; y: number; side: AnnotationPlacementSide } => {
+  if (input.viewport.width <= MOBILE_NOTE_PLACEMENT_MAX_WIDTH) {
+    const yMax = Math.max(NOTE_PLACEMENT_MARGIN, input.viewport.height - input.floatingSize.height - NOTE_PLACEMENT_MARGIN);
+    const y = clamp(input.anchorRect.y + input.anchorRect.height + NOTE_PLACEMENT_GAP, NOTE_PLACEMENT_MARGIN, yMax);
+    return { x: NOTE_PLACEMENT_MARGIN, y, side: "bottom" };
+  }
+  const desired = input.desiredSide ?? "right";
+  const anchored = noteCandidateSides(desired).map((side, index) => buildNotePlacementDecision(
+    input,
+    noteRectForSide(input.anchorRect, input.floatingSize, side),
+    side,
+    index
+  )).sort((left, right) => left.score - right.score);
+  const existingBlockedSides = new Set(anchored
+    .filter((entry) => hasDominantExistingOverlap(entry.rect, input.existing))
+    .map((entry) => entry.side));
+  const best = anchored.find((entry) => !entry.overlapsPanel && !entry.overlapsExisting)
+    ?? buildGridNotePlacement(input, desired, existingBlockedSides)
+    ?? anchored[0]
+    ?? { side: "right" as const, rect: { x: NOTE_PLACEMENT_MARGIN, y: NOTE_PLACEMENT_MARGIN, width: input.floatingSize.width, height: input.floatingSize.height } };
+  return { x: best.rect.x, y: best.rect.y, side: best.side };
+};
+
 const positionPanel = (panel: HTMLDivElement, position: { x: number; y: number }) => {
   panel.style.left = `${position.x}px`;
   panel.style.top = `${position.y}px`;
@@ -735,7 +992,8 @@ const buildCompletePayload = async (): Promise<AnnotationPayload> => {
 
   const screenshots = await captureScreenshots(effectiveScreenshotMode, annotations);
 
-  return {
+  const payload: AnnotationPayload = {
+    schemaVersion: ANNOTATION_SCHEMA_VERSION,
     url,
     title,
     timestamp,
@@ -744,6 +1002,8 @@ const buildCompletePayload = async (): Promise<AnnotationPayload> => {
     screenshots,
     annotations
   };
+  payload.compact = buildCompactAnnotationPayload(payload);
+  return payload;
 };
 
 const buildPayload = async (annotationIds?: string[]): Promise<AnnotationPayload> => {
@@ -941,9 +1201,10 @@ const buildAnnotationItem = (selection: SelectedItem) => {
     }
     : undefined;
 
-  return {
+  const selector = getSelector(element);
+  const item = {
     id: selection.id,
-    selector: getSelector(element),
+    selector,
     tag: element.tagName.toLowerCase(),
     idAttr: element.id || undefined,
     classes: Array.from(element.classList ?? []),
@@ -960,6 +1221,11 @@ const buildAnnotationItem = (selection: SelectedItem) => {
     note: selection.note.trim() || undefined,
     screenshotId: selection.screenshotId,
     debug
+  };
+  return {
+    ...item,
+    identity: buildTargetIdentity(item),
+    selectorBundle: buildSelectorBundle(item)
   };
 };
 
@@ -1118,6 +1384,205 @@ const mergeOptions = (options?: Partial<AnnotationOptions>): AnnotationOptions =
   };
 };
 
+const compactByteLength = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
+
+const escapeSelectorAttribute = (value: string): string => value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+
+const readAttributeSelector = (attributes: Record<string, string>): string | null => {
+  for (const key of ["data-testid", "data-test-id", "data-test", "data-qa", "data-cy"]) {
+    const value = attributes[key]?.trim();
+    if (value) {
+      return `[${key}="${escapeSelectorAttribute(value)}"]`;
+    }
+  }
+  return null;
+};
+
+const buildUnavailableSelectorCandidate = (
+  family: AnnotationSelectorFamily,
+  rank: number,
+  unavailableReason: string,
+  recoveryHint: string
+): AnnotationSelectorCandidate => ({
+  family,
+  rank,
+  confidence: "low",
+  scope: family === "shadowChain" ? "shadow" : family === "text" ? "text" : "document",
+  transport: "extension",
+  availability: "unavailable",
+  unavailableReason,
+  recoveryHint
+});
+
+const buildAriaSelector = (a11y: Record<string, unknown> | undefined): string | null => {
+  const role = typeof a11y?.role === "string" && a11y.role.trim() ? a11y.role.trim() : null;
+  const label = typeof a11y?.label === "string" && a11y.label.trim() ? a11y.label.trim() : null;
+  return role && label ? `role=${role}[name="${escapeSelectorAttribute(label)}"]` : null;
+};
+
+const buildXpathSelector = (item: AnnotationPayload["annotations"][number]): string | null => {
+  if (item.idAttr) {
+    return `//*[@id="${escapeSelectorAttribute(item.idAttr)}"]`;
+  }
+  if (item.text) {
+    return `//${item.tag}[normalize-space()="${escapeSelectorAttribute(item.text.slice(0, 80))}"]`;
+  }
+  return null;
+};
+
+const buildSelectorBundle = (item: AnnotationPayload["annotations"][number]): AnnotationSelectorBundle => {
+  const testId = readAttributeSelector(item.attributes ?? {});
+  const aria = buildAriaSelector(item.a11y);
+  const shadow = item.attributes?.["data-shadow-chain"];
+  const xpath = buildXpathSelector(item);
+  const text = item.text?.trim();
+  const candidates: AnnotationSelectorCandidate[] = [
+    buildUnavailableSelectorCandidate("backendNodeId", 10, "requires_cdp_capture", "Use CDP capture for same-session backend node recovery."),
+    buildUnavailableSelectorCandidate("frameId", 20, "requires_cdp_capture", "Use CDP capture for frame-scoped recovery."),
+    testId
+      ? { family: "testId", rank: 30, confidence: "high", scope: "document", transport: "extension", availability: "available", value: testId }
+      : buildUnavailableSelectorCandidate("testId", 30, "missing_test_id", "Add a stable data-testid or data-test-id."),
+    aria
+      ? { family: "aria", rank: 40, confidence: "high", scope: "document", transport: "extension", availability: "available", value: aria }
+      : buildUnavailableSelectorCandidate("aria", 40, "missing_aria_role_or_name", "Expose a stable role and accessible name."),
+    { family: "css", rank: 50, confidence: "medium", scope: "document", transport: "extension", availability: "available", value: item.selector },
+    shadow
+      ? { family: "shadowChain", rank: 60, confidence: "medium", scope: "shadow", transport: "extension", availability: "available", value: shadow }
+      : buildUnavailableSelectorCandidate("shadowChain", 60, "not_in_shadow_tree", "Capture a shadow host chain when the target is inside shadow DOM."),
+    xpath
+      ? { family: "xpath", rank: 70, confidence: "low", scope: "document", transport: "extension", availability: "available", value: xpath }
+      : buildUnavailableSelectorCandidate("xpath", 70, "insufficient_xpath_facts", "Provide id or bounded text for XPath fallback."),
+    text
+      ? { family: "text", rank: 80, confidence: "low", scope: "text", transport: "extension", availability: "available", value: `text=${text.slice(0, 80)}` }
+      : buildUnavailableSelectorCandidate("text", 80, "missing_text", "Use text only as the last fallback.")
+  ];
+  return {
+    primary: item.selector,
+    transport: "extension",
+    candidates,
+    recoveryHints: candidates.flatMap((entry) => entry.availability === "unavailable" && entry.recoveryHint ? [entry.recoveryHint] : [])
+  };
+};
+
+const buildTargetIdentity = (item: AnnotationPayload["annotations"][number]): AnnotationTargetIdentity => {
+  if (item.identity) {
+    return item.identity;
+  }
+  const explicit = readAttributeSelector(item.attributes ?? {}) ?? item.idAttr;
+  if (explicit) {
+    return { source: "explicitData", priority: 10, stableId: explicit, label: item.text ?? item.selector };
+  }
+  if (item.tag.includes("-")) {
+    return { source: "customElement", priority: 30, stableId: item.selector, label: item.text, customElement: { tag: item.tag } };
+  }
+  const aria = buildAriaSelector(item.a11y);
+  if (aria) {
+    return { source: "accessibility", priority: 40, stableId: aria, label: typeof item.a11y?.label === "string" ? item.a11y.label : item.text };
+  }
+  return { source: "selector", priority: 50, stableId: item.selector, label: item.text };
+};
+
+const truncateCompactValue = (value: string | undefined, limit: number): { value?: string; truncated: boolean } => {
+  if (!value) {
+    return { truncated: false };
+  }
+  if (value.length <= limit) {
+    return { value, truncated: false };
+  }
+  return { value: value.slice(0, limit), truncated: true };
+};
+
+const buildCompactAnnotationItem = (item: AnnotationPayload["annotations"][number]): AnnotationCompactItem => {
+  const text = truncateCompactValue(item.text, COMPACT_TEXT_LIMIT);
+  const note = truncateCompactValue(item.note, COMPACT_NOTE_LIMIT);
+  const selectorBundle = item.selectorBundle ?? buildSelectorBundle(item);
+  const compact: AnnotationCompactItem = {
+    id: item.id,
+    label: item.note?.trim() || item.text?.trim() || item.selector,
+    note: note.value,
+    target: {
+      tag: item.tag,
+      selector: selectorBundle.primary,
+      rect: item.rect,
+      text: text.value,
+      a11y: item.a11y
+    },
+    identity: buildTargetIdentity(item),
+    selectorBundle,
+    redaction: {
+      removedFields: [
+        ...(item.screenshotId ? ["screenshotId"] : []),
+        ...(item.debug ? ["debug"] : []),
+        ...(item.styles && Object.keys(item.styles).length ? ["styles"] : []),
+        ...(item.attributes && Object.keys(item.attributes).length ? ["attributes"] : [])
+      ],
+      truncatedFields: [
+        ...(text.truncated ? ["text"] : []),
+        ...(note.truncated ? ["note"] : [])
+      ],
+      screenshotBytesRemoved: Boolean(item.screenshotId),
+      originalByteLength: compactByteLength(item),
+      compactByteLength: 0
+    }
+  };
+  compact.redaction.compactByteLength = compactByteLength(compact);
+  return compact;
+};
+
+const buildCompactAnnotationPayload = (payload: AnnotationPayload): AnnotationCompactPayload => {
+  const items = payload.annotations.map(buildCompactAnnotationItem);
+  const compact: AnnotationCompactPayload = {
+    schemaVersion: ANNOTATION_SCHEMA_VERSION,
+    url: payload.url,
+    title: payload.title,
+    timestamp: payload.timestamp,
+    context: payload.context,
+    screenshotMode: "none",
+    byteBudget: COMPACT_BYTE_BUDGET,
+    redaction: {
+      removedFields: [
+        ...(payload.screenshots?.length ? ["screenshots"] : []),
+        ...items.flatMap((item) => item.redaction.removedFields.map((field) => `annotations.${field}`))
+      ],
+      truncatedFields: items.flatMap((item) => item.redaction.truncatedFields.map((field) => `annotations.${field}`)),
+      screenshotBytesRemoved: Boolean(payload.screenshots?.length) || items.some((item) => item.redaction.screenshotBytesRemoved),
+      originalByteLength: compactByteLength(payload),
+      compactByteLength: 0
+    },
+    items
+  };
+  compact.redaction.compactByteLength = compactByteLength(compact);
+  return compact;
+};
+
+const annotationFromCompactItem = (item: AnnotationCompactItem): AnnotationPayload["annotations"][number] => ({
+  id: item.id,
+  selector: item.target.selector,
+  tag: item.target.tag,
+  text: item.target.text,
+  rect: item.target.rect,
+  attributes: {},
+  a11y: item.target.a11y ?? {},
+  styles: {},
+  note: item.note,
+  identity: item.identity,
+  selectorBundle: item.selectorBundle
+});
+
+const sanitizeAnnotationPayloadForAgent = (payload: AnnotationPayload): AnnotationPayload => {
+  const compact = buildCompactAnnotationPayload(payload);
+  return {
+    schemaVersion: ANNOTATION_SCHEMA_VERSION,
+    url: payload.url,
+    title: payload.title,
+    timestamp: payload.timestamp,
+    context: payload.context,
+    screenshotMode: "none",
+    annotations: compact.items.map(annotationFromCompactItem),
+    compact
+  };
+};
+
 const filterAnnotationPayload = (
   payload: AnnotationPayload,
   annotationIds: string[],
@@ -1143,11 +1608,11 @@ const filterAnnotationPayload = (
       return next;
     })
   };
-  if (includeScreenshots) {
-    filtered.screenshots = payload.screenshots?.filter((screenshot) => screenshotIds.has(screenshot.id));
-  } else {
-    delete filtered.screenshots;
+  if (!includeScreenshots) {
+    return sanitizeAnnotationPayloadForAgent(filtered);
   }
+  filtered.screenshots = payload.screenshots?.filter((screenshot) => screenshotIds.has(screenshot.id));
+  filtered.compact = buildCompactAnnotationPayload(filtered);
   return filtered;
 };
 
@@ -1169,7 +1634,7 @@ const formatAnnotationDispatchReceipt = (receipt: PopupAnnotationSendPayloadResp
 
 const copyPayload = async (annotationIds?: string[], button?: HTMLButtonElement) => {
   const payload = await buildPayload(annotationIds);
-  const text = JSON.stringify(payload);
+  const text = JSON.stringify(sanitizeAnnotationPayloadForAgent(payload));
   await writeClipboard(text);
   if (button) {
     setButtonFeedback(button, "Copied");
@@ -1185,11 +1650,12 @@ const sendPayload = async (
   button?: HTMLButtonElement
 ) => {
   const payload = await buildPayload(annotationIds);
+  const agentPayload = sanitizeAnnotationPayloadForAgent(payload);
   const response = await new Promise<PopupAnnotationSendPayloadResponse>((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
         type: "annotation:sendPayload",
-        payload,
+        payload: agentPayload,
         source,
         label
       },

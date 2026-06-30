@@ -121,12 +121,14 @@ function buildSummaryOnlyEntry(entry: AgentInboxEntry): AgentInboxEntry {
   return {
     ...entry,
     payloadSansScreenshots: {
+      schemaVersion: entry.payloadSansScreenshots.schemaVersion,
       url: entry.payloadSansScreenshots.url,
       title: entry.payloadSansScreenshots.title,
       timestamp: entry.payloadSansScreenshots.timestamp,
       context: entry.payloadSansScreenshots.context,
       screenshotMode: entry.payloadSansScreenshots.screenshotMode,
-      annotations: []
+      annotations: [],
+      compact: entry.payloadSansScreenshots.compact
     },
     receipt: {
       ...entry.receipt,
