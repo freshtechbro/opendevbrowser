@@ -317,8 +317,15 @@ const refreshBadgeFromBackgroundStatus = async (): Promise<void> => {
 };
 
 const setStorage = (items: Record<string, unknown>): Promise<void> => {
-  return new Promise((resolve) => {
-    chrome.storage.local.set(items, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(items, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve();
+    });
   });
 };
 
@@ -2158,11 +2165,12 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
         if (receipt.deliveryState !== "delivered") {
           throw error;
         }
+        const sanitizedPayload = sanitizeAnnotationPayloadForAgent(message.payload);
         const response: AnnotationResponse = {
           version: 1,
           requestId: receipt.receiptId,
           status: "ok",
-          payload: message.payload,
+          payload: sanitizedPayload,
           receipt
         };
         meta = buildLastAnnotationMeta(receipt.receiptId, response, true, {

@@ -2260,4 +2260,85 @@ describe("extension background annotation routing", () => {
       storedFallback: false
     });
   });
+
+  it("uses sanitized metadata when local storage fails after shared enqueue succeeds", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.sendAnnotationCommand.mockResolvedValue({
+      version: 1,
+      requestId: "req-store",
+      status: "ok",
+      receipt: {
+        receiptId: "receipt-shared",
+        deliveryState: "delivered",
+        storedFallback: false,
+        createdAt: "2026-03-15T00:00:00.000Z",
+        itemCount: 1,
+        byteLength: 64,
+        source: "popup_all",
+        label: "Popup annotation payload"
+      }
+    });
+    mock.chrome.storage.local.set.mockImplementation((items, callback) => {
+      if (Object.hasOwn(items, "annotationAgentMeta")) {
+        mock.setRuntimeError("quota exceeded");
+        callback?.();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback?.();
+    });
+
+    const secret = "sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    const payload = {
+      url: `https://example.com/account?token=${secret}`,
+      title: `Account ${secret}`,
+      timestamp: "2026-03-15T00:00:00.000Z",
+      screenshotMode: "none" as const,
+      annotations: [
+        {
+          id: "item-agent",
+          selector: "#hero",
+          tag: "section",
+          rect: { x: 0, y: 0, width: 320, height: 180 },
+          attributes: {},
+          a11y: {},
+          styles: {},
+          note: `Note includes ${secret}`
+        }
+      ]
+    };
+
+    const sendResponse = await new Promise<{
+      ok?: boolean;
+      meta?: { url?: string; title?: string; receipt?: { deliveryState?: string; storedFallback?: boolean } } | null;
+      receipt?: { deliveryState?: string; storedFallback?: boolean } | null;
+    }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage(
+        { type: "annotation:sendPayload", payload, source: "popup_all", label: "Popup annotation payload" },
+        (message) => resolve(message as {
+          ok?: boolean;
+          meta?: { url?: string; title?: string; receipt?: { deliveryState?: string; storedFallback?: boolean } } | null;
+          receipt?: { deliveryState?: string; storedFallback?: boolean } | null;
+        })
+      );
+    });
+
+    expect(sendResponse.ok).toBe(true);
+    expect(sendResponse.receipt).toMatchObject({
+      deliveryState: "delivered",
+      storedFallback: false
+    });
+    expect(sendResponse.meta?.receipt).toMatchObject({
+      deliveryState: "delivered",
+      storedFallback: false
+    });
+    expect(sendResponse.meta?.url).not.toContain(secret);
+    expect(sendResponse.meta?.title).not.toContain(secret);
+    expect(JSON.stringify(sendResponse.meta)).not.toContain(secret);
+  });
 });
