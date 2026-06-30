@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { realpathSync, statSync } from "fs";
 import { mkdir } from "fs/promises";
-import { basename, dirname, isAbsolute, join, normalize as normalizePath, resolve as resolvePath } from "path";
+import { basename, dirname, isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath } from "path";
 import type { Page } from "playwright-core";
 import type { OpenDevBrowserConfig } from "../config";
 import type { RelayLike } from "../relay/relay-types";
@@ -680,15 +680,16 @@ export class CanvasManager implements CanvasManagerLike {
       this.refreshWorkspaceSiblingRefs(workspace, child.childId);
       this.assertWorkspaceChildRefs(workspace.childRefs);
       const childParams = isRecord(params.params) ? params.params : {};
+      const routedParams = this.resolveWorkspaceChildRouteParams(child, childParams);
       this.assertWorkspaceRouteParams(child, childParams);
-      await this.assertWorkspaceRouteWouldRemainUnique(workspace, child, command, childParams);
+      await this.assertWorkspaceRouteWouldRemainUnique(workspace, child, command, routedParams);
       const childSession = this.sessions.get(child.canvasSessionId);
       if (childSession) {
         childSession.workspaceId = workspace.workspaceId;
         childSession.workspaceChildId = child.childId;
       }
       const result = await this.execute(command, {
-        ...childParams,
+        ...routedParams,
         canvasSessionId: child.canvasSessionId,
         leaseId: child.leaseId,
         workspaceId: workspace.workspaceId,
@@ -932,6 +933,52 @@ export class CanvasManager implements CanvasManagerLike {
         receivedLeaseId: leaseId
       });
     }
+  }
+
+  private resolveWorkspaceChildRouteParams(
+    child: CanvasWorkspaceChildRef,
+    params: Record<string, unknown>
+  ): Record<string, unknown> {
+    const session = this.requireWorkspaceChildSession(child);
+    const repoRoot = session.repoRoot ?? this.worktree;
+    this.assertWorkspaceChildRouteRepoRoot(child, repoRoot, params);
+    this.assertWorkspaceChildRouteRepoPath(child, repoRoot, optionalString(params.repoPath));
+    const { repoRoot: _repoRoot, ...routedParams } = params;
+    return routedParams;
+  }
+
+  private assertWorkspaceChildRouteRepoRoot(
+    child: CanvasWorkspaceChildRef,
+    repoRoot: string,
+    params: Record<string, unknown>
+  ): void {
+    const requestedRepoRoot = optionalString(params.repoRoot);
+    if (!requestedRepoRoot) {
+      return;
+    }
+    if (workspacePathComparisonKey(requestedRepoRoot) === workspacePathComparisonKey(repoRoot)) {
+      return;
+    }
+    throw canvasWorkspaceError("canvas_workspace_child_route_mismatch", "Workspace child command cannot override repoRoot.", {
+      childId: child.childId,
+      expectedRepoRoot: repoRoot,
+      receivedRepoRoot: requestedRepoRoot
+    });
+  }
+
+  private assertWorkspaceChildRouteRepoPath(
+    child: CanvasWorkspaceChildRef,
+    repoRoot: string,
+    repoPath: string | null
+  ): void {
+    if (!repoPath || isWorkspaceRouteRepoPathInsideRoot(repoRoot, repoPath)) {
+      return;
+    }
+    throw canvasWorkspaceError("canvas_workspace_child_route_mismatch", "Workspace child command repoPath must stay inside the child repoRoot.", {
+      childId: child.childId,
+      repoRoot,
+      repoPath
+    });
   }
 
   private async assertWorkspaceRouteWouldRemainUnique(
@@ -4999,6 +5046,13 @@ function normalizeWorkspaceRepoPath(value: string): string {
 
 function resolveWorkspaceRepoPathIdentity(repoRoot: string, repoPath: string): string {
   return canonicalizeWorkspacePathIdentity(isAbsolute(repoPath) ? repoPath : resolvePath(repoRoot, repoPath));
+}
+
+function isWorkspaceRouteRepoPathInsideRoot(repoRoot: string, repoPath: string): boolean {
+  const rootPath = resolvePath(repoRoot);
+  const targetPath = isAbsolute(repoPath) ? resolvePath(repoPath) : resolvePath(repoRoot, repoPath);
+  const relativePath = relative(rootPath, targetPath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }
 
 function resolveWorkspaceCanvasRepoPath(repoRoot: string, documentId: string, repoPath?: string | null): string {

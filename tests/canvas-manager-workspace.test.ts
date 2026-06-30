@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config";
 import { CanvasManager } from "../src/browser/canvas-manager";
@@ -428,7 +428,7 @@ describe("CanvasManager workspace orchestration", () => {
       childId: "child-b",
       command: "canvas.document.load",
       params: { repoPath: collisionRepoPath, repoRoot: alternateRepoRoot }
-    })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_document" });
+    })).rejects.toMatchObject({ code: "canvas_workspace_child_route_mismatch" });
     const childBSession = getSession(manager, childB.canvasSessionId);
     expect(childBSession.store.getDocument().documentId).toBe("doc_repo_collision_b");
     expect(childBSession.documentRepoPath).toBeNull();
@@ -655,6 +655,86 @@ describe("CanvasManager workspace orchestration", () => {
       documentId: "doc_save_collision_b",
       repoPath: null
     });
+  });
+
+  it("rejects routed child save and load repo paths outside the child repo root", async () => {
+    const manager = createManager(worktree);
+    const child = await openChild(manager, "doc_route_escape_guard");
+    await planChild(manager, child);
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId: child.canvasSessionId,
+      leaseId: child.leaseId,
+      baseRevision: getSession(manager, child.canvasSessionId).store.getRevision(),
+      patches: structuredClone(saveGovernancePatches)
+    });
+    const opened = await manager.execute("canvas.workspace.open", {
+      workspaceId: "workspace_child_path_escape_guard",
+      children: [{ childId: "child", canvasSessionId: child.canvasSessionId }]
+    }) as WorkspaceResult;
+    const externalRepoPath = resolve(worktree, "..", "escape-child-save.canvas.json");
+
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child",
+      command: "canvas.document.save",
+      params: { repoPath: externalRepoPath }
+    })).rejects.toMatchObject({ code: "canvas_workspace_child_route_mismatch" });
+    await expect(readFile(externalRepoPath, "utf8")).rejects.toThrow();
+
+    await writeCanvasDocumentFixture(
+      worktree,
+      "fixtures/valid-route-load.canvas.json",
+      structuredClone(getSession(manager, child.canvasSessionId).store.getDocument())
+    );
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child",
+      command: "canvas.document.load",
+      params: { repoPath: resolve(worktree, "..", "fixtures", "valid-route-load.canvas.json") }
+    })).rejects.toMatchObject({ code: "canvas_workspace_child_route_mismatch" });
+    expect(getSession(manager, child.canvasSessionId).documentRepoPath).toBeNull();
+  });
+
+  it("normalizes same-root routed child repoRoot and keeps valid workspace child save and load", async () => {
+    const manager = createManager(worktree);
+    const child = await openChild(manager, "doc_route_valid_child");
+    await planChild(manager, child);
+    await manager.execute("canvas.document.patch", {
+      canvasSessionId: child.canvasSessionId,
+      leaseId: child.leaseId,
+      baseRevision: getSession(manager, child.canvasSessionId).store.getRevision(),
+      patches: structuredClone(saveGovernancePatches)
+    });
+    const opened = await manager.execute("canvas.workspace.open", {
+      workspaceId: "workspace_child_same_root_guard",
+      children: [{ childId: "child", canvasSessionId: child.canvasSessionId }]
+    }) as WorkspaceResult;
+    const repoPath = ".opendevbrowser/canvas/valid-routed-child.canvas.json";
+
+    const saved = await manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child",
+      command: "canvas.document.save",
+      params: { repoRoot: worktree, repoPath }
+    }) as WorkspaceResult;
+    expect(saved).toMatchObject({
+      manifest: {
+        childRefs: [expect.objectContaining({ childId: "child", repoPath: await realpath(join(worktree, repoPath)) })]
+      }
+    });
+    await expect(readJson(join(worktree, repoPath))).resolves.toMatchObject({ documentId: "doc_route_valid_child" });
+
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child",
+      command: "canvas.document.load",
+      params: { repoRoot: `${worktree}/.`, repoPath }
+    })).resolves.toMatchObject({
+      manifest: {
+        childRefs: [expect.objectContaining({ childId: "child", documentId: "doc_route_valid_child" })]
+      }
+    });
+    expect(getSession(manager, child.canvasSessionId).repoRoot).toBe(worktree);
   });
 
   it("writes four-child and eight-child lifecycle proof artifacts with telemetry budgets", async () => {
