@@ -55,6 +55,7 @@ type WorkspaceChildRef = {
   leaseId: string;
   repoPath: string | null;
   codeSyncBindingIds: string[];
+  codeSyncSourceRepoPaths: string[];
   role: string;
   previewBudgetState: string;
 };
@@ -103,22 +104,27 @@ type WorkspaceSessionStatus = {
   };
 };
 
+type CanvasDocumentSnapshot = Record<string, unknown> & {
+  documentId: string;
+  pages: Array<{ rootNodeId: string | null; nodes: Array<{ id: string; style?: Record<string, unknown> }> }>;
+  bindings: Array<{ id: string; codeSync?: { repoPath: string } }>;
+};
+
+type CanvasSessionSnapshot = {
+  canvasSessionId: string;
+  leaseId: string;
+  workspaceId: string | null;
+  workspaceChildId: string | null;
+  documentRepoPath: string | null;
+  repoRoot?: string;
+  store: {
+    getDocument: () => CanvasDocumentSnapshot;
+    getRevision: () => number;
+  };
+};
+
 type ManagerInternals = {
-  sessions: Map<string, {
-    canvasSessionId: string;
-    leaseId: string;
-    workspaceId: string | null;
-    workspaceChildId: string | null;
-    documentRepoPath: string | null;
-    store: {
-      getDocument: () => {
-        documentId: string;
-        pages: Array<{ rootNodeId: string | null; nodes: Array<{ id: string; style?: Record<string, unknown> }> }>;
-        bindings: Array<{ id: string; codeSync?: { repoPath: string } }>;
-      };
-      getRevision: () => number;
-    };
-  }>;
+  sessions: Map<string, CanvasSessionSnapshot>;
 };
 
 const readJson = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, "utf8"));
@@ -146,9 +152,17 @@ async function planChild(manager: CanvasManager, session: OpenedCanvasSession): 
   });
 }
 
-function getRootNodeId(manager: CanvasManager, sessionId: string): string {
+function getSession(manager: CanvasManager, sessionId: string): CanvasSessionSnapshot {
   const session = (manager as unknown as ManagerInternals).sessions.get(sessionId);
-  const rootNodeId = session?.store.getDocument().pages[0]?.rootNodeId;
+  if (!session) {
+    throw new Error("Expected canvas session");
+  }
+  return session;
+}
+
+function getRootNodeId(manager: CanvasManager, sessionId: string): string {
+  const session = getSession(manager, sessionId);
+  const rootNodeId = session.store.getDocument().pages[0]?.rootNodeId;
   if (!rootNodeId) {
     throw new Error("Expected root node id");
   }
@@ -156,11 +170,21 @@ function getRootNodeId(manager: CanvasManager, sessionId: string): string {
 }
 
 function getRootNodeStyle(manager: CanvasManager, sessionId: string): Record<string, unknown> {
-  const session = (manager as unknown as ManagerInternals).sessions.get(sessionId);
-  const document = session?.store.getDocument();
+  const session = getSession(manager, sessionId);
+  const document = session.store.getDocument();
   const rootNodeId = document?.pages[0]?.rootNodeId;
   const rootNode = document?.pages[0]?.nodes.find((node) => node.id === rootNodeId);
   return rootNode?.style ?? {};
+}
+
+async function writeCanvasDocumentFixture(
+  worktree: string,
+  repoPath: string,
+  document: CanvasDocumentSnapshot
+): Promise<void> {
+  const targetPath = join(worktree, repoPath);
+  await mkdir(join(targetPath, ".."), { recursive: true });
+  await writeFile(targetPath, `${JSON.stringify(document, null, 2)}\n`);
 }
 
 async function writeProofArtifacts(
@@ -231,8 +255,7 @@ describe("CanvasManager workspace orchestration", () => {
     expect(JSON.stringify(opened.manifest)).not.toContain("components");
     expect(await readJson(opened.manifestPath)).toEqual(opened.manifest);
 
-    const internals = manager as unknown as ManagerInternals;
-    expect(internals.sessions.get(childA.canvasSessionId)).toMatchObject({
+    expect(getSession(manager, childA.canvasSessionId)).toMatchObject({
       workspaceId: "workspace_refs_only",
       workspaceChildId: "child-a"
     });
@@ -287,11 +310,7 @@ describe("CanvasManager workspace orchestration", () => {
     const first = await openChild(manager, "doc_conflict_a");
     const second = await openChild(manager, "doc_conflict_b");
 
-    const internals = manager as unknown as ManagerInternals;
-    const secondSession = internals.sessions.get(second.canvasSessionId);
-    if (!secondSession) {
-      throw new Error("Expected second child");
-    }
+    const secondSession = getSession(manager, second.canvasSessionId);
     secondSession.leaseId = first.leaseId;
     await expect(manager.execute("canvas.workspace.open", {
       workspaceId: "workspace_duplicate_lease",
@@ -311,10 +330,7 @@ describe("CanvasManager workspace orchestration", () => {
       ]
     })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_document" });
 
-    const firstSession = internals.sessions.get(first.canvasSessionId);
-    if (!firstSession) {
-      throw new Error("Expected first child");
-    }
+    const firstSession = getSession(manager, first.canvasSessionId);
     firstSession.documentRepoPath = ".opendevbrowser/canvas/shared.canvas.json";
     secondSession.documentRepoPath = ".opendevbrowser/canvas/shared.canvas.json";
     await expect(manager.execute("canvas.workspace.open", {
@@ -372,6 +388,126 @@ describe("CanvasManager workspace orchestration", () => {
         { childId: "second", canvasSessionId: second.canvasSessionId }
       ]
     })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_code_sync_binding" });
+  });
+
+  it("rejects workspaceId path traversal before writing manifests", async () => {
+    const manager = createManager(worktree);
+    const child = await openChild(manager, "doc_workspace_id_guard");
+
+    await expect(manager.execute("canvas.workspace.open", {
+      workspaceId: "../escape-workspace",
+      children: [{ childId: "child", canvasSessionId: child.canvasSessionId }]
+    })).rejects.toMatchObject({ code: "canvas_workspace_invalid_workspace_id" });
+    await expect(readFile(join(worktree, ".opendevbrowser", "escape-workspace", "workspace-manifest.json"), "utf8"))
+      .rejects.toThrow();
+  });
+
+  it("rejects repoPath document loads whose internal documentId collides and preserves routed child", async () => {
+    const manager = createManager(worktree);
+    const childA = await openChild(manager, "doc_repo_collision_a");
+    const childB = await openChild(manager, "doc_repo_collision_b");
+    const opened = await manager.execute("canvas.workspace.open", {
+      workspaceId: "workspace_repo_load_guard",
+      children: [
+        { childId: "child-a", canvasSessionId: childA.canvasSessionId },
+        { childId: "child-b", canvasSessionId: childB.canvasSessionId }
+      ]
+    }) as WorkspaceResult;
+    const originalChildBRepoRoot = getSession(manager, childB.canvasSessionId).repoRoot;
+    const alternateRepoRoot = join(worktree, "alternate-root");
+    await mkdir(alternateRepoRoot, { recursive: true });
+    const collisionRepoPath = "fixtures/collision-child-a.canvas.json";
+    await writeCanvasDocumentFixture(
+      alternateRepoRoot,
+      collisionRepoPath,
+      structuredClone(getSession(manager, childA.canvasSessionId).store.getDocument())
+    );
+
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child-b",
+      command: "canvas.document.load",
+      params: { repoPath: collisionRepoPath, repoRoot: alternateRepoRoot }
+    })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_document" });
+    const childBSession = getSession(manager, childB.canvasSessionId);
+    expect(childBSession.store.getDocument().documentId).toBe("doc_repo_collision_b");
+    expect(childBSession.documentRepoPath).toBeNull();
+    expect(childBSession.repoRoot).toBe(originalChildBRepoRoot);
+    await expect(manager.execute("canvas.session.status", {
+      canvasSessionId: childB.canvasSessionId
+    })).resolves.toMatchObject({ documentId: "doc_repo_collision_b" });
+    const status = await manager.execute("canvas.workspace.status", { workspaceId: opened.workspaceId }) as WorkspaceResult;
+    expect(status.manifest.childRefs.find((child) => child.childId === "child-b")).toMatchObject({
+      documentId: "doc_repo_collision_b",
+      repoPath: null
+    });
+  });
+
+  it("rejects duplicate code-sync source repo paths across routed workspace children", async () => {
+    const manager = createManager(worktree);
+    const childA = await openChild(manager, "doc_source_collision_a");
+    const childB = await openChild(manager, "doc_source_collision_b");
+    await planChild(manager, childA);
+    await planChild(manager, childB);
+    await writeFile(join(worktree, "shared.tsx"), "export function Shared() { return <section>Shared</section>; }\n");
+    const opened = await manager.execute("canvas.workspace.open", {
+      workspaceId: "workspace_source_guard",
+      children: [
+        { childId: "child-a", canvasSessionId: childA.canvasSessionId },
+        { childId: "child-b", canvasSessionId: childB.canvasSessionId }
+      ]
+    }) as WorkspaceResult;
+
+    await manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child-a",
+      command: "canvas.code.bind",
+      params: {
+        nodeId: getRootNodeId(manager, childA.canvasSessionId),
+        bindingId: "binding_shared_a",
+        repoPath: "shared.tsx",
+        exportName: "SharedA"
+      }
+    });
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child-b",
+      command: "canvas.code.bind",
+      params: {
+        nodeId: getRootNodeId(manager, childB.canvasSessionId),
+        bindingId: "binding_shared_b",
+        repoPath: "./shared.tsx",
+        exportName: "SharedB"
+      }
+    })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_code_sync_repo_path" });
+    expect(getSession(manager, childB.canvasSessionId).store.getDocument().bindings).toHaveLength(0);
+
+    await expect(manager.execute("canvas.workspace.child.execute", {
+      workspaceId: opened.workspaceId,
+      childId: "child-b",
+      command: "canvas.document.patch",
+      params: {
+        baseRevision: getSession(manager, childB.canvasSessionId).store.getRevision(),
+        patches: [{
+          op: "binding.set",
+          nodeId: getRootNodeId(manager, childB.canvasSessionId),
+          binding: {
+            id: "binding_shared_patch_b",
+            codeSync: { repoPath: "./shared.tsx" }
+          }
+        }]
+      }
+    })).rejects.toMatchObject({ code: "canvas_workspace_duplicate_code_sync_repo_path" });
+    expect(getSession(manager, childB.canvasSessionId).store.getDocument().bindings).toHaveLength(0);
+    const status = await manager.execute("canvas.workspace.status", { workspaceId: opened.workspaceId }) as WorkspaceResult;
+    expect(status.manifest.childRefs.find((child) => child.childId === "child-a")).toMatchObject({
+      codeSyncBindingIds: ["binding_shared_a"],
+      codeSyncSourceRepoPaths: ["shared.tsx"]
+    });
+    expect(status.manifest.childRefs.find((child) => child.childId === "child-b")).toMatchObject({
+      codeSyncBindingIds: [],
+      codeSyncSourceRepoPaths: []
+    });
   });
 
   it("writes four-child and eight-child lifecycle proof artifacts with telemetry budgets", async () => {

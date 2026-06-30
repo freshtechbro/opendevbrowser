@@ -282,6 +282,7 @@ export type CanvasWorkspaceChildRef = {
   leaseId: string;
   repoPath: string | null;
   codeSyncBindingIds: string[];
+  codeSyncSourceRepoPaths: string[];
   role: string;
   previewMode: string | null;
   previewBudgetState: CanvasWorkspacePreviewBudgetState;
