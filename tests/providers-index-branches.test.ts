@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProviderRuntime } from "../src/providers";
 import type { ProviderAdapter } from "../src/providers/types";
+import { installExpectedProviderWarnCapture } from "./support/provider-warn-capture";
 
 const trace = {
   requestId: "providers-index-branches",
@@ -28,6 +29,8 @@ const makeProvider = (id: string, source: "web" | "community"): ProviderAdapter 
     metadata: {}
   })
 });
+
+installExpectedProviderWarnCapture();
 
 describe("provider runtime internal branches", () => {
   it("covers zero-limit semaphore paths and scope helpers", async () => {

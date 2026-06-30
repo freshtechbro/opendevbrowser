@@ -34,6 +34,7 @@ import type {
   ProviderSource
 } from "../src/providers/types";
 import type { NextStepGuidance } from "../src/guidance/types";
+import { installExpectedProviderWarnCapture } from "./support/provider-warn-capture";
 
 type InspiredesignWorkflowMeta = {
   primaryConstraintSummary?: string;
@@ -495,6 +496,8 @@ const makeBriefExpansion = (
   format: makeBriefFormat(),
   ...overrides
 });
+
+installExpectedProviderWarnCapture();
 
 describe("inspiredesign workflow", () => {
   afterEach(() => {

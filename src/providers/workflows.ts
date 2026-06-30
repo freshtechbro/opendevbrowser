@@ -1172,6 +1172,8 @@ export const workflowTestUtils = {
   resetProviderSignalState: (): void => {
     providerSignalMap.clear();
   },
+  trackProviderSignals: (result: ProviderAggregateResult): void => trackProviderSignals(result),
+  buildAlerts: (): Array<Record<string, JsonValue>> => buildAlerts(),
   getDegradedProviders: (): string[] => [...getDegradedProviders()],
   nextSignalState: (
     previous: "none" | "warning" | "degraded",
@@ -1248,8 +1250,91 @@ export const workflowTestUtils = {
     regionEnforced: boolean;
     failures: ProviderFailureEntry[];
   }): string | null => summarizeShoppingOfferFilterConstraint(args),
+  selectProductVideoPresentationRecord: (
+    records: readonly NormalizedRecord[],
+    productUrl: string,
+    includeCopy: boolean
+  ): ProductVideoRecordSelection => selectProductVideoPresentationRecord(records, productUrl, includeCopy),
+  updateProductVideoSelectedCandidateSummary: (
+    summaries: readonly ProductVideoCandidateSummary[],
+    selectedRecord: NormalizedRecord,
+    presentation: ProductVideoPresentation
+  ): ProductVideoCandidateSummary[] =>
+    updateProductVideoSelectedCandidateSummary(summaries, selectedRecord, presentation),
+  sanitizeResearchRecords: (records: NormalizedRecord[]): {
+    records: NormalizedRecord[];
+    sanitizedCount: number;
+    reasonDistribution: Record<string, number>;
+    rejectedCandidates: ResearchRejectedCandidate[];
+  } => sanitizeResearchRecords(records),
+  rejectedCandidatesFromFailures: (failures: ProviderFailureEntry[]): ResearchRejectedCandidate[] =>
+    rejectedCandidatesFromFailures(failures),
   parseInspiredesignEnvelopeInput: (input: WorkflowResumeEnvelope["input"]): InspiredesignRunInput =>
     parseInspiredesignEnvelopeInput(input),
+  buildInspiredesignFetchOptions: (
+    workflowInput: InspiredesignResolvedInput,
+    envelope: WorkflowResumeEnvelope,
+    timeoutMs?: number
+  ): ProviderRunOptions => buildInspiredesignFetchOptions(workflowInput, envelope, timeoutMs),
+  buildInspiredesignReferenceFetchOptions: (
+    workflowInput: InspiredesignResolvedInput,
+    envelope: WorkflowResumeEnvelope,
+    url: string,
+    timeoutMs?: number
+  ): ProviderRunOptions => buildInspiredesignReferenceFetchOptions(workflowInput, envelope, url, timeoutMs),
+  emptyInspiredesignDiscoveryDiagnostics: (
+    workflowInput: InspiredesignResolvedInput,
+    searchAvailable: boolean,
+    failure?: string
+  ): InspiredesignDiscoveryDiagnostics => emptyInspiredesignDiscoveryDiagnostics(workflowInput, searchAvailable, failure),
+  normalizeSiteRecipeFetchFailures: (
+    siteRecipe: SiteRecipe,
+    failures: ProviderFailureEntry[]
+  ): ProviderFailureEntry[] => normalizeSiteRecipeFetchFailures(siteRecipe, failures),
+  capMixedInspiredesignDiscovery: (
+    siteDiscovery: InspiredesignDiscoveryResult,
+    standardDiscovery: InspiredesignDiscoveryResult,
+    maxReferences: number
+  ): InspiredesignDiscoveryResult => capMixedInspiredesignDiscovery(siteDiscovery, standardDiscovery, maxReferences),
+  filterStandardDiscoveryForSiteRecipe: (
+    siteRecipe: SiteRecipe,
+    discovery: InspiredesignDiscoveryResult
+  ): InspiredesignDiscoveryResult => filterStandardDiscoveryForSiteRecipe(siteRecipe, discovery),
+  captureWorkflowVisualEvidence: (
+    url: string,
+    workflowInput: InspiredesignResolvedInput,
+    captureVisualEvidence: InspiredesignWorkflowOptions["captureVisualEvidence"],
+    visualPlan: InspiredesignVisualCapturePlan,
+    timeoutMs?: number
+  ): Promise<InspiredesignVisualEvidenceRuntimeMetadata | undefined> =>
+    captureWorkflowVisualEvidence(url, workflowInput, captureVisualEvidence, visualPlan, timeoutMs),
+  captureWorkflowMotionEvidence: (
+    url: string,
+    workflowInput: InspiredesignResolvedInput,
+    captureMotionEvidence: InspiredesignWorkflowOptions["captureMotionEvidence"],
+    referenceId: string,
+    motionEvidenceTempDir: string | undefined,
+    timeoutMs?: number
+  ): Promise<InspiredesignMotionEvidenceRuntimeMetadata | undefined> =>
+    captureWorkflowMotionEvidence(url, workflowInput, captureMotionEvidence, referenceId, motionEvidenceTempDir, timeoutMs),
+  captureWorkflowPinMediaEvidence: (
+    url: string,
+    workflowInput: InspiredesignResolvedInput,
+    capturePinMediaEvidence: InspiredesignWorkflowOptions["capturePinMediaEvidence"],
+    referenceId: string,
+    pinMediaEvidenceTempDir: string | undefined,
+    classification: PinterestMediaClassification,
+    timeoutMs?: number
+  ): Promise<InspiredesignPinterestPinMediaRuntimeMetadata | undefined> =>
+    captureWorkflowPinMediaEvidence(
+      url,
+      workflowInput,
+      capturePinMediaEvidence,
+      referenceId,
+      pinMediaEvidenceTempDir,
+      classification,
+      timeoutMs
+    ),
   failureFromInspiredesignDiscoveryError: (
     workflowInput: InspiredesignResolvedInput,
     error: ProviderError | undefined
@@ -1257,6 +1342,49 @@ export const workflowTestUtils = {
   failureFromInspiredesignFetchError: (
     result: ProviderAggregateResult
   ): ProviderFailureEntry[] => failureFromInspiredesignFetchError(result),
+  mergeCaptureVisualEvidence: (
+    capture: InspiredesignCaptureEvidence | null | undefined,
+    visual: InspiredesignVisualEvidenceRuntimeMetadata | InspiredesignPersistedVisualEvidence | undefined
+  ): InspiredesignCaptureEvidence | null | undefined => mergeCaptureVisualEvidence(capture, visual),
+  mergeCaptureMotionEvidence: (
+    capture: InspiredesignCaptureEvidence | null | undefined,
+    motion: InspiredesignMotionEvidenceRuntimeMetadata | InspiredesignPersistedMotionEvidence | undefined
+  ): InspiredesignCaptureEvidence | null | undefined => mergeCaptureMotionEvidence(capture, motion),
+  mergeCapturePinMediaEvidence: (
+    capture: InspiredesignCaptureEvidence | null | undefined,
+    pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | InspiredesignPersistedPinterestPinMediaEvidence | undefined
+  ): InspiredesignCaptureEvidence | null | undefined => mergeCapturePinMediaEvidence(capture, pinMedia),
+  mergeCaptureEvidence: (
+    base: InspiredesignCaptureEvidence | null | undefined,
+    addon: InspiredesignCaptureEvidence | null | undefined
+  ): InspiredesignCaptureEvidence | null | undefined => mergeCaptureEvidence(base, addon),
+  getRequiredVisualEvidenceFailure: (
+    workflowInput: InspiredesignResolvedInput,
+    visualPlan: InspiredesignVisualCapturePlan,
+    capture: InspiredesignCaptureEvidence | null | undefined,
+    missingFailure?: string
+  ): string | undefined => getRequiredVisualEvidenceFailure(workflowInput, visualPlan, capture, missingFailure),
+  addRequiredVisualEvidenceFailure: (
+    capture: InspiredesignCaptureEvidence | null | undefined,
+    visualPlan: InspiredesignVisualCapturePlan | undefined,
+    failure: string,
+    forceRequiredWarning?: boolean
+  ): InspiredesignCaptureEvidence | null | undefined =>
+    addRequiredVisualEvidenceFailure(capture, visualPlan, failure, forceRequiredWarning),
+  hasWorkflowProvisionalPinMediaEvidence: (capture: InspiredesignCaptureEvidence | null | undefined): boolean =>
+    hasWorkflowProvisionalPinMediaEvidence(capture),
+  hasWorkflowProvisionalNonVisualEvidence: (capture: InspiredesignCaptureEvidence | null | undefined): boolean =>
+    hasWorkflowProvisionalNonVisualEvidence(capture),
+  hasWorkflowProvisionalPrimaryEvidence: (capture: InspiredesignCaptureEvidence | null | undefined): boolean =>
+    hasWorkflowProvisionalPrimaryEvidence(capture),
+  buildInspiredesignMediaAnalyzerBinaryOptions: (
+    binaries: InspiredesignMediaAnalysisBinaryResolution | undefined
+  ): Pick<
+    InspiredesignMediaAnalyzerOptions,
+    "ffmpegBinaryPath" | "ffprobeBinaryPath" | "ffmpegUnavailableLimitation" | "ffprobeUnavailableLimitation"
+  > => buildInspiredesignMediaAnalyzerBinaryOptions(binaries),
+  shouldResolveInspiredesignMediaAnalysisBinaries: (options: InspiredesignWorkflowOptions): boolean =>
+    shouldResolveInspiredesignMediaAnalysisBinaries(options),
   isPinterestWorkflowReferenceUrl: (value: string): boolean => isPinterestWorkflowReferenceUrl(value),
   buildPinMediaTempCapturePath: (pinMediaTempRoot: string, referenceId: string): string =>
     buildPinMediaTempCapturePath(pinMediaTempRoot, referenceId),

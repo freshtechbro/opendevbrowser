@@ -3,6 +3,7 @@ import { DEFAULT_PROVIDER_BUDGETS, ProviderRuntime, createDefaultRuntime, create
 import { createCommunityProvider } from "../src/providers/community";
 import { ProviderRuntimeError } from "../src/providers/errors";
 import { normalizeRecord } from "../src/providers/normalize";
+import { installExpectedProviderWarnCapture } from "./support/provider-warn-capture";
 import type {
   AdaptiveConcurrencyDiagnostics,
   ProviderAdapter,
@@ -69,6 +70,8 @@ const makeProvider = (
     metadata: {}
   })
 });
+
+installExpectedProviderWarnCapture();
 
 describe("provider runtime branches", () => {
   it("returns unavailable when provider filtering leaves no candidates", async () => {

@@ -723,4 +723,134 @@ describe("AgentInbox", () => {
     const content = readFileSync(join(root, ".opendevbrowser", "annotate", "agent-inbox.jsonl"), "utf8");
     expect(content.indexOf("\"id\":\"a\"")).toBeLessThan(content.indexOf("\"id\":\"b\""));
   });
+
+  it("redacts URL userinfo, sensitive query values, canvas identity, and selector bundle fields", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => Date.parse("2026-03-15T15:00:00.000Z"));
+
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWNyZXQifQ.signature_part";
+    const opaqueSecret = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1";
+    const prefixedSecret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456";
+
+    store.registerScope("session-rich-redaction");
+    const entry = store.enqueue({
+      payload: createPayload({
+        url: `https://user:${prefixedSecret}@example.com/path?plain=person@example.com&token=public-value`,
+        title: `Title ${jwt}`,
+        context: `Context ${opaqueSecret}`,
+        annotations: [
+          {
+            id: "annotation-rich",
+            selector: `#hero-${prefixedSecret}`,
+            idAttr: jwt,
+            classes: [prefixedSecret, opaqueSecret],
+            tag: "section",
+            rect: { x: 0, y: 0, width: 320, height: 180 },
+            attributes: { "data-secret": prefixedSecret },
+            a11y: {
+              role: `region ${prefixedSecret}`,
+              label: "person@example.com",
+              labelledBy: jwt,
+              describedBy: opaqueSecret,
+              hidden: false
+            },
+            styles: { color: "red" },
+            screenshotId: "shot-1",
+            text: `Visible ${jwt}`,
+            note: `Note ${opaqueSecret}`,
+            identity: {
+              source: "canvas",
+              priority: 100,
+              stableId: prefixedSecret,
+              label: `Canvas ${jwt}`,
+              canvas: {
+                documentId: prefixedSecret,
+                pageId: jwt,
+                nodeId: opaqueSecret,
+                regionId: prefixedSecret,
+                bindingId: jwt,
+                componentName: opaqueSecret
+              }
+            },
+            selectorBundle: {
+              primary: undefined,
+              transport: "extension",
+              candidates: [
+                {
+                  family: "css",
+                  rank: 1,
+                  confidence: "high",
+                  scope: "document",
+                  transport: "extension",
+                  availability: "available",
+                  value: prefixedSecret
+                },
+                {
+                  family: "xpath",
+                  rank: 2,
+                  confidence: "low",
+                  scope: "document",
+                  transport: "extension",
+                  availability: "unavailable",
+                  unavailableReason: "missing_xpath_facts"
+                }
+              ],
+              recoveryHints: [`Retry ${jwt}`]
+            }
+          }
+        ]
+      }),
+      source: "annotate_all",
+      label: "Rich redaction"
+    });
+
+    const serialized = JSON.stringify(entry.payloadSansScreenshots);
+    expect(serialized).not.toContain(prefixedSecret);
+    expect(serialized).not.toContain(jwt);
+    expect(serialized).not.toContain(opaqueSecret);
+    expect(serialized).not.toContain("person@example.com");
+    expect(entry.payloadSansScreenshots.url).toContain("[redacted]");
+    expect(entry.payloadSansScreenshots.compact?.items[0]?.selectorBundle.primary).toBe("[redacted]");
+    expect(entry.payloadSansScreenshots.compact?.items[0]?.identity.canvas?.documentId).toBe("[redacted]");
+  });
+
+  it("prunes compact overflow items without dropping all useful compact context", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => Date.parse("2026-03-15T16:00:00.000Z"));
+    const annotationCount = 90;
+    const longText = "detail ".repeat(120);
+
+    store.registerScope("session-compact-overflow");
+    const annotations = Array.from({ length: annotationCount }, (_value, index) => ({
+      id: `annotation-${index}`,
+      selector: `#item-${index}`,
+      tag: "section",
+      rect: { x: index, y: index, width: 320, height: 180 },
+      attributes: { "data-index": String(index) },
+      a11y: { label: `Item ${index}` },
+      styles: { color: "red" },
+      screenshotId: "shot-1",
+      text: `${longText}${index}`,
+      note: `${longText}${index}`
+    }));
+
+    const entry = store.enqueue({
+      payload: createPayload({
+        context: "context ".repeat(1_000),
+        annotations
+      }),
+      source: "popup_all",
+      label: "Compact overflow"
+    });
+
+    const compact = entry.payloadSansScreenshots.compact;
+    expect(compact).toBeDefined();
+    expect(compact?.items.length).toBeGreaterThan(0);
+    expect(compact?.items.length).toBeLessThan(annotationCount);
+    expect(compact?.redaction.removedFields).toContain("annotations.overflow_items");
+    expect(compact?.redaction.compactByteLength).toBeLessThanOrEqual(compact?.byteBudget ?? 0);
+  });
+
 });
