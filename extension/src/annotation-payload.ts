@@ -107,6 +107,193 @@ const truncateText = (value: string | undefined, limit: number): { value?: strin
 
 const byteLength = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
 
+const REDACTED_VALUE = "[redacted]";
+const URL_SENSITIVE_KEYS = /(?:token|secret|password|pass|api[_-]?key|apikey|auth|authorization|bearer|session|cookie|email)/i;
+const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+const KEYED_SECRET_PATTERN = /\b(token|secret|password|api[_-]?key|apikey|authorization|bearer|session|cookie)\b\s*[:=]?\s*([A-Za-z0-9._~+/=-]{8,})/gi;
+const PREFIXED_SECRET_PATTERN = /\b(?:sk|pk|ghp|gho|github_pat|xox[abprs]|AKIA)[A-Za-z0-9_-]{12,}\b/g;
+const OPAQUE_SECRET_PATTERN = /\b(?=[A-Za-z0-9+/_-]{32,}={0,2}\b)(?=[A-Za-z0-9+/_-]*[A-Z])(?=[A-Za-z0-9+/_-]*\d)[A-Za-z0-9+/_-]{32,}={0,2}\b/g;
+
+const pushUnique = (values: string[], value: string): void => {
+  if (!values.includes(value)) {
+    values.push(value);
+  }
+};
+
+const markRedacted = (redaction: AnnotationCompactRedaction, fieldPath: string): void => {
+  pushUnique(redaction.truncatedFields, `redacted:${fieldPath}`);
+};
+
+const redactSensitiveUrl = (value: string, redaction: AnnotationCompactRedaction, fieldPath: string): string => {
+  try {
+    const parsed = new URL(value);
+    let changed = false;
+    if (parsed.username) {
+      parsed.username = REDACTED_VALUE;
+      changed = true;
+    }
+    if (parsed.password) {
+      parsed.password = REDACTED_VALUE;
+      changed = true;
+    }
+    parsed.searchParams.forEach((paramValue, key) => {
+      if (URL_SENSITIVE_KEYS.test(key) || isSensitiveText(paramValue)) {
+        parsed.searchParams.set(key, REDACTED_VALUE);
+        changed = true;
+      }
+    });
+    if (changed) {
+      markRedacted(redaction, fieldPath);
+      return parsed.toString();
+    }
+  } catch {
+    // Not a URL-shaped value; use generic text redaction below.
+  }
+  return value;
+};
+
+const isSensitiveText = (value: string): boolean => {
+  const trimmed = value.trim();
+  return new RegExp(EMAIL_PATTERN).test(trimmed)
+    || new RegExp(JWT_PATTERN).test(trimmed)
+    || new RegExp(KEYED_SECRET_PATTERN).test(trimmed)
+    || new RegExp(PREFIXED_SECRET_PATTERN).test(trimmed)
+    || new RegExp(OPAQUE_SECRET_PATTERN).test(trimmed);
+};
+
+const redactSensitiveString = (value: string | undefined, redaction: AnnotationCompactRedaction, fieldPath: string): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  let next = redactSensitiveUrl(value, redaction, fieldPath)
+    .replace(EMAIL_PATTERN, REDACTED_VALUE)
+    .replace(JWT_PATTERN, REDACTED_VALUE)
+    .replace(KEYED_SECRET_PATTERN, (_match, key) => `${key}=${REDACTED_VALUE}`)
+    .replace(PREFIXED_SECRET_PATTERN, REDACTED_VALUE)
+    .replace(OPAQUE_SECRET_PATTERN, REDACTED_VALUE);
+  if (next !== value) {
+    markRedacted(redaction, fieldPath);
+  }
+  return next;
+};
+
+const redactA11y = (a11y: AnnotationA11y, redaction: AnnotationCompactRedaction, prefix: string): AnnotationA11y => ({
+  role: redactSensitiveString(a11y.role, redaction, `${prefix}.role`),
+  label: redactSensitiveString(a11y.label, redaction, `${prefix}.label`),
+  labelledBy: redactSensitiveString(a11y.labelledBy, redaction, `${prefix}.labelledBy`),
+  describedBy: redactSensitiveString(a11y.describedBy, redaction, `${prefix}.describedBy`),
+  hidden: a11y.hidden
+});
+
+const redactSelectorBundle = (
+  bundle: AnnotationSelectorBundle,
+  redaction: AnnotationCompactRedaction,
+  prefix: string
+): AnnotationSelectorBundle => ({
+  primary: redactSensitiveString(bundle.primary, redaction, `${prefix}.primary`) ?? REDACTED_VALUE,
+  transport: bundle.transport,
+  candidates: bundle.candidates.map((entry, index) => ({
+    ...entry,
+    value: redactSensitiveString(entry.value, redaction, `${prefix}.candidates.${index}.value`)
+  })),
+  recoveryHints: bundle.recoveryHints
+});
+
+const redactIdentity = (
+  identity: AnnotationTargetIdentity,
+  redaction: AnnotationCompactRedaction,
+  prefix: string
+): AnnotationTargetIdentity => ({
+  ...identity,
+  stableId: redactSensitiveString(identity.stableId, redaction, `${prefix}.stableId`) ?? REDACTED_VALUE,
+  label: redactSensitiveString(identity.label, redaction, `${prefix}.label`),
+  canvas: identity.canvas
+    ? {
+      ...identity.canvas,
+      componentName: redactSensitiveString(identity.canvas.componentName, redaction, `${prefix}.canvas.componentName`)
+    }
+    : undefined
+});
+
+const trimField = (
+  holder: Record<string, unknown>,
+  key: string,
+  limit: number,
+  redaction: AnnotationCompactRedaction,
+  fieldPath: string
+): void => {
+  const value = holder[key];
+  if (typeof value === "string" && value.length > limit) {
+    holder[key] = value.slice(0, limit);
+    pushUnique(redaction.truncatedFields, fieldPath);
+  }
+};
+
+const updateCompactByteLengths = (compact: AnnotationCompactPayload): AnnotationCompactPayload => {
+  for (const item of compact.items) {
+    item.redaction.compactByteLength = byteLength({ ...item, redaction: { ...item.redaction, compactByteLength: 0 } });
+  }
+  compact.redaction.compactByteLength = byteLength({ ...compact, redaction: { ...compact.redaction, compactByteLength: 0 } });
+  return compact;
+};
+
+const enforceCompactByteBudget = (compact: AnnotationCompactPayload): AnnotationCompactPayload => {
+  updateCompactByteLengths(compact);
+  if (compact.redaction.compactByteLength <= COMPACT_BYTE_BUDGET) {
+    return compact;
+  }
+  trimField(compact as unknown as Record<string, unknown>, "context", 240, compact.redaction, "context");
+  trimField(compact as unknown as Record<string, unknown>, "title", 160, compact.redaction, "title");
+  for (const item of compact.items) {
+    trimField(item as unknown as Record<string, unknown>, "label", 120, item.redaction, "label");
+    trimField(item as unknown as Record<string, unknown>, "note", 160, item.redaction, "note");
+    trimField(item.target as unknown as Record<string, unknown>, "text", 120, item.redaction, "target.text");
+    for (const candidateEntry of item.selectorBundle.candidates) {
+      trimField(candidateEntry as unknown as Record<string, unknown>, "value", 120, item.redaction, `selectorBundle.${candidateEntry.family}.value`);
+    }
+  }
+  updateCompactByteLengths(compact);
+  if (compact.redaction.compactByteLength <= COMPACT_BYTE_BUDGET) {
+    return compact;
+  }
+  for (const item of compact.items) {
+    item.target.a11y = undefined;
+    item.selectorBundle.recoveryHints = [];
+    item.selectorBundle.candidates = item.selectorBundle.candidates.filter((entry) => entry.availability === "available").slice(0, 3);
+    pushUnique(item.redaction.removedFields, "target.a11y");
+    pushUnique(item.redaction.removedFields, "selectorBundle.low_priority_candidates");
+  }
+  pushUnique(compact.redaction.removedFields, "annotations.low_priority_selector_metadata");
+  updateCompactByteLengths(compact);
+  while (compact.redaction.compactByteLength > COMPACT_BYTE_BUDGET && compact.items.length > 1) {
+    compact.items.pop();
+    pushUnique(compact.redaction.removedFields, "annotations.overflow_items");
+    updateCompactByteLengths(compact);
+  }
+  if (compact.redaction.compactByteLength > COMPACT_BYTE_BUDGET && compact.items[0]) {
+    const item = compact.items[0];
+    item.note = undefined;
+    item.target.text = undefined;
+    item.target.a11y = undefined;
+    item.selectorBundle.candidates = [];
+    item.selectorBundle.recoveryHints = [];
+    pushUnique(item.redaction.removedFields, "oversized_item_details");
+    pushUnique(compact.redaction.removedFields, "annotations.oversized_item_details");
+  }
+  updateCompactByteLengths(compact);
+  if (compact.redaction.compactByteLength > COMPACT_BYTE_BUDGET) {
+    compact.items = [];
+    compact.context = undefined;
+    compact.title = undefined;
+    pushUnique(compact.redaction.removedFields, "annotations");
+    pushUnique(compact.redaction.removedFields, "context");
+    pushUnique(compact.redaction.removedFields, "title");
+  }
+  return updateCompactByteLengths(compact);
+};
+
+
 const escapeSelectorValue = (value: string): string => value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
 
 const formatCanvasUrl = (documentId: string, page: CanvasPage): string => {
@@ -298,9 +485,25 @@ const identityFromItem = (item: AnnotationItem): AnnotationTargetIdentity => {
 };
 
 const compactItemFromAnnotation = (item: AnnotationItem): AnnotationCompactItem => {
-  const text = truncateText(item.text, TEXT_LIMIT);
-  const note = truncateText(item.note, NOTE_LIMIT);
-  const selectorBundle = item.selectorBundle ?? buildSelectorBundle({
+  const redaction: AnnotationCompactRedaction = {
+    removedFields: [
+      ...(item.screenshotId ? ["screenshot_reference"] : []),
+      ...(item.debug ? ["debug"] : []),
+      ...(Object.keys(item.styles ?? {}).length > 0 ? ["styles"] : []),
+      ...(Object.keys(item.attributes ?? {}).length > 0 ? ["attributes"] : [])
+    ],
+    truncatedFields: [],
+    screenshotBytesRemoved: Boolean(item.screenshotId),
+    originalByteLength: byteLength(item),
+    compactByteLength: 0
+  };
+  const redactedText = redactSensitiveString(item.text, redaction, "text");
+  const redactedNote = redactSensitiveString(item.note, redaction, "note");
+  const text = truncateText(redactedText, TEXT_LIMIT);
+  const note = truncateText(redactedNote, NOTE_LIMIT);
+  if (text.truncated) pushUnique(redaction.truncatedFields, "text");
+  if (note.truncated) pushUnique(redaction.truncatedFields, "note");
+  const rawSelectorBundle = item.selectorBundle ?? buildSelectorBundle({
     selector: item.selector,
     tag: item.tag,
     idAttr: item.idAttr,
@@ -309,34 +512,21 @@ const compactItemFromAnnotation = (item: AnnotationItem): AnnotationCompactItem 
     a11y: item.a11y,
     transport: "extension"
   });
+  const selectorBundle = redactSelectorBundle(rawSelectorBundle, redaction, "selectorBundle");
   const compact: AnnotationCompactItem = {
     id: item.id,
-    label: item.note?.trim() || item.text?.trim() || item.selector,
+    label: redactSensitiveString(item.note?.trim() || item.text?.trim() || item.selector, redaction, "label") ?? REDACTED_VALUE,
     note: note.value,
     target: {
       tag: item.tag,
       selector: selectorBundle.primary,
       rect: item.rect,
       text: text.value,
-      a11y: item.a11y
+      a11y: redactA11y(item.a11y, redaction, "target.a11y")
     },
-    identity: identityFromItem(item),
+    identity: redactIdentity(identityFromItem(item), redaction, "identity"),
     selectorBundle,
-    redaction: {
-      removedFields: [
-        ...(item.screenshotId ? ["screenshot_reference"] : []),
-        ...(item.debug ? ["debug"] : []),
-        ...(Object.keys(item.styles ?? {}).length > 0 ? ["styles"] : []),
-        ...(Object.keys(item.attributes ?? {}).length > 0 ? ["attributes"] : [])
-      ],
-      truncatedFields: [
-        ...(text.truncated ? ["text"] : []),
-        ...(note.truncated ? ["note"] : [])
-      ],
-      screenshotBytesRemoved: Boolean(item.screenshotId),
-      originalByteLength: byteLength(item),
-      compactByteLength: 0
-    }
+    redaction
   };
   compact.redaction.compactByteLength = byteLength(compact);
   return compact;
@@ -344,28 +534,28 @@ const compactItemFromAnnotation = (item: AnnotationItem): AnnotationCompactItem 
 
 export function buildCompactAnnotationPayload(payload: AnnotationPayload): AnnotationCompactPayload {
   const items = payload.annotations.map(compactItemFromAnnotation);
+  const redaction: AnnotationCompactRedaction = {
+    removedFields: [
+      ...(payload.screenshots?.length ? ["screenshots"] : []),
+      ...items.flatMap((item) => item.redaction.removedFields.map((field) => `annotations.${field}`))
+    ],
+    truncatedFields: items.flatMap((item) => item.redaction.truncatedFields.map((field) => `annotations.${field}`)),
+    screenshotBytesRemoved: Boolean(payload.screenshots?.length) || items.some((item) => item.redaction.screenshotBytesRemoved),
+    originalByteLength: byteLength(payload),
+    compactByteLength: 0
+  };
   const compact: AnnotationCompactPayload = {
     schemaVersion: ANNOTATION_COMPACT_SCHEMA_VERSION,
-    url: payload.url,
-    title: payload.title,
+    url: redactSensitiveString(payload.url, redaction, "url") ?? REDACTED_VALUE,
+    title: redactSensitiveString(payload.title, redaction, "title"),
     timestamp: payload.timestamp,
-    context: payload.context,
+    context: redactSensitiveString(payload.context, redaction, "context"),
     screenshotMode: "none",
     byteBudget: COMPACT_BYTE_BUDGET,
-    redaction: {
-      removedFields: [
-        ...(payload.screenshots?.length ? ["screenshots"] : []),
-        ...items.flatMap((item) => item.redaction.removedFields.map((field) => `annotations.${field}`))
-      ],
-      truncatedFields: items.flatMap((item) => item.redaction.truncatedFields.map((field) => `annotations.${field}`)),
-      screenshotBytesRemoved: Boolean(payload.screenshots?.length) || items.some((item) => item.redaction.screenshotBytesRemoved),
-      originalByteLength: byteLength(payload),
-      compactByteLength: 0
-    },
+    redaction,
     items
   };
-  compact.redaction.compactByteLength = byteLength(compact);
-  return compact;
+  return enforceCompactByteBudget(compact);
 }
 
 const annotationFromCompactItem = (item: AnnotationCompactItem): AnnotationItem => ({
@@ -386,10 +576,10 @@ export function sanitizeAnnotationPayloadForAgent(payload: AnnotationPayload): A
   const compact = buildCompactAnnotationPayload(payload);
   return {
     schemaVersion: ANNOTATION_COMPACT_SCHEMA_VERSION,
-    url: payload.url,
-    title: payload.title,
+    url: compact.url,
+    title: compact.title,
     timestamp: payload.timestamp,
-    context: payload.context,
+    context: compact.context,
     screenshotMode: "none",
     annotations: compact.items.map(annotationFromCompactItem),
     compact

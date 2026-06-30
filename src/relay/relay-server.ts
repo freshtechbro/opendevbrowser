@@ -1205,6 +1205,11 @@ export class RelayServer {
   }
 
   private async handleStoreAgentPayload(command: AnnotationCommand): Promise<void> {
+    const sizeBytes = Buffer.byteLength(JSON.stringify(command));
+    if (sizeBytes > RelayServer.MAX_ANNOTATION_PAYLOAD_BYTES) {
+      this.sendAnnotationError(command.requestId, "payload_too_large", "Annotation payload exceeded relay limits.");
+      return;
+    }
     if (!this.storeAgentPayloadHandler) {
       this.sendAnnotationError(command.requestId, "relay_unavailable", "Agent inbox unavailable.");
       return;

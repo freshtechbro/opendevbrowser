@@ -103,6 +103,22 @@ describe("AgentInbox", () => {
     inbox.registerScope("session-redaction");
     inbox.enqueue({
       payload: createPayload({
+        url: "https://example.com/path?token=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+        title: "Secret owner person@example.com",
+        context: "Context with apiKey=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+        annotations: [
+          {
+            id: "annotation-1",
+            selector: "[data-token=\"sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\"]",
+            tag: "section",
+            rect: { x: 0, y: 0, width: 320, height: 180 },
+            attributes: { "data-testid": "secret-sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890" },
+            a11y: { role: "region", label: "person@example.com" },
+            styles: {},
+            screenshotId: "shot-1",
+            note: "Secret sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+          }
+        ],
         compact: {
           schemaVersion: 2,
           screenshotMode: "none",
@@ -122,12 +138,17 @@ describe("AgentInbox", () => {
     expect(block).not.toContain("AAAA");
     expect(block).not.toContain("shot-1");
     expect(block).not.toContain("screenshotId");
+    expect(block).not.toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+    expect(block).not.toContain("person@example.com");
+    expect(block).toContain("[redacted]");
 
     const entriesPath = join(root, ".opendevbrowser", "annotate", "agent-inbox.jsonl");
     const stored = readFileSync(entriesPath, "utf8");
     expect(stored).not.toContain("AAAA");
     expect(stored).not.toContain("shot-1");
     expect(stored).not.toContain("screenshotId");
+    expect(stored).not.toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+    expect(stored).not.toContain("person@example.com");
   });
 
   it("degrades to stored_only for ambiguous scope and suppresses duplicates", () => {
@@ -157,6 +178,35 @@ describe("AgentInbox", () => {
 
     expect(duplicate.id).toBe(first.id);
     expect(store.latestEntry()?.id).toBe(first.id);
+  });
+
+  it("upgrades a stored-only duplicate to delivered when a concrete scope appears", () => {
+    let now = Date.parse("2026-03-15T01:30:00.000Z");
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => now);
+
+    const first = store.enqueue({
+      payload: createPayload(),
+      source: "canvas_all",
+      label: "Retry payload"
+    });
+    expect(first.receipt.deliveryState).toBe("stored_only");
+    expect(first.receipt.reason).toBe("no_active_scope");
+
+    now += 30_000;
+    store.registerScope("session-retry");
+    const retry = store.enqueue({
+      payload: createPayload(),
+      source: "canvas_all",
+      label: "Retry payload"
+    });
+
+    expect(retry.id).toBe(first.id);
+    expect(retry.receipt.deliveryState).toBe("delivered");
+    expect(retry.receipt.storedFallback).toBe(false);
+    expect(retry.chatScopeKey).toBe("session-retry");
+    expect(store.peekScope("session-retry").map((entry) => entry.id)).toEqual([first.id]);
   });
 
   it("prunes invalid and expired entries and scopes from disk", () => {
@@ -302,6 +352,8 @@ describe("AgentInbox", () => {
 
     expect(items).toHaveLength(1);
     expect(((items[0]?.payload as { annotations?: unknown[] }).annotations ?? []).length).toBe(0);
+    expect(Buffer.byteLength(injection?.systemBlock ?? "", "utf8")).toBeLessThanOrEqual(256 * 1024);
+    expect(JSON.stringify(items[0]?.payload)).not.toContain("x".repeat(1000));
   });
 
   it("caps injections at 20 items and defers oversized follow-up payloads", () => {

@@ -118,6 +118,22 @@ function buildSystemBlock(entries: AgentInboxEntry[]): string {
 }
 
 function buildSummaryOnlyEntry(entry: AgentInboxEntry): AgentInboxEntry {
+  const compact = entry.payloadSansScreenshots.compact
+    ? {
+      ...entry.payloadSansScreenshots.compact,
+      context: undefined,
+      items: [],
+      redaction: {
+        ...entry.payloadSansScreenshots.compact.redaction,
+        removedFields: [
+          ...entry.payloadSansScreenshots.compact.redaction.removedFields,
+          "annotations",
+          "context"
+        ],
+        compactByteLength: 0
+      }
+    }
+    : undefined;
   return {
     ...entry,
     payloadSansScreenshots: {
@@ -125,10 +141,9 @@ function buildSummaryOnlyEntry(entry: AgentInboxEntry): AgentInboxEntry {
       url: entry.payloadSansScreenshots.url,
       title: entry.payloadSansScreenshots.title,
       timestamp: entry.payloadSansScreenshots.timestamp,
-      context: entry.payloadSansScreenshots.context,
       screenshotMode: entry.payloadSansScreenshots.screenshotMode,
       annotations: [],
-      compact: entry.payloadSansScreenshots.compact
+      compact
     },
     receipt: {
       ...entry.receipt,

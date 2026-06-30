@@ -70,6 +70,81 @@ describe("extension annotation payload helpers", () => {
     expect(compact.items[0]?.redaction.removedFields).toContain("debug");
   });
 
+
+  it("redacts sensitive compact fields and selector candidates before agent handoff", () => {
+    const secret = "sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    const email = "person@example.com";
+    const payload = {
+      url: `https://example.com/account?token=${secret}&email=${email}`,
+      title: `Account for ${email}`,
+      timestamp: "2026-03-12T00:00:00.000Z",
+      context: `Please inspect bearer ${secret} for ${email}`,
+      screenshotMode: "none" as const,
+      annotations: [
+        {
+          id: "item-secret",
+          selector: `[data-token=\"${secret}\"]`,
+          tag: "button",
+          idAttr: `password-${secret}`,
+          text: `Reset token ${secret} for ${email}`,
+          rect: { x: 8, y: 16, width: 120, height: 44 },
+          attributes: {
+            "data-testid": `token-${secret}`,
+            "data-shadow-chain": `host>${secret}`
+          },
+          a11y: { role: "button", label: `Use ${secret}`, labelledBy: email, describedBy: `Secret ${secret}` },
+          styles: {},
+          note: `Note includes apiKey=${secret} and ${email}`,
+          identity: { source: "selector" as const, priority: 50, stableId: `identity-${secret}`, label: `Label ${email}` },
+          selectorBundle: {
+            primary: `[data-token=\"${secret}\"]`,
+            transport: "extension" as const,
+            candidates: [
+              { family: "css" as const, rank: 50, confidence: "medium" as const, scope: "document" as const, transport: "extension" as const, availability: "available" as const, value: `[data-token=\"${secret}\"]` },
+              { family: "text" as const, rank: 80, confidence: "low" as const, scope: "text" as const, transport: "extension" as const, availability: "available" as const, value: `text=${email}` }
+            ],
+            recoveryHints: []
+          }
+        }
+      ]
+    };
+
+    const sanitized = sanitizeAnnotationPayloadForAgent(payload);
+    const serialized = JSON.stringify(sanitized);
+
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain(email);
+    expect(serialized).toContain("[redacted]");
+    expect(sanitized.compact?.redaction.truncatedFields.some((field) => field.includes("redacted"))).toBe(true);
+  });
+
+  it("enforces the compact byte budget by truncating low-priority compact fields", () => {
+    const annotations = Array.from({ length: 80 }, (_, index) => ({
+      id: `item-${index}`,
+      selector: `#section-${index}`,
+      tag: "section",
+      text: `Long visible copy ${index} ${"copy ".repeat(200)}`,
+      rect: { x: index, y: index, width: 320, height: 180 },
+      attributes: { "data-testid": `section-${index}` },
+      a11y: { role: "region", label: `Long accessible label ${index} ${"label ".repeat(120)}` },
+      styles: {},
+      note: `Long note ${index} ${"note ".repeat(220)}`
+    }));
+    const compact = buildCompactAnnotationPayload({
+      url: "https://example.com/long",
+      title: "Long compact",
+      timestamp: "2026-03-12T00:00:00.000Z",
+      context: "Long context ".repeat(500),
+      screenshotMode: "none" as const,
+      annotations
+    });
+
+    expect(compact.byteBudget).toBe(24 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(compact), "utf8")).toBeLessThanOrEqual(compact.byteBudget);
+    expect(compact.redaction.compactByteLength).toBeLessThanOrEqual(compact.byteBudget);
+    expect([...compact.redaction.removedFields, ...compact.redaction.truncatedFields].length).toBeGreaterThan(0);
+  });
+
   it("filters payloads down to the requested annotation ids", () => {
     const payload = {
       url: "https://example.com",

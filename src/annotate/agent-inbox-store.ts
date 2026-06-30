@@ -120,12 +120,17 @@ export class AgentInboxStore {
       },
       this.now()
     );
+    const scopeResolution = this.resolveScope(input.explicitChatScopeKey);
     if (duplicate) {
+      const upgraded = upgradeStoredOnlyDuplicate(entries, duplicate, scopeResolution, this.now());
+      if (upgraded) {
+        this.writeEntries(entries);
+        return upgraded;
+      }
       return duplicate;
     }
 
     const createdAt = new Date(this.now()).toISOString();
-    const scopeResolution = this.resolveScope(input.explicitChatScopeKey);
     const deliveryState: AgentInboxDeliveryState = scopeResolution.chatScopeKey ? "delivered" : "stored_only";
     const entryId = `agent_inbox_${randomUUID()}`;
     const receipt: AgentInboxReceipt = {
@@ -270,27 +275,235 @@ export class AgentInboxStore {
   }
 }
 
+
+const REDACTED_VALUE = "[redacted]";
+const URL_SENSITIVE_KEYS = /(?:token|secret|password|pass|api[_-]?key|apikey|auth|authorization|bearer|session|cookie|email)/i;
+const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+const KEYED_SECRET_PATTERN = /\b(token|secret|password|api[_-]?key|apikey|authorization|bearer|session|cookie)\b\s*[:=]?\s*([A-Za-z0-9._~+/=-]{8,})/gi;
+const PREFIXED_SECRET_PATTERN = /\b(?:sk|pk|ghp|gho|github_pat|xox[abprs]|AKIA)[A-Za-z0-9_-]{12,}\b/g;
+const OPAQUE_SECRET_PATTERN = /\b(?=[A-Za-z0-9+/_-]{32,}={0,2}\b)(?=[A-Za-z0-9+/_-]*[A-Z])(?=[A-Za-z0-9+/_-]*\d)[A-Za-z0-9+/_-]{32,}={0,2}\b/g;
+
+type CompactPayload = NonNullable<AnnotationPayload["compact"]>;
+type CompactItem = CompactPayload["items"][number];
+type CompactRedaction = CompactPayload["redaction"];
+
+function createRedaction(originalByteLength: number, screenshotBytesRemoved: boolean): CompactRedaction {
+  return {
+    removedFields: [],
+    truncatedFields: [],
+    screenshotBytesRemoved,
+    originalByteLength,
+    compactByteLength: 0
+  };
+}
+
+function pushUnique(values: string[], value: string): void {
+  if (!values.includes(value)) values.push(value);
+}
+
+function markRedacted(redaction: CompactRedaction, fieldPath: string): void {
+  pushUnique(redaction.truncatedFields, `redacted:${fieldPath}`);
+}
+
+function hasSensitiveText(value: string): boolean {
+  return new RegExp(EMAIL_PATTERN).test(value)
+    || new RegExp(JWT_PATTERN).test(value)
+    || new RegExp(KEYED_SECRET_PATTERN).test(value)
+    || new RegExp(PREFIXED_SECRET_PATTERN).test(value)
+    || new RegExp(OPAQUE_SECRET_PATTERN).test(value);
+}
+
+function redactSensitiveUrl(value: string, redaction: CompactRedaction, fieldPath: string): string {
+  try {
+    const parsed = new URL(value);
+    let changed = false;
+    if (parsed.username) {
+      parsed.username = REDACTED_VALUE;
+      changed = true;
+    }
+    if (parsed.password) {
+      parsed.password = REDACTED_VALUE;
+      changed = true;
+    }
+    parsed.searchParams.forEach((paramValue, key) => {
+      if (URL_SENSITIVE_KEYS.test(key) || hasSensitiveText(paramValue)) {
+        parsed.searchParams.set(key, REDACTED_VALUE);
+        changed = true;
+      }
+    });
+    if (changed) {
+      markRedacted(redaction, fieldPath);
+      return parsed.toString();
+    }
+  } catch {
+    return value;
+  }
+  return value;
+}
+
+function redactSensitiveString(value: string | undefined, redaction: CompactRedaction, fieldPath: string): string | undefined {
+  if (!value) return undefined;
+  const next = redactSensitiveUrl(value, redaction, fieldPath)
+    .replace(EMAIL_PATTERN, REDACTED_VALUE)
+    .replace(JWT_PATTERN, REDACTED_VALUE)
+    .replace(KEYED_SECRET_PATTERN, (_match, key: string) => `${key}=${REDACTED_VALUE}`)
+    .replace(PREFIXED_SECRET_PATTERN, REDACTED_VALUE)
+    .replace(OPAQUE_SECRET_PATTERN, REDACTED_VALUE);
+  if (next !== value) markRedacted(redaction, fieldPath);
+  return next;
+}
+
+function redactA11y(a11y: AnnotationPayload["annotations"][number]["a11y"], redaction: CompactRedaction, prefix: string): AnnotationPayload["annotations"][number]["a11y"] {
+  return {
+    role: redactSensitiveString(a11y.role, redaction, `${prefix}.role`),
+    label: redactSensitiveString(a11y.label, redaction, `${prefix}.label`),
+    labelledBy: redactSensitiveString(a11y.labelledBy, redaction, `${prefix}.labelledBy`),
+    describedBy: redactSensitiveString(a11y.describedBy, redaction, `${prefix}.describedBy`),
+    hidden: a11y.hidden
+  };
+}
+
+function redactSelectorBundle(bundle: CompactItem["selectorBundle"], redaction: CompactRedaction, prefix: string): CompactItem["selectorBundle"] {
+  return {
+    primary: redactSensitiveString(bundle.primary, redaction, `${prefix}.primary`) ?? REDACTED_VALUE,
+    transport: bundle.transport,
+    candidates: bundle.candidates.map((candidate, index) => ({
+      ...candidate,
+      value: redactSensitiveString(candidate.value, redaction, `${prefix}.candidates.${index}.value`)
+    })),
+    recoveryHints: bundle.recoveryHints.map((hint, index) => redactSensitiveString(hint, redaction, `${prefix}.recoveryHints.${index}`) ?? REDACTED_VALUE)
+  };
+}
+
+function redactIdentity(identity: CompactItem["identity"], redaction: CompactRedaction, prefix: string): CompactItem["identity"] {
+  return {
+    ...identity,
+    stableId: redactSensitiveString(identity.stableId, redaction, `${prefix}.stableId`) ?? REDACTED_VALUE,
+    label: redactSensitiveString(identity.label, redaction, `${prefix}.label`),
+    canvas: identity.canvas ? {
+      ...identity.canvas,
+      documentId: redactSensitiveString(identity.canvas.documentId, redaction, `${prefix}.canvas.documentId`),
+      pageId: redactSensitiveString(identity.canvas.pageId, redaction, `${prefix}.canvas.pageId`),
+      nodeId: redactSensitiveString(identity.canvas.nodeId, redaction, `${prefix}.canvas.nodeId`),
+      regionId: redactSensitiveString(identity.canvas.regionId, redaction, `${prefix}.canvas.regionId`),
+      bindingId: redactSensitiveString(identity.canvas.bindingId, redaction, `${prefix}.canvas.bindingId`),
+      componentName: redactSensitiveString(identity.canvas.componentName, redaction, `${prefix}.canvas.componentName`)
+    } : undefined
+  };
+}
+
+function updateCompactByteLengths(compact: CompactPayload): CompactPayload {
+  for (const item of compact.items) {
+    item.redaction.compactByteLength = byteLength({ ...item, redaction: { ...item.redaction, compactByteLength: 0 } });
+  }
+  compact.redaction.compactByteLength = byteLength({ ...compact, redaction: { ...compact.redaction, compactByteLength: 0 } });
+  return compact;
+}
+
+function trimStringField(holder: Record<string, unknown>, key: string, limit: number, redaction: CompactRedaction, fieldPath: string): void {
+  const value = holder[key];
+  if (typeof value === "string" && value.length > limit) {
+    holder[key] = value.slice(0, limit);
+    pushUnique(redaction.truncatedFields, fieldPath);
+  }
+}
+
+function enforceCompactByteBudget(compact: CompactPayload): CompactPayload {
+  updateCompactByteLengths(compact);
+  if (compact.redaction.compactByteLength <= AGENT_COMPACT_BYTE_BUDGET) return compact;
+  trimStringField(compact as unknown as Record<string, unknown>, "context", 240, compact.redaction, "context");
+  trimStringField(compact as unknown as Record<string, unknown>, "title", 160, compact.redaction, "title");
+  for (const item of compact.items) {
+    trimStringField(item as unknown as Record<string, unknown>, "label", 120, item.redaction, "label");
+    trimStringField(item as unknown as Record<string, unknown>, "note", 160, item.redaction, "note");
+    trimStringField(item.target as unknown as Record<string, unknown>, "text", 120, item.redaction, "target.text");
+    item.selectorBundle.candidates = item.selectorBundle.candidates.slice(0, 3);
+  }
+  updateCompactByteLengths(compact);
+  while (compact.redaction.compactByteLength > AGENT_COMPACT_BYTE_BUDGET && compact.items.length > 1) {
+    compact.items.pop();
+    pushUnique(compact.redaction.removedFields, "annotations.overflow_items");
+    updateCompactByteLengths(compact);
+  }
+  if (compact.redaction.compactByteLength > AGENT_COMPACT_BYTE_BUDGET && compact.items[0]) {
+    const item = compact.items[0];
+    item.note = undefined;
+    item.target.text = undefined;
+    item.target.a11y = undefined;
+    item.selectorBundle.candidates = [];
+    item.selectorBundle.recoveryHints = [];
+    pushUnique(item.redaction.removedFields, "oversized_item_details");
+    pushUnique(compact.redaction.removedFields, "annotations.oversized_item_details");
+  }
+  updateCompactByteLengths(compact);
+  if (compact.redaction.compactByteLength > AGENT_COMPACT_BYTE_BUDGET) {
+    compact.items = [];
+    compact.context = undefined;
+    compact.title = undefined;
+    pushUnique(compact.redaction.removedFields, "annotations");
+  }
+  return updateCompactByteLengths(compact);
+}
+
+function upgradeStoredOnlyDuplicate(
+  entries: AgentInboxEntry[],
+  duplicate: AgentInboxEntry,
+  scopeResolution: ScopeResolution,
+  nowMs: number
+): AgentInboxEntry | null {
+  if (!scopeResolution.chatScopeKey || duplicate.deliveryState !== "stored_only") return null;
+  const index = entries.findIndex((entry) => entry.id === duplicate.id);
+  if (index < 0) return null;
+  const deliveryState: AgentInboxDeliveryState = "delivered";
+  const upgraded: AgentInboxEntry = {
+    ...duplicate,
+    chatScopeKey: scopeResolution.chatScopeKey,
+    deliveryState,
+    receipt: {
+      ...duplicate.receipt,
+      deliveryState,
+      storedFallback: false,
+      reason: undefined,
+      chatScopeKey: scopeResolution.chatScopeKey,
+      createdAt: new Date(nowMs).toISOString()
+    }
+  };
+  entries[index] = upgraded;
+  return upgraded;
+}
+
 function stripPayloadScreenshots(payload: AnnotationPayload): AnnotationPayload {
+  const payloadRedaction = createRedaction(byteLength(payload), Boolean(payload.screenshots?.length));
   const annotations = payload.annotations.map((annotation) => {
+    const annotationRedaction = createRedaction(byteLength(annotation), Boolean(annotation.screenshotId));
     const { screenshotId: _screenshotId, debug: _debug, styles: _styles, attributes: _attributes, ...rest } = annotation;
     return {
       ...rest,
+      selector: redactSensitiveString(rest.selector, annotationRedaction, "selector") ?? "[redacted]",
+      idAttr: redactSensitiveString(rest.idAttr, annotationRedaction, "idAttr"),
+      classes: rest.classes?.map((value, index) => redactSensitiveString(value, annotationRedaction, `classes.${index}`) ?? "[redacted]"),
+      text: redactSensitiveString(rest.text, annotationRedaction, "text"),
+      note: redactSensitiveString(rest.note, annotationRedaction, "note"),
+      a11y: redactA11y(rest.a11y, annotationRedaction, "a11y"),
+      identity: rest.identity ? redactIdentity(rest.identity, annotationRedaction, "identity") : undefined,
+      selectorBundle: rest.selectorBundle ? redactSelectorBundle(rest.selectorBundle, annotationRedaction, "selectorBundle") : undefined,
       attributes: {},
       styles: {}
     };
   });
   const sanitized: AnnotationPayload = {
     schemaVersion: 2,
-    url: payload.url,
-    title: payload.title,
+    url: redactSensitiveString(payload.url, payloadRedaction, "url") ?? "[redacted]",
+    title: redactSensitiveString(payload.title, payloadRedaction, "title"),
     timestamp: payload.timestamp,
-    context: payload.context,
+    context: redactSensitiveString(payload.context, payloadRedaction, "context"),
     screenshotMode: "none",
     annotations
   };
   return {
     ...sanitized,
-    compact: buildCanonicalCompactPayload(sanitized, payload)
+    compact: enforceCompactByteBudget(buildCanonicalCompactPayload(sanitized, payload))
   };
 }
 
@@ -324,7 +537,7 @@ function buildCanonicalCompactPayload(
       }
     };
   });
-  return {
+  const compact: NonNullable<AnnotationPayload["compact"]> = {
     schemaVersion: 2,
     url: sanitized.url,
     title: sanitized.title,
@@ -337,10 +550,11 @@ function buildCanonicalCompactPayload(
       truncatedFields: [],
       screenshotBytesRemoved: Boolean(original.screenshots?.length) || items.some((item) => item.redaction.screenshotBytesRemoved),
       originalByteLength: byteLength(original),
-      compactByteLength: byteLength({ ...sanitized, compact: undefined })
+      compactByteLength: 0
     },
     items
   };
+  return updateCompactByteLengths(compact);
 }
 
 function buildFallbackIdentity(annotation: AnnotationPayload["annotations"][number]): NonNullable<AnnotationPayload["compact"]>["items"][number]["identity"] {
