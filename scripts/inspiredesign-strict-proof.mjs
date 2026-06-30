@@ -285,6 +285,57 @@ function screenshotIndexList(screenshotIndex) {
   return [];
 }
 
+function normalizeReferenceUrl(value) {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    url.search = "";
+    url.hostname = url.hostname.toLowerCase();
+    if (url.hostname === "pinterest.com") url.hostname = "www.pinterest.com";
+    url.pathname = url.pathname.replace(/\/+$/u, "");
+    return url.toString().replace(/\/$/u, "");
+  } catch {
+    return value.trim().replace(/[?#].*$/u, "").replace(/\/+$/u, "");
+  }
+}
+
+function referenceIdentity(reference) {
+  if (!isRecord(reference)) return { referenceId: null, urls: [] };
+  let rawId = null;
+  if (typeof reference.referenceId === "string") {
+    rawId = reference.referenceId;
+  } else if (typeof reference.id === "string") {
+    rawId = reference.id;
+  }
+  const urls = [reference.url, reference.sourceUrl, reference.referenceUrl]
+    .map(normalizeReferenceUrl)
+    .filter((url) => typeof url === "string" && url.length > 0);
+  return { referenceId: rawId, urls };
+}
+
+function isCanonicalPinterestPinUrl(value) {
+  const normalized = normalizeReferenceUrl(value);
+  if (!normalized) return false;
+  try {
+    const url = new URL(normalized);
+    return url.hostname === "www.pinterest.com" && /^\/pin\/[^/]+$/u.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function canonicalPinterestPinReferences(references) {
+  return references.filter((reference) => {
+    const identity = referenceIdentity(reference);
+    return identity.urls.some(isCanonicalPinterestPinUrl);
+  });
+}
+
+function hasCanonicalPinterestPinReference(references) {
+  return canonicalPinterestPinReferences(references).length > 0;
+}
+
 function resolveArtifactFilePath(artifactPath, relativePath) {
   if (typeof relativePath !== "string" || relativePath.trim() === "") {
     throw new Error("artifact_path_missing");
@@ -319,7 +370,7 @@ function requireManifestFiles(manifestFiles) {
   }
 }
 
-function validateReadiness(workflowPayload) {
+function validateReadiness(workflowPayload, rankedReferences, evidenceReferences) {
   if (workflowPayload.ready !== true || workflowPayload.productSuccess !== true) {
     throw new Error("inspiredesign_diagnostic_only_bundle");
   }
@@ -328,6 +379,12 @@ function validateReadiness(workflowPayload) {
   }
   if (!VALID_STRICT_EVIDENCE_AUTHORITIES.has(workflowPayload.evidenceAuthority)) {
     throw new Error("inspiredesign_evidence_authority_not_strict");
+  }
+  if (
+    workflowPayload.evidenceAuthority !== "pin_media_ready"
+    && (hasCanonicalPinterestPinReference(rankedReferences) || hasCanonicalPinterestPinReference(evidenceReferences))
+  ) {
+    throw new Error("canonical_pinterest_pin_requires_pin_media_ready");
   }
 }
 
@@ -388,12 +445,45 @@ function validateTopReference(references) {
   return topReference;
 }
 
-function validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath) {
+function referenceMatchesAuthorityEntry(reference, entry) {
+  const referenceMatch = referenceIdentity(reference);
+  const entryMatch = referenceIdentity(entry);
+  if (referenceMatch.referenceId && entryMatch.referenceId && referenceMatch.referenceId === entryMatch.referenceId) {
+    return true;
+  }
+  return entryMatch.urls.some((entryUrl) => referenceMatch.urls.includes(entryUrl));
+}
+
+function assertAuthorityEntryBound(entry, index, rankedReferences, evidenceAuthority, errorPrefix) {
+  void evidenceAuthority;
+  if (!rankedReferences.some((reference) => referenceMatchesAuthorityEntry(reference, entry))) {
+    throw new Error(`${errorPrefix}:${index}`);
+  }
+}
+
+function validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath, rankedReferences) {
   if (workflowPayload.evidenceAuthority !== "pin_media_ready") return [];
   if (pinMediaIndex.length === 0) {
     throw new Error("pin_media_authority_missing_index");
   }
-  return pinMediaIndex.map((entry, index) => inspectPinMediaEntry(entry, index, artifactPath));
+  const canonicalPinterestReferences = canonicalPinterestPinReferences(rankedReferences);
+  const inspectedEntries = pinMediaIndex.map((entry, index) => {
+    assertAuthorityEntryBound(
+      entry,
+      index,
+      rankedReferences,
+      "pin_media_ready",
+      "pin_media_authority_not_bound_to_ranked_reference"
+    );
+    return inspectPinMediaEntry(entry, index, artifactPath);
+  });
+  if (
+    canonicalPinterestReferences.length > 0
+    && !pinMediaIndex.some((entry) => canonicalPinterestReferences.some((reference) => referenceMatchesAuthorityEntry(reference, entry)))
+  ) {
+    throw new Error("canonical_pinterest_pin_media_not_bound_to_pinterest_reference");
+  }
+  return inspectedEntries;
 }
 
 function inspectPinMediaEntry(entry, index, artifactPath) {
@@ -406,15 +496,31 @@ function inspectPinMediaEntry(entry, index, artifactPath) {
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`pin_media_file_missing:${entry.path}`);
   const actualSha = sha256File(filePath);
   if (actualSha !== entry.sha256) throw new Error(`pin_media_file_hash_mismatch:${entry.path}`);
-  return { path: entry.path, bytes: entry.bytes, sha256: entry.sha256 };
+  return {
+    referenceId: typeof entry.referenceId === "string" ? entry.referenceId : null,
+    url: typeof entry.url === "string" ? entry.url : null,
+    sourceUrl: typeof entry.sourceUrl === "string" ? entry.sourceUrl : null,
+    path: entry.path,
+    bytes: entry.bytes,
+    sha256: entry.sha256
+  };
 }
 
-function validateMotionAuthority(workflowPayload, motionEvidence, artifactPath) {
+function validateMotionAuthority(workflowPayload, motionEvidence, artifactPath, rankedReferences) {
   if (workflowPayload.evidenceAuthority !== "motion_ready") return [];
   if (motionEvidence.length === 0) {
     throw new Error("motion_authority_missing_evidence");
   }
-  return motionEvidence.map((entry, index) => inspectMotionEntry(entry, index, artifactPath));
+  return motionEvidence.map((entry, index) => {
+    assertAuthorityEntryBound(
+      entry,
+      index,
+      rankedReferences,
+      "motion_ready",
+      "motion_authority_not_bound_to_ranked_reference"
+    );
+    return inspectMotionEntry(entry, index, artifactPath);
+  });
 }
 
 function inspectMotionEntry(entry, index, artifactPath) {
@@ -427,6 +533,9 @@ function inspectMotionEntry(entry, index, artifactPath) {
   if (!Number.isInteger(motion.frameCount) || motion.frameCount <= 0) throw new Error(`motion_evidence_entry_weak_frames:${index}`);
   return {
     index,
+    referenceId: typeof entry.referenceId === "string" ? entry.referenceId : null,
+    url: typeof entry.url === "string" ? entry.url : null,
+    sourceUrl: typeof entry.sourceUrl === "string" ? entry.sourceUrl : null,
     replay: inspectMotionFile(motion.replay, index, "replay", artifactPath),
     preview: inspectMotionFile(motion.preview, index, "preview", artifactPath)
   };
@@ -444,12 +553,21 @@ function inspectMotionFile(file, index, kind, artifactPath) {
   return { path: file.path, bytes: file.bytes, sha256: file.sha256 };
 }
 
-function validateSnapshotAuthority(workflowPayload, screenshots, artifactPath) {
+function validateSnapshotAuthority(workflowPayload, screenshots, artifactPath, rankedReferences) {
   if (workflowPayload.evidenceAuthority !== "snapshot_ready") return [];
   if (screenshots.length === 0) {
     throw new Error("snapshot_authority_missing_screenshot_index");
   }
-  return screenshots.map((entry, index) => inspectScreenshotEntry(entry, index, artifactPath));
+  return screenshots.map((entry, index) => {
+    assertAuthorityEntryBound(
+      entry,
+      index,
+      rankedReferences,
+      "snapshot_ready",
+      "snapshot_authority_not_bound_to_ranked_reference"
+    );
+    return inspectScreenshotEntry(entry, index, artifactPath);
+  });
 }
 
 function inspectScreenshotEntry(entry, index, artifactPath) {
@@ -461,12 +579,34 @@ function inspectScreenshotEntry(entry, index, artifactPath) {
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`screenshot_file_missing:${entry.path}`);
   const actualSha = sha256File(filePath);
   if (actualSha !== entry.sha256) throw new Error(`screenshot_file_hash_mismatch:${entry.path}`);
-  return { path: entry.path, bytes: entry.bytes, sha256: entry.sha256 };
+  return {
+    referenceId: typeof entry.referenceId === "string" ? entry.referenceId : null,
+    url: typeof entry.url === "string" ? entry.url : null,
+    sourceUrl: typeof entry.sourceUrl === "string" ? entry.sourceUrl : null,
+    path: entry.path,
+    bytes: entry.bytes,
+    sha256: entry.sha256
+  };
 }
 
+const MEDIA_ANALYSIS_READINESS_KEYS = new Set([
+  "artifactAuthority",
+  "authority",
+  "evidenceAuthority",
+  "productSuccess",
+  "ready",
+  "readiness"
+]);
+const MEDIA_ANALYSIS_READINESS_VALUES = new Set([
+  PRODUCT_READY_AUTHORITY,
+  "pin_media_ready",
+  "motion_ready",
+  "snapshot_ready"
+]);
+
 function assertMediaAnalysisAdvisoryOnly(value, trail = "media-analysis") {
-  if (value === PRODUCT_READY_AUTHORITY) {
-    throw new Error(`media_analysis_claims_product_authority:${trail}`);
+  if (typeof value === "string" && MEDIA_ANALYSIS_READINESS_VALUES.has(value)) {
+    throw new Error(`media_analysis_claims_readiness_authority:${trail}`);
   }
   if (Array.isArray(value)) {
     value.forEach((entry, index) => assertMediaAnalysisAdvisoryOnly(entry, `${trail}[${index}]`));
@@ -474,6 +614,9 @@ function assertMediaAnalysisAdvisoryOnly(value, trail = "media-analysis") {
   }
   if (!isRecord(value)) return;
   Object.entries(value).forEach(([key, entry]) => {
+    if (MEDIA_ANALYSIS_READINESS_KEYS.has(key)) {
+      throw new Error(`media_analysis_claims_readiness_key:${trail}.${key}`);
+    }
     assertMediaAnalysisAdvisoryOnly(entry, `${trail}.${key}`);
   });
 }
@@ -490,7 +633,6 @@ export function inspectInspiredesignStrictBundle(artifactPath, workflowJson = {}
   }
 
   const workflowPayload = normalizeWorkflowPayload(workflowJson);
-  validateReadiness(workflowPayload);
 
   const artifactSummaries = REQUIRED_ARTIFACT_FILES.map((file) => artifactSummary(artifactPath, file));
   const manifest = readJsonFile(path.join(artifactPath, "bundle-manifest.json"));
@@ -510,10 +652,11 @@ export function inspectInspiredesignStrictBundle(artifactPath, workflowJson = {}
   const motionEvidence = motionEvidenceList(motionEvidenceJson);
   const screenshots = screenshotIndexList(screenshotIndexJson);
   const evidenceReferences = validateEvidenceJson(evidenceJson, workflowPayload.evidenceAuthority);
+  validateReadiness(workflowPayload, rankedReferences, evidenceReferences);
   const topReference = validateTopReference(rankedReferences);
-  const inspectedPinMedia = validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath);
-  const inspectedMotion = validateMotionAuthority(workflowPayload, motionEvidence, artifactPath);
-  const inspectedScreenshots = validateSnapshotAuthority(workflowPayload, screenshots, artifactPath);
+  const inspectedPinMedia = validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath, rankedReferences);
+  const inspectedMotion = validateMotionAuthority(workflowPayload, motionEvidence, artifactPath, rankedReferences);
+  const inspectedScreenshots = validateSnapshotAuthority(workflowPayload, screenshots, artifactPath, rankedReferences);
 
   if (workflowPayload.evidenceAuthority === "pin_media_ready" && inspectedPinMedia.length === 0) {
     throw new Error("pin_media_authority_not_inspected");

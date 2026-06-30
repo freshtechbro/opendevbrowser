@@ -1,6 +1,6 @@
 # src/browser/ — Agent Guidelines
 
-**Scope:** Browser lifecycle, session management, target tracking, script execution, `/canvas` orchestration, preview sync
+**Scope:** Browser lifecycle, session management, target tracking, script execution, browser-facing `/canvas` session, workspace, and preview orchestration
 
 ## Overview
 
@@ -10,7 +10,7 @@ Owns Playwright browser instances, session state, target (page/tab) management, 
 
 ```
 src/browser/
-├── annotation-manager.ts         # Annotation transport coordination + shared inbox stored retrieval
+├── annotation-manager.ts         # Browser-side annotation routing wrapper + shared inbox stored retrieval bridge
 ├── browser-manager.ts            # Main orchestrator - launch, connect, lifecycle
 ├── canvas-client.ts              # /canvas relay client
 ├── canvas-code-sync-manager.ts   # Framework-adapter-backed code sync status/pull/push/watch
@@ -51,8 +51,9 @@ src/browser/
 - Step-by-step execution via `executeStep()`
 
 ### CanvasManager
-- `/canvas` command router for session open/attach/status/close, document load/import/patch/save/export, history undo/redo, inventory list/insert, starter list/apply, preview render/refresh, tab open/close, overlay state, feedback polling, and public feedback pull-stream commands
+- `/canvas` command router for session open/attach/status/close, public `canvas.workspace.*` orchestration, document load/import/patch/save/export, history undo/redo, inventory list/insert, starter list/apply, preview render/refresh, tab open/close, overlay state, feedback polling, and public feedback pull-stream commands
 - Owns session leases and design-tab target state
+- Owns public `canvas.workspace.open`, `canvas.workspace.status`, `canvas.workspace.child.add`, `canvas.workspace.child.execute`, `canvas.workspace.child.close`, and `canvas.workspace.close` routing as a refs-only coordinator above child sessions; child document semantics remain in `src/canvas/`
 - Derives the design-tab session summary from normalized canvas documents, including additive framework/plugin/import/capability metadata plus built-in kit and starter availability metadata when present
 - Merges document-backed inventory with the built-in catalog for `canvas.inventory.list` and `canvas.inventory.insert`, and composes `canvas.starter.apply` from the same document-backed inventory/token paths instead of a second starter store
 - Delegates framework-adapter-backed bind/pull/push/resolve work to `CanvasCodeSyncManager`
@@ -66,6 +67,7 @@ src/browser/
 - Owns direct-vs-relay annotate routing
 - Resolves `annotate --stored` through the shared repo-local agent inbox first and the extension-local fallback second
 - Keeps relay-only requirements explicit for extension-backed stored fetches
+- For annotation capture schema, compact defaults, redaction, and stored payload semantics, follow `src/annotate/AGENTS.md`; this browser manager is only the session/relay bridge.
 
 ### OpsBrowserManager boundary
 - Extension-backed screencast capture reuses the existing screenshot primitive at the manager layer.

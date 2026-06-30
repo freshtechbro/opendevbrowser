@@ -66,6 +66,13 @@ const result = await runDirectAnnotate(manager, assets, {
 5. **Shared inbox path:** core bootstrap handles `store_agent_payload` locally with `AgentInbox.enqueue(...)`; one active scope becomes `delivered`, zero or multiple active scopes become `stored_only` with `no_active_scope` or `ambiguous_scope`.
 6. Agent consumes the matching scope through the system block and acknowledges consumed receipts.
 
+### Annotation V2 Compact Handoff
+
+- Explicit Send defaults to compact Annotation V2 payloads with `schemaVersion: 2`; screenshot-free metadata, stable element identity, anchor, selector, and note summaries must remain enough for follow-up without storing full screenshots.
+- Compact handoff must use the shared annotation redaction path before relay, inbox persistence, or system-block injection. Do not add one-off redaction logic in browser, relay, extension, or CLI response code.
+- System injection is a compact summary boundary only: include bounded, redacted fields needed for agent action, and keep screenshots, raw DOM dumps, unrestricted selector bags, and oversized user text out of the injected block.
+- Stored payload behavior remains explicit-user-send only; compact defaults do not make passive annotation capture eligible for inbox persistence.
+
 ### System Block Format
 ```
 [opendevbrowser-agent-inbox]

@@ -46,6 +46,7 @@ function makeBundle(overrides: {
   mediaAnalysis?: Record<string, unknown>;
   rankedReference?: Record<string, unknown>;
   motionEvidence?: unknown;
+  screenshotEntry?: Record<string, unknown>;
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "odb-inspiredesign-strict-test-"));
   const artifactPath = join(root, "inspiredesign", "run-1");
@@ -107,7 +108,8 @@ function makeBundle(overrides: {
       path: "visual-evidence/pin-ref/viewport.png",
       sha256: screenshotSha,
       bytes: screenshotBytes.length,
-      warnings: []
+      warnings: [],
+      ...overrides.screenshotEntry
     }]
   });
   writeJson(join(artifactPath, "media-analysis.json"), {
@@ -124,7 +126,11 @@ function makeBundle(overrides: {
   };
 }
 
-function writeMotionEvidence(artifactPath: string, motionOverrides: Record<string, unknown> = {}) {
+function writeMotionEvidence(
+  artifactPath: string,
+  motionOverrides: Record<string, unknown> = {},
+  entryOverrides: Record<string, unknown> = {}
+) {
   mkdirSync(join(artifactPath, "motion-evidence", "pin-ref"), { recursive: true });
   writeFileSync(join(artifactPath, "motion-evidence", "pin-ref", "replay.json"), motionReplayBytes);
   writeFileSync(join(artifactPath, "motion-evidence", "pin-ref", "preview.png"), motionPreviewBytes);
@@ -132,6 +138,7 @@ function writeMotionEvidence(artifactPath: string, motionOverrides: Record<strin
     motionEvidence: [{
       referenceId: "pin-ref",
       url: "https://www.pinterest.com/pin/123/",
+      ...entryOverrides,
       motion: {
         status: "captured",
         kind: "screencast",
@@ -224,6 +231,9 @@ describe("inspiredesign strict proof script", () => {
         rankedReferenceCount: 1,
         mediaAnalysisAdvisoryOnly: true,
         pinMediaInspections: [{
+          referenceId: "pin-ref",
+          url: "https://www.pinterest.com/pin/123/",
+          sourceUrl: "https://www.pinterest.com/pin/123/",
           path: "pin-media-evidence/pin-ref/main.jpg",
           bytes: pinBytes.length,
           sha256: pinSha
@@ -273,9 +283,31 @@ describe("inspiredesign strict proof script", () => {
     });
     try {
       expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
-        .toThrow("media_analysis_claims_product_authority:media-analysis.references[0].authority");
+        .toThrow("media_analysis_claims_readiness_key:media-analysis.references[0].authority");
     } finally {
       rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects media-analysis readiness keys and strict authority values", () => {
+    const readinessKeyBundle = makeBundle({
+      mediaAnalysis: { ready: true }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(readinessKeyBundle.artifactPath, readinessKeyBundle.workflow))
+        .toThrow("media_analysis_claims_readiness_key:media-analysis.ready");
+    } finally {
+      rmSync(readinessKeyBundle.root, { recursive: true, force: true });
+    }
+
+    const authorityValueBundle = makeBundle({
+      mediaAnalysis: { references: [{ referenceId: "pin-ref", claimLevel: "pin_media_ready" }] }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(authorityValueBundle.artifactPath, authorityValueBundle.workflow))
+        .toThrow("media_analysis_claims_readiness_authority:media-analysis.references[0].claimLevel");
+    } finally {
+      rmSync(authorityValueBundle.root, { recursive: true, force: true });
     }
   });
 
@@ -325,13 +357,18 @@ describe("inspiredesign strict proof script", () => {
 
   it("inspects motion-ready replay and preview files before accepting motion authority", () => {
     const bundle = makeBundle({
-      workflow: { evidenceAuthority: "motion_ready" }
+      workflow: { evidenceAuthority: "motion_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" }
     });
-    writeMotionEvidence(bundle.artifactPath);
+    writeMotionEvidence(bundle.artifactPath, {}, { referenceId: "motion-ref", url: "https://example.com/reference" });
     try {
       const inspection = inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow);
       expect(inspection.motionInspections).toEqual([{
         index: 0,
+        referenceId: "motion-ref",
+        url: "https://example.com/reference",
+        sourceUrl: null,
         replay: {
           path: "motion-evidence/pin-ref/replay.json",
           bytes: motionReplayBytes.length,
@@ -350,9 +387,11 @@ describe("inspiredesign strict proof script", () => {
 
   it("rejects motion evidence with diagnostic reasons for motion authority", () => {
     const bundle = makeBundle({
-      workflow: { evidenceAuthority: "motion_ready" }
+      workflow: { evidenceAuthority: "motion_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" }
     });
-    writeMotionEvidence(bundle.artifactPath, { diagnosticReasons: ["controls_only"] });
+    writeMotionEvidence(bundle.artifactPath, { diagnosticReasons: ["controls_only"] }, { referenceId: "motion-ref", url: "https://example.com/reference" });
     try {
       expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
         .toThrow("motion_evidence_entry_diagnostic_reasons:0");
@@ -363,9 +402,11 @@ describe("inspiredesign strict proof script", () => {
 
   it("rejects diagnostic motion evidence for motion authority", () => {
     const bundle = makeBundle({
-      workflow: { evidenceAuthority: "motion_ready" }
+      workflow: { evidenceAuthority: "motion_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" }
     });
-    writeMotionEvidence(bundle.artifactPath, { diagnostic: true });
+    writeMotionEvidence(bundle.artifactPath, { diagnostic: true }, { referenceId: "motion-ref", url: "https://example.com/reference" });
     try {
       expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
         .toThrow("motion_evidence_entry_diagnostic:0");
@@ -376,11 +417,17 @@ describe("inspiredesign strict proof script", () => {
 
   it("inspects snapshot-ready screenshot files before accepting snapshot authority", () => {
     const bundle = makeBundle({
-      workflow: { evidenceAuthority: "snapshot_ready" }
+      workflow: { evidenceAuthority: "snapshot_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" },
+      screenshotEntry: { referenceId: "screenshot-ref", url: "https://example.com/reference", sourceUrl: "https://example.com/reference" }
     });
     try {
       const inspection = inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow);
       expect(inspection.screenshotInspections).toEqual([{
+        referenceId: "screenshot-ref",
+        url: "https://example.com/reference",
+        sourceUrl: "https://example.com/reference",
         path: "visual-evidence/pin-ref/viewport.png",
         bytes: screenshotBytes.length,
         sha256: screenshotSha
@@ -392,11 +439,16 @@ describe("inspiredesign strict proof script", () => {
 
   it("fails snapshot-ready bundles when screenshot hashes do not match", () => {
     const bundle = makeBundle({
-      workflow: { evidenceAuthority: "snapshot_ready" }
+      workflow: { evidenceAuthority: "snapshot_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" }
     });
     try {
       writeJson(join(bundle.artifactPath, "screenshot-index.json"), {
         screenshots: [{
+          referenceId: "screenshot-ref",
+          url: "https://example.com/reference",
+          sourceUrl: "https://example.com/reference",
           path: "visual-evidence/pin-ref/viewport.png",
           sha256: "a".repeat(64),
           bytes: screenshotBytes.length
@@ -416,6 +468,134 @@ describe("inspiredesign strict proof script", () => {
     try {
       expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
         .toThrow("bundle_manifest_missing_required_files:media-analysis.json");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires pin-media authority for canonical Pinterest pin references", () => {
+    const bundle = makeBundle({
+      workflow: { evidenceAuthority: "snapshot_ready" }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("canonical_pinterest_pin_requires_pin_media_ready");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects pin-media authority that is not bound to the top ranked reference", () => {
+    const bundle = makeBundle({
+      pinMediaEntry: {
+        referenceId: "other-ref",
+        url: "https://example.com/other",
+        sourceUrl: "https://example.com/other"
+      }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("pin_media_authority_not_bound_to_ranked_reference:0");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts pin-media authority bound by normalized URL", () => {
+    const bundle = makeBundle({
+      rankedReference: {
+        id: "ranked-ref",
+        url: "https://www.pinterest.com/pin/123/?utm_source=test"
+      },
+      pinMediaEntry: {
+        referenceId: "media-ref",
+        url: "https://www.pinterest.com/pin/123/"
+      }
+    });
+    try {
+      expect(inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow).status).toBe("pass");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+
+  it("rejects canonical Pinterest pin-media authority bound only to a non-Pinterest ranked reference", () => {
+    const bundle = makeBundle({
+      rankedReference: { referenceId: "pin-ref", url: "https://www.pinterest.com/pin/123/" },
+      pinMediaEntry: {
+        referenceId: "other-ref",
+        url: "https://example.com/other",
+        sourceUrl: "https://example.com/other"
+      }
+    });
+    writeJson(join(bundle.artifactPath, "ranked-references.json"), {
+      references: [
+        { referenceId: "pin-ref", url: "https://www.pinterest.com/pin/123/", score: 98 },
+        { referenceId: "other-ref", url: "https://example.com/other", score: 91 }
+      ]
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("canonical_pinterest_pin_media_not_bound_to_pinterest_reference");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts authority artifacts bound to non-top ranked references by normalized URL", () => {
+    const bundle = makeBundle({
+      rankedReference: {
+        referenceId: "top-ref",
+        url: "https://example.com/top"
+      },
+      pinMediaEntry: {
+        referenceId: "media-ref",
+        url: "https://www.pinterest.com/pin/123/"
+      }
+    });
+    writeJson(join(bundle.artifactPath, "ranked-references.json"), {
+      references: [
+        { referenceId: "top-ref", url: "https://example.com/top", score: 98 },
+        { referenceId: "ranked-ref", url: "https://www.pinterest.com/pin/123/?utm_source=test", score: 91 }
+      ]
+    });
+    try {
+      expect(inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow).status).toBe("pass");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects motion authority that is not bound to a ranked reference", () => {
+    const bundle = makeBundle({
+      workflow: { evidenceAuthority: "motion_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" }
+    });
+    writeMotionEvidence(bundle.artifactPath, {}, { referenceId: "other-ref", url: "https://example.com/other" });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("motion_authority_not_bound_to_ranked_reference:0");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects snapshot authority that is not bound to a ranked reference", () => {
+    const bundle = makeBundle({
+      workflow: { evidenceAuthority: "snapshot_ready" },
+      evidence: { references: [{ url: "https://example.com/reference" }] },
+      rankedReference: { url: "https://example.com/reference" },
+      screenshotEntry: {
+        referenceId: "other-ref",
+        url: "https://example.com/other",
+        sourceUrl: "https://example.com/other"
+      }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("snapshot_authority_not_bound_to_ranked_reference:0");
     } finally {
       rmSync(bundle.root, { recursive: true, force: true });
     }
