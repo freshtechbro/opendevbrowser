@@ -519,6 +519,27 @@ describe("inspiredesign strict proof script", () => {
     }
   });
 
+  it("rejects canonical Pinterest pin-media authority with same id but off-platform proof", () => {
+    const bundle = makeBundle({
+      pinMediaEntry: {
+        referenceId: "pin-ref",
+        url: "https://evil.example/pin/123/",
+        sourceUrl: "https://evil.example/source/123/",
+        mediaUrl: "https://evil.example/media.jpg",
+        firstPartyProvenance: {
+          referenceUrlCanonical: false,
+          sourceUrlMatchesReference: false,
+          mediaUrlFirstParty: false
+        }
+      }
+    });
+    try {
+      expect(() => inspectInspiredesignStrictBundle(bundle.artifactPath, bundle.workflow))
+        .toThrow("canonical_pinterest_pin_media_entry_not_first_party:0");
+    } finally {
+      rmSync(bundle.root, { recursive: true, force: true });
+    }
+  });
 
   it("rejects canonical Pinterest pin-media authority bound only to a non-Pinterest ranked reference", () => {
     const bundle = makeBundle({

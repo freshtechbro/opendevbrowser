@@ -325,6 +325,32 @@ function isCanonicalPinterestPinUrl(value) {
   }
 }
 
+function isFirstPartyPinterestMediaUrl(value) {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return hostname === "pinimg.com" || hostname.endsWith(".pinimg.com");
+  } catch {
+    return false;
+  }
+}
+
+function assertCanonicalPinterestPinMediaEntry(entry, index) {
+  if (!isRecord(entry)) throw new Error(`canonical_pinterest_pin_media_entry_invalid:${index}`);
+  const provenance = isRecord(entry.firstPartyProvenance) ? entry.firstPartyProvenance : null;
+  if (
+    !isCanonicalPinterestPinUrl(entry.url)
+    || !isCanonicalPinterestPinUrl(entry.sourceUrl)
+    || !isFirstPartyPinterestMediaUrl(entry.mediaUrl)
+    || provenance?.referenceUrlCanonical !== true
+    || provenance?.sourceUrlMatchesReference !== true
+    || provenance?.mediaUrlFirstParty !== true
+  ) {
+    throw new Error(`canonical_pinterest_pin_media_entry_not_first_party:${index}`);
+  }
+}
+
 function canonicalPinterestPinReferences(references) {
   return references.filter((reference) => {
     const identity = referenceIdentity(reference);
@@ -477,11 +503,16 @@ function validatePinMediaAuthority(workflowPayload, pinMediaIndex, artifactPath,
     );
     return inspectPinMediaEntry(entry, index, artifactPath);
   });
-  if (
-    canonicalPinterestReferences.length > 0
-    && !pinMediaIndex.some((entry) => canonicalPinterestReferences.some((reference) => referenceMatchesAuthorityEntry(reference, entry)))
-  ) {
-    throw new Error("canonical_pinterest_pin_media_not_bound_to_pinterest_reference");
+  if (canonicalPinterestReferences.length > 0) {
+    const hasCanonicalPinterestAuthority = pinMediaIndex.some((entry, index) => {
+      const matchesCanonicalReference = canonicalPinterestReferences.some((reference) => referenceMatchesAuthorityEntry(reference, entry));
+      if (!matchesCanonicalReference) return false;
+      assertCanonicalPinterestPinMediaEntry(entry, index);
+      return true;
+    });
+    if (!hasCanonicalPinterestAuthority) {
+      throw new Error("canonical_pinterest_pin_media_not_bound_to_pinterest_reference");
+    }
   }
   return inspectedEntries;
 }
