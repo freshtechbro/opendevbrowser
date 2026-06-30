@@ -1,11 +1,11 @@
 # Annotate
 
 Status: active  
-Last updated: 2026-05-19
+Last updated: 2026-06-30
 
 OpenDevBrowser can capture interactive annotations either directly via CDP/Playwright or through the extension relay, and
-return a markdown summary plus structured data and screenshots. This is exposed through both the `annotate` CLI command
-and the `opendevbrowser_annotate` tool.
+return a markdown summary plus structured data and screenshot asset references. This is exposed through both the `annotate` CLI command
+and the `opendevbrowser_annotate` tool. New payloads use Annotation V2 compact handoff by default for copy, send, shared inbox, and system injection.
 Generated help surfaces browser replay and desktop observation as separate capability families; annotate remains a browser annotation lane and does not widen challenge automation into desktop control.
 
 ## Requirements
@@ -136,10 +136,10 @@ Direct/relay capture example:
 The tool returns:
 
 - `message`: markdown summary with per-annotation notes
-- `details`: structured annotation payload (redacted)
-- `screenshots`: array of `{ id, path }` with local temp file paths
+- `details`: structured Annotation V2 payload with `schemaVersion: 2`, screenshot-free `compact`, and redaction metadata
+- `screenshots`: array of `{ id, path }` with local temp file paths for the active capture path only
 
-Screenshots are written to the system temp directory (example: `/tmp/opendevbrowser-annotate-*.png`).
+Screenshots are written to the system temp directory (example: `/tmp/opendevbrowser-annotate-*.png`). They are not persisted to the shared inbox or injected into chat context.
 
 Stored payload retrieval notes:
 - `--stored` / `stored: true` checks the shared repo-local agent inbox first, then falls back to the extension-local stored payload if no shared entry exists.
@@ -149,9 +149,22 @@ Stored payload retrieval notes:
 - `--include-screenshots` / `includeScreenshots: true` only changes the extension-local fallback path; it prefers the in-memory payload when screenshots are still available and otherwise falls back to the sanitized stored payload without screenshots.
 - Shared inbox retention is bounded to `200` entries total, `50` unread entries, `7` days TTL, and duplicate suppression on the same `(payloadHash, source, label)` within `60` seconds.
 
+## Annotation V2 compact handoff
+
+Annotation V2 keeps rich capture details internal while making the compact payload the default agent boundary:
+
+- `details.schemaVersion` and `details.compact.schemaVersion` are `2`.
+- `details.compact.screenshotMode` is always `none` and `details.compact.byteBudget` is `24576` bytes.
+- `details.compact.redaction` records removed fields, truncated fields, screenshot byte removal, original byte length, and compact byte length.
+- Each compact item carries `identity` plus `selectorBundle` so agents can recover the target without raw framework internals.
+- Selector bundles rank stable same-session facts and explicit metadata before weaker locators: backend node and frame facts when available, test or data ids, ARIA role/name, CSS, shadow-chain, XPath, then bounded text fallback.
+- Extension-only capture records unavailable CDP-only fields as absent with a reason instead of fabricating backend node or frame ids.
+- Canvas-origin annotations include canvas binding identity such as document, page, node, token, prototype, or region metadata when available.
+- DOM and canvas annotation UIs use the same anchor-first placement helper with viewport clamp, panel avoidance, collision handling, connector fallback, resize reclamp, and mobile side-panel fallback.
+
 ## Redaction
 
-Sensitive attributes, notes, and text are automatically redacted (tokens, secrets, passwords, long random strings).
+Sensitive attributes, notes, and text are automatically redacted before compact derivation, persistence, relay send, copy, shared inbox storage, or system injection. This includes tokens, secrets, passwords, long random strings, screenshot bytes, and framework-private debug metadata in default handoff payloads.
 Use `details` for inspection; avoid shipping raw output without review.
 
 ## Troubleshooting

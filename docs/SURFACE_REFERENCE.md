@@ -2,7 +2,7 @@
 
 Source-accurate inventory for CLI commands, plugin tools, relay channel commands, flags, and modes.
 Status: active  
-Last updated: 2026-06-05
+Last updated: 2026-06-30
 
 This reference is intentionally exhaustive and should stay synchronized with:
 - `src/public-surface/source.ts`
@@ -214,7 +214,7 @@ Operational note:
 - `opendevbrowser_annotate` - Capture interactive annotations.
 
 ### Design canvas (1)
-- `opendevbrowser_canvas` - Execute a typed design-canvas command surface call.
+- `opendevbrowser_canvas` - Execute a typed design-canvas command surface call, including refs-only workspace orchestration over child sessions.
 
 ### Macro, workflow, and skill surfaces (8)
 - `opendevbrowser_macro_resolve` - Resolve or execute provider macro expressions.
@@ -348,9 +348,9 @@ Envelope contract:
 - In scope: preserved sessions, low-level pointer control, visual observation loops, bounded auth-navigation and session-reuse attempts, reclaimable human yield packets, and owned-environment fixtures that use vendor test keys only.
 - Out of scope: hidden bypasses, CAPTCHA-solving services, challenge token harvesting, or autonomous unsandboxed solving of third-party anti-bot systems.
 
-### `/canvas` command names (35)
+### `/canvas` command names (41)
 
-`/canvas` is the typed design-canvas relay protocol used by `opendevbrowser_canvas` and the `canvas` CLI command. Canonical document mutations execute in core; extension runtime support is used for the extension-hosted `canvas.html` infinite-canvas editor, converged design-tab state sync, and overlay commands.
+`/canvas` is the typed design-canvas relay protocol used by `opendevbrowser_canvas` and the `canvas` CLI command. Canonical document mutations and refs-only workspace orchestration execute in core; extension runtime support is used for the extension-hosted `canvas.html` infinite-canvas editor, workspace-scoped design-tab state sync, 4x2 child shell, and overlay commands.
 
 #### Session and governance (7)
 - `canvas.session.open`
@@ -360,6 +360,14 @@ Envelope contract:
 - `canvas.capabilities.get`
 - `canvas.plan.set`
 - `canvas.plan.get`
+
+#### Workspace orchestration (6)
+- `canvas.workspace.open`
+- `canvas.workspace.status`
+- `canvas.workspace.child.add`
+- `canvas.workspace.child.execute`
+- `canvas.workspace.child.close`
+- `canvas.workspace.close`
 
 #### Document and history (7)
 - `canvas.document.load`
@@ -407,6 +415,10 @@ Extension runtime subset (internal relay helpers, not public agent commands):
 
 Behavior notes:
 - `canvas.session.open` creates a session and lease; `canvas.session.attach` joins an existing session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
+- `canvas.workspace.*` is an orchestration layer above existing child sessions. It stores refs-only manifests under `.opendevbrowser/canvas-workspace/<workspaceId>/workspace-manifest.json`, routes child commands through the original child session lease, and never duplicates child document contents in the workspace manifest.
+- Workspace guardrails reject duplicate child ids, canvas sessions, leases, document ids, repo paths, and code-sync binding ids, including before a `canvas.workspace.child.execute` route would create a collision.
+- Workspace preview budgets classify children as `focused_live`, `pinned_live`, `background_live`, `thumbnail`, `paused`, or `degraded`, and workspace telemetry records operation latency, queued preview work, active live preview count, and bounded memory samples.
+- `canvas.workspace.close` closes the coordinator only and preserves child sessions. Use `canvas.workspace.child.close` or `canvas.session.close` when a child session should be closed.
 - Canvas guidance is centrally constructed with shared next-step advisory builders while preserving Canvas-native fields: `guidance.recommendedNextCommands`, `guidance.reason`, and blocker `requiredNextCommands`.
 - Repairable Canvas responses can also include typed `guidance.nextStepGuidance`, `guidance.paramsExamples`, `guidance.fieldExamples`, `guidance.validationChecks`, and `guidance.doNotProceedIf` so agents can copy a valid repair shape instead of guessing.
 - `canvas.session.open` returns the first authoritative operator handshake. `canvas.capabilities.get` re-reads that handshake only after a `canvasSessionId` exists; both include `generationPlanRequirements.allowedValues`, `generationPlanIssues`, `warningClasses`, `mutationPolicy.allowedBeforePlan`, `guidance.recommendedNextCommands`, and repair examples when a plan is missing or invalid.
@@ -420,12 +432,12 @@ Behavior notes:
 - `canvas.inventory.list` is read-only and returns the merged reusable inventory surface: the current document-backed inventory plus the shipped built-in kit catalog entries. `canvas.inventory.insert` expands either inventory template into new stage nodes under the requested or inferred parent.
 - `canvas.starter.list` exposes the eight shipped built-in starters. `canvas.starter.apply` seeds a generation plan when missing, merges kit token collections into `document.tokens`, installs required kit entries into `document.componentInventory`, and inserts starter shell content onto the active page. Unsupported framework or adapter requests degrade to semantic shell nodes with typed feedback instead of failing the entire mutation. Starter payloads now prefer `libraryAdapterId` for the resolved built-in kit adapter; legacy `adapterId` remains as a backward-compatible alias and should not be confused with code-sync `frameworkAdapterId`.
 - `canvas.document.save` and `canvas.document.export` can fail with `policy_violation` when `requiredBeforeSave` governance blocks are still missing.
-- Extension-hosted design tabs persist full same-origin editor state in `IndexedDB`, rebroadcast converged state over `BroadcastChannel`, forward editor-originated patch requests through `canvas_event` payloads, and expose pages, layers, properties, history controls, and extension-stage region annotation.
+- Extension-hosted design tabs persist full same-origin editor state in workspace and child scoped `IndexedDB` keys, rebroadcast converged state over workspace and child scoped `BroadcastChannel` names, forward editor-originated patch requests through `canvas_event` payloads, and expose pages, layers, properties, history controls, and extension-stage region annotation. Workspace tabs render the 4x2 shell with coordinator, active child detail, worker panes, activity, review, checkpoints, preview budget indicators, and visible delivered/degraded/paused/conflict/lease/revision/sync states.
 - `canvas.tab.open` is the public command; internal `canvas.tab.sync` keeps extension-hosted design tabs on the same core-rendered HTML materialization path after public mutations.
 - `canvas.code.*` manages framework-adapter-backed bindings with repo-local manifests under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`. Built-in lanes currently ship for `builtin:react-tsx-v2`, `builtin:html-static-v1`, `builtin:custom-elements-v1`, `builtin:vue-sfc-v1`, and `builtin:svelte-sfc-v1`; legacy `tsx-react-v1` bindings migrate on load to `builtin:react-tsx-v2`, and repo-local BYO adapter plugins load only from workspace metadata, repo manifests, or explicit local config declarations.
 - `canvas.preview.render` and `canvas.preview.refresh` default to projected `canvas_html`, but bindings that opt into `projection=bound_app_runtime` attempt in-place runtime reconciliation before falling back to canonical HTML projection.
 - `canvas.feedback.poll` remains the snapshot query for cursor-based audits. Before the plan is accepted it synthesizes a `preflight-blocker` item for `plan_required` or `generation_plan_invalid`, so agents can reuse the same loop for missing and invalid plan states. `canvas.feedback.subscribe` returns `subscriptionId`, `cursor`, `heartbeatMs`, `expiresAt`, `initialItems`, and `activeTargetIds`; `canvas.feedback.next` returns exactly one `feedback.item`, `feedback.heartbeat`, or `feedback.complete` event; `canvas.feedback.unsubscribe` ends the public pull stream. The CLI `stream-json` bridge now uses the same public `subscribe -> next -> unsubscribe` contract, and tool callers can do the same through repeated `opendevbrowser_canvas` calls.
-- `canvas.session.status` and `canvas.code.status` surface attached clients, active lease holder, watch state, drift/conflict state, projection mode, fallback reasons, parity artifacts, available starter count, and the currently applied starter metadata.
+- `canvas.session.status` and `canvas.code.status` surface attached clients, active lease holder, watch state, drift/conflict state, projection mode, fallback reasons, parity artifacts, available starter count, and the currently applied starter metadata. When a session belongs to a workspace, `canvas.session.status` also includes workspace shell summary fields for coordinator state, child refs, activity, checkpoints, preview budget state, and visible child states.
 
 Envelope contract:
 - request: `canvas_request` (`requestId`, `canvasSessionId`, `leaseId`, `command`, `payload`)
@@ -465,8 +477,9 @@ Commands:
 Behavior notes:
 - `fetch_stored` resolves the shared repo-local agent inbox path first and the extension-local stored payload fallback second.
 - Popup, canvas, and in-page `Send` actions dispatch `annotation:sendPayload` to the extension background, which posts `store_agent_payload` over `/annotation`.
-- The relay handles `store_agent_payload` locally, enqueues the sanitized payload into the shared `AgentInbox`, and returns a typed receipt with `receiptId`, `deliveryState`, `storedFallback`, optional `reason`, optional `chatScopeKey`, plus `createdAt`, `itemCount`, `byteLength`, `source`, and `label`.
+- The relay handles `store_agent_payload` locally, enqueues the sanitized Annotation V2 payload into the shared `AgentInbox`, and returns a typed receipt with `receiptId`, `deliveryState`, `storedFallback`, optional `reason`, optional `chatScopeKey`, plus `createdAt`, `itemCount`, `byteLength`, `source`, and `label`.
 - Shared inbox persistence strips screenshots and keeps only asset refs plus the sanitized payload in `.opendevbrowser/annotate/agent-inbox.jsonl`.
+- New stored payloads use `schemaVersion: 2` and include a screenshot-free `compact` handoff with byte-budget metadata, redaction metadata, target identity, and ordered selector bundles. Selector bundle families cover backend node or frame facts when available, test/data ids, ARIA, CSS, shadow-chain, XPath, and bounded text fallback; extension-only captures mark CDP-only facts unavailable rather than inventing them.
 
 Envelope contract:
 - request: `AnnotationCommand` (`requestId`, `command`, optional `payload`/`source`/`label`/`options`)
@@ -568,7 +581,7 @@ Auth and policy:
 - Extension-mode canonical Pinterest pin-media harvest opens the exact canonical pin in the extension before extracting persisted first-party bytes. This is the default product path for reliable image, GIF, and video pin media capture.
 - Inspiredesign harvest primary capture is pin-media-first for Pinterest: proven image, GIF, and video pins require manifest-backed pin-media evidence for product-ready canonical pin-media harvests. Screenshot evidence and screencast evidence remain useful capture or motion lanes, but they are not substitutes for `evidenceAuthority=pin_media_ready`. Video posters remain still-image fallback cues, and DOM/clone/deep capture is disabled for Pinterest harvest. Remote DOM media URLs are not product-ready unless persisted first-party bytes appear in `pin-media-index.json`.
 - Inspiredesign capture-mode resolution preserves the existing explicit-URL override: `inspiredesign run` forces `captureMode=deep` for any explicit `--url`, while `inspiredesign harvest` forces deep capture for non-Pinterest explicit `--url` references even when `--capture-mode off` is requested. Pinterest-only harvest discovery and compatible Pinterest URL recovery force `captureMode=off` even when `--capture-mode deep` is requested.
-- Inspiredesign harvest artifacts: `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, `media-analysis.json`, `ranked-references.json`, and `meta-prompt.md` are emitted with screenshot PNGs under `visual-evidence/<referenceId>/viewport.png`, motion artifacts under `motion-evidence/<referenceId>/` when video evidence is captured, and Pinterest pin media under `pin-media-evidence/<referenceId>/main.*`, `pin-media-evidence/<referenceId>/video.mp4`, or `pin-media-evidence/<referenceId>/poster.*` when canonical pin media proof is captured. JSON remains bounded and artifact-relative with paths, hashes, byte counts, viewport or media facts when available, reference id and URL, warnings, limitations, and non-goals.
+- Inspiredesign harvest artifacts: `evidence.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, `media-analysis.json`, `ranked-references.json`, `bundle-manifest.json`, and `meta-prompt.md` are emitted with screenshot PNGs under `visual-evidence/<referenceId>/viewport.png`, motion artifacts under `motion-evidence/<referenceId>/` when video evidence is captured, and Pinterest pin media under `pin-media-evidence/<referenceId>/main.*`, `pin-media-evidence/<referenceId>/video.mp4`, or `pin-media-evidence/<referenceId>/poster.*` when canonical pin media proof is captured. JSON remains bounded and artifact-relative with paths, hashes, byte counts, viewport or media facts when available, reference id and URL, warnings, limitations, and non-goals.
 - `media-analysis.json` is the deterministic design-fact surface for trusted saved pin media. It may include dimensions, tone, quantized palette, layout posture, OCR-free typography structure, text-region geometry, sampled GIF/video motion facts, `motionSignature`, limitations, and non-goals, but it never grants readiness authority or replaces `pin-media-index.json` provenance. `motionSignature` is saved-media analysis only, not browser replay evidence, hover timing, or interaction choreography.
 - FFmpeg and FFprobe are recommended optional host tools for richer media-analysis metadata and sampled GIF or video facts. They are not bundled static binaries and are not downloaded by default.
 - Media-analysis binaries resolve from `OPENDEVBROWSER_FFMPEG_PATH` and `OPENDEVBROWSER_FFPROBE_PATH`, then `inspiredesign.mediaAnalysis.ffmpegPath` and `inspiredesign.mediaAnalysis.ffprobePath`, then `ffmpeg` and `ffprobe` on `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses only. Invalid env or config paths stay diagnostic and do not fall back. `status-capabilities` reports this host state under `host.mediaAnalysis`.
@@ -578,7 +591,7 @@ Auth and policy:
 - Inspiredesign visual policy boundaries: visual capture must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; blocked references surface diagnostics instead of browser screenshot fallback.
 - Workflow response keys: artifact-bearing workflow success payloads use `artifact_path`; provider follow-up summaries use `meta.primaryConstraintSummary`; typed recovery and handoff payloads use `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, `fallbackPolicy`, and `doNotProceedIf` when available. Inspiredesign harvest also reports product `ready`, `guidanceReady`, `guidanceReadiness`, `productSuccess`, `harvestReadiness`, `readiness`, `rankedReferenceCount`, `evidenceAuthority`, and `artifactAuthority` so wrapper success is not confused with design readiness. Product `ready` is true only when authority gates pass.
 - `design-contract.json.colorSystem.tokens` and `implementation-plan.json.tokenStrategy.colors` use explicit `{ light, dark }` semantic token maps. `design-agent-handoff.json.implementationContext.tokenStrategy` carries the same dual-mode token strategy for implementation agents.
-- Continue to Canvas only when top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, ranked references are non-empty, no matching `doNotProceedIf` blockers remain active, and manifest-backed authority evidence exists. For canonical Pinterest pin-media harvests, Canvas continuation requires `evidenceAuthority=pin_media_ready` and manifest-backed `pin-media-index.json`; `snapshot_ready` and `motion_ready` are not substitutes for pin-media readiness. For `needs_recovery`, `blocked`, or `diagnostic_only`, follow recovery-first guidance and do not treat emitted artifacts as design-ready.
+- Continue to Canvas only when top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, ranked references are non-empty, no matching `doNotProceedIf` blockers remain active, and manifest-backed authority evidence exists. Strict proof reviews should inspect `evidence.json`, `ranked-references.json`, `pin-media-index.json`, `motion-evidence.json`, `media-analysis.json`, and `bundle-manifest.json` directly before accepting release or Canvas follow-through evidence. For canonical Pinterest pin-media harvests, Canvas continuation requires `evidenceAuthority=pin_media_ready` and manifest-backed `pin-media-index.json`; `snapshot_ready` and `motion_ready` are not substitutes for pin-media readiness. For `needs_recovery`, `blocked`, or `diagnostic_only`, follow recovery-first guidance and do not treat emitted artifacts as design-ready.
 - Pinterest product readiness is pin-media-first: canonical pin URLs become product-ready only when their first-party pin-media artifact is captured, persisted, present in its manifest-backed index, and free of blocking warnings. `pin-media-index.json` remains the only pin-media readiness and provenance authority for persisted first-party bytes. Screenshot and screencast artifacts can inform diagnostics or motion design, but they do not satisfy required Pinterest pin-media readiness. The exact `login_or_challenge_state` and strict byte-backed `interface_chrome_shell` diagnostics are non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness.
 - Prefer omitted output roots for routine workflow bundles. Omitted outputs use `.opendevbrowser/<namespace>/<runId>` and include `bundle-manifest.json`. CLI invocations resolve omitted roots from cwd before daemon dispatch; direct daemon RPC uses `core.workspaceRoot/.opendevbrowser`; direct OpenCode workflow tools use `deps.workspaceRoot/.opendevbrowser`. If a wrapper must pass an explicit workflow root, prefer `.opendevbrowser`; explicit external output roots remain caller-controlled for intentional temp, release, debug, audit, screenshot, and screencast lanes.
 - `artifacts cleanup --expired-only` without `--output-dir` targets the current working directory's `.opendevbrowser` root. Use `--output-dir /tmp/opendevbrowser` only when intentionally cleaning an explicit temp artifact root.

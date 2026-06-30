@@ -1,18 +1,18 @@
 # Design Canvas Technical Spec
 
 Status: active  
-Last updated: 2026-05-19
+Last updated: 2026-06-30
 
 ## Overview
 
-OpenDevBrowser's design-canvas subsystem is the typed design surface for session-backed document editing, reusable inventory insertion, starter seeding, preview generation, overlay selection, and feedback collection. The public command entrypoints are `opendevbrowser_canvas` and `npx opendevbrowser canvas`.
+OpenDevBrowser's design-canvas subsystem is the typed design surface for session-backed document editing, refs-only workspace orchestration, reusable inventory insertion, starter seeding, preview generation, overlay selection, and feedback collection. The public command entrypoints are `opendevbrowser_canvas` and `npx opendevbrowser canvas`.
 
 ## Runtime layers
 
 | Layer | Source of truth | Responsibility |
 |------|------------------|----------------|
 | Tool/CLI surface | `src/tools/canvas.ts`, `src/cli/commands/canvas.ts` | Expose the public `canvas.*` command surface |
-| Browser orchestration | `src/browser/canvas-manager.ts` | Session leases, command routing, document lifecycle, preview, overlay, feedback |
+| Browser orchestration | `src/browser/canvas-manager.ts` | Session leases, workspace coordination, command routing, document lifecycle, preview, overlay, feedback |
 | Browser support | `src/browser/canvas-code-sync-manager.ts`, `src/browser/canvas-session-sync-manager.ts`, `src/browser/canvas-runtime-preview-bridge.ts` | Code sync, attach state, runtime-bound preview reconciliation |
 | Document core | `src/canvas/document-store.ts`, `src/canvas/types.ts` | Typed document model, validation, patches, revisioning |
 | Persistence + adapters | `src/canvas/repo-store.ts`, `src/canvas/framework-adapters/*`, `src/canvas/library-adapters/*`, `src/canvas/adapter-plugins/*` | Repo persistence, built-in adapter lanes, BYO plugins |
@@ -43,6 +43,7 @@ Advisory motion cues do not add runtime support, authorize new dependencies, or 
 Canonical inventory lives in `src/browser/canvas-manager.ts` (`PUBLIC_CANVAS_COMMANDS`) and is mirrored in `docs/SURFACE_REFERENCE.md`. Current public families:
 
 - `canvas.session.*`: open, attach, status, close
+- `canvas.workspace.*`: open, status, child.add, child.execute, child.close, close
 - `canvas.document.*`: load, import, patch, save, export
 - `canvas.history.*`: undo, redo
 - `canvas.inventory.*`: list, insert
@@ -52,6 +53,25 @@ Canonical inventory lives in `src/browser/canvas-manager.ts` (`PUBLIC_CANVAS_COM
 - `canvas.preview.*`: render, refresh
 - `canvas.feedback.*`: poll, subscribe, next, unsubscribe
 - `canvas.code.*`: bind, unbind, pull, push, status, resolve
+
+## Workspace orchestration
+
+`canvas.workspace.*` is an additive coordinator above existing child sessions. It does not replace the one-session-per-document model. Child `CanvasManager` sessions remain the authority for leases, revisions, document contents, code-sync bindings, preview, feedback, and persistence.
+
+Workspace commands provide:
+
+- `canvas.workspace.open`: create or attach a coordinator over existing child sessions.
+- `canvas.workspace.status`: inspect child refs, preview budgets, telemetry, and guardrail state.
+- `canvas.workspace.child.add`: add another existing child session to a workspace.
+- `canvas.workspace.child.execute`: route a non-workspace child command through the child's original session and lease guardrails.
+- `canvas.workspace.child.close`: remove or close a child from the coordinator path.
+- `canvas.workspace.close`: close the coordinator only. Child sessions and documents remain available unless a child close command is used.
+
+Workspace manifests are refs-only and persist under `.opendevbrowser/canvas-workspace/<workspaceId>/workspace-manifest.json`. They record child ids, child canvas session refs, document ids, repo paths, code-sync binding ids, roles, preview-budget state, and telemetry. They do not duplicate child `CanvasDocument` JSON or code-sync manifest contents.
+
+Workspace guardrails reject duplicate child ids, child canvas sessions, active leases, document ids, repo paths, and code-sync binding ids before routing a child command. `canvas.workspace.child.execute` rejects stale child routes and nested `canvas.workspace.*` commands so a workspace cannot mutate a sibling coordinator accidentally.
+
+Preview budgets classify children as `focused_live`, `pinned_live`, `background_live`, `thumbnail`, `paused`, or `degraded`. Four-child shells can keep active worker panes live when the runtime budget permits. Eight-child shells degrade background panes to thumbnails or paused state before claiming live parity. Workspace telemetry records child count, active preview count, queued preview work, operation latency samples, memory samples when available, and retained manifest size.
 
 ## Operator loop
 

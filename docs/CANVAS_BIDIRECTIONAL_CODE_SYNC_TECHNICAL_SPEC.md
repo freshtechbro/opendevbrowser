@@ -1,11 +1,11 @@
 # Canvas Bidirectional Code Sync Technical Spec
 
 Status: active  
-Last updated: 2026-05-19
+Last updated: 2026-06-30
 
 ## Overview
 
-Canvas code sync keeps a canvas document and a bound source file aligned through typed framework adapters, repo-local manifests, drift detection, and explicit conflict resolution. The browser-facing orchestrator is `src/browser/canvas-code-sync-manager.ts`; the reusable transform and persistence layer lives in `src/canvas/code-sync/`.
+Canvas code sync keeps a canvas document and a bound source file aligned through typed framework adapters, repo-local manifests, drift detection, and explicit conflict resolution. Workspace orchestration can route child code-sync commands, but the child canvas session and binding manifest remain the authority. The browser-facing orchestrator is `src/browser/canvas-code-sync-manager.ts`; the reusable transform and persistence layer lives in `src/canvas/code-sync/`.
 
 ## Core responsibilities
 
@@ -55,6 +55,12 @@ Legacy `tsx-react-v1` bindings and manifests migrate on load to `builtin:react-t
 ## Preview projection boundary
 
 Code sync can bind a canvas document to source files, but preview/export still defaults to core-generated `canvas_html`. `bound_app_runtime` is opt-in and only applies when the binding grants runtime preview capability and the target app instrumentation passes preflight. Runtime bridge failure must degrade back to `canvas_html`, not silently claim app-runtime parity.
+
+## Workspace routing and lease guardrails
+
+`canvas.workspace.child.execute` may route `canvas.code.*` commands to a child, but it must not widen the code-sync authority boundary. Workspace routing validates the target child before mutation, preserves the child lease requirement, and rejects stale child ids, nested workspace commands, duplicate document ids, duplicate repo paths, duplicate code-sync binding ids, and cross-child binding mutations before dispatch. A workspace manifest stores only child refs and binding ids; it does not copy binding manifests or source-file contents.
+
+Bound app preview remains opt-in. If a routed child binding cannot prove runtime instrumentation and preview preflight, the child must degrade to `canvas_html`; `degraded` preview budget state is not runtime parity.
 
 ## Conflict model
 

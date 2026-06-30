@@ -10,7 +10,7 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 - Plugin tools: `70`
 - CLI-tool pairs: `67`
 - `/ops` command names: `59`
-- `/canvas` command names: `35`
+- `/canvas` command names: `41`
 - Legacy `/cdp` relay: generic CDP forwarding (method-level), active-legacy-session-only
 
 Canonical exhaustive reference: `docs/SURFACE_REFERENCE.md`.
@@ -78,11 +78,18 @@ Concurrency policy:
 
 Core command families:
 - Session and governance: `canvas.session.open`, `canvas.session.attach`, `canvas.session.status`, `canvas.session.close`, `canvas.capabilities.get`, `canvas.plan.set`, `canvas.plan.get`
+- Workspace orchestration: `canvas.workspace.open`, `canvas.workspace.status`, `canvas.workspace.child.add`, `canvas.workspace.child.execute`, `canvas.workspace.child.close`, `canvas.workspace.close`
 - Document: `canvas.document.load`, `canvas.document.import`, `canvas.document.patch`, `canvas.document.save`, `canvas.document.export`
 - History, inventory, and starters: `canvas.history.undo`, `canvas.history.redo`, `canvas.inventory.list`, `canvas.inventory.insert`, `canvas.starter.list`, `canvas.starter.apply`
 - Live targets and overlay: `canvas.tab.open`, `canvas.tab.close`, `canvas.overlay.mount`, `canvas.overlay.unmount`, `canvas.overlay.select`
 - Preview and feedback: `canvas.preview.render`, `canvas.preview.refresh`, `canvas.feedback.poll`, `canvas.feedback.subscribe`, `canvas.feedback.next`, `canvas.feedback.unsubscribe`
 - Code sync: `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, `canvas.code.resolve`
+
+Workspace behavior:
+- `canvas.workspace.*` coordinates existing child sessions with refs-only manifests under `.opendevbrowser/canvas-workspace/<workspaceId>/workspace-manifest.json`.
+- Child execution preserves child session, lease, document, preview, feedback, and code-sync authority, and rejects nested workspace commands.
+- Guardrails reject duplicate child ids, sessions, leases, document ids, repo paths, code-sync binding ids, and stale child routes before dispatch.
+- Preview budget states are `focused_live`, `pinned_live`, `background_live`, `thumbnail`, `paused`, and `degraded`; `canvas.workspace.close` closes the coordinator while preserving child sessions.
 
 Extension runtime subset:
 - `canvas.tab.open`, `canvas.tab.close`, `canvas.tab.sync`

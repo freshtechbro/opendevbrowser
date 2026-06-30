@@ -170,7 +170,7 @@ Rules:
 - inspect top-level `ready`, `productSuccess`, `artifactAuthority`, `evidenceAuthority`, manifest-backed evidence, plus `nextStepGuidance.readiness`, `reasonCode`, `primaryAction`, `paramsExamples`, `validationChecks`, and `doNotProceedIf` before continuing from any harvest
 - visual harvest must not bypass `policy_blocked`, unresolved `auth_required`, `challenge_detected`, or `rate_limited`; inspect diagnostics instead of forcing screenshots through blocked references
 - if readiness is `needs_recovery`, `blocked`, or `diagnostic_only`, follow the recovery-first command examples and do not continue to Canvas
-- after a product-ready run or harvest with top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, non-diagnostic `evidenceAuthority`, ranked references, manifest-backed evidence, and no `doNotProceedIf` blockers, read `advanced-brief.md` first, inspect `ranked-references.json`, `media-analysis.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, open a Canvas session, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json --output-format json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`. Treat Pinterest pin-media as design-ready only when `pin-media-index.json` proves persisted first-party bytes; remote media URLs and `media-analysis.json` alone are not proof
+- after a product-ready run or harvest with top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, non-diagnostic `evidenceAuthority`, ranked references, manifest-backed evidence, and no `doNotProceedIf` blockers, read `advanced-brief.md` first, inspect `evidence.json`, `ranked-references.json`, `bundle-manifest.json`, `media-analysis.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, and `meta-prompt.md` when present, load `opendevbrowser_skill_load opendevbrowser-best-practices "quick start"`, `opendevbrowser_skill_load opendevbrowser-design-agent "canvas-contract"`, and `opendevbrowser_skill_load opendevbrowser-motion-design "quick start"`, open a Canvas session, fill the ids in `canvas-plan.request.json`, run `opendevbrowser canvas --command canvas.plan.set --params-file ./canvas-plan.request.json --output-format json`, confirm `planStatus=accepted`, then patch only the governance blocks listed in `design-agent-handoff.json`. Treat Pinterest pin-media as design-ready only when `pin-media-index.json` proves persisted first-party bytes; remote media URLs and `media-analysis.json` alone are not proof
 - pair this lane with `opendevbrowser-design-agent` when the brief moves from contract synthesis into implementation or `/canvas`
 
 ## Agent Sync Targets
@@ -336,7 +336,7 @@ node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.j
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (77 CLI commands, 70 tools, 59 `/ops` commands, 35 `/canvas` commands, 67 CLI-tool pairs, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`). These hardcoded counts are validator-covered and must be refreshed from generated public-surface truth whenever counts change.
+- `docs/SURFACE_REFERENCE.md` (77 CLI commands, 70 tools, 59 `/ops` commands, 41 `/canvas` commands, 67 CLI-tool pairs, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`). These hardcoded counts are validator-covered and must be refreshed from generated public-surface truth whenever counts change.
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
 - `artifacts/skill-runtime-surface-matrix.md` and `assets/templates/skill-runtime-pack-matrix.json` (canonical pack/runtime audit inventory)
 
@@ -419,7 +419,10 @@ Code-sync surface:
 - `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` manage TSX-first document bindings when a canvas file is round-tripped to repo code.
 
 Current `/canvas` parity notes:
-- All 35 public `canvas.*` commands are agent-callable through `opendevbrowser_canvas` and `opendevbrowser canvas --command ...`.
+- All 41 public `canvas.*` commands are agent-callable through `opendevbrowser_canvas` and `opendevbrowser canvas --command ...`.
+- Use `canvas.workspace.open`, `canvas.workspace.status`, `canvas.workspace.child.add`, `canvas.workspace.child.execute`, `canvas.workspace.child.close`, and `canvas.workspace.close` for multi-child orchestration over existing child sessions. Workspaces store refs-only manifests under `.opendevbrowser/canvas-workspace/<workspaceId>/workspace-manifest.json`; child documents remain owned by their child sessions.
+- Route child mutations through `canvas.workspace.child.execute` only after checking the target child. Workspace guardrails reject duplicate child ids, sessions, leases, document ids, repo paths, code-sync binding ids, stale child routes, and nested workspace route attempts before dispatch.
+- Preview budget states are `focused_live`, `pinned_live`, `background_live`, `thumbnail`, `paused`, and `degraded`. Treat `thumbnail`, `paused`, and `degraded` as budget or recovery states, not proof of live bound-app parity.
 - `canvas.feedback.subscribe` live streaming is public through the CLI only: use `--output-format stream-json` for the built-in polling bridge.
 - Tool-driven agents can achieve the same public streaming behavior by calling `canvas.feedback.subscribe`, then repeating `canvas.feedback.next`, and finally `canvas.feedback.unsubscribe`.
 - `canvas.tab.sync` and `canvas.overlay.sync` are internal extension runtime helpers, not public commands.
@@ -438,6 +441,7 @@ Failure handling:
 - `revision_conflict`: reload with `canvas.document.load` and replay the patch batch against the latest revision.
 - `unsupported_target` or `restricted_url`: move the preview to a normal http(s) tab or fall back to managed mode.
 - If a freshly rebuilt unpacked extension still shows old `/canvas` or popup behavior, reload the extension in Chrome before trusting the live result; stale MV3 runtime state can preserve old service-worker logic after `npm run extension:build`.
+- If workspace panes, drafts, selection, or previews look mixed after rebuild or reload, reload the unpacked extension, reconnect the relay, reopen the workspace, and inspect `canvas.workspace.status` before treating child isolation as broken.
 
 Operational references:
 - `artifacts/canvas-governance-playbook.md`

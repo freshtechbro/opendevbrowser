@@ -165,6 +165,8 @@ then Chrome is still serving stale unpacked-extension runtime code.
 
 If the same command succeeds after reload, treat the earlier `restricted_url` result as stale-runtime drift, not as a source regression in the current repo.
 
+If workspace panes, drafts, selection, or previews look mixed after a rebuild or MV3 restart, use the same recovery path: reload the unpacked extension, reconnect the relay, reopen the workspace, and inspect `canvas.workspace.status`. Workspace state is scoped by `workspaceId` and `childId`; stale extension runtime is the first suspect when child-scoped IndexedDB or BroadcastChannel state appears crossed.
+
 ## Legacy `/cdp` attach blocked by `/ops`
 
 If `launch --extension-legacy` or another legacy relay `/cdp` flow fails with:

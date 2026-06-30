@@ -302,7 +302,7 @@ export const PUBLIC_CLI_COMMAND_GROUPS = [
   {
     id: "design_canvas",
     title: "Design Canvas",
-    summary: "Execute typed /canvas commands for session, document, preview, and code-sync flows.",
+    summary: "Execute typed /canvas commands for session, workspace, document, preview, and code-sync flows.",
     commands: [
       {
         name: "canvas",
@@ -866,7 +866,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested.",
     "Repeat --url for multiple references. There is no --urls alias.",
     "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
-    "Inspect ready, productSuccess, artifactAuthority, evidenceAuthority, guidanceReadiness, harvestReadiness, and nextStepGuidance recovery or continuation context before continuing. Canvas continuation requires top-level ready=true, productSuccess=true, artifactAuthority=product_ready, non-empty ranked references, no active blockers, and manifest-backed authority evidence. Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready and manifest-backed pin-media-index.json; snapshot_ready and motion_ready are not substitutes for pin-media readiness.",
+    "Inspect ready, productSuccess, artifactAuthority, evidenceAuthority, guidanceReadiness, harvestReadiness, and nextStepGuidance recovery or continuation context before continuing. Canvas continuation requires top-level ready=true, productSuccess=true, artifactAuthority=product_ready, non-empty ranked references, no active blockers, and manifest-backed authority evidence. Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready and manifest-backed pin-media-index.json; snapshot_ready and motion_ready are not substitutes for pin-media readiness. Strict proof reviews should inspect evidence.json, ranked-references.json, pin-media-index.json, motion-evidence.json, media-analysis.json, and bundle-manifest.json directly before accepting release or Canvas follow-through evidence.",
     "design-contract.json colorSystem.tokens and implementation-plan.json tokenStrategy.colors use explicit light and dark semantic token maps; design-agent-handoff.json implementationContext.tokenStrategy carries the same dual-mode strategy for implementation agents.",
     "media-analysis.json is a design-fact artifact only: it enriches guidance after trusted saved media matches pin-media-index.json, never grants readiness authority, and raw media-analysis fields must not enter canvas-plan.request.json.",
     MEDIA_ANALYSIS_DEPENDENCY_NOTE,
@@ -888,7 +888,10 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   canvas: [
     "Use --params-file for strict request envelopes such as canvas.plan.set or governance handoff payloads.",
     "Canvas guidance preserves guidance.recommendedNextCommands and adds nextStepGuidance, paramsExamples, fieldExamples, validationChecks, and doNotProceedIf when a repair envelope exists.",
-    "For generation_plan_invalid or missing session identifiers, follow returned paramsExamples before retrying canvas.plan.set."
+    "For generation_plan_invalid or missing session identifiers, follow returned paramsExamples before retrying canvas.plan.set.",
+    "canvas.workspace.* coordinates existing child sessions through refs-only manifests at .opendevbrowser/canvas-workspace/<workspaceId>/workspace-manifest.json; child documents, leases, previews, feedback, and code-sync bindings remain owned by the child CanvasManager sessions.",
+    "Use canvas.workspace.open, canvas.workspace.status, canvas.workspace.child.add, canvas.workspace.child.execute, canvas.workspace.child.close, and canvas.workspace.close for multi-child orchestration. Workspace guardrails reject duplicate child ids, sessions, leases, document ids, repo paths, code-sync binding ids, stale child routes, and nested workspace routes before dispatch.",
+    "Workspace preview budgets are focused_live, pinned_live, background_live, thumbnail, paused, and degraded. Degraded or thumbnail panes are budget states, not proof of bound_app_runtime parity. canvas.workspace.close closes only the coordinator unless an explicit child close command is used."
   ],
   screenshot: [
     "When --path is omitted, screenshot writes .opendevbrowser/screenshot/<uuid>/capture.png and returns path plus artifact_path.",
@@ -989,7 +992,7 @@ export const TOOL_SURFACE_ENTRIES: readonly ToolSurfaceDefinition[] = [
   { name: "opendevbrowser_shopping_run", description: "Run the shopping workflow directly.", cliEquivalent: "shopping" },
   { name: "opendevbrowser_product_video_run", description: "Run the product-video asset workflow directly.", cliEquivalent: "product-video" },
   { name: "opendevbrowser_inspiredesign_run", description: "Run the inspiredesign workflow directly, including provider-scoped URL recovery, harvest query discovery, screenshot and screencast evidence for non-Pinterest capture lanes, and required manifest-backed pin-media authority for canonical Pinterest pins.", cliEquivalent: "inspiredesign" },
-  { name: "opendevbrowser_canvas", description: "Execute a typed design-canvas command surface call.", cliEquivalent: "canvas" },
+  { name: "opendevbrowser_canvas", description: "Execute a typed design-canvas command surface call, including refs-only workspace orchestration over child sessions.", cliEquivalent: "canvas" },
   { name: "opendevbrowser_clone_page", description: "Export the active page into React code.", cliEquivalent: "clone-page" },
   { name: "opendevbrowser_clone_component", description: "Export a component by ref into React code.", cliEquivalent: "clone-component" },
   { name: "opendevbrowser_perf", description: "Collect browser performance metrics.", cliEquivalent: "perf" },
