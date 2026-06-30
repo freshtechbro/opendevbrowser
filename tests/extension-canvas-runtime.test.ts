@@ -1379,6 +1379,197 @@ describe("CanvasRuntime", () => {
     }));
   });
 
+  it("preserves workspace and child routing across open, sync, patch, and history events", async () => {
+    let nextTabId = 1;
+    const tabsById = new Map<number, chrome.tabs.Tab>();
+    globalThis.chrome = {
+      runtime: {
+        lastError: null,
+        getURL: vi.fn((path: string) => `chrome-extension://test/${path}`)
+      },
+      tabs: {
+        create: vi.fn((createProperties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
+          const tab: chrome.tabs.Tab = { id: nextTabId, url: createProperties.url, title: "Canvas", status: "complete" };
+          tabsById.set(nextTabId, tab);
+          nextTabId += 1;
+          callback?.(tab);
+          return tab;
+        }),
+        get: vi.fn(async (tabId: number) => tabsById.get(tabId) ?? null),
+        remove: vi.fn()
+      }
+    } as unknown as typeof chrome;
+
+    const sent: CanvasEnvelope[] = [];
+    const runtime = new CanvasRuntime({
+      send: (message) => sent.push(message)
+    });
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-open-workspace-child",
+      clientId: "client-1",
+      canvasSessionId: "canvas_child_a",
+      leaseId: "lease-child-a",
+      command: "canvas.tab.open",
+      payload: {
+        workspaceId: "workspace_four_by_two",
+        childId: "child-a",
+        previewMode: "focused",
+        html: OPEN_HTML,
+        documentRevision: 8,
+        summary: {
+          canvasSessionId: "canvas_child_a",
+          workspaceId: "workspace_four_by_two",
+          childId: "child-a",
+          workspace: {
+            coordinator: {
+              state: "open",
+              focusedChildId: "child-a",
+              childCount: 4,
+              activePreviewCount: 2,
+              queuedPreviewWork: 1
+            },
+            childRefs: [
+              {
+                childId: "child-a",
+                canvasSessionId: "canvas_child_a",
+                documentId: "doc_workspace",
+                role: "coordinator",
+                previewBudgetState: "focused_live",
+                lastRoutedAt: "2026-03-15T12:00:00.000Z"
+              }
+            ],
+            activity: [{ id: "activity-1", status: "delivered", label: "Patch delivered" }],
+            checkpoints: [{ id: "checkpoint-1", status: "delivered", label: "Ready for review" }]
+          }
+        },
+        document: {
+          documentId: "doc_workspace",
+          title: "Workspace Child A",
+          pages: [{
+            id: "page_home",
+            rootNodeId: "node_root",
+            nodes: [{ id: "node_root", kind: "frame", name: "Root", rect: { x: 0, y: 0, width: 640, height: 480 } }]
+          }]
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    const port = createPort(1);
+    runtime.attachPort(port as unknown as chrome.runtime.Port);
+    expect(port.messages.at(-1)).toEqual(expect.objectContaining({
+      type: "canvas-page:init",
+      state: expect.objectContaining({
+        workspaceId: "workspace_four_by_two",
+        childId: "child-a",
+        summary: expect.objectContaining({
+          workspaceId: "workspace_four_by_two",
+          childId: "child-a"
+        })
+      })
+    }));
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-sync-workspace-child",
+      clientId: "client-1",
+      canvasSessionId: "canvas_child_a",
+      leaseId: "lease-child-a",
+      command: "canvas.tab.sync",
+      payload: {
+        targetId: "tab-1",
+        workspaceId: "workspace_four_by_two",
+        childId: "child-a",
+        html: SYNC_HTML,
+        documentRevision: 9,
+        summary: {
+          canvasSessionId: "canvas_child_a",
+          workspaceId: "workspace_four_by_two",
+          childId: "child-a",
+          codeSyncState: "in_sync",
+          targets: []
+        },
+        document: {
+          documentId: "doc_workspace",
+          title: "Workspace Child A Synced",
+          pages: [{ id: "page_home", rootNodeId: "node_root", nodes: [] }]
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    expect(port.messages.at(-1)).toEqual(expect.objectContaining({
+      type: "canvas-page:update",
+      state: expect.objectContaining({
+        workspaceId: "workspace_four_by_two",
+        childId: "child-a",
+        title: "Workspace Child A Synced",
+        documentRevision: 9
+      })
+    }));
+
+    const sentBeforeMismatch = sent.length;
+    port.emitMessage({
+      type: "canvas-page-patch-request",
+      workspaceId: "workspace_other",
+      childId: "child-a",
+      baseRevision: 9,
+      patches: [{ op: "node.update", nodeId: "node_root", changes: { name: "Wrong child" } }]
+    });
+    await flushMicrotasks();
+
+    expect(sent).toHaveLength(sentBeforeMismatch);
+    expect(port.messages.at(-1)).toEqual(expect.objectContaining({
+      type: "canvas-page:init",
+      state: expect.objectContaining({
+        workspaceId: "workspace_four_by_two",
+        childId: "child-a"
+      })
+    }));
+
+    port.emitMessage({
+      type: "canvas-page-patch-request",
+      baseRevision: 9,
+      selection: {
+        pageId: "page_home",
+        nodeId: "node_root",
+        targetId: "tab-1"
+      },
+      patches: [{ op: "node.update", nodeId: "node_root", changes: { name: "Routed" } }]
+    });
+    await flushMicrotasks();
+
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: "canvas_event",
+      event: "canvas_patch_requested",
+      canvasSessionId: "canvas_child_a",
+      payload: expect.objectContaining({
+        workspaceId: "workspace_four_by_two",
+        childId: "child-a",
+        documentId: "doc_workspace"
+      })
+    }));
+
+    port.emitMessage({
+      type: "canvas-page-history-request",
+      direction: "undo"
+    });
+    await flushMicrotasks();
+
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: "canvas_event",
+      event: "canvas_history_requested",
+      canvasSessionId: "canvas_child_a",
+      payload: {
+        workspaceId: "workspace_four_by_two",
+        childId: "child-a",
+        direction: "undo"
+      }
+    }));
+  });
+
   it("rejects degraded preview mode for canvas tab open", async () => {
     globalThis.chrome = {
       runtime: {
@@ -1422,7 +1613,6 @@ describe("CanvasRuntime", () => {
       })
     }));
     expect(globalThis.chrome.tabs.create).not.toHaveBeenCalled();
-    });
   });
 
   it("routes canvas page actions through the connected page port", async () => {
@@ -1486,3 +1676,4 @@ describe("CanvasRuntime", () => {
 
     await expect(actionPromise).resolves.toBe(true);
   });
+});

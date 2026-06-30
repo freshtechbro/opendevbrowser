@@ -3,7 +3,7 @@
 Optional Chrome extension that enables relay mode (attach to existing logged-in tabs).
 
 Status: active  
-Last updated: 2026-05-19
+Last updated: 2026-06-30
 
 Quick file-level overview: `<public-repo-root>/extension/README.md`
 
@@ -15,7 +15,7 @@ Quick file-level overview: `<public-repo-root>/extension/README.md`
 - Lets extension-backed sessions participate in manager-owned browser replay capture through the existing screenshot primitive; there is no separate extension screencast relay family.
 - Supports multi-tab CDP routing with flat sessions (Chrome 125+).
 - Exposes top-level tabs and auto-attached child targets (workers/OOPIF) through `Target.getTargets`.
-- Hosts the dedicated design-canvas runtime used by `/canvas` for design-tab and overlay operations.
+- Hosts the dedicated design-canvas runtime used by `/canvas` for design-tab, overlay, and workspace-scoped multi-child shell operations.
 - Preserves additive canvas session-summary metadata such as `availableInventoryCount`, `catalogKitIds`, `availableStarterCount`, and the currently applied starter so the design tab stays in sync with starter and kit availability without introducing a second starter execution path in the extension.
 - Routes popup/canvas/in-page annotation `Send` actions through `/annotation` `store_agent_payload`; core enqueues screenshot-free payloads into `AgentInbox`, delivering to one active chat scope or returning a stored-only receipt.
 - Launch defaults to extension relay when available; managed/CDPConnect require explicit user choice.
@@ -115,7 +115,9 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 - Child targets are auto-attached recursively for session-aware routing.
 - A single **primary tab** is used for relay handshake/status; switching tabs updates the handshake without disconnecting others.
 - Design-canvas flows can open dedicated extension-hosted design tabs (`canvas.html`) and mount overlays on existing tabs through the `/canvas` runtime.
-- The extension design tab is a same-origin infinite-canvas editor: it persists full `CanvasPageState` snapshots in `IndexedDB`, fans out same-origin convergence over `BroadcastChannel`, sends editor-originated patch requests back through `/canvas`, keeps arbitrary page overlays in sync through the same runtime, and now exposes page selection, hierarchical layers, a property inspector, lease-aware undo/redo controls, keyboard shortcuts, extension-stage region annotation, and a dedicated token panel for collection or mode creation, token value or alias editing, selected-node binding, and token usage inspection.
+- The extension design tab is a same-origin infinite-canvas editor: it persists full `CanvasPageState` snapshots in workspace and child scoped `IndexedDB` keys, fans out same-origin convergence over workspace and child scoped `BroadcastChannel` names, sends editor-originated patch requests back through `/canvas`, keeps arbitrary page overlays in sync through the same runtime, and exposes page selection, hierarchical layers, a property inspector, lease-aware undo/redo controls, keyboard shortcuts, extension-stage region annotation, and a dedicated token panel for collection or mode creation, token value or alias editing, selected-node binding, and token usage inspection.
+- `CanvasPageState`, `CanvasSessionSummary`, page messages, current selection, drafts, cached previews, and preview sync payloads carry optional `workspaceId` and `childId`. When present, reload, relay reconnect, and MV3 restart restore the same workspace child without cross-child draft, selection, or preview leakage.
+- Workspace design tabs render a 4x2 agent shell with coordinator lane, active child detail, worker panes, activity log, review lane, checkpoint lane, preview budget indicators, and visible delivered/degraded/paused/conflict/lease/revision/sync states.
 - Extension-hosted design tabs must register their synthetic target through `targets.registerCanvas` before `/ops` `targets.use` can activate that surface.
 
 ## Annotation send behavior
@@ -144,6 +146,7 @@ Extension relay uses flat CDP sessions and requires **Chrome 125+**. Older versi
 - **No active tab / restricted tab**: The popup cannot attach to `chrome://`, `chrome-extension://`, or Chrome Web Store pages. Focus a normal http(s) tab before connecting.
 - **Popup annotate says `Annotation UI did not load in the page`**: The popup could not confirm the page-side annotation bridge after injection. The popup now sends its opener-tab id directly and otherwise restores the last stored annotatable web tab, but you should still focus the intended http(s) tab once, reload that page, and retry. If you just rebuilt the unpacked extension, reload it in Chrome before retesting so the new background and content-script bundles are active.
 - **Canvas design-tab overlay fails with `restricted_url` on `chrome-extension://.../canvas.html`**: Chrome is still running stale unpacked-extension runtime code. Rebuild if needed, then reload the unpacked extension in Chrome before retrying `canvas.overlay.mount` or related design-tab commands; reconnect the extension after reload so the fresh background bundle owns the relay again.
+- **Canvas workspace panes, drafts, selection, or previews look mixed after rebuild or reload**: Reload the unpacked extension, reconnect the relay, and re-open the workspace child route. The design tab stores workspace and child scoped cache keys, so persistent mixing usually means Chrome is still running stale extension code.
 - **Debugger attach failed**: Close DevTools on the target tab (or any other debugger) and retry.
 - **Chrome too old**: Extension relay requires Chrome 125+ for flat sessions.
 - **Headless extension launch/connect fails**: expected. Extension mode is headed-only; use `launch --no-extension --headless` for managed headless sessions.

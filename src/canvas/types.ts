@@ -318,6 +318,46 @@ export type CanvasWorkspaceManifest = {
   };
 };
 
+export type CanvasWorkspaceVisibleState =
+  | "delivered"
+  | "degraded"
+  | "paused"
+  | "conflict"
+  | "lease"
+  | "revision"
+  | "sync";
+
+export type CanvasWorkspaceShellChild = {
+  childId: string;
+  canvasSessionId?: string | null;
+  documentId?: string | null;
+  role?: string | null;
+  title?: string | null;
+  previewBudgetState?: CanvasWorkspacePreviewBudgetState | null;
+  lastRoutedAt?: string | null;
+  states: CanvasWorkspaceVisibleState[];
+};
+
+export type CanvasWorkspaceShellEntry = {
+  id: string;
+  label: string;
+  status: CanvasWorkspaceVisibleState;
+  at?: string | null;
+};
+
+export type CanvasWorkspaceShellSummary = {
+  coordinator: {
+    state: string;
+    focusedChildId: string | null;
+    childCount: number;
+    activePreviewCount: number;
+    queuedPreviewWork: number;
+  };
+  childRefs: CanvasWorkspaceShellChild[];
+  activity: CanvasWorkspaceShellEntry[];
+  checkpoints: CanvasWorkspaceShellEntry[];
+};
+
 export type CanvasDegradeReason = "overflow" | "memory_pressure" | "queue_pressure" | "frozen" | "discarded";
 
 export type CanvasProjectionFallbackReason =
@@ -1074,6 +1114,8 @@ export type CanvasAttachedClient = {
 
 export type CanvasSessionSummary = {
   canvasSessionId: string;
+  workspaceId?: string | null;
+  childId?: string | null;
   browserSessionId: string | null;
   documentId: string;
   leaseId: string;
@@ -1115,6 +1157,7 @@ export type CanvasSessionSummary = {
   starterAppliedAt?: string | null;
   bindings?: CodeSyncBindingStatus[];
   history?: CanvasHistoryState;
+  workspace?: CanvasWorkspaceShellSummary;
 };
 
 export type CanvasCommandContext = {

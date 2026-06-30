@@ -51,6 +51,8 @@ type CanvasRuntimeOptions = {
 
 type CanvasSessionExtra = {
   designTabTargetId: string | null;
+  workspaceId: string | null;
+  childId: string | null;
   document: CanvasDocument;
   documentRevision: number | null;
   html: string;
@@ -310,6 +312,9 @@ export class CanvasRuntime {
     if (!session) {
       return;
     }
+    if (!this.acceptsPageWorkspaceIdentity(tabId, session, message)) {
+      return;
+    }
     if (message.type === "canvas-page-view-state") {
       this.mergeEditorState(session, message.viewport, message.selection);
       this.broadcastCanvasState(tabId, "canvas-page:update");
@@ -328,6 +333,8 @@ export class CanvasRuntime {
         canvasSessionId: session.id,
         event: "canvas_patch_requested",
         payload: {
+          workspaceId: session.workspaceId,
+          childId: session.childId,
           targetId: session.designTabTargetId,
           documentId: session.document.documentId,
           baseRevision: message.baseRevision,
@@ -345,10 +352,28 @@ export class CanvasRuntime {
         canvasSessionId: session.id,
         event: "canvas_history_requested",
         payload: {
+          workspaceId: session.workspaceId,
+          childId: session.childId,
           direction: message.direction
         }
       });
     }
+  }
+
+  private acceptsPageWorkspaceIdentity(
+    tabId: number,
+    session: CanvasSessionRecord,
+    message: CanvasPagePortMessage
+  ): boolean {
+    const workspaceId = "workspaceId" in message ? optionalString(message.workspaceId) : null;
+    const childId = "childId" in message ? optionalString(message.childId) : null;
+    const workspaceMismatch = Boolean(workspaceId && workspaceId !== session.workspaceId);
+    const childMismatch = Boolean(childId && childId !== session.childId);
+    if (!workspaceMismatch && !childMismatch) {
+      return true;
+    }
+    this.broadcastCanvasState(tabId, "canvas-page:init");
+    return false;
   }
 
   private async handleRequest(message: CanvasRequest): Promise<void> {
@@ -402,7 +427,12 @@ export class CanvasRuntime {
       clientId: message.clientId,
       canvasSessionId: session.id,
       event: "canvas_session_created",
-      payload: { tabId, targetId: session.designTabTargetId }
+      payload: {
+        workspaceId: session.workspaceId,
+        childId: session.childId,
+        tabId,
+        targetId: session.designTabTargetId
+      }
     });
     return {
       targetId: session.designTabTargetId,
@@ -464,7 +494,12 @@ export class CanvasRuntime {
       clientId: session.ownerClientId,
       canvasSessionId: session.id,
       event: "canvas_target_closed",
-      payload: { targetId, tabId }
+      payload: {
+        workspaceId: session.workspaceId,
+        childId: session.childId,
+        targetId,
+        tabId
+      }
     });
     return {
       ok: true,
@@ -484,7 +519,11 @@ export class CanvasRuntime {
       throw new Error(`Canvas target is unavailable: ${tabId}`);
     }
     const summary = normalizeCanvasSessionSummary(record.summary);
+    const workspaceId = resolveWorkspaceIdentity(record, summary, "workspaceId");
+    const childId = resolveWorkspaceIdentity(record, summary, "childId");
     session.document = requireCanvasDocument(record.document);
+    session.workspaceId = workspaceId;
+    session.childId = childId;
     session.documentRevision = optionalNumber(record.documentRevision);
     session.html = requireRenderedHtml(record);
     session.summary = summary;
@@ -646,6 +685,8 @@ export class CanvasRuntime {
     const clientId = requireString(message.clientId, "clientId");
     const requestedLeaseId = optionalString(message.leaseId);
     const summary = normalizeCanvasSessionSummary(record.summary);
+    const workspaceId = resolveWorkspaceIdentity(record, summary, "workspaceId");
+    const childId = resolveWorkspaceIdentity(record, summary, "childId");
     const existing = this.sessions.get(canvasSessionId);
     if (existing) {
       this.overlaySessions.delete(existing.id);
@@ -656,6 +697,8 @@ export class CanvasRuntime {
         void this.tabs.closeTab(parseTargetId(existing.designTabTargetId)).catch(() => undefined);
       }
       existing.designTabTargetId = formatTargetId(tabId);
+      existing.workspaceId = workspaceId;
+      existing.childId = childId;
       existing.document = document;
       existing.documentRevision = optionalNumber(record.documentRevision);
       existing.html = requireRenderedHtml(record);
@@ -679,6 +722,8 @@ export class CanvasRuntime {
       url: chrome.runtime.getURL("canvas.html")
     }, {
       designTabTargetId: formatTargetId(tabId),
+      workspaceId,
+      childId,
       document,
       documentRevision: optionalNumber(record.documentRevision),
       html: requireRenderedHtml(record),
@@ -937,7 +982,12 @@ export class CanvasRuntime {
       clientId: session.ownerClientId,
       canvasSessionId: session.id,
       event: "canvas_session_expired",
-      payload: { reason, leaseId: session.leaseId }
+      payload: {
+        workspaceId: session.workspaceId,
+        childId: session.childId,
+        reason,
+        leaseId: session.leaseId
+      }
     });
   }
 
@@ -978,6 +1028,8 @@ function buildPageState(session: CanvasSessionRecord, tabId: number): CanvasPage
     tabId,
     targetId: formatTargetId(tabId),
     canvasSessionId: session.id,
+    workspaceId: session.workspaceId,
+    childId: session.childId,
     documentId: session.document.documentId,
     documentRevision: session.documentRevision,
     title: session.document.title,
@@ -1474,6 +1526,14 @@ function resolveCanvasSessionId(message: CanvasRequest, payload: Record<string, 
     ?? optionalString(payload.canvasSessionId)
     ?? optionalString(isRecord(payload.summary) ? payload.summary.canvasSessionId : undefined)
     ?? createCoordinatorId();
+}
+
+function resolveWorkspaceIdentity(
+  payload: Record<string, unknown>,
+  summary: CanvasSessionSummary,
+  key: "workspaceId" | "childId"
+): string | null {
+  return optionalString(payload[key]) ?? optionalString(summary[key]);
 }
 
 function readBrowserSessionId(summary: CanvasSessionSummary | undefined): string | null {

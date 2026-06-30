@@ -347,6 +347,8 @@ export type CanvasEventType =
 
 export type CanvasSessionLifecycleEventPayload = {
   leaseId: string;
+  workspaceId?: string | null;
+  childId?: string | null;
   reason?: string;
 };
 

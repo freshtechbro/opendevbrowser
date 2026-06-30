@@ -9,6 +9,9 @@ import {
   type CanvasPagePortMessage,
   type CanvasPageState,
   type CanvasSessionSummary,
+  type CanvasWorkspaceShellChild,
+  type CanvasWorkspaceShellEntry,
+  type CanvasWorkspaceVisibleState,
   summarizeCanvasProjectionState,
   summarizeCanvasHistoryState,
   readLatestImportProvenance,
@@ -41,6 +44,7 @@ const DB_VERSION = 2;
 const STORE_NAME = "editor-state";
 const CHANNEL_NAME = "opendevbrowser-canvas";
 const SAVE_DEBOUNCE_MS = 180;
+const WORKSPACE_PANE_COUNT = 8;
 const UNIT_LESS_STYLES = new Set(["fontWeight", "lineHeight", "opacity", "zIndex"]);
 
 const titleElement = requiredElement("canvas-title");
@@ -48,6 +52,13 @@ const badgesElement = requiredElement("canvas-badges");
 const metaElement = requiredElement("canvas-meta");
 const toolbarMetaElement = requiredElement("canvas-toolbar-meta");
 const summaryElement = requiredElement("canvas-summary");
+const workspaceShellElement = requiredElement("canvas-workspace-shell");
+const workspaceCoordinatorElement = requiredElement("canvas-workspace-coordinator");
+const workspaceActiveChildElement = requiredElement("canvas-workspace-active-child");
+const workspaceWorkersElement = requiredElement("canvas-workspace-workers");
+const workspaceActivityElement = requiredElement("canvas-workspace-activity");
+const workspaceReviewElement = requiredElement("canvas-workspace-review");
+const workspaceCheckpointsElement = requiredElement("canvas-workspace-checkpoints");
 const feedbackElement = requiredElement("canvas-feedback");
 const pageDetailsElement = requiredElement("canvas-page-details");
 const pageSelectElement = requiredElement("canvas-page-select") as HTMLSelectElement;
@@ -115,18 +126,22 @@ const annotationSendButton = requiredElement("canvas-annotation-send") as HTMLBu
 const annotationContextInput = requiredElement("canvas-annotation-context") as HTMLTextAreaElement;
 const annotationListElement = requiredElement("canvas-annotation-list");
 
-const broadcastChannel = typeof BroadcastChannel === "function" ? new BroadcastChannel(CHANNEL_NAME) : null;
 const port = chrome.runtime.connect({ name: "canvas-page" });
 
 let currentState: CanvasPageState | null = null;
 let currentTabId: number | null = null;
 let databasePromise: Promise<IDBDatabase | null> | null = null;
+let broadcastChannel: BroadcastChannel | null = null;
+let broadcastChannelName: string | null = null;
 let persistTimer: number | null = null;
 let fitViewportFrame: number | null = null;
 let activePageId: string | null = null;
+const activePageIdByScope = new Map<string, string | null>();
 let annotationMode: "selected" | "region" = "selected";
 let annotationDrafts: CanvasAnnotationDraft[] = [];
+const annotationDraftsByScope = new Map<string, CanvasAnnotationDraft[]>();
 let expandedLayerNodeIds = new Set<string>();
+const expandedLayerNodeIdsByScope = new Map<string, Set<string>>();
 let selectedTokenCollectionId = "__values__";
 let selectedTokenModeId = "__base__";
 let selectedTokenPath = "";
@@ -167,13 +182,9 @@ async function bootstrap(): Promise<void> {
   port.onDisconnect.addListener(() => {
     renderMeta("Disconnected from canvas runtime");
   });
-  broadcastChannel?.addEventListener("message", (event: MessageEvent) => {
-    const state = normalizeCanvasPageState(isRecord(event.data) ? event.data.state : null);
-    if (!state || !shouldAcceptBroadcast(state)) {
-      return;
-    }
-    applyState(state, false);
-  });
+  if (!cached) {
+    ensureBroadcastChannel(null);
+  }
   port.postMessage({ type: "canvas-page-ready" } satisfies CanvasPagePortMessage);
   bindStageInteractions();
   bindInspector();
@@ -847,6 +858,8 @@ function runCanvasPageAction(
 }
 
 function applyState(state: CanvasPageState, persist: boolean): void {
+  switchEditorScope(state);
+  ensureBroadcastChannel(state);
   currentState = state;
   if (!activePageId || !state.document.pages.some((page) => page.id === activePageId)) {
     activePageId = state.selection.pageId ?? state.document.pages[0]?.id ?? null;
@@ -857,6 +870,7 @@ function applyState(state: CanvasPageState, persist: boolean): void {
   renderMeta(`Document ${state.documentId} updated ${formatTimestamp(state.updatedAt)}`);
   toolbarMetaElement.textContent = formatViewport(state.viewport);
   renderSummary(state.summary, state);
+  renderWorkspaceShell(state);
   renderFeedback(state.feedback);
   renderState();
   previewElement.srcdoc = state.html;
@@ -898,6 +912,8 @@ function renderBadges(state: CanvasPageState): void {
   const projectionSummary = summarizeCanvasProjectionState(state.summary, state.targets);
   const latestImport = readLatestImportProvenance(state.summary, state.document);
   for (const label of [
+    state.workspaceId ? `workspace ${state.workspaceId}` : null,
+    state.childId ? `child ${state.childId}` : null,
     state.previewState,
     state.previewMode,
     state.documentRevision === null ? "revision pending" : `revision ${state.documentRevision}`,
@@ -932,6 +948,8 @@ function renderSummary(summary: CanvasSessionSummary, state: CanvasPageState): v
   const latestImport = readLatestImportProvenance(summary, state.document);
   const items: Array<[string, string]> = [
     ["Target", state.targetId],
+    ["Workspace", state.workspaceId ?? "single canvas"],
+    ["Child", state.childId ?? "primary"],
     ["Session", formatSummaryValue(summary.canvasSessionId)],
     ["Mode", formatSummaryValue(summary.mode)],
     ["Plan", formatSummaryValue(summary.planStatus)],
@@ -966,6 +984,193 @@ function renderSummary(summary: CanvasSessionSummary, state: CanvasPageState): v
     row.append(title, body);
     summaryElement.append(row);
   }
+}
+
+function renderWorkspaceShell(state: CanvasPageState): void {
+  const workspace = state.summary.workspace;
+  const children = resolveWorkspaceChildren(state);
+  workspaceShellElement.toggleAttribute("data-active", Boolean(state.workspaceId));
+  workspaceCoordinatorElement.innerHTML = "";
+  workspaceActiveChildElement.innerHTML = "";
+  workspaceWorkersElement.innerHTML = "";
+  workspaceActivityElement.innerHTML = "";
+  workspaceReviewElement.innerHTML = "";
+  workspaceCheckpointsElement.innerHTML = "";
+
+  appendWorkspaceSummaryCard(workspaceCoordinatorElement, "Coordinator lane", [
+    ["Workspace", state.workspaceId ?? "single canvas"],
+    ["State", workspace?.coordinator.state ?? "open"],
+    ["Focused child", workspace?.coordinator.focusedChildId ?? state.childId ?? "primary"],
+    ["Active previews", String(workspace?.coordinator.activePreviewCount ?? countActiveWorkspacePreviews(children))]
+  ]);
+
+  const activeChild = children.find((child) => child.childId === (workspace?.coordinator.focusedChildId ?? state.childId))
+    ?? children[0]
+    ?? buildCurrentWorkspaceChild(state);
+  appendWorkspaceChildCard(workspaceActiveChildElement, activeChild, "Active child detail");
+
+  const workerChildren = padWorkspaceChildren(children, state);
+  for (const child of workerChildren) {
+    appendWorkspaceChildCard(workspaceWorkersElement, child, "Worker pane");
+  }
+
+  renderWorkspaceEntries(
+    workspaceActivityElement,
+    workspace?.activity,
+    [{ id: "delivered-current", label: state.pendingMutation ? "Local update queued" : "Latest update delivered", status: state.pendingMutation ? "sync" : "delivered" }]
+  );
+  renderWorkspaceEntries(
+    workspaceReviewElement,
+    workspace?.checkpoints,
+    [{ id: "review-current", label: state.summary.history?.stale ? "Review history stale" : "Review ready", status: state.summary.history?.stale ? "revision" : "delivered" }]
+  );
+  renderWorkspaceEntries(
+    workspaceCheckpointsElement,
+    workspace?.checkpoints,
+    [{ id: "checkpoint-current", label: state.documentRevision === null ? "Revision pending" : `Revision ${state.documentRevision}`, status: "revision" }]
+  );
+}
+
+function appendWorkspaceSummaryCard(root: HTMLElement, title: string, rows: Array<[string, string]>): void {
+  const card = document.createElement("div");
+  card.className = "canvas-workspace-card";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  card.append(heading);
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "canvas-workspace-row";
+    row.append(buildWorkspaceText("span", label), buildWorkspaceText("strong", value));
+    card.append(row);
+  }
+  root.append(card);
+}
+
+function appendWorkspaceChildCard(root: HTMLElement, child: CanvasWorkspaceShellChild, title: string): void {
+  const card = document.createElement("article");
+  card.className = "canvas-workspace-child";
+  card.dataset.childId = child.childId;
+  const visibleStates: CanvasWorkspaceVisibleState[] = child.states.length > 0 ? child.states : ["sync"];
+  card.dataset.workspaceState = visibleStates[0] ?? "sync";
+  card.dataset.workspaceStates = visibleStates.join(" ");
+  const heading = document.createElement("h3");
+  heading.textContent = `${title}: ${child.childId}`;
+  const detail = document.createElement("p");
+  detail.textContent = [
+    child.role ?? "worker",
+    child.previewBudgetState ?? "background_live",
+    child.documentId ?? "document pending"
+  ].join(" • ");
+  const states = document.createElement("div");
+  states.className = "canvas-workspace-state-row";
+  for (const visibleState of visibleStates) {
+    states.append(renderWorkspaceStatePill(visibleState));
+  }
+  card.append(heading, detail, states);
+  root.append(card);
+}
+
+function renderWorkspaceEntries(
+  root: HTMLElement,
+  entries: CanvasWorkspaceShellEntry[] | undefined,
+  fallbackEntries: CanvasWorkspaceShellEntry[]
+): void {
+  for (const entry of entries && entries.length > 0 ? entries : fallbackEntries) {
+    const row = document.createElement("div");
+    row.className = "canvas-workspace-entry";
+    row.dataset.workspaceState = entry.status;
+    row.append(renderWorkspaceStatePill(entry.status), buildWorkspaceText("span", entry.label));
+    root.append(row);
+  }
+}
+
+function renderWorkspaceStatePill(state: CanvasWorkspaceVisibleState): HTMLElement {
+  const pill = document.createElement("span");
+  pill.className = "canvas-workspace-state";
+  pill.dataset.workspaceState = state;
+  pill.textContent = state;
+  return pill;
+}
+
+function buildWorkspaceText<K extends keyof HTMLElementTagNameMap>(tag: K, text: string): HTMLElementTagNameMap[K] {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  return element;
+}
+
+function resolveWorkspaceChildren(state: CanvasPageState): CanvasWorkspaceShellChild[] {
+  const children = state.summary.workspace?.childRefs ?? [];
+  if (children.length > 0) {
+    return children.map((child) => ({
+      ...child,
+      states: child.states.length > 0 ? child.states : deriveWorkspaceChildStates(child, state)
+    }));
+  }
+  return [buildCurrentWorkspaceChild(state)];
+}
+
+function buildCurrentWorkspaceChild(state: CanvasPageState): CanvasWorkspaceShellChild {
+  const previewBudgetState = state.previewState === "degraded" ? "degraded" : `${state.previewState}_live` as CanvasWorkspaceShellChild["previewBudgetState"];
+  return {
+    childId: state.childId ?? "primary",
+    canvasSessionId: state.canvasSessionId,
+    documentId: state.documentId,
+    role: "coordinator",
+    title: state.title,
+    previewBudgetState,
+    lastRoutedAt: state.updatedAt,
+    states: deriveWorkspaceChildStates({ previewBudgetState, states: [] }, state)
+  };
+}
+
+function deriveWorkspaceChildStates(
+  child: Pick<CanvasWorkspaceShellChild, "previewBudgetState" | "states">,
+  state: CanvasPageState
+): CanvasWorkspaceVisibleState[] {
+  const projectionSummary = summarizeCanvasProjectionState(state.summary, state.targets);
+  const states = new Set<CanvasWorkspaceVisibleState>(child.states);
+  states.add(state.pendingMutation ? "sync" : "delivered");
+  states.add("lease");
+  states.add("revision");
+  if (state.summary.codeSyncState) {
+    states.add("sync");
+  }
+  if (projectionSummary.conflictCount > 0) {
+    states.add("conflict");
+  }
+  if (child.previewBudgetState === "degraded") {
+    states.add("degraded");
+  }
+  if (child.previewBudgetState === "paused") {
+    states.add("paused");
+  }
+  return [...states];
+}
+
+function padWorkspaceChildren(children: CanvasWorkspaceShellChild[], state: CanvasPageState): CanvasWorkspaceShellChild[] {
+  const padded = [...children];
+  while (padded.length < WORKSPACE_PANE_COUNT) {
+    const index = padded.length + 1;
+    padded.push({
+      childId: `empty-${index}`,
+      role: "worker",
+      title: "Waiting for child session",
+      previewBudgetState: index > 4 ? "paused" : "thumbnail",
+      states: ["paused"]
+    });
+  }
+  return padded.map((child) => ({
+    ...child,
+    states: child.states.length > 0 ? child.states : deriveWorkspaceChildStates(child, state)
+  })).slice(0, WORKSPACE_PANE_COUNT);
+}
+
+function countActiveWorkspacePreviews(children: CanvasWorkspaceShellChild[]): number {
+  return children.filter((child) =>
+    child.previewBudgetState === "focused_live"
+    || child.previewBudgetState === "pinned_live"
+    || child.previewBudgetState === "background_live"
+  ).length;
 }
 
 function formatAppliedStarterSummary(summary: CanvasSessionSummary, documentState: CanvasDocument): string {
@@ -2242,10 +2447,12 @@ function applyOptimisticPatch(
   };
   activePageId = currentState.selection.pageId ?? activePageId;
   renderState();
-  schedulePersist(currentState);
-  port.postMessage({
-    type: "canvas-page-patch-request",
-    baseRevision: currentState.documentRevision,
+    schedulePersist(currentState);
+    port.postMessage({
+      type: "canvas-page-patch-request",
+      workspaceId: currentState.workspaceId ?? null,
+      childId: currentState.childId ?? null,
+      baseRevision: currentState.documentRevision,
     patches,
     selection: currentState.selection,
     viewport: currentState.viewport
@@ -2495,6 +2702,8 @@ function requestHistory(direction: "undo" | "redo"): void {
   renderState();
   port.postMessage({
     type: "canvas-page-history-request",
+    workspaceId: currentState.workspaceId ?? null,
+    childId: currentState.childId ?? null,
     direction
   } satisfies CanvasPagePortMessage);
 }
@@ -3376,6 +3585,8 @@ function postViewState(): void {
   }
   port.postMessage({
     type: "canvas-page-view-state",
+    workspaceId: currentState.workspaceId ?? null,
+    childId: currentState.childId ?? null,
     viewport: currentState.viewport,
     selection: currentState.selection
   } satisfies CanvasPagePortMessage);
@@ -3399,7 +3610,37 @@ async function flushPersist(state = currentState): Promise<void> {
     persistTimer = null;
   }
   await saveCachedState(currentTabId, state);
-  broadcastChannel?.postMessage({ type: "canvas-page:broadcast", state });
+  ensureBroadcastChannel(state);
+  broadcastChannel?.postMessage({ type: "canvas-page:broadcast", scopeKey: canvasScopeKey(state), state });
+}
+
+function ensureBroadcastChannel(state: CanvasPageState | null): void {
+  if (typeof BroadcastChannel !== "function") {
+    return;
+  }
+  const channelName = channelNameForState(state);
+  if (broadcastChannel && broadcastChannelName === channelName) {
+    return;
+  }
+  broadcastChannel?.close();
+  broadcastChannelName = channelName;
+  broadcastChannel = new BroadcastChannel(channelName);
+  broadcastChannel.addEventListener("message", handleBroadcastMessage);
+}
+
+function handleBroadcastMessage(event: MessageEvent): void {
+  const state = normalizeCanvasPageState(isRecord(event.data) ? event.data.state : null);
+  if (!state || !shouldAcceptBroadcast(state)) {
+    return;
+  }
+  applyState(state, false);
+}
+
+function channelNameForState(state: CanvasPageState | null): string {
+  if (!state || !hasWorkspaceScope(state)) {
+    return `${CHANNEL_NAME}:single`;
+  }
+  return `${CHANNEL_NAME}:${canvasScopeKey(state)}`;
 }
 
 async function getCurrentTabId(): Promise<number | null> {
@@ -3437,11 +3678,27 @@ async function loadCachedState(tabId: number | null): Promise<CanvasPageState | 
   if (!db || tabId === null) {
     return null;
   }
+  const currentStateKey = await readStoredKey(db, `tab:${tabId}:current`);
+  if (currentStateKey) {
+    const scopedState = await readStoredState(db, currentStateKey);
+    if (scopedState) {
+      return scopedState;
+    }
+  }
   const tabState = await readStoredState(db, `tab:${tabId}`);
   if (tabState) {
     return tabState;
   }
   return null;
+}
+
+async function readStoredKey(db: IDBDatabase, key: string): Promise<string | null> {
+  return await new Promise((resolve) => {
+    const transaction = db.transaction(STORE_NAME, "readonly");
+    const request = transaction.objectStore(STORE_NAME).get(key);
+    request.onsuccess = () => resolve(typeof request.result === "string" ? request.result : null);
+    request.onerror = () => resolve(null);
+  });
 }
 
 async function readStoredState(db: IDBDatabase, key: string): Promise<CanvasPageState | null> {
@@ -3458,11 +3715,46 @@ async function saveCachedState(tabId: number | null, state: CanvasPageState): Pr
   if (!db) {
     return;
   }
-  const writes = [`doc:${state.documentId}`, `session:${state.canvasSessionId}`];
-  if (tabId !== null) {
-    writes.push(`tab:${tabId}`);
-  }
+  const writes = cacheKeysForState(tabId, state);
   await Promise.all(writes.map((key) => writeStoredState(db, key, state)));
+  if (tabId !== null) {
+    await writeStoredKey(db, `tab:${tabId}:current`, primaryCacheKeyForState(tabId, state));
+  }
+}
+
+function cacheKeysForState(tabId: number | null, state: CanvasPageState): string[] {
+  if (!hasWorkspaceScope(state)) {
+    const legacyKeys = [`doc:${state.documentId}`, `session:${state.canvasSessionId}`];
+    if (tabId !== null) {
+      legacyKeys.push(`tab:${tabId}`);
+    }
+    return legacyKeys;
+  }
+  const scopedPrefix = canvasScopeKey(state);
+  const keys = [
+    `${scopedPrefix}:doc:${state.documentId}`,
+    `${scopedPrefix}:session:${state.canvasSessionId}`
+  ];
+  if (tabId !== null) {
+    keys.push(primaryCacheKeyForState(tabId, state));
+  }
+  return keys;
+}
+
+function primaryCacheKeyForState(tabId: number, state: CanvasPageState): string {
+  if (!hasWorkspaceScope(state)) {
+    return `tab:${tabId}`;
+  }
+  return `tab:${tabId}:${canvasScopeKey(state)}`;
+}
+
+async function writeStoredKey(db: IDBDatabase, key: string, value: string): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const request = transaction.objectStore(STORE_NAME).put(value, key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+  });
 }
 
 async function writeStoredState(db: IDBDatabase, key: string, state: CanvasPageState): Promise<void> {
@@ -3478,7 +3770,31 @@ function shouldAcceptBroadcast(state: CanvasPageState): boolean {
   if (!currentState) {
     return true;
   }
-  return state.documentId === currentState.documentId && state.updatedAt >= currentState.updatedAt;
+  return canvasScopeKey(state) === canvasScopeKey(currentState) && state.updatedAt >= currentState.updatedAt;
+}
+
+function switchEditorScope(nextState: CanvasPageState): void {
+  if (currentState) {
+    const currentScope = canvasScopeKey(currentState);
+    annotationDraftsByScope.set(currentScope, annotationDrafts);
+    activePageIdByScope.set(currentScope, activePageId);
+    expandedLayerNodeIdsByScope.set(currentScope, new Set(expandedLayerNodeIds));
+  }
+  const nextScope = canvasScopeKey(nextState);
+  annotationDrafts = annotationDraftsByScope.get(nextScope) ?? [];
+  activePageId = activePageIdByScope.get(nextScope) ?? nextState.selection.pageId ?? nextState.document.pages[0]?.id ?? null;
+  expandedLayerNodeIds = new Set(expandedLayerNodeIdsByScope.get(nextScope) ?? []);
+}
+
+function canvasScopeKey(state: CanvasPageState): string {
+  if (hasWorkspaceScope(state)) {
+    return `workspace:${state.workspaceId ?? "none"}:session:${state.canvasSessionId}:child:${state.childId ?? state.canvasSessionId}`;
+  }
+  return `session:${state.canvasSessionId}:document:${state.documentId}`;
+}
+
+function hasWorkspaceScope(state: CanvasPageState): boolean {
+  return Boolean(state.workspaceId || state.childId);
 }
 
 function normalizeCanvasPageState(value: unknown): CanvasPageState | null {
@@ -3498,10 +3814,14 @@ function normalizeCanvasPageState(value: unknown): CanvasPageState | null {
     return null;
   }
   const summary = normalizeCanvasSessionSummary(value.summary);
+  const workspaceId = optionalString(value.workspaceId) ?? summary.workspaceId ?? null;
+  const childId = optionalString(value.childId) ?? summary.childId ?? null;
   return {
     tabId: value.tabId,
     targetId: value.targetId,
     canvasSessionId: value.canvasSessionId,
+    workspaceId,
+    childId,
     documentId: value.documentId,
     documentRevision: typeof value.documentRevision === "number" ? value.documentRevision : null,
     title: value.title,
@@ -3964,4 +4284,8 @@ function requiredElement(id: string): HTMLElement {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }

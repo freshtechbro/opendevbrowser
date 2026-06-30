@@ -86,10 +86,29 @@ type WorkspaceResult = {
   manifestPath: string;
 };
 
+type WorkspaceSessionStatus = {
+  workspaceId?: string | null;
+  childId?: string | null;
+  workspace?: {
+    coordinator: {
+      focusedChildId: string | null;
+      childCount: number;
+    };
+    childRefs: Array<{
+      childId: string;
+      states: string[];
+    }>;
+    activity: Array<{ status: string }>;
+    checkpoints: Array<{ status: string }>;
+  };
+};
+
 type ManagerInternals = {
   sessions: Map<string, {
     canvasSessionId: string;
     leaseId: string;
+    workspaceId: string | null;
+    workspaceChildId: string | null;
     documentRepoPath: string | null;
     store: {
       getDocument: () => {
@@ -211,6 +230,29 @@ describe("CanvasManager workspace orchestration", () => {
     expect(JSON.stringify(opened.manifest)).not.toContain("pages");
     expect(JSON.stringify(opened.manifest)).not.toContain("components");
     expect(await readJson(opened.manifestPath)).toEqual(opened.manifest);
+
+    const internals = manager as unknown as ManagerInternals;
+    expect(internals.sessions.get(childA.canvasSessionId)).toMatchObject({
+      workspaceId: "workspace_refs_only",
+      workspaceChildId: "child-a"
+    });
+    const childStatus = await manager.execute("canvas.session.status", {
+      canvasSessionId: childA.canvasSessionId
+    }) as WorkspaceSessionStatus;
+    expect(childStatus).toMatchObject({
+      workspaceId: "workspace_refs_only",
+      childId: "child-a",
+      workspace: {
+        coordinator: {
+          focusedChildId: "child-a",
+          childCount: 2
+        }
+      }
+    });
+    expect(childStatus.workspace?.childRefs.map((child) => child.childId)).toEqual(["child-a", "child-b"]);
+    expect(childStatus.workspace?.childRefs[0]?.states).toEqual(expect.arrayContaining(["lease", "revision", "sync"]));
+    expect(childStatus.workspace?.activity).toEqual(expect.arrayContaining([expect.objectContaining({ status: "sync" })]));
+    expect(childStatus.workspace?.checkpoints).toEqual(expect.arrayContaining([expect.objectContaining({ status: "revision" })]));
 
     const rootNodeId = getRootNodeId(manager, childA.canvasSessionId);
     const routed = await manager.execute("canvas.workspace.child.execute", {
