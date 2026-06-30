@@ -514,6 +514,10 @@ export class CanvasRuntime {
     const session = this.requireSessionForMessage(message);
     const record = requireRecord(message.payload, "payload");
     const tabId = parseTargetId(requireString(record.targetId, "targetId"));
+    const targetId = formatTargetId(tabId);
+    if (session.designTabTargetId !== targetId || !session.targets.has(targetId)) {
+      throw new Error("Canvas session target mismatch.");
+    }
     const existingTab = await this.tabs.getTab(tabId);
     if (!existingTab) {
       throw new Error(`Canvas target is unavailable: ${tabId}`);
@@ -538,7 +542,7 @@ export class CanvasRuntime {
     this.broadcastCanvasState(tabId, "canvas-page:update");
     return {
       ok: true,
-      targetId: formatTargetId(tabId),
+      targetId,
       previewState: session.previewState
     };
   }

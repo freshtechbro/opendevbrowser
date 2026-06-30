@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
+import { realpathSync, statSync } from "fs";
 import { mkdir } from "fs/promises";
-import { dirname, join, normalize as normalizePath } from "path";
+import { basename, dirname, isAbsolute, join, normalize as normalizePath, resolve as resolvePath } from "path";
 import type { Page } from "playwright-core";
 import type { OpenDevBrowserConfig } from "../config";
 import type { RelayLike } from "../relay/relay-types";
@@ -676,6 +677,8 @@ export class CanvasManager implements CanvasManagerLike {
     }
     return await this.withWorkspaceTelemetry("canvas.workspace.child.execute", async (recordLatency) => {
       this.assertWorkspaceChildFresh(child);
+      this.refreshWorkspaceSiblingRefs(workspace, child.childId);
+      this.assertWorkspaceChildRefs(workspace.childRefs);
       const childParams = isRecord(params.params) ? params.params : {};
       this.assertWorkspaceRouteParams(child, childParams);
       await this.assertWorkspaceRouteWouldRemainUnique(workspace, child, command, childParams);
@@ -814,9 +817,9 @@ export class CanvasManager implements CanvasManagerLike {
       canvasSessionId: session.canvasSessionId,
       documentId: document.documentId,
       leaseId: session.leaseId,
-      repoPath: session.documentRepoPath,
+      repoPath: resolveOptionalWorkspaceCanvasRepoPath(session.repoRoot, document.documentId, session.documentRepoPath),
       codeSyncBindingIds: getCanvasDocumentCodeSyncBindingIds(document),
-      codeSyncSourceRepoPaths: getCanvasDocumentCodeSyncSourceRepoPaths(document),
+      codeSyncSourceRepoPaths: getCanvasDocumentCodeSyncSourceRepoPaths(document, session.repoRoot),
       role: input.role,
       previewMode: input.previewMode,
       previewBudgetState: computeWorkspacePreviewBudgetState(index, input.previewMode),
@@ -888,9 +891,17 @@ export class CanvasManager implements CanvasManagerLike {
     const document = session.store.getDocument();
     child.documentId = document.documentId;
     child.leaseId = session.leaseId;
-    child.repoPath = session.documentRepoPath;
+    child.repoPath = resolveOptionalWorkspaceCanvasRepoPath(session.repoRoot, document.documentId, session.documentRepoPath);
     child.codeSyncBindingIds = getCanvasDocumentCodeSyncBindingIds(document);
-    child.codeSyncSourceRepoPaths = getCanvasDocumentCodeSyncSourceRepoPaths(document);
+    child.codeSyncSourceRepoPaths = getCanvasDocumentCodeSyncSourceRepoPaths(document, session.repoRoot);
+  }
+
+  private refreshWorkspaceSiblingRefs(workspace: CanvasWorkspace, routedChildId: string): void {
+    for (const child of workspace.childRefs) {
+      if (child.childId !== routedChildId) {
+        this.refreshWorkspaceChildRef(child);
+      }
+    }
   }
 
   private assertWorkspaceChildFresh(child: CanvasWorkspaceChildRef): void {
@@ -934,32 +945,25 @@ export class CanvasManager implements CanvasManagerLike {
       codeSyncBindingIds: [...child.codeSyncBindingIds],
       codeSyncSourceRepoPaths: [...child.codeSyncSourceRepoPaths]
     } satisfies CanvasWorkspaceChildRef;
+    const session = this.requireWorkspaceChildSession(child);
+    const repoRoot = this.readSessionRepoRoot(session, params);
     if (command === "canvas.document.load") {
-      await this.prepareWorkspaceDocumentLoadCandidate(child, candidate, params);
+      await this.prepareWorkspaceDocumentLoadCandidate(candidate, repoRoot, params);
     }
     if (command === "canvas.document.save") {
-      candidate.repoPath = optionalString(params.repoPath) ?? candidate.repoPath;
+      this.prepareWorkspaceDocumentSaveCandidate(candidate, session, repoRoot, params);
     }
     if (command === "canvas.code.bind") {
-      addOptionalWorkspaceCodeSyncBinding(candidate, params.bindingId, params.repoPath);
+      addOptionalWorkspaceCodeSyncBinding(candidate, params.bindingId, params.repoPath, repoRoot);
     }
     if (command === "canvas.document.patch" && Array.isArray(params.patches)) {
-      addWorkspacePatchBindingCandidates(candidate, params.patches);
+      addWorkspacePatchBindingCandidates(candidate, params.patches, repoRoot);
     }
     const nextRefs = workspace.childRefs.map((entry) => entry.childId === child.childId ? candidate : entry);
     this.assertWorkspaceChildRefs(nextRefs);
   }
 
-  private async prepareWorkspaceDocumentLoadCandidate(
-    child: CanvasWorkspaceChildRef,
-    candidate: CanvasWorkspaceChildRef,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    const documentId = optionalString(params.documentId);
-    const repoPath = optionalString(params.repoPath);
-    if (!repoPath && !documentId) {
-      return;
-    }
+  private requireWorkspaceChildSession(child: CanvasWorkspaceChildRef): CanvasSession {
     const session = this.sessions.get(child.canvasSessionId);
     if (!session) {
       throw canvasWorkspaceError("canvas_workspace_stale_child", `Unknown canvas child session: ${child.canvasSessionId}`, {
@@ -967,7 +971,19 @@ export class CanvasManager implements CanvasManagerLike {
         canvasSessionId: child.canvasSessionId
       });
     }
-    const repoRoot = this.readSessionRepoRoot(session, params);
+    return session;
+  }
+
+  private async prepareWorkspaceDocumentLoadCandidate(
+    candidate: CanvasWorkspaceChildRef,
+    repoRoot: string,
+    params: Record<string, unknown>
+  ): Promise<void> {
+    const documentId = optionalString(params.documentId);
+    const repoPath = optionalString(params.repoPath);
+    if (!repoPath && !documentId) {
+      return;
+    }
     if (!repoPath) {
       const document = await loadCanvasDocumentById(repoRoot, documentId as string);
       if (!document) {
@@ -977,22 +993,33 @@ export class CanvasManager implements CanvasManagerLike {
         candidate.codeSyncSourceRepoPaths = [];
         return;
       }
-      this.applyWorkspaceDocumentLoadCandidate(candidate, normalizeCanvasDocument(document), null);
+      this.applyWorkspaceDocumentLoadCandidate(candidate, normalizeCanvasDocument(document), null, repoRoot);
       return;
     }
     const document = normalizeCanvasDocument(await loadCanvasDocument(repoRoot, repoPath));
-    this.applyWorkspaceDocumentLoadCandidate(candidate, document, repoPath);
+    this.applyWorkspaceDocumentLoadCandidate(candidate, document, repoPath, repoRoot);
+  }
+
+  private prepareWorkspaceDocumentSaveCandidate(
+    candidate: CanvasWorkspaceChildRef,
+    session: CanvasSession,
+    repoRoot: string,
+    params: Record<string, unknown>
+  ): void {
+    const document = session.store.getDocument();
+    candidate.repoPath = resolveWorkspaceCanvasRepoPath(repoRoot, document.documentId, optionalString(params.repoPath));
   }
 
   private applyWorkspaceDocumentLoadCandidate(
     candidate: CanvasWorkspaceChildRef,
     document: CanvasDocument,
-    repoPath: string | null
+    repoPath: string | null,
+    repoRoot: string
   ): void {
     candidate.documentId = document.documentId;
-    candidate.repoPath = repoPath;
+    candidate.repoPath = resolveOptionalWorkspaceCanvasRepoPath(repoRoot, document.documentId, repoPath);
     candidate.codeSyncBindingIds = getCanvasDocumentCodeSyncBindingIds(document);
-    candidate.codeSyncSourceRepoPaths = getCanvasDocumentCodeSyncSourceRepoPaths(document);
+    candidate.codeSyncSourceRepoPaths = getCanvasDocumentCodeSyncSourceRepoPaths(document, repoRoot);
   }
 
   private assertWorkspaceChildRefs(childRefs: CanvasWorkspaceChildRef[]): void {
@@ -1014,14 +1041,16 @@ export class CanvasManager implements CanvasManagerLike {
         seenBindings.add(bindingId);
       }
       for (const sourceRepoPath of child.codeSyncSourceRepoPaths) {
-        const existingChildId = seenSources.get(sourceRepoPath);
+        const sourceIdentity = workspacePathComparisonKey(sourceRepoPath);
+        const existingChildId = seenSources.get(sourceIdentity);
         if (existingChildId) {
           throw canvasWorkspaceError("canvas_workspace_duplicate_code_sync_repo_path", "Duplicate workspace code-sync source repoPath.", {
             repoPath: sourceRepoPath,
+            sourceIdentity,
             childIds: [existingChildId, child.childId]
           });
         }
-        seenSources.set(sourceRepoPath, child.childId);
+        seenSources.set(sourceIdentity, child.childId);
       }
     }
   }
@@ -4947,7 +4976,7 @@ function assertUniqueWorkspaceField(
     if (!rawValue) {
       continue;
     }
-    const value = field === "repoPath" ? normalizeWorkspaceRepoPath(rawValue) : rawValue;
+    const value = field === "repoPath" ? workspacePathComparisonKey(rawValue) : rawValue;
     const existingChildId = seen.get(value);
     if (existingChildId) {
       throw canvasWorkspaceError(code, message, {
@@ -4968,6 +4997,45 @@ function normalizeWorkspaceRepoPath(value: string): string {
   return normalizePath(value).replace(/^[.][\\/]/, "");
 }
 
+function resolveWorkspaceRepoPathIdentity(repoRoot: string, repoPath: string): string {
+  return canonicalizeWorkspacePathIdentity(isAbsolute(repoPath) ? repoPath : resolvePath(repoRoot, repoPath));
+}
+
+function resolveWorkspaceCanvasRepoPath(repoRoot: string, documentId: string, repoPath?: string | null): string {
+  return canonicalizeWorkspacePathIdentity(resolveCanvasRepoPath(repoRoot, documentId, repoPath));
+}
+
+function resolveOptionalWorkspaceCanvasRepoPath(repoRoot: string, documentId: string, repoPath?: string | null): string | null {
+  return repoPath ? resolveWorkspaceCanvasRepoPath(repoRoot, documentId, repoPath) : null;
+}
+
+function workspacePathComparisonKey(pathValue: string): string {
+  const normalized = normalizeWorkspaceRepoPath(pathValue);
+  try {
+    const stats = statSync(normalized);
+    return `file:${stats.dev}:${stats.ino}`;
+  } catch {
+    return canonicalizeWorkspacePathIdentity(normalized);
+  }
+}
+
+function canonicalizeWorkspacePathIdentity(pathValue: string): string {
+  const normalized = normalizeWorkspaceRepoPath(pathValue);
+  try {
+    return normalizeWorkspaceRepoPath(realpathSync.native(normalized));
+  } catch {
+    return canonicalizeWorkspaceParentPathIdentity(normalized);
+  }
+}
+
+function canonicalizeWorkspaceParentPathIdentity(pathValue: string): string {
+  try {
+    return normalizeWorkspaceRepoPath(join(realpathSync.native(dirname(pathValue)), basename(pathValue)));
+  } catch {
+    return pathValue;
+  }
+}
+
 function requireWorkspaceIdSafePathSegment(value: unknown): string {
   const workspaceId = requireString(value, "workspaceId");
   if (workspaceId.length > CANVAS_WORKSPACE_ID_MAX_LENGTH || !CANVAS_WORKSPACE_ID_SEGMENT_PATTERN.test(workspaceId)) {
@@ -4983,17 +5051,18 @@ function getCanvasDocumentCodeSyncBindingIds(document: CanvasDocument): string[]
   return document.bindings.filter((binding) => Boolean(binding.codeSync)).map((binding) => binding.id);
 }
 
-function getCanvasDocumentCodeSyncSourceRepoPaths(document: CanvasDocument): string[] {
+function getCanvasDocumentCodeSyncSourceRepoPaths(document: CanvasDocument, repoRoot: string): string[] {
   return document.bindings.flatMap((binding) => {
     const repoPath = optionalString(binding.codeSync?.repoPath);
-    return repoPath ? [normalizeWorkspaceRepoPath(repoPath)] : [];
+    return repoPath ? [resolveWorkspaceRepoPathIdentity(repoRoot, repoPath)] : [];
   });
 }
 
 function addOptionalWorkspaceCodeSyncBinding(
   candidate: CanvasWorkspaceChildRef,
   bindingIdValue: unknown,
-  repoPathValue: unknown
+  repoPathValue: unknown,
+  repoRoot: string
 ): void {
   const bindingId = optionalString(bindingIdValue);
   if (bindingId) {
@@ -5001,11 +5070,11 @@ function addOptionalWorkspaceCodeSyncBinding(
   }
   const repoPath = optionalString(repoPathValue);
   if (repoPath) {
-    candidate.codeSyncSourceRepoPaths.push(normalizeWorkspaceRepoPath(repoPath));
+    candidate.codeSyncSourceRepoPaths.push(resolveWorkspaceRepoPathIdentity(repoRoot, repoPath));
   }
 }
 
-function addWorkspacePatchBindingCandidates(candidate: CanvasWorkspaceChildRef, patches: unknown[]): void {
+function addWorkspacePatchBindingCandidates(candidate: CanvasWorkspaceChildRef, patches: unknown[], repoRoot: string): void {
   for (const patch of patches) {
     if (!isRecord(patch) || patch.op !== "binding.set" || !isRecord(patch.binding)) {
       continue;
@@ -5013,7 +5082,7 @@ function addWorkspacePatchBindingCandidates(candidate: CanvasWorkspaceChildRef, 
     if (!isRecord(patch.binding.codeSync)) {
       continue;
     }
-    addOptionalWorkspaceCodeSyncBinding(candidate, patch.binding.id, patch.binding.codeSync.repoPath);
+    addOptionalWorkspaceCodeSyncBinding(candidate, patch.binding.id, patch.binding.codeSync.repoPath, repoRoot);
   }
 }
 

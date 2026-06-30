@@ -1570,6 +1570,125 @@ describe("CanvasRuntime", () => {
     }));
   });
 
+  it("rejects workspace sync when canvasSessionId and targetId belong to different children", async () => {
+    let nextTabId = 1;
+    const tabsById = new Map<number, chrome.tabs.Tab>();
+    globalThis.chrome = {
+      runtime: {
+        lastError: null,
+        getURL: vi.fn((path: string) => `chrome-extension://test/${path}`)
+      },
+      tabs: {
+        create: vi.fn((createProperties: chrome.tabs.CreateProperties, callback?: (tab: chrome.tabs.Tab) => void) => {
+          const tab: chrome.tabs.Tab = { id: nextTabId, url: createProperties.url, title: "Canvas", status: "complete" };
+          tabsById.set(nextTabId, tab);
+          nextTabId += 1;
+          callback?.(tab);
+          return tab;
+        }),
+        get: vi.fn(async (tabId: number) => tabsById.get(tabId) ?? null),
+        remove: vi.fn()
+      }
+    } as unknown as typeof chrome;
+
+    const sent: CanvasEnvelope[] = [];
+    const runtime = new CanvasRuntime({
+      send: (message) => sent.push(message)
+    });
+    for (const child of [
+      { id: "canvas_child_a", leaseId: "lease-child-a", childId: "child-a", documentId: "doc_child_a", title: "Child A" },
+      { id: "canvas_child_b", leaseId: "lease-child-b", childId: "child-b", documentId: "doc_child_b", title: "Child B" }
+    ]) {
+      runtime.handleMessage({
+        type: "canvas_request",
+        requestId: `req-open-${child.childId}`,
+        clientId: "client-1",
+        canvasSessionId: child.id,
+        leaseId: child.leaseId,
+        command: "canvas.tab.open",
+        payload: {
+          workspaceId: "workspace_mismatch_guard",
+          childId: child.childId,
+          previewMode: "focused",
+          html: OPEN_HTML,
+          documentRevision: 1,
+          summary: {
+            canvasSessionId: child.id,
+            workspaceId: "workspace_mismatch_guard",
+            childId: child.childId,
+            targets: []
+          },
+          document: {
+            documentId: child.documentId,
+            title: child.title,
+            pages: [{ id: "page_home", rootNodeId: null, nodes: [] }]
+          }
+        }
+      });
+      await flushMicrotasks();
+    }
+
+    const portA = createPort(1);
+    const portB = createPort(2);
+    runtime.attachPort(portA as unknown as chrome.runtime.Port);
+    runtime.attachPort(portB as unknown as chrome.runtime.Port);
+    expect(portA.messages.at(-1)).toEqual(expect.objectContaining({
+      type: "canvas-page:init",
+      state: expect.objectContaining({ targetId: "tab-1", title: "Child A" })
+    }));
+    expect(portB.messages.at(-1)).toEqual(expect.objectContaining({
+      type: "canvas-page:init",
+      state: expect.objectContaining({ targetId: "tab-2", title: "Child B" })
+    }));
+    const portBMessageCount = portB.messages.length;
+
+    runtime.handleMessage({
+      type: "canvas_request",
+      requestId: "req-mismatched-sync",
+      clientId: "client-1",
+      canvasSessionId: "canvas_child_a",
+      leaseId: "lease-child-a",
+      command: "canvas.tab.sync",
+      payload: {
+        targetId: "tab-2",
+        workspaceId: "workspace_mismatch_guard",
+        childId: "child-a",
+        html: SYNC_HTML,
+        documentRevision: 2,
+        summary: {
+          canvasSessionId: "canvas_child_a",
+          workspaceId: "workspace_mismatch_guard",
+          childId: "child-a",
+          targets: []
+        },
+        document: {
+          documentId: "doc_child_a",
+          title: "Child A Mutated By Wrong Tab",
+          pages: [{ id: "page_home", rootNodeId: null, nodes: [] }]
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    expect(sent).toContainEqual(expect.objectContaining({
+      type: "canvas_error",
+      requestId: "req-mismatched-sync",
+      canvasSessionId: "canvas_child_a",
+      error: expect.objectContaining({ code: "execution_failed" })
+    }));
+    expect(portB.messages).toHaveLength(portBMessageCount);
+    const freshPortA = createPort(1);
+    runtime.attachPort(freshPortA as unknown as chrome.runtime.Port);
+    expect(freshPortA.messages.at(-1)).toEqual(expect.objectContaining({
+      type: "canvas-page:init",
+      state: expect.objectContaining({
+        targetId: "tab-1",
+        title: "Child A",
+        documentRevision: 1
+      })
+    }));
+  });
+
   it("rejects degraded preview mode for canvas tab open", async () => {
     globalThis.chrome = {
       runtime: {
