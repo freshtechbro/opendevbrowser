@@ -103,7 +103,7 @@ describe("extension annotation payload helpers", () => {
               { family: "css" as const, rank: 50, confidence: "medium" as const, scope: "document" as const, transport: "extension" as const, availability: "available" as const, value: `[data-token=\"${secret}\"]` },
               { family: "text" as const, rank: 80, confidence: "low" as const, scope: "text" as const, transport: "extension" as const, availability: "available" as const, value: `text=${email}` }
             ],
-            recoveryHints: []
+            recoveryHints: [`Recover with apiKey=${secret}`, `Contact ${email}`]
           }
         }
       ]
@@ -116,6 +116,33 @@ describe("extension annotation payload helpers", () => {
     expect(serialized).not.toContain(email);
     expect(serialized).toContain("[redacted]");
     expect(sanitized.compact?.redaction.truncatedFields.some((field) => field.includes("redacted"))).toBe(true);
+  });
+
+  it("enforces the compact byte budget for a huge url", () => {
+    const hugeUrl = `https://example.com/${"path/".repeat(8_000)}?token=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890`;
+    const compact = buildCompactAnnotationPayload({
+      url: hugeUrl,
+      title: "Huge URL compact",
+      timestamp: "2026-03-12T00:00:00.000Z",
+      screenshotMode: "none" as const,
+      annotations: [
+        {
+          id: "item-huge-url",
+          selector: "#hero",
+          tag: "section",
+          text: "Hero",
+          rect: { x: 8, y: 16, width: 120, height: 44 },
+          attributes: {},
+          a11y: {},
+          styles: {}
+        }
+      ]
+    });
+
+    expect(Buffer.byteLength(JSON.stringify(compact), "utf8")).toBeLessThanOrEqual(compact.byteBudget);
+    expect(compact.redaction.compactByteLength).toBeLessThanOrEqual(compact.byteBudget);
+    expect(compact.url).toBe("[redacted]");
+    expect(compact.redaction.removedFields).toContain("url");
   });
 
   it("enforces the compact byte budget by truncating low-priority compact fields", () => {

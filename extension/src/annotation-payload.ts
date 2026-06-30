@@ -197,7 +197,9 @@ const redactSelectorBundle = (
     ...entry,
     value: redactSensitiveString(entry.value, redaction, `${prefix}.candidates.${index}.value`)
   })),
-  recoveryHints: bundle.recoveryHints
+  recoveryHints: bundle.recoveryHints.map((hint, index) =>
+    redactSensitiveString(hint, redaction, `${prefix}.recoveryHints.${index}`) ?? REDACTED_VALUE
+  )
 });
 
 const redactIdentity = (
@@ -286,9 +288,11 @@ const enforceCompactByteBudget = (compact: AnnotationCompactPayload): Annotation
     compact.items = [];
     compact.context = undefined;
     compact.title = undefined;
+    compact.url = REDACTED_VALUE;
     pushUnique(compact.redaction.removedFields, "annotations");
     pushUnique(compact.redaction.removedFields, "context");
     pushUnique(compact.redaction.removedFields, "title");
+    pushUnique(compact.redaction.removedFields, "url");
   }
   return updateCompactByteLengths(compact);
 };

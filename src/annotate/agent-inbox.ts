@@ -134,7 +134,7 @@ function buildSummaryOnlyEntry(entry: AgentInboxEntry): AgentInboxEntry {
       }
     }
     : undefined;
-  return {
+  const summary: AgentInboxEntry = {
     ...entry,
     payloadSansScreenshots: {
       schemaVersion: entry.payloadSansScreenshots.schemaVersion,
@@ -148,6 +148,42 @@ function buildSummaryOnlyEntry(entry: AgentInboxEntry): AgentInboxEntry {
     receipt: {
       ...entry.receipt,
       reason: "payload_truncated"
+    }
+  };
+  return enforceSummaryBlockLimit(summary);
+}
+
+function enforceSummaryBlockLimit(entry: AgentInboxEntry): AgentInboxEntry {
+  if (Buffer.byteLength(buildSystemBlock([entry]), "utf-8") <= AGENT_INBOX_MAX_BYTES) {
+    return entry;
+  }
+  const compact = entry.payloadSansScreenshots.compact
+    ? {
+      ...entry.payloadSansScreenshots.compact,
+      url: "[redacted]",
+      title: undefined,
+      redaction: {
+        ...entry.payloadSansScreenshots.compact.redaction,
+        removedFields: [
+          ...entry.payloadSansScreenshots.compact.redaction.removedFields,
+          "summary_overflow_url",
+          "summary_overflow_title"
+        ]
+      }
+    }
+    : undefined;
+  return {
+    ...entry,
+    label: entry.label.slice(0, 120),
+    payloadSansScreenshots: {
+      ...entry.payloadSansScreenshots,
+      url: "[redacted]",
+      title: undefined,
+      compact
+    },
+    receipt: {
+      ...entry.receipt,
+      label: entry.receipt.label.slice(0, 120)
     }
   };
 }

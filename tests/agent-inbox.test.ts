@@ -151,6 +151,30 @@ describe("AgentInbox", () => {
     expect(stored).not.toContain("person@example.com");
   });
 
+  it("rebuilds canonical compact metadata within byte budget for a huge url", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => Date.parse("2026-03-15T00:45:00.000Z"));
+
+    store.registerScope("session-huge-url");
+    const entry = store.enqueue({
+      payload: createPayload({
+        url: `https://example.com/${"path/".repeat(8_000)}?token=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890`,
+        screenshotMode: "none",
+        screenshots: undefined
+      }),
+      source: "popup_all",
+      label: "Huge URL payload"
+    });
+
+    const compact = entry.payloadSansScreenshots.compact;
+    expect(compact).toBeDefined();
+    expect(Buffer.byteLength(JSON.stringify(compact), "utf8")).toBeLessThanOrEqual(compact?.byteBudget ?? 0);
+    expect(compact?.redaction.compactByteLength).toBeLessThanOrEqual(compact?.byteBudget ?? 0);
+    expect(compact?.url).toBe("[redacted]");
+    expect(compact?.redaction.removedFields).toContain("url");
+  });
+
   it("degrades to stored_only for ambiguous scope and suppresses duplicates", () => {
     let now = Date.parse("2026-03-15T01:00:00.000Z");
     const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
@@ -354,6 +378,33 @@ describe("AgentInbox", () => {
     expect(((items[0]?.payload as { annotations?: unknown[] }).annotations ?? []).length).toBe(0);
     expect(Buffer.byteLength(injection?.systemBlock ?? "", "utf8")).toBeLessThanOrEqual(256 * 1024);
     expect(JSON.stringify(items[0]?.payload)).not.toContain("x".repeat(1000));
+  });
+
+  it("bounds summary-only injections when labels and page metadata are oversized", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const inbox = new AgentInbox(root, () => Date.parse("2026-03-15T03:30:00.000Z"));
+
+    inbox.registerScope("session-oversized-summary");
+    inbox.enqueue({
+      payload: createPayload({
+        url: `https://example.com/${"a".repeat(100_000)}`,
+        title: "T".repeat(100_000),
+        annotations: []
+      }),
+      source: "popup_all",
+      label: "L".repeat(100_000)
+    });
+
+    const injection = inbox.buildSystemInjection("session-oversized-summary");
+    const items = parseSystemItems(injection?.systemBlock ?? "");
+    const payload = items[0]?.payload as { url?: string; title?: string; annotations?: unknown[] };
+
+    expect(Buffer.byteLength(injection?.systemBlock ?? "", "utf8")).toBeLessThanOrEqual(256 * 1024);
+    expect(items[0]?.label).toBe("L".repeat(120));
+    expect(payload.url).toBe("[redacted]");
+    expect(payload.title).toBeUndefined();
+    expect(payload.annotations).toEqual([]);
   });
 
   it("caps injections at 20 items and defers oversized follow-up payloads", () => {
