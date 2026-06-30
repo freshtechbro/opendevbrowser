@@ -324,7 +324,7 @@ export const HELP_ONBOARDING_ENTRIES: readonly FormattableRow[] = [
   },
   {
     label: "inspiredesign_followthrough",
-    description: "After inspiredesign finishes, inspect top-level ready, productSuccess, artifactAuthority, evidenceAuthority, ranked references, and manifest-backed screenshot, screencast, or pin-media evidence before Canvas.",
+    description: "After inspiredesign finishes, inspect top-level ready, productSuccess, artifactAuthority, evidenceAuthority, ranked references, and manifest-backed pin-media evidence for canonical Pinterest harvests before Canvas. Screenshot or screencast authority applies only to its own non-Pinterest evidence lane.",
     details: [
       { label: "quick:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadBestPractices },
       { label: "design:", value: INSPIREDESIGN_HANDOFF_COMMANDS.loadDesignAgent },

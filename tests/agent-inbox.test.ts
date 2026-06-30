@@ -95,6 +95,86 @@ describe("AgentInbox", () => {
     expect(storedEntry.receipt?.deliveryState).toBe("consumed");
   });
 
+  it("rebuilds compact metadata and blocks screenshot material from system injection", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const inbox = new AgentInbox(root, () => Date.parse("2026-03-15T00:30:00.000Z"));
+
+    inbox.registerScope("session-redaction");
+    inbox.enqueue({
+      payload: createPayload({
+        url: "https://example.com/path?token=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+        title: "Secret owner person@example.com",
+        context: "Context with apiKey=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+        annotations: [
+          {
+            id: "annotation-1",
+            selector: "[data-token=\"sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\"]",
+            tag: "section",
+            rect: { x: 0, y: 0, width: 320, height: 180 },
+            attributes: { "data-testid": "secret-sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890" },
+            a11y: { role: "region", label: "person@example.com" },
+            styles: {},
+            screenshotId: "shot-1",
+            note: "Secret sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+          }
+        ],
+        compact: {
+          schemaVersion: 2,
+          screenshotMode: "none",
+          screenshots: [{ id: "shot-1", base64: "AAAA" }],
+          items: [{ id: "annotation-1", screenshotId: "shot-1", leaked: "AAAA" }]
+        }
+      }),
+      source: "popup_all",
+      label: "Malicious compact"
+    });
+
+    const injection = inbox.buildSystemInjection("session-redaction");
+    expect(injection).not.toBeNull();
+    const block = injection?.systemBlock ?? "";
+    expect(block).toContain('"schemaVersion": 2');
+    expect(block).toContain('"compact"');
+    expect(block).not.toContain("AAAA");
+    expect(block).not.toContain("shot-1");
+    expect(block).not.toContain("screenshotId");
+    expect(block).not.toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+    expect(block).not.toContain("person@example.com");
+    expect(block).toContain("[redacted]");
+
+    const entriesPath = join(root, ".opendevbrowser", "annotate", "agent-inbox.jsonl");
+    const stored = readFileSync(entriesPath, "utf8");
+    expect(stored).not.toContain("AAAA");
+    expect(stored).not.toContain("shot-1");
+    expect(stored).not.toContain("screenshotId");
+    expect(stored).not.toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
+    expect(stored).not.toContain("person@example.com");
+  });
+
+  it("rebuilds canonical compact metadata within byte budget for a huge url", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => Date.parse("2026-03-15T00:45:00.000Z"));
+
+    store.registerScope("session-huge-url");
+    const entry = store.enqueue({
+      payload: createPayload({
+        url: `https://example.com/${"path/".repeat(8_000)}?token=sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890`,
+        screenshotMode: "none",
+        screenshots: undefined
+      }),
+      source: "popup_all",
+      label: "Huge URL payload"
+    });
+
+    const compact = entry.payloadSansScreenshots.compact;
+    expect(compact).toBeDefined();
+    expect(Buffer.byteLength(JSON.stringify(compact), "utf8")).toBeLessThanOrEqual(compact?.byteBudget ?? 0);
+    expect(compact?.redaction.compactByteLength).toBeLessThanOrEqual(compact?.byteBudget ?? 0);
+    expect(compact?.url).toBe("[redacted]");
+    expect(compact?.redaction.removedFields).toContain("url");
+  });
+
   it("degrades to stored_only for ambiguous scope and suppresses duplicates", () => {
     let now = Date.parse("2026-03-15T01:00:00.000Z");
     const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
@@ -122,6 +202,35 @@ describe("AgentInbox", () => {
 
     expect(duplicate.id).toBe(first.id);
     expect(store.latestEntry()?.id).toBe(first.id);
+  });
+
+  it("upgrades a stored-only duplicate to delivered when a concrete scope appears", () => {
+    let now = Date.parse("2026-03-15T01:30:00.000Z");
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => now);
+
+    const first = store.enqueue({
+      payload: createPayload(),
+      source: "canvas_all",
+      label: "Retry payload"
+    });
+    expect(first.receipt.deliveryState).toBe("stored_only");
+    expect(first.receipt.reason).toBe("no_active_scope");
+
+    now += 30_000;
+    store.registerScope("session-retry");
+    const retry = store.enqueue({
+      payload: createPayload(),
+      source: "canvas_all",
+      label: "Retry payload"
+    });
+
+    expect(retry.id).toBe(first.id);
+    expect(retry.receipt.deliveryState).toBe("delivered");
+    expect(retry.receipt.storedFallback).toBe(false);
+    expect(retry.chatScopeKey).toBe("session-retry");
+    expect(store.peekScope("session-retry").map((entry) => entry.id)).toEqual([first.id]);
   });
 
   it("prunes invalid and expired entries and scopes from disk", () => {
@@ -267,6 +376,35 @@ describe("AgentInbox", () => {
 
     expect(items).toHaveLength(1);
     expect(((items[0]?.payload as { annotations?: unknown[] }).annotations ?? []).length).toBe(0);
+    expect(Buffer.byteLength(injection?.systemBlock ?? "", "utf8")).toBeLessThanOrEqual(256 * 1024);
+    expect(JSON.stringify(items[0]?.payload)).not.toContain("x".repeat(1000));
+  });
+
+  it("bounds summary-only injections when labels and page metadata are oversized", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const inbox = new AgentInbox(root, () => Date.parse("2026-03-15T03:30:00.000Z"));
+
+    inbox.registerScope("session-oversized-summary");
+    inbox.enqueue({
+      payload: createPayload({
+        url: `https://example.com/${"a".repeat(100_000)}`,
+        title: "T".repeat(100_000),
+        annotations: []
+      }),
+      source: "popup_all",
+      label: "L".repeat(100_000)
+    });
+
+    const injection = inbox.buildSystemInjection("session-oversized-summary");
+    const items = parseSystemItems(injection?.systemBlock ?? "");
+    const payload = items[0]?.payload as { url?: string; title?: string; annotations?: unknown[] };
+
+    expect(Buffer.byteLength(injection?.systemBlock ?? "", "utf8")).toBeLessThanOrEqual(256 * 1024);
+    expect(items[0]?.label).toBe("L".repeat(120));
+    expect(payload.url).toBe("[redacted]");
+    expect(payload.title).toBeUndefined();
+    expect(payload.annotations).toEqual([]);
   });
 
   it("caps injections at 20 items and defers oversized follow-up payloads", () => {
@@ -585,4 +723,134 @@ describe("AgentInbox", () => {
     const content = readFileSync(join(root, ".opendevbrowser", "annotate", "agent-inbox.jsonl"), "utf8");
     expect(content.indexOf("\"id\":\"a\"")).toBeLessThan(content.indexOf("\"id\":\"b\""));
   });
+
+  it("redacts URL userinfo, sensitive query values, canvas identity, and selector bundle fields", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => Date.parse("2026-03-15T15:00:00.000Z"));
+
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWNyZXQifQ.signature_part";
+    const opaqueSecret = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1";
+    const prefixedSecret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456";
+
+    store.registerScope("session-rich-redaction");
+    const entry = store.enqueue({
+      payload: createPayload({
+        url: `https://user:${prefixedSecret}@example.com/path?plain=person@example.com&token=public-value`,
+        title: `Title ${jwt}`,
+        context: `Context ${opaqueSecret}`,
+        annotations: [
+          {
+            id: "annotation-rich",
+            selector: `#hero-${prefixedSecret}`,
+            idAttr: jwt,
+            classes: [prefixedSecret, opaqueSecret],
+            tag: "section",
+            rect: { x: 0, y: 0, width: 320, height: 180 },
+            attributes: { "data-secret": prefixedSecret },
+            a11y: {
+              role: `region ${prefixedSecret}`,
+              label: "person@example.com",
+              labelledBy: jwt,
+              describedBy: opaqueSecret,
+              hidden: false
+            },
+            styles: { color: "red" },
+            screenshotId: "shot-1",
+            text: `Visible ${jwt}`,
+            note: `Note ${opaqueSecret}`,
+            identity: {
+              source: "canvas",
+              priority: 100,
+              stableId: prefixedSecret,
+              label: `Canvas ${jwt}`,
+              canvas: {
+                documentId: prefixedSecret,
+                pageId: jwt,
+                nodeId: opaqueSecret,
+                regionId: prefixedSecret,
+                bindingId: jwt,
+                componentName: opaqueSecret
+              }
+            },
+            selectorBundle: {
+              primary: undefined,
+              transport: "extension",
+              candidates: [
+                {
+                  family: "css",
+                  rank: 1,
+                  confidence: "high",
+                  scope: "document",
+                  transport: "extension",
+                  availability: "available",
+                  value: prefixedSecret
+                },
+                {
+                  family: "xpath",
+                  rank: 2,
+                  confidence: "low",
+                  scope: "document",
+                  transport: "extension",
+                  availability: "unavailable",
+                  unavailableReason: "missing_xpath_facts"
+                }
+              ],
+              recoveryHints: [`Retry ${jwt}`]
+            }
+          }
+        ]
+      }),
+      source: "annotate_all",
+      label: "Rich redaction"
+    });
+
+    const serialized = JSON.stringify(entry.payloadSansScreenshots);
+    expect(serialized).not.toContain(prefixedSecret);
+    expect(serialized).not.toContain(jwt);
+    expect(serialized).not.toContain(opaqueSecret);
+    expect(serialized).not.toContain("person@example.com");
+    expect(entry.payloadSansScreenshots.url).toContain("[redacted]");
+    expect(entry.payloadSansScreenshots.compact?.items[0]?.selectorBundle.primary).toBe("[redacted]");
+    expect(entry.payloadSansScreenshots.compact?.items[0]?.identity.canvas?.documentId).toBe("[redacted]");
+  });
+
+  it("prunes compact overflow items without dropping all useful compact context", () => {
+    const root = mkdtempSync(join(tmpdir(), "odb-agent-inbox-"));
+    tempRoots.push(root);
+    const store = new AgentInboxStore(root, () => Date.parse("2026-03-15T16:00:00.000Z"));
+    const annotationCount = 90;
+    const longText = "detail ".repeat(120);
+
+    store.registerScope("session-compact-overflow");
+    const annotations = Array.from({ length: annotationCount }, (_value, index) => ({
+      id: `annotation-${index}`,
+      selector: `#item-${index}`,
+      tag: "section",
+      rect: { x: index, y: index, width: 320, height: 180 },
+      attributes: { "data-index": String(index) },
+      a11y: { label: `Item ${index}` },
+      styles: { color: "red" },
+      screenshotId: "shot-1",
+      text: `${longText}${index}`,
+      note: `${longText}${index}`
+    }));
+
+    const entry = store.enqueue({
+      payload: createPayload({
+        context: "context ".repeat(1_000),
+        annotations
+      }),
+      source: "popup_all",
+      label: "Compact overflow"
+    });
+
+    const compact = entry.payloadSansScreenshots.compact;
+    expect(compact).toBeDefined();
+    expect(compact?.items.length).toBeGreaterThan(0);
+    expect(compact?.items.length).toBeLessThan(annotationCount);
+    expect(compact?.redaction.removedFields).toContain("annotations.overflow_items");
+    expect(compact?.redaction.compactByteLength).toBeLessThanOrEqual(compact?.byteBudget ?? 0);
+  });
+
 });

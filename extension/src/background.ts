@@ -13,7 +13,7 @@ import { OpsRuntime } from "./ops/ops-runtime.js";
 import { CanvasRuntime } from "./canvas/canvas-runtime.js";
 import {
   formatDispatchSourceLabel,
-  stripAnnotationPayloadScreenshots
+  sanitizeAnnotationPayloadForAgent
 } from "./annotation-payload.js";
 import { getRestrictionMessage } from "./services/url-restrictions.js";
 import type {
@@ -317,8 +317,15 @@ const refreshBadgeFromBackgroundStatus = async (): Promise<void> => {
 };
 
 const setStorage = (items: Record<string, unknown>): Promise<void> => {
-  return new Promise((resolve) => {
-    chrome.storage.local.set(items, () => resolve());
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(items, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve();
+    });
   });
 };
 
@@ -1269,14 +1276,15 @@ const storeAgentAnnotationPayload = async (
   label?: string,
   receipt?: AgentInboxReceipt
 ): Promise<PopupAnnotationMeta> => {
-  if (!validatePayloadSize(payload)) {
+  const sanitizedPayload = sanitizeAnnotationPayloadForAgent(payload);
+  if (!validatePayloadSize(sanitizedPayload)) {
     throw new Error("Annotation payload exceeded size limits.");
   }
   const response: AnnotationResponse = {
     version: 1,
     requestId: receipt?.receiptId ?? crypto.randomUUID(),
     status: "ok",
-    payload,
+    payload: sanitizedPayload,
     receipt
   };
   const meta = buildLastAnnotationMeta(response.requestId, response, true, {
@@ -1284,8 +1292,8 @@ const storeAgentAnnotationPayload = async (
     label: label?.trim().length ? label.trim() : formatDispatchSourceLabel(source),
     receipt
   });
-  lastAgentAnnotationFull = { meta, payload };
-  await persistAgentAnnotation({ ...meta, hasFullPayloadInMemory: false }, stripAnnotationPayloadScreenshots(payload));
+  lastAgentAnnotationFull = { meta, payload: sanitizedPayload };
+  await persistAgentAnnotation({ ...meta, hasFullPayloadInMemory: false }, sanitizedPayload);
   return meta;
 };
 
@@ -1295,7 +1303,7 @@ const buildStoredOnlyReceipt = (
   label: string | undefined,
   reason: string
 ): AgentInboxReceipt => {
-  const sanitizedPayload = stripAnnotationPayloadScreenshots(payload);
+  const sanitizedPayload = sanitizeAnnotationPayloadForAgent(payload);
   return {
     receiptId: crypto.randomUUID(),
     deliveryState: "stored_only",
@@ -1315,11 +1323,12 @@ const enqueueAgentPayload = async (
   source: AnnotationDispatchSource,
   label?: string
 ): Promise<AgentInboxReceipt> => {
+  const sanitizedPayload = sanitizeAnnotationPayloadForAgent(payload);
   const response = await connection.sendAnnotationCommand({
     version: 1,
     requestId: crypto.randomUUID(),
     command: "store_agent_payload",
-    payload,
+    payload: sanitizedPayload,
     source,
     label
   });
@@ -1343,7 +1352,7 @@ const loadAgentAnnotationPayload = async (includeScreenshots: boolean): Promise<
       version: 1,
       requestId: crypto.randomUUID(),
       status: "ok",
-      payload: stripAnnotationPayloadScreenshots(lastAgentAnnotationFull.payload)
+      payload: sanitizeAnnotationPayloadForAgent(lastAgentAnnotationFull.payload)
     };
   }
   const stored = await loadPersistedAgentAnnotation();
@@ -1398,6 +1407,28 @@ const handleRelayAnnotationCommand = async (
     sendAnnotationResponse({
       ...stored,
       requestId: payload.requestId
+    }, transport);
+    return;
+  }
+
+  if (payload.command === "store_agent_payload") {
+    if (!payload.payload || !isAnnotationPayload(payload.payload)) {
+      sendAnnotationResponse({
+        version: 1,
+        requestId: payload.requestId,
+        status: "error",
+        error: { code: "invalid_request", message: "Invalid annotation payload." }
+      }, transport);
+      return;
+    }
+    const source = payload.source ?? "annotate_all";
+    const receipt = buildStoredOnlyReceipt(payload.payload, source, payload.label, "stored_in_extension");
+    await storeAgentAnnotationPayload(payload.payload, source, payload.label, receipt);
+    sendAnnotationResponse({
+      version: 1,
+      requestId: payload.requestId,
+      status: "ok",
+      receipt
     }, transport);
     return;
   }
@@ -1462,7 +1493,7 @@ const handleAnnotationComplete = (requestId: string, payload: AnnotationPayload)
   const meta = buildLastAnnotationMeta(requestId, response, true);
   lastAnnotationFull = { meta, payload };
   const storageMeta = { ...meta, hasFullPayloadInMemory: false };
-  const sanitizedPayload = stripAnnotationPayloadScreenshots(payload);
+  const sanitizedPayload = sanitizeAnnotationPayloadForAgent(payload);
   persistLastAnnotation(storageMeta, sanitizedPayload).catch((error) => {
     logError("annotation.persist_sanitized_payload", error, { code: "annotation_persist_failed" });
   });
@@ -2028,7 +2059,7 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
       if (lastAnnotationFull) {
         const response: PopupAnnotationGetPayloadResponse = {
           type: "annotation:payloadResult",
-          payload: stripAnnotationPayloadScreenshots(lastAnnotationFull.payload),
+          payload: sanitizeAnnotationPayloadForAgent(lastAnnotationFull.payload),
           meta: { ...lastAnnotationFull.meta, hasFullPayloadInMemory: true },
           source: "memory"
         };
@@ -2068,6 +2099,37 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
     return true;
   }
 
+  if (message.type === "annotation:sanitizePayload") {
+    if (!isAnnotationPayload(message.payload)) {
+      sendResponse({
+        type: "annotation:sanitizePayloadResult",
+        ok: false,
+        payload: null,
+        error: { code: "invalid_request", message: "Invalid annotation payload." }
+      });
+      return true;
+    }
+    try {
+      const sanitizedPayload = sanitizeAnnotationPayloadForAgent(message.payload);
+      sendResponse({
+        type: "annotation:sanitizePayloadResult",
+        ok: true,
+        payload: sanitizedPayload
+      });
+    } catch (error) {
+      sendResponse({
+        type: "annotation:sanitizePayloadResult",
+        ok: false,
+        payload: null,
+        error: {
+          code: "payload_too_large",
+          message: error instanceof Error ? error.message : "Annotation payload sanitization failed."
+        }
+      });
+    }
+    return true;
+  }
+
   if (message.type === "annotation:sendPayload") {
     (async () => {
       if (!isAnnotationPayload(message.payload)) {
@@ -2103,11 +2165,12 @@ chrome.runtime.onMessage.addListener((message: PopupMessage | ContentScriptMessa
         if (receipt.deliveryState !== "delivered") {
           throw error;
         }
+        const sanitizedPayload = sanitizeAnnotationPayloadForAgent(message.payload);
         const response: AnnotationResponse = {
           version: 1,
           requestId: receipt.receiptId,
           status: "ok",
-          payload: message.payload,
+          payload: sanitizedPayload,
           receipt
         };
         meta = buildLastAnnotationMeta(receipt.receiptId, response, true, {

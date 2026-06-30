@@ -254,7 +254,7 @@ export type InspiredesignMediaAnalysisReference = {
   bytes?: number;
   hash?: string;
   dimensions?: InspiredesignMediaDimensions;
-  authority: InspiredesignMediaAuthority;
+  authority?: InspiredesignMediaAuthority;
   claimLevels: InspiredesignMediaClaimLevel[];
   facts: InspiredesignMediaFacts;
   designGuidance: InspiredesignMediaDesignGuidance;

@@ -256,6 +256,10 @@ describe("daemon autostart helpers", () => {
     expect(plist).toContain("/node");
     expect(plist).toContain("/cli/index.js");
     expect(plist).toContain("serve");
+    expect(plist).toContain("<key>KeepAlive</key>");
+    expect(plist).toContain("<key>SuccessfulExit</key>");
+    expect(plist).toContain("<false/>");
+    expect(plist).not.toContain("<key>KeepAlive</key>\n  <true/>");
     expect(plist).toContain("<key>WorkingDirectory</key>");
     expect(plist).toContain("<key>EnvironmentVariables</key>");
     expect(plist).toContain("<key>PATH</key>");

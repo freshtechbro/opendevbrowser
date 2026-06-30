@@ -1904,6 +1904,49 @@ describe("extension background annotation routing", () => {
     );
   });
 
+  it("sanitizes in-page copy payloads with shared redaction and compact byte budget", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    const secret = "sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    const payload = {
+      url: `https://example.com/account?token=${secret}`,
+      title: `Title ${secret}`,
+      timestamp: "2026-03-12T00:00:00.000Z",
+      context: `Context ${secret} ${"long ".repeat(8_000)}`,
+      screenshotMode: "none" as const,
+      annotations: Array.from({ length: 80 }, (_, index) => ({
+        id: `item-${index}`,
+        selector: `[data-token="${secret}-${index}"]`,
+        tag: "button",
+        text: `Visible ${secret} ${"copy ".repeat(200)}`,
+        rect: { x: index, y: index, width: 100, height: 40 },
+        attributes: { "data-token": `${secret}-${index}` },
+        a11y: { role: "button", label: `Label ${secret}` },
+        styles: {},
+        note: `Note ${secret} ${"note ".repeat(200)}`
+      }))
+    };
+
+    const response = await new Promise<{ ok?: boolean; payload?: { compact?: { byteBudget?: number; redaction?: { compactByteLength?: number } } } | null }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage(
+        { type: "annotation:sanitizePayload", payload },
+        (message) => resolve(message as { ok?: boolean; payload?: { compact?: { byteBudget?: number; redaction?: { compactByteLength?: number } } } | null })
+      );
+    });
+
+    const serialized = JSON.stringify(response.payload);
+    expect(response.ok).toBe(true);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).toContain("[redacted]");
+    expect(response.payload?.compact?.byteBudget).toBe(24 * 1024);
+    expect(response.payload?.compact?.redaction?.compactByteLength).toBeLessThanOrEqual(24 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(response.payload?.compact), "utf8")).toBeLessThanOrEqual(24 * 1024);
+  });
+
   it("stores annotation meta and returns sanitized payload for popup copy", async () => {
     const mock = createChromeMock({ autoConnect: false });
     globalThis.chrome = mock.chrome;
@@ -2050,6 +2093,17 @@ describe("extension background annotation routing", () => {
       storedFallback: true
     });
     expect(lastConnectionManager?.sendAnnotationCommand).toHaveBeenCalledTimes(1);
+    const queuedCommand = lastConnectionManager?.sendAnnotationCommand.mock.calls[0]?.[0] as {
+      payload?: unknown;
+    } | undefined;
+    const queuedPayloadJson = JSON.stringify(queuedCommand?.payload);
+    expect(queuedCommand?.payload).toMatchObject({
+      schemaVersion: 2,
+      screenshotMode: "none",
+      compact: expect.objectContaining({ schemaVersion: 2 })
+    });
+    expect(queuedPayloadJson).not.toContain("CCCC");
+    expect(queuedPayloadJson).not.toContain("screenshotId");
 
     lastConnectionManager?.emitAnnotationCommand({
       type: "annotationCommand",
@@ -2076,6 +2130,91 @@ describe("extension background annotation routing", () => {
         })
       })
     );
+  });
+
+  it("stores relay agent payloads without starting the annotation UI", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    mock.chrome.tabs.sendMessage.mockClear();
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "store-agent-payload",
+        command: "store_agent_payload",
+        source: "popup_all",
+        label: "Relay payload",
+        payload: {
+          url: "https://example.com",
+          timestamp: "2026-03-15T00:00:00.000Z",
+          context: "Context includes token sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+          screenshotMode: "visible",
+          screenshots: [{ id: "shot-1", base64: "CCCC", mime: "image/png" }],
+          annotations: [{
+            id: "item-agent",
+            selector: "[data-token=\"sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890\"]",
+            tag: "section",
+            text: "Hero token sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+            rect: { x: 0, y: 0, width: 320, height: 180 },
+            attributes: {},
+            a11y: { label: "Hero token sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890" },
+            styles: {},
+            screenshotId: "shot-1",
+            note: "Note includes sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+          }]
+        }
+      }
+    });
+    await flushMicrotasks();
+
+    expect(mock.chrome.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(lastConnectionManager?.sendAnnotationResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "annotationResponse",
+        payload: expect.objectContaining({
+          requestId: "store-agent-payload",
+          status: "ok",
+          receipt: expect.objectContaining({ reason: "stored_in_extension" })
+        })
+      })
+    );
+
+    lastConnectionManager?.sendAnnotationResponse.mockClear();
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "fetch-stored-agent-payload",
+        command: "fetch_stored",
+        options: { includeScreenshots: false }
+      }
+    });
+    await flushMicrotasks();
+
+    const responseJson = JSON.stringify(lastConnectionManager?.sendAnnotationResponse.mock.calls[0]?.[0]);
+    expect(responseJson).not.toContain("CCCC");
+    expect(responseJson).not.toContain("screenshotId");
+
+    lastConnectionManager?.sendAnnotationResponse.mockClear();
+    lastConnectionManager?.emitAnnotationCommand({
+      type: "annotationCommand",
+      payload: {
+        version: 1,
+        requestId: "fetch-stored-agent-payload-with-screenshots",
+        command: "fetch_stored",
+        options: { includeScreenshots: true }
+      }
+    });
+    await flushMicrotasks();
+
+    const memoryResponseJson = JSON.stringify(lastConnectionManager?.sendAnnotationResponse.mock.calls[0]?.[0]);
+    expect(memoryResponseJson).not.toContain("CCCC");
+    expect(memoryResponseJson).not.toContain("screenshotId");
+    expect(memoryResponseJson).not.toContain("sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890");
   });
 
   it("returns delivered receipts when shared enqueue succeeds", async () => {
@@ -2120,5 +2259,86 @@ describe("extension background annotation routing", () => {
       deliveryState: "delivered",
       storedFallback: false
     });
+  });
+
+  it("uses sanitized metadata when local storage fails after shared enqueue succeeds", async () => {
+    const mock = createChromeMock({ autoConnect: false });
+    globalThis.chrome = mock.chrome;
+
+    await import("../extension/src/background");
+    await flushMicrotasks();
+
+    lastConnectionManager?.sendAnnotationCommand.mockResolvedValue({
+      version: 1,
+      requestId: "req-store",
+      status: "ok",
+      receipt: {
+        receiptId: "receipt-shared",
+        deliveryState: "delivered",
+        storedFallback: false,
+        createdAt: "2026-03-15T00:00:00.000Z",
+        itemCount: 1,
+        byteLength: 64,
+        source: "popup_all",
+        label: "Popup annotation payload"
+      }
+    });
+    mock.chrome.storage.local.set.mockImplementation((items, callback) => {
+      if (Object.hasOwn(items, "annotationAgentMeta")) {
+        mock.setRuntimeError("quota exceeded");
+        callback?.();
+        mock.setRuntimeError(null);
+        return;
+      }
+      callback?.();
+    });
+
+    const secret = "sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    const payload = {
+      url: `https://example.com/account?token=${secret}`,
+      title: `Account ${secret}`,
+      timestamp: "2026-03-15T00:00:00.000Z",
+      screenshotMode: "none" as const,
+      annotations: [
+        {
+          id: "item-agent",
+          selector: "#hero",
+          tag: "section",
+          rect: { x: 0, y: 0, width: 320, height: 180 },
+          attributes: {},
+          a11y: {},
+          styles: {},
+          note: `Note includes ${secret}`
+        }
+      ]
+    };
+
+    const sendResponse = await new Promise<{
+      ok?: boolean;
+      meta?: { url?: string; title?: string; receipt?: { deliveryState?: string; storedFallback?: boolean } } | null;
+      receipt?: { deliveryState?: string; storedFallback?: boolean } | null;
+    }>((resolve) => {
+      globalThis.chrome.runtime.sendMessage(
+        { type: "annotation:sendPayload", payload, source: "popup_all", label: "Popup annotation payload" },
+        (message) => resolve(message as {
+          ok?: boolean;
+          meta?: { url?: string; title?: string; receipt?: { deliveryState?: string; storedFallback?: boolean } } | null;
+          receipt?: { deliveryState?: string; storedFallback?: boolean } | null;
+        })
+      );
+    });
+
+    expect(sendResponse.ok).toBe(true);
+    expect(sendResponse.receipt).toMatchObject({
+      deliveryState: "delivered",
+      storedFallback: false
+    });
+    expect(sendResponse.meta?.receipt).toMatchObject({
+      deliveryState: "delivered",
+      storedFallback: false
+    });
+    expect(sendResponse.meta?.url).not.toContain(secret);
+    expect(sendResponse.meta?.title).not.toContain(secret);
+    expect(JSON.stringify(sendResponse.meta)).not.toContain(secret);
   });
 });

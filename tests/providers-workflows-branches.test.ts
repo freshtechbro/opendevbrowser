@@ -10,7 +10,12 @@ import {
   type ProviderExecutor
 } from "../src/providers/workflows";
 import { buildWorkflowResumeEnvelope } from "../src/providers/workflow-contracts";
+import { installExpectedProviderWarnCapture } from "./support/provider-warn-capture";
 import type { ResearchRecord } from "../src/providers/enrichment";
+import type {
+  ProductVideoCandidateSummary,
+  ProductVideoPresentation
+} from "../src/providers/product-video-presentation";
 import { SHOPPING_PROVIDER_IDS, SHOPPING_PROVIDER_PROFILES } from "../src/providers/shopping";
 import type {
   JsonValue,
@@ -222,6 +227,8 @@ const expectWorkflowSuspendedIntent = (
     })
   }
 });
+
+installExpectedProviderWarnCapture();
 
 describe("workflow branch coverage", () => {
   afterEach(() => {
@@ -1725,11 +1732,174 @@ describe("workflow branch coverage", () => {
     expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
       diagnostics: [baseDiagnostic],
       regionEnforced: true,
+      failures: []
+    })).toBeNull();
+    expect(workflowTestUtils.summarizeShoppingOfferFilterConstraint({
+      diagnostics: [baseDiagnostic],
+      regionEnforced: true,
       failures: [makeFailure("shopping/example", "shopping", {
         code: "rate_limited",
         reasonCode: "rate_limited"
       })]
     })).toBeNull();
+  });
+
+  it("covers product-video record selection and candidate summary update branches", () => {
+    const productUrl = "https://shop.example/products/studio-monitor";
+    const productId = "studio-monitor";
+    const primary = makeRecord({
+      id: "primary-video-record",
+      source: "shopping",
+      provider: "shopping/others",
+      url: productUrl,
+      title: "Studio Monitor",
+      content: "Condition: New. Seller rating available.",
+      attributes: {
+        shopping_offer: {
+          provider: "shopping/others",
+          product_id: productId,
+          title: "Studio Monitor",
+          url: productUrl,
+          price: { amount: 199, currency: "USD", retrieved_at: isoHoursAgo(1) },
+          shipping: { amount: 0, currency: "USD", notes: "free" },
+          availability: "in_stock"
+        }
+      }
+    });
+    const cleanerSameProduct = makeRecord({
+      id: "cleaner-video-record",
+      source: "shopping",
+      provider: "shopping/others",
+      url: "https://shop.example/products/studio-monitor?ref=details",
+      title: "Studio Monitor Pro",
+      content: [
+        "Type Portable display",
+        "Connectivity USB-C",
+        "Features Color accurate panel for studio review.",
+        "Features Fold-flat stand for travel setups."
+      ].join(" "),
+      attributes: {
+        links: ["https://cdn.example.com/studio-monitor.jpg"],
+        shopping_offer: {
+          provider: "shopping/others",
+          product_id: productId,
+          title: "Studio Monitor Pro",
+          url: productUrl,
+          price: { amount: 199, currency: "USD", retrieved_at: isoHoursAgo(1) },
+          shipping: { amount: 0, currency: "USD", notes: "free" },
+          availability: "in_stock"
+        }
+      }
+    });
+    const conflictingBetterRecord = makeRecord({
+      ...cleanerSameProduct,
+      id: "conflicting-video-record",
+      url: "https://competitor.example/products/other-monitor",
+      attributes: {
+        ...cleanerSameProduct.attributes,
+        shopping_offer: {
+          provider: "shopping/others",
+          product_id: "other-monitor",
+          title: "Other Monitor",
+          url: "https://competitor.example/products/other-monitor",
+          price: { amount: 99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+          shipping: { amount: 0, currency: "USD", notes: "free" },
+          availability: "in_stock"
+        }
+      }
+    });
+
+    const selection = workflowTestUtils.selectProductVideoPresentationRecord([
+      primary,
+      cleanerSameProduct,
+      conflictingBetterRecord
+    ], productUrl, true);
+    expect(selection.selectedRecord.id).toBe("cleaner-video-record");
+    expect(selection.originalPrimaryRecord.id).toBe("primary-video-record");
+    expect(selection.candidateSummaries.map((summary) => summary.recordId)).toEqual([
+      "primary-video-record",
+      "cleaner-video-record",
+      "conflicting-video-record"
+    ]);
+    expect(() => workflowTestUtils.selectProductVideoPresentationRecord([], productUrl, true))
+      .toThrow("Product details unavailable");
+
+    const presentation = {
+      title: "Selected Studio Monitor",
+      promotedClaims: [{ claim: "Color accurate panel for studio review." }],
+      rejectedCandidates: []
+    } as ProductVideoPresentation;
+    const summaries = workflowTestUtils.updateProductVideoSelectedCandidateSummary(
+      [{ recordId: "other", provider: "shopping/others", cleanSpecCount: 0, rejectedCandidateCount: 1 }],
+      cleanerSameProduct,
+      presentation
+    );
+    expect(summaries).toEqual([
+      { recordId: "other", provider: "shopping/others", cleanSpecCount: 0, rejectedCandidateCount: 1 },
+      {
+        recordId: "cleaner-video-record",
+        provider: "shopping/others",
+        title: "Selected Studio Monitor",
+        cleanSpecCount: 1,
+        rejectedCandidateCount: 0
+      }
+    ]);
+    expect(workflowTestUtils.updateProductVideoSelectedCandidateSummary(
+      summaries as ProductVideoCandidateSummary[],
+      cleanerSameProduct,
+      { ...presentation, title: "Updated Studio Monitor" } as ProductVideoPresentation
+    ).find((summary) => summary.recordId === "cleaner-video-record")).toMatchObject({
+      title: "Updated Studio Monitor",
+      cleanSpecCount: 1,
+      rejectedCandidateCount: 0
+    });
+  });
+
+  it("covers research shell rejection optional field branches", () => {
+    const sanitized = workflowTestUtils.sanitizeResearchRecords([
+      makeRecord({
+        id: "usable-research",
+        source: "web",
+        provider: "web/default",
+        url: "https://example.com/research",
+        title: "Useful browser automation research",
+        content: "Concrete evidence from a usable page.",
+        attributes: {}
+      }),
+      makeRecord({
+        id: "js-shell-without-title-url",
+        source: "web",
+        provider: "web/default",
+        url: undefined,
+        title: undefined,
+        content: "JavaScript is disabled. In order to continue, enable JavaScript.",
+        attributes: {}
+      })
+    ]);
+
+    expect(sanitized.sanitizedCount).toBe(1);
+    expect(sanitized.records.map((record) => record.id)).toEqual(["usable-research"]);
+    expect(sanitized.rejectedCandidates[0]).toMatchObject({
+      provider: "web/default",
+      source: "web",
+      reason: "js_required_shell"
+    });
+    expect(sanitized.rejectedCandidates[0]).not.toHaveProperty("title");
+    expect(sanitized.rejectedCandidates[0]).not.toHaveProperty("url");
+
+    const rejectedFromFailure = workflowTestUtils.rejectedCandidatesFromFailures([
+      makeFailure("web/default", "web", {
+        details: {
+          fallbackOutputReason: "research_dead_end_shell"
+        }
+      })
+    ]);
+    expect(rejectedFromFailure).toEqual([{
+      provider: "web/default",
+      source: "web",
+      reason: "research_dead_end_shell",
+      replacement_status: "rejected_before_synthesis"
+    }]);
   });
 
   it("covers inspiredesign resume and provider failure normalization branches", () => {
@@ -8912,4 +9082,728 @@ describe("workflow branch coverage", () => {
     expect((topBrandOutput.product as { brand: string }).brand).toBe("Bose");
     expect((identifierOutput.product as { brand: string }).brand).toBe("Acme Audio");
   });
+
+  it("covers inspiredesign error mapping helper branches", () => {
+    const workflowHelpers = workflowTestUtils as typeof workflowTestUtils & {
+      failureFromInspiredesignDiscoveryError: (
+        workflowInput: { providers: string[] },
+        error: ProviderError | undefined
+      ) => ProviderFailureEntry[];
+      failureFromInspiredesignFetchError: (result: ProviderAggregateResult) => ProviderFailureEntry[];
+    };
+
+    expect(workflowHelpers.failureFromInspiredesignDiscoveryError({ providers: [] }, undefined)).toEqual([]);
+    expect(workflowHelpers.failureFromInspiredesignDiscoveryError({ providers: ["unknown-provider"] }, {
+      code: "unavailable",
+      message: "unknown provider",
+      retryable: false
+    })).toEqual([]);
+    expect(workflowHelpers.failureFromInspiredesignDiscoveryError({ providers: ["social/pinterest"] }, {
+      code: "unavailable",
+      message: "discovery failed",
+      retryable: false
+    })).toEqual([expect.objectContaining({ provider: "social/pinterest", source: "social" })]);
+    expect(workflowHelpers.failureFromInspiredesignDiscoveryError({ providers: [] }, {
+      code: "auth",
+      message: "auth failed",
+      retryable: false,
+      provider: "web/custom",
+      source: "web"
+    })).toEqual([expect.objectContaining({ provider: "web/custom", source: "web" })]);
+
+    expect(workflowHelpers.failureFromInspiredesignFetchError(makeAggregate({
+      error: {
+        code: "unavailable",
+        message: "already represented",
+        retryable: false,
+        provider: "web/default",
+        source: "web"
+      },
+      failures: [makeFailure("web/default", "web")]
+    }))).toEqual([]);
+    expect(workflowHelpers.failureFromInspiredesignFetchError(makeAggregate({
+      providerOrder: [],
+      error: {
+        code: "unavailable",
+        message: "no provider identity",
+        retryable: false
+      }
+    }))).toEqual([]);
+    expect(workflowHelpers.failureFromInspiredesignFetchError(makeAggregate({
+      providerOrder: ["web/default"],
+      error: {
+        code: "unavailable",
+        message: "fetch failed",
+        retryable: false
+      }
+    }))).toEqual([expect.objectContaining({ provider: "web/default", source: "web" })]);
+  });
+
+  it("covers inspiredesign capture evidence merging and provisional evidence branches", () => {
+    const captureHelpers = workflowTestUtils as typeof workflowTestUtils & {
+      mergeCaptureEvidence: (base: unknown, addon: unknown) => InspiredesignCaptureEvidence | null | undefined;
+      hasWorkflowProvisionalPinMediaEvidence: (capture: unknown) => boolean;
+      hasWorkflowProvisionalNonVisualEvidence: (capture: unknown) => boolean;
+      hasWorkflowProvisionalPrimaryEvidence: (capture: unknown) => boolean;
+    };
+    const capturedVisual = {
+      status: "captured",
+      path: "visual.png",
+      sha256: "hash",
+      bytes: 10,
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      kind: "viewport",
+      fullPage: false,
+      warnings: []
+    };
+    const failedVisual = {
+      status: "failed",
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      kind: "viewport",
+      fullPage: false,
+      warnings: ["failed"],
+      failure: "failed"
+    };
+    const validMotion = {
+      status: "captured",
+      kind: "screencast",
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      replayPath: "replay.json",
+      frameCount: 2,
+      durationMs: 1200,
+      warnings: [],
+      diagnostic: false,
+      diagnosticReasons: []
+    };
+    const validPinMedia = {
+      status: "captured",
+      kind: "image",
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      referenceId: "pin-1",
+      url: "https://www.pinterest.com/pin/123/",
+      sourceUrl: "https://www.pinterest.com/pin/123/",
+      endedSourceUrl: "https://www.pinterest.com/pin/123/",
+      pinterestPageQuality: "pin_media",
+      mediaUrl: "https://i.pinimg.com/originals/a/b/c/image.jpg",
+      width: 1200,
+      height: 1600,
+      contentType: "image/jpeg",
+      tempPath: " /tmp/pin.jpg ",
+      warnings: [],
+      rejectionReasons: []
+    };
+
+    expect(captureHelpers.hasWorkflowProvisionalPinMediaEvidence(undefined)).toBe(false);
+    expect(captureHelpers.hasWorkflowProvisionalPinMediaEvidence({ pinMedia: { ...validPinMedia, status: "failed" } })).toBe(false);
+    expect(captureHelpers.hasWorkflowProvisionalPinMediaEvidence({ pinMedia: { ...validPinMedia, tempPath: "   " } })).toBe(false);
+    expect(captureHelpers.hasWorkflowProvisionalPinMediaEvidence({ pinMedia: { ...validPinMedia, rejectionReasons: ["unsupported_byte_signature"] } })).toBe(false);
+    expect(captureHelpers.hasWorkflowProvisionalPinMediaEvidence({ pinMedia: { ...validPinMedia, failure: "bad media" } })).toBe(false);
+    expect(captureHelpers.hasWorkflowProvisionalPinMediaEvidence({ pinMedia: validPinMedia })).toBe(true);
+
+    expect(captureHelpers.hasWorkflowProvisionalNonVisualEvidence({
+      motion: { ...validMotion, diagnostic: true }
+    })).toBe(false);
+    expect(captureHelpers.hasWorkflowProvisionalNonVisualEvidence({
+      motion: { ...validMotion, frameCount: 0 }
+    })).toBe(false);
+    expect(captureHelpers.hasWorkflowProvisionalNonVisualEvidence({ motion: validMotion })).toBe(true);
+    expect(captureHelpers.hasWorkflowProvisionalPrimaryEvidence({ visual: capturedVisual })).toBe(true);
+    expect(captureHelpers.hasWorkflowProvisionalPrimaryEvidence({ pinMedia: { ...validPinMedia, tempPath: "" } })).toBe(true);
+
+    expect(captureHelpers.mergeCaptureEvidence(undefined, { visual: capturedVisual })).toEqual({ visual: capturedVisual });
+    expect(captureHelpers.mergeCaptureEvidence({ visual: capturedVisual }, undefined)).toEqual({ visual: capturedVisual });
+    expect(captureHelpers.mergeCaptureEvidence({ visual: capturedVisual }, { visual: failedVisual })).toMatchObject({ visual: capturedVisual });
+    expect(captureHelpers.mergeCaptureEvidence(
+      { visual: { ...failedVisual, failure: undefined } },
+      { visual: { ...failedVisual, failure: undefined }, attempts: { dom: { captured: 1, failed: 0, skipped: 0 } } }
+    )).toMatchObject({
+      visual: { status: "failed", failure: undefined },
+      attempts: { dom: { captured: 1, failed: 0, skipped: 0 } }
+    });
+    expect(captureHelpers.mergeCaptureEvidence(
+      { visual: { ...failedVisual, failure: undefined }, attempts: { snapshot: { captured: 1, failed: 0, skipped: 0 } } },
+      { visual: undefined, motion: validMotion }
+    )).toMatchObject({
+      visual: { status: "failed", failure: undefined },
+      motion: validMotion,
+      attempts: { snapshot: { captured: 1, failed: 0, skipped: 0 } }
+    });
+    expect(captureHelpers.mergeCaptureEvidence({ visual: failedVisual }, { visual: capturedVisual, motion: validMotion, pinMedia: validPinMedia })).toMatchObject({
+      visual: capturedVisual,
+      motion: validMotion,
+      pinMedia: validPinMedia
+    });
+  });
+
+
+
+  it("covers required visual evidence helper branches", () => {
+    const visualHelpers = workflowTestUtils as typeof workflowTestUtils & {
+      mergeCaptureVisualEvidence: (capture: unknown, visual: unknown) => InspiredesignCaptureEvidence | null | undefined;
+      mergeCaptureMotionEvidence: (capture: unknown, motion: unknown) => InspiredesignCaptureEvidence | null | undefined;
+      mergeCapturePinMediaEvidence: (capture: unknown, pinMedia: unknown) => InspiredesignCaptureEvidence | null | undefined;
+      getRequiredVisualEvidenceFailure: (
+        workflowInput: Record<string, unknown>,
+        visualPlan: Record<string, unknown>,
+        capture: unknown,
+        missingFailure?: string
+      ) => string | undefined;
+      addRequiredVisualEvidenceFailure: (
+        capture: unknown,
+        visualPlan: Record<string, unknown> | undefined,
+        failure: string,
+        forceRequiredWarning?: boolean
+      ) => InspiredesignCaptureEvidence | null | undefined;
+    };
+    const visualPlan = {
+      tempPath: "/tmp/visual.png",
+      policy: {
+        status: "allowed",
+        reason: "allowed",
+        message: "allowed"
+      }
+    };
+    const capturedVisual = {
+      status: "captured",
+      path: "visual.png",
+      tempPath: "/tmp/visual.png",
+      sha256: "hash",
+      bytes: 10,
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      kind: "viewport",
+      fullPage: false,
+      warnings: []
+    };
+    const failedVisual = {
+      status: "failed",
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      kind: "viewport",
+      fullPage: false,
+      warnings: ["capture_failed"],
+      failure: "capture failed"
+    };
+    const failedRequiredVisual = {
+      ...failedVisual,
+      warnings: ["required_visual_evidence_missing"],
+      failure: "required visual missing"
+    };
+    const pinMedia = {
+      status: "captured",
+      kind: "image",
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      referenceId: "pin-required",
+      url: "https://www.pinterest.com/pin/987/",
+      sourceUrl: "https://www.pinterest.com/pin/987/",
+      endedSourceUrl: "https://www.pinterest.com/pin/987/",
+      pinterestPageQuality: "pin_media",
+      mediaUrl: "https://i.pinimg.com/originals/a/b/c/image.jpg",
+      width: 1200,
+      height: 1600,
+      contentType: "image/jpeg",
+      tempPath: "/tmp/pin.jpg",
+      warnings: [],
+      rejectionReasons: []
+    };
+
+    expect(visualHelpers.mergeCaptureVisualEvidence({ title: "base" }, undefined)).toEqual({ title: "base" });
+    expect(visualHelpers.mergeCaptureMotionEvidence({ title: "base" }, undefined)).toEqual({ title: "base" });
+    expect(visualHelpers.mergeCapturePinMediaEvidence({ title: "base" }, undefined)).toEqual({ title: "base" });
+    expect(visualHelpers.mergeCaptureVisualEvidence(undefined, capturedVisual)).toEqual({ visual: capturedVisual });
+    expect(visualHelpers.mergeCaptureMotionEvidence(undefined, { status: "failed", warnings: [] })).toEqual({ motion: { status: "failed", warnings: [] } });
+    expect(visualHelpers.mergeCapturePinMediaEvidence(undefined, pinMedia)).toEqual({ pinMedia });
+
+    expect(visualHelpers.getRequiredVisualEvidenceFailure({ visualEvidence: "optional" }, visualPlan, undefined)).toBeUndefined();
+    expect(visualHelpers.getRequiredVisualEvidenceFailure({ visualEvidence: "required" }, {
+      ...visualPlan,
+      policy: { status: "off", reason: "blocked", message: "blocked" }
+    }, undefined)).toBeUndefined();
+    expect(visualHelpers.getRequiredVisualEvidenceFailure({ visualEvidence: "required" }, visualPlan, { visual: capturedVisual })).toBeUndefined();
+    expect(visualHelpers.getRequiredVisualEvidenceFailure({ visualEvidence: "required" }, visualPlan, { pinMedia })).toBeUndefined();
+    expect(visualHelpers.getRequiredVisualEvidenceFailure({ visualEvidence: "required" }, visualPlan, undefined, "missing visual")).toBe("missing visual");
+    expect(visualHelpers.getRequiredVisualEvidenceFailure({ visualEvidence: "required" }, visualPlan, { visual: failedVisual }, "missing visual")).toBe("capture failed");
+    expect(visualHelpers.getRequiredVisualEvidenceFailure(
+      { visualEvidence: "required" },
+      visualPlan,
+      { visual: { ...failedVisual, failure: undefined } },
+      "missing visual"
+    )).toBe("missing visual");
+
+    expect(visualHelpers.addRequiredVisualEvidenceFailure({ visual: capturedVisual }, visualPlan, "missing visual")).toEqual({ visual: capturedVisual });
+    expect(visualHelpers.addRequiredVisualEvidenceFailure(undefined, visualPlan, "missing visual")).toMatchObject({
+      visual: {
+        status: "failed",
+        failure: "missing visual",
+        warnings: ["required_visual_evidence_missing"]
+      }
+    });
+    expect(visualHelpers.addRequiredVisualEvidenceFailure({ visual: failedVisual }, visualPlan, "missing visual")).toEqual({ visual: failedVisual });
+    expect(visualHelpers.addRequiredVisualEvidenceFailure({ visual: failedRequiredVisual }, visualPlan, "missing visual", true)).toEqual({ visual: failedRequiredVisual });
+    expect(visualHelpers.addRequiredVisualEvidenceFailure({
+      visual: {
+        ...failedVisual,
+        failure: undefined,
+        warnings: ["capture_failed"]
+      }
+    }, visualPlan, "missing visual", true)).toMatchObject({
+      visual: {
+        status: "failed",
+        failure: "missing visual",
+        warnings: ["capture_failed", "required_visual_evidence_missing"]
+      }
+    });
+  });
+
+  it("covers inspiredesign media-analysis binary option resolution branches", () => {
+    const mediaHelpers = workflowTestUtils as typeof workflowTestUtils & {
+      buildInspiredesignMediaAnalyzerBinaryOptions: (binaries: unknown) => Record<string, unknown>;
+      shouldResolveInspiredesignMediaAnalysisBinaries: (options: Record<string, unknown>) => boolean;
+    };
+
+    expect(mediaHelpers.buildInspiredesignMediaAnalyzerBinaryOptions(undefined)).toEqual({});
+    expect(mediaHelpers.buildInspiredesignMediaAnalyzerBinaryOptions({
+      ffmpeg: { available: true, resolvedPath: "/usr/local/bin/ffmpeg" },
+      ffprobe: { available: true, resolvedPath: "/usr/local/bin/ffprobe" }
+    })).toEqual({
+      ffmpegBinaryPath: "/usr/local/bin/ffmpeg",
+      ffprobeBinaryPath: "/usr/local/bin/ffprobe"
+    });
+    expect(mediaHelpers.buildInspiredesignMediaAnalyzerBinaryOptions({
+      ffmpeg: { available: false, limitation: "ffmpeg missing" },
+      ffprobe: { available: false, limitation: "ffprobe missing" }
+    })).toEqual({
+      ffmpegUnavailableLimitation: "ffmpeg missing",
+      ffprobeUnavailableLimitation: "ffprobe missing"
+    });
+    expect(mediaHelpers.buildInspiredesignMediaAnalyzerBinaryOptions({
+      ffmpeg: { available: true },
+      ffprobe: { available: false }
+    })).toEqual({});
+
+    expect(mediaHelpers.shouldResolveInspiredesignMediaAnalysisBinaries({})).toBe(true);
+    expect(mediaHelpers.shouldResolveInspiredesignMediaAnalysisBinaries({ analyzeMediaArtifacts: async () => ({}) })).toBe(false);
+    expect(mediaHelpers.shouldResolveInspiredesignMediaAnalysisBinaries({ resolveMediaAnalysisBinaries: async () => ({}) })).toBe(true);
+    expect(mediaHelpers.shouldResolveInspiredesignMediaAnalysisBinaries({
+      analyzeMediaArtifacts: async () => ({}),
+      mediaAnalysisConfig: { ffmpegPath: "/custom/ffmpeg" }
+    })).toBe(true);
+    expect(mediaHelpers.shouldResolveInspiredesignMediaAnalysisBinaries({
+      analyzeMediaArtifacts: async () => ({}),
+      mediaAnalysisConfig: { ffprobePath: "/custom/ffprobe" }
+    })).toBe(true);
+  });
+
+  it("covers inspiredesign discovery helper routing, capping, filtering, and failure normalization branches", () => {
+    type DiscoveryCandidate = {
+      url: string;
+      title?: string;
+      source: ProviderSource;
+      provider: string;
+      rank: number;
+    };
+    type DiscoveryResult = { accepted: DiscoveryCandidate[]; rejected: Array<Record<string, JsonValue>> };
+    type WorkflowInput = {
+      providers: string[];
+      query?: string;
+      browserMode?: "managed";
+      useCookies?: boolean;
+      challengeAutomationMode?: "manual";
+      cookiePolicyOverride?: "never";
+    };
+    type DiscoveryHelpers = typeof workflowTestUtils & {
+      buildInspiredesignFetchOptions: (
+        workflowInput: WorkflowInput,
+        envelope: ReturnType<typeof buildWorkflowResumeEnvelope>,
+        timeoutMs?: number
+      ) => Record<string, JsonValue>;
+      buildInspiredesignReferenceFetchOptions: (
+        workflowInput: WorkflowInput,
+        envelope: ReturnType<typeof buildWorkflowResumeEnvelope>,
+        url: string,
+        timeoutMs?: number
+      ) => Record<string, JsonValue>;
+      emptyInspiredesignDiscoveryDiagnostics: (
+        workflowInput: WorkflowInput,
+        searchAvailable: boolean,
+        failure?: string
+      ) => Record<string, JsonValue>;
+      normalizeSiteRecipeFetchFailures: (
+        siteRecipe: { id: string },
+        failures: ProviderFailureEntry[]
+      ) => ProviderFailureEntry[];
+      capMixedInspiredesignDiscovery: (
+        siteDiscovery: DiscoveryResult,
+        standardDiscovery: DiscoveryResult,
+        maxReferences: number
+      ) => DiscoveryResult;
+      filterStandardDiscoveryForSiteRecipe: (
+        siteRecipe: { id: string },
+        discovery: DiscoveryResult
+      ) => DiscoveryResult;
+    };
+    const discoveryHelpers = workflowTestUtils as DiscoveryHelpers;
+    const envelope = buildWorkflowResumeEnvelope("inspiredesign", { brief: "Build a reference-led page" });
+    const baseInput: WorkflowInput = {
+      providers: [],
+      browserMode: "managed",
+      useCookies: true,
+      challengeAutomationMode: "manual",
+      cookiePolicyOverride: "never"
+    };
+    const candidate = (url: string, rank: number, title?: string): DiscoveryCandidate => ({
+      url,
+      ...(title ? { title } : {}),
+      source: "web",
+      provider: "web/default",
+      rank
+    });
+
+    expect(discoveryHelpers.buildInspiredesignFetchOptions({ ...baseInput, providers: ["social/pinterest"] }, envelope, 3000))
+      .toMatchObject({ source: "web", timeoutMs: 3000 });
+    expect(discoveryHelpers.buildInspiredesignFetchOptions({ ...baseInput, providers: ["social/pinterest", "web/default"] }, envelope))
+      .toMatchObject({ providerIds: ["web/default"] });
+    expect(discoveryHelpers.buildInspiredesignReferenceFetchOptions(
+      { ...baseInput, providers: ["social/pinterest"] },
+      envelope,
+      "https://www.pinterest.com/pin/123/"
+    )).toMatchObject({ source: "web" });
+    expect(discoveryHelpers.buildInspiredesignReferenceFetchOptions(
+      { ...baseInput, providers: ["web/default"] },
+      envelope,
+      "https://example.com/reference"
+    )).toMatchObject({ providerIds: ["web/default"] });
+
+    expect(discoveryHelpers.emptyInspiredesignDiscoveryDiagnostics({ ...baseInput, providers: [], query: "  " }, false, "search missing"))
+      .toMatchObject({ requested: true, query: "  ", searchAvailable: false, failure: "search missing" });
+    expect(discoveryHelpers.emptyInspiredesignDiscoveryDiagnostics(baseInput, true))
+      .toMatchObject({ requested: false, searchAvailable: true, providers: [] });
+
+    const normalizedFailures = discoveryHelpers.normalizeSiteRecipeFetchFailures({ id: "custom/site-recipe" }, [
+      makeFailure("web/default", "web", {
+        code: "unavailable",
+        message: "upstream failed",
+        retryable: false,
+        details: { attempt: 1 }
+      })
+    ]);
+    expect(normalizedFailures).toEqual([expect.objectContaining({
+      provider: "custom/site-recipe",
+      source: "web",
+      error: expect.objectContaining({
+        provider: "custom/site-recipe",
+        source: "web",
+        details: expect.objectContaining({ upstreamProvider: "web/default", upstreamSource: "web" })
+      })
+    })]);
+
+    expect(discoveryHelpers.capMixedInspiredesignDiscovery(
+      { accepted: [candidate("https://site.example/one", 1)], rejected: [] },
+      { accepted: [candidate("https://standard.example/two", 2)], rejected: [] },
+      1
+    ).accepted).toEqual([candidate("https://site.example/one", 1)]);
+    expect(discoveryHelpers.capMixedInspiredesignDiscovery(
+      { accepted: [candidate("https://site.example/one", 1), candidate("https://site.example/three", 3)], rejected: [{ reason: "site" }] },
+      { accepted: [candidate("https://site.example/one", 4), candidate("https://standard.example/two", 2)], rejected: [{ reason: "standard" }] },
+      3
+    )).toEqual({
+      accepted: [
+        candidate("https://site.example/one", 1),
+        candidate("https://standard.example/two", 2),
+        candidate("https://site.example/three", 3)
+      ],
+      rejected: [{ reason: "site" }, { reason: "standard" }]
+    });
+
+    const standardDiscovery: DiscoveryResult = {
+      accepted: [
+        candidate("https://www.pinterest.com/pin/123/", 1, "Canonical pin"),
+        candidate("https://www.pinterest.com/ideas/ceramic-studios/", 2, "Pinterest ideas")
+      ],
+      rejected: [{ reason: "existing" }]
+    };
+    expect(discoveryHelpers.filterStandardDiscoveryForSiteRecipe({ id: "web/default" }, standardDiscovery))
+      .toBe(standardDiscovery);
+    expect(discoveryHelpers.filterStandardDiscoveryForSiteRecipe({ id: "social/pinterest" }, standardDiscovery))
+      .toEqual({
+        accepted: [candidate("https://www.pinterest.com/pin/123/", 1, "Canonical pin")],
+        rejected: [
+          { reason: "existing" },
+          expect.objectContaining({
+            reason: "invalid_url",
+            rawUrl: "https://www.pinterest.com/ideas/ceramic-studios/",
+            title: "Pinterest ideas"
+          })
+        ]
+      });
+  });
+
+  it("covers provider signal window trimming, degradation, and recovery alert branches", () => {
+    const signalHelpers = workflowTestUtils as typeof workflowTestUtils & {
+      trackProviderSignals: (result: ProviderAggregateResult) => void;
+      buildAlerts: () => Array<Record<string, JsonValue>>;
+    };
+    const provider = "shopping/example";
+    const rateLimited = makeAggregate({
+      providerOrder: [provider],
+      failures: [makeFailure(provider, "shopping", {
+        code: "rate_limited",
+        reasonCode: "rate_limited"
+      })]
+    });
+    const healthy = makeAggregate({ providerOrder: [provider], failures: [] });
+
+    for (let index = 0; index < 51; index += 1) {
+      signalHelpers.trackProviderSignals(rateLimited);
+    }
+
+    expect(signalHelpers.buildAlerts()).toEqual([expect.objectContaining({
+      provider,
+      signal: "rate_limited",
+      state: "warning",
+      window_total: 50,
+      reason: "3 consecutive events detected"
+    })]);
+    expect(signalHelpers.buildAlerts()).toEqual([expect.objectContaining({
+      provider,
+      signal: "rate_limited",
+      state: "degraded",
+      reason: "signal ratio >= 25% for two consecutive windows"
+    })]);
+
+    for (let index = 0; index < 50; index += 1) {
+      signalHelpers.trackProviderSignals(healthy);
+    }
+
+    expect(signalHelpers.buildAlerts()).toEqual([expect.objectContaining({
+      provider,
+      signal: "rate_limited",
+      state: "degraded",
+      signal_count: 0,
+      reason: "waiting for 2 healthy windows before recovery"
+    })]);
+    expect(signalHelpers.buildAlerts()).toEqual([]);
+  });
+
+  it("covers inspiredesign primary capture helper success and failure branches", async () => {
+    type WorkflowCaptureInput = {
+      browserMode?: "managed";
+      useCookies?: boolean;
+      challengeAutomationMode?: "manual";
+      cookiePolicyOverride?: "never";
+      cookieSource?: "config";
+    };
+    type VisualPlan = {
+      tempPath?: string;
+      policy: { status: "allowed" | "off"; reason: string; message: string };
+    };
+    type CaptureHelpers = typeof workflowTestUtils & {
+      captureWorkflowVisualEvidence: (
+        url: string,
+        workflowInput: WorkflowCaptureInput,
+        captureVisualEvidence: ((url: string, options: Record<string, JsonValue | undefined>) => Promise<Record<string, JsonValue>>) | undefined,
+        visualPlan: VisualPlan,
+        timeoutMs?: number
+      ) => Promise<Record<string, JsonValue> | undefined>;
+      captureWorkflowMotionEvidence: (
+        url: string,
+        workflowInput: WorkflowCaptureInput,
+        captureMotionEvidence: ((url: string, options: Record<string, JsonValue | undefined>) => Promise<Record<string, JsonValue>>) | undefined,
+        referenceId: string,
+        motionEvidenceTempDir: string | undefined,
+        timeoutMs?: number
+      ) => Promise<Record<string, JsonValue> | undefined>;
+      captureWorkflowPinMediaEvidence: (
+        url: string,
+        workflowInput: WorkflowCaptureInput,
+        capturePinMediaEvidence: ((url: string, options: Record<string, JsonValue | undefined>) => Promise<Record<string, JsonValue> | undefined>) | undefined,
+        referenceId: string,
+        pinMediaEvidenceTempDir: string | undefined,
+        classification: { kind: "image_pin"; confidence: number; productCandidate: true; sourcePageQuality: "pin_media"; reasons: string[]; diagnosticBlockers: string[] },
+        timeoutMs?: number
+      ) => Promise<Record<string, JsonValue> | undefined>;
+    };
+    const captureHelpers = workflowTestUtils as CaptureHelpers;
+    const workflowInput: WorkflowCaptureInput = {
+      browserMode: "managed",
+      useCookies: true,
+      challengeAutomationMode: "manual",
+      cookiePolicyOverride: "never",
+      cookieSource: "config"
+    };
+    const allowedVisualPlan: VisualPlan = {
+      tempPath: "/tmp/primary-visual.png",
+      policy: { status: "allowed", reason: "allowed", message: "allowed" }
+    };
+    const classification = {
+      kind: "image_pin" as const,
+      confidence: 0.9,
+      productCandidate: true as const,
+      sourcePageQuality: "pin_media" as const,
+      reasons: [],
+      diagnosticBlockers: []
+    };
+    const visualCapture = vi.fn(async (_url: string, options: Record<string, JsonValue | undefined>) => ({
+      status: "captured",
+      tempPath: String(options.visualEvidencePath),
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      kind: "viewport",
+      fullPage: false,
+      warnings: []
+    }));
+    const motionCapture = vi.fn(async (_url: string, options: Record<string, JsonValue | undefined>) => ({
+      status: "captured",
+      kind: "screencast",
+      outputDir: String(options.outputDir),
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      replayPath: "replay.json",
+      frameCount: 2,
+      durationMs: 1000,
+      warnings: [],
+      diagnostic: false,
+      diagnosticReasons: []
+    }));
+    const pinMediaCapture = vi.fn(async (_url: string, options: Record<string, JsonValue | undefined>) => ({
+      status: "captured",
+      kind: "image",
+      capturedAt: "2026-05-23T00:00:00.000Z",
+      tempPath: String(options.pinMediaEvidencePath),
+      mediaUrl: "https://i.pinimg.com/originals/a/b/c/image.jpg",
+      width: 1200,
+      height: 1600,
+      contentType: "image/jpeg",
+      warnings: [],
+      rejectionReasons: []
+    }));
+
+    await expect(captureHelpers.captureWorkflowVisualEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      visualCapture,
+      { ...allowedVisualPlan, policy: { status: "off", reason: "off", message: "off" } }
+    )).resolves.toBeUndefined();
+    await expect(captureHelpers.captureWorkflowVisualEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      visualCapture,
+      { policy: { status: "allowed", reason: "allowed", message: "allowed" } }
+    )).resolves.toBeUndefined();
+    await expect(captureHelpers.captureWorkflowVisualEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      undefined,
+      allowedVisualPlan
+    )).resolves.toBeUndefined();
+
+    await expect(captureHelpers.captureWorkflowVisualEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      visualCapture,
+      allowedVisualPlan,
+      500
+    )).resolves.toMatchObject({ status: "captured", tempPath: "/tmp/primary-visual.png" });
+    expect(visualCapture).toHaveBeenLastCalledWith("https://example.com/reference", expect.objectContaining({
+      browserMode: "managed",
+      visualEvidencePath: "/tmp/primary-visual.png",
+      timeoutMs: 500,
+      useCookies: true,
+      challengeAutomationMode: "manual",
+      cookiePolicyOverride: "never",
+      cookieSource: "config"
+    }));
+    await expect(captureHelpers.captureWorkflowVisualEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      async () => { throw new Error("visual exploded"); },
+      allowedVisualPlan
+    )).resolves.toMatchObject({ status: "failed", failure: "visual exploded" });
+    await expect(captureHelpers.captureWorkflowVisualEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      async () => { throw "non-error visual failure"; },
+      allowedVisualPlan
+    )).resolves.toMatchObject({ status: "failed", failure: "Primary visual evidence capture failed." });
+
+    await expect(captureHelpers.captureWorkflowMotionEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      undefined,
+      "ref-1",
+      "/tmp/motion"
+    )).resolves.toBeUndefined();
+    await expect(captureHelpers.captureWorkflowMotionEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      motionCapture,
+      "ref-1",
+      undefined
+    )).resolves.toBeUndefined();
+    await expect(captureHelpers.captureWorkflowMotionEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      motionCapture,
+      "ref-1",
+      "/tmp/motion",
+      600
+    )).resolves.toMatchObject({ status: "captured", outputDir: join("/tmp/motion", "ref-1") });
+    await expect(captureHelpers.captureWorkflowMotionEvidence(
+      "https://example.com/reference",
+      workflowInput,
+      async () => { throw new Error("motion exploded"); },
+      "ref-1",
+      "/tmp/motion"
+    )).resolves.toMatchObject({ status: "failed", failure: "motion exploded" });
+
+    await expect(captureHelpers.captureWorkflowPinMediaEvidence(
+      "https://www.pinterest.com/pin/123/",
+      workflowInput,
+      undefined,
+      "pin-ref",
+      "/tmp/pin-media",
+      classification
+    )).resolves.toBeUndefined();
+    await expect(captureHelpers.captureWorkflowPinMediaEvidence(
+      "https://www.pinterest.com/pin/123/",
+      workflowInput,
+      pinMediaCapture,
+      "pin-ref",
+      undefined,
+      classification
+    )).resolves.toBeUndefined();
+    await expect(captureHelpers.captureWorkflowPinMediaEvidence(
+      "https://www.pinterest.com/pin/123/",
+      workflowInput,
+      async () => undefined,
+      "pin-ref",
+      "/tmp/pin-media",
+      classification
+    )).resolves.toBeUndefined();
+    await expect(captureHelpers.captureWorkflowPinMediaEvidence(
+      "https://www.pinterest.com/pin/123/",
+      workflowInput,
+      pinMediaCapture,
+      "pin-ref",
+      "/tmp/pin-media",
+      classification,
+      700
+    )).resolves.toMatchObject({
+      status: "captured",
+      referenceId: "pin-ref",
+      url: "https://www.pinterest.com/pin/123/",
+      pinterestPageQuality: "pin_media"
+    });
+    expect(pinMediaCapture).toHaveBeenLastCalledWith("https://www.pinterest.com/pin/123/", expect.objectContaining({
+      referenceId: "pin-ref",
+      pinMediaEvidencePath: join("/tmp/pin-media", "pin-ref-pin-media"),
+      timeoutMs: 700,
+      pinterestPageQuality: "pin_media"
+    }));
+    await expect(captureHelpers.captureWorkflowPinMediaEvidence(
+      "https://www.pinterest.com/pin/123/",
+      workflowInput,
+      async () => { throw new Error("pin media exploded"); },
+      "pin-ref",
+      "/tmp/pin-media",
+      classification
+    )).resolves.toMatchObject({ status: "failed", failure: "pin media exploded" });
+  });
+
 });

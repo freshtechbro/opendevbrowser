@@ -110,6 +110,99 @@
       font-size: 0.9rem;
     }
 
+    .canvas-workspace-shell {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 1fr) minmax(320px, 2fr) minmax(220px, 0.9fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .canvas-workspace-region,
+    .canvas-workspace-child,
+    .canvas-workspace-card,
+    .canvas-workspace-entry {
+      border: 1px solid rgba(143, 164, 187, 0.18);
+      border-radius: 16px;
+      background: rgba(8, 19, 31, 0.72);
+    }
+
+    .canvas-workspace-region {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      min-width: 0;
+      padding: 12px;
+    }
+
+    .canvas-workspace-region h2,
+    .canvas-workspace-child h3,
+    .canvas-workspace-card h3 {
+      margin: 0;
+      font-size: 0.82rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #d7fbf7;
+    }
+
+    .canvas-workspace-workers {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .canvas-workspace-child,
+    .canvas-workspace-card,
+    .canvas-workspace-entry {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+    }
+
+    .canvas-workspace-child p,
+    .canvas-workspace-row {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .canvas-workspace-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .canvas-workspace-state-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .canvas-workspace-state {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      border: 1px solid rgba(32, 213, 198, 0.2);
+      border-radius: 999px;
+      padding: 3px 7px;
+      color: #d7fbf7;
+      background: rgba(32, 213, 198, 0.08);
+      font-size: 0.72rem;
+      text-transform: capitalize;
+    }
+
+    .canvas-workspace-state[data-workspace-state="degraded"],
+    .canvas-workspace-state[data-workspace-state="paused"] {
+      border-color: rgba(251, 191, 36, 0.28);
+      color: #fde68a;
+      background: rgba(251, 191, 36, 0.1);
+    }
+
+    .canvas-workspace-state[data-workspace-state="conflict"] {
+      border-color: rgba(251, 113, 133, 0.28);
+      color: #ffd7dd;
+      background: rgba(251, 113, 133, 0.12);
+    }
+
     .canvas-toolbar {
       padding: 12px 16px;
       border-radius: 18px;
@@ -670,6 +763,14 @@
     }
 
     @media (max-width: 1180px) {
+      .canvas-workspace-shell {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .canvas-workspace-workers {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .canvas-layout {
         grid-template-columns: 1fr;
       }
@@ -677,6 +778,13 @@
       .canvas-stage-card,
       .canvas-stage {
         min-height: 52vh;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .canvas-workspace-shell,
+      .canvas-workspace-workers {
+        grid-template-columns: 1fr;
       }
     }
 
@@ -701,6 +809,31 @@
         <div class="canvas-badges" id="canvas-badges"></div>
       </div>
       <div class="canvas-meta" id="canvas-meta"></div>
+      <section class="canvas-workspace-shell" id="canvas-workspace-shell" aria-label="Agent workspace shell">
+        <section class="canvas-workspace-region" id="canvas-workspace-coordinator" aria-label="Coordinator lane"></section>
+        <section class="canvas-workspace-region" id="canvas-workspace-active-child" aria-label="Active child detail"></section>
+        <section class="canvas-workspace-region" aria-label="Worker panes">
+          <h2>Worker panes</h2>
+          <div class="canvas-workspace-workers" id="canvas-workspace-workers"></div>
+        </section>
+        <section class="canvas-workspace-region" aria-label="Review and checkpoint lane">
+          <h2>Activity log</h2>
+          <div id="canvas-workspace-activity"></div>
+          <h2>Review</h2>
+          <div id="canvas-workspace-review"></div>
+          <h2>Checkpoints</h2>
+          <div id="canvas-workspace-checkpoints"></div>
+        </section>
+        <div hidden>
+          <span data-workspace-state="delivered"></span>
+          <span data-workspace-state="degraded"></span>
+          <span data-workspace-state="paused"></span>
+          <span data-workspace-state="conflict"></span>
+          <span data-workspace-state="lease"></span>
+          <span data-workspace-state="revision"></span>
+          <span data-workspace-state="sync"></span>
+        </div>
+      </section>
     </section>
 
     <section class="canvas-toolbar">

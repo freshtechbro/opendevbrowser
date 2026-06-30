@@ -15,13 +15,18 @@ import {
 
 describe("workflow message helpers", () => {
   it("reads inspiredesign success follow-through summaries and next steps", () => {
+    const followthroughSummary = buildInspiredesignFollowthroughSummary();
     const data = {
-      followthroughSummary: buildInspiredesignFollowthroughSummary(),
+      followthroughSummary,
       suggestedNextAction: buildInspiredesignNextStep()
     };
 
+    expect(followthroughSummary).toContain("pin-media-index.json");
+    expect(followthroughSummary).toContain("evidenceAuthority=pin_media_ready");
+    expect(followthroughSummary).toContain("snapshot_ready and motion_ready are not substitutes");
+    expect(followthroughSummary).not.toContain("screenshot-first, screencast-first, or canonical pin-media evidence");
     expect(buildWorkflowCompletionMessage("Inspiredesign workflow", data)).toBe(
-      `Inspiredesign workflow completed. ${buildInspiredesignFollowthroughSummary()} Next step: ${buildInspiredesignNextStep()}`
+      `Inspiredesign workflow completed. ${followthroughSummary} Next step: ${buildInspiredesignNextStep()}`
     );
   });
 

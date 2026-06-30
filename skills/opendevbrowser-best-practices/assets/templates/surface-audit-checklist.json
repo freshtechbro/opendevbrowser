@@ -5,7 +5,7 @@
     "tools": 70,
     "cliToolPairs": 67,
     "opsCommands": 59,
-    "canvasCommands": 35
+    "canvasCommands": 41
   },
   "docsMustCover": [
     "README.md",

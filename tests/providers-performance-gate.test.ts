@@ -4,6 +4,7 @@ import { mapBounded } from "../src/providers/bounded-map";
 import type { ProviderAggregateResult } from "../src/providers";
 import { runResearchWorkflow, type ProviderExecutor } from "../src/providers/workflows";
 import { normalizeRecord } from "../src/providers/normalize";
+import { installExpectedProviderWarnCapture } from "./support/provider-warn-capture";
 import type {
   NormalizedRecord,
   ProviderAdapter,
@@ -110,6 +111,8 @@ const extractCrawlMetrics = (result: ProviderAggregateResult): { pagesPerMinute:
   const elapsedMs = Number((crawlMetrics as Record<string, unknown>).elapsedMs ?? 0);
   return { pagesPerMinute, p50LatencyMs, p95LatencyMs, elapsedMs };
 };
+
+installExpectedProviderWarnCapture();
 
 describe("provider performance release gate", () => {
   it("meets p50/p95 latency baseline for search and fetch fixture runs", async () => {

@@ -4,6 +4,7 @@ import { getHelpText } from "../src/cli/help";
 import {
   buildPublicSurfaceManifest,
   buildPublicSurfaceToolSurfaces,
+  PUBLIC_SURFACE_MANIFEST_GENERATED_AT as SOURCE_GENERATED_AT,
   PUBLIC_SURFACE_MANIFEST_SCHEMA_VERSION as SOURCE_SCHEMA_VERSION
 } from "../src/public-surface/source";
 import {
@@ -15,6 +16,8 @@ import {
 describe("public surface manifest", () => {
   it("matches the source-built manifest snapshot", () => {
     expect(GENERATED_SCHEMA_VERSION).toBe(SOURCE_SCHEMA_VERSION);
+    expect(PUBLIC_SURFACE_MANIFEST_GENERATED_AT).toBe(SOURCE_GENERATED_AT);
+    expect(buildPublicSurfaceManifest().generatedAt).toBe(SOURCE_GENERATED_AT);
     expect(GENERATED_MANIFEST).toEqual(buildPublicSurfaceManifest(PUBLIC_SURFACE_MANIFEST_GENERATED_AT));
     expect(GENERATED_MANIFEST_JSON).toEqual(GENERATED_MANIFEST);
   });

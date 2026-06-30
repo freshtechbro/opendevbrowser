@@ -40,7 +40,7 @@ const EXTENSION_NAME = "OpenDevBrowser Relay";
 const ANNOTATION_COMMAND_NAME = "toggle-annotation";
 type ExtensionIdMatchReason = "path" | "name" | "command";
 
-const normalizeExtensionId = (value: string | undefined): string | null => {
+export const normalizeExtensionId = (value: string | undefined): string | null => {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -308,20 +308,20 @@ const resolveExpectedExtension = (): {
   const discovered = discoverExtensionId();
   const discoveredExtensionId = discovered.extensionId ?? null;
   const discoveredMatchedBy = discovered.matchedBy ?? null;
-  if (discoveredExtensionId) {
-    return {
-      discoveredExtensionId,
-      discoveredMatchedBy,
-      expectedExtensionId: discoveredExtensionId,
-      expectedExtensionSource: discoveredMatchedBy
-    };
-  }
   if (configuredExtensionId) {
     return {
       discoveredExtensionId,
       discoveredMatchedBy,
       expectedExtensionId: configuredExtensionId,
       expectedExtensionSource: "config"
+    };
+  }
+  if (discoveredExtensionId) {
+    return {
+      discoveredExtensionId,
+      discoveredMatchedBy,
+      expectedExtensionId: discoveredExtensionId,
+      expectedExtensionSource: discoveredMatchedBy
     };
   }
   return {

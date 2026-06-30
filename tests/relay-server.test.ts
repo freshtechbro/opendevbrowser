@@ -1274,6 +1274,55 @@ describe("RelayServer", () => {
     extension.close();
   });
 
+  it("rejects oversized in-process annotation responses before resolving direct callers", async () => {
+    server = new RelayServer();
+    const relay = RelayServer as unknown as { MAX_ANNOTATION_PAYLOAD_BYTES: number };
+    const originalLimit = relay.MAX_ANNOTATION_PAYLOAD_BYTES;
+    const started = await server.start(0);
+
+    const extension = await connect(`${started.url}/extension`);
+    extension.send(JSON.stringify({ type: "handshake", payload: { tabId: 83 } }));
+    await waitForHandshakeAck(extension);
+
+    relay.MAX_ANNOTATION_PAYLOAD_BYTES = 512;
+    try {
+      const requestPromise = server.requestAnnotation({
+        version: 1,
+        requestId: "req-direct-oversized",
+        command: "start",
+        url: "https://example.com"
+      });
+
+      const forwarded = await nextMessage(extension);
+      expect(forwarded.type).toBe("annotationCommand");
+
+      extension.send(JSON.stringify({
+        type: "annotationResponse",
+        payload: {
+          version: 1,
+          requestId: "req-direct-oversized",
+          status: "ok",
+          payload: {
+            url: "https://example.com",
+            title: "x".repeat(1024),
+            timestamp: "2026-01-31T00:00:00.000Z",
+            screenshotMode: "none",
+            annotations: []
+          }
+        }
+      }));
+
+      await expect(requestPromise).resolves.toMatchObject({
+        requestId: "req-direct-oversized",
+        status: "error",
+        error: { code: "payload_too_large" }
+      });
+    } finally {
+      relay.MAX_ANNOTATION_PAYLOAD_BYTES = originalLimit;
+      extension.close();
+    }
+  });
+
   it("fails in-process annotation requests when the extension disconnects", async () => {
     server = new RelayServer();
     const started = await server.start(0);
@@ -1576,6 +1625,54 @@ describe("RelayServer", () => {
     });
 
     annotation.close();
+  });
+
+
+  it("rejects oversized store_agent_payload commands before local enqueue", async () => {
+    server = new RelayServer();
+    const started = await server.start(0);
+    const handler = vi.fn(async (command) => ({
+      version: 1 as const,
+      requestId: command.requestId,
+      status: "ok" as const
+    }));
+    server.setStoreAgentPayloadHandler(handler);
+
+    const annotation = await connect(`${started.url}/annotation`);
+    const relay = RelayServer as unknown as { MAX_ANNOTATION_PAYLOAD_BYTES: number };
+    const originalLimit = relay.MAX_ANNOTATION_PAYLOAD_BYTES;
+    relay.MAX_ANNOTATION_PAYLOAD_BYTES = 512;
+    try {
+      annotation.send(JSON.stringify({
+        type: "annotationCommand",
+        payload: {
+          version: 1,
+          requestId: "req-store-too-large",
+          command: "store_agent_payload",
+          source: "popup_all",
+          label: "Oversized payload",
+          payload: {
+            url: "https://example.com",
+            timestamp: "2026-03-15T00:00:00.000Z",
+            screenshotMode: "none",
+            context: "x".repeat(1024),
+            annotations: []
+          }
+        }
+      }));
+
+      const response = await nextMessage(annotation);
+      expect(response.type).toBe("annotationResponse");
+      expect(response.payload).toMatchObject({
+        requestId: "req-store-too-large",
+        status: "error",
+        error: { code: "payload_too_large" }
+      });
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      relay.MAX_ANNOTATION_PAYLOAD_BYTES = originalLimit;
+      annotation.close();
+    }
   });
 
   it("surfaces store_agent_payload handler failures to annotation clients", async () => {

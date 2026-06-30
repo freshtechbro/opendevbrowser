@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ProviderRuntime } from "../src/providers";
 import { normalizeRecord } from "../src/providers/normalize";
+import { installExpectedProviderWarnCapture } from "./support/provider-warn-capture";
 import type { ProviderAdapter, ProviderSource } from "../src/providers/types";
 
 const makeProvider = (
@@ -36,6 +37,8 @@ const makeProvider = (
     metadata: {}
   })
 });
+
+installExpectedProviderWarnCapture();
 
 describe("provider runtime internals", () => {
   it("executes tier-A fallback path in all-mode fanout when primary tier fails", async () => {

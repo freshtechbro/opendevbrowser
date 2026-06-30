@@ -1,4 +1,19 @@
 export type CanvasPreviewState = "focused" | "pinned" | "background" | "degraded";
+export type CanvasWorkspacePreviewBudgetState =
+  | "focused_live"
+  | "pinned_live"
+  | "background_live"
+  | "thumbnail"
+  | "paused"
+  | "degraded";
+export type CanvasWorkspaceVisibleState =
+  | "delivered"
+  | "degraded"
+  | "paused"
+  | "conflict"
+  | "lease"
+  | "revision"
+  | "sync";
 export type CanvasAttachedClientRole = "lease_holder" | "observer";
 export type CanvasCodeSyncState =
   | "idle"
@@ -288,8 +303,41 @@ export type CanvasHistoryState = {
   depthLimit: number;
 };
 
+export type CanvasWorkspaceShellChild = {
+  childId: string;
+  canvasSessionId?: string | null;
+  documentId?: string | null;
+  role?: string | null;
+  title?: string | null;
+  previewBudgetState?: CanvasWorkspacePreviewBudgetState | null;
+  lastRoutedAt?: string | null;
+  states: CanvasWorkspaceVisibleState[];
+};
+
+export type CanvasWorkspaceShellEntry = {
+  id: string;
+  label: string;
+  status: CanvasWorkspaceVisibleState;
+  at?: string | null;
+};
+
+export type CanvasWorkspaceShellSummary = {
+  coordinator: {
+    state: string;
+    focusedChildId: string | null;
+    childCount: number;
+    activePreviewCount: number;
+    queuedPreviewWork: number;
+  };
+  childRefs: CanvasWorkspaceShellChild[];
+  activity: CanvasWorkspaceShellEntry[];
+  checkpoints: CanvasWorkspaceShellEntry[];
+};
+
 export type CanvasSessionSummary = {
   canvasSessionId?: string;
+  workspaceId?: string;
+  childId?: string;
   mode?: string;
   planStatus?: string;
   preflightState?: string;
@@ -322,6 +370,7 @@ export type CanvasSessionSummary = {
   starterAppliedAt?: string | null;
   bindings: CanvasCodeSyncBindingStatusSummary[];
   history?: CanvasHistoryState;
+  workspace?: CanvasWorkspaceShellSummary;
   [key: string]: unknown;
 };
 
@@ -329,6 +378,8 @@ export type CanvasPageState = {
   tabId: number;
   targetId: string;
   canvasSessionId: string;
+  workspaceId?: string | null;
+  childId?: string | null;
   documentId: string;
   documentRevision: number | null;
   title: string;
@@ -381,11 +432,15 @@ export type CanvasPagePortMessage =
   | { type: "canvas-page-request-state" }
   | {
     type: "canvas-page-view-state";
+    workspaceId?: string | null;
+    childId?: string | null;
     viewport?: Partial<CanvasEditorViewport>;
     selection?: Partial<CanvasEditorSelection>;
   }
   | {
     type: "canvas-page-patch-request";
+    workspaceId?: string | null;
+    childId?: string | null;
     baseRevision: number;
     patches: unknown[];
     selection?: Partial<CanvasEditorSelection>;
@@ -393,6 +448,8 @@ export type CanvasPagePortMessage =
   }
   | {
     type: "canvas-page-history-request";
+    workspaceId?: string | null;
+    childId?: string | null;
     direction: CanvasHistoryDirection;
   }
   | {
@@ -453,12 +510,31 @@ const CODE_SYNC_FALLBACK_REASONS = new Set<CanvasCodeSyncFallbackReason>([
   "fallback_canvas_html"
 ]);
 const ATTACHED_CLIENT_ROLES = new Set<CanvasAttachedClientRole>(["lease_holder", "observer"]);
+const WORKSPACE_PREVIEW_BUDGET_STATES = new Set<CanvasWorkspacePreviewBudgetState>([
+  "focused_live",
+  "pinned_live",
+  "background_live",
+  "thumbnail",
+  "paused",
+  "degraded"
+]);
+const WORKSPACE_VISIBLE_STATES = new Set<CanvasWorkspaceVisibleState>([
+  "delivered",
+  "degraded",
+  "paused",
+  "conflict",
+  "lease",
+  "revision",
+  "sync"
+]);
 
 export function normalizeCanvasSessionSummary(value: unknown): CanvasSessionSummary {
   const summary = isRecord(value) ? { ...value } : {};
   return {
     ...summary,
     canvasSessionId: optionalString(summary.canvasSessionId) ?? undefined,
+    workspaceId: optionalString(summary.workspaceId) ?? undefined,
+    childId: optionalString(summary.childId) ?? undefined,
     mode: optionalString(summary.mode) ?? undefined,
     planStatus: optionalString(summary.planStatus) ?? undefined,
     preflightState: optionalString(summary.preflightState) ?? undefined,
@@ -498,7 +574,8 @@ export function normalizeCanvasSessionSummary(value: unknown): CanvasSessionSumm
     bindings: Array.isArray(summary.bindings)
       ? summary.bindings.flatMap((entry) => normalizeCodeSyncBindingStatus(entry))
       : [],
-    history: normalizeHistoryState(summary.history)
+    history: normalizeHistoryState(summary.history),
+    workspace: normalizeWorkspaceShellSummary(summary.workspace)
   };
 }
 
@@ -716,6 +793,64 @@ function normalizeHistoryState(value: unknown): CanvasHistoryState | undefined {
   };
 }
 
+function normalizeWorkspaceShellSummary(value: unknown): CanvasWorkspaceShellSummary | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const coordinatorValue = isRecord(value.coordinator) ? value.coordinator : {};
+  return {
+    coordinator: {
+      state: optionalString(coordinatorValue.state) ?? "open",
+      focusedChildId: optionalString(coordinatorValue.focusedChildId),
+      childCount: optionalNumber(coordinatorValue.childCount) ?? 0,
+      activePreviewCount: optionalNumber(coordinatorValue.activePreviewCount) ?? 0,
+      queuedPreviewWork: optionalNumber(coordinatorValue.queuedPreviewWork) ?? 0
+    },
+    childRefs: Array.isArray(value.childRefs)
+      ? value.childRefs.flatMap((entry) => normalizeWorkspaceShellChild(entry))
+      : [],
+    activity: Array.isArray(value.activity)
+      ? value.activity.flatMap((entry) => normalizeWorkspaceShellEntry(entry))
+      : [],
+    checkpoints: Array.isArray(value.checkpoints)
+      ? value.checkpoints.flatMap((entry) => normalizeWorkspaceShellEntry(entry))
+      : []
+  };
+}
+
+function normalizeWorkspaceShellChild(value: unknown): CanvasWorkspaceShellChild[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const childId = optionalString(value.childId);
+  if (!childId) {
+    return [];
+  }
+  return [{
+    childId,
+    canvasSessionId: optionalString(value.canvasSessionId),
+    documentId: optionalString(value.documentId),
+    role: optionalString(value.role),
+    title: optionalString(value.title),
+    previewBudgetState: isWorkspacePreviewBudgetState(value.previewBudgetState) ? value.previewBudgetState : null,
+    lastRoutedAt: optionalString(value.lastRoutedAt),
+    states: normalizeWorkspaceVisibleStates(value.states)
+  }];
+}
+
+function normalizeWorkspaceShellEntry(value: unknown): CanvasWorkspaceShellEntry[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+  const id = optionalString(value.id);
+  const label = optionalString(value.label);
+  const status = isWorkspaceVisibleState(value.status) ? value.status : null;
+  if (!id || !label || !status) {
+    return [];
+  }
+  return [{ id, label, status, at: optionalString(value.at) }];
+}
+
 function normalizeParityArtifact(value: unknown): CanvasRuntimeParityArtifact | null {
   if (!isRecord(value)) {
     return null;
@@ -769,6 +904,21 @@ function isCodeSyncProjectionMode(value: unknown): value is CanvasCodeSyncProjec
 
 function isCodeSyncFallbackReason(value: unknown): value is CanvasCodeSyncFallbackReason {
   return typeof value === "string" && CODE_SYNC_FALLBACK_REASONS.has(value as CanvasCodeSyncFallbackReason);
+}
+
+function isWorkspacePreviewBudgetState(value: unknown): value is CanvasWorkspacePreviewBudgetState {
+  return typeof value === "string" && WORKSPACE_PREVIEW_BUDGET_STATES.has(value as CanvasWorkspacePreviewBudgetState);
+}
+
+function isWorkspaceVisibleState(value: unknown): value is CanvasWorkspaceVisibleState {
+  return typeof value === "string" && WORKSPACE_VISIBLE_STATES.has(value as CanvasWorkspaceVisibleState);
+}
+
+function normalizeWorkspaceVisibleStates(value: unknown): CanvasWorkspaceVisibleState[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isWorkspaceVisibleState);
 }
 
 function readStringArray(value: unknown): string[] {

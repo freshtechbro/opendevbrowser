@@ -3,12 +3,14 @@ import {
   buildShoppingBriefing,
   renderShoppingBriefingMarkdown,
   type ShoppingBriefing,
-  type ShoppingBriefingInput
+  type ShoppingBriefingInput,
+  type ShoppingReportOfferEvidence
 } from "../src/providers/shopping-report";
 import {
   anchorDiscountForOffer,
   assessQueryRelevance,
   assessTitleQuality,
+  buildDuplicateGroups,
   buildMarketBaseline,
   buildShoppingOfferEvidence
 } from "../src/providers/shopping-report/rules";
@@ -744,6 +746,135 @@ describe("shopping-report", () => {
     expect(future?.recommendation).toBe("constrained");
     expect(briefing.gate.status).toBe("partial");
     expect(markdown).toMatch(/price freshness future/i);
+  });
+
+
+  it("covers direct duplicate and baseline edge branches without promoting weak evidence", () => {
+    const uniqueEvidence = [
+      buildShoppingOfferEvidence({
+        query: "ergonomic mouse less than $150",
+        offer: offer({ id: "unique-a", productId: "", title: "Logitech Lift Ergonomic Mouse", amount: 90 }),
+        referenceIso: REFERENCE_TIME,
+        staleAfterDays: 7
+      }),
+      buildShoppingOfferEvidence({
+        query: "ergonomic mouse $150",
+        offer: offer({ id: "unique-b", productId: "", title: "Anker Vertical Ergonomic Mouse", amount: 110, url: "https://example.com/unique-b" }),
+        referenceIso: REFERENCE_TIME,
+        staleAfterDays: 7
+      })
+    ];
+    const highScoreDuplicate = buildShoppingOfferEvidence({
+      query: "ergonomic mouse",
+      offer: offer({ id: "score-a", productId: "score-a", title: "Microsoft Sculpt Ergonomic Mouse", amount: 100, dealScore: 0.2, url: "https://example.com/scored" }),
+      referenceIso: REFERENCE_TIME,
+      staleAfterDays: 7
+    });
+    const lowScoreDuplicate = buildShoppingOfferEvidence({
+      query: "ergonomic mouse",
+      offer: offer({ id: "score-b", productId: "score-b", title: "Kensington Pro Ergonomic Mouse", amount: 100, dealScore: 0.9, url: "https://example.com/scored" }),
+      referenceIso: REFERENCE_TIME,
+      staleAfterDays: 7
+    });
+    const cadWithAnchor = buildShoppingOfferEvidence({
+      query: "ergonomic mouse",
+      offer: offer({ id: "cad-anchor", currency: "CAD", amount: 70, anchorPrice: 120, title: "Contour Ergonomic Mouse", url: "https://example.ca/cad-anchor" }),
+      referenceIso: REFERENCE_TIME,
+      staleAfterDays: 7
+    });
+
+    expect(uniqueEvidence[0]?.queryRelevance.missingTokens).not.toContain("150");
+    expect(uniqueEvidence[1]?.queryRelevance.missingTokens).not.toContain("150");
+    expect(buildDuplicateGroups(uniqueEvidence)).toEqual([]);
+
+    const baseline = buildMarketBaseline([
+      ...uniqueEvidence,
+      highScoreDuplicate,
+      lowScoreDuplicate,
+      cadWithAnchor
+    ], 2);
+
+    expect(baseline).toMatchObject({
+      status: "computed",
+      currency: "USD",
+      sampleCount: 2,
+      offerIds: ["unique-b", "score-b"],
+      excludedDifferentCurrencyCount: 1,
+      anchorEvidenceCount: 0
+    });
+  });
+
+
+  it("keeps symbol-only budget amounts out of relevance while preserving product numbers", () => {
+    const relevance = assessQueryRelevance(
+      "$150 27 inch monitor",
+      "Dell 27 inch USB-C Monitor",
+      ""
+    );
+
+    expect(relevance.status).toBe("strong");
+    expect(relevance.missingTokens).not.toContain("150");
+    expect(relevance.matchedTokens).toContain("27");
+  });
+
+  it("ignores blank duplicate keys while preserving valid duplicate groups", () => {
+    const blankUrlA = buildShoppingOfferEvidence({
+      query: "ergonomic mouse",
+      offer: offer({ id: "blank-url-a", productId: "blank-a", url: "", title: "Logitech Lift Vertical Ergonomic Mouse" }),
+      referenceIso: REFERENCE_TIME,
+      staleAfterDays: 7
+    });
+    const blankUrlB = buildShoppingOfferEvidence({
+      query: "ergonomic mouse",
+      offer: offer({ id: "blank-url-b", productId: "blank-b", url: "", title: "Logitech Lift Vertical Ergonomic Mouse" }),
+      referenceIso: REFERENCE_TIME,
+      staleAfterDays: 7
+    });
+    const sameProductA = buildShoppingOfferEvidence({
+      query: "ergonomic mouse",
+      offer: offer({ id: "same-product-a", productId: "shared-product", title: "Logitech Lift Mouse A", url: "https://example.com/a" }),
+      referenceIso: REFERENCE_TIME,
+      staleAfterDays: 7
+    });
+    const sameProductB = buildShoppingOfferEvidence({
+      query: "ergonomic mouse",
+      offer: offer({ id: "same-product-b", productId: "shared-product", title: "Logitech Lift Mouse B", url: "https://example.com/b" }),
+      referenceIso: REFERENCE_TIME,
+      staleAfterDays: 7
+    });
+
+    const groups = buildDuplicateGroups([blankUrlA, blankUrlB, sameProductA, sameProductB]);
+
+    expect(groups).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: "same_title", offerIds: ["blank-url-a", "blank-url-b"] }),
+      expect.objectContaining({ reason: "same_product", offerIds: ["same-product-a", "same-product-b"] })
+    ]));
+    expect(groups.some((group) => group.groupId === "url:")).toBe(false);
+  });
+
+  it("excludes baseline samples when duplicate identity fields are blank", () => {
+    const blankIdentity = (id: string, amount: number): ShoppingReportOfferEvidence => ({
+      ...buildShoppingOfferEvidence({
+        query: "ergonomic mouse",
+        offer: offer({ id, productId: "", title: " ", url: "", amount }),
+        referenceIso: REFERENCE_TIME,
+        staleAfterDays: 7
+      }),
+      productId: "",
+      title: "",
+      canonicalUrl: ""
+    });
+
+    const baseline = buildMarketBaseline([
+      blankIdentity("blank-identity-a", 70),
+      blankIdentity("blank-identity-b", 80)
+    ], 2);
+
+    expect(baseline).toMatchObject({
+      status: "unavailable",
+      sampleCount: 0,
+      offerIds: []
+    });
   });
 
   it("renders market baseline unavailable when filtered quality evidence is below threshold", () => {

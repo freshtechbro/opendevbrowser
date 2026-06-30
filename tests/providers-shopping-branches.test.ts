@@ -137,6 +137,207 @@ describe("shopping provider branches", () => {
     });
   });
 
+  it("surfaces shopping browser-assistance shells for Target, Macy's, Temu, and generic providers", async () => {
+    const cases = [
+      {
+        providerId: "shopping/target",
+        reason: "target_shell_page",
+        html: `
+          <html>
+            <head><title>Wireless mouse : Target</title></head>
+            <body>Skip to main content Search results Skip to footer</body>
+          </html>
+        `
+      },
+      {
+        providerId: "shopping/target",
+        reason: "target_shell_page",
+        html: `
+          <html>
+            <head><title>Keyboard : Target</title></head>
+            <body><script>window.__TGT_DATA__ = {}</script><div>WEB-search-product-grid-default</div></body>
+          </html>
+        `
+      },
+      {
+        providerId: "shopping/macys",
+        reason: "macys_access_denied_shell",
+        html: `
+          <html>
+            <head><title>Access Denied</title></head>
+            <body>You don't have permission to access this page on this server. Reference #18.</body>
+          </html>
+        `
+      },
+      {
+        providerId: "shopping/temu",
+        reason: "temu_challenge_shell",
+        html: `
+          <html>
+            <head><title>Temu</title></head>
+            <body><script src="https://static.kwcdn.com/upload-static/assets/chl/js/challenge.js"></script></body>
+          </html>
+        `
+      },
+      {
+        providerId: "shopping/temu",
+        reason: "temu_challenge_shell",
+        html: "<html><body>challenge<script>function _0xabc123(){return 1}</script></body></html>"
+      },
+      {
+        providerId: "shopping/temu",
+        reason: "temu_empty_shell",
+        html: "<html><head></head><body></body></html>"
+      },
+      {
+        providerId: "shopping/others",
+        reason: "duckduckgo_non_js_redirect",
+        html: "<html><body>You are redirected to the non-JavaScript site.</body></html>"
+      }
+    ];
+
+    for (const entry of cases) {
+      const provider = createShoppingProviderById(entry.providerId, {
+        fetcher: async ({ url }) => ({ status: 200, url, html: entry.html })
+      });
+      await expect(provider.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
+        code: "unavailable",
+        details: expect.objectContaining({ providerShell: entry.reason })
+      });
+    }
+  });
+
+
+  it("distinguishes shopping shell alternates from product evidence pages", async () => {
+    const bestBuyCountryGate = createShoppingProviderById("shopping/bestbuy", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><title>Best Buy</title></head><body>Please choose a country before shopping.</body></html>"
+      })
+    });
+    await expect(bestBuyCountryGate.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
+      details: expect.objectContaining({ providerShell: "bestbuy_international_gate" })
+    });
+
+    const bestBuyTypedUrlShell = createShoppingProviderById("shopping/bestbuy", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><body>Something went wrong. You typed in a URL that we cannot find.</body></html>"
+      })
+    });
+    await expect(bestBuyTypedUrlShell.fetch?.({
+      url: "https://www.bestbuy.com/site/missing-product/111.p?skuId=111"
+    }, context)).rejects.toMatchObject({
+      details: expect.objectContaining({ providerShell: "bestbuy_pdp_error_shell" })
+    });
+
+    const targetProductGrid = createShoppingProviderById("shopping/target", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head><title>Mouse : Target</title></head>
+            <body>
+              <script>window.__TGT_DATA__ = {}</script>
+              <a href="/p/logitech-lift-mouse/-/A-12345">Logitech Lift Vertical Ergonomic Mouse</a>
+              <div>$69.99 add to cart shipping</div>
+            </body>
+          </html>
+        `
+      })
+    });
+    const records = await targetProductGrid.search?.({ query: "ergonomic mouse", limit: 1 }, context);
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]?.url).toContain("/p/logitech-lift-mouse/-/A-12345");
+    expect(records?.[0]?.attributes.shopping_offer).toMatchObject({
+      availability: "in_stock",
+      price: { amount: 69.99, currency: "USD" }
+    });
+  });
+
+  it("covers shopping browser-assistance shell alternates with distinct evidence", async () => {
+    const bestBuySelectCountry = createShoppingProviderById("shopping/bestbuy", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><body>Select your country to continue shopping.</body></html>"
+      })
+    });
+    await expect(bestBuySelectCountry.search?.({ query: "wireless mouse" }, context)).rejects.toMatchObject({
+      details: expect.objectContaining({
+        providerShell: "bestbuy_international_gate",
+        message: expect.stringContaining("Select your country")
+      })
+    });
+
+    const bestBuyMetadataOnlyGate = createShoppingProviderById("shopping/bestbuy", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><meta property=\"og:title\" content=\"Best Buy International\"></head><body></body></html>"
+      })
+    });
+    await expect(bestBuyMetadataOnlyGate.search?.({ query: "headphones" }, context)).rejects.toMatchObject({
+      details: expect.objectContaining({
+        providerShell: "bestbuy_international_gate",
+        title: "Best Buy International"
+      })
+    });
+
+    const targetDataShell = createShoppingProviderById("shopping/target", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head><title>Keyboard : Target</title></head>
+            <body><script>window.__TGT_DATA__ = { props: {} }</script><main>Hydrated app shell</main></body>
+          </html>
+        `
+      })
+    });
+    await expect(targetDataShell.search?.({ query: "keyboard" }, context)).rejects.toMatchObject({
+      details: expect.objectContaining({ providerShell: "target_shell_page" })
+    });
+
+    const macysReferenceShell = createShoppingProviderById("shopping/macys", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: `
+          <html>
+            <head><title>Macy's</title></head>
+            <body>Access Denied. You don't have permission to access this resource. Reference #42.</body>
+          </html>
+        `
+      })
+    });
+    await expect(macysReferenceShell.search?.({ query: "duvet cover" }, context)).rejects.toMatchObject({
+      details: expect.objectContaining({
+        providerShell: "macys_access_denied_shell",
+        message: expect.stringContaining("Reference #42")
+      })
+    });
+
+    const temuTitledEmptyShell = createShoppingProviderById("shopping/temu", {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><meta property=\"og:title\" content=\"Temu\"></head><body></body></html>"
+      })
+    });
+    await expect(temuTitledEmptyShell.search?.({ query: "storage bins" }, context)).rejects.toMatchObject({
+      details: expect.objectContaining({
+        providerShell: "temu_empty_shell",
+        title: "Temu"
+      })
+    });
+  });
+
   it("skips rating-only Best Buy anchors when a later same-url anchor carries the real product title", async () => {
     const productUrl = "https://www.bestbuy.com/site/logitech-lift-vertical-wireless-optical-ergonomic-mouse-with-4-customizable-buttons-wireless-graphite/6501169.p?skuId=6501169";
     const provider = createShoppingProviderById("shopping/bestbuy", {
@@ -267,6 +468,41 @@ describe("shopping provider branches", () => {
     expect(noText?.[0]?.title).toBe("https://amazon.com/no-text");
   });
 
+  it("uses completed browser fallback output when default shopping fetch throws", async () => {
+    const provider = createShoppingProvider(profile);
+    const browserFallbackPort = {
+      resolve: vi.fn(async () => ({
+        ok: true,
+        reasonCode: "env_limited" as const,
+        disposition: "completed" as const,
+        mode: "managed_headed" as const,
+        output: {
+          url: "https://amazon.com/s?k=mouse",
+          html: "<html><head><title>Fallback</title></head>Limited deal $15.00 4.8 out of 5</html>"
+        }
+      }))
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "mouse", limit: 1 }, {
+      ...context,
+      browserFallbackPort
+    });
+
+    expect(browserFallbackPort.resolve).toHaveBeenCalledOnce();
+    expect(records).toHaveLength(1);
+    expect(records?.[0]?.content).toContain("Limited deal");
+    const offer = records?.[0]?.attributes.shopping_offer as {
+      price: { amount: number };
+      rating: number;
+    };
+    expect(offer.price.amount).toBe(15);
+    expect(offer.rating).toBe(4.8);
+  });
+
   it("maps default fetcher network/auth/unavailable branches and url fallback", async () => {
     const provider = createShoppingProvider(profile);
 
@@ -300,6 +536,23 @@ describe("shopping provider branches", () => {
 
     const fetched = await provider.fetch?.({ url: "https://amazon.com/item" }, context);
     expect(fetched?.[0]?.url).toBe("https://amazon.com/item");
+  });
+
+
+  it("accepts text-only shopping evidence outside body markup", async () => {
+    const textOnlyProvider = createShoppingProvider(profile, {
+      fetcher: async ({ url }) => ({
+        status: 200,
+        url,
+        html: "<html><head><title>Shell title</title></head>Limited deal $15.00 shipping available now</html>"
+      })
+    });
+
+    const records = await textOnlyProvider.search?.({ query: "ergonomic mouse", limit: 1 }, context);
+
+    expect(records).toHaveLength(1);
+    expect(records?.[0]?.content).toContain("Limited deal $15.00 shipping available now");
+
   });
 
   it("supports custom adapter overrides and provider-id resolution", async () => {
@@ -905,6 +1158,11 @@ describe("shopping provider branches", () => {
                 <img data-src=https://cdn.amazon.com/portable-monitor-air.jpg />
               </a>
             </div>
+            <div class="s-result-item" data-asin="B0RAWIMG" data-component-type="s-search-result">
+              <a href="https://www.amazon.com/portable-monitor-raw-image/dp/B0RAWIMG" title="Portable Monitor Raw Image with braided cable kit and kickstand cover">
+                <img src=http://[bad />
+              </a>
+            </div>
           </body></html>
         `
       })
@@ -914,7 +1172,8 @@ describe("shopping provider branches", () => {
 
     expect(records?.map((record) => record.url)).toEqual([
       "https://www.amazon.com/portable-monitor-pro/dp/B0ATTRONLY1",
-      "https://www.amazon.com/portable-monitor-air/dp/B0ATTRONLY2"
+      "https://www.amazon.com/portable-monitor-air/dp/B0ATTRONLY2",
+      "https://www.amazon.com/portable-monitor-raw-image/dp/B0RAWIMG"
     ]);
 
     const sparse = records?.[0];
@@ -950,6 +1209,12 @@ describe("shopping provider branches", () => {
       rating: 0,
       reviews_count: 0
     });
+
+    const withRawInvalidImage = records?.[2];
+    expect(withRawInvalidImage).toMatchObject({
+      title: "Portable Monitor Raw Image with braided cable kit and kickstand cover"
+    });
+    expect(withRawInvalidImage?.attributes.image_urls).toEqual(["http://[bad"]);
   });
 
   it("recovers Costco card-local prices when generic anchor context misses deep product-tile pricing", async () => {

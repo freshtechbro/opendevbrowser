@@ -2,7 +2,7 @@
 
 **OpenDevBrowser Chrome Extension**
 
-Last updated: May 19, 2026
+Last updated: June 30, 2026
 
 ## Overview
 
@@ -23,7 +23,7 @@ The extension:
 - The extension itself does not capture desktop data. If you separately invoke daemon or core-owned desktop commands or tools with the shipped default or explicit `desktop.permissionLevel=observe`, the local OpenDevBrowser runtime may use the public read-only desktop observation plane to capture local desktop or window screenshots plus accessibility snapshots on-device and write repo-local audit artifacts under `.opendevbrowser/desktop-runtime`; OS-level desktop permissions still apply
 - May, when you explicitly start a browser replay capture, sample screenshots locally and write replay artifacts such as `replay.json`, `replay.html`, `frames/`, and `preview.png` to the chosen local output directory on-device
 - May store relay settings, pairing state, relay identity metadata, and the last user-triggered annotation payload without screenshots locally on-device so the popup can reconnect and reopen recent annotation results
-- May store screenshot-free annotation payloads in a repo-local shared inbox when you explicitly use popup/canvas/in-page `Send` actions. A single active chat scope for that worktree can consume them; missing or ambiguous chat scope keeps them stored-only for explicit `annotate --stored` retrieval
+- May store screenshot-free Annotation V2 compact payloads in a repo-local shared inbox when you explicitly use popup/canvas/in-page `Send` actions. Redaction runs before persistence, clipboard copy, relay send, shared inbox storage, AgentInbox handoff, or system injection. A single active chat scope for that worktree can consume them; missing or ambiguous chat scope keeps them stored-only for explicit `annotate --stored` retrieval
 - May keep extension-hosted canvas stage annotation selections, region metadata, and optional local crop references on-device only when you explicitly capture or send them during a canvas session
 
 ## How the Extension Works
@@ -76,7 +76,7 @@ The relay and optional native-host transport stay local to your machine. OpenDev
 - Full screenshots remain in memory for the active extension session unless you explicitly copy or send them through the local tooling flow
 - User-triggered browser replay artifacts (`replay.json`, `replay.html`, `frames/`, `preview.png`) written to the chosen local output directory
 
-Shared inbox persistence strips screenshots and stores only sanitized payloads plus screenshot asset references. Shared entries are retained locally with bounded limits (`200` entries total, `50` unread entries, `7`-day TTL).
+Shared inbox persistence strips screenshot bytes and stores only sanitized compact payloads plus screenshot asset references. Rich annotation details remain explicit and bounded for local inspection, not the default shared inbox or system-injection payload. Shared entries are retained locally with bounded limits (`200` entries total, `50` unread entries, `7`-day TTL).
 
 ## Third-Party Services
 

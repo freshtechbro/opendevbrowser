@@ -1205,6 +1205,11 @@ export class RelayServer {
   }
 
   private async handleStoreAgentPayload(command: AnnotationCommand): Promise<void> {
+    const sizeBytes = Buffer.byteLength(JSON.stringify(command));
+    if (sizeBytes > RelayServer.MAX_ANNOTATION_PAYLOAD_BYTES) {
+      this.sendAnnotationError(command.requestId, "payload_too_large", "Annotation payload exceeded relay limits.");
+      return;
+    }
     if (!this.storeAgentPayloadHandler) {
       this.sendAnnotationError(command.requestId, "relay_unavailable", "Agent inbox unavailable.");
       return;
@@ -1427,19 +1432,31 @@ export class RelayServer {
 
     const requestId = payload.requestId;
     const directPending = this.annotationDirectPending.get(requestId);
+    const hasSocketPending = this.annotationPending.has(requestId);
+    const sizeBytes = Buffer.byteLength(JSON.stringify(message));
+    if (sizeBytes > RelayServer.MAX_ANNOTATION_PAYLOAD_BYTES) {
+      if (directPending) {
+        clearTimeout(directPending.timeout);
+        this.annotationDirectPending.delete(requestId);
+        directPending.resolve({
+          version: 1,
+          requestId,
+          status: "error",
+          error: { code: "payload_too_large", message: "Annotation payload exceeded relay limits." }
+        });
+      }
+      if (hasSocketPending) {
+        this.annotationPending.delete(requestId);
+        this.sendAnnotationError(requestId, "payload_too_large", "Annotation payload exceeded relay limits.");
+      }
+      return;
+    }
     if (directPending) {
       clearTimeout(directPending.timeout);
       this.annotationDirectPending.delete(requestId);
       directPending.resolve(payload);
     }
-    if (!this.annotationPending.has(requestId)) {
-      return;
-    }
-
-    const sizeBytes = Buffer.byteLength(JSON.stringify(message));
-    if (sizeBytes > RelayServer.MAX_ANNOTATION_PAYLOAD_BYTES) {
-      this.annotationPending.delete(requestId);
-      this.sendAnnotationError(requestId, "payload_too_large", "Annotation payload exceeded relay limits.");
+    if (!hasSocketPending) {
       return;
     }
 

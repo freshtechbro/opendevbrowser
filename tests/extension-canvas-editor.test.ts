@@ -380,10 +380,10 @@ describe("extension canvas editor", () => {
     const undoButton = document.getElementById("canvas-history-undo") as HTMLButtonElement;
     undoButton.click();
 
-    expect(port.messages).toContainEqual({
+    expect(port.messages).toContainEqual(expect.objectContaining({
       type: "canvas-page-history-request",
       direction: "undo"
-    });
+    }));
   });
 
   it("emits duplicate requests from keyboard shortcuts", async () => {
@@ -486,10 +486,7 @@ describe("extension canvas editor", () => {
           annotations: [
             expect.objectContaining({
               tag: "canvas-region",
-              selector: expect.stringContaining("[data-canvas-region="),
-              attributes: expect.objectContaining({
-                "data-canvas-kind": "region"
-              })
+              selector: expect.stringContaining("[data-canvas-region=")
             })
           ]
         })

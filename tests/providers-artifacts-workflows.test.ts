@@ -13,6 +13,7 @@ import {
   type ProviderExecutor
 } from "../src/providers/workflows";
 import type { ProviderAggregateResult } from "../src/providers/types";
+import { installExpectedProviderWarnCapture } from "./support/provider-warn-capture";
 
 const makeAggregate = (overrides: Partial<ProviderAggregateResult> = {}): ProviderAggregateResult => ({
   ok: true,
@@ -44,6 +45,8 @@ const RESEARCH_ARTIFACT_FILES = [
   "meta.json",
   "bundle-manifest.json"
 ];
+
+installExpectedProviderWarnCapture();
 
 describe("artifact and workflow runtime", () => {
   const createdDirs: string[] = [];

@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BrowserManagerLike } from "../src/browser/manager-types";
+import { createBrowserFallbackPort } from "../src/providers/runtime-factory";
 import type { BrowserFallbackPort } from "../src/providers/types";
 
 describe("provider runtime coverage seams", () => {
@@ -542,4 +544,95 @@ describe("provider runtime coverage seams", () => {
       reasonCode: "auth_required"
     }));
   });
+  it("classifies default fetched auth and challenge walls without browser recovery", async () => {
+    vi.resetModules();
+    const responses = [
+      {
+        status: 401,
+        html: "<html><head><title>Login required</title></head><body>Please sign in to continue to protected results.</body></html>"
+      },
+      {
+        status: 503,
+        html: "<html><head><title>Please complete captcha challenge</title></head><body>Checking your browser before accessing this site.</body></html>"
+      }
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const response = responses.shift();
+      return {
+        status: response?.status ?? 200,
+        url: String(input),
+        text: async () => response?.html ?? "<html><body>plain result</body></html>"
+      };
+    }) as unknown as typeof fetch);
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const authResult = await createDefaultRuntime().search(
+      { query: "private docs", limit: 1 },
+      { source: "web", providerIds: ["web/default"] }
+    );
+    const challengeResult = await createDefaultRuntime().search(
+      { query: "captcha docs", limit: 1 },
+      { source: "web", providerIds: ["web/default"] }
+    );
+
+    expect(authResult.ok).toBe(false);
+    expect(authResult.failures[0]?.error).toMatchObject({
+      code: "auth",
+      reasonCode: "token_required",
+      message: expect.stringContaining("Authentication required")
+    });
+    expect(challengeResult.ok).toBe(false);
+    expect(challengeResult.failures[0]?.error).toMatchObject({
+      code: "unavailable",
+      reasonCode: "challenge_detected"
+    });
+  });
+
+
+  it("preserves anti-bot challenges reported by fallback status metadata", async () => {
+    vi.resetModules();
+    const cleanHtml = "<html><body><main>Clean fallback content without blocker text.</main></body></html>";
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "session-anti-bot-status" })),
+      goto: vi.fn(async () => undefined),
+      waitForLoad: vi.fn(async () => undefined),
+      withPage: vi.fn(async (_sessionId, _ref, callback) => {
+        return await callback({
+          content: async () => cleanHtml,
+          waitForTimeout: async () => undefined
+        });
+      }),
+      status: vi.fn(async () => ({
+        sessionId: "session-anti-bot-status",
+        mode: "managed",
+        url: "https://example.com/search?q=browser",
+        meta: {
+          blockerState: "challenge",
+          challenge: {
+            blockerType: "anti_bot_challenge",
+            status: "active"
+          }
+        }
+      })),
+      disconnect: vi.fn(async () => undefined)
+    } satisfies Partial<BrowserManagerLike>;
+
+    const port = createBrowserFallbackPort(manager as BrowserManagerLike, { policy: "off" });
+    const result = await port?.resolve({
+      provider: "web/default",
+      source: "web",
+      operation: "search",
+      reasonCode: "env_limited",
+      url: "https://example.com/search?q=browser",
+      preferredModes: ["managed_headed"],
+      captureDelayMs: 0,
+      settleTimeoutMs: 1
+    });
+
+    expect(result?.ok).toBe(false);
+    expect(result?.reasonCode).toBe("challenge_detected");
+    expect(result?.disposition).toBe("challenge_preserved");
+    expect(result?.challenge?.blockerType).toBe("anti_bot_challenge");
+  });
+
 });
