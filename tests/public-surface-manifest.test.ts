@@ -140,6 +140,20 @@ describe("public surface manifest", () => {
     expect(helpText).toContain("raw media-analysis fields must not enter canvas-plan.request.json");
   });
 
+  it("documents Pinterest broad-query readiness diagnostics", () => {
+    const inspiredesignCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "inspiredesign");
+    const notes = inspiredesignCommand?.notes.join(" ") ?? "";
+
+    expect(notes).toContain("Pinterest broad-query harvests become product-ready only when query discovery accepts canonical /pin/{id}/ references");
+    expect(notes).toContain("manifest-backed first-party pin-media bytes");
+    expect(notes).toContain("discovery-diagnostics.json records accepted and rejected URLs, blocker diagnostics, and recovery context");
+    expect(notes).toContain("login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence");
+    expect(notes).toContain("Screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete");
+    expect(notes).toContain("pin-media-index.json remains Pinterest authority");
+    expect(notes).toContain("media-analysis.json remains advisory");
+    expect(notes).toContain("motion-evidence.json remains browser replay authority");
+  });
+
   it("documents Google OAuth session continuity flags, tool args, and safe guidance", () => {
     const launchCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "launch");
     const connectCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "connect");

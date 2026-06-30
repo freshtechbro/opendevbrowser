@@ -42,6 +42,27 @@ const DEPENDENCY_CONTRACT_SECTIONS: readonly GuidanceSection[] = [
   }
 ] as const;
 
+const PINTEREST_BROAD_QUERY_SECTIONS: readonly GuidanceSection[] = [
+  {
+    label: "docs/CLI.md Inspiredesign notes",
+    path: "docs/CLI.md",
+    startMarker: "#### Inspiredesign (`inspiredesign run`) and `inspiredesign harvest`",
+    endMarker: "Wrapper behavior:"
+  },
+  {
+    label: "docs/SURFACE_REFERENCE.md Inspiredesign notes",
+    path: "docs/SURFACE_REFERENCE.md",
+    startMarker: "- Inspiredesign harvest flags:",
+    endMarker: "For complete argument and flag coverage by command"
+  },
+  {
+    label: "best-practices skill Inspiredesign rules",
+    path: "skills/opendevbrowser-best-practices/SKILL.md",
+    startMarker: "4. Design-contract synthesis with repeated public references.",
+    endMarker: "## Agent Sync Targets"
+  }
+] as const;
+
 const STATUS_CAPABILITY_SECTIONS: readonly GuidanceSection[] = [
   {
     label: "docs/CLI.md status-capabilities notes",
@@ -197,6 +218,22 @@ describe("media-analysis dependency guidance", () => {
       const content = readSection(section);
 
       expectDependencyContract(section.label, content);
+    }
+  });
+
+  it("documents Pinterest broad-query readiness and recovery authority", () => {
+    for (const section of PINTEREST_BROAD_QUERY_SECTIONS) {
+      const content = readSection(section);
+      const normalizedContent = content.toLowerCase();
+
+      expect(content, `${section.label} should mention query-discovered canonical pins`).toContain("query-discovered canonical");
+      expect(content, `${section.label} should mention first-party pin-media bytes`).toContain("first-party pin-media");
+      expect(content, `${section.label} should mention discovery diagnostics`).toContain("discovery-diagnostics.json");
+      expect(content, `${section.label} should keep blocker diagnostics recovery-only`).toContain("login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence");
+      expect(content, `${section.label} should preserve pin-media authority`).toContain("pin-media-index.json");
+      expect(content, `${section.label} should preserve media-analysis advisory status`).toContain("media-analysis.json");
+      expect(content, `${section.label} should preserve browser replay authority`).toContain("motion-evidence.json");
+      expect(normalizedContent, `${section.label} should describe screenshot failure as non-blocking`).toContain("screenshot failure after pin-media success is a non-blocking caveat");
     }
   });
 
