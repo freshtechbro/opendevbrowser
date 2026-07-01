@@ -36,7 +36,7 @@ src/inspiredesign/
 | `media-analysis.json` | Design facts | Advisory only, never product-readiness authority |
 | `design.md`, `advanced-brief.md`, and handoff docs | Human handoff | Must reflect authority status truthfully |
 
-Evidence readiness must name the exact authority that satisfied the gate. Canonical Pinterest pin references require `pin_media_ready` backed by first-party `pin-media-index.json`; screenshot and screencast evidence cannot substitute for Pinterest pin-media authority.
+Evidence readiness must name the exact authority that satisfied the gate. Canonical Pinterest pin references, including broad-query discoveries, require `pin_media_ready` backed by first-party byte evidence in `pin-media-index.json`; screenshot and screencast evidence cannot substitute for Pinterest pin-media authority. Missing screenshot or motion capture is non-blocking only after `pin_media_ready` is satisfied by byte-backed first-party media.
 
 ## Rules
 
