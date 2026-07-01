@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.38] - 2026-07-01
+
+### Changed
+- Aligned release-facing package, lockfile, extension manifest, extension package metadata, and evidence docs for `0.0.38`.
+- Recorded the local-token release order: publish npm first, then dispatch the GitHub release workflow with `publish_npm=false`.
+- Preserved Chrome Web Store lane status as blocked pending credentials or an authenticated dashboard session.
+
 ## [0.0.37] - 2026-06-28
 
 ### Changed
@@ -290,7 +297,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.37...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.38...HEAD
+[0.0.38]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.37...v0.0.38
 [0.0.37]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.36...v0.0.37
 [0.0.36]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.35...v0.0.36
 [0.0.35]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.34...v0.0.35
