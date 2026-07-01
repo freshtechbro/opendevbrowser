@@ -51,6 +51,14 @@ Current status note:
 - [x] `npm run typecheck`
 - [x] `npm run build`
 - [x] `npm run extension:build`
+- [x] `npm run test`
+- [x] `node scripts/audit-zombie-files.mjs`
+- [x] `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`
+- [x] `./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh`
+- [x] `npx opendevbrowser --help`
+- [x] `npx opendevbrowser help`
+- [x] `npm run extension:pack`
+- [x] `npm pack --dry-run`
 
 ## Optional Strict Live Gates
 
@@ -74,6 +82,31 @@ Decision: deferred for local release prep. The strict live lane remains optional
 - `npm run typecheck`: passed.
 - `npm run build`: passed.
 - `npm run extension:build`: passed and confirmed extension metadata already at `0.0.38`.
+
+## Full Gate Matrix Rerun - 2026-07-01
+
+Evidence directory: `.opendevbrowser/release-gates-0.0.38-20260701T201057Z/`
+
+- Formatter: not available; `package.json` has no formatter script.
+- `git status --short --branch`: passed before and after gates; branch remained `codex/release-0.0.38` ahead of `origin/main` by two commits with no tracked file changes from generated artifacts before this ledger update.
+- `git diff --check`: passed in 0s.
+- `npm run lint`: passed in 23s.
+- `npm run typecheck`: passed in 4s.
+- `npm run version:check`: passed in 0s.
+- `npm run build`: passed in 5s.
+- `npm run extension:build`: passed in 2s.
+- `npm run test`: passed in 475s. Coverage branch math from `coverage/lcov.info`: 25,986 covered of 26,789 branches, 97.0025%.
+- `node scripts/docs-drift-check.mjs`: passed in 1s.
+- `node scripts/audit-zombie-files.mjs`: passed in 0s.
+- `node scripts/chrome-store-compliance-check.mjs`: passed in 0s.
+- `./skills/opendevbrowser-best-practices/scripts/validate-skill-assets.sh`: passed in 1s.
+- `./skills/opendevbrowser-motion-design/scripts/validate-skill-assets.sh`: passed in 0s.
+- `npx opendevbrowser --help`: passed in 2s.
+- `npx opendevbrowser help`: passed in 0s.
+- `npm run extension:pack`: passed in 1s and created ignored artifact `opendevbrowser-extension.zip` at 186 KB.
+- `npm pack --dry-run`: passed in 15s and reported `opendevbrowser-0.0.38.tgz`, package size 3.0 MB, unpacked size 14.8 MB, shasum `799e5db38d2ce21c847f1d09a90c8f53bdea2c45`, integrity `sha512-xPZIiYNxBb3B8[...]zvLMJ7Ssh0fvQ==`, total files 1356. No publish was performed.
+
+Note: two initial validator attempts used non-existent `.mjs` paths and failed with `MODULE_NOT_FOUND`; these were command-selection mistakes, not release defects. The exact runbook shell validators above passed.
 
 ## External Pre-Publish Checks
 
