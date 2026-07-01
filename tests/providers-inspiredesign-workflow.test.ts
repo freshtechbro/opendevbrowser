@@ -4968,6 +4968,94 @@ describe("inspiredesign workflow", () => {
     }));
   });
 
+  it("recovers a transient broad-query search shell before promoting canonical Pinterest pins", async () => {
+    const outputDir = makeOutputDir();
+    const canonicalPinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const fetchOrder: string[] = [];
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        fetchOrder.push("search");
+        if (fetchOrder.length === 1) {
+          return makeAggregate({
+            records: [normalizeRecord("social/pinterest", "social", {
+              url: input.url,
+              title: "Pinterest empty search results",
+              content: "Search results for studio",
+              attributes: {
+                html: '<main aria-label="search results"><p>When autocomplete results are available</p></main>'
+              }
+            })]
+          });
+        }
+        return makeAggregate({
+          records: [makePinterestSearchShellDiscoveryRecord(input.url, canonicalPinUrl)]
+        });
+      }
+      fetchOrder.push("pin");
+      expect(input.url).toBe(canonicalPinUrl);
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(input.url)]
+      });
+    });
+    const captureReference = vi.fn();
+    const capturePinMediaEvidence = vi.fn(async (url: string, options: InspiredesignWorkflowPinMediaCaptureOptions) => {
+      writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+      return makePinterestImagePinMediaCapture(url, options, "https://i.pinimg.com/originals/query-retry-pin.jpg");
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["social/pinterest"],
+      urls: [],
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      visualEvidence: "required",
+      outputDir,
+      mode: "path"
+    }, {
+      capturePinMediaEvidence,
+      captureReference
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const discoveryDiagnostics = JSON.parse(readFileSync(join(artifactPath, "discovery-diagnostics.json"), "utf8")) as {
+      acceptedUrls: string[];
+      sourcePageQuality: string;
+    };
+    const pinMediaIndex = JSON.parse(readFileSync(join(artifactPath, "pin-media-index.json"), "utf8")) as {
+      pinMediaIndex: Array<{ path: string }>;
+    };
+
+    expect(fetchOrder).toEqual(["search", "search", "pin"]);
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      { url: "https://www.pinterest.com/search/pins/?q=premium+photography+studio+landing+page" },
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browserMode: "extension",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        })
+      })
+    );
+    expect(captureReference).not.toHaveBeenCalled();
+    expect(capturePinMediaEvidence).toHaveBeenCalledTimes(1);
+    expect(discoveryDiagnostics).toEqual(expect.objectContaining({
+      acceptedUrls: [canonicalPinUrl],
+      sourcePageQuality: "search_shell"
+    }));
+    expect(pinMediaIndex.pinMediaIndex).toHaveLength(1);
+    expect(output).toEqual(expect.objectContaining({
+      ready: true,
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready"
+    }));
+  });
+
   it("promotes query-discovered canonical Pinterest pins into pin-media product readiness", async () => {
     const outputDir = makeOutputDir();
     const canonicalPinUrl = "https://www.pinterest.com/pin/61572719900827789/";

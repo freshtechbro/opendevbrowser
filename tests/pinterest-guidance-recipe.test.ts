@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { normalizePinterestReferenceUrl } from "../src/guidance/recipes/pinterest";
 import {
   classifyPinterestCandidate,
@@ -780,6 +780,282 @@ describe("Pinterest guidance recipe", () => {
       reason: "reference_urls_extracted",
       sourcePageQuality: "search_shell",
       extractedUrlCount: 1
+    }));
+  });
+
+  it("retries a transient login search shell and accepts rendered canonical pins only from the retry", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const fetchSearchPage = vi.fn(async () => {
+      if (fetchSearchPage.mock.calls.length === 1) {
+        return {
+          records: [makeSearchRecord({
+            title: "Pinterest login",
+            content: "Log in to see more search results",
+            attributes: {
+              html: '<main aria-label="search results"><button>Log in</button></main>'
+            }
+          })],
+          failures: []
+        };
+      }
+      return {
+        records: [makeSearchRecord({
+          title: "Pinterest",
+          content: "Search results for studio Pin card",
+          attributes: {
+            html: [
+              '<main aria-label="search results">',
+              '<a href="/pin/61572719900827789/">Studio reference pin</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      };
+    });
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage
+    });
+
+    expect(fetchSearchPage).toHaveBeenCalledTimes(2);
+    expect(result.failures).toEqual([]);
+    expect(result.records.map((record) => record.url)).toEqual([
+      "https://www.pinterest.com/pin/61572719900827789/"
+    ]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "reference_urls_extracted",
+      sourcePageQuality: "search_shell",
+      acceptedUrlCount: 1
+    }));
+  });
+
+  it("does not retry a search shell without search-result context", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const fetchSearchPage = vi.fn(async () => {
+      if (fetchSearchPage.mock.calls.length === 1) {
+        return {
+          records: [makeSearchRecord({
+            url: "https://www.pinterest.com/",
+            title: "Pinterest shell",
+            content: "Search results for studio",
+            attributes: {
+              html: "<main><p>When autocomplete results are available</p></main>"
+            }
+          })],
+          failures: []
+        };
+      }
+      return {
+        records: [makeSearchRecord({
+          title: "Pinterest",
+          content: "Search results for studio Pin card",
+          attributes: {
+            html: [
+              '<main aria-label=\"search results\">',
+              '<a href=\"/pin/61572719900827789/\">Studio reference pin</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      };
+    });
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage
+    });
+
+    expect(fetchSearchPage).toHaveBeenCalledTimes(1);
+    expect(result.records).toEqual([]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      sourcePageQuality: "search_shell",
+      badStateId: "search-shell",
+      acceptedUrls: [],
+      acceptedUrlCount: 0
+    }));
+  });
+
+  it("does not retry a full login wall even when a later response would expose pins", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const fetchSearchPage = vi.fn(async () => {
+      if (fetchSearchPage.mock.calls.length === 1) {
+        return {
+          records: [makeSearchRecord({
+            url: "https://www.pinterest.com/login/",
+            title: "Pinterest login",
+            content: "Log in Continue with Google",
+            attributes: {
+              html: "<main><button>Log in</button><button>Continue with Google</button></main>"
+            }
+          })],
+          failures: []
+        };
+      }
+      return {
+        records: [makeSearchRecord({
+          title: "Pinterest",
+          content: "Search results for studio Pin card",
+          attributes: {
+            html: [
+              '<main aria-label="search results">',
+              '<a href="/pin/61572719900827789/">Studio reference pin</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      };
+    });
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage
+    });
+
+    expect(fetchSearchPage).toHaveBeenCalledTimes(1);
+    expect(result.records).toEqual([]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "auth_required",
+      badStateId: "login",
+      acceptedUrls: [],
+      acceptedUrlCount: 0
+    }));
+  });
+
+  it("retries an empty search shell without promoting board idea account or stale pin links", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const fetchSearchPage = vi.fn(async () => {
+      if (fetchSearchPage.mock.calls.length === 1) {
+        return {
+          records: [makeSearchRecord({
+            title: "Pinterest",
+            content: "Search results for studio",
+            attributes: {
+              html: '<main aria-label="search results"><p>When autocomplete results are available</p></main>'
+            }
+          })],
+          failures: []
+        };
+      }
+      return {
+        records: [makeSearchRecord({
+          url: "https://www.pinterest.com/settings/privacy/",
+          title: "Pinterest settings",
+          content: "Your profile Settings & support Search results for studio",
+          attributes: {
+            links: [
+              "https://www.pinterest.com/studio/portrait-lighting/",
+              "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/",
+              "https://www.pinterest.com/pin/11111111111111111/edit/"
+            ],
+            html: [
+              '<main aria-label="search results">',
+              '<a href="/studio/portrait-lighting/">Board</a>',
+              '<a href="/ideas/web-design-parallax-scrolling/896364491640/">Idea</a>',
+              '<a href="/pin/11111111111111111/edit/">Stale pin edit link</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      };
+    });
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage
+    });
+
+    expect(fetchSearchPage).toHaveBeenCalledTimes(2);
+    expect(result.records).toEqual([]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      sourcePageQuality: "chrome_only",
+      acceptedUrls: [],
+      acceptedUrlCount: 0
+    }));
+  });
+
+  it("does not retry hard challenge failures even when a later response would expose pins", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const fetchSearchPage = vi.fn(async () => {
+      if (fetchSearchPage.mock.calls.length === 1) {
+        return {
+          records: [],
+          failures: [makeFailure("challenge_detected", "Pinterest challenge detected")]
+        };
+      }
+      return {
+        records: [makeSearchRecord({
+          title: "Pinterest",
+          content: "Search results for studio Pin card",
+          attributes: {
+            html: [
+              '<main aria-label="search results">',
+              '<a href="/pin/61572719900827789/">Studio reference pin</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      };
+    });
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage
+    });
+
+    expect(fetchSearchPage).toHaveBeenCalledTimes(1);
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("challenge_detected");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "challenge_detected",
+      acceptedUrls: [],
+      acceptedUrlCount: 0,
+      failureCount: 1
     }));
   });
 

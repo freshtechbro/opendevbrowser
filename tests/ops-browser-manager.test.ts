@@ -590,6 +590,79 @@ describe("OpsBrowserManager", () => {
     expect(requestMock).toHaveBeenCalledWith("session.disconnect", { closeBrowser: false }, "ops-1", 30000, "lease-1");
   });
 
+  it("retries initial ops handshake close after extension readiness", async () => {
+    connectMock.mockRejectedValueOnce(new Error("Ops socket closed before handshake"));
+    requestMock.mockImplementation(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      if (command === "session.connect") {
+        return { opsSessionId: "ops-after-retry", activeTargetId: "tab-9", leaseId: "lease-after-retry" };
+      }
+      return { ok: true };
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+    const result = await manager.connectRelay("ws://127.0.0.1:8787/ops");
+
+    expect(result).toEqual(expect.objectContaining({
+      sessionId: "ops-after-retry",
+      mode: "extension",
+      activeTargetId: "tab-9"
+    }));
+    expect(connectMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalled();
+    expect(requestMock).toHaveBeenCalledWith(
+      "session.connect",
+      expect.objectContaining({ parallelismPolicy: expect.any(Object) }),
+      undefined,
+      30000,
+      expect.any(String)
+    );
+  });
+
+  it("cleans up both failed clients when initial ops handshake retry also fails", async () => {
+    connectMock
+      .mockRejectedValueOnce(new Error("Ops socket closed before handshake"))
+      .mockRejectedValueOnce(new Error("retry handshake failed"));
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        relayPort: 8787,
+        pairingRequired: false,
+        instanceId: "relay-1",
+        epoch: 1,
+        extensionConnected: true,
+        extensionHandshakeComplete: true
+      })
+    }));
+
+    const manager = new OpsBrowserManager({ connectRelay: vi.fn() } as never, makeConfig());
+
+    await expect(manager.connectRelay("ws://127.0.0.1:8787/ops")).rejects.toThrow("retry handshake failed");
+    expect(connectMock).toHaveBeenCalledTimes(2);
+    expect(disconnectMock).toHaveBeenCalledTimes(2);
+    expect(requestMock).not.toHaveBeenCalledWith(
+      "session.connect",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
   it("reconnects a lost extension ops session and retries the original request once", async () => {
     let recovered = false;
     requestMock.mockImplementation(async (...args: unknown[]) => {
