@@ -528,7 +528,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json"
         ],
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
           "Load opendevbrowser-research first, use explicit source families such as --sources web,community, and inspect artifacts before final claims."
         ],
         "groupId": "provider_workflows",
@@ -559,7 +559,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
           "Treat --region as advisory unless the workflow output reports region_authoritative=true."
         ],
         "groupId": "provider_workflows",
@@ -590,7 +590,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json"
         ],
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
           "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
         ],
         "groupId": "provider_workflows",
@@ -627,7 +627,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "npx opendevbrowser inspiredesign harvest --brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
           "Pinterest harvest uses manifest-backed pin-media evidence as the required product-readiness authority for canonical pin-media harvests; screenshot evidence and screencast evidence remain useful capture or motion lanes but are not substitutes. DOM/clone/deep capture is disabled for Pinterest harvest, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
           "Pinterest broad-query harvests become product-ready only when query discovery accepts canonical /pin/{id}/ references and the workflow captures manifest-backed first-party pin-media bytes for those pins. discovery-diagnostics.json records accepted and rejected URLs, blocker diagnostics, and recovery context; login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence.",
           "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested.",
@@ -2635,7 +2635,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "cliEquivalent": "research",
         "example": "npx opendevbrowser research run --topic \"Chrome extension debugging workflows\" --days 30 --sources web,community --browser-mode managed --mode json --output-format json",
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>."
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>."
         ]
       },
       {
@@ -2644,7 +2644,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "cliEquivalent": "shopping",
         "example": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json",
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>."
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>."
         ]
       },
       {
@@ -2653,7 +2653,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "cliEquivalent": "product-video",
         "example": "npx opendevbrowser product-video run --product-url \"https://example.com/p/1\" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-screenshots --output-format json",
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>."
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>."
         ]
       },
       {
@@ -2662,7 +2662,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "cliEquivalent": "inspiredesign",
         "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-format json",
         "notes": [
-          "Routine workflow runs should omit --output-dir; if an explicit workflow root is required, use --output-dir .opendevbrowser so the runtime writes .opendevbrowser/<namespace>/<runId>.",
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
           "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH, then common absolute install directories for implicit PATH-source ENOENT misses only. Invalid env or config paths stay diagnostic and do not fall back. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.",
           "status-capabilities reports FFmpeg and FFprobe availability under host.mediaAnalysis so operators can verify optional media-analysis host capability before Inspiredesign runs."
         ]

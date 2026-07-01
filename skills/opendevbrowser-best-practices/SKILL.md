@@ -82,10 +82,10 @@ npx opendevbrowser help
 
 Start every surface audit with generated help so the capability map reflects the currently shipped runtime:
 
-- Browser replay: `screencast-start`, `screencast-stop`
-- Desktop observation: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- `screencast / browser replay`: `screencast-start`, `screencast-stop`
+- `desktop observation`: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
 - Desktop-assisted browser review: `review-desktop`
-- Browser-scoped computer use: `--challenge-automation-mode off|browser|browser_with_helper`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit`, plus manager-owned `review`, `session-inspector`, and workflow fallback metadata
+- `computer use / browser-scoped computer use`: `--challenge-automation-mode off|browser|browser_with_helper`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit`, plus manager-owned `review`, `session-inspector`, and workflow fallback metadata
 
 Boundary rules:
 - desktop observation is public and read-only
@@ -102,7 +102,7 @@ opendevbrowser_skill_load opendevbrowser-best-practices "validated capability la
 
 Current validated lanes:
 
-Routine workflow runs should omit `--output-dir`; inspect the returned `artifact_path` first, then `.opendevbrowser/<workflow>/<runId>` for workflow artifacts before publishing claims. If a wrapper requires an explicit workflow root, use `--output-dir .opendevbrowser`; the runtime appends `<workflow>/<runId>`.
+Routine artifact-bearing workflow runs should omit `--output-dir`; inspect the returned `artifact_path` first, then `.opendevbrowser/<namespace>/<runId>` for research, shopping, inspiredesign, or product-video artifacts before publishing claims. If a wrapper requires an explicit workflow root, use `--output-dir .opendevbrowser`; the runtime appends `<namespace>/<runId>`. Browser evidence omitted outputs use `.opendevbrowser/screenshot/<uuid>/capture.png` for screenshots and `.opendevbrowser/screencast/<uuid>` for browser replay, while explicit caller paths remain caller-controlled.
 
 1. Public-first YouTube transcript retrieval.
 
@@ -161,7 +161,7 @@ Rules:
 - for multi-pin Pinterest design harvests, run query discovery with `--query ... --provider social/pinterest` and trust the broad-query harvest only when query-discovered canonical `https://www.pinterest.com/pin/<id>/` URLs become ranked references with manifest-backed first-party pin-media bytes in the same bundle; omitted `--output-dir` runs return `artifact_path`, so inspect that path before assuming `.opendevbrowser/inspiredesign/<runId>`; if the query bundle remains diagnostic-only, read `meta.discovery.acceptedUrls` and `discovery-diagnostics.json`, keep only canonical pin URLs, then use one canonical recovery harvest per selected pin with omitted `--output-dir`
 - `discovery-diagnostics.json` records accepted and rejected URL counts, blocker diagnostics, and recovery actions; login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence
 - canonical Pinterest pin harvests and recovery paths in extension mode use `captureMode=off` and open the exact canonical pin in the extension before byte-backed pin-media extraction, which is required for reliable GIF and video pin capture in live sessions
-- trust multi-pin Pinterest harvest outputs only when top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, `ranked-references.json` is non-empty, and `pin-media-index.json` proves manifest-backed pin-media authority for the selected pin; `snapshot_ready` and `motion_ready` are not substitutes for canonical pin-media readiness, screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete, `media-analysis.json` remains advisory, and `motion-evidence.json` remains browser replay authority
+- trust multi-pin Pinterest harvest outputs only when top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, `ranked-references.json` is non-empty, and `pin-media-index.json` proves pin-media-first manifest-backed authority for the selected pin; `snapshot_ready` and `motion_ready` are not substitutes for canonical pin-media readiness, screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete, `media-analysis.json` remains advisory, and `motion-evidence.json` remains browser replay authority
 - treat `media-analysis.json` as a deterministic design-fact surface from trusted saved pin media, not as readiness authority; `pin-media-index.json` remains the only pin-media readiness and provenance authority
 - use `media-analysis.json` for palette, tone, layout, OCR-free typography structure, text-region layout, sampled saved-media motion facts, `motionSignature`, limitations, and non-goals; do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, browser replay evidence, interaction choreography, new dependencies, or raw `mediaAnalysis` in `canvas-plan.request.json`
 - for richer `media-analysis.json`, prefer hosts with FFmpeg and FFprobe available; they are recommended optional host tools, are not bundled static binaries, and are not downloaded by default
@@ -182,7 +182,7 @@ Skill-pack installation and discovery are synchronized for:
 - `claudecode` (`$CLAUDECODE_HOME/skills` fallback `~/.claude/skills`, project `./.claude/skills`)
 - `ampcli` (`$AMP_CLI_HOME/skills` fallback `~/.amp/skills`, project `./.amp/skills`)
 
-Install and update refresh managed copies of these canonical packs; uninstall removes managed canonical packs and only prunes empty legacy `research` or `shopping` leftovers.
+Install and update refresh managed copies of these canonical packs; uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
 
 ## Required Operating Rules
 
@@ -344,7 +344,7 @@ Surface inventory source of truth:
 Direct-run release note:
 - `scripts/live-regression-direct.mjs` is the preferred release harness for `/canvas`, annotate, and CLI smoke. It uses temporary managed profiles for managed probes, waits for `/ops` drain before the legacy `/cdp` step, and keeps manual annotation timeouts as explicit `skipped` boundaries in `--release-gate` mode.
 - `scripts/provider-direct-runs.mjs --include-high-friction --include-auth-gated` is the preferred provider release harness. Treat `provider-live-matrix` and `live-regression-matrix` as debug-only helpers, not refreshed release evidence.
-- Explicit `artifacts/release/vX.Y.Z/...` paths are local-only release proof outputs. Normal omitted workflow outputs persist under `.opendevbrowser/<workflow>/<runId>`.
+- Explicit `artifacts/release/vX.Y.Z/...` paths are local-only release proof outputs. For normal omitted workflow outputs, inspect the returned `artifact_path` first; the persisted bundle is under `.opendevbrowser/<namespace>/<runId>`.
 
 ## Skill Runtime Audit and Realignment
 
@@ -417,7 +417,10 @@ Recommended command order:
 
 Code-sync surface:
 - `canvas.session.attach` joins an existing canvas session as an `observer` or reclaims the write lease with `attachMode=lease_reclaim`.
-- `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` manage TSX-first document bindings when a canvas file is round-tripped to repo code.
+- `canvas.code.bind`, `canvas.code.unbind`, `canvas.code.pull`, `canvas.code.push`, `canvas.code.status`, and `canvas.code.resolve` manage framework-adapter-backed document bindings when a canvas file is round-tripped to repo code.
+- Built-in code-sync lanes are `builtin:react-tsx-v2`, `builtin:html-static-v1`, `builtin:custom-elements-v1`, `builtin:vue-sfc-v1`, and `builtin:svelte-sfc-v1`; legacy `tsx-react-v1` manifests migrate to `builtin:react-tsx-v2` on load.
+- Bound source manifests live under `.opendevbrowser/canvas/code-sync/<documentId>/<bindingId>.json`, and workspace routes reject duplicate repo paths or duplicate binding ids before child mutation.
+- Preview/export projection defaults to `canvas_html`; `bound_app_runtime` is opt-in only when the binding requests it and runtime bridge preflight succeeds.
 
 Current `/canvas` parity notes:
 - All 41 public `canvas.*` commands are agent-callable through `opendevbrowser_canvas` and `opendevbrowser canvas --command ...`.
@@ -427,9 +430,9 @@ Current `/canvas` parity notes:
 - `canvas.feedback.subscribe` live streaming is public through the CLI only: use `--output-format stream-json` for the built-in polling bridge.
 - Tool-driven agents can achieve the same public streaming behavior by calling `canvas.feedback.subscribe`, then repeating `canvas.feedback.next`, and finally `canvas.feedback.unsubscribe`.
 - `canvas.tab.sync` and `canvas.overlay.sync` are internal extension runtime helpers, not public commands.
-- `canvas_html` is still the default preview/export contract. `bound_app_runtime` is opt-in and only valid when runtime preflight and app-side instrumentation succeed.
+- `canvas_html` is still the default preview/export contract. `bound_app_runtime` is opt-in and only valid when runtime preflight, app-side instrumentation, and code-sync binding policy succeed.
 - Component and icon libraries currently render semantically, not package-faithfully. Treat `shadcn`, `tailwindcss`, `tabler`, `microsoft-fluent-ui-system-icons`, `3dicons`, and `@lobehub/fluent-emoji-3d` as metadata and constrained render lanes, not as general library import/export parity.
-- Annotation remains a separate surface today, but popup and canvas both ship per-item and combined `Copy` / `Send` actions. `Send` now delivers directly into the active agent chat when scope is safe and degrades to stored-only `annotate --stored` retrieval when scope is missing, ambiguous, or relay enqueue fails.
+- Annotation remains a separate surface today, but popup and canvas both ship per-item and combined `Copy` / `Send` actions. `Send` delivers directly into the active agent chat when scope is safe and degrades to stored-only `annotate --stored` retrieval when scope is missing, ambiguous, or relay enqueue fails. New captures and stored payloads use Annotation V2 compact handoff by default: `schemaVersion: 2`, `compact.screenshotMode="none"`, redaction metadata, selector bundles, canvas identity when available, and screenshot-free shared inbox storage. `annotate --stored` resolves the shared repo-local inbox first, then the extension-local fallback; browser replay artifacts stay in the screencast lane and are never written into the shared inbox.
 
 Tailwind usage rule:
 - When `allowedLibraries.styling` includes `tailwindcss`, use it for layout, spacing, responsive, and state styling over canonical tokens/theme variables.

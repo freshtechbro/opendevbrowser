@@ -88,8 +88,10 @@ describe("workflow output guidance", () => {
     expect(cliWrapperBehaviorSection).toContain("Prefer omitting `--output-dir`");
     expect(cliWrapperBehaviorSection).toContain("artifact_path");
     expect(cliWrapperBehaviorSection).toContain("--output-dir .opendevbrowser");
-    expect(surfaceWorkflowSection).toContain("Prefer omitted output roots for routine workflow bundles");
-    expect(surfaceWorkflowSection).toContain("prefer `.opendevbrowser`");
+    expect(surfaceWorkflowSection).toContain(
+      "Routine workflow bundles should omit output roots and inspect the returned `artifact_path` first"
+    );
+    expect(surfaceWorkflowSection).toContain("persisted bundles use `.opendevbrowser/<namespace>/<runId>`");
     expect(skillInspiredesignSection).toContain("omitted `--output-dir`");
     expect(skillInspiredesignSection).toContain("artifact_path");
     expect(routerPinterestGuidance).toContain("omit --output-dir");
