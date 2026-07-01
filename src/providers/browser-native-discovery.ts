@@ -55,6 +55,7 @@ const SEARCH_RESULT_CONTEXT_MARKERS = [
   "aria-label=\"search results",
   "aria-label='search results"
 ];
+const SEARCH_RESULT_TEXT_MARKERS = ["search results for", "pin card"];
 const SEARCH_SHELL_WITHOUT_RENDERED_PIN_LINKS = "search_shell_without_rendered_pin_links";
 const PINTEREST_BROWSER_NATIVE_SEARCH_ATTEMPT_LIMIT = 2;
 const PINTEREST_SEARCH_SHELL_RECOVERY_ACTION = "Refine or reload the Pinterest search until rendered canonical pin links are visible, then rerun harvest or provide explicit canonical /pin/<id>/ URLs.";
@@ -426,6 +427,16 @@ const acceptsSearchShellPinterestReferenceUrl = (url: string, record: Normalized
   hasPinterestSearchResultContext(record) && hasRenderedPinterestPinLinkEvidence(url, record)
 );
 
+const hasPinterestSearchResultText = (record: NormalizedRecord): boolean => {
+  const text = badStateTextForRecord(record);
+  return SEARCH_RESULT_TEXT_MARKERS.some((marker) => text.includes(marker));
+};
+
+const hasRecoverablePinterestLoginSearchContext = (record: NormalizedRecord): boolean => (
+  hasPinterestRenderedSearchResultContext(record)
+  || (isPinterestSearchResultPageUrl(record.url ?? undefined) && hasPinterestSearchResultText(record))
+);
+
 const hasPinterestTrueChallengeMarker = (record: NormalizedRecord): boolean => (
   PINTEREST_TRUE_CHALLENGE_MARKERS.some((marker) => badStateTextForRecord(record).includes(marker))
 );
@@ -438,7 +449,7 @@ const acceptsRecoverableRenderedPinterestPin = (
   if (classification.sourcePageQuality === "search_shell") return acceptsSearchShellPinterestReferenceUrl(url, record);
   if (classification.sourcePageQuality !== "login_challenge") return false;
   if (hasPinterestTrueChallengeMarker(record)) return false;
-  return hasPinterestRenderedSearchResultContext(record) && hasRenderedPinterestPinLinkEvidence(url, record);
+  return hasRecoverablePinterestLoginSearchContext(record) && hasRenderedPinterestPinLinkEvidence(url, record);
 };
 
 const acceptsPinterestReferenceUrlForRecord = (url: string, record: NormalizedRecord): boolean => {

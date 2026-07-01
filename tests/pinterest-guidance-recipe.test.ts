@@ -704,6 +704,56 @@ describe("Pinterest guidance recipe", () => {
     }));
   });
 
+  it("extracts canonical pins from login overlays on search pages without structural search markers", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "digital product landing page UI design inspiration",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          title: "Pinterest sign up overlay",
+          content: "Sign up to see more Search results for digital product UI Pin card",
+          attributes: {
+            links: [
+              "/pin/61572719900827789/",
+              "https://www.pinterest.com/studio/portrait-lighting/",
+              "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/",
+              "/pin/11111111111111111/edit/"
+            ],
+            html: [
+              "<main>",
+              "<button>Sign up</button>",
+              '<article aria-label="Pin card"><a href="/pin/61572719900827789/">Digital product pin</a></article>',
+              '<a href="/studio/portrait-lighting/">Board</a>',
+              '<a href="/ideas/web-design-parallax-scrolling/896364491640/">Idea</a>',
+              '<a href="/pin/11111111111111111/edit/">Edit pin</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.records.map((record) => record.url)).toEqual([
+      "https://www.pinterest.com/pin/61572719900827789/"
+    ]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "reference_urls_extracted",
+      sourcePageQuality: "login_challenge",
+      acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/"],
+      acceptedUrlCount: 1
+    }));
+  });
+
   it("keeps login and challenge search shells blocked without concrete canonical rendered pins", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
