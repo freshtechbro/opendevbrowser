@@ -60,6 +60,7 @@ import {
   mergeInspiredesignReferenceUrls,
   normalizeInspiredesignDiscoveryRecords,
   normalizeInspiredesignProviders,
+  sanitizeRejectedInspiredesignDiscoveryUrl,
   type InspiredesignDiscoveryResult
 } from "../inspiredesign/reference-discovery";
 import {
@@ -2204,6 +2205,14 @@ type InspiredesignDiscoveryDiagnostics = {
   browserNativeDiagnostics?: Record<string, JsonValue>;
 };
 
+type InspiredesignRejectedDiscoveryDiagnostic = Omit<InspiredesignDiscoveryResult["rejected"][number], "rawUrl"> & {
+  rawUrl?: string;
+};
+
+type InspiredesignDiscoveryDiagnosticsMeta = Omit<InspiredesignDiscoveryDiagnostics, "rejected"> & {
+  rejected: InspiredesignRejectedDiscoveryDiagnostic[];
+};
+
 const isProviderSourceValue = (value: JsonValue | undefined): value is ProviderSource => (
   value === "web" || value === "community" || value === "social" || value === "shopping"
 );
@@ -2366,10 +2375,11 @@ const filterStandardDiscoveryForSiteRecipe = (
       accepted.push(candidate);
       return;
     }
+    const safeRawUrl = sanitizeRejectedInspiredesignDiscoveryUrl(candidate.url);
     rejected.push({
       status: "rejected",
       reason: "invalid_url",
-      rawUrl: candidate.url,
+      ...(safeRawUrl ? { rawUrl: safeRawUrl } : {}),
       ...(candidate.title ? { title: candidate.title } : {}),
       source: candidate.source,
       provider: candidate.provider,
@@ -4987,7 +4997,7 @@ const buildInspiredesignMeta = (
       : {}),
     recommendedSkills: followthrough.recommendedSkills,
     deepCaptureRecommendation: followthrough.deepCaptureRecommendation,
-    discovery,
+    discovery: sanitizeInspiredesignDiscoveryForMeta(discovery),
     contractScope: followthrough.contractScope
   };
 };
@@ -5038,15 +5048,39 @@ const sanitizeDiscoveryFailures = (failures: readonly ProviderFailureEntry[]): J
   };
 });
 
+const sanitizeDiscoveryRejectedCandidate = (
+  candidate: InspiredesignDiscoveryResult["rejected"][number]
+): InspiredesignRejectedDiscoveryDiagnostic => {
+  const safeRawUrl = candidate.rawUrl ? sanitizeRejectedInspiredesignDiscoveryUrl(candidate.rawUrl) : undefined;
+  return {
+    status: "rejected",
+    reason: candidate.reason,
+    source: candidate.source,
+    provider: candidate.provider,
+    rank: candidate.rank,
+    ...(safeRawUrl ? { rawUrl: safeRawUrl } : {})
+  };
+};
+
 const sanitizeDiscoveryRejected = (
   rejected: InspiredesignDiscoveryDiagnostics["rejected"]
-): JsonValue => rejected.map((candidate) => ({
-  reason: candidate.reason,
-  provider: candidate.provider,
-  source: candidate.source,
-  rank: candidate.rank,
-  ...(candidate.rawUrl ? { url: candidate.rawUrl } : {})
-}));
+): JsonValue => rejected.map((candidate) => {
+  const safeCandidate = sanitizeDiscoveryRejectedCandidate(candidate);
+  return {
+    reason: safeCandidate.reason,
+    provider: safeCandidate.provider,
+    source: safeCandidate.source,
+    rank: safeCandidate.rank,
+    ...(safeCandidate.rawUrl ? { url: safeCandidate.rawUrl } : {})
+  };
+});
+
+const sanitizeInspiredesignDiscoveryForMeta = (
+  discovery: InspiredesignDiscoveryDiagnostics
+): InspiredesignDiscoveryDiagnosticsMeta => ({
+  ...discovery,
+  rejected: discovery.rejected.map(sanitizeDiscoveryRejectedCandidate)
+});
 
 const buildPersistedInspiredesignDiscoveryDiagnostics = (
   discovery: InspiredesignDiscoveryDiagnostics

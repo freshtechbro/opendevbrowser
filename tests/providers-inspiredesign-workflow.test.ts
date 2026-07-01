@@ -56,6 +56,10 @@ type InspiredesignWorkflowMeta = {
     requested: boolean;
     searchAvailable: boolean;
     acceptedUrls?: string[];
+	rejected?: Array<{
+		rawUrl?: string;
+		reason: string;
+	}>;
     failure?: string;
     siteRecipeId?: string;
     browserNativeDiagnostics?: Record<string, JsonValue>;
@@ -5979,11 +5983,14 @@ describe("inspiredesign workflow", () => {
   });
 
   it("rejects Pinterest search-shell URLs returned by the standard lane in mixed provider harvests", async () => {
+	const outputDir = makeOutputDir();
+	const rawRejectedPinterestSearchUrl = "https://www.pinterest.com/search/pins/?q=premium+photography+studio&token=raw-token&session=raw-session&auth=raw-auth&sid=raw-sid#raw-secret";
+	const safeRejectedPinterestSearchUrl = "https://www.pinterest.com/search/pins/";
     const search = vi.fn(async () => makeAggregate({
       records: [
         normalizeRecord("web/default", "web", {
-          url: "https://www.pinterest.com/search/pins/?q=premium+photography+studio",
-          title: "Pinterest search shell from web",
+			url: rawRejectedPinterestSearchUrl,
+			title: `Pinterest search shell from web ${rawRejectedPinterestSearchUrl}`,
           content: "Pinterest search chrome with no canonical reference."
         }),
         normalizeRecord("web/default", "web", {
@@ -6022,27 +6029,49 @@ describe("inspiredesign workflow", () => {
       query: "premium photography studio landing page",
       providers: ["web/default", "social/pinterest"],
       visualEvidence: "off",
-      mode: "json"
+		outputDir,
+		mode: "path"
     }, {
       captureReference: async (url: string) => makeCapture(`Captured ${url}`)
     });
 
     const meta = output.meta as InspiredesignWorkflowMeta;
+	const artifactPath = String(output.artifact_path);
+	const discoveryDiagnostics = JSON.parse(readFileSync(join(artifactPath, "discovery-diagnostics.json"), "utf8")) as {
+		acceptedUrls: string[];
+		rejected: Array<{ url?: string; reason: string }>;
+	};
     expect(meta.discovery?.acceptedUrls).toEqual([
       "https://www.pinterest.com/pin/61572719900827789/",
       "https://example.com/studio-reference"
     ]);
-    expect(meta.discovery?.acceptedUrls).not.toContain(
-      "https://www.pinterest.com/search/pins/?q=premium+photography+studio"
-    );
+	expect(meta.discovery?.acceptedUrls).not.toContain(rawRejectedPinterestSearchUrl);
+	expect(meta.discovery?.acceptedUrls?.[0]).toBe("https://www.pinterest.com/pin/61572719900827789/");
     expect(meta.discovery?.rejected).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        rawUrl: "https://www.pinterest.com/search/pins/?q=premium+photography+studio",
+		rawUrl: safeRejectedPinterestSearchUrl,
         reason: "invalid_url"
       })
     ]));
+	expect(discoveryDiagnostics).toEqual(expect.objectContaining({
+		acceptedUrls: [
+		"https://www.pinterest.com/pin/61572719900827789/",
+		"https://example.com/studio-reference"
+		],
+		rejected: expect.arrayContaining([
+		expect.objectContaining({
+			url: safeRejectedPinterestSearchUrl,
+			reason: "invalid_url"
+		})
+		])
+	}));
+	expect(meta.discovery?.rejected?.[0]?.rawUrl).not.toMatch(/[?&](token|session|auth|sid)=|#/i);
+	expect(discoveryDiagnostics.rejected[0]?.url).not.toMatch(/[?&](token|session|auth|sid)=|#/i);
+	expect(JSON.stringify(meta.discovery?.rejected)).not.toMatch(/raw-token|raw-session|raw-auth|raw-sid|raw-secret/i);
+	expect(JSON.stringify(meta.discovery?.rejected)).not.toMatch(/Pinterest search shell from web/i);
+	expect(JSON.stringify(discoveryDiagnostics.rejected)).not.toMatch(/raw-token|raw-session|raw-auth|raw-sid|raw-secret/i);
     expect(fetch).not.toHaveBeenCalledWith(
-      { url: "https://www.pinterest.com/search/pins/?q=premium+photography+studio" },
+		{ url: rawRejectedPinterestSearchUrl },
       expect.objectContaining({ providerIds: ["web/default"] })
     );
   });

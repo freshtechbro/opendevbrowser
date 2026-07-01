@@ -48,6 +48,19 @@ const normalizeHttpUrl = (value: string): string | null => {
   }
 };
 
+export const sanitizeRejectedInspiredesignDiscoveryUrl = (value: string): string | undefined => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch (error) {
+    void error;
+    return undefined;
+  }
+};
+
 export const extractInspiredesignDiscoveryUrl = (record: Pick<NormalizedRecord, "url">): string | null => {
   if (typeof record.url !== "string") return null;
   const trimmed = record.url.trim();
@@ -76,11 +89,23 @@ export const normalizeInspiredesignDiscoveryRecords = (
       return;
     }
     if (!url) {
-      rejected.push({ ...base, status: "rejected", reason: "invalid_url", rawUrl });
+      const safeRawUrl = sanitizeRejectedInspiredesignDiscoveryUrl(rawUrl);
+      rejected.push({
+        ...base,
+        status: "rejected",
+        reason: "invalid_url",
+        ...(safeRawUrl ? { rawUrl: safeRawUrl } : {})
+      });
       return;
     }
     if (seen.has(url)) {
-      rejected.push({ ...base, status: "rejected", reason: "duplicate_url", rawUrl });
+      const safeRawUrl = sanitizeRejectedInspiredesignDiscoveryUrl(rawUrl);
+      rejected.push({
+        ...base,
+        status: "rejected",
+        reason: "duplicate_url",
+        ...(safeRawUrl ? { rawUrl: safeRawUrl } : {})
+      });
       return;
     }
     seen.add(url);
