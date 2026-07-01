@@ -579,7 +579,7 @@ function parsePinterestPinMediaCdpExtraction(
   return value;
 }
 
-async function withPinterestPinMediaOperationTimeout<T>(
+async function withBrowserOperationTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
   message: string
@@ -597,6 +597,29 @@ async function withPinterestPinMediaOperationTimeout<T>(
       clearTimeout(timer);
     }
   }
+}
+
+async function withPinterestPinMediaOperationTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  return await withBrowserOperationTimeout(operation, timeoutMs, message);
+}
+
+function createPinterestPinMediaRemainingTimeout(timeoutMs: number | undefined): () => number {
+  const budgetMs = typeof timeoutMs === "number" && Number.isFinite(timeoutMs)
+    ? Math.max(1, timeoutMs)
+    : PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS;
+  const startedAt = Date.now();
+  let firstRead = true;
+  return () => {
+    if (firstRead) {
+      firstRead = false;
+      return budgetMs;
+    }
+    return Math.max(1, budgetMs - Math.max(0, Date.now() - startedAt));
+  };
 }
 
 function detachPinterestPinMediaCdpSession(session: CDPSession): void {
@@ -3157,9 +3180,14 @@ export class BrowserManager {
     if (!options.path) {
       throw new Error("Pinterest pin media capture requires an output path.");
     }
+    const remainingTimeoutMs = createPinterestPinMediaRemainingTimeout(options.timeoutMs);
+    const targetScopeTimeoutMs = clampPinterestPinMediaOperationTimeout(
+      remainingTimeoutMs(),
+      options.timeoutMs ?? PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS
+    );
     return this.runTargetScoped(sessionId, options.targetId, async ({ managed, page, targetId }) => {
       const pageSourceUrl = this.safePageUrl(page, "BrowserManager.capturePinterestPinMedia") ?? "";
-      const extraction = await this.evaluatePinterestPinMediaCandidates(managed, page, options.timeoutMs);
+      const extraction = await this.evaluatePinterestPinMediaCandidates(managed, page, remainingTimeoutMs());
       const sourceUrl = readAuthoritativePinterestSourceUrl(pageSourceUrl, extraction.sourceUrl);
       if (pinterestPinSourceChanged(pageSourceUrl, extraction.sourceUrl)) {
         return {
@@ -3182,12 +3210,12 @@ export class BrowserManager {
       }
       const rejectedCandidates = [...selection.rejectedCandidates];
       let lastFailure: unknown;
-      const fetchTimeoutMs = clampPinterestPinMediaOperationTimeout(
-        options.timeoutMs ?? PINTEREST_PIN_MEDIA_DEFAULT_TIMEOUT_MS,
-        PINTEREST_PIN_MEDIA_FETCH_MAX_TIMEOUT_MS
-      );
       for (const candidate of selection.acceptedCandidates) {
         try {
+          const fetchTimeoutMs = clampPinterestPinMediaOperationTimeout(
+            remainingTimeoutMs(),
+            PINTEREST_PIN_MEDIA_FETCH_MAX_TIMEOUT_MS
+          );
           const fetched = await this.fetchPinterestPinMediaBytes(candidate.mediaUrl ?? "", fetchTimeoutMs);
           assertFetchedPinterestCandidateMatchesKind(candidate, fetched);
           await writePinterestPinMediaOutput(options.path, fetched.bytes);
@@ -3214,7 +3242,7 @@ export class BrowserManager {
         }
       }
       throw lastFailure instanceof Error ? lastFailure : new Error("Pinterest pin media capture failed.");
-    });
+    }, targetScopeTimeoutMs);
   }
 
   private async evaluatePinterestPinMediaCandidates(
@@ -5224,10 +5252,14 @@ export class BrowserManager {
     });
     const tail = previous.then(() => gate, () => gate);
     this.targetQueues.set(queueKey, tail);
-    await previous;
 
     let slotAcquired = false;
     try {
+      await withBrowserOperationTimeout(
+        previous,
+        timeoutMs,
+        `Target operation queue wait timed out after ${timeoutMs}ms.`
+      );
       await this.acquireParallelSlot(sessionId, resolvedTargetId, timeoutMs);
       slotAcquired = true;
       const resolved = this.resolveTargetContext(managed, resolvedTargetId);

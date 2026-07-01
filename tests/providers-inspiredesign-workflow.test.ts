@@ -5239,6 +5239,89 @@ describe("inspiredesign workflow", () => {
     ]));
   });
 
+  it("promotes login-overlay query-discovered Pinterest pins into pin-media product readiness", async () => {
+    const outputDir = makeOutputDir();
+    const canonicalPinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const mediaUrl = "https://i.pinimg.com/originals/query-login-overlay-pin.jpg";
+    const fetchOrder: string[] = [];
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        fetchOrder.push("search");
+        return makeAggregate({
+          records: [normalizeRecord("social/pinterest", "social", {
+            url: input.url,
+            title: "Pinterest sign up overlay",
+            content: "Sign up to see more Search results for digital product UI Pin card",
+            attributes: {
+              links: [
+                "/pin/61572719900827789/",
+                "https://www.pinterest.com/studio/portrait-lighting/",
+                "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/",
+                "/pin/11111111111111111/edit/"
+              ],
+              html: '<main><button>Sign up</button><article aria-label="Pin card"><a href="/pin/61572719900827789/">Digital product pin</a></article></main>'
+            }
+          })]
+        });
+      }
+      fetchOrder.push("pin");
+      expect(input.url).toBe(canonicalPinUrl);
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(input.url)]
+      });
+    });
+    const captureReference = vi.fn();
+    const capturePinMediaEvidence = vi.fn(async (url: string, options: InspiredesignWorkflowPinMediaCaptureOptions) => {
+      expect(url).toBe(canonicalPinUrl);
+      expect(options.pinterestPageQuality).toBe("pin_media");
+      writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+      return makePinterestImagePinMediaCapture(url, options, mediaUrl);
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design an AI product engineering consultant portfolio landing page",
+      harvest: true,
+      query: "Pinterest digital product landing page UI design inspiration",
+      providers: ["social/pinterest"],
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      visualEvidence: "required",
+      outputDir,
+      mode: "path"
+    }, {
+      capturePinMediaEvidence,
+      captureReference
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const discoveryDiagnostics = JSON.parse(readFileSync(join(artifactPath, "discovery-diagnostics.json"), "utf8")) as {
+      acceptedUrls: string[];
+      sourcePageQuality: string;
+    };
+    const pinMediaIndex = JSON.parse(readFileSync(join(artifactPath, "pin-media-index.json"), "utf8")) as {
+      pinMediaIndex: Array<{ mediaUrl: string }>;
+    };
+    const meta = output.meta as InspiredesignWorkflowMeta;
+
+    expect(fetchOrder).toEqual(["search", "pin"]);
+    expect(captureReference).not.toHaveBeenCalled();
+    expect(capturePinMediaEvidence).toHaveBeenCalledTimes(1);
+    expect(discoveryDiagnostics).toEqual(expect.objectContaining({
+      acceptedUrls: [canonicalPinUrl],
+      sourcePageQuality: "login_challenge"
+    }));
+    expect(meta.selection.urls).toEqual([canonicalPinUrl]);
+    expect(pinMediaIndex.pinMediaIndex).toEqual([expect.objectContaining({ mediaUrl })]);
+    expect(output).toEqual(expect.objectContaining({
+      ready: true,
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      rankedReferenceCount: 1
+    }));
+  });
+
   it("promotes direct canonical Pinterest pins into pin-media product readiness without deep diagnostics", async () => {
     const outputDir = makeOutputDir();
     const directPinUrl = "https://www.pinterest.com/pin/84301824269977360";

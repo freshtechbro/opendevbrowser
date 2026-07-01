@@ -4839,6 +4839,29 @@ describe("BrowserManager", () => {
     await expect(manager.disconnect(result.sessionId, false)).resolves.toBeUndefined();
   });
 
+  it("times out Pinterest pin media capture behind stale target work", async () => {
+    const { context } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-pinterest-target-queue-"));
+    const outputPath = join(outputDir, "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+    if (!launch.activeTargetId) throw new Error("Expected active target for Pinterest pin media test.");
+    const queueKey = `${launch.sessionId}:${launch.activeTargetId}`;
+    const targetQueues = (manager as unknown as { targetQueues: Map<string, Promise<void>> }).targetQueues;
+    targetQueues.set(queueKey, new Promise<void>(() => undefined));
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, {
+      path: outputPath,
+      timeoutMs: 5
+    })).rejects.toThrow("Target operation queue wait timed out after 5ms.");
+
+    expect(targetQueues.has(queueKey)).toBe(false);
+  });
+
   it("captures Pinterest closeup main pin image bytes", async () => {
     const { context, page } = createBrowserBundle([]);
     findChromeExecutable.mockResolvedValue("/bin/chrome");

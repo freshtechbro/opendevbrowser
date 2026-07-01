@@ -1222,7 +1222,8 @@ describe("inspiredesign capture helper", () => {
         pinterestPageQuality: "pin_media"
       }));
       expect(launchTimeouts).toHaveLength(2);
-      expect(launchTimeouts[1]).toBeGreaterThanOrEqual(60_000);
+      expect(launchTimeouts[0]).toBe(10_000);
+      expect(launchTimeouts[1]).toBe(10_000);
       expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith(
         "session-capture",
         expect.objectContaining({
@@ -1234,7 +1235,7 @@ describe("inspiredesign capture helper", () => {
     }
   });
 
-  it("charges canonical Pinterest pin warmup against the primary media capture deadline", async () => {
+  it("skips canonical Pinterest pin warmup under short pin media deadlines", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-12T00:00:00.000Z"));
 
@@ -1243,14 +1244,10 @@ describe("inspiredesign capture helper", () => {
     const manager = {
       launch: vi.fn(async (_options: unknown, timeoutMs?: number) => {
         launchTimeouts.push(timeoutMs ?? 0);
-        return { sessionId: launchTimeouts.length === 1 ? "session-warmup" : "session-capture" };
+        return { sessionId: "session-capture" };
       }),
       setSessionChallengeAutomationMode: vi.fn(),
-      goto: vi.fn(async (sessionId: string) => {
-        if (sessionId === "session-warmup") {
-          vi.setSystemTime(Date.now() + 5_500);
-        }
-      }),
+      goto: vi.fn().mockResolvedValue(undefined),
       waitForLoad: vi.fn().mockResolvedValue(undefined),
       snapshot: vi.fn().mockResolvedValue({
         url: "https://uk.pinterest.com/pin/84301824269977360/",
@@ -1301,11 +1298,10 @@ describe("inspiredesign capture helper", () => {
         status: "captured",
         pinterestPageQuality: "pin_media"
       }));
-      expect(launchTimeouts[0]).toBe(6_000);
-      expect(launchTimeouts[1]).toBeGreaterThan(0);
-      expect(launchTimeouts[1]).toBeLessThanOrEqual(500);
-      expect(captureTimeouts[0]).toBeGreaterThan(0);
-      expect(captureTimeouts[0]).toBeLessThanOrEqual(500);
+      expect(launchTimeouts).toHaveLength(1);
+      expect(launchTimeouts[0]).toBe(2_000);
+      expect(captureTimeouts[0]).toBeGreaterThanOrEqual(5_000);
+      expect(captureTimeouts[0]).toBeLessThanOrEqual(6_000);
     } finally {
       vi.useRealTimers();
     }
