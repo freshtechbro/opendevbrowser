@@ -5984,7 +5984,7 @@ describe("inspiredesign workflow", () => {
 
   it("rejects Pinterest search-shell URLs returned by the standard lane in mixed provider harvests", async () => {
 	const outputDir = makeOutputDir();
-	const rawRejectedPinterestSearchUrl = "https://www.pinterest.com/search/pins/?q=premium+photography+studio&token=raw-token&session=raw-session&auth=raw-auth&sid=raw-sid#raw-secret";
+	const rawRejectedPinterestSearchUrl = "https://api-token:raw-secret@www.pinterest.com/search/pins/?q=premium+photography+studio&token=raw-token&session=raw-session&auth=raw-auth&sid=raw-sid#hash-secret";
 	const safeRejectedPinterestSearchUrl = "https://www.pinterest.com/search/pins/";
     const search = vi.fn(async () => makeAggregate({
       records: [
@@ -6065,11 +6065,11 @@ describe("inspiredesign workflow", () => {
 		})
 		])
 	}));
-	expect(meta.discovery?.rejected?.[0]?.rawUrl).not.toMatch(/[?&](token|session|auth|sid)=|#/i);
-	expect(discoveryDiagnostics.rejected[0]?.url).not.toMatch(/[?&](token|session|auth|sid)=|#/i);
-	expect(JSON.stringify(meta.discovery?.rejected)).not.toMatch(/raw-token|raw-session|raw-auth|raw-sid|raw-secret/i);
+	expect(meta.discovery?.rejected?.[0]?.rawUrl).not.toMatch(/[?&](token|session|auth|sid)=|#|api-token|raw-secret@/i);
+	expect(discoveryDiagnostics.rejected[0]?.url).not.toMatch(/[?&](token|session|auth|sid)=|#|api-token|raw-secret@/i);
+	expect(JSON.stringify(meta.discovery?.rejected)).not.toMatch(/raw-token|raw-session|raw-auth|raw-sid|api-token|raw-secret|hash-secret/i);
 	expect(JSON.stringify(meta.discovery?.rejected)).not.toMatch(/Pinterest search shell from web/i);
-	expect(JSON.stringify(discoveryDiagnostics.rejected)).not.toMatch(/raw-token|raw-session|raw-auth|raw-sid|raw-secret/i);
+	expect(JSON.stringify(discoveryDiagnostics.rejected)).not.toMatch(/raw-token|raw-session|raw-auth|raw-sid|api-token|raw-secret|hash-secret/i);
     expect(fetch).not.toHaveBeenCalledWith(
 		{ url: rawRejectedPinterestSearchUrl },
       expect.objectContaining({ providerIds: ["web/default"] })
