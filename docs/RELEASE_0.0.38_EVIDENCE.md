@@ -6,7 +6,7 @@ Target tag: `v0.0.38`
 
 ## Scope
 
-Tracks the `0.0.38` release cycle through local release-prep commits only. This ledger records version alignment, local prep gates, external absence checks, and release blockers before QA or publish execution.
+Tracks the `0.0.38` release cycle through local release-prep commits only. This ledger records version alignment, local prep gates, external absence checks, and release blockers before QA or publish execution. It is not final release proof: PR/merge, npm publish, registry-consumer smoke, GitHub release assets, checksum verification, and Chrome Web Store publication remain pending or blocked as noted below.
 
 Current status note:
 - Source version metadata is aligned from `0.0.37` to `0.0.38`.
