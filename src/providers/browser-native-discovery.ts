@@ -58,6 +58,11 @@ const SEARCH_RESULT_CONTEXT_MARKERS = [
 const SEARCH_SHELL_WITHOUT_RENDERED_PIN_LINKS = "search_shell_without_rendered_pin_links";
 const PINTEREST_BROWSER_NATIVE_SEARCH_ATTEMPT_LIMIT = 2;
 const PINTEREST_SEARCH_SHELL_RECOVERY_ACTION = "Refine or reload the Pinterest search until rendered canonical pin links are visible, then rerun harvest or provide explicit canonical /pin/<id>/ URLs.";
+const PINTEREST_TRUE_CHALLENGE_MARKERS = ["captcha", "verification", "challenge"];
+const PINTEREST_RECOVERABLE_RENDERED_PIN_QUALITIES = new Set<PinterestSourcePageQuality>([
+  "login_challenge",
+  "search_shell"
+]);
 
 const HARD_FAILURE_REASON_CODES = new Set<ProviderReasonCode>([
   "auth_required",
@@ -393,11 +398,15 @@ const isPinterestSearchResultPageUrl = (value: string | undefined): boolean => {
   }
 };
 
-const hasPinterestSearchResultContext = (record: NormalizedRecord): boolean => {
-  if (isPinterestSearchResultPageUrl(record.url ?? undefined)) return true;
+const hasPinterestRenderedSearchResultContext = (record: NormalizedRecord): boolean => {
   if (hasPinterestChromeMarkers(pinterestCandidateFromRecord(record))) return false;
   const html = htmlFromRecord(record).toLowerCase();
   return SEARCH_RESULT_CONTEXT_MARKERS.some((marker) => html.includes(marker));
+};
+
+const hasPinterestSearchResultContext = (record: NormalizedRecord): boolean => {
+  if (isPinterestSearchResultPageUrl(record.url ?? undefined)) return true;
+  return hasPinterestRenderedSearchResultContext(record);
 };
 
 const renderedHrefUrlsFromRecord = (record: NormalizedRecord): string[] => {
@@ -417,11 +426,27 @@ const acceptsSearchShellPinterestReferenceUrl = (url: string, record: Normalized
   hasPinterestSearchResultContext(record) && hasRenderedPinterestPinLinkEvidence(url, record)
 );
 
+const hasPinterestTrueChallengeMarker = (record: NormalizedRecord): boolean => (
+  PINTEREST_TRUE_CHALLENGE_MARKERS.some((marker) => badStateTextForRecord(record).includes(marker))
+);
+
+const acceptsRecoverableRenderedPinterestPin = (
+  url: string,
+  record: NormalizedRecord,
+  classification: PinterestMediaClassification
+): boolean => {
+  if (classification.sourcePageQuality === "search_shell") return acceptsSearchShellPinterestReferenceUrl(url, record);
+  if (classification.sourcePageQuality !== "login_challenge") return false;
+  if (hasPinterestTrueChallengeMarker(record)) return false;
+  return hasPinterestRenderedSearchResultContext(record) && hasRenderedPinterestPinLinkEvidence(url, record);
+};
+
 const acceptsPinterestReferenceUrlForRecord = (url: string, record: NormalizedRecord): boolean => {
   if (!isCanonicalPinterestPinUrl(url)) return false;
   const classification = classifyPinterestCandidate(pinterestCandidateFromRecord(record));
+  if (acceptsRecoverableRenderedPinterestPin(url, record, classification)) return true;
+  if (PINTEREST_RECOVERABLE_RENDERED_PIN_QUALITIES.has(classification.sourcePageQuality)) return false;
   if (isStrictPinterestSourceBlock(classification)) return false;
-  if (classification.sourcePageQuality === "search_shell") return acceptsSearchShellPinterestReferenceUrl(url, record);
   if (classification.sourcePageQuality === "pin_grid_media") return true;
   if (isCanonicalPinterestPinUrl(record.url ?? undefined)) return true;
   return isPinterestSearchResultPageUrl(record.url ?? undefined);
@@ -593,9 +618,22 @@ export const runBrowserNativeDiscovery = async (
       return buildHardFailureResult(input, source, searchUrl, fetched.records.length, hardFailure);
     }
 
+    const pinterestSourceClassification = isPinterestRecipe(input.recipe)
+      ? classifyPinterestSourcePage(fetched.records.map(pinterestCandidateFromRecord))
+      : undefined;
+    const acceptedUrls = extractRecipeReferenceUrls(
+      input,
+      fetched.records,
+      input.maxReferences,
+      (url, record) => acceptsRecipeReferenceUrl(input.recipe, url, record)
+    );
+
     const preExtractionMode = needsAuthenticatedBrowser(input) ? "pre_extraction" : "hard_blocker";
     const hardBlocker = findBadState(input.recipe, fetched.records, preExtractionMode);
-    if (hardBlocker) {
+    if (hardBlocker?.state.id === "challenge") {
+      return buildBadStateResult(input, source, searchUrl, fetched.records.length, hardBlocker);
+    }
+    if (hardBlocker && acceptedUrls.length === 0) {
       if (shouldRetryPinterestBadState(input.recipe, hardBlocker, fetched.records, discoveryAttemptCount)) {
         discoveryAttemptCount += 1;
         fetched = await input.fetchSearchPage(searchUrl);
@@ -604,10 +642,14 @@ export const runBrowserNativeDiscovery = async (
       return buildBadStateResult(input, source, searchUrl, fetched.records.length, hardBlocker);
     }
 
-    const pinterestSourceClassification = isPinterestRecipe(input.recipe)
-      ? classifyPinterestSourcePage(fetched.records.map(pinterestCandidateFromRecord))
-      : undefined;
-    if (pinterestSourceClassification && isStrictPinterestSourceBlock(pinterestSourceClassification)) {
+    if (
+      pinterestSourceClassification
+      && isStrictPinterestSourceBlock(pinterestSourceClassification)
+      && (
+        acceptedUrls.length === 0
+        || !PINTEREST_RECOVERABLE_RENDERED_PIN_QUALITIES.has(pinterestSourceClassification.sourcePageQuality)
+      )
+    ) {
       if (shouldRetryPinterestSourcePage(input.recipe, pinterestSourceClassification, fetched.records, discoveryAttemptCount)) {
         discoveryAttemptCount += 1;
         fetched = await input.fetchSearchPage(searchUrl);
@@ -626,12 +668,6 @@ export const runBrowserNativeDiscovery = async (
       );
     }
 
-    const acceptedUrls = extractRecipeReferenceUrls(
-      input,
-      fetched.records,
-      input.maxReferences,
-      (url, record) => acceptsRecipeReferenceUrl(input.recipe, url, record)
-    );
     if (acceptedUrls.length === 0) {
       if (pinterestSourceClassification?.sourcePageQuality === "search_shell" && fetched.failures.length > 0) {
         if (shouldRetryPinterestSourcePage(input.recipe, pinterestSourceClassification, fetched.records, discoveryAttemptCount)) {

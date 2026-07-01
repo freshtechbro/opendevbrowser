@@ -649,6 +649,166 @@ describe("Pinterest guidance recipe", () => {
     }));
   });
 
+  it("extracts canonical pins from login-challenge search results with rendered canonical links", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          title: "Pinterest sign up prompt over search results",
+          content: "Sign up to see more Search results for studio Pin card",
+          attributes: {
+            links: [
+              "/pin/61572719900827789/",
+              "https://www.pinterest.com/studio/portrait-lighting/",
+              "https://www.pinterest.com/ideas/web-design-parallax-scrolling/896364491640/",
+              "/pin/11111111111111111/edit/"
+            ],
+            html: [
+              '<main data-grid="search-results">',
+              '<button>Sign up</button>',
+              '<article aria-label="Pin card"><a href="/pin/61572719900827789/">Studio reference pin</a></article>',
+              '<a href="/studio/portrait-lighting/">Board</a>',
+              '<a href="/ideas/web-design-parallax-scrolling/896364491640/">Idea</a>',
+              '<a href="/pin/11111111111111111/edit/">Edit pin</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.records.map((record) => record.url)).toEqual([
+      "https://www.pinterest.com/pin/61572719900827789/"
+    ]);
+    expect(result.records[0]?.attributes).toEqual(expect.objectContaining({
+      discoveryMode: "browser_native_extracted_reference",
+      pinterestSourcePageQuality: "login_challenge"
+    }));
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "reference_urls_extracted",
+      sourcePageQuality: "login_challenge",
+      diagnosticBlockers: expect.arrayContaining(["login_or_challenge_blocks_reference_extraction"]),
+      acceptedUrls: ["https://www.pinterest.com/pin/61572719900827789/"],
+      acceptedUrlCount: 1
+    }));
+  });
+
+  it("keeps login and challenge search shells blocked without concrete canonical rendered pins", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const cases = [
+      {
+        content: "Sign up to see more Search results for studio Pin card",
+        html: [
+          '<main data-grid="search-results">',
+          '<button>Sign up</button>',
+          '<a href="/studio/portrait-lighting/">Board</a>',
+          '<a href="/pin/11111111111111111/edit/">Edit pin</a>',
+          "</main>"
+        ].join(""),
+        reasonCode: "auth_required",
+        badStateId: "login"
+      },
+      {
+        content: "Captcha verification challenge Search results for studio Pin card",
+        html: [
+          '<main data-grid="search-results">',
+          '<a href="/pin/61572719900827789/">Decorative challenge pin</a>',
+          "</main>"
+        ].join(""),
+        reasonCode: "challenge_detected",
+        badStateId: "challenge"
+      }
+    ] as const;
+
+    for (const item of cases) {
+      const result = await runBrowserNativeDiscovery({
+        recipe,
+        query: "premium design agency studio landing page",
+        maxReferences: 3,
+        browserMode: "extension",
+        useCookies: true,
+        cookiePolicy: "required",
+        fetchSearchPage: async () => ({
+          records: [makeSearchRecord({
+            title: "Pinterest blocker shell",
+            content: item.content,
+            attributes: { html: item.html }
+          })],
+          failures: []
+        })
+      });
+
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.reasonCode).toBe(item.reasonCode);
+      expect(result.diagnostics).toEqual(expect.objectContaining({
+        reason: item.reasonCode,
+        badStateId: item.badStateId,
+        acceptedUrls: [],
+        acceptedUrlCount: 0
+      }));
+    }
+  });
+
+  it("does not bypass recipe challenge bad states with rendered canonical pins", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+    const recipeWithCustomChallenge: SiteRecipe = {
+      ...recipe,
+      badStates: recipe.badStates.map((state) => (
+        state.id === "challenge"
+          ? { ...state, markers: ["prove you are human"] }
+          : state
+      ))
+    };
+
+    const result = await runBrowserNativeDiscovery({
+      recipe: recipeWithCustomChallenge,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          title: "Pinterest browser challenge",
+          content: "Prove you are human Search results for studio Pin card",
+          attributes: {
+            html: [
+              '<main data-grid="search-results">',
+              '<a href="/pin/61572719900827789/">Challenge page pin</a>',
+              "</main>"
+            ].join("")
+          }
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("challenge_detected");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "challenge_detected",
+      badStateId: "challenge",
+      acceptedUrls: [],
+      acceptedUrlCount: 0
+    }));
+  });
+
   it("extracts canonical pins from search-shell link attributes and HTML anchors", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
