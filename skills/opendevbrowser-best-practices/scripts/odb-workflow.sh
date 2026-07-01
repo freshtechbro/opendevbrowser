@@ -109,8 +109,8 @@ EOF
     print_daemon_preflight
     cat <<EOF
 # Pair with opendevbrowser-design-agent when the contract will flow into implementation or /canvas work.
-# Routine workflow runs should omit --output-dir; inspect returned artifact_path or .opendevbrowser/inspiredesign/<runId> for workflow artifacts.
-# Use --output-dir .opendevbrowser only when a wrapper requires an explicit workflow root.
+# Routine workflow runs should omit --output-dir and inspect the returned artifact_path first.
+# When --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>; use --output-dir .opendevbrowser only when a wrapper requires an explicit workflow root.
 # URL-backed inspiredesign run forces deep capture for DOM/layout diagnostics; do not disable capture for URL-backed runs.
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
 EOF
@@ -201,7 +201,7 @@ EOF
     print_daemon_preflight
     cat <<'EOF'
 # artifacts/release/vX.Y.Z paths are local-only release proof outputs.
-# Normal omitted workflow outputs persist under .opendevbrowser/<workflow>/<runId>.
+# Normal omitted workflow outputs should be discovered from returned artifact_path first; persisted bundles use .opendevbrowser/<namespace>/<runId>.
 mkdir -p artifacts/release/vX.Y.Z
 node scripts/provider-direct-runs.mjs --release-gate --out artifacts/release/vX.Y.Z/provider-direct-runs.json
 node scripts/live-regression-direct.mjs --release-gate --out artifacts/release/vX.Y.Z/live-regression-direct.json
@@ -232,7 +232,7 @@ OPENCODE_CONFIG_DIR="$WORKDIR/config" CODEX_HOME="$WORKDIR/codex-home" CLAUDECOD
 ./skills/opendevbrowser-research/scripts/validate-skill-assets.sh
 ./skills/opendevbrowser-shopping/scripts/validate-skill-assets.sh
 # Explicit artifacts/skill-runtime-audit outputs are local-only audit proof.
-# Omitted provider workflow outputs persist under .opendevbrowser/<workflow>/<runId>.
+# Omitted provider workflow outputs should be discovered from returned artifact_path first; persisted bundles use .opendevbrowser/<namespace>/<runId>.
 node scripts/skill-runtime-audit.mjs --smoke --out artifacts/skill-runtime-audit/smoke.json
 node scripts/skill-runtime-audit.mjs --out artifacts/skill-runtime-audit/full.json
 EOF
@@ -243,8 +243,8 @@ EOF
 # Public-first YouTube transcript probe
 node $TRANSCRIPT_PROBE_PATH --url "https://www.youtube.com/watch?v=aircAruvnKk" --youtube-mode auto --out artifacts/capability-fix/youtube-transcript-auto.json
 
-# Routine workflow runs should omit --output-dir; inspect returned artifact_path or .opendevbrowser/<workflow>/<runId> for workflow artifacts.
-# Use --output-dir .opendevbrowser only when a wrapper requires an explicit workflow root.
+# Routine workflow runs should omit --output-dir and inspect the returned artifact_path first.
+# When --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>; use --output-dir .opendevbrowser only when a wrapper requires an explicit workflow root.
 
 # Evidence-gated research primitive with explicit public source families
 # Load opendevbrowser-research first, then inspect records.json, context.json, meta.json, and report.md before publishing claims.

@@ -182,7 +182,7 @@ Skill-pack installation and discovery are synchronized for:
 - `claudecode` (`$CLAUDECODE_HOME/skills` fallback `~/.claude/skills`, project `./.claude/skills`)
 - `ampcli` (`$AMP_CLI_HOME/skills` fallback `~/.amp/skills`, project `./.amp/skills`)
 
-Install and update refresh managed copies of these canonical packs; uninstall removes managed canonical packs and only prunes empty legacy `research` or `shopping` leftovers.
+Install and update refresh managed copies of these canonical packs; uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
 
 ## Required Operating Rules
 
@@ -344,7 +344,7 @@ Surface inventory source of truth:
 Direct-run release note:
 - `scripts/live-regression-direct.mjs` is the preferred release harness for `/canvas`, annotate, and CLI smoke. It uses temporary managed profiles for managed probes, waits for `/ops` drain before the legacy `/cdp` step, and keeps manual annotation timeouts as explicit `skipped` boundaries in `--release-gate` mode.
 - `scripts/provider-direct-runs.mjs --include-high-friction --include-auth-gated` is the preferred provider release harness. Treat `provider-live-matrix` and `live-regression-matrix` as debug-only helpers, not refreshed release evidence.
-- Explicit `artifacts/release/vX.Y.Z/...` paths are local-only release proof outputs. Normal omitted workflow outputs persist under `.opendevbrowser/<workflow>/<runId>`.
+- Explicit `artifacts/release/vX.Y.Z/...` paths are local-only release proof outputs. For normal omitted workflow outputs, inspect the returned `artifact_path` first; the persisted bundle is under `.opendevbrowser/<namespace>/<runId>`.
 
 ## Skill Runtime Audit and Realignment
 

@@ -15,7 +15,7 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 
 Canonical exhaustive reference: `docs/SURFACE_REFERENCE.md`.
 CLI help mirror: `npx opendevbrowser --help` and `npx opendevbrowser help` (identical inventories).
-Help-led highlights: browser replay (`screencast-start`, `screencast-stop`), public desktop observation (`desktop-*`), and browser-scoped computer use (`--challenge-automation-mode off|browser|browser_with_helper`); the helper is not a desktop agent.
+Help-led highlights use the exact generated-help lookup labels: `screencast / browser replay` (`screencast-start`, `screencast-stop`), `desktop observation` (`desktop-*`), and `computer use / browser-scoped computer use` (`--challenge-automation-mode off|browser|browser_with_helper`); the helper is not a desktop agent.
 
 ## Agent skill-sync coverage
 
@@ -32,9 +32,9 @@ Skill-pack installation and discovery are synchronized for:
 - Navigation/interaction: `goto`, `wait`, `snapshot`, `review`, `review-desktop`, `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`
 - Pointer controls: `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag`
 - Targets/pages/DOM: `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close`, `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked`
-- Temporal capture: `screenshot`, `screencast-start`, `screencast-stop`
-- Desktop observation: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
-- Browser-scoped computer-use control: `--challenge-automation-mode` on workflow and macro execute lanes, surfaced through manager-owned review, session-inspector, and fallback metadata rather than a standalone command family
+- Temporal capture / screencast / browser replay: `screenshot`, `screencast-start`, `screencast-stop`
+- desktop observation: `desktop-status`, `desktop-windows`, `desktop-active-window`, `desktop-capture-desktop`, `desktop-capture-window`, `desktop-accessibility-snapshot`
+- computer use / browser-scoped computer use: `--challenge-automation-mode` on workflow and macro execute lanes, surfaced through manager-owned review, session-inspector, and fallback metadata rather than a standalone command family
 - Design canvas: `canvas`
 - Export/diagnostics/power: `clone-page`, `clone-component`, `perf`, `dialog`, `console-poll`, `network-poll`, `debug-trace-snapshot`, `session-inspector`, `session-inspector-plan`, `session-inspector-audit`, `macro-resolve`, `annotate`, `rpc`
 

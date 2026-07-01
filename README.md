@@ -26,11 +26,11 @@ Shipped builds include Browser replay through `screencast-start` or `screencast-
 
 |  |  |  |  |
 |---|---|---|---|
-| [Use It Your Way](#use-it-your-way) | [Why OpenDevBrowser?](#why-opendevbrowser) | [Installation](#installation) | [Quick Start](#quick-start) |
-| [Challenge Handling Boundary](#challenge-handling-boundary) | [Features](#features) | [Tool Reference](#tool-reference) | [Bundled Skills](#bundled-skills) |
-| [Browser Modes](#browser-modes) | [Relay Channels](#relay-channels) | [Breaking Changes (latest)](#breaking-changes-latest) | [Chrome Extension (Optional)](#chrome-extension-optional) |
-| [Configuration](#configuration) | [CLI Commands](#cli-commands) | [Security](#security) | [Updating](#updating) |
-| [Architecture](#architecture) | [Development](#development) | [Privacy](#privacy) | [License](#license) |
+| [Use It Your Way](#use-it-your-way) | [Features](#features) | [Breaking Changes (latest)](#breaking-changes-latest) | [Updating](#updating) |
+| [Why OpenDevBrowser?](#why-opendevbrowser) | [Tool Reference](#tool-reference) | [Chrome Extension (Optional)](#chrome-extension-optional) | [Architecture](#architecture) |
+| [Installation](#installation) | [Bundled Skills](#bundled-skills) | [Configuration](#configuration) | [Development](#development) |
+| [Quick Start](#quick-start) | [Browser Modes](#browser-modes) | [CLI Commands](#cli-commands) | [Privacy](#privacy) |
+| [Challenge Handling Boundary](#challenge-handling-boundary) | [Relay Channels](#relay-channels) | [Security](#security) | [License](#license) |
 
 ## Use It Your Way
 

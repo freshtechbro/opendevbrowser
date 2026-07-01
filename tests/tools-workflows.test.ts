@@ -16,7 +16,9 @@ vi.mock("@opencode-ai/plugin", async () => {
 const parse = (value: string): Record<string, unknown> => JSON.parse(value) as Record<string, unknown>;
 
 function expectPreferredWorkflowOutputDescription(schema: { description?: string }): void {
-  expect(schema.description).toContain("Omit for the default .opendevbrowser/<workflow>/<runId> bundle");
+  expect(schema.description).toContain("Omit for the default workflow bundle");
+  expect(schema.description).toContain("inspect the returned artifact_path first");
+  expect(schema.description).toContain(".opendevbrowser/<namespace>/<runId>");
   expect(schema.description).toContain("prefer .opendevbrowser");
   expect(schema.description).toContain("intentional temp, release, debug, audit, screenshot, or screencast lane");
 }
