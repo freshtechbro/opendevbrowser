@@ -5273,9 +5273,11 @@ export class BrowserManager {
         this.releaseParallelSlot(sessionId);
       }
       releaseQueue();
-      if (this.targetQueues.get(queueKey) === tail) {
-        this.targetQueues.delete(queueKey);
-      }
+      void tail.finally(() => {
+        if (this.targetQueues.get(queueKey) === tail) {
+          this.targetQueues.delete(queueKey);
+        }
+      });
     }
   }
 
