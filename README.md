@@ -24,27 +24,13 @@ Shipped builds include Browser replay through `screencast-start` or `screencast-
 
 ## Table of Contents
 
-- [Use It Your Way](#use-it-your-way)
-- [Why OpenDevBrowser?](#why-opendevbrowser)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Challenge Handling Boundary](#challenge-handling-boundary)
-- [Recent Features](#recent-features)
-- [Features](#features)
-- [Tool Reference](#tool-reference)
-- [Bundled Skills](#bundled-skills)
-- [Browser Modes](#browser-modes)
-- [Relay Channels](#relay-channels)
-- [Breaking Changes (latest)](#breaking-changes-latest)
-- [Chrome Extension (Optional)](#chrome-extension-optional)
-- [Configuration](#configuration)
-- [CLI Commands](#cli-commands)
-- [Security](#security)
-- [Updating](#updating)
-- [Architecture](#architecture)
-- [Development](#development)
-- [Privacy](#privacy)
-- [License](#license)
+|  |  |  |  |
+|---|---|---|---|
+| [Use It Your Way](#use-it-your-way) | [Why OpenDevBrowser?](#why-opendevbrowser) | [Installation](#installation) | [Quick Start](#quick-start) |
+| [Challenge Handling Boundary](#challenge-handling-boundary) | [Features](#features) | [Tool Reference](#tool-reference) | [Bundled Skills](#bundled-skills) |
+| [Browser Modes](#browser-modes) | [Relay Channels](#relay-channels) | [Breaking Changes (latest)](#breaking-changes-latest) | [Chrome Extension (Optional)](#chrome-extension-optional) |
+| [Configuration](#configuration) | [CLI Commands](#cli-commands) | [Security](#security) | [Updating](#updating) |
+| [Architecture](#architecture) | [Development](#development) | [Privacy](#privacy) | [License](#license) |
 
 ## Use It Your Way
 
@@ -286,74 +272,68 @@ Start every surface check from generated help when you need the current public l
 
 ---
 
-## Recent Features
-
-### v0.0.21
-
-- **Workflow success handoffs are now first-class across the main workflow lanes** with explicit follow-through metadata for research, shopping, product-video, and Inspire Design instead of generic success text.
-- **Macro execution reports blocker truthfully** because `macro-resolve --execute` now preserves blocked execution wording when runtime blocker metadata survives the run.
-- **Release validation is more stable under extension mode** because the live harnesses reuse healthy relay ownership and the product-video follow-through or timeout teardown paths no longer drift into false failures.
-- **Help and docs now treat Inspire Design's canvas handoff as the reference workflow contract** for operator next-step guidance.
-
-### v0.0.16
-
-- **Release-gate hardening** with dedicated audit/compliance scripts (`audit-zombie-files`, `docs-drift-check`, `chrome-store-compliance-check`) and grouped release-gate tests.
-- **Live direct-run release gates** across provider-by-provider and scenario-by-scenario scripts with explicit artifacts instead of broad matrix evidence.
-- **CLI/runtime reliability fixes** including launch RPC timeout derivation from wait hints, bounded macro execute timeouts, and stale extension `/cdp` attach retry handling.
-- **Version/distribution integrity checks** now enforce parity across `package.json`, `extension/manifest.json`, and `extension/package.json`.
-- **Dependency and docs refresh** for v0.0.16 release readiness, onboarding parity, and public/private distribution operations.
-
-### v0.0.15
-
-- **Documentation and release readiness refresh** across README/CLI/extension guidance.
-- **Extension mode stabilization** with stronger native host flow and recovery paths.
-- **Ops/CDP hardening** for disconnect cleanup and extension routing reliability.
-- **Coverage expansion** for browser/target/native workflows while preserving the 97% threshold.
-
-### v0.0.14
-
-- **Ops parity delivery** across daemon, relay, and extension runtime paths.
-- **New automation surface**: expanded DOM query + interaction commands/tools.
-- **Multi-client/session improvements** in core tracking and extension router behavior.
-- **Security and reliability hardening** for relay + daemon connection handling.
-
-See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## Features
 
-### Browser Control
-- **Launch & Connect** - Start managed Chrome or connect to existing browsers
-- **Multi-Tab Support** - Create, switch, and manage browser tabs
-- **Profile Persistence** - Maintain login sessions across runs
-- **Headless Mode** - Run without visible browser window
+### Browser and Session Control
+- **Managed, CDP, and extension sessions** - Launch fresh browser sessions, attach to existing Chrome CDP endpoints, or reuse logged-in tabs through the extension relay and `/ops`.
+- **Target-aware tab management** - List, open, focus, switch, and close targets or named pages while preserving target-scoped FIFO execution for same-tab work.
+- **Session diagnostics and cookies** - Inspect status, capabilities, relay health, cookies, blocker state, and suggested next actions before running long workflows.
+- **Persistent profiles when appropriate** - Reuse browser state intentionally through configured profiles, system Chrome cookie import, extension tabs, or explicit provider cookie policy.
 
-### Page Interaction
-- **Snapshot** - Accessibility-tree based page capture (token-efficient)
-- **Click** - Click elements by ref
-- **Type** - Enter text into inputs
-- **Select** - Choose dropdown options
-- **Upload** - Send files to a file input or chooser by ref
-- **Scroll** - Scroll page or elements
-- **Wait** - Wait for selectors or navigation
+### Ref-Based Page Interaction and DOM Inspection
+- **Snapshot to refs to actions** - Capture accessibility-tree snapshots, review actionables, then click, type, select, upload, scroll, press, hover, check, or drag by stable refs.
+- **Backend-node resolution** - Refs resolve through browser-owned node identity so agents can avoid brittle selector-first automation when the page changes.
+- **DOM and state inspection** - Read HTML, text, attributes, input values, visibility, enabled state, and checked state for precise automation decisions.
+- **Pointer and keyboard escape hatches** - Use viewport pointer commands and key presses when a page needs lower-level browser interaction.
 
-### DevTools Integration
-- **Console Capture** - Monitor console.log, errors, warnings
-- **Network Tracking** - Request/response metadata (method, url, status)
-- **Debug Trace Snapshot** - Combined page/console/network/exception diagnostics with blocker metadata
-- **Screenshot** - Visible, ref-targeted, or full-page PNG capture (file or base64)
-- **Dialog** - Inspect or handle JavaScript dialogs per target
-- **Performance** - Page load metrics
+### Diagnostics, Screenshots, and Browser Replay
+- **Console and network polling** - Capture console messages, exceptions, request metadata, status codes, and page performance without leaving the runtime.
+- **Debug trace snapshots** - Combine page, console, network, exception, blocker, and session context into one diagnostic bundle.
+- **Screenshots** - Capture visible, full-page, or ref-targeted PNG evidence to files or automation-friendly JSON payloads.
+- **Screencast / browser replay** - Use `screencast-start` and `screencast-stop` for browser replay artifacts; these artifacts are separate from annotation storage.
 
-### Session & Macro Utilities
-- **Cookie Import** - Validate and import cookies into active sessions
-- **Cookie List** - First-class cookie inspection with optional URL filters
-- **Session Inspector** - Session-first diagnostics with relay health, trace proof, and a suggested next action
-- **Macro Resolve/Execute** - Expand macro expressions into provider actions with optional execution
+### Public Read-Only Desktop Observation and Browser-Scoped Helper Boundary
+- **Desktop observation** - The `desktop-*` family exposes public read-only macOS observation for window inventory, active-window context, screenshots, and accessibility snapshots.
+- **No desktop agent** - Desktop observation does not widen `/ops`, does not control the desktop, and does not turn OpenDevBrowser into a desktop agent.
+- **Browser-scoped computer use** - Challenge automation modes stay browser-scoped: `off`, `browser`, or `browser_with_helper` on provider workflows and executable macros.
+- **Human-authority boundaries** - Secret entry, CAPTCHA solving, token harvesting, and unsandboxed third-party anti-bot bypasses remain out of scope.
 
-### Export & Clone
-- **DOM Capture** - Extract sanitized HTML with inline styles
-- **React Emitter** - Generate React component code from pages
-- **CSS Extraction** - Pull computed styles
+### Provider Workflows, Macros, and Artifact Bundles
+- **Deterministic workflow lanes** - Run research, shopping, product-video, and Inspiredesign workflows with JSON, Markdown, compact, path, or context output modes.
+- **Artifact-first handoff** - Successful artifact-bearing workflows return `artifact_path`; omitted routine workflow output roots write under `.opendevbrowser/<namespace>/<runId>`.
+- **Provider policy and recovery** - Provider registry, challenge orchestration, cookie policy, and fallback ordering preserve blocker truth and recovery hints.
+- **Macros** - Resolve or execute macro expressions into provider actions with provenance and blocked-run truth preserved in execution reports.
+
+### Inspiredesign and Pinterest Readiness Authority
+- **Pinterest-ready design research** - Inspiredesign harvest can rank references, persist evidence, and produce design handoff artifacts from browser-backed runs.
+- **Pin-media-first authority** - Pinterest readiness is product-ready only when `pin-media-index.json` contains byte-backed first-party media evidence for accepted canonical pins.
+- **Advisory media analysis** - `media-analysis.json` supplies optional FFmpeg or FFprobe cues but never replaces pin-media authority.
+- **Motion authority stays separate** - `motion-evidence.json` is browser replay authority; missing screenshots or motion evidence can be non-blocking only when pin-media authority is complete.
+
+### Design Canvas, Workspace, and Code Sync
+- **Typed Canvas commands** - Use `/canvas` or `opendevbrowser_canvas` for design-canvas sessions, imports, reusable inventory, starters, previews, feedback, overlays, and handoff.
+- **Workspace orchestration** - Canvas coordinates refs-only parent workflows while child sessions own documents, leases, bound sources, previews, and feedback loops.
+- **Framework adapter code sync** - Built-in lanes include React TSX v2, static HTML, custom elements, Vue SFC, and Svelte SFC bindings with repo-local manifests.
+- **Projection boundaries** - `canvas_html` remains the default preview and export contract unless a binding opts into `bound_app_runtime` after runtime bridge preflight.
+
+### Annotation V2 Compact Handoff and Shared Inbox
+- **Interactive annotation** - Capture annotations through direct CDP or relay transport without coupling annotation storage to screenshots or browser replay.
+- **Compact payloads** - Annotation V2 stores `schemaVersion: 2`, screenshot-free compact handoff metadata, redaction metadata, selector bundles, and canvas identity when available.
+- **Shared inbox retrieval** - Stored annotation retrieval resolves the repo-local shared inbox first, then falls back to extension-local storage when needed.
+- **Review-friendly outputs** - Delivered and stored annotation outcomes make it clear whether a teammate received the payload or must pull it later.
+
+### Skill Packs and Install Targets
+- **Canonical bundled packs** - Install and update the 10 OpenDevBrowser-specific `opendevbrowser-*` skill packs for browser automation, design, motion, continuity, login, forms, extraction, research, shopping, and product presentation.
+- **Multi-agent target sync** - Managed installs sync skills across OpenCode, Codex, ClaudeCode, and AmpCLI global or project-local targets.
+- **Local onboarding helpers** - `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` work without a browser session, relay, or daemon bootstrap.
+- **Ownership-safe lifecycle** - Update and uninstall act only on CLI-managed canonical packs or matching legacy aliases, leaving unrelated user skill directories untouched.
+
+### Security, Challenge, and Reliability Guardrails
+- **Secure defaults** - Remote CDP is blocked by default, raw CDP is disabled by default, unsafe export is disabled by default, and relay tokens use timing-safe comparison.
+- **Origin and pairing controls** - Extension, `/ops`, `/canvas`, `/cdp`, `/annotation`, config, status, and pairing endpoints enforce loopback, origin, token, and rate-limit protections.
+- **Sanitized outputs** - Exports strip scripts, event handlers, and dangerous CSS, while diagnostics redact tokens, API keys, credentials, and sensitive paths.
+- **Reliability gates** - Daemon fingerprint preflight, release audits, docs drift checks, strict TypeScript, and 97 percent coverage guard against stale runtime or documentation claims.
 
 ---
 

@@ -41,7 +41,7 @@ Use this skill when a task asks for animation, motion language, transition syste
 
 ## InspireDesign Harvest Inputs
 
-When an InspireDesign harvest bundle is available, inspect top-level `ready`, `productSuccess`, `artifactAuthority`, `evidenceAuthority`, manifest-backed evidence, `nextStepGuidance.readiness`, and `doNotProceedIf` before selecting motion patterns. Treat `nextStepGuidance.readiness` as recovery or continuation context, not the design-ready gate by itself. For canonical Pinterest pin-media harvests, require `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, and manifest-backed `pin-media-index.json`; `snapshot_ready` and `motion_ready` are not substitutes for pin-media readiness. Read `meta-prompt.md`, `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, and the referenced PNG or pin-media files only after the bundle is ready or while following recovery guidance. Treat harvested motion posture as evidence-backed design intent, not permission to add dependencies or copy source-brand choreography. Pinterest video or GIF pin-media can support sampled motion cues through `media-analysis.json` when pin-media-ready; `motion-evidence.json` is browser replay authority for captured page choreography. Carry accepted cues into the motion contract with explicit reduced-motion behavior, device posture, frame budget, and temporal proof requirements.
+When an InspireDesign harvest bundle is available, inspect top-level `ready`, `productSuccess`, `artifactAuthority`, `evidenceAuthority`, manifest-backed evidence, `nextStepGuidance.readiness`, and `doNotProceedIf` before selecting motion patterns. Treat `nextStepGuidance.readiness` as recovery or continuation context, not the design-ready gate by itself. For canonical Pinterest pin-media harvests, require `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, and manifest-backed `pin-media-index.json`; `snapshot_ready` and `motion_ready` are not substitutes for pin-media readiness. Read `meta-prompt.md`, `ranked-references.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, and the referenced PNG or pin-media files only after the bundle is ready or while following recovery guidance. Treat harvested motion posture as evidence-backed design intent, not permission to add dependencies or copy source-brand choreography. Pinterest video or GIF pin-media can support sampled saved-media cues through `media-analysis.json` when pin-media-ready; `motion-evidence.json` remains the browser replay authority for captured page choreography. FFmpeg and FFprobe are optional host tools for media-analysis facts only; missing binaries degrade `media-analysis.json` without blocking pin-media readiness, and invalid env or config paths stay diagnostic instead of silently falling back. Carry accepted cues into the motion contract with explicit reduced-motion behavior, device posture, frame budget, and temporal proof requirements.
 
 ## Motion Contract
 
@@ -98,10 +98,13 @@ Required evidence for motion-heavy work:
 - `screencast-start`
 - interaction or scroll sequence
 - `screencast-stop`
+- browser replay artifact inspection: omitted screencast output writes `.opendevbrowser/screencast/<uuid>` and JSON responses include `artifact_path`; explicit caller paths remain intentional exceptions
 - console and network stability checks
 - viewport matrix checks
 - reduced-motion checks
 - `/canvas` preview evidence when using design-agent canvas workflow
+
+Treat `screencast-start` and `screencast-stop` as the `screencast / browser replay` lane for temporal proof. Reduced-motion validation must run in the browser and prove the alternate path preserves meaning, focus order, and task completion, not only that CSS media queries exist.
 
 Use `scripts/motion-workflow.sh temporal-proof` and `artifacts/open-dev-browser-motion-evidence.md`.
 
