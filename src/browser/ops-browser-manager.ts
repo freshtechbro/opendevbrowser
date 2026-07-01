@@ -1334,6 +1334,32 @@ export class OpsBrowserManager implements BrowserManagerLike {
       return this.opsClient;
     }
     void this.opsClient?.disconnect();
+    let client = this.createOpsClient(wsEndpoint);
+    try {
+      await client.connect();
+    } catch (error) {
+      if (!isRetryableInitialOpsConnectError(error)) {
+        throw error;
+      }
+      await this.cleanupFailedInitialOpsClient(client);
+      const relayReady = await this.waitForRelayExtensionReady(15000, wsEndpoint);
+      if (!relayReady) {
+        throw error;
+      }
+      client = this.createOpsClient(wsEndpoint);
+      try {
+        await client.connect();
+      } catch (retryError) {
+        await this.cleanupFailedInitialOpsClient(client);
+        throw retryError;
+      }
+    }
+    this.opsClient = client;
+    this.opsEndpoint = wsEndpoint;
+    return client;
+  }
+
+  private createOpsClient(wsEndpoint: string): OpsClient {
     let client: OpsClient;
     client = new OpsClient(wsEndpoint, {
       onEvent: (event) => {
@@ -1343,10 +1369,19 @@ export class OpsBrowserManager implements BrowserManagerLike {
         this.handleOpsClientClosed(client);
       }
     });
-    await client.connect();
-    this.opsClient = client;
-    this.opsEndpoint = wsEndpoint;
     return client;
+  }
+
+  private async cleanupFailedInitialOpsClient(client: OpsClient): Promise<void> {
+    try {
+      await client.disconnect();
+    } catch (error) {
+      this.logger.warn("ops.initial_connect_retry.cleanup_failed", {
+        data: {
+          error: error instanceof Error ? error.message : String(error)
+        }
+      });
+    }
   }
 
   private withTarget(
@@ -1443,8 +1478,8 @@ export class OpsBrowserManager implements BrowserManagerLike {
     return client;
   }
 
-  private async waitForRelayExtensionReady(timeoutMs = 15000): Promise<boolean> {
-    const endpoint = this.opsEndpoint;
+  private async waitForRelayExtensionReady(timeoutMs = 15000, endpointOverride?: string): Promise<boolean> {
+    const endpoint = endpointOverride ?? this.opsEndpoint;
     if (!endpoint) {
       return false;
     }
@@ -1515,12 +1550,10 @@ export class OpsBrowserManager implements BrowserManagerLike {
   }
 
   private handleOpsClientClosed(client: OpsClient): void {
-    if (this.opsClient && this.opsClient !== client) {
+    if (this.opsClient !== client) {
       return;
     }
-    if (this.opsClient === client) {
-      this.opsClient = null;
-    }
+    this.opsClient = null;
     if (this.opsSessions.size === 0) {
       this.opsEndpoint = null;
       return;
@@ -2003,6 +2036,11 @@ const isOpsRelayUnavailableError = (error: unknown): boolean => {
   return message.includes("[ops_unavailable]")
     || message.includes("[relay_unavailable]")
     || message.includes("Extension not connected to relay");
+};
+
+const isRetryableInitialOpsConnectError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("Ops socket closed before handshake") || isOpsRelayUnavailableError(error);
 };
 
 const isUnknownOpsTabError = (error: unknown): boolean => {

@@ -341,6 +341,7 @@ export type InspiredesignReferenceEvidence = {
   captureStatus: CaptureStatus;
   fetchFailure?: string;
   captureFailure?: string;
+  discovery?: JsonRecord;
   capture?: InspiredesignCaptureEvidence | null;
 };
 
@@ -794,6 +795,12 @@ type InspiredesignReferenceSynthesis = {
 const REFERENCE_SUMMARY_CLIP_LENGTH = 220;
 const GENERATION_PLAN_REFERENCE_CLIP_LENGTH = 600;
 
+const persistedPinMediaPathForReference = (reference: InspiredesignReferenceEvidence): string | undefined => {
+  const pinMedia = normalizeInspiredesignCaptureEvidence(reference.capture)?.pinMedia;
+  if (pinMedia?.status !== "captured") return undefined;
+  return persistInspiredesignPinterestPinMediaEvidence(pinMedia).path;
+};
+
 const buildReferenceSynthesis = (
   references: InspiredesignReferenceEvidence[],
   pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
@@ -802,11 +809,15 @@ const buildReferenceSynthesis = (
     .filter((reference) => hasInspiredesignUsableReferenceEvidence(reference, pinMediaIndex))
     .map((reference, index) => {
       const signals = getInspiredesignReferenceSignals(reference);
-      if (signals.length === 0) return "";
+      const pinMediaPath = persistedPinMediaPathForReference(reference);
+      if (signals.length === 0) {
+        return pinMediaPath ? `Source ${index + 1} saved Pinterest pin media artifact: ${pinMediaPath}` : "";
+      }
       const title = reference.title?.trim();
       const signalLabel = signals.find((signal) => !isGenericSourceTitle(signal));
       const label = title && !isGenericSourceTitle(title) ? title : signalLabel ?? reference.url;
-      return `Source ${index + 1} ${label}: ${signals.join(" | ")}`;
+      const savedMedia = pinMediaPath ? ` | saved pin media: ${pinMediaPath}` : "";
+      return `Source ${index + 1} ${label}: ${signals.join(" | ")}${savedMedia}`;
     })
     .filter((line) => line.length > 0);
   return {
@@ -1491,12 +1502,6 @@ const pinMediaMatchesMediaAnalysisReference = (
   && mediaAnalysisSourceUrlMatches(pinMedia, mediaReference)
   && mediaAnalysisMediaUrlMatches(pinMedia, mediaReference)
 );
-
-const persistedPinMediaPathForReference = (reference: InspiredesignReferenceEvidence): string | undefined => {
-  const pinMedia = normalizeInspiredesignCaptureEvidence(reference.capture)?.pinMedia;
-  if (pinMedia?.status !== "captured") return undefined;
-  return persistInspiredesignPinterestPinMediaEvidence(pinMedia).path;
-};
 
 const mediaAnalysisReferencesForDesignReference = (
   reference: InspiredesignReferenceEvidence,
@@ -3208,6 +3213,7 @@ const toReferenceEvidenceJson = (reference: InspiredesignReferenceEvidence): Jso
     captureStatus: reference.captureStatus,
     ...(reference.fetchFailure ? { fetchFailure: reference.fetchFailure } : {}),
     ...(reference.captureFailure ? { captureFailure: reference.captureFailure } : {}),
+    ...(reference.discovery ? { discovery: reference.discovery } : {}),
     capture: toCaptureEvidenceJson(reference)
   };
 };

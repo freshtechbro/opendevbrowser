@@ -63,7 +63,7 @@ Resolution order is environment, then config, then `PATH`, then common absolute 
 
 For daemon-backed macOS runs, a current LaunchAgent includes `EnvironmentVariables.PATH` with common Homebrew, MacPorts, Nix, and system binary directories. If `host.mediaAnalysis` is unexpectedly missing tools, rerun `opendevbrowser daemon install` from a stable install so old LaunchAgents without the required PATH entries can be repaired.
 
-Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They do not fail pin-media readiness, do not replace `pin-media-index.json`, and `media-analysis.json` never satisfies product readiness.
+Missing or invalid FFmpeg or FFprobe binaries degrade `media-analysis.json` only. They do not fail pin-media readiness, do not replace `pin-media-index.json`, and `media-analysis.json` never satisfies product readiness. Missing screenshot or motion capture is also non-blocking when `pin_media_ready` is backed by byte-backed first-party media in `pin-media-index.json`; `motion-evidence.json` remains browser replay authority when replay evidence is required.
 
 If `motion-evidence.json` is empty while `media-analysis.json` contains `motion_sampled` or `motionSignature`, no authoritative browser replay screencast was captured, but trusted saved GIF/video media was sampled. Use `media-analysis.json` for saved-media design cues only. Rerun with browser replay capture only when browser interaction timing is required.
 

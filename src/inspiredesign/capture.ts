@@ -153,6 +153,8 @@ const INSPIREDESIGN_MOTION_MAX_FRAMES = 3;
 const INSPIREDESIGN_LATE_SCREENCAST_STOP_TIMEOUT_MS = 1_000;
 const INSPIREDESIGN_PIN_MEDIA_CAPTURE_TIMEOUT_MS = 90_000;
 const PINTEREST_PIN_MEDIA_EXTENSION_WARMUP_TIMEOUT_MS = 30_000;
+const PINTEREST_PIN_MEDIA_SESSION_SETUP_STEP_TIMEOUT_MS = 10_000;
+const PINTEREST_PIN_MEDIA_SETUP_BUDGET_DIVISOR = 3;
 const PINTEREST_PIN_MEDIA_NETWORK_IDLE_TIMEOUT_MS = 5_000;
 const EXACT_CANONICAL_PINTEREST_PIN_HOST = "www.pinterest.com";
 const ACTIVE_SESSION_COOKIE_REUSE_UNAVAILABLE_MESSAGE = "Deep capture only honors configured provider cookie sources; active session cookies are not reused.";
@@ -923,6 +925,20 @@ const captureNetworkIdleWaitTimeout = (
   return Math.max(1, Math.min(remaining, maxNetworkIdleWaitMs));
 };
 
+const captureSessionSetupStepTimeout = (
+  remainingTimeoutMs: () => number,
+  maxSetupStepMs: number | undefined
+): number => {
+  const remaining = remainingTimeoutMs();
+  if (maxSetupStepMs === undefined) return remaining;
+  const proportionalBudget = Math.floor(remaining / PINTEREST_PIN_MEDIA_SETUP_BUDGET_DIVISOR);
+  return Math.max(1, Math.min(remaining, maxSetupStepMs, Math.max(1, proportionalBudget)));
+};
+
+const shouldAttemptPinterestPinMediaWarmup = (remainingTimeoutMs: () => number): boolean => (
+  remainingTimeoutMs() >= PINTEREST_PIN_MEDIA_EXTENSION_WARMUP_TIMEOUT_MS
+);
+
 const resolveCanonicalPinterestPinCaptureBrowserMode = (
   url: string,
   browserMode: WorkflowBrowserMode | undefined
@@ -939,10 +955,12 @@ const warmCanonicalPinterestPinInExtension = async (
     browserMode?: WorkflowBrowserMode;
     challengeAutomationMode?: ChallengeAutomationMode;
     maxNetworkIdleWaitMs?: number;
+    maxSessionSetupStepMs?: number;
   }
 ): Promise<void> => {
   if (!shouldWarmCanonicalPinterestPinInExtension(url, options.browserMode)) return;
-  const launchTimeoutMs = remainingTimeoutMs();
+  if (!shouldAttemptPinterestPinMediaWarmup(remainingTimeoutMs)) return;
+  const launchTimeoutMs = captureSessionSetupStepTimeout(remainingTimeoutMs, options.maxSessionSetupStepMs);
   const session = await withCaptureDeadline(
     manager.launch({
       headless: false,
@@ -961,7 +979,7 @@ const warmCanonicalPinterestPinInExtension = async (
       remainingTimeoutMs,
       options
     });
-    const gotoTimeoutMs = remainingTimeoutMs();
+    const gotoTimeoutMs = captureSessionSetupStepTimeout(remainingTimeoutMs, options.maxSessionSetupStepMs);
     await withCaptureDeadline(
       manager.goto(session.sessionId, url, "load", gotoTimeoutMs),
       gotoTimeoutMs,
@@ -990,9 +1008,10 @@ const launchPrimaryCaptureSession = async (
     browserMode?: WorkflowBrowserMode;
     challengeAutomationMode?: ChallengeAutomationMode;
     maxNetworkIdleWaitMs?: number;
+    maxSessionSetupStepMs?: number;
   }
 ): Promise<{ sessionId: string }> => {
-  const launchTimeoutMs = remainingTimeoutMs();
+  const launchTimeoutMs = captureSessionSetupStepTimeout(remainingTimeoutMs, options.maxSessionSetupStepMs);
   const session = await withCaptureDeadline(
     manager.launch({
       headless: options.browserMode !== "extension",
@@ -1011,7 +1030,7 @@ const launchPrimaryCaptureSession = async (
       remainingTimeoutMs,
       options
     });
-    const gotoTimeoutMs = remainingTimeoutMs();
+    const gotoTimeoutMs = captureSessionSetupStepTimeout(remainingTimeoutMs, options.maxSessionSetupStepMs);
     await withCaptureDeadline(
       manager.goto(session.sessionId, url, "load", gotoTimeoutMs),
       gotoTimeoutMs,
@@ -1119,7 +1138,8 @@ export async function captureInspiredesignPrimaryPinMediaEvidenceFromManager(
 		: { ...options, browserMode: resolvedBrowserMode };
 	const pinMediaCaptureOptions = {
 			...captureOptions,
-			maxNetworkIdleWaitMs: PINTEREST_PIN_MEDIA_NETWORK_IDLE_TIMEOUT_MS
+			maxNetworkIdleWaitMs: PINTEREST_PIN_MEDIA_NETWORK_IDLE_TIMEOUT_MS,
+			maxSessionSetupStepMs: PINTEREST_PIN_MEDIA_SESSION_SETUP_STEP_TIMEOUT_MS
 		};
 		let session: { sessionId: string };
 		const remainingTimeoutMs = createRemainingCaptureTimeout(captureTimeoutMs);

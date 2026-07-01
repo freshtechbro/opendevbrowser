@@ -4839,6 +4839,29 @@ describe("BrowserManager", () => {
     await expect(manager.disconnect(result.sessionId, false)).resolves.toBeUndefined();
   });
 
+  it("times out Pinterest pin media capture behind stale target work", async () => {
+    const { context } = createBrowserBundle([]);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-pinterest-target-queue-"));
+    const outputPath = join(outputDir, "main.jpg");
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const launch = await manager.launch({ profile: "default", startUrl: "https://www.pinterest.com/pin/123/" });
+    if (!launch.activeTargetId) throw new Error("Expected active target for Pinterest pin media test.");
+    const queueKey = `${launch.sessionId}:${launch.activeTargetId}`;
+    const targetQueues = (manager as unknown as { targetQueues: Map<string, Promise<void>> }).targetQueues;
+    targetQueues.set(queueKey, new Promise<void>(() => undefined));
+
+    await expect(manager.capturePinterestPinMedia(launch.sessionId, {
+      path: outputPath,
+      timeoutMs: 5
+    })).rejects.toThrow("Target operation queue wait timed out after 5ms.");
+
+    expect(targetQueues.has(queueKey)).toBe(true);
+  });
+
   it("captures Pinterest closeup main pin image bytes", async () => {
     const { context, page } = createBrowserBundle([]);
     findChromeExecutable.mockResolvedValue("/bin/chrome");
@@ -14136,6 +14159,7 @@ describe("BrowserManager", () => {
         timeoutMs?: number
       ) => Promise<T>;
       getManaged: (sessionId: string) => unknown;
+      resolveTargetId: (managed: unknown, targetId: string | null | undefined) => string;
       resolveTargetContext: (managed: unknown, targetId: string | null | undefined) => { targetId: string; page: unknown };
       targetQueues: Map<string, Promise<void>>;
       targetQueueKey: (sessionId: string, targetId: string) => string;
@@ -14209,6 +14233,87 @@ describe("BrowserManager", () => {
       }, 5)
     ).rejects.toThrow("slot-denied");
     expect(managerAny.targetQueues.has("scoped-session:tab-scope")).toBe(true);
+  });
+
+  it("keeps target queue serialized after an intermediate wait timeout", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const managerAny = manager as unknown as {
+      acquireParallelSlot: (sessionId: string, targetId: string, timeoutMs: number) => Promise<void>;
+      getManaged: (sessionId: string) => unknown;
+      resolveTargetId: (managed: unknown, targetId: string | null | undefined) => string;
+      resolveTargetContext: (managed: unknown, targetId: string | null | undefined) => { targetId: string; page: unknown };
+      runTargetScoped: <T>(
+        sessionId: string,
+        targetId: string | null | undefined,
+        execute: (ctx: { managed: unknown; targetId: string; page: unknown }) => Promise<T>,
+        timeoutMs?: number
+      ) => Promise<T>;
+      targetQueues: Map<string, Promise<void>>;
+    };
+    const executionOrder: string[] = [];
+    const operationAStarted = createDeferred<void>();
+    const operationARelease = createDeferred<void>();
+    const queueKey = "scoped-session:tab-scope";
+
+    vi.spyOn(managerAny, "getManaged").mockReturnValue({ id: "managed" });
+    vi.spyOn(managerAny, "resolveTargetId").mockReturnValue("tab-scope");
+    vi.spyOn(managerAny, "resolveTargetContext").mockReturnValue({ targetId: "tab-scope", page: {} });
+    vi.spyOn(managerAny, "acquireParallelSlot").mockResolvedValue(undefined);
+
+    vi.useFakeTimers();
+    try {
+      const operationA = managerAny.runTargetScoped("scoped-session", "tab-scope", async () => {
+        executionOrder.push("A");
+        operationAStarted.resolve();
+        await operationARelease.promise;
+        executionOrder.push("A done");
+        return "A done";
+      }, 50);
+      await operationAStarted.promise;
+
+      const operationB = managerAny.runTargetScoped("scoped-session", "tab-scope", async () => {
+        executionOrder.push("B");
+        return "B done";
+      }, 10).then(
+        (value) => value,
+        (error: unknown) => error
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      const operationBResult = await operationB;
+
+      expect(operationBResult).toBeInstanceOf(Error);
+      expect((operationBResult as Error).message).toBe("Target operation queue wait timed out after 10ms.");
+      expect(executionOrder).toEqual(["A"]);
+      expect(managerAny.targetQueues.has(queueKey)).toBe(true);
+
+      const operationC = managerAny.runTargetScoped("scoped-session", "tab-scope", async () => {
+        executionOrder.push("C");
+        return "C done";
+      }, 10).then(
+        (value) => value,
+        (error: unknown) => error
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      const operationCResult = await operationC;
+
+      expect(operationCResult).toBeInstanceOf(Error);
+      expect((operationCResult as Error).message).toBe("Target operation queue wait timed out after 10ms.");
+      expect(executionOrder).toEqual(["A"]);
+      expect(managerAny.targetQueues.has(queueKey)).toBe(true);
+
+      operationARelease.resolve();
+      await expect(operationA).resolves.toBe("A done");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(executionOrder).toEqual(["A", "A done"]);
+      expect(managerAny.targetQueues.has(queueKey)).toBe(false);
+    } finally {
+      operationARelease.resolve();
+      vi.useRealTimers();
+    }
   });
 
   it("covers cookie-list normalization and extension helper message branches", async () => {

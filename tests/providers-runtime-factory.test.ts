@@ -201,6 +201,44 @@ describe("provider runtime factory", () => {
     expect(manager.disconnect).toHaveBeenCalledWith("fallback-signal-session", true);
   });
 
+  it("rejects guarded fallback stages when the signal aborts before listener registration", async () => {
+    let abortedReads = 0;
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    const signal = {
+      get aborted() {
+        abortedReads += 1;
+        return abortedReads > 2;
+      },
+      addEventListener,
+      removeEventListener
+    } as unknown as AbortSignal;
+
+    const manager = {
+      launch: vi.fn(() => new Promise<{ sessionId: string }>(() => undefined)),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+
+    await expect(port?.resolve({
+      provider: "community/default",
+      source: "community",
+      operation: "search",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-signal-pre-listener-abort", ts: "2026-04-08T00:00:00.000Z" },
+      url: "https://example.com/signal-pre-listener-abort",
+      signal
+    })).rejects.toMatchObject({
+      code: "timeout",
+      details: { stage: "abort" }
+    });
+
+    expect(addEventListener).toHaveBeenCalledTimes(1);
+    expect(removeEventListener).toHaveBeenCalledTimes(1);
+    expect(manager.disconnect).not.toHaveBeenCalled();
+  });
+
   it("waits for fallback session disconnect before resolving", async () => {
     let releaseDisconnect: (() => void) | null = null;
     const waitForTimeout = vi.fn(async () => undefined);
@@ -309,6 +347,38 @@ describe("provider runtime factory", () => {
       trace: { requestId: "rf-cleanup-failed", ts: "2026-04-08T00:00:00.000Z" },
       url: "https://example.com/cleanup-failed"
     })).resolves.toMatchObject({ ok: true });
+  });
+
+  it("fails closed when extension fallback cleanup disconnect rejects", async () => {
+    const manager = {
+      launch: vi.fn(async () => ({ sessionId: "extension-cleanup-fail-session" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 5 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body>extension cleanup failed</body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/extension-cleanup-failed" })),
+      disconnect: vi.fn(async () => {
+        throw new Error("extension disconnect failed");
+      })
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager);
+
+    await expect(port?.resolve({
+      provider: "social/youtube",
+      source: "social",
+      operation: "fetch",
+      reasonCode: "challenge_detected",
+      trace: { requestId: "rf-extension-cleanup-failed", ts: "2026-04-08T00:00:00.000Z" },
+      url: "https://example.com/extension-cleanup-failed"
+    })).rejects.toThrow("Browser fallback cleanup failed: extension disconnect failed");
+
+    expect(manager.status).toHaveBeenCalledWith("extension-cleanup-fail-session");
+    expect(manager.disconnect).toHaveBeenCalledWith("extension-cleanup-fail-session", true);
   });
 
   it("logs non-Error best-effort cleanup failures without failing successful fallback responses", async () => {
@@ -854,6 +924,62 @@ describe("provider runtime factory", () => {
     expect(responseJson).not.toContain("?q=");
   });
 
+  it("requires authenticated Google extension sessions when no observed URL is reported", async () => {
+    const requestUrl = "https://www.google.com/search?q=alice@example.com&state=private-state";
+    const manager = {
+      connectRelay: vi.fn(async () => ({ sessionId: "google-extension-missing-observed-url" })),
+      goto: vi.fn(async () => ({ ok: true })),
+      waitForLoad: vi.fn(async () => ({ timingMs: 10 })),
+      withPage: vi.fn(async (_sessionId: string, _targetId: string | null, callback: (page: unknown) => Promise<string>) => {
+        return callback({
+          waitForTimeout: async () => undefined,
+          content: async () => "<html><body><main>Google extension mismatch body with enough content to avoid empty capture handling.</main></body></html>"
+        });
+      }),
+      status: vi.fn(async () => ({ mode: "extension" })),
+      disconnect: vi.fn(async () => undefined)
+    } as unknown as BrowserManagerLike;
+
+    const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+    const response = await port?.resolve({
+      provider: "shopping/google",
+      source: "shopping",
+      operation: "search",
+      reasonCode: "auth_required",
+      trace: { requestId: "rf-google-user-owned-missing-observed-url", ts: "2026-06-22T00:00:00.000Z" },
+      url: requestUrl,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "shopping",
+        runtimePolicy: {
+          cookiePolicyOverride: "required",
+          googleAuthIntent: "user_owned_google"
+        }
+      })
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      reasonCode: "auth_required",
+      disposition: "failed",
+      mode: "extension",
+      details: {
+        requestedUrl: "https://www.google.com/",
+        extensionSessionRequired: true
+      }
+    });
+    expect(response?.details).not.toHaveProperty("observedUrl");
+    const responseJson = JSON.stringify(response);
+    expect(responseJson).not.toContain("alice@example.com");
+    expect(responseJson).not.toContain("private-state");
+    expect(responseJson).not.toContain("?q=");
+    expect(manager.goto).toHaveBeenCalledWith(
+      "google-extension-missing-observed-url",
+      requestUrl,
+      "load",
+      expect.any(Number)
+    );
+  });
+
   it.each([
     ["about page", "about:blank", "about:blank"],
     ["extension page", "chrome-extension://abcdefghijklmnop/private.html?email=alice@example.com", "chrome-extension://abcdefghijklmnop/"],
@@ -1001,6 +1127,54 @@ describe("provider runtime factory", () => {
     expect(waitForTimeout).toHaveBeenNthCalledWith(1, 2000);
     expect(manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787", { startUrl: requestUrl });
     expect(manager.launch).not.toHaveBeenCalled();
+  });
+
+  it("stops clone fallback recapture when transient errors exhaust the remaining budget", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-03-31T00:00:00.000Z"));
+      const manager = {
+        connectRelay: vi.fn(async () => ({ sessionId: "social-clone-transient-budget" })),
+        goto: vi.fn(async () => ({ ok: true })),
+        waitForLoad: vi.fn(async () => ({ timingMs: 15 })),
+        withPage: vi.fn(async () => {
+          throw new Error("Direct annotate is unavailable via extension ops sessions.");
+        }),
+        clonePageHtmlWithOptions: vi.fn(async () => {
+          vi.setSystemTime(new Date("2026-03-31T00:00:00.850Z"));
+          throw new Error("Execution context was destroyed, most likely because of a navigation.");
+        }),
+        clonePage: vi.fn(async () => ({ component: "", css: "" })),
+        status: vi.fn(async () => ({ mode: "extension", url: "https://example.com/search?q=browser+automation" })),
+        cookieList: vi.fn(async () => ({ count: 1, cookies: [] })),
+        disconnect: vi.fn(async () => undefined)
+      } as unknown as BrowserManagerLike;
+
+      const port = createBrowserFallbackPort(manager, {}, { extensionWsEndpoint: "ws://127.0.0.1:8787/ops" });
+      const response = await port?.resolve({
+        provider: "web/default",
+        source: "web",
+        operation: "search",
+        reasonCode: "env_limited",
+        trace: { requestId: "rf-web-clone-recapture-budget", ts: "2026-03-31T00:00:00.000Z" },
+        url: "https://example.com/search?q=browser+automation",
+        preferredModes: ["extension"],
+        captureDelayMs: 0,
+        timeoutMs: 1000
+      });
+
+      expect(response).toMatchObject({
+        ok: false,
+        reasonCode: "env_limited",
+        mode: "extension"
+      });
+      expect(manager.withPage).toHaveBeenCalledTimes(1);
+      expect(manager.clonePageHtmlWithOptions).toHaveBeenCalledTimes(1);
+      expect(manager.clonePage).not.toHaveBeenCalled();
+      expect(manager.disconnect).toHaveBeenCalledWith("social-clone-transient-budget", true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses the widened clone-page capture for shopping fallback exports when available", async () => {
@@ -2084,6 +2258,59 @@ describe("provider runtime factory", () => {
           })
         }));
       });
+    } finally {
+      setDefaultLogSink(null);
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs late fallback session start failures after the deadline", async () => {
+    vi.useFakeTimers();
+    const logs: LogEnvelope[] = [];
+    setDefaultLogSink((entry) => {
+      logs.push(entry);
+    });
+    try {
+      let rejectLaunch: ((error: Error) => void) | undefined;
+      const manager = {
+        launch: vi.fn(() => new Promise<{ sessionId: string }>((_resolve, reject) => {
+          rejectLaunch = reject;
+        })),
+        disconnect: vi.fn(async () => undefined)
+      } as unknown as BrowserManagerLike;
+
+      const port = createBrowserFallbackPort(manager);
+      const pending = port?.resolve({
+        provider: "community/default",
+        source: "community",
+        operation: "search",
+        reasonCode: "challenge_detected",
+        trace: { requestId: "rf-late-launch-failure", ts: "2026-03-31T00:00:00.000Z" },
+        url: "https://www.reddit.com/search/?q=browser%20automation",
+        preferredModes: ["managed_headed"],
+        timeoutMs: 25
+      });
+
+      const launchTimeout = expect(pending).rejects.toMatchObject({
+        code: "timeout",
+        details: { stage: "launch" }
+      });
+      await vi.advanceTimersByTimeAsync(25);
+      await launchTimeout;
+      rejectLaunch?.(new Error("late launch failed"));
+      await vi.waitFor(() => {
+        expect(logs).toContainEqual(expect.objectContaining({
+          level: "error",
+          module: "provider-fallback",
+          event: "fallback.late_session_start_failed",
+          requestId: "rf-late-launch-failure",
+          data: expect.objectContaining({
+            stage: "launch",
+            error: "late launch failed"
+          })
+        }));
+      });
+      expect(manager.disconnect).not.toHaveBeenCalled();
     } finally {
       setDefaultLogSink(null);
       vi.useRealTimers();

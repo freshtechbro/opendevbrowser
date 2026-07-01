@@ -62,7 +62,7 @@ The public repo owns the automation runtime and canonical docs; see [docs/SURFAC
 - **Script-first automation model**: snapshot → refs → actions, built around accessibility-tree capture instead of brittle selector-first workflows.
 - **Stable interaction primitives**: refs resolve through `backendNodeId`, and low-level pointer commands remain available when normal DOM actions are not enough.
 - **Flexible session control**: run managed sessions, attach through direct CDP, or reuse logged-in tabs through the extension relay and `/ops`.
-- **Design and review workflows**: use the design canvas, shared annotation inbox, and repo-backed code-sync flows without leaving the runtime surface.
+- **Design and review workflows**: use Inspiredesign harvest, design canvas, shared annotation inbox, and repo-backed code-sync flows without leaving the runtime surface. Pinterest broad-query readiness is driven by byte-backed first-party `pin-media-index.json` authority; `media-analysis.json` is advisory and `motion-evidence.json` is browser replay authority.
 - **Diagnostics and bounded challenge handling**: start with `session-inspector`, then drop to console or network polling and unified debug traces when you need channel-level detail.
 - **Production guardrails**: local-only CDP by default, timing-safe auth, sanitized exports, strict TypeScript, and branch coverage held at 97% or higher.
 

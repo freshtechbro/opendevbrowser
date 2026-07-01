@@ -499,9 +499,9 @@ describe("inspiredesign reference discovery helpers", () => {
     ]);
 
     expect(result.rejected[0]).toEqual(expect.objectContaining({
-      reason: "invalid_url",
-      rawUrl: "ftp://example.com/file"
+      reason: "invalid_url"
     }));
+    expect(result.rejected[0]).not.toHaveProperty("rawUrl");
     expect(result.rejected[1]).toEqual(expect.objectContaining({
       reason: "missing_url"
     }));

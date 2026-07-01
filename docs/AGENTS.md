@@ -62,7 +62,7 @@ When Inspiredesign media-analysis dependency/status guidance changes:
 - `skills/opendevbrowser-best-practices/SKILL.md`
 - relevant media-analysis dependency guidance tests
 
-The synced guidance must preserve the branch contract: FFmpeg and FFprobe are recommended optional host tools, not bundled static binaries or default downloads; binary resolution is env, then config, then `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses only; invalid env or config paths stay diagnostic and do not fall back; `status-capabilities.host.mediaAnalysis` is diagnostic/preflight visibility only, not product-readiness proof; missing binaries degrade `media-analysis.json` only; `pin-media-index.json` and `motion-evidence.json` remain the authority surfaces.
+The synced guidance must preserve the branch contract: FFmpeg and FFprobe are recommended optional host tools, not bundled static binaries or default downloads; binary resolution is env, then config, then `PATH`, then common absolute install directories for implicit `PATH`-source ENOENT misses only; invalid env or config paths stay diagnostic and do not fall back; `status-capabilities.host.mediaAnalysis` is diagnostic/preflight visibility only, not product-readiness proof; missing binaries degrade `media-analysis.json` only; `pin-media-index.json` remains the Pinterest pin-media readiness authority, `media-analysis.json` remains advisory, and `motion-evidence.json` remains browser replay authority; missing screenshot or motion capture is non-blocking only when `pin_media_ready` is backed by byte-backed first-party media.
 
 When canvas session/code-sync/projection behavior changes:
 - `docs/CLI.md`

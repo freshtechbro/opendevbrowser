@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserManagerLike } from "../src/browser/manager-types";
 import { createBrowserFallbackPort } from "../src/providers/runtime-factory";
-import type { BrowserFallbackPort } from "../src/providers/types";
+import type { BrowserFallbackPort, ProviderAdapter } from "../src/providers/types";
 
 describe("provider runtime coverage seams", () => {
   afterEach(() => {
@@ -225,6 +225,102 @@ describe("provider runtime coverage seams", () => {
     expect(result.ok).toBe(false);
     expect(result.failures).toEqual([]);
     expect(result.providerOrder).toEqual(["web/ghost"]);
+  });
+
+  it("passes default and requested runtime timeouts through provider context", async () => {
+    vi.resetModules();
+    const { DEFAULT_PROVIDER_BUDGETS, ProviderRuntime } = await import("../src/providers");
+    const capturedTimeouts: number[] = [];
+    const provider: ProviderAdapter = {
+      id: "web/timeout-context",
+      source: "web",
+      search: vi.fn(async (_input, context) => {
+        capturedTimeouts.push(context.timeoutMs);
+        return [{
+          id: `timeout-${capturedTimeouts.length}`,
+          source: "web",
+          provider: "web/timeout-context",
+          url: `https://example.com/timeout-${capturedTimeouts.length}`,
+          title: "Timeout context",
+          content: "Timeout context record",
+          timestamp: "2026-03-23T00:00:00.000Z",
+          confidence: 0.8,
+          attributes: {}
+        }];
+      }),
+      capabilities: () => ({
+        providerId: "web/timeout-context",
+        source: "web",
+        operations: {
+          search: { op: "search", supported: true },
+          fetch: { op: "fetch", supported: false },
+          crawl: { op: "crawl", supported: false },
+          post: { op: "post", supported: false }
+        },
+        policy: {
+          posting: "unsupported",
+          riskNoticeRequired: false,
+          confirmationRequired: false
+        },
+        metadata: {}
+      })
+    };
+    const runtime = new ProviderRuntime();
+    runtime.register(provider);
+
+    await expect(runtime.search(
+      { query: "default timeout" },
+      { source: "web", providerIds: ["web/timeout-context"] }
+    )).resolves.toMatchObject({ ok: true });
+    await expect(runtime.search(
+      { query: "short timeout" },
+      { source: "web", providerIds: ["web/timeout-context"], timeoutMs: 25 }
+    )).resolves.toMatchObject({ ok: true });
+
+    expect(capturedTimeouts).toEqual([DEFAULT_PROVIDER_BUDGETS.timeoutMs.search, 25]);
+  });
+
+  it("maps rate-limited runtime fallback errors without explicit reason codes to env_limited", async () => {
+    vi.resetModules();
+    const actualErrors = await vi.importActual<typeof import("../src/providers/errors")>(
+      "../src/providers/errors"
+    );
+    vi.doMock("../src/providers/errors", () => ({
+      ...actualErrors,
+      toProviderError: vi.fn(() => ({
+        code: "rate_limited",
+        message: "synthetic rate limit without reason",
+        retryable: true
+      }))
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("ignored rate limit transport");
+    }) as unknown as typeof fetch);
+
+    const resolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+      ok: true,
+      reasonCode: request.reasonCode as "env_limited",
+      output: {
+        url: request.url ?? "https://www.facebook.com/watch/search/?q=browser%20automation&page=1",
+        html: "<html><body><main>fallback rate limit content <a href=\"https://www.facebook.com/watch/?v=123456789012345\">video</a></main></body></html>"
+      }
+    }));
+
+    const { createDefaultRuntime } = await import("../src/providers");
+    const runtime = createDefaultRuntime({}, {
+      browserFallbackPort: { resolve }
+    });
+    const result = await runtime.search(
+      { query: "browser automation", limit: 3 },
+      { source: "social", providerIds: ["social/facebook"] }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "social/facebook",
+      reasonCode: "env_limited"
+    }));
   });
 
   it("passes browser transport run options through provider context", async () => {

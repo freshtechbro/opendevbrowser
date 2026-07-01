@@ -30,6 +30,7 @@ import {
   type InspiredesignFollowthrough,
   normalizeInspiredesignCaptureEvidence,
 	type InspiredesignMotionEvidenceJson,
+  type InspiredesignScreenshotIndexEntry,
   type InspiredesignReferenceEvidence
 } from "../inspiredesign/contract";
 import { INSPIREDESIGN_HANDOFF_FILES } from "../inspiredesign/handoff";
@@ -59,6 +60,7 @@ import {
   mergeInspiredesignReferenceUrls,
   normalizeInspiredesignDiscoveryRecords,
   normalizeInspiredesignProviders,
+  sanitizeRejectedInspiredesignDiscoveryUrl,
   type InspiredesignDiscoveryResult
 } from "../inspiredesign/reference-discovery";
 import {
@@ -181,6 +183,7 @@ import {
   persistInspiredesignPinterestPinMediaEvidence,
   sanitizeInspiredesignPinterestPinMediaReferenceId,
   verifyPinterestPinMediaPersistedBytes,
+  type InspiredesignPinterestPinMediaIndexEntry,
   type InspiredesignPersistedPinterestPinMediaEvidence,
   type InspiredesignPinterestPinMediaRuntimeMetadata
 } from "../inspiredesign/pinterest-pin-media-evidence";
@@ -2178,17 +2181,62 @@ const buildInspiredesignReferenceFetchOptions = (
     : buildInspiredesignFetchOptions(workflowInput, envelope, timeoutMs)
 );
 
+type InspiredesignAcceptedDiscoveryProvenance = {
+  url: string;
+  provider: string;
+  source: ProviderSource;
+  rank: number;
+  siteRecipeId: string;
+  discoveryMode: "browser_native_extracted_reference";
+  sourcePageQuality?: PinterestMediaClassification["sourcePageQuality"];
+};
+
 type InspiredesignDiscoveryDiagnostics = {
   requested: boolean;
   searchAvailable: boolean;
   query?: string;
   providers: string[];
   acceptedUrls: string[];
+  acceptedReferences?: InspiredesignAcceptedDiscoveryProvenance[];
   rejected: InspiredesignDiscoveryResult["rejected"];
   failures: ProviderFailureEntry[];
   failure?: string;
   siteRecipeId?: string;
   browserNativeDiagnostics?: Record<string, JsonValue>;
+};
+
+type InspiredesignRejectedDiscoveryDiagnostic = Omit<InspiredesignDiscoveryResult["rejected"][number], "rawUrl"> & {
+  rawUrl?: string;
+};
+
+type InspiredesignDiscoveryDiagnosticsMeta = Omit<InspiredesignDiscoveryDiagnostics, "rejected"> & {
+  rejected: InspiredesignRejectedDiscoveryDiagnostic[];
+};
+
+const isProviderSourceValue = (value: JsonValue | undefined): value is ProviderSource => (
+  value === "web" || value === "community" || value === "social" || value === "shopping"
+);
+
+const readAcceptedDiscoveryProvenance = (
+  value: JsonValue | undefined
+): InspiredesignAcceptedDiscoveryProvenance[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isJsonRecord(entry)) return [];
+    if (entry.discoveryMode !== "browser_native_extracted_reference") return [];
+    if (typeof entry.url !== "string" || typeof entry.provider !== "string") return [];
+    if (!isProviderSourceValue(entry.source) || typeof entry.siteRecipeId !== "string") return [];
+    const rank = typeof entry.rank === "number" && Number.isInteger(entry.rank) && entry.rank > 0 ? entry.rank : 1;
+    return [{
+      url: entry.url,
+      provider: entry.provider,
+      source: entry.source,
+      rank,
+      siteRecipeId: entry.siteRecipeId,
+      discoveryMode: "browser_native_extracted_reference" as const,
+      ...(isPinterestSourcePageQualityValue(entry.sourcePageQuality) ? { sourcePageQuality: entry.sourcePageQuality } : {})
+    }];
+  });
 };
 
 const emptyInspiredesignDiscoveryDiagnostics = (
@@ -2327,10 +2375,11 @@ const filterStandardDiscoveryForSiteRecipe = (
       accepted.push(candidate);
       return;
     }
+    const safeRawUrl = sanitizeRejectedInspiredesignDiscoveryUrl(candidate.url);
     rejected.push({
       status: "rejected",
       reason: "invalid_url",
-      rawUrl: candidate.url,
+      ...(safeRawUrl ? { rawUrl: safeRawUrl } : {}),
       ...(candidate.title ? { title: candidate.title } : {}),
       source: candidate.source,
       provider: candidate.provider,
@@ -2399,11 +2448,13 @@ const discoverInspiredesignReferences = async (
         );
         const siteResult = await runSiteRecipeDiscovery();
         const siteDiscovery = normalizeInspiredesignDiscoveryRecords(siteResult.records);
+        const siteAcceptedReferences = readAcceptedDiscoveryProvenance(siteResult.diagnostics.acceptedReferences);
         const combinedDiscovery = capMixedInspiredesignDiscovery(
           siteDiscovery,
           discovery,
           workflowInput.referenceLimit ?? workflowInput.maxReferences
         );
+        const combinedAcceptedUrls = new Set(combinedDiscovery.accepted.map((candidate) => candidate.url));
         const failures = [...searchFailures, ...siteResult.failures];
         return {
           requested: true,
@@ -2411,6 +2462,7 @@ const discoverInspiredesignReferences = async (
           query,
           providers: workflowInput.providers,
           acceptedUrls: combinedDiscovery.accepted.map((candidate) => candidate.url),
+          acceptedReferences: siteAcceptedReferences.filter((entry) => combinedAcceptedUrls.has(entry.url)),
           rejected: combinedDiscovery.rejected,
           failures,
           ...(failures[0]?.error.message ? { failure: failures[0].error.message } : {}),
@@ -2432,6 +2484,7 @@ const discoverInspiredesignReferences = async (
           query,
           providers: workflowInput.providers,
           acceptedUrls: discovery.accepted.map((candidate) => candidate.url),
+          acceptedReferences: readAcceptedDiscoveryProvenance(siteResult.diagnostics.acceptedReferences),
           rejected: discovery.rejected,
           failures: siteResult.failures,
           failure: error instanceof Error ? error.message : "Reference discovery failed.",
@@ -2448,6 +2501,7 @@ const discoverInspiredesignReferences = async (
       query,
       providers: workflowInput.providers,
       acceptedUrls: discovery.accepted.map((candidate) => candidate.url),
+      acceptedReferences: readAcceptedDiscoveryProvenance(siteResult.diagnostics.acceptedReferences),
       rejected: discovery.rejected,
       failures: siteResult.failures,
       ...(siteResult.failures[0]?.error.message ? { failure: siteResult.failures[0].error.message } : {}),
@@ -2846,6 +2900,31 @@ const shouldCapturePinterestPinMedia = (
 	isCanonicalPinterestPinUrl(url)
 	&& PINTEREST_PIN_MEDIA_CAPTURE_KINDS.has(classification.kind)
 	&& PINTEREST_PIN_MEDIA_CAPTURE_PAGE_QUALITIES.has(classification.sourcePageQuality)
+);
+
+const PINTEREST_VISUAL_AFTER_PIN_MEDIA_BLOCKED_QUALITIES = new Set<PinterestMediaClassification["sourcePageQuality"]>([
+  "chrome_only",
+  "login_challenge",
+  "search_shell"
+]);
+
+const hasCapturedPinterestPinMediaMetadata = (
+  pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | undefined
+): boolean => (
+  pinMedia?.status === "captured"
+  && pinMedia.pinterestPageQuality === "pin_media"
+);
+
+const shouldCapturePinterestVisualAfterPinMedia = (args: {
+  visualEvidence: InspiredesignVisualEvidenceMode;
+  visualFirst: boolean;
+  classification: PinterestMediaClassification;
+  pinMedia: InspiredesignPinterestPinMediaRuntimeMetadata | undefined;
+}): boolean => (
+  args.visualEvidence === "required"
+  && !args.visualFirst
+  && hasCapturedPinterestPinMediaMetadata(args.pinMedia)
+  && !PINTEREST_VISUAL_AFTER_PIN_MEDIA_BLOCKED_QUALITIES.has(args.classification.sourcePageQuality)
 );
 
 const PINTEREST_MEDIA_KINDS = new Set<PinterestMediaClassification["kind"]>([
@@ -4085,6 +4164,139 @@ const buildSavedMediaMotionNotice = (args: {
   };
 };
 
+type VisualEvidenceAfterPinMediaStatus = "captured" | "failed" | "skipped";
+
+type VisualEvidenceAfterPinMediaReference = {
+  referenceId: string;
+  url: string;
+  status: VisualEvidenceAfterPinMediaStatus;
+  reason: "screenshot_captured_after_pin_media" | "screenshot_failed_after_pin_media" | "screenshot_not_attempted_after_pin_media";
+  pinMediaPath: string;
+  screenshotPath?: string;
+  failure?: string;
+  warnings: string[];
+};
+
+type VisualEvidenceAfterPinMediaNotice = {
+  status: VisualEvidenceAfterPinMediaStatus;
+  authority: "pin_media_ready";
+  message: string;
+  references: VisualEvidenceAfterPinMediaReference[];
+};
+
+type StillImageMotionCaptureNotice = {
+  status: "not_applicable";
+  reason: "still_image_pin_media";
+  authority: "motion_evidence_browser_replay_only";
+  message: string;
+  references: Array<{
+    referenceId: string;
+    url: string;
+    status: "not_applicable";
+    reason: "still_image_pin_media";
+    pinMediaPath: string;
+  }>;
+};
+
+const pinMediaIndexByReferenceId = (
+  pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[]
+): Map<string, InspiredesignPinterestPinMediaIndexEntry> => new Map(
+  pinMediaIndex.map((entry) => [entry.referenceId, entry])
+);
+
+const screenshotIndexByReferenceId = (
+  screenshotIndex: readonly InspiredesignScreenshotIndexEntry[]
+): Map<string, InspiredesignScreenshotIndexEntry> => new Map(
+  screenshotIndex.map((entry) => [entry.referenceId, entry])
+);
+
+const motionReferenceIds = (
+  motionEvidence: readonly InspiredesignMotionEvidenceJson[]
+): Set<string> => new Set(motionEvidence.map((entry) => entry.referenceId));
+
+const visualAfterPinMediaReference = (
+  reference: InspiredesignReferenceEvidence,
+  pinMedia: InspiredesignPinterestPinMediaIndexEntry,
+  screenshot: InspiredesignScreenshotIndexEntry | undefined
+): VisualEvidenceAfterPinMediaReference => {
+  const visual = normalizeInspiredesignCaptureEvidence(reference.capture)?.visual;
+  if (screenshot) {
+    return {
+      referenceId: reference.id,
+      url: reference.url,
+      status: "captured",
+      reason: "screenshot_captured_after_pin_media",
+      pinMediaPath: pinMedia.path,
+      screenshotPath: screenshot.path,
+      warnings: screenshot.warnings
+    };
+  }
+  const failed = visual?.status === "failed";
+  return {
+    referenceId: reference.id,
+    url: reference.url,
+    status: failed ? "failed" : "skipped",
+    reason: failed ? "screenshot_failed_after_pin_media" : "screenshot_not_attempted_after_pin_media",
+    pinMediaPath: pinMedia.path,
+    ...(visual?.failure ? { failure: visual.failure } : {}),
+    warnings: visual?.warnings ?? []
+  };
+};
+
+const aggregateVisualAfterPinMediaStatus = (
+  references: readonly VisualEvidenceAfterPinMediaReference[]
+): VisualEvidenceAfterPinMediaStatus => {
+  if (references.some((reference) => reference.status === "failed")) return "failed";
+  if (references.every((reference) => reference.status === "captured")) return "captured";
+  return "skipped";
+};
+
+const buildVisualEvidenceAfterPinMediaNotice = (args: {
+  references: readonly InspiredesignReferenceEvidence[];
+  pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[];
+  screenshotIndex: readonly InspiredesignScreenshotIndexEntry[];
+}): VisualEvidenceAfterPinMediaNotice | undefined => {
+  const pinMediaByReference = pinMediaIndexByReferenceId(args.pinMediaIndex);
+  const screenshotByReference = screenshotIndexByReferenceId(args.screenshotIndex);
+  const references = args.references.flatMap((reference) => {
+    const pinMedia = pinMediaByReference.get(reference.id);
+    return pinMedia ? [visualAfterPinMediaReference(reference, pinMedia, screenshotByReference.get(reference.id))] : [];
+  });
+  if (references.length === 0) return undefined;
+  return {
+    status: aggregateVisualAfterPinMediaStatus(references),
+    authority: "pin_media_ready",
+    message: "Pinterest pin-media bytes remain the readiness authority; screenshot evidence is an additional non-blocking visual lane.",
+    references
+  };
+};
+
+const buildStillImageMotionCaptureNotice = (args: {
+  pinMediaIndex: readonly InspiredesignPinterestPinMediaIndexEntry[];
+  motionEvidence: readonly InspiredesignMotionEvidenceJson[];
+}): StillImageMotionCaptureNotice | undefined => {
+  const motionIds = motionReferenceIds(args.motionEvidence);
+  const references = args.pinMediaIndex.flatMap((pinMedia) => (
+    pinMedia.kind === "image" && !motionIds.has(pinMedia.referenceId)
+      ? [{
+        referenceId: pinMedia.referenceId,
+        url: pinMedia.sourceUrl,
+        status: "not_applicable" as const,
+        reason: "still_image_pin_media" as const,
+        pinMediaPath: pinMedia.path
+      }]
+      : []
+  ));
+  if (references.length === 0) return undefined;
+  return {
+    status: "not_applicable",
+    reason: "still_image_pin_media",
+    authority: "motion_evidence_browser_replay_only",
+    message: "Still Pinterest image pin media does not imply browser motion; motion-evidence.json remains the only browser replay authority.",
+    references
+  };
+};
+
 
 type InspiredesignMotionRuntimeFileCollection = {
   files: ArtifactFile[];
@@ -4785,7 +4997,7 @@ const buildInspiredesignMeta = (
       : {}),
     recommendedSkills: followthrough.recommendedSkills,
     deepCaptureRecommendation: followthrough.deepCaptureRecommendation,
-    discovery,
+    discovery: sanitizeInspiredesignDiscoveryForMeta(discovery),
     contractScope: followthrough.contractScope
   };
 };
@@ -4813,6 +5025,134 @@ const summarizeInspiredesignDiscoveryConstraint = (
   };
 };
 
+const discoveryString = (value: JsonValue | undefined): string | undefined => (
+  typeof value === "string" && value.trim().length > 0 ? value : undefined
+);
+
+const discoveryNumber = (value: JsonValue | undefined): number | undefined => (
+  typeof value === "number" && Number.isFinite(value) ? value : undefined
+);
+
+const discoveryStringArray = (value: JsonValue | undefined): string[] => (
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
+);
+
+const sanitizeDiscoveryFailures = (failures: readonly ProviderFailureEntry[]): JsonValue => failures.map((failure) => {
+  const message = captureSnippet(failure.error.message, 220);
+  return {
+    provider: failure.provider,
+    source: failure.source,
+    reasonCode: detectFailureReasonCode(failure) ?? "env_limited",
+    retryable: failure.error.retryable === true,
+    ...(message ? { message } : {})
+  };
+});
+
+const sanitizeDiscoveryRejectedCandidate = (
+  candidate: InspiredesignDiscoveryResult["rejected"][number]
+): InspiredesignRejectedDiscoveryDiagnostic => {
+  const safeRawUrl = candidate.rawUrl ? sanitizeRejectedInspiredesignDiscoveryUrl(candidate.rawUrl) : undefined;
+  return {
+    status: "rejected",
+    reason: candidate.reason,
+    source: candidate.source,
+    provider: candidate.provider,
+    rank: candidate.rank,
+    ...(safeRawUrl ? { rawUrl: safeRawUrl } : {})
+  };
+};
+
+const sanitizeDiscoveryRejected = (
+  rejected: InspiredesignDiscoveryDiagnostics["rejected"]
+): JsonValue => rejected.map((candidate) => {
+  const safeCandidate = sanitizeDiscoveryRejectedCandidate(candidate);
+  return {
+    reason: safeCandidate.reason,
+    provider: safeCandidate.provider,
+    source: safeCandidate.source,
+    rank: safeCandidate.rank,
+    ...(safeCandidate.rawUrl ? { url: safeCandidate.rawUrl } : {})
+  };
+});
+
+const sanitizeInspiredesignDiscoveryForMeta = (
+  discovery: InspiredesignDiscoveryDiagnostics
+): InspiredesignDiscoveryDiagnosticsMeta => ({
+  ...discovery,
+  rejected: discovery.rejected.map(sanitizeDiscoveryRejectedCandidate)
+});
+
+const buildPersistedInspiredesignDiscoveryDiagnostics = (
+  discovery: InspiredesignDiscoveryDiagnostics
+): Record<string, JsonValue> => {
+  const browserNative = discovery.browserNativeDiagnostics ?? {};
+  return {
+    requested: discovery.requested,
+    searchAvailable: discovery.searchAvailable,
+    providers: discovery.providers,
+    acceptedUrls: discovery.acceptedUrls,
+	acceptedUrlCount: discovery.acceptedUrls.length,
+	rejectedUrlCount: discovery.rejected.length,
+	failureCount: discovery.failures.length,
+    failures: sanitizeDiscoveryFailures(discovery.failures),
+    rejected: sanitizeDiscoveryRejected(discovery.rejected),
+    ...(discovery.query ? { query: discovery.query } : {}),
+    ...(discovery.siteRecipeId ? { siteRecipeId: discovery.siteRecipeId } : {}),
+    ...(discovery.acceptedReferences ? { acceptedReferences: discovery.acceptedReferences as unknown as JsonValue } : {}),
+    ...(discovery.failure ? { failure: captureSnippet(discovery.failure, 220) } : {}),
+    ...(discoveryString(browserNative.searchUrl) ? { searchUrl: discoveryString(browserNative.searchUrl) } : {}),
+    ...(discoveryNumber(browserNative.fetchedRecordCount) !== undefined ? { fetchedRecordCount: discoveryNumber(browserNative.fetchedRecordCount) } : {}),
+    ...(discoveryString(browserNative.reason) ? { reason: discoveryString(browserNative.reason) } : {}),
+    ...(discoveryString(browserNative.sourcePageQuality) ? { sourcePageQuality: discoveryString(browserNative.sourcePageQuality) } : {}),
+    ...(discoveryString(browserNative.badStateId) ? { badStateId: discoveryString(browserNative.badStateId) } : {}),
+    ...(discoveryString(browserNative.recoveryAction) ? { recoveryAction: discoveryString(browserNative.recoveryAction) } : {}),
+    ...(discoveryStringArray(browserNative.diagnosticBlockers).length > 0
+      ? { diagnosticBlockers: discoveryStringArray(browserNative.diagnosticBlockers) }
+      : {})
+  };
+};
+
+const buildInspiredesignDiscoveryEvidenceSummary = (
+  diagnostics: Record<string, JsonValue>
+): Record<string, JsonValue> => {
+	const requested = typeof diagnostics.requested === "boolean" ? diagnostics.requested : false;
+	const acceptedUrls = Array.isArray(diagnostics.acceptedUrls) ? diagnostics.acceptedUrls : [];
+	const acceptedUrlCount = discoveryNumber(diagnostics.acceptedUrlCount);
+	const rejectedUrlCount = discoveryNumber(diagnostics.rejectedUrlCount);
+	const failureCount = discoveryNumber(diagnostics.failureCount);
+	const reason = discoveryString(diagnostics.reason);
+	const sourcePageQuality = discoveryString(diagnostics.sourcePageQuality);
+	const badStateId = discoveryString(diagnostics.badStateId);
+	return {
+	requested,
+	acceptedUrls,
+	...(acceptedUrlCount !== undefined ? { acceptedUrlCount } : {}),
+	...(rejectedUrlCount !== undefined ? { rejectedUrlCount } : {}),
+	...(failureCount !== undefined ? { failureCount } : {}),
+	...(reason ? { reason } : {}),
+	...(sourcePageQuality ? { sourcePageQuality } : {}),
+	...(badStateId ? { badStateId } : {})
+	};
+};
+
+const buildDiscoveryProvenanceByUrl = (
+  discovery: InspiredesignDiscoveryDiagnostics
+): Map<string, InspiredesignAcceptedDiscoveryProvenance> => new Map(
+  (discovery.acceptedReferences ?? []).map((entry) => [entry.url, entry])
+);
+
+const attachInspiredesignDiscoveryProvenance = (
+  references: InspiredesignReferenceEvidence[],
+  provenanceByUrl: ReadonlyMap<string, InspiredesignAcceptedDiscoveryProvenance>
+): InspiredesignReferenceEvidence[] => references.map((reference) => {
+  const provenance = provenanceByUrl.get(reference.url);
+  if (!provenance) return reference;
+  return {
+    ...reference,
+    discovery: provenance as unknown as Record<string, JsonValue>
+  };
+});
+
 const buildInspiredesignGuidanceFollowthroughSummary = (
   _followthrough: InspiredesignFollowthrough,
   meta: Record<string, unknown>,
@@ -4827,6 +5167,7 @@ const buildInspiredesignGuidanceFollowthroughSummary = (
   return renderWorkflowCompatibility(nextStepGuidance, fallbackSummary).followthroughSummary;
 };
 
+const DISCOVERY_DIAGNOSTICS_ARTIFACT_PATH = "discovery-diagnostics.json";
 const PRODUCT_READINESS_BLOCKED_SUMMARY = "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.";
 const INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS = new Set<string>([
   INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
@@ -6505,7 +6846,13 @@ export const runInspiredesignWorkflow = async (
         referenceRemainingTimeoutMs()
       )
       : undefined;
-    const visual = visualFirst
+    const shouldCaptureVisual = visualFirst || shouldCapturePinterestVisualAfterPinMedia({
+      visualEvidence: workflowInput.visualEvidence,
+      visualFirst,
+      classification,
+      pinMedia
+    });
+    const visual = shouldCaptureVisual
       ? trustRuntimeVisualEvidence(
         await captureWorkflowVisualEvidence(
           url,
@@ -6560,12 +6907,16 @@ export const runInspiredesignWorkflow = async (
   const motionCollation = await finalizeInspiredesignMotionArtifacts(references, motionEvidenceTempDir);
 	const pinMediaCollation = await finalizeInspiredesignPinMediaArtifacts(motionCollation.references, pinMediaEvidenceTempDir);
 	const visualCollation = await finalizeInspiredesignVisualArtifacts(pinMediaCollation.references, workflowInput.visualEvidence);
+  const finalReferences = attachInspiredesignDiscoveryProvenance(
+    visualCollation.references,
+    buildDiscoveryProvenanceByUrl(discovery)
+  );
 	const mediaAnalysisTempDirs: string[] = [];
 	let mediaAnalysis = buildDiagnosticInspiredesignMediaAnalysis();
 	let mediaAnalysisFailure: string | undefined;
 	try {
 		const mediaAnalysisInputs = await buildTrustedInspiredesignMediaAnalysisInputs({
-			references: visualCollation.references,
+			references: finalReferences,
 			pinMediaFiles: pinMediaCollation.files,
 			pinMediaTempRoot: pinMediaEvidenceTempDir,
 			stagedTempDirs: mediaAnalysisTempDirs,
@@ -6597,7 +6948,7 @@ export const runInspiredesignWorkflow = async (
     brief: workflowInput.brief,
     briefExpansion: workflowInput.briefExpansion,
     urls: workflowInput.urls,
-    references: visualCollation.references,
+    references: finalReferences,
     mediaAnalysis,
     includePrototypeGuidance: workflowInput.includePrototypeGuidance,
     referenceEvidenceRequired: isInspiredesignReferenceEvidenceRequired(workflowInput)
@@ -6605,11 +6956,13 @@ export const runInspiredesignWorkflow = async (
   const meta = buildInspiredesignMeta(
     runtime,
     workflowInput,
-    visualCollation.references,
+    finalReferences,
     failures,
     packet.followthrough,
     discovery
   );
+  const discoveryDiagnosticsArtifact = buildPersistedInspiredesignDiscoveryDiagnostics(discovery);
+  packet.evidence.discovery = buildInspiredesignDiscoveryEvidenceSummary(discoveryDiagnosticsArtifact);
   const persistedEvidenceArtifactPaths = new Set([
     ...visualCollation.files,
     ...motionCollation.files,
@@ -6632,6 +6985,21 @@ export const runInspiredesignWorkflow = async (
     mediaAnalysis: packet.mediaAnalysis,
     motionEvidence: manifestBackedMotionEvidence
   });
+  const visualEvidenceAfterPinMediaNotice = buildVisualEvidenceAfterPinMediaNotice({
+    references: finalReferences,
+    pinMediaIndex: manifestBackedPinMediaIndex,
+    screenshotIndex: manifestBackedScreenshotIndex
+  });
+  if (visualEvidenceAfterPinMediaNotice) {
+    packet.evidence.visualEvidenceAfterPinMedia = visualEvidenceAfterPinMediaNotice as unknown as JsonValue;
+  }
+  const stillImageMotionCaptureNotice = buildStillImageMotionCaptureNotice({
+    pinMediaIndex: manifestBackedPinMediaIndex,
+    motionEvidence: manifestBackedMotionEvidence
+  });
+  if (stillImageMotionCaptureNotice) {
+    packet.evidence.motionCapture = stillImageMotionCaptureNotice as unknown as JsonValue;
+  }
   if (savedMediaMotionNotice) {
     packet.evidence.mediaAnalysis = {
       ...(typeof packet.evidence.mediaAnalysis === "object" && packet.evidence.mediaAnalysis !== null && !Array.isArray(packet.evidence.mediaAnalysis)
@@ -6785,6 +7153,7 @@ export const runInspiredesignWorkflow = async (
 	    ttlHours: workflowInput.ttlHours,
 	    files: [
         ...renderedFilesForBundle,
+        { path: DISCOVERY_DIAGNOSTICS_ARTIFACT_PATH, content: discoveryDiagnosticsArtifact },
         ...visualCollation.files,
         ...motionCollation.files,
         ...pinMediaCollation.files

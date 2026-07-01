@@ -115,6 +115,7 @@ describe("youtube transcript resolver branch coverage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    vi.doUnmock("../src/providers/browser-fallback");
     vi.resetModules();
   });
 
@@ -441,6 +442,30 @@ describe("youtube transcript resolver branch coverage", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("parses successful non-json transcript payloads from malformed caption URLs", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "<text>invalid url transcript</text>"
+    })) as unknown as typeof fetch);
+
+    const result = await resolveTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=invalid-caption-url-ok",
+      pageHtml: '<html><body>"captionTracks":[{"baseUrl":"::invalid-url::","languageCode":"en"}]</body></html>',
+      legalChecklist: createChecklist(["native_caption_parse"]),
+      config: {
+        modeDefault: "web",
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected success");
+    expect(result.text).toBe("invalid url transcript");
+    expect(result.language).toBe("en");
+    expect(result.transcriptStrategyDetail).toBe("native_caption_parse");
+  });
+
   it("treats kind/vssId auto tracks as ineligible in no-auto mode", async () => {
     const result = await resolveTranscript({
       context,
@@ -486,6 +511,40 @@ describe("youtube transcript resolver branch coverage", () => {
     if (!result.ok) throw new Error("Expected success");
     expect(result.text).toBe("hola");
     expect(result.language).toBe("unknown");
+  });
+
+  it("parses json3 caption payloads returned without a fmt query", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=json-without-fmt";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("fmt=json3") || url.includes("fmt=vtt")) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => ""
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ events: [{ segs: [{ utf8: "json without fmt" }] }] })
+      };
+    }) as unknown as typeof fetch);
+
+    const result = await resolveTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=json-without-fmt",
+      pageHtml: `<html><body>"captionTracks":[{"baseUrl":"${transcriptUrl}","languageCode":"en"}]</body></html>`,
+      legalChecklist: createChecklist(["native_caption_parse"]),
+      config: {
+        modeDefault: "web",
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected success");
+    expect(result.text).toBe("json without fmt");
+    expect(result.language).toBe("en");
   });
 
   it("falls back to non-json caption payload with unknown language when json3 is empty", async () => {
@@ -636,6 +695,82 @@ describe("youtube transcript resolver branch coverage", () => {
     expect(missingCaptionTracks.attemptChain).toContainEqual(
       expect.objectContaining({ strategy: "youtubei", ok: false, reasonCode: "caption_missing" })
     );
+  });
+
+  it.each([
+    ["null captions", { captions: null }],
+    ["array captions", { captions: [] }],
+    ["null tracklist", { captions: { playerCaptionsTracklistRenderer: null } }],
+    ["array tracklist", { captions: { playerCaptionsTracklistRenderer: [] } }],
+    ["non-array captionTracks", { captions: { playerCaptionsTracklistRenderer: { captionTracks: "bad" } } }]
+  ])("handles youtubei malformed renderer shape: %s", async (_label, payload) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/youtubei/v1/player")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(payload)
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        text: async () => ""
+      };
+    }) as unknown as typeof fetch);
+
+    const result = await resolveTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=youtubei-malformed-renderer",
+      pageHtml: youtubeiBootstrapHtml(),
+      legalChecklist: createChecklist(["youtubei"]),
+      config: {
+        modeDefault: "web",
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected failure");
+    expect(result.attemptChain).toContainEqual(
+      expect.objectContaining({ strategy: "youtubei", ok: false, reasonCode: "caption_missing" })
+    );
+  });
+
+  it("records youtubei caption endpoint request failures", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=youtubei-caption-endpoint-fail";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/youtubei/v1/player")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => youtubeiPlayerPayload([
+            { baseUrl: transcriptUrl, languageCode: "en" }
+          ])
+        };
+      }
+      throw new Error("caption endpoint down");
+    }) as unknown as typeof fetch);
+
+    const result = await resolveTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=youtubei-caption-endpoint-fail",
+      pageHtml: youtubeiBootstrapHtml(),
+      legalChecklist: createChecklist(["youtubei"]),
+      config: {
+        modeDefault: "web",
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected failure");
+    expect(result.attemptChain).toContainEqual(expect.objectContaining({
+      strategy: "youtubei",
+      ok: false,
+      reasonCode: "transcript_unavailable",
+      message: "Caption endpoint request failed."
+    }));
   });
 
   it("handles youtubei sparse caption-track payloads and json3 transcript edge cases", async () => {
@@ -1113,6 +1248,54 @@ describe("youtube transcript resolver branch coverage", () => {
     expect(apifyDisabled.attemptChain.some((attempt) => attempt.strategy === "apify" && attempt.reasonCode === "env_limited")).toBe(true);
   });
 
+  it("resolves transcripts from completed browser fallback HTML", async () => {
+    const transcriptUrl = "https://www.youtube.com/api/timedtext?v=fallback-success";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("fmt=json3")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ events: [{ segs: [{ utf8: "browser fallback transcript" }] }] })
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        text: async () => ""
+      };
+    }) as unknown as typeof fetch);
+
+    const result = await resolveTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=fallback-success",
+      pageHtml: "<html><body>no caption block</body></html>",
+      legalChecklist: createChecklist(["native_caption_parse"]),
+      config: {
+        modeDefault: "web",
+        enableBrowserFallback: true,
+      },
+      browserFallbackPort: {
+        resolve: async () => ({
+          ok: true,
+          reasonCode: "transcript_unavailable",
+          output: {
+            html: `<html><body>"captionTracks":[{"baseUrl":"${transcriptUrl}","languageCode":"en"}]</body></html>`
+          }
+        })
+      },
+      allowBrowserFallbackEscalation: true
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected success");
+    expect(result.text).toBe("browser fallback transcript");
+    expect(result.language).toBe("en");
+    expect(result.transcriptStrategy).toBe("browser_assisted");
+    expect(result.transcriptStrategyDetail).toBe("browser_assisted");
+    expect(result.attemptChain).toContainEqual({ strategy: "browser_assisted", ok: true });
+  });
+
   it("covers browser fallback HTML-missing and native-failure branches", async () => {
     const noHtml = await resolveTranscript({
       context,
@@ -1157,6 +1340,73 @@ describe("youtube transcript resolver branch coverage", () => {
     expect(nativeFailure).toMatchObject({ ok: false, reasonCode: "caption_missing" });
   });
 
+  it("skips browser fallback diagnostics when escalation returns null", async () => {
+    const actualFallback = await vi.importActual<typeof import("../src/providers/browser-fallback")>(
+      "../src/providers/browser-fallback"
+    );
+    vi.doMock("../src/providers/browser-fallback", () => ({
+      ...actualFallback,
+      resolveProviderBrowserFallback: vi.fn(async () => null)
+    }));
+
+    const result = await resolveTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=fallback-null",
+      pageHtml: "<html><body>no caption block</body></html>",
+      legalChecklist: createChecklist(["youtubei", "native_caption_parse"]),
+      config: {
+        modeDefault: "web",
+        enableBrowserFallback: true,
+      },
+      browserFallbackPort: {
+        resolve: async () => null
+      },
+      allowBrowserFallbackEscalation: true
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected failure");
+    expect(result.reasonCode).toBe("caption_missing");
+    expect(result.attemptChain.some((attempt) => attempt.strategy === "browser_assisted")).toBe(false);
+  });
+
+  it("keeps non-completed browser fallback diagnostics", async () => {
+    const result = await resolveTranscript({
+      context,
+      watchUrl: "https://www.youtube.com/watch?v=fallback-diagnostics",
+      pageHtml: "<html><body>no caption block</body></html>",
+      legalChecklist: createChecklist(["youtubei", "native_caption_parse"]),
+      config: {
+        modeDefault: "web",
+        enableBrowserFallback: true,
+      },
+      browserFallbackPort: {
+        resolve: async () => ({
+          ok: false,
+          reasonCode: "token_required",
+          disposition: "requires_action",
+          details: {
+            message: "Sign in required",
+            cookieDiagnostics: { status: "missing" }
+          }
+        })
+      },
+      allowBrowserFallbackEscalation: true
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected failure");
+    expect(result.attemptChain.at(-1)).toMatchObject({
+      strategy: "browser_assisted",
+      ok: false,
+      reasonCode: "token_required",
+      message: "Sign in required",
+      details: {
+        cookieDiagnostics: { status: "missing" }
+      }
+    });
+  });
+
   it("uses default browser fallback failure message when details.message is absent", async () => {
     const result = await resolveTranscript({
       context,
@@ -1186,4 +1436,5 @@ describe("youtube transcript resolver branch coverage", () => {
       message: "Browser fallback failed."
     });
   });
+
 });
