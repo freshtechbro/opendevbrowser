@@ -904,6 +904,94 @@ describe("provider runtime branches", () => {
     }
   });
 
+  it("accepts usable Reddit community fallback and rejects still-blocked completed fallback", async () => {
+    const fetchBlocked = vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => "<html><head><title>Reddit</title></head><body>Please wait for verification.</body></html>"
+    })) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", fetchBlocked);
+    try {
+      const acceptedFallback = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+        ok: true,
+        reasonCode: request.reasonCode as "challenge_detected",
+        mode: "extension" as const,
+        output: {
+          url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation%20failures&sort=relevance&t=all&page=1",
+          html: [
+            "<html><body><main>",
+            "Showing results for browser automation failures. Search for browser automation failures. ",
+            "Answers Sources: r/webdev, r/automation, r/javascript. ",
+            "Developers recommend trace logs, deterministic selectors, and retry budgets when browser automation flakes under verification walls.",
+            "</main></body></html>"
+          ].join("")
+        },
+        details: {}
+      }));
+      const acceptedRuntime = createDefaultRuntime({}, {
+        browserFallbackPort: { resolve: acceptedFallback }
+      });
+
+      const accepted = await acceptedRuntime.search(
+        { query: "browser automation failures", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(accepted.ok).toBe(true);
+      expect(accepted.failures).toEqual([]);
+      expect(accepted.records[0]?.url).toBe("https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all");
+      expect(accepted.records[0]?.attributes).toMatchObject({
+        retrievalPath: "community:search:index",
+        browser_fallback_mode: "extension",
+        browser_fallback_reason_code: "challenge_detected"
+      });
+
+      const rejectedFallback = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
+        ok: true,
+        reasonCode: request.reasonCode as "challenge_detected",
+        mode: "extension" as const,
+        output: {
+          url: request.url ?? "https://www.reddit.com/search/?q=browser%20automation%20failures&sort=relevance&t=all&page=1",
+          html: [
+            "<html><body>",
+            "<a href=\"https://www.reddit.com/search/?q=browser+automation+failures&sort=relevance&t=all&page=1\">Search</a>",
+            "<a href=\"https://www.reddit.com\">Home</a>",
+            "<a href=\"https://www.reddit.com/login/\">Log in</a>",
+            "</body></html>"
+          ].join("")
+        },
+        details: {}
+      }));
+      const rejectedRuntime = createDefaultRuntime({}, {
+        browserFallbackPort: { resolve: rejectedFallback }
+      });
+
+      const rejected = await rejectedRuntime.search(
+        { query: "browser automation failures", limit: 3 },
+        { source: "community", providerIds: ["community/default"] }
+      );
+
+      expect(rejected.ok).toBe(false);
+      expect(rejected.records).toEqual([]);
+      expect(rejected.failures[0]?.error).toMatchObject({
+        code: "unavailable",
+        reasonCode: "challenge_detected",
+        details: {
+          browserFallbackMode: "extension",
+          browserFallbackReasonCode: "challenge_detected",
+          blockedLinks: [
+            "https://www.reddit.com/search?page=1&q=browser+automation+failures&sort=relevance&t=all",
+            "https://www.reddit.com",
+            "https://www.reddit.com/login"
+          ]
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps rendered Reddit answer content as community search evidence when no destination links survive filters", async () => {
     const fallbackResolve = vi.fn(async (request: { reasonCode: string; url?: string }) => ({
       ok: true,

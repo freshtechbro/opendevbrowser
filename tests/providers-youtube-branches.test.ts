@@ -5,6 +5,8 @@ import {
   validateYouTubeLegalReviewChecklist,
   YOUTUBE_LEGAL_REVIEW_CHECKLIST
 } from "../src/providers/social";
+import { ProviderRuntimeError } from "../src/providers/errors";
+import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
 
 const context = {
   trace: { requestId: "yt-branches", ts: new Date().toISOString() },
@@ -132,6 +134,225 @@ describe("youtube provider branches", () => {
     });
   });
 
+  it("uses completed browser transport when YouTube force transport is requested", async () => {
+    const resolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      disposition: "completed" as const,
+      output: {
+        url: "https://www.youtube.com/results?search_query=forced",
+        html: "<html><body><script>{\"videoId\":\"StC_uaWoiOs\"}</script><main>browser fallback content with enough text</main></body></html>"
+      }
+    }));
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      browserFallbackPort: { resolve }
+    }));
+
+    const records = await provider.search?.({ query: "forced browser youtube" }, {
+      ...context,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { browserMode: "extension" }
+      })
+    });
+
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.youtube.com/watch?v=StC_uaWoiOs",
+      attributes: {
+        retrievalPath: "social:youtube:search:index",
+        video_id: "StC_uaWoiOs",
+        browser_fallback_reason_code: "env_limited"
+      }
+    });
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "social/youtube",
+      operation: "search",
+      reasonCode: "env_limited"
+    }));
+  });
+
+  it("fails forced YouTube browser transport when no browser port is available", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    await expect(provider.search?.({ query: "forced without port" }, {
+      ...context,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { browserMode: "extension" }
+      })
+    })).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode: "env_limited",
+      details: {
+        browserTransportRequired: true
+      }
+    });
+  });
+
+  it("maps upstream YouTube body failures into browser fallback recovery", async () => {
+    const resolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "ip_blocked" as const,
+      disposition: "completed" as const,
+      output: {
+        url: "https://www.youtube.com/results?search_query=upstream",
+        html: "<html><body><a href=\"https://www.youtube.com/watch?v=StC_uaWoiOs\">Recovered upstream video</a></body></html>"
+      }
+    }));
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      browserFallbackPort: { resolve }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => {
+        throw new ProviderRuntimeError("upstream", "upstream body failed", {
+          provider: "social/youtube",
+          source: "social",
+          retryable: true
+        });
+      }
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "upstream failed youtube" }, context);
+
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.youtube.com/watch?v=StC_uaWoiOs",
+      attributes: {
+        video_id: "StC_uaWoiOs",
+        browser_fallback_reason_code: "ip_blocked"
+      }
+    });
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      reasonCode: "ip_blocked",
+      details: expect.objectContaining({
+        errorCode: "upstream",
+        message: "upstream body failed"
+      })
+    }));
+  });
+
+  it("recovers YouTube search through fallback when the direct body stream fails", async () => {
+    const resolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      disposition: "completed" as const,
+      output: {
+        url: "https://www.youtube.com/results?search_query=body-failed",
+        html: "<html><body><a href=\"https://www.youtube.com/watch?v=StC_uaWoiOs\">Recovered video</a></body></html>"
+      }
+    }));
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      browserFallbackPort: { resolve }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => {
+        throw new Error("body stream failed");
+      }
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "body failed youtube" }, context);
+
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.youtube.com/watch?v=StC_uaWoiOs",
+      attributes: {
+        video_id: "StC_uaWoiOs",
+        browser_fallback_reason_code: "env_limited"
+      }
+    });
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      reasonCode: "env_limited",
+      details: {}
+    }));
+  });
+
+  it("requests auth-required fallback for YouTube auth failures when cookies are required", async () => {
+    const resolve = vi.fn(async () => ({
+      ok: false,
+      reasonCode: "auth_required" as const,
+      disposition: "failed" as const,
+      details: {
+        message: "Authenticated browser session required."
+      }
+    }));
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      browserFallbackPort: { resolve }
+    }));
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 401,
+      url: String(input),
+      text: async () => "auth wall"
+    })) as unknown as typeof fetch);
+
+    await expect(provider.fetch?.({ url: "https://www.youtube.com/watch?v=authneeded1" }, {
+      ...context,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { cookiePolicyOverride: "required" }
+      })
+    })).rejects.toMatchObject({
+      code: "auth",
+      reasonCode: "auth_required"
+    });
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      operation: "fetch",
+      reasonCode: "auth_required"
+    }));
+  });
+
+  it.each([
+    {
+      label: "empty html",
+      html: "",
+      outputReason: "missing_or_empty_html",
+      reasonCode: "env_limited"
+    },
+    {
+      label: "site chrome shell",
+      html: "<html><body>About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy and Google for developers skip to main content YouTube</body></html>",
+      outputReason: "youtube_shell_or_metadata",
+      reasonCode: "env_limited"
+    },
+    {
+      label: "challenge shell",
+      html: "<html><body>Security check required. Please complete the captcha challenge to continue watching this video.</body></html>",
+      outputReason: "anti_bot_challenge",
+      reasonCode: "challenge_detected"
+    }
+  ])("rejects completed YouTube fallback output when it is $label", async ({ html, outputReason, reasonCode }) => {
+    const resolve = vi.fn(async () => ({
+      ok: true,
+      reasonCode: "env_limited" as const,
+      disposition: "completed" as const,
+      output: {
+        url: "https://www.youtube.com/results?search_query=blocked",
+        html
+      }
+    }));
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions({
+      browserFallbackPort: { resolve }
+    }));
+
+    await expect(provider.search?.({ query: "blocked youtube" }, {
+      ...context,
+      runtimePolicy: resolveProviderRuntimePolicy({
+        source: "social",
+        runtimePolicy: { browserMode: "extension" }
+      })
+    })).rejects.toMatchObject({
+      code: "unavailable",
+      reasonCode,
+      details: expect.objectContaining({
+        fallbackOutputReason: outputReason
+      })
+    });
+  });
+
   it("extracts the first real search result without carrying generic site chrome into the record", async () => {
     const provider = createYouTubeProvider(withDefaultYouTubeOptions());
 
@@ -195,6 +416,39 @@ describe("youtube provider branches", () => {
       video_id: "StC_uaWoiOs",
       channel: "Builders Central",
       links: []
+    });
+  });
+
+  it("limits primary YouTube search metadata to the first video renderer segment", async () => {
+    const provider = createYouTubeProvider(withDefaultYouTubeOptions());
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => ({
+      status: 200,
+      url: String(input),
+      text: async () => [
+        "<html><body><script>",
+        "{\"videoRenderer\":{\"videoId\":\"StC_uaWoiOs\",",
+        "\"title\":{\"runs\":[{\"text\":\"First automation result\"}]},",
+        "\"shortBylineText\":{\"runs\":[{\"text\":\"First Channel\"}]},",
+        "\"detailedMetadataSnippets\":[{\"snippetText\":{\"runs\":[{\"text\":\"First snippet only\"}]}}]",
+        "}},",
+        "\"videoRenderer\":{\"videoId\":\"dQw4w9WgXcQ\",",
+        "\"title\":{\"runs\":[{\"text\":\"Second result should be ignored\"}]}}}",
+        "</script></body></html>"
+      ].join("")
+    })) as unknown as typeof fetch);
+
+    const records = await provider.search?.({ query: "segmented youtube" }, context);
+
+    expect(records?.[0]).toMatchObject({
+      url: "https://www.youtube.com/watch?v=StC_uaWoiOs",
+      title: "First automation result",
+      content: expect.stringContaining("First snippet only")
+    });
+    expect(records?.[0]?.content).not.toContain("Second result should be ignored");
+    expect(records?.[0]?.attributes).toMatchObject({
+      channel: "First Channel",
+      video_id: "StC_uaWoiOs"
     });
   });
 

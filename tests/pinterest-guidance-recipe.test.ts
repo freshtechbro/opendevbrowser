@@ -440,6 +440,38 @@ describe("Pinterest guidance recipe", () => {
     }));
   });
 
+  it("synthesizes chrome-only recovery when Pinterest classification blocks extraction without recipe bad states", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const recipeWithoutBadStates: SiteRecipe = { ...recipe, badStates: [] };
+    const result = await runBrowserNativeDiscovery({
+      recipe: recipeWithoutBadStates,
+      query: "premium photography studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          content: "Your profile Account settings Settings & support Search results for studio"
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("env_limited");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      badStateId: "search-shell",
+      reason: "env_limited",
+      sourcePageQuality: "chrome_only",
+      acceptedUrlCount: 0,
+      recoveryAction: expect.stringContaining("Close Pinterest account, settings, or chrome-only surfaces")
+    }));
+  });
+
   it("blocks challenge pages before extracting embedded Pinterest URLs", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
@@ -2533,6 +2565,49 @@ describe("Pinterest guidance recipe", () => {
       sourcePageQuality: "search_shell",
       diagnosticBlockers: expect.arrayContaining(["search_shell_without_rendered_pin_links"]),
       recoveryAction: expect.stringContaining("rendered canonical pin")
+    }));
+  });
+
+  it("synthesizes chrome-only recovery when Pinterest classification blocks extraction without recipe bad states", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+    const recipeWithoutBadStates: SiteRecipe = {
+      ...recipe,
+      badStates: []
+    };
+
+    const result = await runBrowserNativeDiscovery({
+      recipe: recipeWithoutBadStates,
+      query: "cinematic photography studio",
+      maxReferences: 1,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          url: "https://www.pinterest.com/search/pins/?q=studio",
+          content: "Your profile Updates Messages Settings and support When autocomplete results are available",
+          attributes: {
+            html: '<nav>Your profile Settings and support</nav><main><a href="/pin/61572719900827789/edit/">Stale pin</a></main>',
+            links: ["https://www.pinterest.com/pin/61572719900827789/edit/"]
+          }
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.details).toEqual(expect.objectContaining({
+      badStateId: "search-shell",
+      sourcePageQuality: "chrome_only"
+    }));
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "env_limited",
+      badStateId: "search-shell",
+      sourcePageQuality: "chrome_only",
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_media_signals"]),
+      recoveryAction: expect.stringContaining("chrome-only surfaces")
     }));
   });
 
