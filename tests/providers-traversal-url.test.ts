@@ -57,6 +57,7 @@ describe("provider traversal url filter", () => {
     expect(isLikelyResearchDestinationUrl("https://example.com/settings")).toBe(false);
     expect(isLikelyResearchDestinationUrl("https://www.reddit.com/login/")).toBe(false);
     expect(isLikelyResearchDestinationUrl("https://www.reddit.com/prefs/privacy")).toBe(false);
+    expect(isLikelyResearchDestinationUrl("https://example.com/preferences/privacy")).toBe(false);
     expect(isLikelyResearchDestinationUrl("https://example.com/privacy/choices")).toBe(false);
     expect(isLikelyResearchDestinationUrl("https://example.com/privacy/choices/")).toBe(false);
     expect(isLikelyResearchDestinationUrl("https://example.com/privacychoices/")).toBe(false);
