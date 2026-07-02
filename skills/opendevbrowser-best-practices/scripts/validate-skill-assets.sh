@@ -11,7 +11,44 @@ const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
 const [skillRoot, skillFile] = process.argv.slice(2);
-const repoRoot = path.resolve(skillRoot, "../..");
+
+const requiredRepoHelperPaths = [
+  "scripts/docs-drift-check.mjs",
+  "scripts/skill-runtime-scenarios.mjs"
+];
+
+const findRepoRootFrom = (startPath) => {
+  if (!startPath) return undefined;
+  let current = path.resolve(startPath);
+  while (true) {
+    if (requiredRepoHelperPaths.every((relPath) => fs.existsSync(path.join(current, relPath)))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+};
+
+const resolveRepoRoot = () => {
+  const candidates = [
+    process.env.OPENDEVBROWSER_REPO_ROOT,
+    path.resolve(skillRoot, "../.."),
+    process.cwd()
+  ];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    const repoRoot = findRepoRootFrom(resolved);
+    if (repoRoot) return repoRoot;
+  }
+  return undefined;
+};
+
+const repoRoot = resolveRepoRoot();
 
 const requiredPaths = [
   "artifacts/provider-workflows.md",
@@ -172,6 +209,12 @@ const surfaceAuditPath = "assets/templates/surface-audit-checklist.json";
 
 const failures = [];
 
+if (!repoRoot) {
+  failures.push(
+    `Unable to locate OpenDevBrowser repo helper scripts from ${skillRoot}. Run this validator from the repository root or set OPENDEVBROWSER_REPO_ROOT.`
+  );
+}
+
 const readUtf8 = (relPath) => fs.readFileSync(path.join(skillRoot, relPath), "utf8");
 const hasMarker = (content, marker) => content.includes(marker);
 const requireResearchFixtureRejectsDocsSource = () => {
@@ -195,6 +238,10 @@ const requireResearchFixtureRejectsDocsSource = () => {
   }
 };
 (async () => {
+  if (!repoRoot) {
+    console.error(failures.join("\n"));
+    process.exit(1);
+  }
   const { getSurfaceCounts } = await import(pathToFileURL(path.join(repoRoot, "scripts", "docs-drift-check.mjs")).href);
   const { getBundledSkillDirectoryPackIds } = await import(pathToFileURL(path.join(repoRoot, "scripts", "skill-runtime-scenarios.mjs")).href);
   const { commandCount, toolCount, opsCommandCount, canvasCommandCount } = getSurfaceCounts();
@@ -263,7 +310,8 @@ const requireResearchFixtureRejectsDocsSource = () => {
     "opencode",
     "codex",
     "claudecode",
-    "ampcli"
+    "ampcli",
+    "agents"
   ];
 
   const surfaceAuditMarkers = [

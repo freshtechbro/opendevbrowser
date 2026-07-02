@@ -762,6 +762,62 @@ description: Amp compatibility skill
     }
   });
 
+  it("discovers skills from project .agents/skills", async () => {
+    const agentsSkillDir = join(tempRoot, ".agents", "skills", "agents-project-skill");
+    await mkdir(agentsSkillDir, { recursive: true });
+    await writeFile(
+      join(agentsSkillDir, "SKILL.md"),
+      `---
+name: agents-project-skill
+description: Project Agents skill
+---
+# Agents project
+`
+    );
+
+    const loader = new SkillLoader(tempRoot);
+    const report = await loader.getDiscoveryReport();
+    const skill = report.skills.find((entry) => entry.name === "agents-project-skill");
+
+    expect(skill?.sourceFamily).toBe("project-agents");
+    expect(skill?.searchPath).toBe(join(tempRoot, ".agents", "skills"));
+    expect(report.searchOrder.map((entry) => entry.sourceFamily)).toContain("project-agents");
+  });
+
+  it("discovers skills from global ~/.agents/skills", async () => {
+    const originalHome = process.env.HOME;
+    const agentsHome = await mkdtemp(join(os.tmpdir(), "odb-skill-agents-home-"));
+    process.env.HOME = agentsHome;
+
+    const agentsSkillDir = join(agentsHome, ".agents", "skills", "agents-global-skill");
+    await mkdir(agentsSkillDir, { recursive: true });
+    await writeFile(
+      join(agentsSkillDir, "SKILL.md"),
+      `---
+name: agents-global-skill
+description: Global Agents skill
+---
+# Agents global
+`
+    );
+
+    try {
+      const loader = new SkillLoader(tempRoot);
+      const report = await loader.getDiscoveryReport();
+      const skill = report.skills.find((entry) => entry.name === "agents-global-skill");
+
+      expect(skill?.sourceFamily).toBe("global-agents");
+      expect(skill?.searchPath).toBe(join(agentsHome, ".agents", "skills"));
+      expect(report.searchOrder.map((entry) => entry.sourceFamily)).toContain("global-agents");
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+    }
+  });
+
   it("discovers skills from CLAUDECODE_HOME/skills when set", async () => {
     const originalClaudeCodeHome = process.env.CLAUDECODE_HOME;
     const originalClaudeHome = process.env.CLAUDE_HOME;

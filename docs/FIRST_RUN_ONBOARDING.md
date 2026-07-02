@@ -56,6 +56,7 @@ Expected:
   - `$CODEX_HOME/skills`
   - `$CLAUDECODE_HOME/skills`
   - `$AMP_CLI_HOME/skills`
+  - `$HOME/.agents/skills`
 - local tarball package postinstall skips daemon auto-start because the npm lifecycle context is local, not a clear global install
 - each populated global skill directory contains `.opendevbrowser-managed-skills.json` plus one `.opendevbrowser-managed-skill.json` sentinel per bundled canonical pack
 

@@ -32,7 +32,8 @@ describe("cli skill lifecycle helpers", () => {
       targets: [],
       installed: [],
       refreshed: ["opendevbrowser-best-practices"],
-      unchanged: []
+      unchanged: [],
+      preserved: []
     }));
 
     const result = buildUpdateCommandResult(
@@ -76,7 +77,8 @@ describe("cli skill lifecycle helpers", () => {
       targets: [],
       installed: ["opendevbrowser-best-practices"],
       refreshed: [],
-      unchanged: []
+      unchanged: [],
+      preserved: []
     }));
 
     const result = buildUpdateCommandResult(
@@ -116,7 +118,8 @@ describe("cli skill lifecycle helpers", () => {
       targets: [],
       installed: ["opendevbrowser-best-practices"],
       refreshed: [],
-      unchanged: []
+      unchanged: [],
+      preserved: []
     }));
 
     const result = buildUpdateCommandResult(
@@ -206,7 +209,8 @@ describe("cli skill lifecycle helpers", () => {
       targets: [],
       installed: [],
       refreshed: ["opendevbrowser-best-practices"],
-      unchanged: []
+      unchanged: [],
+      preserved: []
     }));
 
     buildUpdateCommandResult(
@@ -239,7 +243,8 @@ describe("cli skill lifecycle helpers", () => {
       targets: [],
       installed: [],
       refreshed: ["opendevbrowser-best-practices"],
-      unchanged: []
+      unchanged: [],
+      preserved: []
     }));
 
     buildUpdateCommandResult(

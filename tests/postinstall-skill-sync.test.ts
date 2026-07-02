@@ -164,14 +164,15 @@ describe("postinstall skill sync", () => {
 
     expect(result.success).toBe(true);
     expect(result.skipped).toBe(false);
-    expect(result.syncResult?.installed.length).toBe(4 * bundledSkillDirectories.length);
+    expect(result.syncResult?.installed.length).toBe(5 * bundledSkillDirectories.length);
 
     const requiredPack = "opendevbrowser-design-agent";
     const targetDirs = [
       path.join(process.env.OPENCODE_CONFIG_DIR!, "skill"),
       path.join(process.env.CODEX_HOME!, "skills"),
       path.join(process.env.CLAUDECODE_HOME!, "skills"),
-      path.join(process.env.AMP_CLI_HOME!, "skills")
+      path.join(process.env.AMP_CLI_HOME!, "skills"),
+      path.join(process.env.HOME!, ".agents", "skills")
     ];
 
     for (const targetDir of targetDirs) {

@@ -492,6 +492,29 @@ describe("workflow skill packs", () => {
     }
   }, 60000);
 
+  it("validates an installed best-practices skill copy from the repo cwd", async () => {
+    if (process.platform === "win32") return;
+
+    const tempRoot = await mkdtemp(join(os.tmpdir(), "odb-installed-best-practices-"));
+    const installedSkillRoot = join(tempRoot, "managed-skills", "opendevbrowser-best-practices");
+
+    try {
+      await mkdir(join(tempRoot, "managed-skills"), { recursive: true });
+      await cp(join(bundledSkillsDir, "opendevbrowser-best-practices"), installedSkillRoot, { recursive: true });
+
+      const result = spawnSync("/bin/bash", [join(installedSkillRoot, "scripts", "validate-skill-assets.sh")], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: process.env
+      });
+
+      expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+      expect(result.stdout).toContain("Skill assets validated:");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  }, 60000);
+
   it("keeps design-agent canvas plan templates valid against the runtime validator", async () => {
     const templatePaths = [
       "assets/templates/design-contract.v1.json",

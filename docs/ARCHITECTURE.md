@@ -539,7 +539,7 @@ Template assets for parity and channel checks live under
 - `scripts/validate-skill-assets.sh`
 
 Skill install/discovery sync covers the canonical `opencode`, `codex`, `claudecode`,
-and `ampcli` ecosystems, and path discovery is documented in `README.md` and
+`ampcli`, and `agents` ecosystems, and path discovery is documented in `README.md` and
 `docs/CLI.md`.
 
 Validation script:

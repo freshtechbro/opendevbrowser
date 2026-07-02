@@ -72,13 +72,13 @@ Load extension unpacked from:
 
 Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that exits the legacy package lifecycle shim before built postinstall code imports. Set `OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION=1` when you only want to skip install-time daemon auto-start reconciliation.
 
-By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Raw npm global package postinstall best-effort reconciles daemon auto-start only when npm lifecycle context clearly indicates a global install; local, ambiguous, conflicting, or non-npm package-manager contexts skip auto-start without failing package installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI/Agents locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Raw npm global package postinstall best-effort reconciles daemon auto-start only when npm lifecycle context clearly indicates a global install; local, ambiguous, conflicting, or non-npm package-manager contexts skip auto-start without failing package installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
 - `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
 - Managed installs write a target-level ownership marker, so default updates and uninstall only act on CLI-managed targets or older config installs that already contain canonical packs.
-- Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
-- Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
+- Reinstall and update refresh drifted managed copies, adopt matching markerless canonical copies by writing ownership sentinels, and preserve drifted markerless directories for user review.
+- Uninstall removes marker- or sentinel-managed canonical packs and leaves unrelated directories untouched.
 
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 
@@ -100,8 +100,10 @@ The skill loader discovers skills in this order (first match wins):
 6. Compatibility (global): `$CLAUDECODE_HOME/skills` (fallback `~/.claude/skills`)
 7. Compatibility (project): `./.amp/skills`
 8. Compatibility (global): `$AMP_CLI_HOME/skills` (fallback `~/.amp/skills`)
-9. Extra paths from `skillPaths` (advanced)
-10. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
+9. Compatibility (project): `./.agents/skills`
+10. Compatibility (global): `~/.agents/skills`
+11. Extra paths from `skillPaths` (advanced)
+12. Bundled package fallback: packaged `skills/` directory after `skillPaths` when no installed copy matches
 
 ---
 
@@ -239,6 +241,8 @@ This removes cached files from `~/.cache/opencode/node_modules/opendevbrowser/` 
 `~/.cache/opencode/packages/opendevbrowser@latest/`, removes stale `opendevbrowser`
 dependency pins from `~/.cache/opencode/package.json`, and deletes `~/.cache/opencode/package-lock.json` when present. OpenCode
 will download the latest version on next run.
+
+If a global npm install or update appears stale, compare `command -v opendevbrowser`, `which -a opendevbrowser`, and `npm prefix -g`. The active command may live under a different prefix from npm's default global prefix; install with the prefix that owns the active binary, or run through `npx --yes opendevbrowser@latest` for a one-shot current package.
 
 ### Uninstall
 
@@ -1629,8 +1633,8 @@ Notes:
 | `--output-format` | | `text`, `json`, or `stream-json` |
 | `--transport` | | Transport selector for transport-aware commands (`status`: `relay|native`; `annotate`: `auto|direct|relay`) |
 | `--daemon` | | Daemon status selector for `status` |
-| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI directories |
-| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI directories |
+| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI/Agents directories |
+| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI/Agents directories |
 | `--no-skills` | | Skip installing bundled skills |
 | `--help` | `-h` | Show usage information |
 | `--version` | `-v` | Show version number |

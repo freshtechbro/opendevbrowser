@@ -10,7 +10,7 @@ type ManagedSkillTarget = SkillTarget & {
   managedPackNames?: string[];
 };
 
-type SyncOutcome = "installed" | "refreshed" | "unchanged";
+type SyncOutcome = "installed" | "refreshed" | "unchanged" | "preserved";
 const MANAGED_SKILLS_MARKER = ".opendevbrowser-managed-skills.json";
 const MANAGED_SKILL_SENTINEL = ".opendevbrowser-managed-skill.json";
 const MANAGED_SKILL_OWNER = "opendevbrowser";
@@ -43,6 +43,7 @@ export interface SkillTargetSyncResult {
   installed: string[];
   refreshed: string[];
   unchanged: string[];
+  preserved: string[];
   success: boolean;
   error?: string;
 }
@@ -55,6 +56,7 @@ export interface SkillSyncResult {
   installed: string[];
   refreshed: string[];
   unchanged: string[];
+  preserved: string[];
 }
 
 export interface SkillTargetRemovalResult {
@@ -296,7 +298,12 @@ function shouldRemoveRetiredManagedPack(targetPath: string): boolean {
   return fingerprint !== null && hashDirectoryTree(targetPath) === fingerprint;
 }
 
-function syncSkillDirectory(sourcePath: string, targetPath: string, sourceFingerprint: string): SyncOutcome {
+function syncSkillDirectory(
+  sourcePath: string,
+  targetPath: string,
+  sourceFingerprint: string,
+  canRefreshExistingPath: boolean
+): SyncOutcome {
   if (!fs.existsSync(targetPath)) {
     fs.cpSync(sourcePath, targetPath, { recursive: true });
     return "installed";
@@ -307,6 +314,10 @@ function syncSkillDirectory(sourcePath: string, targetPath: string, sourceFinger
     if (targetFingerprint === sourceFingerprint) {
       return "unchanged";
     }
+  }
+
+  if (!canRefreshExistingPath) {
+    return "preserved";
   }
 
   const parentDir = path.dirname(targetPath);
@@ -344,7 +355,8 @@ function buildSyncMessage(mode: SkillInstallMode, result: SkillSyncResult): stri
     [
       result.installed.length > 0 ? `${result.installed.length} installed` : "",
       result.refreshed.length > 0 ? `${result.refreshed.length} refreshed` : "",
-      result.unchanged.length > 0 ? `${result.unchanged.length} unchanged` : ""
+      result.unchanged.length > 0 ? `${result.unchanged.length} unchanged` : "",
+      result.preserved.length > 0 ? `${result.preserved.length} preserved` : ""
     ].filter(Boolean),
     result.targets.length,
     result.targets.filter((entry) => !entry.success).length
@@ -450,6 +462,7 @@ export function syncBundledSkillsForTargets(
       const installed: string[] = [];
       const refreshed: string[] = [];
       const unchanged: string[] = [];
+      const preserved: string[] = [];
       const previousMarker = snapshotManagedSkillsMarker(target.dir);
 
       try {
@@ -462,6 +475,7 @@ export function syncBundledSkillsForTargets(
           packNames
         );
         const activePackNameSet = new Set(activePackNames);
+        const markerManagedPackNames = new Set(marker?.managedPacks ?? []);
         writeManagedSkillsMarker(target.dir, managedPackNames, managesAllCanonicalPacks);
 
         for (const packName of activePackNames) {
@@ -472,14 +486,26 @@ export function syncBundledSkillsForTargets(
             throw new Error(`Bundled fingerprint missing: ${packName}`);
           }
 
-          const outcome = syncSkillDirectory(sourcePath, targetPath, sourceFingerprint);
-          writeManagedSkillSentinel(targetPath, packName, sourceFingerprint);
+          const preexistingSentinel = readManagedSkillFingerprint(targetPath) !== null;
+          const preexistingMarkerOwnership = marker?.managesAllCanonicalPacks === true
+            || markerManagedPackNames.has(packName);
+          const outcome = syncSkillDirectory(
+            sourcePath,
+            targetPath,
+            sourceFingerprint,
+            preexistingSentinel || preexistingMarkerOwnership
+          );
+          if (outcome !== "preserved") {
+            writeManagedSkillSentinel(targetPath, packName, sourceFingerprint);
+          }
           if (outcome === "installed") {
             installed.push(packName);
           } else if (outcome === "refreshed") {
             refreshed.push(packName);
-          } else {
+          } else if (outcome === "unchanged") {
             unchanged.push(packName);
+          } else {
+            preserved.push(packName);
           }
         }
 
@@ -488,8 +514,10 @@ export function syncBundledSkillsForTargets(
             && shouldRemoveRetiredManagedPack(path.join(target.dir, packName));
         });
         removeManagedPackArtifacts(target.dir, retiredPackNames);
-        if (activePackNames.length > 0 || managesAllCanonicalPacks) {
-          writeManagedSkillsMarker(target.dir, activePackNames, managesAllCanonicalPacks);
+        const syncedPackNames = activePackNames.filter((packName) => !preserved.includes(packName));
+        const targetManagesAllCanonicalPacks = managesAllCanonicalPacks && preserved.length === 0;
+        if (syncedPackNames.length > 0 || targetManagesAllCanonicalPacks) {
+          writeManagedSkillsMarker(target.dir, syncedPackNames, targetManagesAllCanonicalPacks);
         } else {
           removeManagedSkillsMarker(target.dir);
         }
@@ -500,6 +528,7 @@ export function syncBundledSkillsForTargets(
           installed,
           refreshed,
           unchanged,
+          preserved,
           success: true
         });
       } catch (error) {
@@ -511,6 +540,7 @@ export function syncBundledSkillsForTargets(
           installed,
           refreshed,
           unchanged,
+          preserved,
           success: false,
           error: message
         });
@@ -524,7 +554,8 @@ export function syncBundledSkillsForTargets(
       targets: targetResults,
       installed: targetResults.flatMap((entry) => entry.installed),
       refreshed: targetResults.flatMap((entry) => entry.refreshed),
-      unchanged: targetResults.flatMap((entry) => entry.unchanged)
+      unchanged: targetResults.flatMap((entry) => entry.unchanged),
+      preserved: targetResults.flatMap((entry) => entry.preserved)
     };
     result.message = buildSyncMessage(mode, result);
     return result;
@@ -537,7 +568,8 @@ export function syncBundledSkillsForTargets(
       targets: targetResults,
       installed: targetResults.flatMap((entry) => entry.installed),
       refreshed: targetResults.flatMap((entry) => entry.refreshed),
-      unchanged: targetResults.flatMap((entry) => entry.unchanged)
+      unchanged: targetResults.flatMap((entry) => entry.unchanged),
+      preserved: targetResults.flatMap((entry) => entry.preserved)
     };
     result.message = `Failed to sync skills (${mode}): ${message}`;
     return result;
@@ -615,7 +647,10 @@ export function removeBundledSkillsForTargets(
 }
 
 export function removeBundledSkills(mode: SkillInstallMode): SkillRemovalResult {
-  return removeBundledSkillsForTargets(mode, getTargets(mode));
+  return removeBundledSkillsForTargets(
+    mode,
+    getBundledSkillLifecycleTargets(mode, { includeLegacyArtifacts: true })
+  );
 }
 
 export function hasBundledSkillArtifacts(mode: SkillInstallMode): boolean {

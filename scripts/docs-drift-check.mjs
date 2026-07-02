@@ -398,7 +398,9 @@ export function runDocsDriftChecks() {
       && publicReadme.includes("sync the 10 canonical `opendevbrowser-*` packs")
       && publicReadme.includes("opendevbrowser-motion-design")
       && publicReadme.includes("Reinstall and update refresh drifted managed copies")
-      && publicReadme.includes("Uninstall removes managed canonical packs"),
+      && publicReadme.includes("adopt matching markerless canonical copies")
+      && publicReadme.includes("preserve drifted markerless directories")
+      && publicReadme.includes("Uninstall removes marker- or sentinel-managed canonical packs"),
     detail: "README.md must document the canonical skill-pack lifecycle."
   });
 
@@ -452,7 +454,9 @@ export function runDocsDriftChecks() {
     ok: cliDoc.includes("sync the 10 canonical `opendevbrowser-*` packs")
       && cliDoc.includes("opendevbrowser-motion-design")
       && cliDoc.includes("Reinstall and update refresh drifted managed copies")
-      && cliDoc.includes("Uninstall removes managed canonical packs"),
+      && cliDoc.includes("adopt matching markerless canonical copies")
+      && cliDoc.includes("preserve drifted markerless directories")
+      && cliDoc.includes("Uninstall removes marker- or sentinel-managed canonical packs"),
     detail: "docs/CLI.md must document the canonical skill-pack lifecycle."
   });
 

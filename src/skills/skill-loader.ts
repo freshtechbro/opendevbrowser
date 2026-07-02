@@ -44,6 +44,10 @@ export class SkillLoader {
     return process.env.AMP_CLI_HOME || join(os.homedir(), ".amp");
   }
 
+  private getAgentsHome(): string {
+    return join(os.homedir(), ".agents");
+  }
+
   async loadBestPractices(topic?: string): Promise<string> {
     return this.loadSkill("opendevbrowser-best-practices", topic);
   }
@@ -159,6 +163,16 @@ export class SkillLoader {
       {
         path: join(this.getAmpHome(), "skills"),
         sourceFamily: "global-ampcli",
+        isBundled: false
+      },
+      {
+        path: join(this.rootDir, ".agents", "skills"),
+        sourceFamily: "project-agents",
+        isBundled: false
+      },
+      {
+        path: join(this.getAgentsHome(), "skills"),
+        sourceFamily: "global-agents",
         isBundled: false
       },
       ...this.additionalPaths.map((path) => ({

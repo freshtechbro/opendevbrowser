@@ -386,7 +386,8 @@ function expectedGlobalTargets(env) {
     { id: "opencode-global", dir: path.join(env.OPENCODE_CONFIG_DIR, "skill") },
     { id: "codex-global", dir: path.join(env.CODEX_HOME, "skills") },
     { id: "claudecode-global", dir: path.join(env.CLAUDECODE_HOME, "skills") },
-    { id: "ampcli-global", dir: path.join(env.AMP_CLI_HOME, "skills") }
+    { id: "ampcli-global", dir: path.join(env.AMP_CLI_HOME, "skills") },
+    { id: "agents-global", dir: path.join(env.HOME, ".agents", "skills") }
   ];
 }
 
@@ -395,7 +396,8 @@ function expectedLocalTargets(workspaceDir) {
     { id: "opencode-local", dir: path.join(workspaceDir, ".opencode", "skill") },
     { id: "codex-local", dir: path.join(workspaceDir, ".codex", "skills") },
     { id: "claudecode-local", dir: path.join(workspaceDir, ".claude", "skills") },
-    { id: "ampcli-local", dir: path.join(workspaceDir, ".amp", "skills") }
+    { id: "ampcli-local", dir: path.join(workspaceDir, ".amp", "skills") },
+    { id: "agents-local", dir: path.join(workspaceDir, ".agents", "skills") }
   ];
 }
 

@@ -24,6 +24,7 @@ Skill-pack installation and discovery are synchronized for:
 - `codex`: `$CODEX_HOME/skills` (fallback `~/.codex/skills`) and `./.codex/skills`
 - `claudecode`: `$CLAUDECODE_HOME/skills` (fallback `~/.claude/skills`) and `./.claude/skills`
 - `ampcli`: `$AMP_CLI_HOME/skills` (fallback `~/.amp/skills`) and `./.amp/skills`
+- `agents`: `~/.agents/skills` and `./.agents/skills`
 
 ## CLI surface categories
 
