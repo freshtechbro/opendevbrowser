@@ -886,7 +886,7 @@ describe("inspiredesign capture helper", () => {
 	expect(manager.disconnect).toHaveBeenCalledWith("session-primary-pin-media", true);
 	});
 
-  it("opens canonical Pinterest pins in the extension before pin media capture", async () => {
+  it("opens canonical Pinterest pins with domcontentloaded warmup and primary setup before pin media capture", async () => {
     const manager = {
       launch: vi.fn()
         .mockResolvedValueOnce({ sessionId: "session-pin-extension-warmup" })
@@ -945,7 +945,7 @@ describe("inspiredesign capture helper", () => {
       1,
       "session-pin-extension-warmup",
       "https://www.pinterest.com/pin/27654985208435505/",
-      "load",
+      "domcontentloaded",
       expect.any(Number)
     );
     expect(manager.waitForLoad).toHaveBeenNthCalledWith(
@@ -965,7 +965,7 @@ describe("inspiredesign capture helper", () => {
       2,
       "session-pin-extension-capture",
       "https://www.pinterest.com/pin/27654985208435505/",
-      "load",
+      "domcontentloaded",
       expect.any(Number)
     );
     expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith("session-pin-extension-capture", {
@@ -1061,14 +1061,14 @@ describe("inspiredesign capture helper", () => {
         1,
         `session-${testCase.name}-warmup`,
         "https://www.pinterest.com/pin/27654985208435505/",
-        "load",
+        "domcontentloaded",
         expect.any(Number)
       );
       expect(manager.goto, testCase.name).toHaveBeenNthCalledWith(
         2,
         `session-${testCase.name}-capture`,
         "https://www.pinterest.com/pin/27654985208435505/",
-        "load",
+        "domcontentloaded",
         expect.any(Number)
       );
     }
@@ -1145,14 +1145,14 @@ describe("inspiredesign capture helper", () => {
         1,
         `session-${testCase.name}-warmup`,
         testCase.expectedNavigationUrl,
-        "load",
+        "domcontentloaded",
         expect.any(Number)
       );
       expect(manager.goto, testCase.name).toHaveBeenNthCalledWith(
         2,
         `session-${testCase.name}-capture`,
         testCase.expectedNavigationUrl,
-        "load",
+        "domcontentloaded",
         expect.any(Number)
       );
     }
@@ -1576,7 +1576,7 @@ describe("inspiredesign capture helper", () => {
       1,
       "session-cookie-warmup",
       "https://www.pinterest.com/pin/27654985208435505/",
-      "load",
+      "domcontentloaded",
       expect.any(Number)
     );
     expect(manager.cookieImport).toHaveBeenNthCalledWith(
@@ -1598,18 +1598,38 @@ describe("inspiredesign capture helper", () => {
       2,
       "session-cookie-capture",
       "https://www.pinterest.com/pin/27654985208435505/",
-      "load",
+      "domcontentloaded",
       expect.any(Number)
     );
   });
 
   it("skips extension warmup outside exact canonical Pinterest pin extension capture", async () => {
     const cases = [
-      { name: "search-url", url: "https://www.pinterest.com/search/pins/?q=studio", browserMode: "extension" },
-      { name: "non-http-canonical-pin", url: "ftp://www.pinterest.com/pin/27654985208435505/", browserMode: "extension" },
-	      { name: "managed-canonical-pin", url: "https://www.pinterest.com/pin/27654985208435505/", browserMode: "managed" },
-	      { name: "non-pinterest-url", url: "https://example.com/pin/27654985208435505/", browserMode: "extension" }
-	    ] as const;
+      {
+        name: "search-url",
+        url: "https://www.pinterest.com/search/pins/?q=studio",
+        browserMode: "extension",
+        expectedWaitUntil: "load"
+      },
+      {
+        name: "non-http-canonical-pin",
+        url: "ftp://www.pinterest.com/pin/27654985208435505/",
+        browserMode: "extension",
+        expectedWaitUntil: "load"
+      },
+      {
+        name: "managed-canonical-pin",
+        url: "https://www.pinterest.com/pin/27654985208435505/",
+        browserMode: "managed",
+        expectedWaitUntil: "domcontentloaded"
+      },
+      {
+        name: "non-pinterest-url",
+        url: "https://example.com/pin/27654985208435505/",
+        browserMode: "extension",
+        expectedWaitUntil: "load"
+      }
+    ] as const;
     const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
 
     for (const testCase of cases) {
@@ -1667,7 +1687,7 @@ describe("inspiredesign capture helper", () => {
       expect(manager.goto, testCase.name).toHaveBeenCalledWith(
         `session-${testCase.name}`,
         testCase.url,
-        "load",
+        testCase.expectedWaitUntil,
         expect.any(Number)
       );
     }
