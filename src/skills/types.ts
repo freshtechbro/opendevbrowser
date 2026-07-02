@@ -24,6 +24,8 @@ export type SkillSourceFamily =
   | "global-claudecode"
   | "project-ampcli"
   | "global-ampcli"
+  | "project-agents"
+  | "global-agents"
   | "custom"
   | "bundled";
 

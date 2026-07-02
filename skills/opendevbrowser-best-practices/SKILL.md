@@ -181,8 +181,10 @@ Skill-pack installation and discovery are synchronized for:
 - `codex` (`$CODEX_HOME/skills` fallback `~/.codex/skills`, project `./.codex/skills`)
 - `claudecode` (`$CLAUDECODE_HOME/skills` fallback `~/.claude/skills`, project `./.claude/skills`)
 - `ampcli` (`$AMP_CLI_HOME/skills` fallback `~/.amp/skills`, project `./.amp/skills`)
+- `agents` (`~/.agents/skills`, project `./.agents/skills`)
 
 Install and update refresh managed copies of these canonical packs; uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
+If a global npm install or update seems stale, compare `command -v opendevbrowser`, `which -a opendevbrowser`, and `npm prefix -g`; the active binary may live under a different prefix from npm's default global prefix.
 
 ## Required Operating Rules
 

@@ -191,6 +191,37 @@ describe("bundled skill lifecycle sync", () => {
       expect(fs.existsSync(path.join(target.dir, "research"))).toBe(false);
       expect(fs.existsSync(path.join(target.dir, "shopping"))).toBe(false);
     }
+
+    const agentsTargetDir = path.join(process.env.HOME!, ".agents", "skills");
+    expect(getGlobalSkillTargets().some((target) => path.resolve(target.dir) === path.resolve(agentsTargetDir)))
+      .toBe(true);
+    expect(fs.existsSync(path.join(agentsTargetDir, managedSkillsMarkerName))).toBe(true);
+    expect(fs.existsSync(
+      path.join(agentsTargetDir, "opendevbrowser-best-practices", managedSkillSentinelName)
+    )).toBe(true);
+  }, 60_000);
+
+  it("adopts stale bare canonical packs in the global Agents target during full sync", () => {
+    const agentsTargetDir = path.join(process.env.HOME!, ".agents", "skills");
+    const packPath = path.join(agentsTargetDir, "opendevbrowser-best-practices");
+    const skillPath = path.join(packPath, "SKILL.md");
+    fs.mkdirSync(packPath, { recursive: true });
+    fs.writeFileSync(
+      skillPath,
+      "---\nname: opendevbrowser-best-practices\ndescription: stale\nversion: 0.0.0\n---\n# Stale\n",
+      "utf8"
+    );
+
+    const result = syncBundledSkills("global");
+
+    expect(result.success).toBe(true);
+    expect(result.refreshed).toContain("opendevbrowser-best-practices");
+    expect(fs.readFileSync(skillPath, "utf8")).toBe(fs.readFileSync(
+      path.join(getBundledSkillsDir(), "opendevbrowser-best-practices", "SKILL.md"),
+      "utf8"
+    ));
+    expect(fs.existsSync(path.join(agentsTargetDir, managedSkillsMarkerName))).toBe(true);
+    expect(fs.existsSync(path.join(packPath, managedSkillSentinelName))).toBe(true);
   }, 60_000);
 
   it("installs canonical bundled skills across all local agent targets", () => {
@@ -206,6 +237,17 @@ describe("bundled skill lifecycle sync", () => {
       expect(fs.existsSync(bestPracticesPath)).toBe(true);
       expect(fs.existsSync(motionDesignPath)).toBe(true);
     }
+
+    const localAgentsTargetDir = getLocalSkillTargets()
+      .find((target) => target.agents.includes("agents"))?.dir;
+    expect(localAgentsTargetDir).toBeDefined();
+    if (!localAgentsTargetDir) {
+      throw new Error("Missing local Agents target.");
+    }
+    expect(fs.existsSync(path.join(localAgentsTargetDir, managedSkillsMarkerName))).toBe(true);
+    expect(fs.existsSync(
+      path.join(localAgentsTargetDir, "opendevbrowser-best-practices", managedSkillSentinelName)
+    )).toBe(true);
   }, 60_000);
 
   it("marks reruns unchanged when the managed copies already match the bundled packs", () => {
@@ -686,10 +728,11 @@ describe("bundled skill lifecycle sync", () => {
     expect(findInstalledConfigs()).toEqual({ global: true, local: false });
   }, 60_000);
 
-  it("publishes canonical shared targets for ClaudeCode and AmpCLI homes", () => {
+  it("publishes canonical shared targets for ClaudeCode, AmpCLI, and Agents homes", () => {
     const globalTargets = getGlobalSkillTargets();
     const claudeDir = path.join(process.env.CLAUDECODE_HOME!, "skills");
     const ampDir = path.join(process.env.AMP_CLI_HOME!, "skills");
+    const agentsDir = path.join(process.env.HOME!, ".agents", "skills");
 
     const claudeTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(claudeDir));
     expect(claudeTarget).toBeDefined();
@@ -698,6 +741,15 @@ describe("bundled skill lifecycle sync", () => {
     const ampTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(ampDir));
     expect(ampTarget).toBeDefined();
     expect(ampTarget?.agents).toEqual(["ampcli"]);
+
+    const agentsTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(agentsDir));
+    expect(agentsTarget).toBeDefined();
+    expect(agentsTarget?.agents).toEqual(["agents"]);
+
+    const localAgentsTarget = getLocalSkillTargets()
+      .find((target) => target.agents.includes("agents"));
+    expect(localAgentsTarget).toBeDefined();
+    expect(localAgentsTarget?.agents).toEqual(["agents"]);
   });
 
   it("removes managed canonical packs during uninstall cleanup", () => {

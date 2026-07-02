@@ -1,4 +1,4 @@
-# skills/ — Agent Guidelines
+# skills/ - Agent Guidelines
 
 Bundled OpenDevBrowser skill directories (canonical packs). Extends root `AGENTS.md`.
 
@@ -43,8 +43,10 @@ Content organized by topic for filtering.
 6. `$CLAUDECODE_HOME/skills` (ClaudeCode global compatibility; fallback `~/.claude/skills`)
 7. `.amp/skills/` (AmpCLI project compatibility)
 8. `$AMP_CLI_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
-9. `skillPaths` config (custom)
-10. Bundled package `skills/` directory as a fallback when no installed copy is available
+9. `.agents/skills/` (project compatibility)
+10. `~/.agents/skills/` (global compatibility)
+11. `skillPaths` config (custom)
+12. Bundled package `skills/` directory as a fallback when no installed copy is available
 
 ## Constraints
 
