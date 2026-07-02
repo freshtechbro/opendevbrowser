@@ -77,8 +77,8 @@ By default (`--skills-global`), the CLI installs bundled skills to global OpenCo
 Installer inventory:
 - `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
 - Managed installs write a target-level ownership marker, so default updates and uninstall only act on CLI-managed targets or older config installs that already contain canonical packs.
-- Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
-- Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
+- Reinstall and update refresh drifted managed copies, adopt matching markerless canonical copies by writing ownership sentinels, and preserve drifted markerless directories for user review.
+- Uninstall removes marker- or sentinel-managed canonical packs and leaves unrelated directories untouched.
 
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
 

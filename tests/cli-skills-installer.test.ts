@@ -201,27 +201,49 @@ describe("bundled skill lifecycle sync", () => {
     )).toBe(true);
   }, 60_000);
 
-  it("adopts stale bare canonical packs in the global Agents target during full sync", () => {
+  it("adopts matching markerless canonical packs in the global Agents target during full sync", () => {
     const agentsTargetDir = path.join(process.env.HOME!, ".agents", "skills");
     const packPath = path.join(agentsTargetDir, "opendevbrowser-best-practices");
     const skillPath = path.join(packPath, "SKILL.md");
-    fs.mkdirSync(packPath, { recursive: true });
-    fs.writeFileSync(
-      skillPath,
-      "---\nname: opendevbrowser-best-practices\ndescription: stale\nversion: 0.0.0\n---\n# Stale\n",
-      "utf8"
+    fs.cpSync(
+      path.join(getBundledSkillsDir(), "opendevbrowser-best-practices"),
+      packPath,
+      { recursive: true }
     );
 
     const result = syncBundledSkills("global");
 
     expect(result.success).toBe(true);
-    expect(result.refreshed).toContain("opendevbrowser-best-practices");
+    expect(result.unchanged).toContain("opendevbrowser-best-practices");
     expect(fs.readFileSync(skillPath, "utf8")).toBe(fs.readFileSync(
       path.join(getBundledSkillsDir(), "opendevbrowser-best-practices", "SKILL.md"),
       "utf8"
     ));
     expect(fs.existsSync(path.join(agentsTargetDir, managedSkillsMarkerName))).toBe(true);
     expect(fs.existsSync(path.join(packPath, managedSkillSentinelName))).toBe(true);
+  }, 60_000);
+
+  it("preserves drifted markerless canonical packs during full sync", () => {
+    const agentsTargetDir = path.join(process.env.HOME!, ".agents", "skills");
+    const packPath = path.join(agentsTargetDir, "opendevbrowser-best-practices");
+    const skillPath = path.join(packPath, "SKILL.md");
+    const driftedContent = "---\nname: opendevbrowser-best-practices\nversion: 0.0.0\n---\n# User drift\n";
+    fs.mkdirSync(packPath, { recursive: true });
+    fs.writeFileSync(skillPath, driftedContent, "utf8");
+
+    const result = syncBundledSkills("global");
+
+    expect(result.success).toBe(true);
+    expect(result.preserved).toContain("opendevbrowser-best-practices");
+    expect(result.refreshed).not.toContain("opendevbrowser-best-practices");
+    expect(fs.readFileSync(skillPath, "utf8")).toBe(driftedContent);
+    expect(fs.existsSync(path.join(packPath, managedSkillSentinelName))).toBe(false);
+    expect(JSON.parse(
+      fs.readFileSync(path.join(agentsTargetDir, managedSkillsMarkerName), "utf8")
+    )).toEqual(expect.objectContaining({
+      managesAllCanonicalPacks: false,
+      managedPacks: expect.not.arrayContaining(["opendevbrowser-best-practices"])
+    }));
   }, 60_000);
 
   it("installs canonical bundled skills across all local agent targets", () => {
@@ -282,7 +304,7 @@ describe("bundled skill lifecycle sync", () => {
     expect(fs.readFileSync(targetSkillPath, "utf8")).toBe(bundledContent);
   }, 60_000);
 
-  it("repairs blocking non-directory pack paths during sync", () => {
+  it("repairs marker-managed blocking non-directory pack paths during sync", () => {
     const targetDir = getGlobalSkillTargets()[0]?.dir;
     if (!targetDir) {
       throw new Error("Missing global target for blocking-path repair test.");
@@ -295,6 +317,7 @@ describe("bundled skill lifecycle sync", () => {
 
     fs.mkdirSync(targetDir, { recursive: true });
     fs.writeFileSync(path.join(targetDir, secondPackName), "blocking file", "utf8");
+    writeManagedMarker(targetDir, [secondPackName], false);
 
     const result = skillInstallers.syncBundledSkillsForTargets("global", [getGlobalSkillTargets()[0]!]);
 
@@ -764,6 +787,36 @@ describe("bundled skill lifecycle sync", () => {
     result.targets.forEach(expectNoLegacyAliasFields);
     expect(hasManagedBundledSkillInstall("global")).toBe(false);
     expect(hasBundledSkillArtifacts("global")).toBe(false);
+  }, 60_000);
+
+  it("preserves markerless bare canonical packs in unmanaged targets during uninstall cleanup", () => {
+    const [managedTarget] = getGlobalSkillTargets();
+    const agentsTarget = getGlobalSkillTargets()
+      .find((target) => target.agents.includes("agents"));
+    if (!managedTarget || !agentsTarget) {
+      throw new Error("Missing managed targets for markerless uninstall safety test.");
+    }
+
+    const installResult = skillInstallers.syncBundledSkillsForTargets("global", [managedTarget]);
+    expect(installResult.success).toBe(true);
+
+    const barePackPath = path.join(agentsTarget.dir, "opendevbrowser-best-practices");
+    fs.cpSync(
+      path.join(getBundledSkillsDir(), "opendevbrowser-best-practices"),
+      barePackPath,
+      { recursive: true }
+    );
+    expect(fs.existsSync(path.join(barePackPath, managedSkillSentinelName))).toBe(false);
+    expect(fs.existsSync(path.join(agentsTarget.dir, managedSkillsMarkerName))).toBe(false);
+
+    const result = removeBundledSkills("global");
+
+    expect(result.success).toBe(true);
+    expect(result.targets.map((target) => path.resolve(target.targetDir)))
+      .toEqual([path.resolve(managedTarget.dir)]);
+    expect(fs.existsSync(path.join(managedTarget.dir, "opendevbrowser-best-practices"))).toBe(false);
+    expect(fs.existsSync(path.join(barePackPath, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(agentsTarget.dir, managedSkillsMarkerName))).toBe(false);
   }, 60_000);
 
   it("keeps the other managed scope intact during scoped lifecycle cleanup", () => {

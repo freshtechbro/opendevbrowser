@@ -327,7 +327,7 @@ Start every surface check from generated help when you need the current public l
 - **Canonical bundled packs** - Install and update the 10 OpenDevBrowser-specific `opendevbrowser-*` skill packs for browser automation, design, motion, continuity, login, forms, extraction, research, shopping, and product presentation.
 - **Multi-agent target sync** - Managed installs sync skills across OpenCode, Codex, ClaudeCode, AmpCLI, and Agents global or project-local targets.
 - **Local onboarding helpers** - `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` work without a browser session, relay, or daemon bootstrap.
-- **Ownership-safe lifecycle** - Update and uninstall act only on CLI-managed canonical packs or matching legacy aliases, leaving unrelated user skill directories untouched.
+- **Ownership-safe lifecycle** - Update refreshes CLI-managed canonical packs, adopts matching markerless canonical copies, and uninstall removes only marker- or sentinel-managed canonical packs, leaving unrelated user skill directories untouched.
 
 ### Security, Challenge, and Reliability Guardrails
 - **Secure defaults** - Remote CDP is blocked by default, raw CDP is disabled by default, unsafe export is disabled by default, and relay tokens use timing-safe comparison.
@@ -483,8 +483,8 @@ OpenDevBrowser includes **10 OpenDevBrowser-specific skill packs**. Install, upd
 Installer note:
 - `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs into managed global or project-local agent directories.
 - Managed installs write a target-level ownership marker, so later update and uninstall only act on CLI-managed skill targets or older config installs that already contain canonical packs.
-- Reinstall and update refresh drifted managed copies and leave matching packs unchanged.
-- Uninstall removes managed canonical packs, retires repo-owned legacy alias directories that match shipped content, and leaves unrelated directories untouched.
+- Reinstall and update refresh drifted managed copies, adopt matching markerless canonical copies by writing ownership sentinels, and preserve drifted markerless directories for user review.
+- Uninstall removes marker- or sentinel-managed canonical packs and leaves unrelated directories untouched.
 
 Skills are discovered from (priority order):
 1. `.opencode/skill/` (project)

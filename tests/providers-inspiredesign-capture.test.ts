@@ -892,7 +892,16 @@ describe("inspiredesign capture helper", () => {
         .mockResolvedValueOnce({ sessionId: "session-pin-extension-warmup" })
         .mockResolvedValueOnce({ sessionId: "session-pin-extension-capture" }),
       setSessionChallengeAutomationMode: vi.fn(),
-      goto: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn().mockImplementation((
+        _sessionId: string,
+        _url: string,
+        waitUntil: string
+      ) => {
+        if (waitUntil === "load") {
+          return Promise.reject(new Error("load wait should not be used for canonical Pinterest pin setup"));
+        }
+        return Promise.resolve(undefined);
+      }),
       waitForLoad: vi.fn()
         .mockRejectedValueOnce(new Error("Navigation wait timed out after 5000ms"))
         .mockResolvedValueOnce(undefined),
@@ -968,6 +977,7 @@ describe("inspiredesign capture helper", () => {
       "domcontentloaded",
       expect.any(Number)
     );
+    expect(manager.goto.mock.calls.some((call) => call[2] === "load")).toBe(false);
     expect(manager.capturePinterestPinMedia).toHaveBeenCalledWith("session-pin-extension-capture", {
       path: "/tmp/primary-pin-media-extension",
       timeoutMs: expect.any(Number)

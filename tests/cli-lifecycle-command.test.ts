@@ -220,7 +220,8 @@ describe("cli lifecycle command wiring", () => {
       targets: [],
       installed: [],
       refreshed: ["opendevbrowser-best-practices"],
-      unchanged: []
+      unchanged: [],
+      preserved: []
     });
 
     await runCliWithMocks(makeArgs("update", ["--update"]));

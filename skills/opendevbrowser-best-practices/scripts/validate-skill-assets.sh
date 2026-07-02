@@ -310,7 +310,8 @@ const requireResearchFixtureRejectsDocsSource = () => {
     "opencode",
     "codex",
     "claudecode",
-    "ampcli"
+    "ampcli",
+    "agents"
   ];
 
   const surfaceAuditMarkers = [
