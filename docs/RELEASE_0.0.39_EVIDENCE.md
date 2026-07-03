@@ -1,9 +1,9 @@
 # v0.0.39 Release Evidence
 
-Status: release prep in progress
-Release date: 2026-07-02
+Status: released
+Release date: 2026-07-03 UTC
 Tag: `v0.0.39`
-Release URL: pending
+Release URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.39`
 
 ## Scope
 
@@ -11,21 +11,22 @@ Tracks the `0.0.39` release cycle from local release preparation through npm pub
 
 ## Final Release State
 
-- npm package: pending `opendevbrowser@0.0.39`
-- npm `latest`: pending
-- npm tarball shasum: pending
-- Release tag: pending `v0.0.39`
-- Tag target: pending
-- GitHub release: pending
-- Successful release workflow run: pending
+- npm package: `opendevbrowser@0.0.39`
+- npm `latest`: `0.0.39`
+- npm tarball shasum: `5151f3816a0572856fce0368cab60ba257c10c95`
+- npm tarball integrity: `sha512-a2iInFUy2Di+uq5SCdDEJliJCMIBOXqGNNy/+C1RpxjZzUhg4afEHCjq9UzOhoDGG286yuHk5rvIJmDrqjlIqg==`
+- Release tag: `v0.0.39`
+- Tag target: `d5eb215844587e3dde702392e19fb19681147495`
+- GitHub release: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.39`
+- Successful release workflow run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/28631754826`
 - Chrome Web Store: not attempted in this lane.
 
 ## Release History
 
 - Release prep branch: `codex/release-0.0.39`.
-- Release prep PR: pending.
-- npm publish: pending local-auth publish after release prep is merged to `main`.
-- GitHub release workflow: pending dispatch with `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, and `run_release_live_gates=false`.
+- Release prep PR: `#107`, merged at `2026-07-03T01:07:47Z` with merge commit `d5eb215844587e3dde702392e19fb19681147495`.
+- npm publish: local-auth publish succeeded for `opendevbrowser@0.0.39`.
+- GitHub release workflow: dispatch succeeded with `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, and `run_release_live_gates=false`.
 
 ## Version Alignment
 
@@ -96,23 +97,32 @@ Evidence directory: `artifacts/release/v0.0.39/`
 
 ## npm Publish Evidence
 
-Pending local-auth publish after the release prep PR is merged to `main`.
+Local-auth publish completed after release prep PR `#107` merged to `main`.
 
-Required verification:
-- `npm view opendevbrowser@0.0.39 version` fails before first publish.
-- `npm publish --access public` succeeds without printing credentials.
-- `npm view opendevbrowser version dist-tags dist.shasum --json` reports `0.0.39` as `latest`.
-- `npm view opendevbrowser@0.0.39 version dist.shasum dist.integrity --json` reports the exact published package metadata.
+- `npm run version:check`: passed with `0.0.39`.
+- `npm whoami`: authenticated as the local npm user.
+- `npm view opendevbrowser@0.0.39 version`: returned `E404` before publish, confirming the version was absent.
+- `npm publish --access public`: succeeded and published `+ opendevbrowser@0.0.39`.
+- Published tarball: `opendevbrowser-0.0.39.tgz`.
+- Published package size: `3.0 MB`; unpacked size: `14.9 MB`; total files: `1356`.
+- Published shasum: `5151f3816a0572856fce0368cab60ba257c10c95`.
+- `npm view opendevbrowser version dist-tags --json`: reported version `0.0.39` and `latest` `0.0.39`.
+- `npm view opendevbrowser@0.0.39 version dist.shasum dist.integrity --json`: reported version `0.0.39`, shasum `5151f3816a0572856fce0368cab60ba257c10c95`, and integrity `sha512-a2iInFUy2Di+uq5SCdDEJliJCMIBOXqGNNy/+C1RpxjZzUhg4afEHCjq9UzOhoDGG286yuHk5rvIJmDrqjlIqg==`.
 
 ## Registry Consumer Smoke
 
-- Result: pending.
+- Result: passed.
 - Evidence path: `artifacts/release/v0.0.39/registry-consumer-smoke.json`.
 - Purpose: verify a registry consumer can install and smoke `opendevbrowser@0.0.39` from npm after publish.
+- Fresh temp workspace: `/var/folders/_l/0q__8smd075f8qlj7sz2559r0000gn/T/opendevbrowser-registry-consumer-79jWTX`.
+- Install attempts: `1`.
+- Help line count: `873`.
+- Checks: `helpAliasMatches`, `findItFastPresent`, `extensionDirExists`, `skillsDirExists`, and `versionMatches` were all `true`.
+- Resolved consumer graph: `opendevbrowser` `0.0.39`, `@opendevbrowser/plugin` `1.17.13`, `ws` `8.21.0`, `zod` `3.25.76`, nested plugin `zod` `4.1.8`.
 
 ## GitHub Release Evidence
 
-Pending workflow dispatch after npm publish:
+Workflow dispatch after npm publish:
 
 ```bash
 gh workflow run release-public.yml \
@@ -124,19 +134,27 @@ gh workflow run release-public.yml \
   -F run_release_live_gates=false
 ```
 
-Required verification:
-- Release URL exists for `v0.0.39`.
+- Release URL exists for `v0.0.39`: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.39`.
 - Release is draft: `false`.
 - Release is prerelease: `false`.
-- Tag `v0.0.39` points to the release workflow target commit.
-- Asset `opendevbrowser-extension.zip` exists.
-- Asset `opendevbrowser-extension.zip.sha256` exists.
-- Checksum verification returns `opendevbrowser-extension.zip: OK`.
+- Release published at: `2026-07-03T01:16:01Z`.
+- Tag `v0.0.39` points to `d5eb215844587e3dde702392e19fb19681147495`.
+- Release target commitish: `main`.
+- Asset `opendevbrowser-extension.zip` exists, size `190671`, state `uploaded`, digest `sha256:a3da20e0951ae2a082250cf97dcdaea14cb1253fae2ac26c58f2918e74aad144`.
+- Asset `opendevbrowser-extension.zip.sha256` exists, size `95`, state `uploaded`, digest `sha256:85f7d3f50284944f7e57018ec8118fd204fd52d40c3d0750114f17212f8fa2f4`.
+- Downloaded assets to `/tmp/opendevbrowser-v0.0.39-release-assets-20260703T011624Z`.
+- Checksum verification returned `opendevbrowser-extension.zip: OK`.
 
 ## GitHub Workflow Evidence
 
-- Successful release workflow: pending.
+- Successful release workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/28631754826`.
+- Workflow job: `release`, job id `84909946041`, completed with conclusion `success`.
+- Workflow head SHA: `d5eb215844587e3dde702392e19fb19681147495`.
+- Workflow started at `2026-07-03T01:09:57Z` and completed at `2026-07-03T01:16:04Z`.
 - Workflow inputs: `release_ref=main`, `release_tag=v0.0.39`, `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, `run_release_live_gates=false`.
+- Successful steps included release quality gates, extension artifact packing, checksum computation, and GitHub release publication.
+- Skipped steps were intentional by input: strict live release gates, npm package publish, and workflow registry consumer smoke. Strict live gate and registry smoke proof were captured locally in this ledger.
+- Non-blocking annotation: GitHub Actions reported Node.js 20 deprecation warnings for upstream actions being forced to Node.js 24.
 
 ## Chrome Web Store Release Lane
 
