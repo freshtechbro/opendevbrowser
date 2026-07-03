@@ -103,7 +103,7 @@ afterEach(() => {
   }
 
   vi.resetModules();
-  vi.unmock("../src/utils/package-assets");
+  vi.doUnmock("../src/utils/package-assets");
 });
 
 describe("SkillLoader", () => {

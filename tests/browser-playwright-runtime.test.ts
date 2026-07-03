@@ -7,7 +7,7 @@ describe("playwright runtime loading", () => {
 
   afterEach(() => {
     vi.resetModules();
-    vi.unmock("playwright-core");
+    vi.doUnmock("playwright-core");
   });
 
   it("does not load playwright-core during BrowserManager construction", async () => {
